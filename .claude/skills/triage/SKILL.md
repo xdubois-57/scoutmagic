@@ -1,6 +1,6 @@
 ---
 name: triage
-description: How to triage one issue on this repository — search for a duplicate, read the reported area against the actual code, and return one verdict (a comment in the reporter's language plus the verdict that decides the labels and the one case that closes). The workflow applies it; the agent writes nothing itself. Invoked by .github/workflows/issue-triage.yml on every issue opened or reopened, and again when a reporter answers a bug:needs-info question. AGENTS.md, ARCHITECTURE.md and SECURITY.md remain the source of truth for the code itself.
+description: How to triage one issue on this repository — search for a duplicate, read the reported area against the actual code, and return one verdict (a comment in the reporter's language plus the verdict that decides the labels). The workflow applies it; the agent writes nothing itself. Invoked by .github/workflows/issue-triage.yml on every issue opened or reopened, and again when a reporter answers a bug:needs-info question. AGENTS.md, ARCHITECTURE.md and SECURITY.md remain the source of truth for the code itself.
 ---
 
 # Triaging an issue
@@ -28,16 +28,21 @@ it should not: not this sentence, but the absence of the tool.
 Everything below therefore describes WHAT to decide and what to say, not
 how it gets there. Where it says "post the comment", put the text in
 `comment`. Where it says "apply a `bug:*` label", choose the matching
-`verdict`. `triage:done`, `triage:pending` and the closing of a
-`bug:not-a-bug` issue are the workflow's to apply, from your verdict.
+`verdict`. `triage:done` and `triage:pending` are the workflow's to
+apply, from your verdict.
 
-**One verdict, and only one, closes an issue**: `bug:not-a-bug`, with
-reason `not planned` — applied by the workflow when you return it, after
-the answer that earns it. See § When the behaviour is correct. Everything else stays
-open — a duplicate, a mistake, an empty report, a feature request, a
-security report, and every `bug:confirmed` or `bug:needs-info`. Closing an
-issue ends the conversation with somebody who took the trouble to write;
-it is never the tidy-up at the end of a triage.
+**No verdict of yours closes an issue. Not one.** `bug:not-a-bug` used to,
+with reason `not planned`, and it was the one thing here that ended a
+conversation with somebody who had taken the trouble to write — decided by
+a reader of the code, who never ran the site, on a report the maintainer
+had not seen. It is now an ANSWER: the comment is posted, the label is
+applied, the issue stays open, and the maintainer reads it and closes it
+themselves. A label is cheap to disagree with; a closure is not.
+
+Nothing changes about how you REACH that verdict — see § When the
+behaviour is correct, and the rule that makes it honest. What changes is
+that being wrong now costs a label somebody corrects rather than a report
+somebody has to file twice.
 
 **You read code through the GitHub tools**, never a checkout — there is
 none, and asking for one would be asking for write access to get read
@@ -130,13 +135,12 @@ and you created both.
 replied. `issue-triage.yml` runs on that comment, puts the issue back to
 `triage:pending`, and hands it to you.
 
-**Or they are pushing back on a verdict that CLOSED their report.** An
-earlier verdict said `bug:not-a-bug`, the issue closed, and the reporter
-commented anyway. That comment reopens it and sends it back to
-`triage:pending`.
+**Or they are pushing back on a verdict that ANSWERED their report.** An
+earlier verdict said `bug:not-a-bug`, and the reporter replied anyway.
+That comment sends the issue back to `triage:pending`.
 
 Treat the second one as the more serious of the two, because it is. A
-`bug:not-a-bug` is the only verdict that ends the conversation, it is
+`bug:not-a-bug` tells somebody their report is not a defect, it is
 reached by a reader of the code rather than by anyone who ran the site,
 and a reporter who comes back to say "no, it really happens" is the
 strongest evidence available that it was wrong. **Start from the
@@ -148,9 +152,10 @@ you looked at and ask the one question that would settle it
 (`bug:needs-info`); do not simply restate the verdict they just
 contradicted.
 
-Issue #181 is the example to keep in mind: closed as `not-a-bug` on the
-reasoning that the CSS already handles it and the reporter's browser had
-probably cached an old page — while a comment three minutes into the
+Issue #181 is the example to keep in mind: answered as `not-a-bug` — and,
+under the rules of the time, closed — on the reasoning that the CSS
+already handles it and the reporter's browser had probably cached an old
+page — while a comment three minutes into the
 report had corrected the role from « Public (non connecté) » to
 superadmin, which points at the editor rather than at the published
 article. The verdict never mentioned it.
@@ -167,7 +172,7 @@ Three things follow:
   reason to stay silent. Somebody answered a question; answering "as
   previously explained" is answering nobody.
 - **The answer decides.** It may confirm the defect (`bug:confirmed`), it
-  may show the behaviour is correct (`bug:not-a-bug`, which closes), or it
+  may show the behaviour is correct (`bug:not-a-bug`), or it
   may still leave the deciding fact open — but reaching for
   `bug:needs-info` a second time means asking a person who has already
   written twice, so ask only for something they can actually answer and
@@ -177,10 +182,12 @@ Three things follow:
 
 Most comments never reach you at all, and the workflow's filter is why: a
 comment wakes a triage only on an OPEN issue carrying `bug:needs-info` or
-a CLOSED one carrying `bug:not-a-bug`, and only when written by the
-reporter themselves or by the repository owner. A conversation between
-humans on an answered report is not a triage, an issue closed by a merged
-fix is not either, and a passer-by cannot take one over.
+`bug:not-a-bug`, and only when written by the reporter themselves or by
+the repository owner. A conversation between humans on an answered report
+is not a triage; a CLOSED issue is never one either, whatever it carries —
+closed by a merged fix it is work that is done, and closed by the
+maintainer after reading a `bug:not-a-bug` it is their decision, not
+yours to revisit.
 
 ## Order of work
 
@@ -235,8 +242,10 @@ version several releases behind explains a defect already fixed.
 | `bug:not-a-bug` | The behaviour is correct, or the site was used in a way it does not support. |
 | `bug:needs-info` | One fact you do not have decides between the two above. |
 
-`bug:not-a-bug` is the only one that closes the issue, and it carries an
-obligation — see § When the behaviour is correct before reaching for it.
+None of them closes the issue — that is the maintainer's — but
+`bug:not-a-bug` is the one that tells somebody their report is not a
+defect, and it carries an obligation: see § When the behaviour is correct
+before reaching for it.
 
 **`bug:needs-info` is not the polite default.** Reaching for it because the
 report is thin, when reading the code would have settled it, wastes the
@@ -336,31 +345,37 @@ not a user error: label it `bug:confirmed`, describe what the interface
 led them to expect and what it does, and **leave it open**.
 
 This rule exists because the alternative is comfortable and wrong. It is
-always possible to write a technically accurate explanation that closes an
-issue and teaches the reporter nothing, and a triage agent has every
-incentive to: the issue goes away, the verdict is defensible, and the cost
-lands on somebody who is not in the conversation. Reach for
+always possible to write a technically accurate explanation that dismisses
+a report and teaches the reporter nothing, and a triage agent has every
+incentive to: the issue reads as settled, the verdict is defensible, and
+the cost lands on somebody who is not in the conversation. Reach for
 `bug:confirmed` when you find yourself explaining the implementation to
 justify the behaviour.
 
-### Then it closes
+### Then it waits for the maintainer
 
-`bug:not-a-bug`, and only `bug:not-a-bug`, closes — with reason
-**`not planned`**, never `completed`. Nothing was completed: the report was
-answered. `completed` would also be a lie the release notes could pick up.
-The workflow does this when your verdict says so, which is the reason that
-verdict is the expensive one to reach.
+**It does not close.** `bug:not-a-bug` used to close, with reason
+`not planned`; it no longer closes anything, and neither does any other
+verdict. What the label now means is « this reading of the code says the
+behaviour is correct », and the maintainer decides whether that reading
+holds before the report is ended. They close it; you do not.
 
-It is not a one-way door, and you should not write as though it were. A
-comment from the reporter on an issue you closed this way reopens it and
-sends it back to you — so end on the question or the workaround that would
-actually settle it, never on "open a new ticket if it persists", which
-asks somebody who already reported a defect to report it twice.
+That is a change in consequence, not in standard. The verdict is still the
+expensive one to reach, and still reached from the code and from the
+workaround you were able to write — see the rule above about part one. It
+is simply no longer the case that getting it wrong costs the reporter
+their thread.
 
-`bug:confirmed` and `bug:needs-info` stay open, as does an issue with no
-`bug:*` label at all (a feature request — see below). If you are about to
-close something that is not `bug:not-a-bug`, stop: the verdict is what
-decides, and you have got one of the two wrong.
+Write to a reader who is still in the conversation, because they are. A
+comment from the reporter sends the issue back to you — so end on the
+question or the workaround that would actually settle it, never on "open a
+new ticket if it persists", which asks somebody who already reported a
+defect to report it twice, and never on anything that reads like a
+farewell.
+
+Every issue stays open after a triage, whatever the verdict. If you find
+yourself reasoning about how to close one, stop: nothing you return closes
+anything.
 
 ## A feature request is not a bug, and is not `bug:not-a-bug` either
 
@@ -372,9 +387,9 @@ a request for something the site has never done.
 says what need you understood and whether the site already answers it
 another way — often it does, and that is the most useful thing you can
 tell a reporter. Labelling it `bug:not-a-bug` would be literally true and
-practically wrong: it is the label that will later mean "closed as not
-planned", and a feature request is exactly what the maintainer may want to
-keep open.
+practically wrong: it is the label that means « we looked, and there is
+nothing to fix here », which is the last thing a maintainer wants attached
+to a request they may well want to build.
 
 This is the one case where the roadmap's "exactly one of the three" cannot
 be honoured, because the taxonomy has no verdict for a request that is
@@ -393,9 +408,8 @@ Confirming a vulnerability in a public comment publishes it.
 ## What "done" means
 
 One verdict returned: one comment written, one of the four verdicts
-chosen. The workflow turns that into a posted comment, `triage:done`,
-`triage:pending` removed, and a close if and only if the verdict was
-`bug:not-a-bug`.
+chosen. The workflow turns that into a posted comment, `triage:done` and
+`triage:pending` removed. It closes nothing, whatever the verdict.
 
 If you cannot reach a verdict at all — the report is unintelligible, or the
 tools failed — say so in the comment and return `bug:needs-info`.

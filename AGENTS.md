@@ -100,7 +100,12 @@ issue's state, `scripts/sync-issue-labels.sh` is the taxonomy's only source,
 and `.claude/skills/triage` is what decides them: `issue-triage.yml` fires on
 every issue opened, including the one you just filed, and applies the verdict
 plus `triage:done` — the workflow does the applying, from a verdict the agent
-returns, which is why no label the model spells can ever reach an issue. So:
+returns, which is why no label the model spells can ever reach an issue.
+
+**That pass never closes an issue, `bug:not-a-bug` included.** It posts an
+answer and labels; the maintainer reads it and decides. A verdict reached by
+a reader of the code who never ran the site is a label to disagree with, not
+a report to end. So:
 
 - Apply `bug:confirmed` when you filed a defect — it means "A real defect,
   understood", which is what this rule required you to establish before
@@ -418,10 +423,14 @@ backlog » — and it is a standing instruction, not a one-off. It means:
    issue say what is fixing it. A PR number mentioned in prose links
    nothing. Do this when the PR is opened, not afterwards.
 6. **Close the issue once the fix is on `main`.** The closing keyword does
-   it on merge; your job is to *verify* it did, on each issue, and to close
-   any that stayed open by hand (`state_reason: completed` — the fix
-   shipped). An accepted issue whose fix is merged and which is still open
-   is the backlog lying about itself.
+   it on merge, and `issue-fixed-comment.yml` posts the sentence that says
+   so — which pull request, which commit, that the fix is on `main` — so a
+   reporter never finds their report closed in silence. Your job is to
+   *verify* both happened, on each issue, and to close by hand any that
+   stayed open (`state_reason: completed` — the fix shipped), saying on it
+   what landed. An accepted issue whose fix is merged and which is still
+   open is the backlog lying about itself; one closed with nothing written
+   on it is the backlog being rude.
 
 **Do not wait for the maintainer at any point of this.** Not to start, not
 to merge, not to close. The instruction covers the whole sequence — fix,

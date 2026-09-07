@@ -47,6 +47,18 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
     /** The nightly pass over the issues that job never saw. */
     private const BACKLOG_SCAN = '.github/workflows/issue-backlog-scan.yml';
 
+    /**
+     * Says on an issue that its fix landed, on the merge that closes it.
+     *
+     * The third `issue-*.yml`, and the first that runs no agent: it holds
+     * no Claude token, reads no issue body for meaning, and posts a
+     * comment built from fixed text. Most of the audit below is about
+     * what an agent may hold and therefore does not apply to it — but
+     * « does not apply » is a decision, and a file that writes to issues
+     * gets it recorded here rather than by being left out of the list.
+     */
+    private const FIXED_COMMENT = '.github/workflows/issue-fixed-comment.yml';
+
     /** The complete set either job may hold. Nothing may be added. */
     private const ALLOWED_PERMISSIONS = [
         'issues' => 'write',
@@ -64,6 +76,20 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
             'per-issue triage' => [self::TRIAGE],
             'nightly backlog scan' => [self::BACKLOG_SCAN],
         ];
+    }
+
+    /**
+     * Every `issue-*.yml`, agent-driven or not.
+     *
+     * A handful of invariants below are about the FILE rather than about
+     * the agent — deny-by-default at the workflow level, pinned actions,
+     * nothing checked out — and those hold for all of them.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function everyIssueWorkflow(): array
+    {
+        return self::issueWorkflows() + ['fix landed on an issue' => [self::FIXED_COMMENT]];
     }
 
     /**
@@ -90,7 +116,7 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
 
         $covered = array_map(
             static fn (array $case): string => $case[0],
-            array_values(self::issueWorkflows()),
+            array_values(self::everyIssueWorkflow()),
         );
         sort($covered);
 
@@ -108,12 +134,179 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
      * which is not there passes vacuously, and the suite would report
      * green over a triage pipeline that no longer exists.
      */
-    #[DataProvider('issueWorkflows')]
+    #[DataProvider('everyIssueWorkflow')]
     public function testTheWorkflowExists(string $workflow): void
     {
         self::assertFileExists(
             dirname(__DIR__, 2) . '/' . $workflow,
             $workflow . ' is missing — the tests below would pass over nothing.',
+        );
+    }
+
+    /**
+     * The workflow that speaks on a fixed issue holds `issues: write` and
+     * nothing else, runs no action, and runs no agent.
+     *
+     * It is the only `issue-*.yml` with no Claude token, so most of this
+     * file does not apply to it — which is exactly why what DOES apply is
+     * written down. It writes to every issue in the repository, and the
+     * numbers it writes to come out of a pull request body somebody else
+     * wrote.
+     */
+    public function testTheFixedCommentWorkflowHoldsOnlyWhatItNeeds(): void
+    {
+        $file = $this->contents(self::FIXED_COMMENT);
+
+        // Comment lines dropped first: the block explains itself at some
+        // length, and matching around prose is how an audit ends up
+        // asserting the shape of a paragraph.
+        $declarations = array_values(array_filter(
+            $this->lines(self::FIXED_COMMENT),
+            static fn (string $line): bool => trim($line) !== '' && !str_starts_with(trim($line), '#'),
+        ));
+
+        $jobBlock = array_slice(
+            $declarations,
+            (int) array_search('    permissions:', $declarations, true) + 1,
+        );
+
+        self::assertContains(
+            '    permissions:',
+            $declarations,
+            self::FIXED_COMMENT . ' has no job-level `permissions:` block, so its job inherits '
+            . 'whatever the repository default happens to be.',
+        );
+
+        self::assertSame(
+            '      issues: write',
+            $jobBlock[0] ?? '',
+            self::FIXED_COMMENT . ' no longer grants `issues: write` as the FIRST thing in its job '
+            . 'block. `contents:` here would give a job triggered by a merge a path to the default '
+            . 'branch; anything else is access nobody asked for.',
+        );
+
+        foreach (['contents:', 'pull-requests:', 'id-token:', 'actions:', 'packages:'] as $scope) {
+            self::assertStringNotContainsString(
+                "\n      " . $scope,
+                $file,
+                self::FIXED_COMMENT . ' grants `' . $scope . '` to its job. It comments on issues '
+                . 'and closes them; it needs nothing else, and this job is triggered by a merge.',
+            );
+        }
+
+        self::assertStringNotContainsString(
+            'uses:',
+            $file,
+            self::FIXED_COMMENT . ' now runs an action. It needs none — it calls `gh api` and '
+            . 'nothing else — and every action added here is a third party inside a job that '
+            . 'writes to issues.',
+        );
+
+        self::assertStringNotContainsString(
+            'CLAUDE_CODE_OAUTH_TOKEN',
+            $file,
+            self::FIXED_COMMENT . ' now holds the Claude token. It posts fixed text about a merge; '
+            . 'an agent here would be reading somebody\'s pull request body with a token and a '
+            . 'write scope, which is the whole subject of this file.',
+        );
+    }
+
+    /**
+     * A pull request closed WITHOUT merging fixed nothing.
+     *
+     * `closed` fires on both, and the difference is one boolean. Without
+     * the guard, abandoning a pull request would tell every issue it
+     * named that its fix had landed — and close the ones that were open.
+     */
+    public function testTheFixedCommentWorkflowOnlySpeaksForAMerge(): void
+    {
+        $file = $this->contents(self::FIXED_COMMENT);
+
+        self::assertStringContainsString(
+            'if: github.event.pull_request.merged == true',
+            $file,
+            self::FIXED_COMMENT . ' no longer checks that the pull request was MERGED. On a pull '
+            . 'request closed unmerged it would announce a fix that does not exist.',
+        );
+
+        self::assertStringNotContainsString(
+            'pull_request_target',
+            $file,
+            self::FIXED_COMMENT . ' now triggers on `pull_request_target`, which runs with the base '
+            . "repository's secrets against a head somebody else controls.",
+        );
+    }
+
+    /**
+     * Nothing a contributor wrote is interpolated into the shell, and
+     * every issue number is checked before it reaches an API path.
+     *
+     * A pull request body is untrusted text for the same reason an issue
+     * body is: anyone who can open a pull request writes it. `${{ }}`
+     * inside a `run:` block pastes a value in before the shell parses the
+     * line, which is a shell injection with extra steps.
+     */
+    public function testTheFixedCommentWorkflowNeverPastesABodyIntoItsShell(): void
+    {
+        $file = $this->contents(self::FIXED_COMMENT);
+
+        self::assertStringNotContainsString(
+            '${{ github.event.pull_request.body }}"',
+            $file,
+            self::FIXED_COMMENT . ' interpolates the pull request body somewhere other than an '
+            . '`env:` mapping. It must reach the script as an environment variable and nowhere else.',
+        );
+
+        self::assertSame(
+            1,
+            preg_match('/^          PR_BODY: \$\{\{ github\.event\.pull_request\.body \}\}$/m', $file),
+            self::FIXED_COMMENT . ' no longer passes the body through `env:`, which is the one safe '
+            . 'way to hand somebody else\'s text to a shell.',
+        );
+
+        self::assertStringContainsString(
+            "''|*[!0-9]*)",
+            $file,
+            self::FIXED_COMMENT . ' no longer checks that an issue number is a number before '
+            . 'putting it in an API path. The regex that extracts them cannot produce anything '
+            . 'else today; this is what keeps that a fact rather than a reading of a regex.',
+        );
+    }
+
+    /**
+     * The point of the workflow, asserted so it cannot quietly become a
+     * closer that says nothing.
+     *
+     * GitHub closes an issue named by a closing keyword and writes a
+     * timeline reference: the reporter is notified their report was
+     * closed, with no sentence saying it was FIXED. This exists to put
+     * that sentence there.
+     */
+    public function testAFixedIssueIsToldSoBeforeItIsLeftClosed(): void
+    {
+        $file = $this->contents(self::FIXED_COMMENT);
+
+        $comment = strpos($file, '/comments');
+        $close = strpos($file, '-f state=closed -f state_reason=completed');
+
+        self::assertIsInt($comment, self::FIXED_COMMENT . ' no longer posts a comment at all.');
+        self::assertIsInt(
+            $close,
+            self::FIXED_COMMENT . ' no longer closes as `completed` the issues the keyword missed.',
+        );
+
+        self::assertLessThan(
+            $close,
+            $comment,
+            self::FIXED_COMMENT . ' closes an issue before saying anything on it. The comment is '
+            . 'the point of this workflow; the closing is the belt to GitHub\'s braces.',
+        );
+
+        self::assertStringNotContainsString(
+            'state_reason=not_planned',
+            $file,
+            self::FIXED_COMMENT . ' closes an issue as `not planned`. A merged fix completed it, '
+            . 'and `not planned` is a lie the release notes would pick up.',
         );
     }
 
@@ -153,7 +346,7 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
      * added in order to write, so a checkout appearing here is the first
      * half of a change that ends with `contents: write`.
      */
-    #[DataProvider('issueWorkflows')]
+    #[DataProvider('everyIssueWorkflow')]
     public function testItNeverChecksTheRepositoryOut(string $workflow): void
     {
         foreach ($this->lines($workflow) as $number => $line) {
@@ -181,7 +374,7 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
      * the repository default. The failure it prevents is silent: such a
      * job runs, works, and holds write access nobody granted on purpose.
      */
-    #[DataProvider('issueWorkflows')]
+    #[DataProvider('everyIssueWorkflow')]
     public function testItStillDeniesEverythingAtTheWorkflowLevel(string $workflow): void
     {
         // Column zero, not merely somewhere: a nested `permissions: {}`
@@ -523,16 +716,18 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
                 . '`author_association` is a relationship and not a permission, so `MEMBER` and '
                 . '`COLLABORATOR` would admit the Read and Triage roles of an organisation-owned '
                 . 'repository, which hold no write access at all',
-            "github.event.issue.state == 'open' "
-            . "&& contains(github.event.issue.labels.*.name, 'bug:needs-info')"
-                => 'the open case: the question this pipeline asked has been answered',
-            "github.event.issue.state == 'closed' "
-            . "&& contains(github.event.issue.labels.*.name, 'bug:not-a-bug')"
-                => 'the closed case: `bug:not-a-bug` is the only verdict that ends a conversation, '
-                . 'and a reporter who comes back to say it still happens is the best evidence '
-                . 'available that it was wrong. Without this clause their only recourse is to file '
-                . 'the same defect a second time — which is what those verdicts used to tell them '
-                . 'to do (issue #181)',
+            "github.event.issue.state == 'open'"
+                => 'a CLOSED issue is never re-triaged, whatever it carries: closed by a merged fix '
+                . 'it is work that is done, and closed by the maintainer after they read a '
+                . '`bug:not-a-bug` it is a human decision this pipeline does not get to revisit',
+            "contains(github.event.issue.labels.*.name, 'bug:needs-info')"
+                => 'the question this pipeline asked has been answered',
+            "contains(github.event.issue.labels.*.name, 'bug:not-a-bug')"
+                => 'the push-back case: a reporter who comes back to say it still happens is the '
+                . 'best evidence available that the reading of the code was wrong. Since that '
+                . 'verdict stopped closing anything the push-back lands on a live thread, and '
+                . 'without this clause their only recourse would be to file the same defect a '
+                . 'second time (issue #181)',
             '!github.event.issue.pull_request'
                 => '`issue_comment` fires on pull requests too, and a review conversation is not a '
                 . 'report',
@@ -2322,11 +2517,16 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
      */
     private function lines(string $workflow): array
     {
-        $path = dirname(__DIR__, 2) . '/' . $workflow;
-        $contents = file_get_contents($path);
+        return explode("\n", $this->contents($workflow));
+    }
+
+    /** One workflow file, whole. */
+    private function contents(string $workflow): string
+    {
+        $contents = file_get_contents(dirname(__DIR__, 2) . '/' . $workflow);
 
         self::assertIsString($contents, 'Could not read ' . $workflow . '.');
 
-        return explode("\n", $contents);
+        return $contents;
     }
 }

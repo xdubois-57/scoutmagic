@@ -726,12 +726,12 @@ jobs:
               -X DELETE --silent \
               || echo "Removing triage:pending from #${issue} did not succeed; counted below."
 
-            # `bug:not-a-bug`, and only `bug:not-a-bug`, closes — with
-            # reason `not planned`, never `completed`.
-            if [ "${verdict}" = 'bug:not-a-bug' ]; then
-              gh api "repos/${GITHUB_REPOSITORY}/issues/${issue}" \
-                -X PATCH -f state=closed -f state_reason=not_planned --silent
-            fi
+            # NOTHING HERE CLOSES AN ISSUE. `bug:not-a-bug` used to,
+            # with reason `not planned`; it is now an answer the
+            # maintainer reads before deciding, and this scan applies
+            # labels and comments only. Same rule as issue-triage.yml,
+            # written out rather than referenced because these two files
+            # drifted apart once already.
 
             # READ BACK BEFORE COUNTING IT APPLIED. The label removals
             # above tolerate a failure, because the usual reason one

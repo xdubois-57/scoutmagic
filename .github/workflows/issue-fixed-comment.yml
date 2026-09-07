@@ -1,0 +1,129 @@
+# Says on an issue that its fix has landed, instead of letting it go
+# silent.
+#
+# A pull request body carrying `Closes #158` (AGENTS.md § Fix the backlog,
+# step 5) makes GitHub close that issue the moment the pull request merges.
+# What GitHub writes on the issue is a timeline reference and nothing else:
+# the reporter gets a notification saying their report was closed, with no
+# sentence telling them it was FIXED, in what, or where to look. Somebody
+# who wrote a careful report and waited three weeks deserves better than a
+# strikethrough.
+#
+# So on every merge this posts one comment per closed issue — the pull
+# request, the commit, and the plain statement that the fix is on `main` —
+# and then makes sure the issue really is closed as `completed`. The
+# comment is the point; the closing is the belt to GitHub's braces, for the
+# case where the keyword was missing or the auto-close silently failed.
+#
+# **On ordering.** GitHub's own close fires server-side at merge, and this
+# runs a few seconds later, so the comment lands beside the close rather
+# than strictly before it. What matters is that the issue never ends up
+# closed with nothing said on it, and that is what this guarantees. The
+# alternative — dropping the closing keyword so this workflow could comment
+# and then close — would cost the *Development* link that puts the pull
+# request on the issue, which is the thing that makes an issue say what is
+# fixing it.
+#
+# **Nothing a contributor wrote reaches a shell.** The pull request body is
+# read for issue NUMBERS only, each one checked against `^[0-9]+$` before
+# it is allowed anywhere near an API path, and the comment is built from
+# fixed text plus the pull request number and the merge SHA. A body is
+# untrusted input here for the same reason an issue body is in
+# issue-triage.yml.
+
+name: Issue fixed
+
+# Deny by default; the one job grants itself exactly what it needs.
+permissions: {}
+
+on:
+  pull_request:
+    # `closed` fires on merge and on a plain close; the job below runs
+    # only for the merge.
+    types: [closed]
+
+jobs:
+  comment:
+    # A pull request closed without merging fixed nothing, and saying so
+    # on somebody's issue would be worse than saying nothing.
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      # To comment on, and close, the issues this pull request names.
+      # Repository-wide, like every `issues: write` — which is why the
+      # numbers below are validated rather than trusted.
+      issues: write
+    steps:
+      - name: Say on each issue that its fix is on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Read through the environment, never interpolated into the
+          # script: `${{ }}` inside a `run:` block pastes the value into
+          # the shell before the shell ever sees it, and a body is
+          # somebody else's text.
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+
+          # GitHub's own list of closing keywords, matched the way GitHub
+          # matches them: case-insensitive, one issue per keyword. A
+          # number mentioned in prose closes nothing and is not read here
+          # either — this comments on exactly the issues GitHub closed.
+          issues="$(printf '%s' "${PR_BODY}" \
+            | grep -oiE '\b(close[sd]?|fix(e[sd])?|resolve[sd]?)[[:space:]]+#[0-9]+' \
+            | grep -oE '[0-9]+$' \
+            | sort -un \
+            || true)"
+
+          if [ -z "${issues}" ]; then
+            echo "This pull request names no issue with a closing keyword; nothing to say."
+            exit 0
+          fi
+
+          for issue in ${issues}; do
+            # Belt and braces on a value that goes into an API path. The
+            # regex above cannot produce anything else; this is what
+            # makes that a fact rather than a reading of a regex.
+            case "${issue}" in
+              ''|*[!0-9]*)
+                echo "::warning title=Skipped a malformed issue number::'${issue}' is not a number."
+                continue
+                ;;
+            esac
+
+            # Fixed text, plus three values GitHub produced. Written in
+            # French, like every other thing a reporter reads.
+            body="$(printf '%s\n\n%s\n\n%s\n\n---\n%s\n' \
+              "**C'est corrigé.** Le correctif est fusionné sur \`${BASE_REF}\` et partira dans la prochaine version." \
+              "Il est arrivé par la pull request #${PR_NUMBER}, dans le commit \`${MERGE_SHA}\`." \
+              "Si ce que vous aviez signalé se reproduit, répondez ici plutôt que d'ouvrir un nouveau ticket : le fil garde le contexte." \
+              "_Generated by [Claude Code](https://claude.ai/code)_")"
+
+            if gh api "repos/${GITHUB_REPOSITORY}/issues/${issue}/comments" \
+              -X POST -f "body=${body}" --silent; then
+              echo "Told #${issue} that its fix landed."
+            else
+              # A 404 is an issue in another repository, or one deleted
+              # since the body was written; neither is this workflow's to
+              # fail on. The state read back below is what decides.
+              echo "::warning title=Could not comment::Commenting on #${issue} did not succeed."
+            fi
+
+            # GitHub has almost certainly closed it already; this settles
+            # the cases where it did not — a keyword on a pull request
+            # from a fork, a base branch that is not the default one, an
+            # auto-close that silently failed. `completed`, because it
+            # was.
+            state="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${issue}" --jq '.state' || echo 'unknown')"
+
+            if [ "${state}" = 'open' ]; then
+              gh api "repos/${GITHUB_REPOSITORY}/issues/${issue}" \
+                -X PATCH -f state=closed -f state_reason=completed --silent \
+                || echo "::warning title=Could not close::Closing #${issue} did not succeed."
+              echo "Closed #${issue} as completed; the keyword had not."
+            fi
+          done

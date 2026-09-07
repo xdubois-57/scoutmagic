@@ -237,20 +237,22 @@ jobs:
     #     * OPEN and `bug:needs-info` — the question this pipeline asked
     #       has been answered. The issue goes back to `triage:pending`
     #       and is re-triaged on the reply.
-    #     * CLOSED and `bug:not-a-bug` — the reporter is pushing back on
+    #     * OPEN and `bug:not-a-bug` — the reporter is pushing back on
     #       a verdict, and that verdict is the one this pipeline can get
-    #       most wrong. It is REOPENED as well as sent back to
-    #       `triage:pending`. Without this, the only recourse against a
-    #       wrong `not-a-bug` was the sentence those verdicts end with —
-    #       "n'hésitez pas à rouvrir un ticket" — which asks somebody who
-    #       already reported a defect to report it a second time, and
-    #       loses the thread that explains it. Issue #181 was closed that
-    #       way on a guess about a browser cache, three minutes after its
+    #       most wrong. Since `bug:not-a-bug` stopped closing anything,
+    #       that push-back arrives on an issue that is still open and
+    #       still waiting for the maintainer to read it, which is the
+    #       point: the recourse against a wrong reading is a reply on a
+    #       live thread rather than a reopening. Issue #181 was closed
+    #       on a guess about a browser cache, three minutes after its
     #       reporter had corrected the form.
     #
-    #   `completed` closures are deliberately not in that list: an issue
-    #   closed by a merged fix carries `bug:confirmed`, and a comment on
-    #   it is a conversation about work that is done.
+    #   A CLOSED issue is deliberately not in that list, whatever it
+    #   carries. Closed by a merged fix it carries `bug:confirmed`, and a
+    #   comment on it is a conversation about work that is done; closed
+    #   by the maintainer after reading a `bug:not-a-bug`, it is a human
+    #   decision, and re-triaging it would be this pipeline
+    #   second-guessing the person it answers to.
     # - The comment's author is not a bot. THIS IS WHAT STOPS THE LOOP:
     #   the verdict this job posts is itself a comment on the issue, and
     #   a verdict that is again `bug:needs-info` would otherwise wake the
@@ -291,10 +293,11 @@ jobs:
           || github.event.comment.author_association == 'OWNER'
         )
         && (
-          (github.event.issue.state == 'open'
-            && contains(github.event.issue.labels.*.name, 'bug:needs-info'))
-          || (github.event.issue.state == 'closed'
-            && contains(github.event.issue.labels.*.name, 'bug:not-a-bug'))
+          github.event.issue.state == 'open'
+          && (
+            contains(github.event.issue.labels.*.name, 'bug:needs-info')
+            || contains(github.event.issue.labels.*.name, 'bug:not-a-bug')
+          )
         )
       )
 
@@ -576,13 +579,16 @@ jobs:
       # `bug:needs-info` goes too: it is the state "waiting for an answer
       # from the reporter", the answer is what started this run, and the
       # agent applies whatever verdict the answer now supports. So does
-      # `bug:not-a-bug`, in the other case this step handles — and there
-      # the issue is REOPENED as well, because a verdict that closed
-      # somebody's report is the one this pipeline can get most wrong,
-      # and their reply is the evidence it did. Telling them to file a
-      # second ticket, which is what those verdicts used to end with,
-      # asks the person who already reported a defect to report it again
-      # and throws away the thread that explains it.
+      # `bug:not-a-bug`, in the other case this step handles — the
+      # verdict this pipeline can get most wrong, and their reply is the
+      # evidence it did.
+      #
+      # The reopen below is a SAFETY NET and no longer the ordinary path.
+      # Both cases this step handles are open issues — nothing in this
+      # pipeline closes anything any more — so the only way to arrive
+      # here closed is for the issue to have been closed between the
+      # comment landing and this run. Relabelling a closed issue would
+      # leave the agent triaging something nobody can see in the list.
       - name: Send the issue back to triage
         if: github.event_name == 'issue_comment'
         env:
@@ -593,7 +599,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          # REOPEN FIRST, if this is the closed case. A reopened issue
+          # REOPEN FIRST, in the race described above. A reopened issue
           # with stale labels is visible and recoverable; a relabelled
           # issue still closed reads as settled to everyone looking at
           # the list, and the agent would be triaging something nobody
@@ -984,14 +990,19 @@ jobs:
             -X DELETE --silent \
             || echo "Removing triage:pending did not succeed; the state is checked below."
 
-          # `bug:not-a-bug`, and only `bug:not-a-bug`, closes — with
-          # reason `not planned`, never `completed`: nothing was
-          # completed, the report was answered, and `completed` is a lie
-          # the release notes would pick up.
-          if [ "${verdict}" = 'bug:not-a-bug' ]; then
-            gh api "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}" \
-              -X PATCH -f state=closed -f state_reason=not_planned --silent
-          fi
+          # NOTHING HERE CLOSES AN ISSUE, and `bug:not-a-bug` least of
+          # all. It used to close, with reason `not planned`, and it was
+          # the one verdict that ended a conversation with somebody who
+          # had taken the trouble to write — decided by a reader of the
+          # code who never ran the site, on a report the maintainer had
+          # not seen. #181 was closed that way three minutes after its
+          # reporter had corrected the form. The verdict is now an
+          # ANSWER, posted and labelled; the issue stays open and the
+          # maintainer reads it and closes it themselves. A label is
+          # cheap to disagree with, a closure is not.
+          #
+          # An issue the maintainer HAS closed is left closed: this step
+          # never changes an issue's state in either direction.
 
           # Published for the read-back below, which is what makes the
           # tolerated 404s above safe to tolerate.
