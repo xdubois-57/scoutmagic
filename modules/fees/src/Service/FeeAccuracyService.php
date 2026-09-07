@@ -31,10 +31,21 @@ use Modules\Fees\Value\IgnoredHousehold;
  * **The two verdicts are independent.** A household can need correcting AND
  * be about to move; the screen shows both and lets the treasurer arbitrate.
  *
- * **A member on a tariff outside the three is not judged.** "Tarif
- * animateur", "Tarif réduit" and an iAM membership are not household
- * tariffs, so their holder is counted in the household's size — the
- * federation counts people, not tariffs — but never reported as wrong.
+ * **A member on a tariff outside the three is not judged.** Their holder
+ * is counted in the household's size — the federation counts people, not
+ * tariffs — but is never reported as wrong.
+ *
+ * Desk offers a unit exactly three cotisation types today
+ * (`N_COTISATION_NORMALE`, `C_COTISATION_COUPLE`, `F_COTISATION_FAMILLE`),
+ * and every member carries one of them — an animateur is billed like
+ * anybody else. So this case is not about a category the federation has
+ * already invented; it is about the ones it has not invented YET, and
+ * about a unit whose export spells one of the three in a wording
+ * `FeeCategoryClassifier` does not recognise. Both arrive the same way: an
+ * unknown "Tarif" value is imported and kept like any other, classified as
+ * none of the three, and left out of the comparison until somebody maps it
+ * by hand on the barème panel. That is why this path exists and why it
+ * refuses rather than guesses.
  */
 class FeeAccuracyService
 {

@@ -95,10 +95,10 @@ class DeskClipboardTextTest extends TestCase
     public function testAMemberOutsideTheThreeTariffsIsSaidToBeOutsideThem(): void
     {
         $text = DeskClipboardText::forHousehold($this->review([
-            $this->member('Sophie', 'Tarif animateur', null, comparable: false),
+            $this->member('Sophie', 'Cotisation invités', null, comparable: false),
         ], HouseholdFeeCategory::NORMAL));
 
-        $this->assertStringContainsString('Sophie Dupont : Tarif animateur (hors tarif de foyer, non comparé)', $text);
+        $this->assertStringContainsString('Sophie Dupont : Cotisation invités (hors tarif de foyer, non comparé)', $text);
     }
 
     public function testAMemberWithNoTariffAtAllSaysSoRatherThanShowingNothing(): void

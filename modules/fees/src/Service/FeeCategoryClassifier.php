@@ -22,8 +22,15 @@ use Core\Service\TextNormalizerService;
  * text recognises the usual ones, which is what keeps a unit from having to
  * configure anything before the screen works — and what it does NOT
  * recognise it says so about, rather than guessing: `null` means "not one of
- * the three household tariffs", which is the right answer for "Tarif
- * animateur", "Tarif réduit" or an iAM membership.
+ * the three household tariffs".
+ *
+ * `null` is a real answer, not a gap to close. Desk offers a unit three
+ * cotisation types today and every member carries one, animateurs included,
+ * so nothing in a current export SHOULD land here — but a federation adds
+ * tariffs, and a unit spells them how it likes. Widening the needles to
+ * catch a value nobody has seen would trade a member left out of the
+ * comparison, which is visible on the screen and fixable in one click, for a
+ * member compared against the wrong tariff, which is not.
  *
  * A unit whose wording this misses overrides it explicitly, one row per
  * category, on the screen's own barème panel (`fees_household_tariffs`) —

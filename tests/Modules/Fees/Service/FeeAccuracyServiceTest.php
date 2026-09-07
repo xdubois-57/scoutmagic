@@ -39,7 +39,7 @@ class FeeAccuracyServiceTest extends TestCase
     private int $normalFeeId;
     private int $coupleFeeId;
     private int $familyFeeId;
-    private int $animateurFeeId;
+    private int $unrecognisedFeeId;
 
     protected function setUp(): void
     {
@@ -54,7 +54,7 @@ class FeeAccuracyServiceTest extends TestCase
         $this->normalFeeId = $feeCategories->create('N_N_COTISATION NORMALE', 'Cotisation normale');
         $this->coupleFeeId = $feeCategories->create('N_C_COTISATION COUPLE', 'Cotisation couple');
         $this->familyFeeId = $feeCategories->create('N_F_COTISATION FAMILLE', 'Cotisation famille');
-        $this->animateurFeeId = $feeCategories->create('Tarif animateur', 'Tarif animateur');
+        $this->unrecognisedFeeId = $feeCategories->create('Cotisation invités', 'Cotisation invités');
 
         $this->households = new HouseholdService(new HouseholdRepository($this->pdo), $this->encryption);
         $this->tariffs = new HouseholdTariffService(new HouseholdTariffRepository($this->pdo), $feeCategories);
@@ -211,7 +211,7 @@ class FeeAccuracyServiceTest extends TestCase
     }
 
     /**
-     * "Tarif animateur" is not a household tariff. Its holder is counted in
+     * "Cotisation invités" is not a household tariff. Its holder is counted in
      * the household — the federation counts people — but never reported as
      * being on the wrong one.
      */
@@ -219,7 +219,7 @@ class FeeAccuracyServiceTest extends TestCase
     {
         $this->createMember('Jean', 'Dupont', $this->familyFeeId);
         $this->createMember('Marie', 'Dupont', $this->familyFeeId);
-        $this->createMember('Sophie', 'Dupont', $this->animateurFeeId);
+        $this->createMember('Sophie', 'Dupont', $this->unrecognisedFeeId);
 
         $report = $this->service->report($this->scoutYearId);
 

@@ -49,7 +49,7 @@ class InvoiceNominativeDiscrepancyTest extends TestCase
     private int $eclaireursId;
     private int $normalFeeId;
     private int $familyFeeId;
-    private int $animateurFeeId;
+    private int $unrecognisedFeeId;
     private int $functionId;
 
     /** @var array<string, int> match key => members.id, for the store */
@@ -76,7 +76,7 @@ class InvoiceNominativeDiscrepancyTest extends TestCase
         $feeCategories = new FeeCategoryRepository($this->pdo);
         $this->normalFeeId = $feeCategories->create('N_N_COTISATION NORMALE', 'Cotisation normale');
         $this->familyFeeId = $feeCategories->create('N_F_COTISATION FAMILLE', 'Cotisation famille');
-        $this->animateurFeeId = $feeCategories->create('Tarif animateur', 'Tarif animateur');
+        $this->unrecognisedFeeId = $feeCategories->create('Cotisation invités', 'Cotisation invités');
 
         $this->pdo->exec("INSERT INTO functions (desk_code, label, role) VALUES ('Anime', 'Anime', 'identified')");
         $this->functionId = (int) $this->pdo->lastInsertId();
@@ -263,7 +263,7 @@ class InvoiceNominativeDiscrepancyTest extends TestCase
     public function testAMemberOnATariffTheSiteDoesNotRecogniseIsNotReportedAsAbsent(): void
     {
         [, $basile] = $this->member('Basile', 'Dubois', $this->normalFeeId, $this->louveteauxId);
-        $this->member('Sophie', 'Delvaux', $this->animateurFeeId, $this->louveteauxId);
+        $this->member('Sophie', 'Delvaux', $this->unrecognisedFeeId, $this->louveteauxId);
         $snapshotId = $this->snapshot();
 
         $invoice = $this->storeInvoice(

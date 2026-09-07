@@ -69,6 +69,43 @@ class PosterPdfServiceTest extends TestCase
         $this->assertSame(1, preg_match_all('/\/Type\s*\/Page(?!s)/', $pdf));
     }
 
+    /**
+     * Issue #189. The only thing that ever reaches `.excerpt` is the
+     * one-sentence `news_articles.summary`, so the poster's subtitle is a
+     * title and not body copy — it is centred under the title rather than
+     * left-aligned, which is what it was while the CSS assumed a
+     * multi-paragraph body.
+     *
+     * Asserted on the rendered HTML rather than the PDF bytes: dompdf
+     * resolves alignment into glyph positions no assertion can read back,
+     * and the CSS rule is exactly what the fix is.
+     */
+    public function testTheSubtitleIsCentredLikeTheTitle(): void
+    {
+        $html = self::renderHtmlOf(new PosterPdfService(), 'Titre', 'Un résumé en une phrase.');
+
+        $this->assertMatchesRegularExpression('/\.excerpt\s*\{[^}]*text-align:\s*center/', $html);
+        $this->assertMatchesRegularExpression('/\.title\s*\{[^}]*text-align:\s*center/', $html);
+        $this->assertDoesNotMatchRegularExpression('/\.excerpt\s*\{[^}]*text-align:\s*left/', $html);
+    }
+
+    /** The private renderer, which is where the layout actually lives. */
+    private static function renderHtmlOf(PosterPdfService $service, string $title, string $body): string
+    {
+        $method = new \ReflectionMethod($service, 'renderHtml');
+
+        return (string) $method->invoke(
+            $service,
+            $title,
+            $body,
+            'data:image/png;base64,AA==',
+            'https://example.com/s/abcdef',
+            'Unité Test',
+            '01/01/2026',
+            null
+        );
+    }
+
     public function testGenerateTruncatesALongTitleWithEllipsis(): void
     {
         $service = new PosterPdfService();

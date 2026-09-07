@@ -126,7 +126,14 @@ class PosterPdfService
     .image-wrap { text-align: center; margin-top: 6mm; }
     .image-wrap img { max-width: 100mm; max-height: 65mm; width: auto; height: auto; }
     .divider { border: none; border-top: 1px solid #999; margin: 6mm 0; }
-    .excerpt { font-size: 13pt; line-height: 1.4; text-align: left; }
+    /* Centred like the title above it, and for the same reason: the only
+       thing that ever reaches .excerpt is a one-sentence summary
+       (news_articles.summary, VARCHAR(300), the same single-line field the
+       list cards show), never a multi-paragraph body. It was left-aligned
+       on the assumption that it was a real paragraph, where centring hurts
+       readability — issue #189, where that assumption was corrected. Both
+       halves of the poster are titles; neither is body copy. */
+    .excerpt { font-size: 13pt; line-height: 1.4; text-align: center; }
     .qr-wrap { text-align: center; margin-top: 10mm; }
     .qr-wrap img { width: 55mm; height: 55mm; }
     .qr-url { text-align: center; font-family: monospace; font-size: 10pt; margin-top: 3mm; }

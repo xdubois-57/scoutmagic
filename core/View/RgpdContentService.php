@@ -815,7 +815,11 @@ statistiques empêche toute transmission de ces compteurs. Si l'administrateur i
 désactivé chez lui, tu peux le préciser, mais conserve la description du traitement (la fonctionnalité reste présente
 et réactivable), y compris ce point (f). (g) que le rapport porte, quand le module « Fréquentation du site »
 (`usage_stats`) est actif, le **nombre de pages ouvertes par module** sur les douze derniers mois, et **jamais le
-détail page par page**, qui ne quitte pas le site.
+détail page par page**, qui ne quitte pas le site. (h) que le rapport porte aussi la **liste des libellés de
+fonctions et des types de cotisation** que les exports Desk de l'unité contiennent — les libellés seuls, qui sont le
+vocabulaire de la fédération, sans aucun membre, sans indiquer qui porte quoi, et sans nom de section. Ils permettent
+au mainteneur de savoir qu'une fonction ou un tarif nouveau est apparu et doit être pris en charge par le logiciel.
+Dis-le sans le présenter comme une donnée de membre : ce sont des libellés de configuration, pas des personnes.
 
 33. **Tickets de support reçus (module support_dashboard, installation receveuse uniquement)** : Ce module ne se
 charge que sur l'installation qui **reçoit** les tickets des autres — il porte `visible_when: ["statistics_receiver"]`
