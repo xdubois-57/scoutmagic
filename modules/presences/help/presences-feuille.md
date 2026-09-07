@@ -51,6 +51,18 @@ d'autre. Il s'enregistre tout seul lui aussi.
 > ni ailleurs. Écrivez ce qui aide l'équipe, pas ce que vous ne diriez pas
 > à voix haute.
 
+## Le lien dans votre agenda
+
+Si vous êtes abonné à votre agenda personnel du site, chaque évènement de
+votre section y porte une ligne « Prendre les présences » avec un lien
+court vers la feuille du jour. Vous n'avez donc rien à chercher le samedi
+après-midi.
+
+Ce lien n'apparaît que dans **votre** agenda, et il est recalculé à chaque
+synchronisation : si vous quittez la section, il disparaît tout seul. Il
+ne protège rien par lui-même — c'est la page qui refuse quelqu'un qui
+n'anime pas la section — mais ne le faites pas circuler pour autant.
+
 ## L'année scoute affichée
 
 La feuille propose les animés de la section pour l'année scoute que vous

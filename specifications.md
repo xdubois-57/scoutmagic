@@ -2472,3 +2472,34 @@ commençant par `=`, `+`, `-` ou `@` ne devient jamais une formule vivante à l'
 de commentaires — jamais un nom : le fichier emporte des noms et des commentaires sur des mineurs,
 et une entrée de journal qui les nommerait mettrait dans le journal exactement ce que le journal ne
 doit pas contenir. L'écran dit que le fichier quitte alors les protections du site.
+
+### 43.7 Le lien dans l'agenda de l'animateur
+
+Le flux ICS **personnel** d'un animateur porte, sous la description de chaque évènement de sa
+section, une ligne « Prendre les présences : … ». Le motif est celui du module `retro`
+(`Modules\Retro\Api\RetroEventLinkLookupInterface`), repris à l'identique parce qu'il vise le même
+consommateur : `presences` publie son interface dans son propre `Api`, le flux personnel la prend en
+dépendance nullable, et le composition root la câble quand le module est actif. Le cycle
+(`presences` lit `calendar`, `calendar` lit `presences`) est cassé par un registre mutable
+appartenant au calendrier, comme celui de `retro` à côté.
+
+**Le lien est résolu à chaque lecture, pour le lecteur.** Le docblock de `PersonalFeedService` est
+catégorique : « un gestionnaire qui a perdu son droit hier doit cesser de voir le détail
+aujourd'hui, et un jeton qui se souviendrait de ses anciens droits serait une fuite permanente ». Un
+animateur qui quitte la section cesse donc de voir le lien au rafraîchissement suivant de son
+agenda, sans rien à révoquer. Le lien n'existe **que** dans ce flux : ni dans celui de l'unité, ni
+dans celui d'un calendrier, qui n'ont aucun lecteur identifié à qualifier.
+
+**Le lien est court, et créé une fois par évènement.** `Core\Url\ShortUrlService::createShortUrl()`
+rend **le code, pas l'URL** — son commentaire précise qu'il n'a « aucune notion de schéma ni d'hôte »
+— donc l'appelant compose l'adresse à partir de `base_url` ; sans `base_url` configuré il n'y a pas
+d'adresse à composer et le lien n'est pas proposé, plutôt qu'émis relatif dans un fichier ICS où il
+ne résoudrait rien. Le code est mémorisé dans `presences_event_links` et réutilisé : un agenda se
+rafraîchit toutes les quelques heures, et un code par lecture remplirait la table tout en changeant
+le lien à chaque synchronisation. L'index unique sur l'évènement arbitre la course entre deux
+agendas rafraîchis à la même seconde.
+
+**Le lien court n'est pas une protection.** `/s/{code}` est une route publique : elle abrège, elle ne
+défend rien. C'est la page de présences qui refuse un visiteur qui n'anime pas la section — un
+contrôle nécessaire de toute façon, un lien pouvant être transféré. Deux barrières indépendantes,
+dont aucune ne repose sur le secret du code.

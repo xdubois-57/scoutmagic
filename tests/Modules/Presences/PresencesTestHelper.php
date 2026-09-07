@@ -47,6 +47,13 @@ class PresencesTestHelper
             FOREIGN KEY (member_id) REFERENCES members(id),
             FOREIGN KEY (updated_by) REFERENCES user_accounts(id)
         )');
+
+        $pdo->exec('CREATE TABLE presences_event_links (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            calendar_event_id INTEGER NOT NULL UNIQUE,
+            short_code TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )');
     }
 
     public static function encryption(): EncryptionService

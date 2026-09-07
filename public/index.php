@@ -3323,6 +3323,14 @@ $calendarVirtualEventRegistry = null;
 // enabled, and provably skip when it is not.
 $calendarRetroLinks = null;
 
+// The same shape again, for the attendance-sheet link an animateur gets
+// in their own agenda: `presences` reads `calendar` (which events belong
+// to a section) and `calendar` reads `presences` (the link for this
+// reader), so the cycle is broken by a registry the personal feed reads
+// at call time. Null when calendar is disabled — presences then has
+// nothing to publish onto and never builds a lookup.
+$calendarPresenceSheetLinks = null;
+
 // The calendar collaborators other modules consume, seeded null and
 // assigned inside the block below — same convention as
 // $financeExpectedReceivableForOthers above. Declaring them here rather
@@ -3342,6 +3350,7 @@ if ($isEnabled('calendar')) {
     // retro — a duplicate block whose re-registration silently dropped
     // the virtual-event registry from the public controller.
     $calendarRetroLinks = new \Modules\Calendar\Service\RetroEventLinkRegistry();
+    $calendarPresenceSheetLinks = new \Modules\Calendar\Service\PresenceSheetLinkRegistry();
     $calendarRepo = new \Modules\Calendar\Repository\CalendarRepository($pdo, $encryptionService);
     $calendarEventRepo = new \Modules\Calendar\Repository\CalendarEventRepository($pdo);
     $calendarPersonalTokenRepo = new \Modules\Calendar\Repository\CalendarPersonalTokenRepository($pdo,
@@ -3369,7 +3378,8 @@ if ($isEnabled('calendar')) {
     );
     $calendarPersonalFeedService = new \Modules\Calendar\Service\PersonalFeedService(
         $calendarPersonalTokenRepo, $calendarService, $calendarEventRepo,
-        $roleResolver, $memberService, $userAccountRepo, $sectionService, $calendarRetroLinks
+        $roleResolver, $memberService, $userAccountRepo, $sectionService, $calendarRetroLinks,
+        $calendarPresenceSheetLinks
     );
     $calendarPickerService = new \Modules\Calendar\Service\CalendarPickerService(
         $calendarService, $calendarPersonalFeedService
@@ -3445,6 +3455,19 @@ if ($isEnabled('presences') && $calendarSectionEventLookupForOthers !== null) {
         $presenceRegisterService,
         $presenceRepository
     );
+    // The other half of the calendar ↔ presences pair (§7.6): the personal
+    // feed renders a link to the sheet through the registry it was built
+    // with — provide this module's lookup into it. The registry exists
+    // here by construction: this block only runs with the calendar's
+    // section lookup in hand, which is set in the same block that builds
+    // the registry.
+    $calendarPresenceSheetLinks->provide(new \Modules\Presences\Service\PresenceSheetLinkService(
+        $presenceSheetService,
+        new \Modules\Presences\Repository\PresenceEventLinkRepository($pdo),
+        $shortUrlService,
+        (string) ($settingService->get('base_url') ?: '')
+    ));
+
     $presenceExportService = new \Modules\Presences\Service\PresenceExportService(
         $presenceRegisterService,
         $sectionService,

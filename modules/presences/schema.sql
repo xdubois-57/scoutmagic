@@ -66,3 +66,31 @@ CREATE TABLE IF NOT EXISTS presences_records (
     CONSTRAINT fk_presences_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE,
     CONSTRAINT fk_presences_updated_by FOREIGN KEY (updated_by) REFERENCES user_accounts(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- The short code an evening's sheet is reached by in an animateur's own
+-- agenda (IT-05). One row per event, created the first time a feed is
+-- read and REUSED for ever after: an agenda refreshes every few hours, so
+-- minting a code per read would fill `short_urls` with thousands of rows
+-- and change the link in somebody's calendar on every sync.
+--
+-- The code itself lives in core's `short_urls` (which owns the resolution
+-- of /s/{code}); this table only ties one of those codes to one event.
+-- No foreign key either way: `calendar_event_id` points into another
+-- module's table, which AGENTS.md § Database forbids, and the code is a
+-- string that resolves or does not.
+--
+-- **The short link is not a protection.** `/s/{code}` is a public route:
+-- it abbreviates, it defends nothing. What refuses a visitor who does not
+-- staff the section is the page behind it — a check that is needed anyway,
+-- since a link can be forwarded. Two independent barriers, neither of
+-- which rests on the code staying secret.
+CREATE TABLE IF NOT EXISTS presences_event_links (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    calendar_event_id INT UNSIGNED NOT NULL,
+    short_code VARCHAR(16) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- One code per event, and the arbiter of the race between two agendas
+    -- refreshing in the same second.
+    UNIQUE INDEX idx_presences_link_event (calendar_event_id),
+    UNIQUE INDEX idx_presences_link_code (short_code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -8,7 +8,6 @@ declare(strict_types=1);
 
 namespace Modules\Presences\Service;
 
-use Core\Member\MemberProfile;
 use Core\Member\SectionService;
 use Core\Service\TextNormalizerService;
 use Modules\Calendar\Api\SectionEvent;
@@ -249,13 +248,17 @@ class PresenceSheetService
      * member id of two different sections cannot be combined into a write
      * neither of them alone would allow.
      *
+     * The lightweight core read on purpose
+     * (`SectionService::getSectionAnimeMemberIds()`, one query, nothing
+     * decrypted): this runs on every tap of a sheet, and answering it
+     * through getSectionAnimes() would hydrate and decrypt the whole
+     * section for each of twenty-five names — the same trap the Départs
+     * write path already hit.
+     *
      * @return list<int>
      */
     public function animeMemberIds(int $sectionId, int $scoutYearId): array
     {
-        return array_values(array_map(
-            static fn(MemberProfile $profile): int => $profile->memberId,
-            $this->sectionService->getSectionAnimes($sectionId, $scoutYearId)
-        ));
+        return array_values($this->sectionService->getSectionAnimeMemberIds($sectionId, $scoutYearId));
     }
 }
