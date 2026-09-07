@@ -555,6 +555,57 @@ class SupportTicketSenderTest extends TestCase
         $this->assertContains('SUP-SECOND', $recent, 'the interleaved send was erased by the one that read before it');
     }
 
+    /**
+     * Contention that never lets up: the list keeps what the winners
+     * wrote, and this send simply does not get a row.
+     *
+     * There used to be a fallback here — the plain write of every version
+     * before the compare-and-swap — and it would have overwritten the
+     * whole list with this sender's own stale copy, which is the bug the
+     * retry exists to prevent, reintroduced at the bottom of the retry.
+     */
+    public function testASenderThatLosesEveryAttemptErasesNothing(): void
+    {
+        $interleaving = new InterleavingSettingService(
+            new SettingRepository($this->pdo),
+            SupportTicketSender::RECENT_SETTING,
+            // Fires before EVERY read of the key, not once: whatever this
+            // sender is about to write is stale by the time it writes it,
+            // for as many attempts as it makes.
+            function (): void {
+                $this->settings->setInternal(
+                    SupportTicketSender::RECENT_SETTING,
+                    (string) json_encode([[
+                        'reference' => 'SUP-WINNER' . random_int(100000, 999999),
+                        'sent_at' => '2026-09-07 07:00:00',
+                        'category' => 'other',
+                    ]])
+                );
+            },
+            once: false
+        );
+
+        $sender = $this->senderWith(
+            $interleaving,
+            $this->transport(200, ['status' => 'accepted', 'ticket_reference' => 'SUP-LOSER0'])
+        );
+
+        // The ticket was accepted, and says so. Bookkeeping never decides
+        // that — the same posture every other write on this path takes.
+        $this->assertTrue($sender->send('other', 'Un envoi malchanceux.', 'chef@unite.be')->sent);
+
+        $recent = array_column(
+            $this->senderWith(
+                new SettingService(new SettingRepository($this->pdo)),
+                $this->transport(200, [])
+            )->recentlySent(),
+            'reference'
+        );
+
+        $this->assertCount(1, $recent, 'the loser must not have replaced the list with its own copy');
+        $this->assertStringStartsWith('SUP-WINNER', $recent[0]);
+    }
+
     private function transport(int $status, array $answer): RecordingTicketTransport
     {
         return new RecordingTicketTransport(
@@ -614,8 +665,18 @@ final class InterleavingSettingService extends SettingService
     /** @var (callable(): void)|null */
     private $interleave;
 
-    public function __construct(SettingRepository $repository, private string $watchedKey, callable $interleave)
-    {
+    public function __construct(
+        SettingRepository $repository,
+        private string $watchedKey,
+        callable $interleave,
+        /**
+         * True for one interleaving — a single competitor, the ordinary
+         * lost-update race. False keeps firing, which is contention that
+         * never lets up: what the caller is about to write is stale on
+         * every attempt it makes.
+         */
+        private bool $once = true
+    ) {
         parent::__construct($repository);
         $this->interleave = $interleave;
     }
@@ -624,11 +685,15 @@ final class InterleavingSettingService extends SettingService
     {
         $value = parent::get($key, $moduleId, $default);
 
-        // Once, and only for the key under test: every other read on this
-        // instance has to behave exactly as it always does.
+        // Only for the key under test: every other read on this instance
+        // has to behave exactly as it always does.
         if ($key === $this->watchedKey && $this->interleave !== null) {
             $interleave = $this->interleave;
-            $this->interleave = null;
+
+            if ($this->once) {
+                $this->interleave = null;
+            }
+
             $interleave();
         }
 

@@ -427,8 +427,6 @@ class SupportTicketSender
         // again with the winner's list in hand. No lock is held across
         // application code, nothing is added to the schema, and it
         // behaves the same on MySQL and on SQLite.
-        $next = '';
-
         for ($attempt = 0; $attempt < self::RECENT_WRITE_ATTEMPTS; $attempt++) {
             $current = (string) ($this->settingService->get(self::RECENT_SETTING) ?? '');
             $stored = json_decode($current, true);
@@ -451,16 +449,23 @@ class SupportTicketSender
             }
         }
 
-        // Five losses in a row on a form one superadmin submits by hand is
-        // not contention — it is a setting service that cannot compare and
-        // swap at all, an unregistered row, an implementation this class
-        // was handed by a caller that predates the method. Falling back to
-        // the plain write is falling back to the behaviour of every
-        // version before this one: last writer wins. It keeps the list
-        // this attempt READ rather than starting a new one, because
-        // dropping four references to be sure of the fifth is the outcome
-        // the retry exists to avoid.
-        $this->writeSetting(self::RECENT_SETTING, $next);
+        // Five losses in a row, and the list is left exactly as the
+        // winners wrote it.
+        //
+        // There WAS a fallback here — the plain last-writer-wins write of
+        // every version before this one — and it was wrong. Work through
+        // the two ways to arrive: under real contention it would clobber
+        // whoever won, which is the very bug this method was rewritten to
+        // fix; and where the compare-and-swap cannot work at all (an
+        // unregistered row, a settings implementation without the method)
+        // the plain write cannot work either, because it goes through the
+        // same missing row. A fallback that helps in neither case, and
+        // erases a reference in one of them, is not a fallback.
+        //
+        // What is lost by giving up is this ONE entry in a display list.
+        // The reference itself is not lost: the sender was shown it on
+        // the page, {@see self::LAST_REFERENCE_SETTING} holds it, and the
+        // receiver has the ticket.
     }
 
     private function rememberCategories(mixed $categories): void

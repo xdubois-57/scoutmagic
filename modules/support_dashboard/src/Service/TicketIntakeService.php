@@ -302,9 +302,14 @@ class TicketIntakeService
                 SnapshotTicketDnsHandler::TASK_KEY,
                 SnapshotTicketDnsHandler::DELAY_SECONDS,
                 ['reference' => $reference],
-                // One live action per ticket: the reference is what the
-                // scheduler collapses duplicates on, and a ticket is
-                // filed once.
+                // The reference this occurrence is filed under, so a
+                // queued row can be found and read back. It is NOT a
+                // duplicate guard: `scheduleAfter()` delegates to the
+                // unguarded `schedule()`, and only `rearm()` collapses.
+                // One row per ticket comes from this method running once
+                // per ticket, and a second read is refused by the
+                // handler's own `dns_read_at` check rather than by the
+                // queue.
                 $reference
             );
         } catch (\Throwable $e) {
