@@ -89,6 +89,38 @@ final class DomainRegistrationRefresherTest extends TestCase
         );
     }
 
+    /**
+     * WHOIS declares no encoding and plenty of registries still answer in
+     * Latin-1, so a byte that is not valid UTF-8 arrives sooner or later.
+     * It used to make `json_encode()` return `false`, which PDO wrote as
+     * an empty string: a registration that WAS read, lost on the way to
+     * its column, and a dialog showing nothing about a domain the
+     * registry had described.
+     *
+     * The name server is the way in. Every other field goes through
+     * `mb_substr()`, which replaces a bad byte on the way past; the name
+     * server list is built from `preg_split()` and keeps the bytes as the
+     * registry sent them.
+     */
+    public function testABadByteInANameServerDoesNotCostTheWholeRegistration(): void
+    {
+        $id = $this->register('https://unite.example.be');
+
+        // A 0xE9 where UTF-8 expects a lead byte — "société" in Latin-1.
+        $whois = $this->answering(
+            "Domain: unite.example.be\nRegistrar: Example Hosting SA\nName Server: ns1.soci\xE9te.example\n"
+        );
+
+        $this->refresh($id, $whois);
+
+        $stored = (string) $this->installations->findById($id)['whois_registration'];
+        $registration = json_decode($stored, true);
+
+        $this->assertIsArray($registration, 'one bad byte must not empty the column');
+        $this->assertSame('Example Hosting SA', $registration['registrar']);
+        $this->assertCount(1, $registration['name_servers']);
+    }
+
     public function testASecondReportTheSameDayAsksNobody(): void
     {
         $id = $this->register('https://unite.example.be');

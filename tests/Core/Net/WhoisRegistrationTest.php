@@ -149,6 +149,30 @@ final class WhoisRegistrationTest extends TestCase
         $this->assertStringNotContainsString('2019-04-01', (string) json_encode($registration));
     }
 
+    /**
+     * The same heading, in the dialect that prints its value on the same
+     * line. `Registrant:` alone and `Registrant: Marie Dupont` are one
+     * heading; reading only the first left the second wide open, because
+     * a line with a value never opened a block and `State:` underneath
+     * went straight into `status`.
+     */
+    public function testAPersonalHeadingWithItsValueOnTheSameLineOpensTheBlockToo(): void
+    {
+        $registration = WhoisRegistration::parse(implode("\n", [
+            'Domain Name: unite.example',
+            'Registrar: Example Hosting SA',
+            'Registrant: Marie Dupont',
+            'State: Namur',
+            'Changed: 2019-04-01',
+        ]));
+
+        $this->assertSame('Example Hosting SA', $registration['registrar']);
+        $this->assertNull($registration['status']);
+        $this->assertNull($registration['updated_at']);
+        $this->assertStringNotContainsString('Namur', (string) json_encode($registration));
+        $this->assertStringNotContainsString('Marie', (string) json_encode($registration));
+    }
+
     /** And a heading of the same name outside a personal block still reads. */
     public function testTheDomainBlockKeepsItsOwnDatesAndStatus(): void
     {

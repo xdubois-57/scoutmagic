@@ -197,13 +197,34 @@ class SupportInstallationRepository
             $domain,
             $server,
             $status,
-            $registration === null ? null : json_encode($registration, JSON_UNESCAPED_UNICODE),
+            $registration === null ? null : self::encodeRegistration($registration),
             $raw === null || $this->encryption === null
                 ? null
                 : $this->encryption->encrypt($raw, 'support_installations.whois_raw'),
             $at->format('Y-m-d H:i:s'),
             $id,
         ]);
+    }
+
+    /**
+     * The parsed registration as the JSON the column takes.
+     *
+     * `JSON_INVALID_UTF8_SUBSTITUTE` because the input is another
+     * registry's bytes: WHOIS has no declared encoding, plenty of servers
+     * still answer in Latin-1, and one bad byte in a registrar's name
+     * made `json_encode()` return `false` — which PDO wrote as an empty
+     * string, leaving the dialog with no registration at all. Substituting
+     * the offending byte keeps the five facts that were read; throwing on
+     * anything else keeps a silent empty column impossible.
+     *
+     * @param array<string, mixed> $registration
+     */
+    private static function encodeRegistration(array $registration): string
+    {
+        return json_encode(
+            $registration,
+            JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR
+        );
     }
 
     /**

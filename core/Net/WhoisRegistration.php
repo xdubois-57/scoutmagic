@@ -126,6 +126,17 @@ final class WhoisRegistration
             $key = strtolower(trim(substr($line, 0, $separator)));
             $value = trim(substr($line, $separator + 1));
 
+            // A personal heading opens its block whether or not it carries
+            // its value on the same line. `Registrant:` alone and
+            // `Registrant: Marie Dupont` are the same heading in two
+            // registry dialects, and reading only the first left the
+            // second wide open: `$block` stayed where it was, and the
+            // `State:` line under the name went straight into `status`.
+            if (in_array($key, self::PERSONAL_BLOCKS, true)) {
+                $block = $key;
+                continue;
+            }
+
             if ($value === '') {
                 $block = $key;
                 continue;

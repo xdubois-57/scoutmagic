@@ -11,10 +11,12 @@ use PHPUnit\Framework\TestCase;
 /**
  * The walk from the root to the registry to the registrar.
  *
- * No socket: `ask()` is the one call to the network and it exists alone in
- * its own method so a test can answer for it. A test that opened port 43
- * would be a test of somebody else's registry, on a runner that very
- * probably cannot reach one.
+ * No registry: `ask()` is the one call to the network and it exists alone
+ * in its own method so a test can answer for it. A test that opened port
+ * 43 would be a test of somebody else's registry, on a runner that very
+ * probably cannot reach one. The read loop inside it is reached the other
+ * way, through `readWithin()` and a socket pair — see
+ * {@see self::testTheReadLoopStopsAtTheDeadlineRatherThanAtTheByteCap()}.
  */
 final class WhoisClientTest extends TestCase
 {
@@ -161,6 +163,53 @@ final class WhoisClientTest extends TestCase
         $this->assertSame(WhoisLookup::UNAVAILABLE, $client->lookup('unite.example.be')->outcome);
     }
 
+    /**
+     * The deadline is consulted INSIDE the read loop, not once before it.
+     *
+     * `stream_set_timeout()` bounds each `fread()` and nothing else: a
+     * server dribbling a few bytes before every timeout keeps every read
+     * "successful", and the exchange then runs to `MAX_RESPONSE_BYTES` —
+     * thirty-two thousand bytes at fifty a second is eleven minutes, on a
+     * request somebody is waiting on. A socket pair with data already in
+     * it separates the two readings in one call and no wall-clock: with
+     * the check, a deadline already past reads nothing; without it, the
+     * buffered bytes come back.
+     */
+    public function testTheReadLoopStopsAtTheDeadlineRatherThanAtTheByteCap(): void
+    {
+        $client = new PublicReadWhoisClient();
+
+        [$ours, $theirs] = self::pair();
+        fwrite($theirs, "Domain: unite.example\n");
+        $this->assertSame('', $client->readPublicly($ours, microtime(true) - 1.0));
+
+        [$ours, $theirs] = self::pair();
+        fwrite($theirs, "Domain: unite.example\n");
+        fclose($theirs);
+        $this->assertSame("Domain: unite.example\n", $client->readPublicly($ours, microtime(true) + 5.0));
+    }
+
+    /**
+     * A connected pair, so the read loop has a real socket to read from
+     * without a server, a port or a second process.
+     *
+     * @return array{0: resource, 1: resource}
+     */
+    private static function pair(): array
+    {
+        $pair = stream_socket_pair(
+            // The Unix domain does not exist on Windows; nothing in this
+            // project runs there, and the fallback would need a port.
+            STREAM_PF_UNIX,
+            STREAM_SOCK_STREAM,
+            STREAM_IPPROTO_IP
+        );
+
+        self::assertIsArray($pair);
+
+        return [$pair[0], $pair[1]];
+    }
+
     public function testTheIanaReferralHasToLookLikeAServer(): void
     {
         $this->assertSame('whois.dnsbelgium.be', WhoisClient::whoisServerIn("whois: whois.dnsbelgium.be\n"));
@@ -173,6 +222,16 @@ final class WhoisClientTest extends TestCase
         $this->assertTrue(WhoisClient::readsAsNotFound('NO MATCH FOR "EXAMPLE.BE"'));
         $this->assertTrue(WhoisClient::readsAsNotFound('Status: AVAILABLE'));
         $this->assertFalse(WhoisClient::readsAsNotFound('Domain Status: clientTransferProhibited'));
+    }
+}
+
+/** The read loop itself, reachable without a network. */
+final class PublicReadWhoisClient extends WhoisClient
+{
+    /** @param resource $socket */
+    public function readPublicly($socket, float $deadline): string
+    {
+        return $this->readWithin($socket, $deadline);
     }
 }
 

@@ -258,32 +258,50 @@ class WhoisClient
                 return null;
             }
 
-            $raw = '';
-            while (strlen($raw) < self::MAX_RESPONSE_BYTES && !feof($socket)) {
-                if (microtime(true) >= $deadline) {
-                    // Whatever arrived is kept: a partial record still
-                    // names the registrar more often than not, and this
-                    // reading is never the evidence — the raw response
-                    // beside it is.
-                    break;
-                }
-
-                $chunk = @fread($socket, 8192);
-                if ($chunk === false || $chunk === '') {
-                    // Distinguishes end-of-stream from the read timeout,
-                    // which returns '' with `timed_out` set: keeping what
-                    // arrived is better than discarding a partial record.
-                    break;
-                }
-                $raw .= $chunk;
-            }
-
-            $raw = substr($raw, 0, self::MAX_RESPONSE_BYTES);
+            $raw = $this->readWithin($socket, $deadline);
 
             return trim($raw) === '' ? null : $raw;
         } finally {
             @fclose($socket);
         }
+    }
+
+    /**
+     * Read until the response ends, the byte cap is reached, or the
+     * deadline passes — whichever comes first.
+     *
+     * Its own method because the deadline is the whole point of it and a
+     * test cannot reach it through `ask()`, which opens a socket on port
+     * 43. Given a socket pair, this one is testable directly, which is
+     * what the check below is worth: without it, `stream_set_timeout()`
+     * bounds each `fread()` and nothing bounds the loop.
+     *
+     * @param resource $socket
+     */
+    protected function readWithin($socket, float $deadline): string
+    {
+        $raw = '';
+
+        while (strlen($raw) < self::MAX_RESPONSE_BYTES && !feof($socket)) {
+            if (microtime(true) >= $deadline) {
+                // Whatever arrived is kept: a partial record still names
+                // the registrar more often than not, and this reading is
+                // never the evidence — the raw response beside it is.
+                break;
+            }
+
+            $chunk = @fread($socket, 8192);
+            if ($chunk === false || $chunk === '') {
+                // Distinguishes end-of-stream from the read timeout,
+                // which returns '' with `timed_out` set: keeping what
+                // arrived is better than discarding a partial record.
+                break;
+            }
+
+            $raw .= $chunk;
+        }
+
+        return substr($raw, 0, self::MAX_RESPONSE_BYTES);
     }
 
     /** The `whois:` line of an IANA TLD record. */
