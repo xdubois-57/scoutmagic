@@ -166,4 +166,49 @@ describe('presences-search.js', () => {
         document.body.click();
         expect(panel().classList.contains('d-none')).toBe(true);
     });
+
+    it('paints the newest query, never a slower earlier one', async () => {
+        // A focus fires one request while a debounced keystroke is still
+        // in flight. If the first one answers last, the panel would show
+        // rows for a query the field no longer holds — and a tap would
+        // open the wrong animé.
+        let resolveFirst;
+        const stale = { success: true, events: [], animes: [{ url: '/chefs/presences/anime/99', name: 'Périmé, Résultat', rate: 5, tone: 'danger' }] };
+        global.fetch = vi.fn()
+            .mockImplementationOnce(() => new Promise((resolve) => {
+                resolveFirst = () => resolve({ ok: true, status: 200, json: () => Promise.resolve(stale) });
+            }))
+            .mockImplementation(() => jsonResponse(ANSWER));
+
+        await boot();
+        input().dispatchEvent(new Event('focus'));
+        input().value = 'Hargot';
+        input().dispatchEvent(new Event('input'));
+        await new Promise((resolve) => setTimeout(resolve, 300));
+
+        resolveFirst();
+        await flush();
+
+        expect(panel().textContent).toContain('Hargot, Basile');
+        expect(panel().textContent).not.toContain('Périmé');
+    });
+
+    it('never puts anything but a path of this site on a row', async () => {
+        // The route builds these from integer ids, and the href is
+        // validated at the sink anyway: a response that ever carried a
+        // scheme must not become a javascript: link.
+        global.fetch = vi.fn(() => jsonResponse({
+            success: true,
+            events: [{ url: 'javascript:alert(1)', title: 'Piège', date: '2026-09-13', pointed: true, rate: 88 }],
+            animes: [{ url: '//evil.example/x', name: 'Ailleurs, Quelquun', rate: 21, tone: 'danger' }],
+        }));
+        await boot();
+
+        input().dispatchEvent(new Event('focus'));
+        await flush();
+
+        rows().forEach((link) => {
+            expect(link.getAttribute('href')).toBe('#');
+        });
+    });
 });

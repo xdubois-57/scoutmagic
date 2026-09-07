@@ -343,6 +343,12 @@ class PersonalFeedServiceTest extends TestCase
         $description = $service->getEventsForToken($token, $this->scoutYearId)[0]->description;
 
         $this->assertStringContainsString('Grand jeu dans le bois.', $description);
+        // Asserted present before asserting ordered: strpos() answers
+        // false for an absent needle, PHP compares false as 0, and the
+        // ordering alone would therefore pass on a feed that lost the
+        // very line this test exists to protect.
+        $this->assertStringContainsString('Rétrospective : https://example.test/r/abc123', $description);
+        $this->assertStringContainsString('Prendre les présences : https://example.test/s/K7m2Qa', $description);
         $this->assertLessThan(
             strpos($description, 'Prendre les présences :'),
             strpos($description, 'Rétrospective :')

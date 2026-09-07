@@ -86,9 +86,14 @@ class SectionEventLookupTest extends TestCase
 
     public function testTheWindowIsClosedAtBothEnds(): void
     {
-        $this->createEvent($this->calendarA, 'Août', '2026-08-30');
-        $inside = $this->createEvent($this->calendarA, 'Septembre', '2026-09-13');
-        $this->createEvent($this->calendarA, 'Octobre', '2026-10-04');
+        // The events that must be KEPT sit exactly on the two bounds, and
+        // the ones that must be dropped exactly one day outside: a window
+        // written with > and < instead of >= and <= fails here, which is
+        // the whole claim of this test's name.
+        $this->createEvent($this->calendarA, 'La veille', '2026-08-31');
+        $first = $this->createEvent($this->calendarA, 'Premier jour', '2026-09-01');
+        $last = $this->createEvent($this->calendarA, 'Dernier jour', '2026-09-30');
+        $this->createEvent($this->calendarA, 'Le lendemain', '2026-10-01');
 
         $events = $this->service->findSectionEventsInWindow(
             $this->sectionA,
@@ -96,7 +101,7 @@ class SectionEventLookupTest extends TestCase
             new \DateTimeImmutable('2026-09-30')
         );
 
-        $this->assertSame([$inside], array_map(static fn ($e): int => $e->id, $events));
+        $this->assertSame([$first, $last], array_map(static fn ($e): int => $e->id, $events));
     }
 
     public function testASingleDayEventReportsItsStartDateAsItsEnd(): void

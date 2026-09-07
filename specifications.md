@@ -2402,6 +2402,19 @@ repris dans un message d'erreur. La conservation suit l'année scoute et est dé
 Une demande d'effacement retire les commentaires et laisse les états : qu'un animé ait été là un
 samedi n'est ni un récit ni un jugement — c'est ce qui était écrit à côté qui l'était.
 
+**Supprimer un évènement supprime sa feuille.** Aucune clé étrangère ne le fait — une table de module
+ne contraint pas celle d'un autre (ARCHITECTURE.md §7.6) — donc le calendrier appelle
+`Api\PresenceEventCleanupInterface` avant d'effacer la ligne de l'évènement. Sans cet appel, les états
+et les commentaires chiffrés d'une soirée disparue resteraient en base : plus aucun écran n'y mène,
+donc plus personne ne les relit ni ne les efface. Le code court de la feuille part avec eux ; la ligne
+`short_urls` qu'il désignait, elle, reste, et redirige désormais vers une page qui refuse.
+
+**L'état et le commentaire s'écrivent chacun dans sa colonne**, jamais dans la même requête. Deux
+animateurs pointent la même liste en même temps : une écriture qui porterait les deux champs
+remplacerait silencieusement ce que l'autre vient d'enregistrer. Chaque écriture est par ailleurs un
+`upsert` en une instruction, pour que deux premiers appuis simultanés sur le même animé ne se
+heurtent pas à l'index unique.
+
 ### 43.5 Le registre : trois questions, jamais une grille
 
 **Une grille animés × évènements a été essayée puis abandonnée.** Elle montrait tout et n'apprenait

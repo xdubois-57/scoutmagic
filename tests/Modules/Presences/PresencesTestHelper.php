@@ -206,9 +206,9 @@ class PresencesTestHelper
 
         $pdo->prepare('INSERT OR IGNORE INTO functions (desk_code, label, role) VALUES (?, ?, ?)')
             ->execute([$functionRole, $functionRole, $functionRole]);
-        $functionId = (int) $pdo->query(
-            "SELECT id FROM functions WHERE desk_code = " . $pdo->quote($functionRole)
-        )->fetchColumn();
+        $lookup = $pdo->prepare('SELECT id FROM functions WHERE desk_code = ?');
+        $lookup->execute([$functionRole]);
+        $functionId = (int) $lookup->fetchColumn();
 
         $stmt = $pdo->prepare(
             'INSERT INTO member_functions (member_year_id, function_id, section_id) VALUES (?, ?, ?)'

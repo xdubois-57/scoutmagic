@@ -169,13 +169,9 @@ class PresenceSheetServiceTest extends TestCase
         $this->assertSame(PresenceStatus::UNSET, $sheet->lines[0]->status);
         $this->assertNull($sheet->lines[0]->comment);
 
-        (new PresenceRepository($this->pdo, $this->encryption))->save(
-            $this->eventLou1,
-            $anime['memberId'],
-            PresenceStatus::EXCUSED,
-            'Mariage de sa cousine.',
-            null
-        );
+        $repository = new PresenceRepository($this->pdo, $this->encryption);
+        $repository->saveStatus($this->eventLou1, $anime['memberId'], PresenceStatus::EXCUSED, null);
+        $repository->saveComment($this->eventLou1, $anime['memberId'], 'Mariage de sa cousine.', null);
 
         $sheet = $this->service->buildSheet($this->eventLou1, 'akela@test.be', 'chief', $this->scoutYearId);
         $this->assertNotNull($sheet);

@@ -63,7 +63,14 @@
      */
     function row(url, label, trailing, tone) {
         var link = document.createElement('a');
-        link.href = url;
+        // Validated at the sink, not trusted for having come from our own
+        // route: only a path the SERVER produced — absolute, a single
+        // slash — is ever followed, so nothing this panel renders can put
+        // a `javascript:` scheme on an href. Same rule as the help
+        // assistant's own page links.
+        link.href = typeof url === 'string' && url.startsWith('/') && !url.startsWith('//')
+            ? url
+            : '#';
         link.className = 'list-group-item list-group-item-action d-flex align-items-center gap-2';
 
         var name = document.createElement('span');
@@ -126,11 +133,22 @@
         panel.classList.remove('d-none');
     }
 
+    // Two searches can be open at once — a focus fires one while a
+    // debounced keystroke is still in flight — and on a slow connection
+    // the earlier one can answer last. Only the newest request may paint
+    // the panel, or somebody taps a row belonging to a query the field no
+    // longer holds.
+    var newestRequest = 0;
+
     function run() {
         var url = '/chefs/presences/recherche?section=' + encodeURIComponent(sectionId)
             + '&q=' + encodeURIComponent(input.value);
+        var token = ++newestRequest;
 
         return api.getJson(url).then(function (res) {
+            if (token !== newestRequest) {
+                return;
+            }
             if (!res.data?.success) {
                 close();
                 return;

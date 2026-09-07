@@ -88,10 +88,10 @@ class PresenceAnimeServiceTest extends TestCase
         $second = $this->event($this->sectionA, '09-20');
         $this->anime('Basile', 'Hargot', $this->sectionA);
         $this->anime('Dounia', 'Ayoute', $this->sectionA);
-        $this->repository->save($first, $this->animes['Hargot'], PresenceStatus::PRESENT, null, null);
-        $this->repository->save($first, $this->animes['Ayoute'], PresenceStatus::PRESENT, null, null);
-        $this->repository->save($second, $this->animes['Hargot'], PresenceStatus::ABSENT, null, null);
-        $this->repository->save($second, $this->animes['Ayoute'], PresenceStatus::PRESENT, null, null);
+        $this->repository->saveStatus($first, $this->animes['Hargot'], PresenceStatus::PRESENT, null);
+        $this->repository->saveStatus($first, $this->animes['Ayoute'], PresenceStatus::PRESENT, null);
+        $this->repository->saveStatus($second, $this->animes['Hargot'], PresenceStatus::ABSENT, null);
+        $this->repository->saveStatus($second, $this->animes['Ayoute'], PresenceStatus::PRESENT, null);
 
         $profile = $this->service->buildProfile(
             $this->animes['Hargot'], 'akela@test.be', 'chief', $this->scoutYearId
@@ -149,10 +149,9 @@ class PresenceAnimeServiceTest extends TestCase
         $first = $this->event($this->sectionA, '09-13');
         $second = $this->event($this->sectionA, '09-20', 'Fête de Noël');
         $this->anime('Basile', 'Hargot', $this->sectionA);
-        $this->repository->save($first, $this->animes['Hargot'], PresenceStatus::PRESENT, null, null);
-        $this->repository->save(
-            $second, $this->animes['Hargot'], PresenceStatus::EXCUSED, 'Rendez-vous chez le médecin.', null
-        );
+        $this->repository->saveStatus($first, $this->animes['Hargot'], PresenceStatus::PRESENT, null);
+        $this->repository->saveStatus($second, $this->animes['Hargot'], PresenceStatus::EXCUSED, null);
+        $this->repository->saveComment($second, $this->animes['Hargot'], 'Rendez-vous chez le médecin.', null);
 
         $profile = $this->service->buildProfile(
             $this->animes['Hargot'], 'akela@test.be', 'chief', $this->scoutYearId
@@ -208,8 +207,8 @@ class PresenceAnimeServiceTest extends TestCase
         $this->event($this->sectionA, '10-04');
         $november = $this->event($this->sectionA, '11-08');
         $this->anime('Basile', 'Hargot', $this->sectionA);
-        $this->repository->save($september, $this->animes['Hargot'], PresenceStatus::PRESENT, null, null);
-        $this->repository->save($november, $this->animes['Hargot'], PresenceStatus::ABSENT, null, null);
+        $this->repository->saveStatus($september, $this->animes['Hargot'], PresenceStatus::PRESENT, null);
+        $this->repository->saveStatus($november, $this->animes['Hargot'], PresenceStatus::ABSENT, null);
 
         $profile = $this->service->buildProfile(
             $this->animes['Hargot'], 'akela@test.be', 'chief', $this->scoutYearId

@@ -3341,6 +3341,11 @@ $calendarRetroLinks = null;
 // nothing to publish onto and never builds a lookup.
 $calendarPresenceSheetLinks = null;
 
+// And once more for the other direction of the same pair: deleting an
+// evening must erase the sheet somebody took on it, which no foreign key
+// can do across two modules' tables.
+$calendarPresenceEventCleanup = null;
+
 // The calendar collaborators other modules consume, seeded null and
 // assigned inside the block below — same convention as
 // $financeExpectedReceivableForOthers above. Declaring them here rather
@@ -3361,6 +3366,7 @@ if ($isEnabled('calendar')) {
     // the virtual-event registry from the public controller.
     $calendarRetroLinks = new \Modules\Calendar\Service\RetroEventLinkRegistry();
     $calendarPresenceSheetLinks = new \Modules\Calendar\Service\PresenceSheetLinkRegistry();
+    $calendarPresenceEventCleanup = new \Modules\Calendar\Service\PresenceEventCleanupRegistry();
     $calendarRepo = new \Modules\Calendar\Repository\CalendarRepository($pdo, $encryptionService);
     $calendarEventRepo = new \Modules\Calendar\Repository\CalendarEventRepository($pdo);
     $calendarPersonalTokenRepo = new \Modules\Calendar\Repository\CalendarPersonalTokenRepository($pdo,
@@ -3384,7 +3390,11 @@ if ($isEnabled('calendar')) {
         $schedulerService, $calendarRetroLinks
     );
     $calendarEventService = new \Modules\Calendar\Service\CalendarEventService(
-        $calendarEventRepo, $calendarService, $calendarNotificationService, $calendarRetroAutoCreateService
+        $calendarEventRepo,
+        $calendarService,
+        $calendarNotificationService,
+        $calendarRetroAutoCreateService,
+        $calendarPresenceEventCleanup
     );
     $calendarPersonalFeedService = new \Modules\Calendar\Service\PersonalFeedService(
         $calendarPersonalTokenRepo,
@@ -3446,6 +3456,7 @@ if ($isEnabled('calendar')) {
 if ($isEnabled('presences') && $calendarSectionEventLookupForOthers !== null) {
     \Core\Debug\RequestTimeline::mark('module_presences');
     $presenceRepository = new \Modules\Presences\Repository\PresenceRepository($pdo, $encryptionService);
+    $presenceEventLinkRepository = new \Modules\Presences\Repository\PresenceEventLinkRepository($pdo);
     // The section boundary is core's own service, injected rather than
     // re-derived: one rule, one implementation, for the documents page,
     // the calendar, Départs and now the sheets.
@@ -3479,9 +3490,16 @@ if ($isEnabled('presences') && $calendarSectionEventLookupForOthers !== null) {
     // the registry.
     $calendarPresenceSheetLinks->provide(new \Modules\Presences\Service\PresenceSheetLinkService(
         $presenceSheetService,
-        new \Modules\Presences\Repository\PresenceEventLinkRepository($pdo),
+        $presenceEventLinkRepository,
         $shortUrlService,
         (string) ($settingService->get('base_url') ?: '')
+    ));
+    // The same pair the other way round: the calendar tells this module
+    // that an evening is gone, so its states, its comments and its short
+    // code go with it.
+    $calendarPresenceEventCleanup->provide(new \Modules\Presences\Service\PresenceEventCleanupService(
+        $presenceRepository,
+        $presenceEventLinkRepository
     ));
 
     $presenceExportService = new \Modules\Presences\Service\PresenceExportService(

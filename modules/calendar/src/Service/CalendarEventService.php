@@ -13,6 +13,7 @@ use Core\Service\DateInput;
 use Modules\Calendar\Repository\Calendar;
 use Modules\Calendar\Repository\CalendarEvent;
 use Modules\Calendar\Repository\CalendarEventRepository;
+use Modules\Presences\Api\PresenceEventCleanupInterface;
 
 class CalendarEventService
 {
@@ -20,7 +21,8 @@ class CalendarEventService
         private CalendarEventRepository $eventRepository,
         private CalendarService $calendarService,
         private CalendarNotificationService $notificationService,
-        private ?CalendarRetroAutoCreateService $retroAutoCreateService = null
+        private ?CalendarRetroAutoCreateService $retroAutoCreateService = null,
+        private ?PresenceEventCleanupInterface $presenceEventCleanup = null
     ) {
     }
 
@@ -212,6 +214,12 @@ class CalendarEventService
         $this->notificationService->cancelReminderForEvent($id);
         $this->notificationService->cancelActivityReminderForEvent($id);
         $this->retroAutoCreateService?->cancelAutoCreateForEvent($id);
+        // The sheet of an evening that no longer exists: states, encrypted
+        // comments and the short code it was reached by. No foreign key
+        // does this — a module never constrains another module's table —
+        // so it is erased here or never (Modules\Presences\Api\
+        // PresenceEventCleanupInterface).
+        $this->presenceEventCleanup?->forgetEvent($id);
         $this->eventRepository->delete($id);
     }
 

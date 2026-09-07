@@ -157,6 +157,11 @@ class PresencesControllerTest extends TestCase
             new Request('GET', '/chefs/presences/feuille/' . $this->eventA, [], [], [], [])
         )->getBody();
 
+        // Asserted present before asserting ordered: strpos() answers
+        // false for an absent needle and PHP compares false as 0, so the
+        // ordering alone would pass on a page that lost the warning.
+        $this->assertStringContainsString('Une connexion est nécessaire.', $body);
+        $this->assertStringContainsString('id="presences-lines"', $body);
         $this->assertLessThan(
             strpos($body, 'id="presences-lines"'),
             strpos($body, 'Une connexion est nécessaire.')
@@ -467,7 +472,7 @@ class PresencesControllerTest extends TestCase
     {
         $this->signIn('akela@test.be', 'chief');
         $repository = new PresenceRepository($this->pdo, $this->encryption);
-        $repository->save($this->eventA, $this->animeA, PresenceStatus::EXCUSED, null, null);
+        $repository->saveStatus($this->eventA, $this->animeA, PresenceStatus::EXCUSED, null);
 
         $this->handle($this->jsonPost($this->eventA, [
             'member_id' => $this->animeA,
@@ -484,7 +489,8 @@ class PresencesControllerTest extends TestCase
     {
         $this->signIn('akela@test.be', 'chief');
         $repository = new PresenceRepository($this->pdo, $this->encryption);
-        $repository->save($this->eventA, $this->animeA, PresenceStatus::UNSET, 'Sa maman a prévenu.', null);
+        $repository->saveStatus($this->eventA, $this->animeA, PresenceStatus::UNSET, null);
+        $repository->saveComment($this->eventA, $this->animeA, 'Sa maman a prévenu.', null);
 
         $this->handle($this->jsonPost($this->eventA, [
             'member_id' => $this->animeA,

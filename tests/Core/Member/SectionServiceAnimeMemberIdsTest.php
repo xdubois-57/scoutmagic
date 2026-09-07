@@ -74,10 +74,21 @@ class SectionServiceAnimeMemberIdsTest extends TestCase
         $this->createMember('animated', $this->sectionId);
         $this->createMember('chief', $this->sectionId);
 
-        $this->assertCount(
-            count($this->service->getSectionAnimeMemberYearIds($this->sectionId, $this->scoutYearId)),
-            $this->service->getSectionAnimeMemberIds($this->sectionId, $this->scoutYearId)
+        // The same PEOPLE, not merely as many of them: an implementation
+        // answering the first animé twice would satisfy a count and still
+        // break the contract this method exists for.
+        $yearIds = $this->service->getSectionAnimeMemberYearIds($this->sectionId, $this->scoutYearId);
+        $resolve = $this->pdo->prepare(
+            'SELECT member_id FROM member_years WHERE id IN ('
+            . implode(',', array_fill(0, count($yearIds), '?')) . ')'
         );
+        $resolve->execute(array_values($yearIds));
+        $expected = array_map('intval', $resolve->fetchAll(\PDO::FETCH_COLUMN));
+        $actual = $this->service->getSectionAnimeMemberIds($this->sectionId, $this->scoutYearId);
+
+        sort($expected);
+        sort($actual);
+        $this->assertSame($expected, $actual);
     }
 
     public function testAnotherScoutYearsAnimesAreNotThisYears(): void
@@ -114,9 +125,9 @@ class SectionServiceAnimeMemberIdsTest extends TestCase
 
         $this->pdo->prepare('INSERT OR IGNORE INTO functions (desk_code, label, role) VALUES (?, ?, ?)')
             ->execute([$functionRole, $functionRole, $functionRole]);
-        $functionId = (int) $this->pdo->query(
-            'SELECT id FROM functions WHERE desk_code = ' . $this->pdo->quote($functionRole)
-        )->fetchColumn();
+        $lookup = $this->pdo->prepare('SELECT id FROM functions WHERE desk_code = ?');
+        $lookup->execute([$functionRole]);
+        $functionId = (int) $lookup->fetchColumn();
 
         $stmt = $this->pdo->prepare(
             'INSERT INTO member_functions (member_year_id, function_id, section_id) VALUES (?, ?, ?)'

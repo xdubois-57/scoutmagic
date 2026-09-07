@@ -284,6 +284,39 @@ describe('presences-sheet.js', () => {
             });
         });
 
+
+        it('sends nothing when a field nobody edited loses the focus', async () => {
+            // Opening the panel focuses the field, so tapping a state
+            // button right after raises a focusout on an untouched
+            // comment. Posting it would re-stamp the row for nothing —
+            // and replace a comment somebody else wrote since this page
+            // loaded with the text this page still remembers.
+            await boot();
+            fetch.mockClear();
+
+            row('12').querySelector('.presence-comment-toggle').click();
+            const field = row('12').querySelector('.presence-comment');
+            field.dispatchEvent(new Event('focusout', { bubbles: true }));
+            await flush();
+
+            expect(fetch).not.toHaveBeenCalled();
+        });
+
+        it('sends nothing on a second blur when the text has not moved since', async () => {
+            await boot();
+
+            const field = row('13').querySelector('.presence-comment');
+            field.value = 'Prévenu jeudi.';
+            field.dispatchEvent(new Event('focusout', { bubbles: true }));
+            await flush();
+            fetch.mockClear();
+
+            field.dispatchEvent(new Event('focusout', { bubbles: true }));
+            await flush();
+
+            expect(fetch).not.toHaveBeenCalled();
+        });
+
         it('debounces typing per animé, so one comment never cancels another', async () => {
             vi.useFakeTimers();
             await boot();
@@ -311,8 +344,11 @@ describe('presences-sheet.js', () => {
             vi.useFakeTimers();
             await boot();
 
+            // A value that really differs from the one the page loaded —
+            // an untouched field sends nothing at all, which is the test
+            // two rows below.
             const field = row('13').querySelector('.presence-comment');
-            field.value = 'Malade.';
+            field.value = 'Malade depuis mardi.';
             field.dispatchEvent(new Event('input', { bubbles: true }));
             field.dispatchEvent(new Event('focusout', { bubbles: true }));
 

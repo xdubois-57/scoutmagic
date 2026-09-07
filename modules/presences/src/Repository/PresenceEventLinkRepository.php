@@ -57,4 +57,15 @@ class PresenceEventLinkRepository
             return $this->findCode($eventId) ?? throw $e;
         }
     }
+
+    /**
+     * Forget the code an event was reached by, for when the evening
+     * itself is deleted — see
+     * `Modules\Presences\Service\PresenceEventCleanupService`.
+     */
+    public function forgetEvent(int $eventId): void
+    {
+        $stmt = $this->pdo->prepare('DELETE FROM presences_event_links WHERE calendar_event_id = ?');
+        $stmt->execute([$eventId]);
+    }
 }

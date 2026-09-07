@@ -45,7 +45,7 @@ class PresenceRepositoryTest extends TestCase
 
     public function testARecordedStateComesBackAsWritten(): void
     {
-        $this->repository->save(10, $this->memberA, PresenceStatus::PRESENT, null, null);
+        $this->repository->saveStatus(10, $this->memberA, PresenceStatus::PRESENT, null);
 
         $record = $this->repository->find(10, $this->memberA);
 
@@ -56,8 +56,8 @@ class PresenceRepositoryTest extends TestCase
 
     public function testASecondTapCorrectsRatherThanAddsARow(): void
     {
-        $this->repository->save(10, $this->memberA, PresenceStatus::PRESENT, null, null);
-        $this->repository->save(10, $this->memberA, PresenceStatus::ABSENT, null, null);
+        $this->repository->saveStatus(10, $this->memberA, PresenceStatus::PRESENT, null);
+        $this->repository->saveStatus(10, $this->memberA, PresenceStatus::ABSENT, null);
 
         $this->assertSame(
             1,
@@ -68,21 +68,20 @@ class PresenceRepositoryTest extends TestCase
 
     public function testAStateChangeKeepsTheCommentBesideIt(): void
     {
-        $this->repository->save(10, $this->memberA, PresenceStatus::EXCUSED, 'Malade.', null);
-        $this->repository->save(
-            10,
-            $this->memberA,
-            PresenceStatus::ABSENT,
-            $this->repository->find(10, $this->memberA)?->comment,
-            null
-        );
+        $this->repository->saveStatus(10, $this->memberA, PresenceStatus::EXCUSED, null);
+        $this->repository->saveComment(10, $this->memberA, 'Malade.', null);
+        // Nothing carries the comment across: saveStatus() writes its own
+        // column and no other, which is the guarantee, not a convention
+        // the caller has to remember.
+        $this->repository->saveStatus(10, $this->memberA, PresenceStatus::ABSENT, null);
 
         $this->assertSame('Malade.', $this->repository->find(10, $this->memberA)?->comment);
     }
 
     public function testTheCommentIsUnreadableInTheDatabase(): void
     {
-        $this->repository->save(10, $this->memberA, PresenceStatus::EXCUSED, 'Chez son père ce week-end.', null);
+        $this->repository->saveStatus(10, $this->memberA, PresenceStatus::EXCUSED, null);
+        $this->repository->saveComment(10, $this->memberA, 'Chez son père ce week-end.', null);
 
         $stored = (string) $this->pdo->query('SELECT comment_encrypted FROM presences_records')->fetchColumn();
 
@@ -102,7 +101,8 @@ class PresenceRepositoryTest extends TestCase
      */
     public function testACommentDoesNotDecryptUnderAnotherColumnsContext(): void
     {
-        $this->repository->save(10, $this->memberA, PresenceStatus::EXCUSED, 'Malade.', null);
+        $this->repository->saveStatus(10, $this->memberA, PresenceStatus::EXCUSED, null);
+        $this->repository->saveComment(10, $this->memberA, 'Malade.', null);
         $stored = (string) $this->pdo->query('SELECT comment_encrypted FROM presences_records')->fetchColumn();
 
         $this->expectException(\Core\Security\DecryptionException::class);
@@ -111,7 +111,7 @@ class PresenceRepositoryTest extends TestCase
 
     public function testNonRenseigneWithNothingBesideItStoresNoRow(): void
     {
-        $this->repository->save(10, $this->memberA, PresenceStatus::UNSET, null, null);
+        $this->repository->saveStatus(10, $this->memberA, PresenceStatus::UNSET, null);
 
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM presences_records')->fetchColumn());
         $this->assertNull($this->repository->find(10, $this->memberA));
@@ -119,15 +119,16 @@ class PresenceRepositoryTest extends TestCase
 
     public function testTakingAStateBackRemovesTheRowItCreated(): void
     {
-        $this->repository->save(10, $this->memberA, PresenceStatus::PRESENT, null, null);
-        $this->repository->save(10, $this->memberA, PresenceStatus::UNSET, null, null);
+        $this->repository->saveStatus(10, $this->memberA, PresenceStatus::PRESENT, null);
+        $this->repository->saveStatus(10, $this->memberA, PresenceStatus::UNSET, null);
 
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM presences_records')->fetchColumn());
     }
 
     public function testACommentAloneKeepsARowEvenWithoutAState(): void
     {
-        $this->repository->save(10, $this->memberA, PresenceStatus::UNSET, 'Sa maman a prévenu.', null);
+        $this->repository->saveStatus(10, $this->memberA, PresenceStatus::UNSET, null);
+        $this->repository->saveComment(10, $this->memberA, 'Sa maman a prévenu.', null);
 
         $record = $this->repository->find(10, $this->memberA);
         $this->assertNotNull($record);
@@ -137,16 +138,17 @@ class PresenceRepositoryTest extends TestCase
 
     public function testAnEmptyCommentIsTheSameAsNoComment(): void
     {
-        $this->repository->save(10, $this->memberA, PresenceStatus::PRESENT, '   ', null);
+        $this->repository->saveStatus(10, $this->memberA, PresenceStatus::PRESENT, null);
+        $this->repository->saveComment(10, $this->memberA, '   ', null);
 
         $this->assertNull($this->repository->find(10, $this->memberA)?->comment);
     }
 
     public function testOneEventComesBackKeyedByMember(): void
     {
-        $this->repository->save(10, $this->memberA, PresenceStatus::PRESENT, null, null);
-        $this->repository->save(10, $this->memberB, PresenceStatus::ABSENT, null, null);
-        $this->repository->save(11, $this->memberA, PresenceStatus::EXCUSED, null, null);
+        $this->repository->saveStatus(10, $this->memberA, PresenceStatus::PRESENT, null);
+        $this->repository->saveStatus(10, $this->memberB, PresenceStatus::ABSENT, null);
+        $this->repository->saveStatus(11, $this->memberA, PresenceStatus::EXCUSED, null);
 
         $sheet = $this->repository->findByEvent(10);
 
@@ -156,8 +158,8 @@ class PresenceRepositoryTest extends TestCase
 
     public function testManyEventsComeBackKeyedByEventThenMember(): void
     {
-        $this->repository->save(10, $this->memberA, PresenceStatus::PRESENT, null, null);
-        $this->repository->save(11, $this->memberB, PresenceStatus::ABSENT, null, null);
+        $this->repository->saveStatus(10, $this->memberA, PresenceStatus::PRESENT, null);
+        $this->repository->saveStatus(11, $this->memberB, PresenceStatus::ABSENT, null);
 
         $register = $this->repository->findByEvents([10, 11, 12]);
 
@@ -170,9 +172,9 @@ class PresenceRepositoryTest extends TestCase
 
     public function testOneAnimesHistoryComesBackKeyedByEvent(): void
     {
-        $this->repository->save(10, $this->memberA, PresenceStatus::PRESENT, null, null);
-        $this->repository->save(11, $this->memberA, PresenceStatus::ABSENT, null, null);
-        $this->repository->save(11, $this->memberB, PresenceStatus::PRESENT, null, null);
+        $this->repository->saveStatus(10, $this->memberA, PresenceStatus::PRESENT, null);
+        $this->repository->saveStatus(11, $this->memberA, PresenceStatus::ABSENT, null);
+        $this->repository->saveStatus(11, $this->memberB, PresenceStatus::PRESENT, null);
 
         $history = $this->repository->findByMemberAndEvents($this->memberA, [10, 11]);
 
@@ -182,9 +184,10 @@ class PresenceRepositoryTest extends TestCase
 
     public function testTheCountsAreAggregatedWithoutDecryptingAnything(): void
     {
-        $this->repository->save(10, $this->memberA, PresenceStatus::PRESENT, 'Un commentaire.', null);
-        $this->repository->save(10, $this->memberB, PresenceStatus::PRESENT, null, null);
-        $this->repository->save(11, $this->memberA, PresenceStatus::ABSENT, null, null);
+        $this->repository->saveStatus(10, $this->memberA, PresenceStatus::PRESENT, null);
+        $this->repository->saveComment(10, $this->memberA, 'Un commentaire.', null);
+        $this->repository->saveStatus(10, $this->memberB, PresenceStatus::PRESENT, null);
+        $this->repository->saveStatus(11, $this->memberA, PresenceStatus::ABSENT, null);
 
         $counts = $this->repository->countByStatusForEvents([10, 11, 12]);
 
@@ -203,13 +206,78 @@ class PresenceRepositoryTest extends TestCase
 
     public function testErasingCommentsLeavesTheStatesStanding(): void
     {
-        $this->repository->save(10, $this->memberA, PresenceStatus::EXCUSED, 'Malade.', null);
-        $this->repository->save(10, $this->memberB, PresenceStatus::PRESENT, 'Reparti plus tôt.', null);
+        $this->repository->saveStatus(10, $this->memberA, PresenceStatus::EXCUSED, null);
+        $this->repository->saveComment(10, $this->memberA, 'Malade.', null);
+        $this->repository->saveStatus(10, $this->memberB, PresenceStatus::PRESENT, null);
+        $this->repository->saveComment(10, $this->memberB, 'Reparti plus tôt.', null);
 
         $this->assertSame(1, $this->repository->eraseComments([$this->memberA]));
 
         $this->assertNull($this->repository->find(10, $this->memberA)?->comment);
         $this->assertSame(PresenceStatus::EXCUSED, $this->repository->find(10, $this->memberA)?->status);
         $this->assertSame('Reparti plus tôt.', $this->repository->find(10, $this->memberB)?->comment);
+    }
+
+    /**
+     * The race the unique index used to report as an error: two
+     * animateurs tapping the same animé for the first time in the same
+     * second. A read-then-INSERT has both of them find no row; the upsert
+     * has no such window, so the second tap is recorded rather than
+     * refused.
+     */
+    public function testTwoFirstWritesForTheSameAnimeDoNotCollide(): void
+    {
+        $second = new PresenceRepository($this->pdo, $this->encryption);
+
+        $this->repository->saveStatus(10, $this->memberA, PresenceStatus::PRESENT, null);
+        $second->saveStatus(10, $this->memberA, PresenceStatus::ABSENT, null);
+
+        $this->assertSame(PresenceStatus::ABSENT, $this->repository->find(10, $this->memberA)?->status);
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM presences_records')->fetchColumn()
+        );
+    }
+
+    /**
+     * The lost update the two column-scoped writes exist to prevent: a
+     * state saved from a page that loaded before somebody else's comment
+     * must not carry that page's stale idea of the comment back.
+     */
+    public function testAStateNeverCarriesAStaleCommentBack(): void
+    {
+        $this->repository->saveStatus(10, $this->memberA, PresenceStatus::PRESENT, null);
+        // The other animateur, on their own screen.
+        $this->repository->saveComment(10, $this->memberA, 'Sa maman vient de prévenir.', null);
+        // This screen still shows no comment, and only sends a state.
+        $this->repository->saveStatus(10, $this->memberA, PresenceStatus::EXCUSED, null);
+
+        $record = $this->repository->find(10, $this->memberA);
+        $this->assertSame(PresenceStatus::EXCUSED, $record?->status);
+        $this->assertSame('Sa maman vient de prévenir.', $record?->comment);
+    }
+
+    public function testACommentNeverCarriesAStaleStateBack(): void
+    {
+        $this->repository->saveComment(10, $this->memberA, 'Rendez-vous médical.', null);
+        $this->repository->saveStatus(10, $this->memberA, PresenceStatus::ABSENT, null);
+        $this->repository->saveComment(10, $this->memberA, 'Rendez-vous médical, prévenu jeudi.', null);
+
+        $record = $this->repository->find(10, $this->memberA);
+        $this->assertSame(PresenceStatus::ABSENT, $record?->status);
+        $this->assertSame('Rendez-vous médical, prévenu jeudi.', $record?->comment);
+    }
+
+    public function testDeletingAnEventTakesEveryRowOfItAndNoOther(): void
+    {
+        $this->repository->saveStatus(10, $this->memberA, PresenceStatus::PRESENT, null);
+        $this->repository->saveComment(10, $this->memberA, 'Malade.', null);
+        $this->repository->saveStatus(10, $this->memberB, PresenceStatus::ABSENT, null);
+        $this->repository->saveStatus(11, $this->memberA, PresenceStatus::PRESENT, null);
+
+        $this->repository->deleteByEvent(10);
+
+        $this->assertSame([], $this->repository->findByEvent(10));
+        $this->assertCount(1, $this->repository->findByEvent(11));
     }
 }

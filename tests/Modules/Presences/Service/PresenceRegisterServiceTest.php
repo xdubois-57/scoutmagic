@@ -91,8 +91,8 @@ class PresenceRegisterServiceTest extends TestCase
         $untouched = $this->event($this->sectionId, '09-20');
         $this->anime('Basile', 'Hargot');
         $this->anime('Dounia', 'Ayoute');
-        $this->repository->save($pointed, $this->animes['Hargot'], PresenceStatus::PRESENT, null, null);
-        $this->repository->save($pointed, $this->animes['Ayoute'], PresenceStatus::PRESENT, null, null);
+        $this->repository->saveStatus($pointed, $this->animes['Hargot'], PresenceStatus::PRESENT, null);
+        $this->repository->saveStatus($pointed, $this->animes['Ayoute'], PresenceStatus::PRESENT, null);
 
         $register = $this->service->buildRegister($this->sectionId, $this->scoutYearId);
 
@@ -116,7 +116,8 @@ class PresenceRegisterServiceTest extends TestCase
     {
         $event = $this->event($this->sectionId, '09-13');
         $this->anime('Basile', 'Hargot');
-        $this->repository->save($event, $this->animes['Hargot'], PresenceStatus::UNSET, 'Sa maman a prévenu.', null);
+        $this->repository->saveStatus($event, $this->animes['Hargot'], PresenceStatus::UNSET, null);
+        $this->repository->saveComment($event, $this->animes['Hargot'], 'Sa maman a prévenu.', null);
 
         $register = $this->service->buildRegister($this->sectionId, $this->scoutYearId);
 
@@ -129,8 +130,9 @@ class PresenceRegisterServiceTest extends TestCase
         $event = $this->event($this->sectionId, '09-13');
         $this->anime('Basile', 'Hargot');
         $this->anime('Dounia', 'Ayoute');
-        $this->repository->save($event, $this->animes['Hargot'], PresenceStatus::PRESENT, null, null);
-        $this->repository->save($event, $this->animes['Ayoute'], PresenceStatus::EXCUSED, 'Malade.', null);
+        $this->repository->saveStatus($event, $this->animes['Hargot'], PresenceStatus::PRESENT, null);
+        $this->repository->saveStatus($event, $this->animes['Ayoute'], PresenceStatus::EXCUSED, null);
+        $this->repository->saveComment($event, $this->animes['Ayoute'], 'Malade.', null);
 
         $register = $this->service->buildRegister($this->sectionId, $this->scoutYearId);
 
@@ -145,8 +147,8 @@ class PresenceRegisterServiceTest extends TestCase
         $this->anime('Basile', 'Hargot');
         $this->anime('Dounia', 'Ayoute');
         $this->anime('Hugo', 'Lejeune');
-        $this->repository->save($event, $this->animes['Hargot'], PresenceStatus::PRESENT, null, null);
-        $this->repository->save($event, $this->animes['Ayoute'], PresenceStatus::ABSENT, null, null);
+        $this->repository->saveStatus($event, $this->animes['Hargot'], PresenceStatus::PRESENT, null);
+        $this->repository->saveStatus($event, $this->animes['Ayoute'], PresenceStatus::ABSENT, null);
 
         $register = $this->service->buildRegister($this->sectionId, $this->scoutYearId);
 
@@ -163,10 +165,10 @@ class PresenceRegisterServiceTest extends TestCase
         $this->event($this->sectionId, '09-27');
         $this->anime('Basile', 'Hargot');
         $this->anime('Dounia', 'Ayoute');
-        $this->repository->save($strong, $this->animes['Hargot'], PresenceStatus::PRESENT, null, null);
-        $this->repository->save($strong, $this->animes['Ayoute'], PresenceStatus::PRESENT, null, null);
-        $this->repository->save($weak, $this->animes['Hargot'], PresenceStatus::ABSENT, null, null);
-        $this->repository->save($weak, $this->animes['Ayoute'], PresenceStatus::ABSENT, null, null);
+        $this->repository->saveStatus($strong, $this->animes['Hargot'], PresenceStatus::PRESENT, null);
+        $this->repository->saveStatus($strong, $this->animes['Ayoute'], PresenceStatus::PRESENT, null);
+        $this->repository->saveStatus($weak, $this->animes['Hargot'], PresenceStatus::ABSENT, null);
+        $this->repository->saveStatus($weak, $this->animes['Ayoute'], PresenceStatus::ABSENT, null);
 
         $register = $this->service->buildRegister($this->sectionId, $this->scoutYearId);
 
@@ -193,8 +195,8 @@ class PresenceRegisterServiceTest extends TestCase
         $this->anime('Basile', 'Hargot');
         $this->anime('Dounia', 'Ayoute');
         foreach ([$first, $second] as $event) {
-            $this->repository->save($event, $this->animes['Ayoute'], PresenceStatus::PRESENT, null, null);
-            $this->repository->save($event, $this->animes['Hargot'], PresenceStatus::ABSENT, null, null);
+            $this->repository->saveStatus($event, $this->animes['Ayoute'], PresenceStatus::PRESENT, null);
+            $this->repository->saveStatus($event, $this->animes['Hargot'], PresenceStatus::ABSENT, null);
         }
 
         $register = $this->service->buildRegister($this->sectionId, $this->scoutYearId);
@@ -213,7 +215,7 @@ class PresenceRegisterServiceTest extends TestCase
         $event = $this->event($this->sectionId, '09-13');
         foreach (['Ayoute', 'Biernaux', 'Hargot', 'Lejeune', 'Meese', 'Vanloqueren'] as $name) {
             $this->anime('Prénom', $name);
-            $this->repository->save($event, $this->animes[$name], PresenceStatus::ABSENT, null, null);
+            $this->repository->saveStatus($event, $this->animes[$name], PresenceStatus::ABSENT, null);
         }
 
         $register = $this->service->buildRegister($this->sectionId, $this->scoutYearId);
@@ -239,7 +241,7 @@ class PresenceRegisterServiceTest extends TestCase
         $this->anime('Basile', 'Hargot');
         $done = $this->eventOn($this->sectionId, (new \DateTimeImmutable('-14 days'))->format('Y-m-d'));
         $unfinished = $this->eventOn($this->sectionId, (new \DateTimeImmutable('-7 days'))->format('Y-m-d'));
-        $this->repository->save($done, $this->animes['Hargot'], PresenceStatus::PRESENT, null, null);
+        $this->repository->saveStatus($done, $this->animes['Hargot'], PresenceStatus::PRESENT, null);
 
         $register = $this->service->buildRegister($this->sectionId, $this->scoutYearId);
 
@@ -251,7 +253,7 @@ class PresenceRegisterServiceTest extends TestCase
     {
         $this->anime('Basile', 'Hargot');
         $done = $this->eventOn($this->sectionId, (new \DateTimeImmutable('-7 days'))->format('Y-m-d'));
-        $this->repository->save($done, $this->animes['Hargot'], PresenceStatus::PRESENT, null, null);
+        $this->repository->saveStatus($done, $this->animes['Hargot'], PresenceStatus::PRESENT, null);
 
         $this->assertNull($this->service->buildRegister($this->sectionId, $this->scoutYearId)->nextEvent);
     }

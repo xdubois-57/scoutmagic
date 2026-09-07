@@ -86,7 +86,8 @@ class PresenceExportServiceTest extends TestCase
     {
         $event = $this->event('09-13');
         $this->anime('Basile', 'Hargot');
-        $this->repository->save($event, $this->animes['Hargot'], PresenceStatus::EXCUSED, 'Malade.', null);
+        $this->repository->saveStatus($event, $this->animes['Hargot'], PresenceStatus::EXCUSED, null);
+        $this->repository->saveComment($event, $this->animes['Hargot'], 'Malade.', null);
 
         $rows = $this->rowsOf($this->service->build($this->sectionId, $this->scoutYearId, '2026-2027')[0]);
 
@@ -121,9 +122,8 @@ class PresenceExportServiceTest extends TestCase
     {
         $event = $this->event('09-13');
         $this->anime('Basile', 'Hargot');
-        $this->repository->save(
-            $event, $this->animes['Hargot'], PresenceStatus::ABSENT, '=SOMME(A1:A9)', null
-        );
+        $this->repository->saveStatus($event, $this->animes['Hargot'], PresenceStatus::ABSENT, null);
+        $this->repository->saveComment($event, $this->animes['Hargot'], '=SOMME(A1:A9)', null);
 
         $sheet = $this->service->build($this->sectionId, $this->scoutYearId, '2026-2027')[0]->getActiveSheet();
         $cell = $sheet->getCell([7, 2]);
@@ -136,7 +136,8 @@ class PresenceExportServiceTest extends TestCase
     {
         $event = $this->event('09-13');
         $this->anime('Basile', 'Hargot');
-        $this->repository->save($event, $this->animes['Hargot'], PresenceStatus::ABSENT, 'Malade.', null);
+        $this->repository->saveStatus($event, $this->animes['Hargot'], PresenceStatus::ABSENT, null);
+        $this->repository->saveComment($event, $this->animes['Hargot'], 'Malade.', null);
 
         [, , $counters] = $this->service->build($this->sectionId, $this->scoutYearId, '2026-2027');
 

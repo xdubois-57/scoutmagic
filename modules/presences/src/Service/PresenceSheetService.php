@@ -108,10 +108,12 @@ class PresenceSheetService
      * beside them.
      *
      * **A state and a comment are written separately, never as one
-     * payload.** Two animateurs pointing the same list at the same moment
-     * is the ordinary case in a local, and a save carrying both fields
-     * would silently overwrite the other one's work — the same
-     * concurrency rule the Départs page states for its own two fields.
+     * payload, and the write touches only its own column**
+     * (`PresenceRepository::saveStatus()`). Two animateurs pointing the
+     * same list at the same moment is the ordinary case in a local, and a
+     * save carrying both fields would silently overwrite the other one's
+     * work — the same concurrency rule the Départs page states for its
+     * own two fields.
      *
      * @return bool false for every refusal, worded identically by the
      *         caller so the endpoint cannot be used to map out which
@@ -130,13 +132,7 @@ class PresenceSheetService
             return false;
         }
 
-        $this->repository->save(
-            $eventId,
-            $memberId,
-            $status,
-            $this->repository->find($eventId, $memberId)?->comment,
-            $userId
-        );
+        $this->repository->saveStatus($eventId, $memberId, $status, $userId);
 
         return true;
     }
@@ -145,6 +141,9 @@ class PresenceSheetService
      * Record what the staff wrote beside one animé, keeping the state
      * they are already in — see recordStatus() for why the two never
      * travel together.
+     *
+     * Nobody has pointed this animé yet? The row is created « non
+     * renseigné », which is what that evening still knows about them.
      */
     public function recordComment(
         int $eventId,
@@ -159,17 +158,7 @@ class PresenceSheetService
             return false;
         }
 
-        $existing = $this->repository->find($eventId, $memberId);
-        $this->repository->save(
-            $eventId,
-            $memberId,
-            // No row yet: writing a comment about somebody nobody has
-            // pointed leaves them « non renseigné », which is what that
-            // evening still knows about them.
-            $existing !== null ? $existing->status : PresenceStatus::UNSET,
-            $comment,
-            $userId
-        );
+        $this->repository->saveComment($eventId, $memberId, $comment, $userId);
 
         return true;
     }

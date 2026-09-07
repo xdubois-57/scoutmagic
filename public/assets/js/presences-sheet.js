@@ -224,6 +224,39 @@
     var pendingComments = {};
 
     /**
+     * Is this field still holding the text the page loaded, or the text
+     * we last sent?
+     *
+     * Opening the comment panel focuses the field, so tapping a state
+     * button afterwards raises a focusout on a comment nobody touched.
+     * Posting it would re-encrypt and re-stamp the row for nothing —
+     * and, worse, replace a comment a second animateur wrote since this
+     * page loaded with the text this page still remembers. The whole
+     * point of writing a state and a comment separately is not to
+     * overwrite the other one's work.
+     *
+     * @param {HTMLTextAreaElement} field
+     * @returns {boolean}
+     */
+    function isUnchanged(field) {
+        return field.value === (field.dataset.savedComment !== undefined
+            ? field.dataset.savedComment
+            : field.defaultValue);
+    }
+
+    /**
+     * @param {HTMLTextAreaElement} field
+     */
+    function saveComment(field) {
+        var memberId = field.dataset.memberId || '';
+        if (isUnchanged(field)) {
+            return;
+        }
+        field.dataset.savedComment = field.value;
+        save(memberId, { comment: field.value });
+    }
+
+    /**
      * @param {HTMLTextAreaElement} field
      */
     function scheduleCommentSave(field) {
@@ -231,7 +264,7 @@
         clearTimeout(pendingComments[memberId]);
         pendingComments[memberId] = setTimeout(function () {
             delete pendingComments[memberId];
-            save(memberId, { comment: field.value });
+            saveComment(field);
         }, COMMENT_DEBOUNCE_MS);
     }
 
@@ -262,7 +295,7 @@
         var memberId = field.dataset.memberId || '';
         clearTimeout(pendingComments[memberId]);
         delete pendingComments[memberId];
-        save(memberId, { comment: field.value });
+        saveComment(field);
     }, true);
 
     counters.forEach(function (element) {

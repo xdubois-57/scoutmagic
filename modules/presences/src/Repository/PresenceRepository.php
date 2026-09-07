@@ -133,56 +133,121 @@ class PresenceRepository
     }
 
     /**
-     * Record one decision, comment included — an upsert on
-     * (calendar_event_id, member_id), which is what makes a second tap on
-     * the same animé a correction rather than a second row.
+     * Record one animé's state, touching nothing else on the row.
      *
-     * **A row carrying neither a state nor a comment is deleted, not
-     * stored as 'unset'.** « Non renseigné » with nothing written beside
-     * it is exactly what the absence of a row already means, and keeping
-     * one would leave the table growing with decisions somebody took back.
-     *
-     * Written with an explicit PHP timestamp rather than a column default:
-     * the test database is SQLite, whose CURRENT_TIMESTAMP is UTC while
-     * everything else here runs on Europe/Brussels
-     * (docs/module-development.md § Timestamps).
-     *
-     * @param string|null $comment null or '' both mean « no comment »
+     * **Only the `status` column is written.** A state and a comment are
+     * two decisions, taken at different moments by possibly different
+     * animateurs, and a write carrying both would silently replace the
+     * comment this page loaded — which is the very lost update the sheet
+     * exists to avoid when two people point the same list at once.
      */
-    public function save(
-        int $eventId,
-        int $memberId,
-        PresenceStatus $status,
-        ?string $comment,
-        ?int $updatedBy
-    ): void {
+    public function saveStatus(int $eventId, int $memberId, PresenceStatus $status, ?int $updatedBy): void
+    {
+        $this->upsert(
+            'INSERT INTO presences_records
+                (calendar_event_id, member_id, status, created_at, updated_at, updated_by)
+             VALUES (?, ?, ?, ?, ?, ?)',
+            'status = excluded.status, updated_at = excluded.updated_at, updated_by = excluded.updated_by',
+            'status = VALUES(status), updated_at = VALUES(updated_at), updated_by = VALUES(updated_by)',
+            [$eventId, $memberId, $status->value],
+            $updatedBy
+        );
+        $this->deleteWhenNothingLeft($eventId, $memberId);
+    }
+
+    /**
+     * Record what the staff wrote beside one animé, touching nothing else
+     * on the row — see saveStatus() for why the two never travel
+     * together.
+     *
+     * @param string|null $comment null or a blank string both mean
+     *        « no comment », and both erase whatever was there
+     */
+    public function saveComment(int $eventId, int $memberId, ?string $comment, ?int $updatedBy): void
+    {
         $comment = $comment !== null && trim($comment) !== '' ? trim($comment) : null;
-
-        if ($status === PresenceStatus::UNSET && $comment === null) {
-            $this->delete($eventId, $memberId);
-            return;
-        }
-
-        $now = AppClock::now()->format('Y-m-d H:i:s');
         $encrypted = $comment !== null ? $this->encryption->encrypt($comment, self::COMMENT_CONTEXT) : null;
 
-        $existing = $this->find($eventId, $memberId);
-        if ($existing !== null) {
-            $stmt = $this->pdo->prepare(
-                'UPDATE presences_records
-                 SET status = ?, comment_encrypted = ?, updated_at = ?, updated_by = ?
-                 WHERE id = ?'
-            );
-            $stmt->execute([$status->value, $encrypted, $now, $updatedBy, $existing->id]);
-            return;
-        }
-
-        $stmt = $this->pdo->prepare(
+        $this->upsert(
             'INSERT INTO presences_records
                 (calendar_event_id, member_id, status, comment_encrypted, created_at, updated_at, updated_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?)'
+             VALUES (?, ?, ?, ?, ?, ?, ?)',
+            'comment_encrypted = excluded.comment_encrypted,
+             updated_at = excluded.updated_at, updated_by = excluded.updated_by',
+            'comment_encrypted = VALUES(comment_encrypted),
+             updated_at = VALUES(updated_at), updated_by = VALUES(updated_by)',
+            [$eventId, $memberId, PresenceStatus::UNSET->value, $encrypted],
+            $updatedBy
         );
-        $stmt->execute([$eventId, $memberId, $status->value, $encrypted, $now, $now, $updatedBy]);
+        $this->deleteWhenNothingLeft($eventId, $memberId);
+    }
+
+    /**
+     * The insert-or-update behind both writes, in ONE statement.
+     *
+     * A read-then-branch would lose the race the unique index then
+     * reports as an error: two animateurs tapping the same animé for the
+     * first time in the same second both find no row, both INSERT, and
+     * the second one's tap comes back as a failure instead of being
+     * recorded. The upsert has no such window.
+     *
+     * SQLite — the in-memory test database — spells it differently from
+     * MySQL/MariaDB, hence the two clauses passed in; same portable
+     * pairing as
+     * `Modules\UsageStats\Repository\PageViewRepository::increment()`.
+     * Both are private literals naming columns only; every value is
+     * bound.
+     *
+     * The timestamps are written from PHP rather than by a column
+     * default: the test database is SQLite, whose CURRENT_TIMESTAMP is
+     * UTC while everything else here runs on Europe/Brussels
+     * (docs/module-development.md § Timestamps).
+     *
+     * @param list<int|string|null> $values everything but the three timestamps
+     */
+    private function upsert(
+        string $insert,
+        string $sqliteAssignments,
+        string $mysqlAssignments,
+        array $values,
+        ?int $updatedBy
+    ): void {
+        $now = AppClock::now()->format('Y-m-d H:i:s');
+
+        $sql = $insert . ($this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'sqlite'
+            ? ' ON CONFLICT(calendar_event_id, member_id) DO UPDATE SET ' . $sqliteAssignments
+            : ' ON DUPLICATE KEY UPDATE ' . $mysqlAssignments);
+
+        $this->pdo->prepare($sql)->execute([...$values, $now, $now, $updatedBy]);
+    }
+
+    /**
+     * **A row carrying neither a state nor a comment is deleted, not kept
+     * as 'unset'.** « Non renseigné » with nothing written beside it is
+     * exactly what the absence of a row already means, and keeping one
+     * would leave the table growing with decisions somebody took back.
+     *
+     * Expressed as a conditional DELETE rather than a read-then-decide so
+     * that a comment saved between the two never disappears.
+     */
+    private function deleteWhenNothingLeft(int $eventId, int $memberId): void
+    {
+        $stmt = $this->pdo->prepare(
+            'DELETE FROM presences_records
+              WHERE calendar_event_id = ? AND member_id = ?
+                AND status = ? AND comment_encrypted IS NULL'
+        );
+        $stmt->execute([$eventId, $memberId, PresenceStatus::UNSET->value]);
+    }
+
+    /**
+     * Every trace of one event, for when the evening itself is deleted —
+     * see `Modules\Presences\Service\PresenceEventCleanupService`.
+     */
+    public function deleteByEvent(int $eventId): void
+    {
+        $stmt = $this->pdo->prepare('DELETE FROM presences_records WHERE calendar_event_id = ?');
+        $stmt->execute([$eventId]);
     }
 
     public function delete(int $eventId, int $memberId): void
