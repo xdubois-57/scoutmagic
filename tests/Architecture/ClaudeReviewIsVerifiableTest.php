@@ -125,6 +125,45 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
     }
 
     /**
+     * WHAT THE 106th RUN TURNED OUT TO BE. The first run whose transcript
+     * named its refusals named `Skill` first, on #208, and the input said
+     * what it wanted: `code-review:code-review`. The `prompt:` this
+     * workflow passes is a slash command, and a slash command is invoked
+     * through the `Skill` tool — so the reviewing procedure had never been
+     * loaded at all, and every "review" so far was an agent improvising
+     * from the diff with the tools it happened to have.
+     *
+     * The failure is silent by construction: a refused `Skill` call does
+     * not stop the run, it just leaves the command unread.
+     */
+    public function testTheReviewerMayRunTheCommandItWasGiven(): void
+    {
+        $this->assertStringContainsString(
+            'Skill',
+            self::claudeArgs(),
+            'The `prompt:` above is a slash command, which the agent invokes through the `Skill` tool. '
+            . 'Ungranted, that call is refused, the code-review procedure is never loaded, and the run '
+            . 'improvises a review instead of failing — which is exactly how the first 105 looked.',
+        );
+    }
+
+    /**
+     * The other three refusals on that run were one `git fetch` of the
+     * pull request head, retried after each one. It reads and writes
+     * nothing; a reviewer that cannot reach the commit it was asked to
+     * read spends its turns working around that.
+     */
+    public function testTheReviewerCanFetchTheCommitItReviews(): void
+    {
+        $this->assertStringContainsString(
+            'Bash(git fetch:*)',
+            self::claudeArgs(),
+            'The reviewer was refused `git fetch` of the pull request ref three times in a row on #208 '
+            . 'before giving up on reading the commit locally.',
+        );
+    }
+
+    /**
      * The tool that was already there, and the one thing the old list got
      * right: the action installs the inline-comment MCP server only when
      * `claude_args` names a tool from it. Remove it and findings have
@@ -216,12 +255,139 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
     {
         [$review] = self::jobs();
 
-        foreach (['evidence', 'turns', 'denials', 'denied_tools', 'agent_calls'] as $output) {
+        $outputs = ['evidence', 'turns', 'denials', 'denied_tools', 'agent_calls', 'subagents_spawned', 'subagents_completed'];
+
+        foreach ($outputs as $output) {
             $this->assertMatchesRegularExpression(
                 '/^\s+' . preg_quote($output, '/') . ':\s*\$\{\{\s*steps\.evidence\.outputs\./m',
                 $review,
                 'The review job no longer publishes `' . $output . '`, which the status job reads to decide '
                 . 'whether a review happened.',
+            );
+        }
+    }
+
+    /**
+     * The jq program the evidence step reads the transcript with, lifted
+     * out of the workflow so a test can run it. Every other assertion here
+     * reads the file as text; this one runs the thing itself, because what
+     * it is being asked is what the reader DOES with a shape, which no
+     * amount of string matching answers.
+     */
+    private static function jqProgram(): string
+    {
+        $workflow = self::workflow();
+        $opens = strpos($workflow, "if ! jq -r '");
+
+        self::assertIsInt($opens, 'The evidence step no longer reads the transcript with jq.');
+
+        $start = $opens + strlen("if ! jq -r '");
+        $closes = strpos($workflow, "' \"\${EXECUTION_FILE}\"", $start);
+
+        self::assertIsInt($closes, 'The jq program is no longer closed where this test expects to find its end.');
+
+        return substr($workflow, $start, $closes - $start);
+    }
+
+    /**
+     * Runs that program over a one-message transcript carrying
+     * `$subagentStats`, and returns the `key=value` lines it wrote.
+     *
+     * @param  array<string, mixed>|null $subagentStats null omits the key entirely
+     * @return array<string, string>
+     */
+    private static function evidenceFor(?array $subagentStats): array
+    {
+        $result = [
+            'type' => 'result',
+            'subtype' => 'success',
+            'is_error' => false,
+            'num_turns' => 5,
+            'permission_denials' => [],
+            'total_cost_usd' => 0.1,
+        ];
+
+        if ($subagentStats !== null) {
+            $result['subagent_stats'] = $subagentStats;
+        }
+
+        $transcript = tempnam(sys_get_temp_dir(), 'claude-review-transcript-');
+        $program = tempnam(sys_get_temp_dir(), 'claude-review-filter-');
+
+        self::assertIsString($transcript);
+        self::assertIsString($program);
+
+        try {
+            file_put_contents($transcript, (string) json_encode([$result]));
+            file_put_contents($program, self::jqProgram());
+
+            $output = [];
+            $status = 0;
+            exec(
+                'jq -r -f ' . escapeshellarg($program) . ' ' . escapeshellarg($transcript) . ' 2>&1',
+                $output,
+                $status,
+            );
+
+            self::assertSame(
+                0,
+                $status,
+                "The evidence reader died on this transcript instead of describing it:\n" . implode("\n", $output),
+            );
+
+            $evidence = [];
+
+            foreach ($output as $line) {
+                [$key, $value] = explode('=', $line, 2);
+                $evidence[$key] = $value;
+            }
+
+            return $evidence;
+        } finally {
+            unlink($transcript);
+            unlink($program);
+        }
+    }
+
+    /**
+     * THE STATUS JOB DECIDES "DID THEY ALL COME BACK" BY COMPARING TWO
+     * NUMBERS, so any pair that is equal reaches the branch that claims a
+     * review happened — and `-2` equals `-2`, as does `1.5`. Testing the
+     * transcript's counts for `number` alone would let a `subagent_stats`
+     * this reader does not understand agree with itself into "Reviewed,
+     * nothing to report", which is the failure the whole reader exists to
+     * stop, arriving through the very field added to stop it. Anything
+     * that is not a count has to become the `-1` the status job already
+     * knows how to refuse. (CodeRabbit, PR #209.)
+     */
+    public function testAMalformedSubagentCountIsRefusedRatherThanBelieved(): void
+    {
+        if (shell_exec('command -v jq') === null) {
+            self::markTestSkipped('jq is not installed, so the evidence reader cannot be run here.');
+        }
+
+        $real = self::evidenceFor(['spawned' => 3, 'completed' => 2]);
+
+        $this->assertSame('3', $real['subagents_spawned'], 'A genuine count no longer survives the reader.');
+        $this->assertSame('2', $real['subagents_completed'], 'A genuine count no longer survives the reader.');
+
+        $malformed = [
+            'equal negatives' => ['spawned' => -2, 'completed' => -2],
+            'equal fractions' => ['spawned' => 1.5, 'completed' => 1.5],
+            'counts as strings' => ['spawned' => '3', 'completed' => '3'],
+            'counts as null' => ['spawned' => null, 'completed' => null],
+            'no counts at all' => [],
+            'no subagent_stats' => null,
+        ];
+
+        foreach ($malformed as $label => $stats) {
+            $evidence = self::evidenceFor($stats);
+
+            $this->assertSame(
+                ['-1', '-1'],
+                [$evidence['subagents_spawned'], $evidence['subagents_completed']],
+                'With ' . $label . ' the reader published something other than "unreadable". Equal values '
+                . 'agree with each other, and agreement is what the status job reads as a finished review.',
             );
         }
     }
@@ -295,6 +461,61 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
             $status,
             'The status job cannot fail any more, so a review that never ran is once again a green check '
             . 'and a comment saying so.',
+        );
+    }
+
+    /**
+     * LAUNCHED IS NOT FINISHED, and the gap between them is a third way to
+     * review nothing that the first two signals cannot see.
+     *
+     * On #208 the reviewer spawned three agents, collected two, and ended
+     * its turn on "Waiting for the background diff-summary agent to
+     * complete before proceeding to the parallel review step". A subagent
+     * runs in the background unless the caller says otherwise, and waiting
+     * for one by ending a turn works in a session somebody can resume;
+     * nothing resumes a workflow run, so the SDK closed it `subtype:
+     * success` with no comment posted. Agents launched said 3, and with
+     * the tools that run had been refused now granted, refusals would say
+     * 0 — the two signals of 2026-09-07 would both have passed it.
+     */
+    public function testAnUnfinishedReviewIsNotAReview(): void
+    {
+        [, $status] = self::jobs();
+
+        $this->assertStringContainsString(
+            'SUBAGENTS_COMPLETED',
+            $status,
+            'The status job no longer reads how many review agents came back, so a run that stopped '
+            . 'half-way through the diff is once again indistinguishable from one that finished it.',
+        );
+
+        $matched = preg_match(
+            '/elif \[\[ "\$\{SUBAGENTS_COMPLETED\}" != "\$\{SUBAGENTS_SPAWNED\}" \]\]; then\n(?:\s+#[^\n]*\n)*\s+verdict=/',
+            $status,
+            $found,
+        );
+
+        $this->assertSame(
+            1,
+            $matched,
+            'Nothing compares the review agents launched against the ones that finished, so the verdict '
+            . 'can again read "Reviewed, nothing to report" over a run that ended mid-review.',
+        );
+    }
+
+    /**
+     * The mitigation for the same failure, on the other side of the same
+     * run. It asks a model to remember something, so it is not the guard —
+     * the comparison above is — but a reviewer told to wait for its agents
+     * does not reach that guard in the first place.
+     */
+    public function testTheReviewerIsToldNotToWaitOnABackgroundAgent(): void
+    {
+        $this->assertStringContainsString(
+            'run_in_background',
+            self::claudeArgs(),
+            'The prompt no longer tells the reviewer to wait for the agents it launches. Subagents start '
+            . 'in the background, and a turn ended waiting for one ends this run — nothing will wake it.',
         );
     }
 
