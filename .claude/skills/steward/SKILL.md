@@ -171,10 +171,11 @@ saying whether a review happened and going **red** when it cannot show that
 one did. Read that comment; it is the answer the check alone cannot give.
 
 **And a green `Claude review` did not always mean a review happened even
-when Claude ran.** For its first 105 runs the reviewer was refused the
-`Task` tool its whole procedure is built on, so on every run anybody has
-looked at it launched no review agent, posted nothing, and reported
-success (2026-09-07, fixed
+when Claude ran.** For its first 105 runs the reviewer was refused one tool
+call per run — which one is still not known, the summary counts them
+without naming them — and on every run anybody has looked at, it launched
+no review agent, posted nothing, and reported success (2026-09-07, the
+tools its procedure needs now granted
 in `claude_args`; the story is in that file's header and in
 docs/quality-pipeline.md § Code review). Which is why the comment's verdict
 now rests on two rows — **`Review agents launched`** and **`Tool calls

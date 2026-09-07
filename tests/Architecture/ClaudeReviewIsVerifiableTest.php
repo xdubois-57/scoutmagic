@@ -400,5 +400,72 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
             $blocks[1][1],
             'The status job can no longer write the comment that says whether a review happened.',
         );
+        $this->assertStringContainsString(
+            'actions: read',
+            $blocks[1][1],
+            'The status job can no longer read the review job\'s timestamps. That endpoint answers without '
+            . 'this permission on a public repository, so the job would keep working here and stop the day '
+            . 'the repository turns private — before it has written its comment.',
+        );
+    }
+
+    /**
+     * `permission_denials_count` is the ACTION's console summary, computed
+     * in base-action/src/run-claude-sdk.ts as
+     * `resultMsg.permission_denials?.length ?? 0`. The execution file is
+     * written from the RAW SDK messages a few lines later, and those carry
+     * the `permission_denials` ARRAY and no count at all.
+     *
+     * Reading the console's field name out of the file yields null, which
+     * this step turns into `-1`, and the status job would have called every
+     * clean review a refusal — a check red on every pull request forever,
+     * naming no tool. CodeRabbit caught it on the pull request that added
+     * this file.
+     */
+    public function testTheRefusalCountComesFromTheArrayTheSdkActuallyWrites(): void
+    {
+        [$review] = self::jobs();
+
+        $this->assertStringContainsString(
+            'has("permission_denials")',
+            $review,
+            'The evidence step no longer reads the `permission_denials` array the SDK writes.',
+        );
+        $this->assertStringNotContainsString(
+            '$r.permission_denials_count',
+            $review,
+            'The evidence step reads `permission_denials_count` off the execution file. That field exists '
+            . 'only in the action\'s console summary; the file carries the array. The read returns null, '
+            . 'and every clean review is reported as a refusal.',
+        );
+    }
+
+    /**
+     * The evidence step runs under `set -euo pipefail` inside the job that
+     * owns the one required check on `main`. A jq that dies on an
+     * unexpected shape would fail the step, fail the job, and block every
+     * merge — over a reader that could not read a transcript.
+     */
+    public function testAnUnreadableTranscriptCannotFailTheRequiredCheck(): void
+    {
+        [$review] = self::jobs();
+
+        $this->assertStringContainsString(
+            'if ! jq -r',
+            $review,
+            'The evidence extraction is no longer guarded, so a transcript this step cannot parse fails the '
+            . 'review job itself — turning the required check red over the reader rather than the review.',
+        );
+
+        $guarded = strpos($review, 'if ! jq -r');
+        $appended = strpos($review, 'cat evidence.env');
+
+        self::assertIsInt($appended, 'The evidence step no longer appends what jq produced.');
+        $this->assertLessThan(
+            $appended,
+            $guarded,
+            'The outputs are appended before jq has been shown to succeed, so a half-written extraction can '
+            . 'still reach the status job.',
+        );
     }
 }

@@ -471,14 +471,25 @@ really ran; on every run sampled it never got past the first step of the
 command it was given. `claude_args` granted a single
 tool — the one that posts a finding — because that is what makes the action
 install the inline-comment MCP server. True, and incomplete: the same list
-is the permission allowlist, the code-review command is built entirely on
-subagents, and `Task` was not on it. The four runs sampled had each spent
-five turns, been refused exactly one tool, launched no review agent and
-posted nothing — on a one-line pull request (#193) and a twenty-five-file
-one (#200) alike, and with no Opus model in any of them, which the
-command's two bug-hunting agents are by definition. Meanwhile CodeRabbit
-was finding real defects in the same diffs. What the reader above said
-about all of it was "Reviewed, nothing to report".
+is the permission allowlist, and the code-review command is built entirely
+on subagents. The four runs sampled had each spent five turns, been refused
+exactly one tool, launched no review agent and posted nothing — on a
+one-line pull request (#193) and a twenty-five-file one (#200) alike, and
+with no Opus model in any of them, which the command's two bug-hunting
+agents are by definition. Meanwhile CodeRabbit was finding real defects in
+the same diffs. What the reader above said about all of it was "Reviewed,
+nothing to report".
+
+**Which tool was refused is still not known**, and that is worth stating
+plainly on a page about claims nobody checked. The action's console summary
+counts denials without naming them, and no run kept a transcript. `Task`
+was the leading candidate and is now granted, but this document is not
+going to record a hypothesis as the cause: `issue-triage.yml` records an
+agent running `date` and `ls` with `--allowedTools` naming only the GitHub
+MCP server, which suggests built-in tools may not be gated by that list at
+all. The grant eliminates the hypothesis; the `denied_tools` row of the
+status comment is what will settle it, on the first pull request that does
+not edit this workflow.
 
 Three things changed on 2026-09-07, and the third is the one that
 generalises:
