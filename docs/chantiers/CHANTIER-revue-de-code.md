@@ -605,7 +605,7 @@ après réveil ni la cohérence du cache.
 
 Une entrée par itération, ajoutée par la PR de fin d'itération (§0.6). Format :
 
-```
+```text
 ### Itération N — <titre> — <date>
 
 **Périmètre parcouru** : …
