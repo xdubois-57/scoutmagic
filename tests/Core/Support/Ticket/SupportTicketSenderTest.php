@@ -502,6 +502,110 @@ class SupportTicketSenderTest extends TestCase
     /**
      * @param array<string, mixed> $answer
      */
+    /**
+     * Two accepted sends interleaved: the second lands entirely between
+     * the first's read and its write (issue #199).
+     *
+     * That is the race, reproduced without threads. Before the
+     * compare-and-swap, the first sender wrote back the list it had read
+     * — a list that no longer existed — and the second's reference went
+     * with it. The database now refuses that write, and the loser re-reads
+     * and prepends onto the winner's list instead.
+     */
+    public function testAnInterleavedSendDoesNotEraseTheOneThatLandedMeanwhile(): void
+    {
+        $landedMeanwhile = false;
+
+        // A settings instance of its own, like a second PHP process: two
+        // requests do not share a cache, and sharing one here would test
+        // something that cannot happen.
+        $interleaving = new InterleavingSettingService(
+            new SettingRepository($this->pdo),
+            SupportTicketSender::RECENT_SETTING,
+            function () use (&$landedMeanwhile): void {
+                $landedMeanwhile = true;
+                $other = $this->senderWith(
+                    new SettingService(new SettingRepository($this->pdo)),
+                    $this->transport(200, ['status' => 'accepted', 'ticket_reference' => 'SUP-SECOND'])
+                );
+                $this->assertTrue($other->send('other', 'Le deuxième envoi.', 'chef@unite.be')->sent);
+            }
+        );
+
+        $first = $this->senderWith(
+            $interleaving,
+            $this->transport(200, ['status' => 'accepted', 'ticket_reference' => 'SUP-FIRST0'])
+        );
+
+        $this->assertTrue($first->send('other', 'Le premier envoi.', 'chef@unite.be')->sent);
+        $this->assertTrue($landedMeanwhile, 'the interleaving hook never fired — the test proves nothing');
+
+        // Read through a settings instance of its own, the way the page
+        // that displays this list does on a later request. `$this->settings`
+        // loaded its cache in setUp and nothing since has gone through it,
+        // so it would answer with the state before either send.
+        $reader = $this->senderWith(
+            new SettingService(new SettingRepository($this->pdo)),
+            $this->transport(200, [])
+        );
+
+        $recent = array_column($reader->recentlySent(), 'reference');
+
+        $this->assertContains('SUP-FIRST0', $recent);
+        $this->assertContains('SUP-SECOND', $recent, 'the interleaved send was erased by the one that read before it');
+    }
+
+    /**
+     * Contention that never lets up: the list keeps what the winners
+     * wrote, and this send simply does not get a row.
+     *
+     * There used to be a fallback here — the plain write of every version
+     * before the compare-and-swap — and it would have overwritten the
+     * whole list with this sender's own stale copy, which is the bug the
+     * retry exists to prevent, reintroduced at the bottom of the retry.
+     */
+    public function testASenderThatLosesEveryAttemptErasesNothing(): void
+    {
+        $interleaving = new InterleavingSettingService(
+            new SettingRepository($this->pdo),
+            SupportTicketSender::RECENT_SETTING,
+            // Fires before EVERY read of the key, not once: whatever this
+            // sender is about to write is stale by the time it writes it,
+            // for as many attempts as it makes.
+            function (): void {
+                $this->settings->setInternal(
+                    SupportTicketSender::RECENT_SETTING,
+                    (string) json_encode([[
+                        'reference' => 'SUP-WINNER' . random_int(100000, 999999),
+                        'sent_at' => '2026-09-07 07:00:00',
+                        'category' => 'other',
+                    ]])
+                );
+            },
+            once: false
+        );
+
+        $sender = $this->senderWith(
+            $interleaving,
+            $this->transport(200, ['status' => 'accepted', 'ticket_reference' => 'SUP-LOSER0'])
+        );
+
+        // The ticket was accepted, and says so. Bookkeeping never decides
+        // that — the same posture every other write on this path takes.
+        $this->assertTrue($sender->send('other', 'Un envoi malchanceux.', 'chef@unite.be')->sent);
+
+        $recent = array_column(
+            $this->senderWith(
+                new SettingService(new SettingRepository($this->pdo)),
+                $this->transport(200, [])
+            )->recentlySent(),
+            'reference'
+        );
+
+        $this->assertCount(1, $recent, 'the loser must not have replaced the list with its own copy');
+        $this->assertStringStartsWith('SUP-WINNER', $recent[0]);
+    }
+
     private function transport(int $status, array $answer): RecordingTicketTransport
     {
         return new RecordingTicketTransport(
@@ -516,13 +620,27 @@ class SupportTicketSenderTest extends TestCase
      */
     private function sender(StatisticsTransportInterface $transport, array $moduleNames = []): SupportTicketSender
     {
+        return $this->senderWith($this->settings, $transport, $moduleNames);
+    }
+
+    /**
+     * The same sender on a settings instance the caller chooses — one per
+     * contender, so a test can have two of them the way two requests do.
+     *
+     * @param array<string, string> $moduleNames
+     */
+    private function senderWith(
+        SettingService $settings,
+        StatisticsTransportInterface $transport,
+        array $moduleNames = []
+    ): SupportTicketSender {
         $journal = new JournalService(new JournalRepository($this->pdo));
 
         return new SupportTicketSender(
-            $this->settings,
+            $settings,
             new TicketIdentityService(
-                $this->settings,
-                new InstallationIdentityService($this->settings, $this->secretManager),
+                $settings,
+                new InstallationIdentityService($settings, $this->secretManager),
                 $journal
             ),
             $transport,
@@ -531,6 +649,55 @@ class SupportTicketSenderTest extends TestCase
             null,
             $moduleNames
         );
+    }
+}
+
+/**
+ * A settings instance that lets something else happen between one read and
+ * the write that follows it.
+ *
+ * The only way to reproduce a lost update in a single process: the hook
+ * fires AFTER the value is read, so the reader is holding a value that is
+ * already stale by the time it tries to write it.
+ */
+final class InterleavingSettingService extends SettingService
+{
+    /** @var (callable(): void)|null */
+    private $interleave;
+
+    public function __construct(
+        SettingRepository $repository,
+        private string $watchedKey,
+        callable $interleave,
+        /**
+         * True for one interleaving — a single competitor, the ordinary
+         * lost-update race. False keeps firing, which is contention that
+         * never lets up: what the caller is about to write is stale on
+         * every attempt it makes.
+         */
+        private bool $once = true
+    ) {
+        parent::__construct($repository);
+        $this->interleave = $interleave;
+    }
+
+    public function get(string $key, ?string $moduleId = null, mixed $default = null): mixed
+    {
+        $value = parent::get($key, $moduleId, $default);
+
+        // Only for the key under test: every other read on this instance
+        // has to behave exactly as it always does.
+        if ($key === $this->watchedKey && $this->interleave !== null) {
+            $interleave = $this->interleave;
+
+            if ($this->once) {
+                $this->interleave = null;
+            }
+
+            $interleave();
+        }
+
+        return $value;
     }
 }
 

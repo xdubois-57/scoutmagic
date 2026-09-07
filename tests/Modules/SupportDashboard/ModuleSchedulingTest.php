@@ -27,6 +27,15 @@ use PHPUnit\Framework\TestCase;
  * Asserted at the source level, like Tests\Core\CronEntryPointTest: booting
  * index.php in-process would pull in the full service graph and a live
  * database, and the property worth pinning is textual anyway.
+ *
+ * **Two kinds of task live in that manifest, and they fail in opposite
+ * ways.** A RECURRING one (`INTERVAL_SECONDS` on its handler) must be
+ * seeded once in the composition root and must reschedule itself, or it
+ * dies silently. An ON-DEMAND one — `snapshot_ticket_dns`, queued per
+ * ticket since issue #198 — must do neither: seeding it would queue a
+ * zone read on every page load of the receiver, for a ticket that does
+ * not exist. Which kind a handler is, is read off the handler rather than
+ * listed here, so a new task cannot be filed under the wrong one.
  */
 class ModuleSchedulingTest extends TestCase
 {
@@ -57,13 +66,19 @@ class ModuleSchedulingTest extends TestCase
         $this->declaredTasks = $tasks;
     }
 
-    public function testTheManifestStillDeclaresTheFourTasksThisModuleNeeds(): void
+    public function testTheManifestStillDeclaresTheTasksThisModuleNeeds(): void
     {
         $keys = array_map(static fn(array $task): string => $task['key'], $this->declaredTasks);
         sort($keys);
 
         $this->assertSame(
-            ['finalize_monthly_aggregate', 'purge_installations', 'purge_rate_limits', 'purge_tickets'],
+            [
+                'finalize_monthly_aggregate',
+                'purge_installations',
+                'purge_rate_limits',
+                'purge_tickets',
+                'snapshot_ticket_dns',
+            ],
             $keys
         );
     }
@@ -76,7 +91,7 @@ class ModuleSchedulingTest extends TestCase
     {
         $block = $this->supportDashboardBlock();
 
-        foreach ($this->declaredTasks as $task) {
+        foreach ($this->tasksOfKind(recurring: true) as $task) {
             $shortName = substr((string) strrchr($task['handler'], '\\'), 1);
 
             $this->assertStringContainsString(
@@ -119,7 +134,7 @@ class ModuleSchedulingTest extends TestCase
      */
     public function testEveryHandlerReschedulesItselfDaily(): void
     {
-        foreach ($this->declaredTasks as $task) {
+        foreach ($this->tasksOfKind(recurring: true) as $task) {
             /** @var class-string $handler */
             $handler = $task['handler'];
             $this->assertTrue(class_exists($handler), $handler . ' does not exist');
@@ -143,6 +158,87 @@ class ModuleSchedulingTest extends TestCase
                 $handler . ' must reschedule in a finally: a run that threw must not be a task that stops.'
             );
         }
+    }
+
+    /**
+     * The opposite invariant, for the other kind of task.
+     *
+     * An on-demand task is queued by the thing that needs it — one row per
+     * ticket — so seeding it in the composition root would queue a zone
+     * read on every page load of the receiver, for a ticket that does not
+     * exist. And something has to queue it, or it is as dead as an
+     * unseeded recurring one.
+     */
+    public function testAnOnDemandTaskIsQueuedByTheModuleAndNeverSeeded(): void
+    {
+        $block = $this->supportDashboardBlock();
+        $moduleSource = $this->moduleSource();
+
+        $onDemand = $this->tasksOfKind(recurring: false);
+        $this->assertNotSame([], $onDemand, 'this module has an on-demand task; the invariant must have one to check');
+
+        foreach ($onDemand as $task) {
+            $shortName = substr((string) strrchr($task['handler'], '\\'), 1);
+
+            $this->assertStringNotContainsString(
+                $shortName . '::TASK_KEY',
+                $block,
+                sprintf(
+                    'public/index.php seeds %s/%s, which is queued per event: seeding it would queue one on '
+                    . 'every page load of the receiver.',
+                    self::MODULE_ID,
+                    $task['key']
+                )
+            );
+
+            $this->assertStringContainsString(
+                $shortName . '::TASK_KEY',
+                $moduleSource,
+                sprintf(
+                    'Nothing in %s ever queues %s, so the task can never run.',
+                    self::MODULE_ID,
+                    $task['key']
+                )
+            );
+        }
+    }
+
+    /**
+     * Declared tasks of one kind, decided by the handler itself: a
+     * recurring one carries the interval it reschedules itself at.
+     *
+     * @return array<int, array{key: string, handler: string}>
+     */
+    private function tasksOfKind(bool $recurring): array
+    {
+        return array_values(array_filter(
+            $this->declaredTasks,
+            function (array $task) use ($recurring): bool {
+                /** @var class-string $handler */
+                $handler = $task['handler'];
+                $this->assertTrue(class_exists($handler), $handler . ' does not exist');
+
+                return defined($handler . '::INTERVAL_SECONDS') === $recurring;
+            }
+        ));
+    }
+
+    /** Every PHP file of the module, concatenated. */
+    private function moduleSource(): string
+    {
+        $source = '';
+
+        $files = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator(dirname(__DIR__, 3) . '/modules/' . self::MODULE_ID . '/src')
+        );
+
+        foreach ($files as $file) {
+            if ($file instanceof \SplFileInfo && $file->getExtension() === 'php') {
+                $source .= (string) file_get_contents((string) $file->getRealPath());
+            }
+        }
+
+        return $source;
     }
 
     /**

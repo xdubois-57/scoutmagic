@@ -321,14 +321,17 @@ and who is either the issue's own reporter or the repository owner, now
 sends that issue back to `triage:pending` (dropping `triage:done` and
 `bug:needs-info`) and re-triages it against everything it says now.
 
-**A comment on an issue CLOSED as `bug:not-a-bug` does the same and
-reopens it.** That verdict is the only one that ends a conversation, it is
-reached by reading code rather than by running the site, and a reporter
-who comes back to say it still happens is the best evidence available that
-it was wrong — so their reply is a re-triage, not a new ticket. Issues
-closed as `completed` by a merged fix are deliberately outside this: they
-carry `bug:confirmed`, and a comment there is a conversation about work
-that is done. The
+**A comment on an issue carrying `bug:not-a-bug` does the same.** That
+verdict is reached by reading code rather than by running the site, and a
+reporter who comes back to say it still happens is the best evidence
+available that it was wrong — so their reply is a re-triage, not a new
+ticket. Since that verdict stopped closing anything, the push-back now
+lands on a live thread instead of on a strikethrough. **A CLOSED issue is
+outside this whatever it carries**: closed as `completed` by a merged fix
+it carries `bug:confirmed` and a comment there is a conversation about
+work that is done; closed by the maintainer after they read a
+`bug:not-a-bug`, it is a human decision, and re-triaging it would be the
+pipeline second-guessing the person it answers to. The
 order matters: reset first, because `triage:done` left over from the first
 pass would make the verification below pass over a run that did nothing —
 and the reset **reads itself back** and fails the job when the labels did
@@ -851,19 +854,37 @@ job's own verification all read the labels. That is the state issue #172
 was left in, and it is what `issue-triage.yml` now checks for before
 calling a run successful.
 
-**`bug:not-a-bug` is the one label that closes an issue** — with reason
-`not planned`, never `completed`, since nothing was completed and the
-release notes read that field. Every other outcome leaves the issue open.
-The skill makes that verdict expensive on purpose: it may only be reached
-when the workaround can be written for the reporter without jargon, and
-when it cannot, the interface misled a competent user and the verdict
-becomes `bug:confirmed` about the interface instead.
+**No verdict closes an issue.** `bug:not-a-bug` used to, with reason
+`not planned`; it was the one thing in this pipeline that ended a
+conversation with somebody who had taken the trouble to write, decided by
+a reader of the code who never ran the site, on a report the maintainer
+had not seen. It is now an answer: the comment is posted, the label is
+applied, the issue stays open, and the maintainer closes it when they have
+read it. A label is cheap to disagree with; a closure is not — and the
+recourse against a wrong reading is now a reply on a live thread rather
+than a reopening.
+
+The skill still makes that verdict expensive on purpose: it may only be
+reached when the workaround can be written for the reporter without
+jargon, and when it cannot, the interface misled a competent user and the
+verdict becomes `bug:confirmed` about the interface instead. What changed
+is the cost of being wrong, not the standard for being right.
+
+**The one thing that does close an issue automatically is a merged fix**,
+through the `Closes #158` keyword GitHub reads on a pull request body —
+and `issue-fixed-comment.yml` makes sure it never happens in silence. On
+every merge it posts one comment per issue the pull request names, saying
+the fix is on `main` and in which pull request and commit, then closes as
+`completed` any that the keyword failed to close (a fork's pull request, a
+base branch that is not the default one). GitHub's own close lands a few
+seconds before that comment; what the workflow guarantees is that nobody
+finds their report closed with nothing said on it.
 
 One gap, recorded rather than papered over: **a feature request has no
 verdict.** `feature.yml` opens issues with `triage:pending` like `bug.yml`,
-but the three verdicts are all about defects, and `bug:not-a-bug` is the
-label that will later mean *closed as not planned* — the wrong end for a
-request the maintainer may want to keep. Such an issue therefore gets
+but the three verdicts are all about defects, and `bug:not-a-bug` means
+*we looked, and there is nothing to fix here* — the wrong thing to attach
+to a request the maintainer may well want to build. Such an issue therefore gets
 `triage:done` and no `bug:*` label at all. Closing that gap means a new
 label, which means a decision about what it would be for; inventing one at
 runtime is exactly what the script below exists to prevent.

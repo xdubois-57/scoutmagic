@@ -9,12 +9,12 @@ declare(strict_types=1);
 namespace Modules\SupportDashboard\Service;
 
 use Core\Journal\JournalService;
-use Core\Net\DnsRecordReader;
-use Core\Net\DomainName;
+use Core\Scheduler\SchedulerService;
 use Core\Notification\NotificationService;
 use Modules\SupportDashboard\Repository\SupportInstallationRepository;
 use Modules\SupportDashboard\Repository\SupportTicketRepository;
 use Modules\SupportDashboard\TicketCategory;
+use Modules\SupportDashboard\Task\SnapshotTicketDnsHandler;
 
 /**
  * Accepts, authenticates and stores one incoming support ticket
@@ -91,12 +91,11 @@ class TicketIntakeService
          */
         private ?NotificationService $notifications = null,
         /**
-         * Reads the reporting installation's own DNS when the ticket
-         * lands. Null leaves the ticket exactly as it was, with no
-         * snapshot and no mention of one — the §7.5 shape of a
-         * degradation.
+         * Queues the zone read that annotates the ticket. Null leaves the
+         * ticket exactly as it was, with no snapshot and no mention of one
+         * — the §7.5 shape of a degradation.
          */
-        private ?DnsRecordReader $dns = null
+        private ?SchedulerService $scheduler = null
     ) {
     }
 
@@ -261,72 +260,64 @@ class TicketIntakeService
         // refusing tickets over it.
         $this->announce($reference, $category);
 
-        // After the announce, and for the same reason it comes after the
-        // journal: this one talks to a resolver, which is somebody else's
-        // machine on somebody else's network. If the request runs out of
-        // time, the thing to have already done is tell a human a ticket
-        // arrived; a missing DNS snapshot costs a diagnostic, a missing
-        // notification costs the ticket the attention it was sent for.
-        $this->snapshotDns($reference, $installationRowId, $installationId);
+        // The zone read is QUEUED here, not done here (issue #198). It
+        // talks to a resolver — somebody else's machine, on somebody
+        // else's network — through `dns_get_record()`, which takes no
+        // timeout and cannot be interrupted once it is in flight. Inline,
+        // one unreachable authoritative server held this worker on every
+        // ticket that installation sent.
+        $this->queueDnsSnapshot($reference, $installationId);
 
         return TicketIntakeResult::accepted($reference);
     }
 
     /**
-     * Read the installation's own DNS and keep it on the ticket.
+     * Ask for the installation's own zone to be read and kept on the
+     * ticket, on the next scheduler pass.
      *
-     * **Why now and not when somebody reads the ticket.** « Le site ne
+     * **Why the zone is read at all, and why so soon.** « Le site ne
      * répond plus », « les e-mails n'arrivent pas », « le certificat est
      * invalide » — the answer to each is often a DNS record, and often one
      * the reporter has corrected by the time a maintainer looks three days
      * later. A zone read at reading time answers a question nobody asked.
+     * The cron runs every minute, so « at intake » survives the move out
+     * of the request with a minute of slack against those three days.
      *
      * **It can never cost the ticket.** The row is already committed and
-     * answered for; every failure here is a ticket without a snapshot,
-     * which is what every ticket written before this existed is. A
-     * resolver that is down, a host that is an IP literal, an instance_url
-     * nobody ever configured — all ordinary, none of them a refusal.
-     *
-     * The journal says when it did not happen, because a snapshot that is
-     * simply absent reads as « ce domaine n'a rien », and that is a
-     * diagnosis rather than a gap.
+     * answered for; a queue that refuses is a ticket without a snapshot,
+     * which is what every ticket written before this existed is. What is
+     * NOT swallowed is the silence — the journal says a snapshot was not
+     * even asked for, because a snapshot that is simply absent reads as
+     * « ce domaine n'a rien », and that is a diagnosis rather than a gap.
      */
-    private function snapshotDns(string $reference, int $installationRowId, string $installationId): void
+    private function queueDnsSnapshot(string $reference, string $installationId): void
     {
-        if ($this->dns === null) {
+        if ($this->scheduler === null) {
             return;
         }
 
         try {
-            $installation = $this->installations->findById($installationRowId);
-            $host = DomainName::hostOf((string) ($installation['instance_url'] ?? ''));
-
-            if ($host === null) {
-                $this->journal->log(
-                    'support_dashboard',
-                    'support_ticket_dns_skipped',
-                    'info',
-                    'Aucun relevé DNS : cette installation n\'a pas d\'URL exploitable',
-                    ['installation_id' => $installationId, 'ticket_reference' => $reference]
-                );
-
-                return;
-            }
-
-            $this->tickets->recordDnsSnapshot(
-                $reference,
-                $this->dns->read($host, new \DateTimeImmutable()),
-                new \DateTimeImmutable()
+            $this->scheduler->scheduleAfter(
+                'support_dashboard',
+                SnapshotTicketDnsHandler::TASK_KEY,
+                SnapshotTicketDnsHandler::DELAY_SECONDS,
+                ['reference' => $reference],
+                // The reference this occurrence is filed under, so a
+                // queued row can be found and read back. It is NOT a
+                // duplicate guard: `scheduleAfter()` delegates to the
+                // unguarded `schedule()`, and only `rearm()` collapses.
+                // One row per ticket comes from this method running once
+                // per ticket, and a second read is refused by the
+                // handler's own `dns_read_at` check rather than by the
+                // queue.
+                $reference
             );
         } catch (\Throwable $e) {
-            // The class of failure this catch is for is a database that
-            // went away between the insert and the update — everything
-            // inside the reader already answers rather than throwing.
             $this->journal->log(
                 'support_dashboard',
-                'support_ticket_dns_failed',
-                'warning',
-                'Le relevé DNS du ticket n\'a pas pu être enregistré',
+                'support_ticket_dns_skipped',
+                'info',
+                'Le relevé DNS de ce ticket n\'a pas pu être mis en file',
                 [
                     'installation_id' => $installationId,
                     'ticket_reference' => $reference,

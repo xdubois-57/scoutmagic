@@ -70,6 +70,16 @@ class SupportTicketSender
      * installation having a very bad month.
      */
     public const RECENT_KEPT = 5;
+
+    /**
+     * How many times a losing writer re-reads before giving up.
+     *
+     * The contenders here are superadmins of one installation clicking one
+     * form, so two at once is already the unlikely case and three is not a
+     * case at all. Five is loop insurance, not a contention estimate.
+     */
+    public const RECENT_WRITE_ATTEMPTS = 5;
+
     /** The category list the receiver last published (JSON). */
     public const CATEGORIES_SETTING = 'support_ticket_categories';
 
@@ -407,29 +417,55 @@ class SupportTicketSender
      */
     private function rememberSent(string $reference, string $sentAt, string $category): void
     {
-        $stored = json_decode((string) ($this->settingService->get(self::RECENT_SETTING) ?? ''), true);
-        // Same guard as the reader, and for the same reason: prepending
-        // onto a decoded JSON object would write back a value neither
-        // side can read.
+        // Read-modify-write, made atomic by compare-and-swap rather than
+        // by a lock (#199). Two accepted sends in the same few
+        // milliseconds used to read the same value before either wrote,
+        // and the second erased the first's reference from the list.
         //
-        // Read-modify-write without a lock, deliberately: two accepted
-        // sends in the same few milliseconds on one installation would
-        // lose one reference from this list (#199). Serialising it means
-        // giving this service a database handle or this list a table of
-        // its own, for an aide-mémoire whose entries were each shown to
-        // the person who sent them.
-        $entries = is_array($stored) && array_is_list($stored) ? $stored : [];
+        // The database arbitrates: the write lands only if the value is
+        // still the one that was read, and the loser re-reads and tries
+        // again with the winner's list in hand. No lock is held across
+        // application code, nothing is added to the schema, and it
+        // behaves the same on MySQL and on SQLite.
+        for ($attempt = 0; $attempt < self::RECENT_WRITE_ATTEMPTS; $attempt++) {
+            $current = (string) ($this->settingService->get(self::RECENT_SETTING) ?? '');
+            $stored = json_decode($current, true);
 
-        array_unshift($entries, [
-            'reference' => $reference,
-            'sent_at' => $sentAt,
-            'category' => $category,
-        ]);
+            // Same guard as the reader, and for the same reason: prepending
+            // onto a decoded JSON object would write back a value neither
+            // side can read.
+            $entries = is_array($stored) && array_is_list($stored) ? $stored : [];
 
-        $this->writeSetting(
-            self::RECENT_SETTING,
-            (string) json_encode(array_slice($entries, 0, self::RECENT_KEPT), JSON_UNESCAPED_UNICODE)
-        );
+            array_unshift($entries, [
+                'reference' => $reference,
+                'sent_at' => $sentAt,
+                'category' => $category,
+            ]);
+
+            $next = (string) json_encode(array_slice($entries, 0, self::RECENT_KEPT), JSON_UNESCAPED_UNICODE);
+
+            if ($this->replaceSetting(self::RECENT_SETTING, $current, $next)) {
+                return;
+            }
+        }
+
+        // Five losses in a row, and the list is left exactly as the
+        // winners wrote it.
+        //
+        // There WAS a fallback here — the plain last-writer-wins write of
+        // every version before this one — and it was wrong. Work through
+        // the two ways to arrive: under real contention it would clobber
+        // whoever won, which is the very bug this method was rewritten to
+        // fix; and where the compare-and-swap cannot work at all (an
+        // unregistered row, a settings implementation without the method)
+        // the plain write cannot work either, because it goes through the
+        // same missing row. A fallback that helps in neither case, and
+        // erases a reference in one of them, is not a fallback.
+        //
+        // What is lost by giving up is this ONE entry in a display list.
+        // The reference itself is not lost: the sender was shown it on
+        // the page, {@see self::LAST_REFERENCE_SETTING} holds it, and the
+        // receiver has the ticket.
     }
 
     private function rememberCategories(mixed $categories): void
@@ -476,6 +512,23 @@ class SupportTicketSender
         );
 
         return SupportTicketResult::failed($reason);
+    }
+
+    /**
+     * One compare-and-swap attempt, swallowing exactly what
+     * {@see self::writeSetting()} swallows.
+     *
+     * A failure to write is reported as « somebody else won », so the loop
+     * above retries and then falls back — never as an exception escaping
+     * into a send that has already been accepted by the receiver.
+     */
+    private function replaceSetting(string $key, string $expected, string $value): bool
+    {
+        try {
+            return $this->settingService->replaceIfUnchanged($key, $expected, $value);
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     private function writeSetting(string $key, string $value): void

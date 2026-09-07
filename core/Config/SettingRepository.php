@@ -227,6 +227,68 @@ class SettingRepository
         return $stmt->rowCount() === 1;
     }
 
+    /**
+     * Replace a setting's value only if it still holds $expected.
+     *
+     * The compare-and-swap sibling of {@see self::claimIfEmpty()}, and it
+     * exists for the same class of bug one step further on: a value that
+     * is READ, modified and written back — a list something appends to —
+     * loses one of two concurrent appends, because both callers read the
+     * same value before either wrote. `claimIfEmpty()` only guards the
+     * FIRST write; this one guards every write after it.
+     *
+     * The loser gets `false` and re-reads, which is the whole protocol:
+     * one statement decides, the database arbitrates, and no lock is held
+     * across application code. `Core\Support\Ticket\SupportTicketSender`
+     * is the caller this was written for (issue #199).
+     *
+     * An empty $expected matches a NULL column too, because a setting
+     * registered with no value is stored either way depending on how it
+     * was created, and a caller reading '' cannot tell which it saw.
+     *
+     * Returns false when the row does not exist at all, which the caller
+     * must treat as a wiring error rather than as « somebody else won ».
+     *
+     * **A write of the value already there is reported as won, not lost.**
+     * Without `MYSQL_ATTR_FOUND_ROWS` — this application does not set it —
+     * MySQL's `rowCount()` counts rows it CHANGED, not rows it matched, so
+     * an UPDATE writing back an identical value answers 0 and is
+     * indistinguishable from « somebody else got there first ». A caller
+     * retrying on false would then spin for ever. The state the caller
+     * wanted is the state on disk, so the honest answer is true.
+     */
+    public function replaceIfUnchanged(?string $moduleId, string $key, string $expected, string $value): bool
+    {
+        if ($value === $expected) {
+            return true;
+        }
+
+        $matchesExpected = $expected === ''
+            ? "(setting_value IS NULL OR setting_value = '')"
+            : 'setting_value = ?';
+
+        $parameters = [$value];
+        if ($moduleId === null) {
+            $sql = 'UPDATE settings SET setting_value = ? WHERE module_id IS NULL AND setting_key = ? AND '
+                . $matchesExpected;
+            $parameters[] = $key;
+        } else {
+            $sql = 'UPDATE settings SET setting_value = ? WHERE module_id = ? AND setting_key = ? AND '
+                . $matchesExpected;
+            $parameters[] = $moduleId;
+            $parameters[] = $key;
+        }
+
+        if ($expected !== '') {
+            $parameters[] = $expected;
+        }
+
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($parameters);
+
+        return $stmt->rowCount() === 1;
+    }
+
     public function updateValue(?string $moduleId, string $key, string $value): void
     {
         if ($moduleId === null) {

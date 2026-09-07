@@ -5234,11 +5234,13 @@ if ($isEnabled('support_dashboard')) {
                 // Every superadmin of this receiver is told a ticket
                 // landed — the queue is not a mailbox anybody watches.
                 $notificationService,
-                // The zone of the reporting installation, read when the
-                // ticket lands rather than when somebody reads it: half of
-                // « le site ne répond plus » is a record the person has
-                // corrected in the meantime.
-                new \Core\Net\DnsRecordReader()
+                // The zone of the reporting installation, read on the next
+                // scheduler pass rather than in this request (issue #198):
+                // `dns_get_record()` cannot be interrupted, so one
+                // unreachable authoritative server used to hold the intake
+                // worker. A minute later is still « as the ticket
+                // arrived » against the days a ticket waits to be read.
+                $schedulerService
             ),
             // The archive arrives on its own route (roadmap IT-26) and is
             // stored exactly as it was on the installation that produced
