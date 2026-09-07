@@ -395,6 +395,16 @@ jobs:
           # `-1`: a nested field this step cannot find must never be
           # allowed to look like agreement between two zeros.
           #
+          # `tally` REQUIRES A NON-NEGATIVE INTEGER, not merely a number.
+          # The status job decides "did they all come back" by comparing
+          # the two, so any pair that is equal reaches the green branch —
+          # and `-2` equals `-2`, as does `1.5`. Testing for `number`
+          # alone would let a `subagent_stats` this reader does not
+          # understand agree with itself into "Reviewed, nothing to
+          # report", which is the exact failure the whole reader exists to
+          # stop. Anything that is not a count becomes the `-1` the status
+          # job already knows how to refuse. (CodeRabbit, PR #209.)
+          #
           # WRITTEN ASIDE FIRST, appended only once jq has succeeded. This
           # step runs under `set -euo pipefail`, so a jq that dies partway
           # — a `modelUsage` that is not an object, any shape this filter
@@ -413,6 +423,7 @@ jobs:
             | ($calls | map(select(. == "Task" or . == "Agent")) | length) as $agents
             | (if ($r.subagent_stats | type) == "object" then $r.subagent_stats else {} end) as $sub
             | def flat: gsub("[\r\n]"; " ");
+              def tally: if type == "number" and . >= 0 and floor == . then . else -1 end;
               [
                 "evidence=present",
                 "subtype=" + (($r.subtype // "") | tostring | flat),
@@ -421,8 +432,8 @@ jobs:
                 "denials=" + ((if ($r | has("permission_denials")) then (($r.permission_denials // []) | length) else -1 end) | tostring),
                 "denied_tools=" + ([$r.permission_denials[]? | (.tool_name // .toolName // .name // "unnamed")] | unique | join(", ") | flat),
                 "agent_calls=" + ($agents | tostring),
-                "subagents_spawned=" + ((if ($sub | has("spawned")) and ($sub.spawned | type) == "number" then $sub.spawned else -1 end) | tostring),
-                "subagents_completed=" + ((if ($sub | has("completed")) and ($sub.completed | type) == "number" then $sub.completed else -1 end) | tostring),
+                "subagents_spawned=" + ($sub.spawned | tally | tostring),
+                "subagents_completed=" + ($sub.completed | tally | tostring),
                 "tools_used=" + ($calls | unique | join(", ") | flat),
                 "models=" + ((($r.modelUsage // {}) | keys | join(", ")) | flat),
                 "cost=" + (($r.total_cost_usd // 0) | tostring)
