@@ -3232,8 +3232,10 @@ $frontController->registerController(ConfigModulesController::class,
     new ConfigModulesController($twig, $moduleManager, $journalService));
 $frontController->registerController(ConfigBadgesController::class,
     new ConfigBadgesController($twig, $badgeService, $journalService));
-$frontController->registerController(SuperAdminAccountsController::class,
-    new SuperAdminAccountsController($twig, $userAccountRepo, $superAdminService));
+$frontController->registerController(
+    SuperAdminAccountsController::class,
+    new SuperAdminAccountsController($twig, $userAccountRepo, $superAdminService)
+);
 $frontController->registerController(
     FunctionsController::class,
     new FunctionsController(
@@ -5593,7 +5595,10 @@ if ($isEnabled('camps')) {
     // where its last-in-registration-order rule is enforced once.
     $campsMessageReader = new \Modules\Camps\Mail\MessageReader();
     $campsFieldCompletion = new \Modules\Camps\Mail\MailFieldCompletionService(
-        $campsCampRepo, $campsProposalRepo, $auditService, $campsMessageReader
+        $campsCampRepo,
+        $campsProposalRepo,
+        $auditService,
+        $campsMessageReader
     );
     // `camps_auto_create_from_mail`: the SAME reading behind the automatic
     // stay and behind « Créer un camp depuis ce message », so the two can
