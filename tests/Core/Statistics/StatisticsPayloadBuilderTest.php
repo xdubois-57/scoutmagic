@@ -253,8 +253,9 @@ class StatisticsPayloadBuilderTest extends TestCase
         $this->assertSame(
             [
                 'statistics_schema_version', 'installation_id', 'instance_url', 'generated_at',
-                'scoutmagic', 'scout_year', 'usage', 'modules', 'module_usage', 'installation', 'runtime',
-                'database', 'host', 'security', 'email', 'scheduler', 'updates', 'lifecycle', 'storage',
+                'scoutmagic', 'scout_year', 'usage', 'modules', 'module_usage', 'desk_vocabulary',
+                'installation', 'runtime', 'database', 'host', 'security', 'email', 'scheduler',
+                'updates', 'lifecycle', 'storage',
             ],
             array_keys($payload)
         );
@@ -564,6 +565,157 @@ class StatisticsPayloadBuilderTest extends TestCase
 
         unset($first['generated_at'], $second['generated_at']);
         $this->assertSame($first, $second);
+    }
+
+    /**
+     * The unit's Desk vocabulary — the FONCTION labels and the cotisation
+     * types its exports actually carry. It travels because nothing on this
+     * site breaks when the federation invents a new one (the import
+     * creates it, the screens that cannot classify it say so), and so
+     * nobody reports it: seeing it here is the only way the maintainer
+     * learns a new value is in the wild.
+     */
+    public function testTheReportCarriesTheUnitsDeskFunctionsAndFeeCategories(): void
+    {
+        $this->seedScoutYear();
+        $this->seedVocabulary();
+
+        $payload = $this->builder()->build();
+
+        $this->assertSame(2, $payload['desk_vocabulary']['fee_categories']['total']);
+        $this->assertSame(
+            [
+                ['desk_code' => 'F_COTISATION_FAMILLE', 'label' => 'F_COTISATION_FAMILLE'],
+                ['desk_code' => 'N_COTISATION_NORMALE', 'label' => 'N_COTISATION_NORMALE'],
+            ],
+            $payload['desk_vocabulary']['fee_categories']['listed'],
+        );
+
+        $this->assertSame(2, $payload['desk_vocabulary']['functions']['total']);
+        $this->assertSame(
+            [
+                ['desk_code' => 'Animateur', 'label' => 'Animateur', 'role' => 'chief', 'confirmed' => true],
+                [
+                    'desk_code' => 'Délégué de branche',
+                    'label' => 'Délégué de branche',
+                    'role' => 'identified',
+                    'confirmed' => false,
+                ],
+            ],
+            $payload['desk_vocabulary']['functions']['listed'],
+        );
+    }
+
+    /**
+     * An empty list is a real answer — a site that has never imported
+     * anything — and must not read as a failure to measure.
+     */
+    public function testAnInstallationThatNeverImportedReportsEmptyVocabularyRatherThanNull(): void
+    {
+        $this->seedScoutYear();
+
+        $payload = $this->builder()->build();
+
+        $this->assertSame(
+            ['total' => 0, 'listed' => []],
+            $payload['desk_vocabulary']['fee_categories'],
+        );
+    }
+
+    /**
+     * The bound that actually matters, and the one an entry count does not
+     * give you.
+     *
+     * `desk_code` and `label` are `VARCHAR(100)` under `utf8mb4` in both
+     * tables, so one entry can be four hundred-odd bytes. A hundred of
+     * each at that width serialised to 134 632 bytes — twice
+     * `StatisticsIntakeService::MAX_BODY_BYTES`, which is checked on the
+     * raw body before parsing, so the receiver answered 413 and the WHOLE
+     * report was lost. A unit with a verbose Desk vocabulary would have
+     * silently stopped reporting anything at all.
+     */
+    public function testMaximumLengthMultibyteVocabularyStaysUnderTheReceiversBodyLimit(): void
+    {
+        $this->seedScoutYear();
+
+        $fees = $this->pdo->prepare('INSERT INTO fee_categories (desk_code, label) VALUES (?, ?)');
+        $functions = $this->pdo->prepare(
+            'INSERT INTO functions (desk_code, label, role, confirmed) VALUES (?, ?, ?, ?)'
+        );
+        for ($i = 0; $i < 150; $i++) {
+            // 100 characters, the column's declared maximum, in the widest
+            // encoding utf8mb4 allows — four bytes each.
+            $suffix = sprintf('%03d', $i);
+            $fees->execute([str_repeat('界', 97) . $suffix, str_repeat('é', 97) . $suffix]);
+            $functions->execute([
+                str_repeat('界', 97) . $suffix,
+                str_repeat('é', 97) . $suffix,
+                str_repeat('役', 20),
+                0,
+            ]);
+        }
+
+        $json = $this->builder()->buildJson();
+
+        $this->assertLessThan(65536, strlen($json));
+
+        // Truncated, and saying so: `total` still counts every row, so a
+        // reader can tell a short list from a complete one.
+        $payload = $this->builder()->build();
+        $this->assertSame(150, $payload['desk_vocabulary']['fee_categories']['total']);
+        $this->assertSame(150, $payload['desk_vocabulary']['functions']['total']);
+        $this->assertLessThan(100, count($payload['desk_vocabulary']['fee_categories']['listed']));
+        $this->assertNotSame([], $payload['desk_vocabulary']['fee_categories']['listed']);
+    }
+
+    /**
+     * The entry cap is still the second bound: ordinary short labels are
+     * limited by count long before they are limited by bytes.
+     */
+    public function testAnAbsurdNumberOfCategoriesIsTruncatedAndSaysSo(): void
+    {
+        $this->seedScoutYear();
+        $stmt = $this->pdo->prepare('INSERT INTO fee_categories (desk_code, label) VALUES (?, ?)');
+        for ($i = 0; $i < 150; $i++) {
+            $code = sprintf('TARIF_%03d', $i);
+            $stmt->execute([$code, $code]);
+        }
+
+        $payload = $this->builder()->build();
+
+        $this->assertSame(150, $payload['desk_vocabulary']['fee_categories']['total']);
+        $this->assertCount(100, $payload['desk_vocabulary']['fee_categories']['listed']);
+        $this->assertLessThan(65536, strlen($this->builder()->buildJson()));
+    }
+
+    /** Rule 2 of the builder: the vocabulary names labels, never people. */
+    public function testTheVocabularyCarriesNoMemberData(): void
+    {
+        $this->seedScoutYear();
+        $this->seedVocabulary();
+
+        $json = $this->builder()->buildJson();
+
+        $this->assertStringContainsString('N_COTISATION_NORMALE', $json);
+        $this->assertStringNotContainsString('member_id', $json);
+        $this->assertStringNotContainsString('@', substr($json, (int) strpos($json, '"desk_vocabulary"')));
+    }
+
+    private function seedVocabulary(): void
+    {
+        $fees = $this->pdo->prepare('INSERT INTO fee_categories (desk_code, label) VALUES (?, ?)');
+        foreach (['N_COTISATION_NORMALE', 'F_COTISATION_FAMILLE'] as $code) {
+            $fees->execute([$code, $code]);
+        }
+
+        $functions = $this->pdo->prepare(
+            'INSERT INTO functions (desk_code, label, role, confirmed) VALUES (?, ?, ?, ?)'
+        );
+        $functions->execute(['Animateur', 'Animateur', 'chief', 1]);
+        // The interesting half of the list: a function nobody has confirmed
+        // in Config Desk yet, which is what a brand-new federation label
+        // looks like on the day it appears.
+        $functions->execute(['Délégué de branche', 'Délégué de branche', 'identified', 0]);
     }
 
     private function seedScoutYearWithoutMembers(): void

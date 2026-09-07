@@ -25,9 +25,19 @@ final class PersonFactory
     /**
      * Not 50: a unit is rarely balanced, and a dataset where every chart is a
      * straight line gives Prévisions and Statistiques nothing to show
-     * (scenario 24).
+     * (scenario 24), which asserts the share stays at least three points
+     * away from half.
+     *
+     * It used to be 46, which put the three years between 45.5 % and 48.9 %
+     * — inside the guard on two of them, and outside it only by luck of the
+     * seed. It could not simply be lowered while `PhotoAssigner` refused to
+     * build a unit with fewer female cadres than the photo lot has female
+     * portraits, which happened below about 40 %. That floor is gone:
+     * `PopulationBuilder::nextCadreGender()` now guarantees the lot's supply
+     * outright, so this number decides the balance of the ANIMÉS and nothing
+     * a photo depends on.
      */
-    public const GENDER_F_PERCENT = 46;
+    public const GENDER_F_PERCENT = 42;
 
     /** @var array<string, true> */
     private array $usedEmails = [];

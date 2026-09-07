@@ -258,11 +258,32 @@ final class UnitBlueprint
      */
     public const BRAND_NEW_FUNCTION = 'Délégué de branche';
 
-    /** "Tarif" column values. A member moving between two of them is scenario 23. */
+    /**
+     * The "Tarif" column values — Desk's three cotisation types, and
+     * nothing else.
+     *
+     * A unit configures exactly three in Desk (« Type de cotisation » 1, 2
+     * and 3 → `N_COTISATION_NORMALE`, `C_COTISATION_COUPLE`,
+     * `F_COTISATION_FAMILLE`), and every member carries one of them —
+     * animateurs included. This table used to hold a fourth value,
+     * `Tarif animateur`, given to every cadre; issue #194 is that no Desk
+     * export has ever produced it. A generator that invents a value the
+     * real format cannot contain is worse than one that omits a case:
+     * every screen reading this dataset was being shown a shape it will
+     * never meet, and the « Justesse des tarifs » screen in particular
+     * reported the unit's whole staff as « hors tarif de foyer ».
+     *
+     * The keys are `Core\Member\HouseholdFeeCategory`'s own case values,
+     * because that is exactly what picks one:
+     * {@see PopulationBuilder::assignHouseholdTariffs()} derives each
+     * member's tariff from the size of their household, the way a unit
+     * encodes them. A member whose household changes size therefore
+     * changes tariff, which is scenario 23.
+     */
     public const FEE_CODES = [
-        'anime' => 'Tarif normal',
-        'anime_reduit' => 'Tarif réduit',
-        'cadre' => 'Tarif animateur',
+        'normal' => 'N_COTISATION_NORMALE',
+        'couple' => 'C_COTISATION_COUPLE',
+        'family' => 'F_COTISATION_FAMILLE',
     ];
 
     public const FORMATION_LEVELS = ['Aucun', 'Formation de base', 'Formation animateur', 'Formation avancée'];
@@ -285,7 +306,7 @@ final class UnitBlueprint
      * The split is not 50/50 on purpose: a unit is rarely balanced, and
      * Prévisions and Statistiques have nothing to show on a dataset where
      * every chart is a straight line (scenario 24). The generator draws
-     * roughly 46% F / 54% M — see PopulationBuilder::GENDER_F_PERCENT.
+     * roughly 42% F / 58% M — see PersonFactory::GENDER_F_PERCENT.
      *
      * @var non-empty-list<string>
      */

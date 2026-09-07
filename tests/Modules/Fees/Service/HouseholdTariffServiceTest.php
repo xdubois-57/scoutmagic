@@ -26,7 +26,7 @@ class HouseholdTariffServiceTest extends TestCase
     private int $normalId;
     private int $coupleId;
     private int $familyId;
-    private int $animateurId;
+    private int $unrecognisedFeeId;
 
     protected function setUp(): void
     {
@@ -36,7 +36,7 @@ class HouseholdTariffServiceTest extends TestCase
         $this->normalId = $this->feeCategories->create('N_N_COTISATION NORMALE', 'Cotisation normale');
         $this->coupleId = $this->feeCategories->create('N_C_COTISATION COUPLE', 'Cotisation couple');
         $this->familyId = $this->feeCategories->create('N_F_COTISATION FAMILLE', 'Cotisation famille');
-        $this->animateurId = $this->feeCategories->create('Tarif animateur', 'Tarif animateur');
+        $this->unrecognisedFeeId = $this->feeCategories->create('Cotisation invités', 'Cotisation invités');
 
         $this->service = new HouseholdTariffService(
             new HouseholdTariffRepository($this->pdo),
@@ -58,7 +58,7 @@ class HouseholdTariffServiceTest extends TestCase
 
     public function testATariffOutsideTheThreeIsNotOneOfThemAndSaysSo(): void
     {
-        $this->assertNull($this->service->categoryForFeeCategoryId($this->animateurId));
+        $this->assertNull($this->service->categoryForFeeCategoryId($this->unrecognisedFeeId));
         $this->assertNull($this->service->categoryForFeeCategoryId(null));
         $this->assertNull($this->service->categoryForFeeCategoryId(999999));
     }
@@ -105,12 +105,12 @@ class HouseholdTariffServiceTest extends TestCase
 
     public function testThePanelAlwaysCarriesTheThreeLinesAndWhatTheSiteGuessed(): void
     {
-        $this->service->save(HouseholdFeeCategory::NORMAL, $this->animateurId, 4200);
+        $this->service->save(HouseholdFeeCategory::NORMAL, $this->unrecognisedFeeId, 4200);
 
         $panel = $this->service->panel();
 
         $this->assertSame(['normal', 'couple', 'family'], array_keys($panel));
-        $this->assertSame($this->animateurId, $panel['normal']['fee_category_id']);
+        $this->assertSame($this->unrecognisedFeeId, $panel['normal']['fee_category_id']);
         $this->assertSame(4200, $panel['normal']['amount_cents']);
         // The guess is still offered beside the override, so a chief can see
         // what they overrode.

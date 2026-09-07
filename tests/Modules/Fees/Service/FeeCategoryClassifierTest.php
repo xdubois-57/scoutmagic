@@ -24,8 +24,12 @@ class FeeCategoryClassifierTest extends TestCase
             'couple' => ['N_C_COTISATION COUPLE', HouseholdFeeCategory::COUPLE],
             'family' => ['N_F_COTISATION FAMILLE', HouseholdFeeCategory::FAMILY],
             'accents and case are folded' => ['Cotisation Familiale', HouseholdFeeCategory::FAMILY],
-            'an animateur tariff is not a household one' => ['Tarif animateur', null],
-            'a reduced tariff is not a household one' => ['Tarif réduit', null],
+            // Desk offers a unit three cotisation types and nothing else
+            // (issue #194), so an unrecognised value is either a tariff the
+            // federation added later or a wording nobody anticipated. Both
+            // must answer null rather than be forced into one of the three.
+            'a guest fee is not a household one' => ['Cotisation invités', null],
+            'a solidarity fee is not a household one' => ['Cotisation de solidarité', null],
             'an iAM membership is not a household one' => ['COT_iAM_LOCAL', null],
             'an empty wording claims nothing' => ['', null],
         ];

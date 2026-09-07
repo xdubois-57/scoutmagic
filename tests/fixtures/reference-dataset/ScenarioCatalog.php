@@ -141,14 +141,14 @@ final class ScenarioCatalog
             'expectation' => 'Étienne, N\'Diaye, Van der Meulen, Dubois-Lefèvre — l\'encodage doit survivre au CSV, au chiffrement et à l\'affichage.',
         ],
         23 => [
-            'name' => 'Changement de tarif',
-            'tiers' => ['T0033'],
-            'expectation' => 'Tarif normal en A1, Tarif réduit ensuite : deux fee_categories, et le member_years pointe vers la bonne chaque année.',
+            'name' => 'Le tarif suit la taille du foyer',
+            'tiers' => ['T0020', 'T0021', 'T0022', 'T0023', 'T0024', 'T0025', 'T0033'],
+            'expectation' => 'Desk n\'offre que trois types de cotisation (N_COTISATION_NORMALE, C_COTISATION_COUPLE, F_COTISATION_FAMILLE) et chaque membre en porte un, animateurs compris. Le foyer Delvaux passe de 2 à 3 en A2 : couple puis familiale. Le foyer Poncelet passe de 3 à 2 : familiale puis couple. T0033 vit seul les trois années et reste sur normale — c\'est le témoin, sans lequel une dérivation devenue constante satisferait encore les deux transitions. Aucun de ces tarifs n\'est écrit à la main : ils sont déduits de la taille du foyer par PopulationBuilder::assignHouseholdTariffs().',
         ],
         24 => [
             'name' => 'Équilibre filles/garçons non trivial',
             'tiers' => [],
-            'expectation' => 'La part de F n\'est jamais à moins de 3 points de 50 % (le tirage vise 46 %, PersonFactory::GENDER_F_PERCENT), et elle bouge d\'une année à l\'autre : les graphes de Prévisions et de Statistiques doivent avoir quelque chose à montrer.',
+            'expectation' => 'La part de F n\'est jamais à moins de 3 points de 50 % (le tirage vise 42 %, PersonFactory::GENDER_F_PERCENT), et elle bouge d\'une année à l\'autre : les graphes de Prévisions et de Statistiques doivent avoir quelque chose à montrer.',
         ],
     ];
 

@@ -550,10 +550,72 @@ final class ReferenceDatasetImportTest extends TestCase
 
     public function testTheFeeCategoryFollowsTheMemberYearByYear(): void
     {
-        // Scenario 23 — two fee_categories exist, and each member_years row
-        // points at the right one for that year.
-        self::assertSame(UnitBlueprint::FEE_CODES['anime'], $this->feeCodeOf('T0033', '2024-2025'));
-        self::assertSame(UnitBlueprint::FEE_CODES['anime_reduit'], $this->feeCodeOf('T0033', '2025-2026'));
+        // Scenario 23 — a member's tariff is the size of their household,
+        // so a household that changes size changes tariff, and each
+        // member_years row points at the right fee_category for that year.
+        //
+        // The Delvaux household (scenario 17) gains its youngest in A2 and
+        // goes from two to three: couple, then familiale.
+        self::assertSame(UnitBlueprint::FEE_CODES['couple'], $this->feeCodeOf('T0020', '2024-2025'));
+        self::assertSame(UnitBlueprint::FEE_CODES['family'], $this->feeCodeOf('T0020', '2025-2026'));
+        self::assertSame(UnitBlueprint::FEE_CODES['family'], $this->feeCodeOf('T0022', '2025-2026'));
+
+        // The Poncelet household (scenario 18) loses one and goes the other
+        // way: familiale, then couple.
+        self::assertSame(UnitBlueprint::FEE_CODES['family'], $this->feeCodeOf('T0023', '2024-2025'));
+        self::assertSame(UnitBlueprint::FEE_CODES['couple'], $this->feeCodeOf('T0023', '2025-2026'));
+
+        // T0033 lives alone throughout — the control. Without it, a
+        // derivation that had collapsed into "everybody familiale" would
+        // still satisfy one of the two transitions above.
+        foreach (['2024-2025', '2025-2026', '2026-2027'] as $year) {
+            self::assertSame(UnitBlueprint::FEE_CODES['normal'], $this->feeCodeOf('T0033', $year));
+        }
+    }
+
+    /**
+     * Issue #194. Desk offers three cotisation types and no others, so a
+     * generated export may not contain a fourth — it used to give every
+     * cadre a « Tarif animateur » no real export has ever carried, which
+     * put the unit's whole staff outside the household comparison on the
+     * « Justesse des tarifs » screen.
+     */
+    public function testEveryImportedFeeCategoryIsOneOfDesksThreeTypes(): void
+    {
+        $labels = $this->pdo->query('SELECT desk_code FROM fee_categories ORDER BY desk_code')
+            ?->fetchAll(\PDO::FETCH_COLUMN) ?: [];
+
+        self::assertNotEmpty($labels);
+        foreach ($labels as $label) {
+            self::assertContains(
+                (string) $label,
+                array_values(UnitBlueprint::FEE_CODES),
+                "Le tarif « {$label} » n'est pas un des trois types de cotisation de Desk.",
+            );
+        }
+    }
+
+    /**
+     * The point of deriving the tariff from the household rather than
+     * writing it down: an animateur is billed like anybody else, so the
+     * staff must not all land on one tariff — and in particular must not
+     * land on a tariff of their own.
+     */
+    public function testAnimateursCarryTheSameTariffsAsEveryoneElse(): void
+    {
+        $staffTariffs = $this->pdo->query(
+            "SELECT DISTINCT fc.desk_code
+             FROM member_functions mf
+             JOIN member_years my ON my.id = mf.member_year_id
+             JOIN functions f ON f.id = mf.function_id
+             JOIN fee_categories fc ON fc.id = my.fee_category_id
+             WHERE f.desk_code = 'Animateur'"
+        )?->fetchAll(\PDO::FETCH_COLUMN) ?: [];
+
+        self::assertNotEmpty($staffTariffs);
+        foreach ($staffTariffs as $tariff) {
+            self::assertContains((string) $tariff, array_values(UnitBlueprint::FEE_CODES));
+        }
     }
 
     public function testEveryPinnedScenarioTiersSurvivedTheImport(): void
@@ -573,16 +635,20 @@ final class ReferenceDatasetImportTest extends TestCase
         // a figure to chase: a 50/50 split gives Prévisions and Statistiques
         // nothing to show.
         //
-        // The band is « never within three points of 50 », not five. The
-        // generator draws at PersonFactory::GENDER_F_PERCENT = 46, and 176
-        // draws around 46 % land anywhere from about 42 % to 50 %: a five-point
-        // guard was asserting something the generator does not aim for, and
-        // held only because the seed happened to fall on the friendly side of
-        // it — the first change to the RNG stream (a scenario person built
-        // through a different helper) pushed 2024-2025 to 46.0 % and failed it.
-        // The share cannot simply be drawn lower either: PhotoAssigner refuses
-        // to build when the unit has fewer female cadres than the photo lot has
-        // female portraits, which is what happens below about 40 %.
+        // The band is « never within three points of 50 », not five. This
+        // guard has failed twice on nothing but a change to the RNG stream,
+        // because the draw was aimed at 46 % and 176 of them land anywhere
+        // from about 42 % to 50 % — so it was asserting something the
+        // generator did not actually aim for.
+        //
+        // What kept the draw that high was PhotoAssigner: it refused to
+        // build a unit with fewer female cadres than the photo lot has
+        // female portraits, which happened below about 40 %. Since issue
+        // #194, PopulationBuilder::nextCadreGender() guarantees that supply
+        // outright instead of hoping for it, so the draw was free to move
+        // down to PersonFactory::GENDER_F_PERCENT = 42 and the three years
+        // now sit between 41.6 % and 44.4 % — a margin, rather than a
+        // coincidence.
         //
         // What the scenario really promises is in its second half — the share
         // MOVES from one year to the next — and that is asserted below rather

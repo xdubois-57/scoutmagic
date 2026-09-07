@@ -142,11 +142,40 @@ class MappingResolverTest extends TestCase
 
     public function testResolveFeeAutoCreates(): void
     {
-        $id = $this->resolver->resolveFee('Tarif normal');
+        $id = $this->resolver->resolveFee('N_COTISATION_NORMALE');
         $this->assertGreaterThan(0, $id);
 
-        $id2 = $this->resolver->resolveFee('Tarif normal');
+        $id2 = $this->resolver->resolveFee('N_COTISATION_NORMALE');
         $this->assertSame($id, $id2);
+    }
+
+    /**
+     * A cotisation type the federation has not invented yet.
+     *
+     * Desk offers a unit three today, and `Modules\Fees\Service\
+     * FeeCategoryClassifier` recognises those three — but the import layer
+     * has no opinion at all about which values are legitimate, and that is
+     * the property this pins. A fourth type arriving in a future export is
+     * created like any other and the import carries on; refusing it, or
+     * folding it into one of the three, would either block a unit's whole
+     * roster or silently bill their members on a tariff nobody chose.
+     * Where it becomes visible is the « Justesse des tarifs » screen, which
+     * leaves its holder out of the household comparison rather than
+     * reporting them as wrong (`Tests\Modules\Fees\Service\
+     * FeeAccuracyServiceTest`), and the daily usage report, which names it
+     * so the maintainer knows it exists (`Core\Statistics\
+     * StatisticsPayloadBuilder`'s `desk_vocabulary`).
+     */
+    public function testAnUnknownFeeCategoryIsImportedRatherThanRefused(): void
+    {
+        $id = $this->resolver->resolveFee('X_COTISATION_INEDITE');
+
+        $this->assertGreaterThan(0, $id);
+        $stmt = $this->pdo->prepare('SELECT desk_code, label FROM fee_categories WHERE id = ?');
+        $stmt->execute([$id]);
+        $row = $stmt->fetch();
+        $this->assertSame('X_COTISATION_INEDITE', $row['desk_code']);
+        $this->assertSame('X_COTISATION_INEDITE', $row['label']);
     }
 
     public function testGetNewFunctionsCountTracksCorrectly(): void
