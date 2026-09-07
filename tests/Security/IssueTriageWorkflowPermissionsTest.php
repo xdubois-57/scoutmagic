@@ -370,6 +370,24 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
             . 'this workflow used to do instead of failing, and it is why a run that achieved '
             . 'nothing looked exactly like one that worked.',
         );
+
+        // AND THE TOLERANCE IS THE SAME AT EVERY CALL. Each of the four
+        // — read the thread, post the comment, read the state, close —
+        // needs both branches, in the same order: 404 warns and skips,
+        // anything else fails the job. The first version of this change
+        // had them at two calls out of four, so an issue deleted in the
+        // seconds after its comment was posted turned the merge red on
+        // the one failure the file says out loud that it tolerates.
+        // CodeRabbit caught it on the pull request; counting them is what
+        // stops the next call added here from carrying only one.
+        self::assertSame(
+            preg_match_all('/"\$\{outcome\}" -ne 0/', $file),
+            preg_match_all('/"\$\{outcome\}" -eq 1/', $file),
+            self::FIXED_COMMENT . ' has an API call whose failure branch has no 404 branch in front '
+            . 'of it, or the reverse. A 404 means the number is not an issue of this repository, '
+            . 'which this workflow tolerates by design — tolerating it at some calls and not at '
+            . 'others is a rule that says one thing and does another.',
+        );
     }
 
     /**

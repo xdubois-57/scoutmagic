@@ -51,6 +51,18 @@
 # from the rest by reading `gh`'s own message, the way
 # scripts/sync-issue-labels.sh already does it.
 #
+# AT EVERY CALL, not at the first two. Each of the four calls below —
+# read the thread, post the comment, read the state, close — gets the
+# same two branches in the same order: 404 warns and skips, anything else
+# is the job's failure. Writing it at some of them and not the others is
+# a rule that says one thing and does another, and it is what the first
+# version of this change did: an issue deleted in the seconds after its
+# comment was posted turned the merge red, on the one failure this file
+# says out loud it tolerates. CodeRabbit caught it on the pull request.
+# `tests/Security/IssueTriageWorkflowPermissionsTest.php` now counts the
+# two branches against each other, so the next call added here cannot
+# quietly have only one of them.
+#
 # The FORK case is the concrete one behind "a token that turned out to be
 # read-only". `pull_request` (not `pull_request_target`, which
 # tests/Security/IssueTriageWorkflowPermissionsTest.php forbids here, and
@@ -263,6 +275,12 @@ jobs:
             state="$(attempt gh api "repos/${GITHUB_REPOSITORY}/issues/${issue}" \
               --jq '.state + " " + (.state_reason // "")')" || outcome=$?
 
+            if [ "${outcome}" -eq 1 ]; then
+              echo "::warning title=No such issue here::#${issue} was told its fix landed and has \
+              disappeared since — deleted, or transferred elsewhere. There is nothing left to close."
+              continue
+            fi
+
             if [ "${outcome}" -ne 0 ]; then
               echo "::error title=Could not read the issue::#${issue} was told its fix landed, and \
               reading its state back failed. Check by hand that it is closed as completed."
@@ -277,6 +295,12 @@ jobs:
             outcome=0
             attempt gh api "repos/${GITHUB_REPOSITORY}/issues/${issue}" \
               -X PATCH -f state=closed -f state_reason=completed --silent || outcome=$?
+
+            if [ "${outcome}" -eq 1 ]; then
+              echo "::warning title=No such issue here::#${issue} disappeared between reading its \
+              state and closing it. Nothing left to close."
+              continue
+            fi
 
             if [ "${outcome}" -ne 0 ]; then
               echo "::error title=Could not close::#${issue} was told its fix landed and reads \
