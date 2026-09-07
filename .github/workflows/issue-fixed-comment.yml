@@ -30,6 +30,50 @@
 # fixed text plus the pull request number and the merge SHA. A body is
 # untrusted input here for the same reason an issue body is in
 # issue-triage.yml.
+#
+# **WHAT A GREEN RUN MEANS HERE, and it did not mean this at first.** Every
+# call in the step below used to end `|| echo "::warning …"`, so a run in
+# which nobody was told anything and nothing was closed finished GREEN,
+# with two annotations nobody reads on a merge everybody had moved on
+# from. That is the failure shape docs/quality-pipeline.md § "something
+# green that proved nothing" collects, and it is the one this whole family
+# of workflows was rewritten around — issue-triage.yml exists in its
+# current form because a triage that wrote nothing used to report success.
+#
+# So there is now exactly ONE tolerated failure, and it is the one the
+# original comment was actually describing: a **404**, meaning the number
+# in the body is not an issue of this repository — deleted since, or a
+# typo, or a reference to somewhere else. That is a warning and the issue
+# is skipped. Everything else — a 403, a rate limit, a network error, a
+# token that turned out to be read-only — sets the job's exit code, and
+# the merge that failed to tell somebody is visible in the Actions tab
+# instead of being one green tick among the others. The 404 is told apart
+# from the rest by reading `gh`'s own message, the way
+# scripts/sync-issue-labels.sh already does it.
+#
+# The FORK case is the concrete one behind "a token that turned out to be
+# read-only". `pull_request` (not `pull_request_target`, which
+# tests/Security/IssueTriageWorkflowPermissionsTest.php forbids here, and
+# rightly) hands a READ-ONLY `GITHUB_TOKEN` to a run raised by a pull
+# request from a fork, whatever this job's `permissions:` block says. So a
+# merged contribution from outside — the one case where nobody in this
+# repository is watching the thread — cannot be commented on at all. It
+# cannot be fixed from inside this file without giving the trigger a
+# writable token on a payload a fork controls, which is a worse trade, so
+# it is made LOUD instead: the run goes red and the error names the
+# reason, rather than leaving a reporter in silence behind a green tick.
+#
+# **IT SAYS IT ONCE.** The comment carries an invisible marker naming this
+# pull request, and an issue already carrying it is skipped whole — both
+# the comment and the closing. Re-running a workflow is an ordinary thing
+# to do (a transient API failure, now that those are red), and it must not
+# post a second identical notice on somebody's report, nor re-close an
+# issue a human has deliberately reopened since.
+#
+# **AND THE CLOSING WAITS FOR THE TELLING.** If the comment could not be
+# posted, the issue is left exactly as it is. Closing it anyway would
+# produce, from the workflow whose entire purpose is to stop that, the
+# thing it exists to stop: an issue closed with nothing said on it.
 
 name: Issue fixed
 
@@ -84,6 +128,41 @@ jobs:
             exit 0
           fi
 
+          # THE THREE OUTCOMES OF AN API CALL, told apart instead of
+          # collapsed into "did not succeed". `gh` says which happened in
+          # its own message on stderr, and reading that message is how
+          # scripts/sync-issue-labels.sh already tells "this label does
+          # not exist yet" from "this token no longer works".
+          #
+          #   0 — it worked.
+          #   1 — HTTP 404: the number in the body is not an issue of this
+          #       repository. Deleted since, mistyped, or pointing
+          #       somewhere else. Not this workflow's to fail on.
+          #   2 — anything else. A reporter was not told something, and
+          #       the run must say so in the only place anybody will look
+          #       at afterwards, which is the Actions tab.
+          errors="$(mktemp)"
+          trap 'rm -f "${errors}"' EXIT
+
+          attempt() {
+            if "$@" 2>"${errors}"; then
+              return 0
+            fi
+
+            if grep -q 'HTTP 404' "${errors}"; then
+              return 1
+            fi
+
+            cat "${errors}" >&2
+
+            return 2
+          }
+
+          # A reporter this run failed to tell. Collected rather than
+          # thrown immediately: one issue the API refused must not stop
+          # the others in the same merge from being answered.
+          failed=0
+
           for issue in ${issues}; do
             # Belt and braces on a value that goes into an API path. The
             # regex above cannot produce anything else; this is what
@@ -95,35 +174,121 @@ jobs:
                 ;;
             esac
 
+            # SAID ONCE, and the marker is what makes that true across
+            # re-runs. It is an HTML comment, so it is invisible in the
+            # rendered thread, and it names THIS pull request: a second
+            # fix for the same issue, months later, is a different notice
+            # and says so.
+            marker="<!-- issue-fixed-comment: pull request #${PR_NUMBER} -->"
+
+            # Read the thread first, and match afterwards, rather than
+            # piping one into the other: `grep -q` stops at the first
+            # match, the write end of the pipe then dies of SIGPIPE, and
+            # under `set -o pipefail` that is a FAILING pipeline — so the
+            # shape that reads naturally would silently mean the opposite
+            # on the only run where it matters, and post the duplicate it
+            # was written to prevent.
+            outcome=0
+            said="$(attempt gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/issues/${issue}/comments" --jq '.[].body')" || outcome=$?
+
+            if [ "${outcome}" -eq 1 ]; then
+              echo "::warning title=No such issue here::#${issue} is not an issue of \
+              ${GITHUB_REPOSITORY} — deleted, mistyped, or somewhere else. Nothing was written."
+              continue
+            fi
+
+            if [ "${outcome}" -ne 0 ]; then
+              echo "::error title=Could not read the issue::Reading the comments of #${issue} \
+              failed, so this run cannot tell whether its reporter has already been told. Nothing \
+              was written to it."
+              failed=1
+              continue
+            fi
+
+            if grep -qF "${marker}" <<< "${said}"; then
+              echo "#${issue} has already been told about #${PR_NUMBER}; it is left exactly as it is."
+              continue
+            fi
+
             # Fixed text, plus three values GitHub produced. Written in
             # French, like every other thing a reporter reads.
-            body="$(printf '%s\n\n%s\n\n%s\n\n---\n%s\n' \
+            body="$(printf '%s\n%s\n\n%s\n\n%s\n\n---\n%s\n' \
+              "${marker}" \
               "**C'est corrigé.** Le correctif est fusionné sur \`${BASE_REF}\` et partira dans la prochaine version." \
               "Il est arrivé par la pull request #${PR_NUMBER}, dans le commit \`${MERGE_SHA}\`." \
               "Si ce que vous aviez signalé se reproduit, répondez ici plutôt que d'ouvrir un nouveau ticket : le fil garde le contexte." \
               "_Generated by [Claude Code](https://claude.ai/code)_")"
 
-            if gh api "repos/${GITHUB_REPOSITORY}/issues/${issue}/comments" \
-              -X POST -f "body=${body}" --silent; then
-              echo "Told #${issue} that its fix landed."
-            else
-              # A 404 is an issue in another repository, or one deleted
-              # since the body was written; neither is this workflow's to
-              # fail on. The state read back below is what decides.
-              echo "::warning title=Could not comment::Commenting on #${issue} did not succeed."
+            outcome=0
+            attempt gh api "repos/${GITHUB_REPOSITORY}/issues/${issue}/comments" \
+              -X POST -f "body=${body}" --silent || outcome=$?
+
+            if [ "${outcome}" -eq 1 ]; then
+              echo "::warning title=No such issue here::#${issue} is not an issue of \
+              ${GITHUB_REPOSITORY}. Nothing was written."
+              continue
             fi
+
+            # AND THE CLOSING WAITS FOR THE TELLING. Closing an issue the
+            # comment did not reach would produce exactly the silent
+            # closure this workflow exists to prevent, from the workflow
+            # that exists to prevent it. A merged pull request from a
+            # FORK is the known cause: `pull_request` hands such a run a
+            # read-only token whatever the permissions above say.
+            if [ "${outcome}" -ne 0 ]; then
+              echo "::error title=Nobody was told::Commenting on #${issue} failed, so it was \
+              deliberately left as it is rather than closed in silence. If this pull request came \
+              from a fork, the token was read-only and no permission here can change that: say it \
+              on the issue by hand."
+              failed=1
+              continue
+            fi
+
+            echo "Told #${issue} that its fix landed."
 
             # GitHub has almost certainly closed it already; this settles
             # the cases where it did not — a keyword on a pull request
             # from a fork, a base branch that is not the default one, an
             # auto-close that silently failed. `completed`, because it
             # was.
-            state="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${issue}" --jq '.state' || echo 'unknown')"
+            #
+            # The REASON is read too, not just the state, and that is not
+            # pedantry: GitHub's keyword does not reopen a closed issue,
+            # so a report closed as `not planned` before its fix landed
+            # stays filed under "dropped" for ever — on a thread that now
+            # says it is corrected. Setting the reason is what the
+            # release notes read.
+            outcome=0
+            state="$(attempt gh api "repos/${GITHUB_REPOSITORY}/issues/${issue}" \
+              --jq '.state + " " + (.state_reason // "")')" || outcome=$?
 
-            if [ "${state}" = 'open' ]; then
-              gh api "repos/${GITHUB_REPOSITORY}/issues/${issue}" \
-                -X PATCH -f state=closed -f state_reason=completed --silent \
-                || echo "::warning title=Could not close::Closing #${issue} did not succeed."
-              echo "Closed #${issue} as completed; the keyword had not."
+            if [ "${outcome}" -ne 0 ]; then
+              echo "::error title=Could not read the issue::#${issue} was told its fix landed, and \
+              reading its state back failed. Check by hand that it is closed as completed."
+              failed=1
+              continue
             fi
+
+            if [ "${state}" = 'closed completed' ]; then
+              continue
+            fi
+
+            outcome=0
+            attempt gh api "repos/${GITHUB_REPOSITORY}/issues/${issue}" \
+              -X PATCH -f state=closed -f state_reason=completed --silent || outcome=$?
+
+            if [ "${outcome}" -ne 0 ]; then
+              echo "::error title=Could not close::#${issue} was told its fix landed and reads \
+              '${state}'. Closing it as completed failed; close it by hand."
+              failed=1
+              continue
+            fi
+
+            echo "Closed #${issue} as completed; it read '${state}' before."
           done
+
+          # One exit code for the whole merge. A reporter nobody could
+          # answer is a red run, which is the only thing anybody sees
+          # afterwards.
+          exit "${failed}"

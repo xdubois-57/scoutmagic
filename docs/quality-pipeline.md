@@ -880,6 +880,31 @@ base branch that is not the default one). GitHub's own close lands a few
 seconds before that comment; what the workflow guarantees is that nobody
 finds their report closed with nothing said on it.
 
+That guarantee is only as good as the run's exit code, and at first it was
+not: every call in that job ended `|| echo "::warning …"`, so a run in
+which nobody was told anything finished **green**, with two annotations on
+a merge everybody had moved on from — the shape this document's last
+section is entirely about. Now exactly one failure is tolerated, and it is
+the one the code was describing: a **404**, meaning the number is not an
+issue of this repository (deleted, mistyped, pointing elsewhere), which
+warns and skips. Everything else fails the run, told apart by reading
+`gh`'s own message the way `scripts/sync-issue-labels.sh` does. Two
+consequences worth knowing: **the closing waits for the telling** — an
+issue whose comment could not be posted is left exactly as it is, since
+closing it anyway is the silent closure this job exists to prevent — and a
+merged pull request **from a fork** now goes red instead of quiet, because
+`pull_request` hands such a run a read-only token whatever the job's
+permissions say, and no permission here can change that (the alternative,
+`pull_request_target`, is forbidden for this file and asserted to be).
+
+It also says it **once**: the comment carries an invisible marker naming
+the pull request, and an issue already carrying it is skipped whole — no
+second notice on a re-run, and no re-closing of an issue a human has since
+reopened. And it reads the closing **reason**, not just the state, so a
+report closed as `not planned` before its fix landed (GitHub's keyword
+does not reopen a closed issue) stops being filed under "dropped" on a
+thread that now says it is corrected.
+
 One gap, recorded rather than papered over: **a feature request has no
 verdict.** `feature.yml` opens issues with `triage:pending` like `bug.yml`,
 but the three verdicts are all about defects, and `bug:not-a-bug` means

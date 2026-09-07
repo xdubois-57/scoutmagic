@@ -229,12 +229,28 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
             . 'request closed unmerged it would announce a fix that does not exist.',
         );
 
-        self::assertStringNotContainsString(
-            'pull_request_target',
-            $file,
-            self::FIXED_COMMENT . ' now triggers on `pull_request_target`, which runs with the base '
-            . "repository's secrets against a head somebody else controls.",
+        // The DECLARATIONS, not the prose — the same treatment
+        // testTheFixedCommentWorkflowHoldsOnlyWhatItNeeds gives the
+        // permission block, and for the same reason. The file explains at
+        // some length why it is not on that trigger, and an audit that
+        // reads a paragraph is an audit that fails when somebody rewrites
+        // the paragraph. What must not happen is the trigger appearing in
+        // the `on:` block; a comment saying the word is the file doing its
+        // job.
+        $declarations = array_filter(
+            $this->lines(self::FIXED_COMMENT),
+            static fn (string $line): bool => trim($line) !== '' && !str_starts_with(trim($line), '#'),
         );
+
+        foreach ($declarations as $number => $line) {
+            self::assertStringNotContainsString(
+                'pull_request_target',
+                $line,
+                self::FIXED_COMMENT . ' now triggers on `pull_request_target` at line '
+                . ($number + 1) . ', which runs with the base repository\'s secrets against a head '
+                . 'somebody else controls.',
+            );
+        }
     }
 
     /**
@@ -307,6 +323,156 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
             $file,
             self::FIXED_COMMENT . ' closes an issue as `not planned`. A merged fix completed it, '
             . 'and `not planned` is a lie the release notes would pick up.',
+        );
+    }
+
+    /**
+     * A RUN IN WHICH NOBODY WAS TOLD MUST BE RED.
+     *
+     * Every call in that job used to end `|| echo "::warning …"`, so a
+     * merge whose comments all failed finished green with two annotations
+     * nobody reads. That is the failure shape the whole of this file is
+     * about — issue-triage.yml is written the way it is because a triage
+     * that wrote nothing used to report success — and it had reappeared
+     * in the one workflow whose entire purpose is to stop a report going
+     * silent.
+     *
+     * Exactly one failure may be tolerated, and it is the one the
+     * original comment was describing: a 404, meaning the number is not
+     * an issue of this repository. It is told apart by reading `gh`'s own
+     * message, the way scripts/sync-issue-labels.sh tells "this label
+     * does not exist yet" from "this token no longer works".
+     */
+    public function testAMergeThatToldNobodyIsARedRun(): void
+    {
+        $file = $this->contents(self::FIXED_COMMENT);
+
+        self::assertStringContainsString(
+            "grep -q 'HTTP 404'",
+            $file,
+            self::FIXED_COMMENT . ' no longer tells a 404 from any other failure. Either it fails '
+            . 'on an issue number that was deleted since the body was written, or — far worse — it '
+            . 'passes over a 403, a rate limit and a read-only token in the same breath.',
+        );
+
+        self::assertStringContainsString(
+            'exit "${failed}"',
+            $file,
+            self::FIXED_COMMENT . ' cannot end red. A merge where every comment failed then reports '
+            . 'success, and the reporters it could not answer are invisible: nobody reads a '
+            . 'warning annotation on a green run of a workflow they have never heard of.',
+        );
+
+        self::assertSame(
+            0,
+            preg_match('/\|\|\s*echo "::warning title=Could not/', $file),
+            self::FIXED_COMMENT . ' swallows a failed write into a warning again. A warning is what '
+            . 'this workflow used to do instead of failing, and it is why a run that achieved '
+            . 'nothing looked exactly like one that worked.',
+        );
+    }
+
+    /**
+     * AND AN ISSUE NOBODY COULD BE TOLD ABOUT IS NOT CLOSED.
+     *
+     * The ordering test above says the comment comes first in the file.
+     * This one says the closing DEPENDS on it: an issue whose comment
+     * failed must be left exactly as it is, because closing it anyway
+     * produces — from the workflow whose whole purpose is to prevent it —
+     * an issue closed with nothing said on it.
+     *
+     * The likeliest cause is a merged pull request from a FORK:
+     * `pull_request` hands that run a read-only `GITHUB_TOKEN` whatever
+     * the job's `permissions:` block says, and the alternative trigger is
+     * forbidden here (see above). It cannot be fixed from inside the
+     * file, so it is made loud instead.
+     */
+    public function testAnIssueThatCouldNotBeToldIsNotClosed(): void
+    {
+        $file = $this->contents(self::FIXED_COMMENT);
+
+        self::assertStringContainsString(
+            'title=Nobody was told',
+            $file,
+            self::FIXED_COMMENT . ' no longer says, in the run\'s own log, that a reporter went '
+            . 'unanswered. That sentence is the only trace anybody gets of it.',
+        );
+
+        $told = strpos($file, 'title=Nobody was told');
+        $close = strpos($file, '-X PATCH -f state=closed');
+
+        self::assertIsInt($told);
+        self::assertIsInt($close, self::FIXED_COMMENT . ' no longer closes anything.');
+
+        self::assertLessThan(
+            $close,
+            $told,
+            self::FIXED_COMMENT . ' closes an issue on a path that has not established the comment '
+            . 'landed. A silent closure is what this workflow exists to prevent, and performing it '
+            . 'itself is the one way it can be worse than not existing.',
+        );
+    }
+
+    /**
+     * It says it ONCE, across re-runs.
+     *
+     * Re-running a workflow is an ordinary thing to do — more so now that
+     * a transient API failure turns the run red — and it must not post a
+     * second identical notice on somebody's report, nor re-close an issue
+     * a human has deliberately reopened since. So the comment carries an
+     * invisible marker naming the pull request, and an issue already
+     * carrying it is skipped whole.
+     */
+    public function testTheFixedNoticeIsSaidOnlyOnce(): void
+    {
+        $file = $this->contents(self::FIXED_COMMENT);
+
+        self::assertStringContainsString(
+            'issue-fixed-comment: pull request #${PR_NUMBER}',
+            $file,
+            self::FIXED_COMMENT . ' posts a notice carrying no marker, so a re-run comments a '
+            . 'second time on every issue the merge named, and re-closes any that somebody has '
+            . 'reopened in between.',
+        );
+
+        self::assertStringContainsString(
+            'grep -qF "${marker}" <<< "${said}"',
+            $file,
+            self::FIXED_COMMENT . ' no longer matches the marker against comments it has already '
+            . 'read. Piping `gh api` into `grep -q` is the shape to avoid: grep stops at the first '
+            . 'match, the write end dies of SIGPIPE, and under `pipefail` the pipeline FAILS — so '
+            . 'the check silently means the opposite on the only run where it matters.',
+        );
+    }
+
+    /**
+     * `completed` is set even on an issue that is already closed for
+     * another reason.
+     *
+     * GitHub's closing keyword does not reopen a closed issue, so a
+     * report closed as `not planned` before its fix landed keeps that
+     * reason for ever — filed under "dropped", on a thread that now says
+     * it is corrected, and read that way by the release notes. Comparing
+     * the state alone cannot see it.
+     */
+    public function testAFixedIssueEndsClosedAsCompletedWhateverItWasBefore(): void
+    {
+        $file = $this->contents(self::FIXED_COMMENT);
+
+        self::assertStringContainsString(
+            "'.state + \" \" + (.state_reason // \"\")'",
+            $file,
+            self::FIXED_COMMENT . ' reads an issue\'s state without its reason, so an issue closed '
+            . 'as `not planned` before the fix landed is left that way — the reason a merged fix '
+            . 'was supposed to correct.',
+        );
+
+        self::assertStringContainsString(
+            "\"\${state}\" = 'closed completed'",
+            $file,
+            self::FIXED_COMMENT . ' no longer compares against `closed completed`, so it either '
+            . 'skips an issue that is closed for the wrong reason or re-closes one that is already '
+            . 'right.',
         );
     }
 
