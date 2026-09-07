@@ -49,9 +49,14 @@ final class PersonFactory
     }
 
     /**
-     * @param ?int    $birthYear      null for the member who has no birth date
-     * @param ?string $branch         drives how likely a second address is
-     * @param ?string $forcedGender   'F'/'M' when a photo already decided it
+     * @param ?int           $birthYear            null for the member who has no birth date
+     * @param ?string        $branch               drives how likely a second address is
+     * @param ?PostalAddress $sharedSecondAddress  the household's own second address, carried
+     *                                             by every one of its members rather than drawn
+     *                                             per person: siblings whose parents live apart
+     *                                             live apart at the same two places. Only read
+     *                                             when `$sharedAddress` is given.
+     * @param ?string        $forcedGender         'F'/'M' when a photo already decided it
      */
     public function make(
         string $tiers,
@@ -60,6 +65,7 @@ final class PersonFactory
         ?string $lastName = null,
         ?PostalAddress $sharedAddress = null,
         ?string $sharedEmail = null,
+        ?PostalAddress $sharedSecondAddress = null,
         ?string $forcedGender = null,
         bool $withEmail = true,
         bool $withLandline = true,
@@ -71,8 +77,19 @@ final class PersonFactory
         $lastName ??= $this->nextLastName();
 
         $addresses = [$sharedAddress ?? $this->makeAddress('Domicile')];
-        if ($sharedAddress === null && $this->rng->chance(self::secondAddressChance($branch))) {
-            $addresses[] = $this->makeAddress('Adresse secondaire');
+        if ($sharedAddress === null) {
+            if ($this->rng->chance(self::secondAddressChance($branch))) {
+                $addresses[] = $this->makeAddress('Adresse secondaire');
+            }
+        } elseif ($sharedSecondAddress !== null) {
+            // Not a second draw: the household already made this decision once,
+            // for everybody who lives there. Drawing again per member would
+            // give one sibling two addresses and the next one, at the same two
+            // places, only one — and Core\Member\Household\HouseholdRepository
+            // groups on EVERY address, so the two would then land in
+            // differently-sized households and « Justesse des tarifs » would
+            // report an écart this generator invented.
+            $addresses[] = $sharedSecondAddress;
         }
 
         $serial = (int) substr($tiers, 1);
@@ -101,7 +118,7 @@ final class PersonFactory
         );
     }
 
-    private static function secondAddressChance(?string $branch): int
+    public static function secondAddressChance(?string $branch): int
     {
         return match ($branch) {
             'Baladins', 'Louveteaux', 'Éclaireurs' => UnitBlueprint::TWO_ADDRESS_PERCENT_CHILD,
@@ -148,10 +165,26 @@ final class PersonFactory
         return $email;
     }
 
-    /** A parent's address, shared by a whole sibling group (scenarios 17-18). */
+    /**
+     * A parent's address, shared by a whole sibling group (scenarios 17-18,
+     * and every filler household PopulationBuilder founds).
+     *
+     * Surnames repeat — UnitBlueprint::LAST_NAMES is handed out in a cycle —
+     * so two households can ask for the same one. The suffix keeps them
+     * apart, for the same reason makeEmail() does: an email blind index is
+     * what DeskImportService keys a user account on, and two households
+     * sharing a mailbox would put unrelated children behind one parent login.
+     */
     public function makeHouseholdEmail(string $lastName): string
     {
-        $email = 'famille.' . self::slug($lastName) . '@example.org';
+        $base = 'famille.' . self::slug($lastName);
+        $email = $base . '@example.org';
+
+        $suffix = 2;
+        while (isset($this->usedEmails[$email])) {
+            $email = $base . $suffix . '@example.org';
+            $suffix++;
+        }
         $this->usedEmails[$email] = true;
 
         return $email;

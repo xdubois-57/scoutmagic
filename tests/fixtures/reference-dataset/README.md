@@ -59,7 +59,7 @@ tests/fixtures/reference-dataset/
   ScenarioPeople.php     les 33 membres de scénario, écrits à la main
   PopulationBuilder.php  fait vieillir et renouvelle la population de fond
   PersonFactory.php      fabrique une personne fictive
-  Person / PersonYear / PostalAddress / FunctionAssignment / Rng
+  Person / PersonYear / PostalAddress / Household / FunctionAssignment / Rng
   DeskCsvWriter.php      écrit une année au format d'export Desk
   DeskImportReplay.php   rejoue les trois exports par le vrai pipeline
                          (partagé avec le builder)
@@ -649,9 +649,9 @@ moteur et non une promesse — il a déjà changé une fois — et que `--check`
 
 | Année | Membres | Lignes |
 |---|---|---|
-| 2024-2025 | 176 | 266 |
-| 2025-2026 | 178 | 276 |
-| 2026-2027 | 178 | 279 |
+| 2024-2025 | 176 | 262 |
+| 2025-2026 | 178 | 267 |
+| 2026-2027 | 178 | 270 |
 
 Une ligne par (fonction × adresse) : les adresses sont dédupliquées par
 `Type d'adresse` dans le parseur, les fonctions ne le sont pas — le parseur
@@ -708,6 +708,71 @@ Trois règles que le générateur tient :
   qu'en A3. `DeskImportReplay::confirmFunctionRoles()` la laisse non confirmée,
   ce qui est le cas « une fonction toute neuve qu'aucun chef n'a encore vue dans
   Config Desk ». Sans elle, ce cas disparaîtrait du jeu.
+
+#### Les foyers
+
+Un membre sur deux, ou presque, partage son domicile avec un autre. Ce n'est
+pas un détail de décor : c'est la donnée sans laquelle « Justesse des tarifs »
+(`/admin/fees/tarifs`), `Core\Member\FeeEstimationService` et le comptage de
+foyer du module Inscriptions n'ont rien à traiter. Le jeu produisait autrefois
+173 foyers pour 176 personnes, dont 98 % à une seule personne, et ces trois
+surfaces étaient vides en permanence sur l'instance de démonstration
+(issue #201).
+
+| Année | Foyers | Taille 1 | Taille 2 | Taille 3+ | Membres en foyer partagé |
+|---|---|---|---|---|---|
+| 2024-2025 | 124 | 95 | 14 | 15 | 81 (46 %) |
+| 2025-2026 | 130 | 100 | 16 | 14 | 78 (44 %) |
+| 2026-2027 | 133 | 103 | 18 | 12 | 75 (42 %) |
+
+*(Foyers groupés sur l'adresse `Domicile` uniquement, comme
+`PopulationBuilder::assignHouseholdTariffs()`. Le site, lui, groupe sur
+**toutes** les adresses — voir plus bas.)*
+
+**Comment ils se forment.** Trois tirages dans `UnitBlueprint`, pour chaque
+nouveau membre de la population de fond :
+
+- `HOUSEHOLD_JOIN_PERCENT` — emménager dans un foyer existant qui a encore de
+  la place et quelqu'un qui y habite cette année-là. C'est ce qui fabrique les
+  fratries, et surtout ce qui fait **changer un foyer de taille entre deux
+  années** : l'arrivant de A2 rejoint un foyer bâti en A1, donc le tarif de
+  tous ceux qui y étaient déjà bouge avec lui.
+- `HOUSEHOLD_CADRE_JOIN_PERCENT` — la même chose pour un cadre. Le foyer mixte
+  (un grand frère animateur, une petite sœur baladine) est le cas qui produit
+  les arbitrages intéressants sur l'écran des tarifs, et il était absent.
+- `HOUSEHOLD_FOUND_PERCENT` — ouvrir un foyer que d'autres pourront rejoindre.
+  Il reçoit alors une **boîte parentale** (`famille.<nom>@example.org`) au lieu
+  d'une adresse personnelle : `DeskImportService::ensureUserAccount()` indexe un
+  compte sur l'index aveugle de l'e-mail, donc une boîte pour trois enfants est
+  **un compte parent relié à trois membres** — la forme la plus courante du
+  site public, qu'aucun membre de remplissage n'exerçait.
+
+Chaque foyer tire aussi une **taille visée** (`HOUSEHOLD_TARGET_SIZES`) et
+ferme en l'atteignant. Un simple plafond ne suffisait pas : tous les foyers
+montaient alors jusqu'au plafond et le jeu sortait plus de foyers de quatre que
+de deux, l'inverse d'une vraie unité.
+
+**Le piège de la seconde adresse.** Les membres d'un foyer portent **la même**
+seconde adresse, tirée une fois pour le foyer, jamais une par personne.
+`Core\Member\Household\HouseholdRepository::findHouseholdsForYear()` groupe
+sur **toutes** les adresses, pas seulement le domicile : deux frères dont l'un
+aurait une seconde adresse et l'autre pas se retrouveraient dans des foyers de
+tailles différentes, et l'écran signalerait un écart que le générateur aurait
+inventé. C'est aussi pour cela que le site voit plus de foyers que le tableau
+ci-dessus — un foyer avec seconde adresse y apparaît deux fois, aux deux
+adresses, avec les mêmes personnes.
+
+**Trois foyers par année ont un tarif que personne n'a mis à jour.** Depuis
+#194 le tarif de chaque membre est *déduit* de la taille de son foyer, ce qui
+rend l'export parfaitement cohérent — et l'onglet « à corriger » de « Justesse
+des tarifs » vide par construction. Or cet écran existe précisément pour l'unité
+qui a oublié de ré-encoder un tarif quand un cadet est arrivé. Alors l'aîné de
+trois foyers oublie, à dessein
+(`PopulationBuilder::staleTheOldestTariffOfSomeHouseholds()`,
+`STALE_TARIFF_HOUSEHOLDS_PER_YEAR`). La valeur périmée est **toujours un des
+trois codes Desk** : #194 portait sur le quatrième code que Desk n'offre pas, et
+n'est pas défait ici. Les foyers des scénarios écrits à la main sont exclus du
+tirage — ce sont eux que `ReferenceDatasetImportTest` épingle tarif par tarif.
 
 ### 9.2 Les scénarios
 

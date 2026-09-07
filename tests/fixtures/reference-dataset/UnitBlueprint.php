@@ -301,6 +301,80 @@ final class UnitBlueprint
     public const CHURN_PERCENT = 9;
 
     /**
+     * How the filler is spread over homes — issue #201.
+     *
+     * A generator that gave every member a fresh address produced 173 homes
+     * for 176 people, 98 % of them holding one person. That is not a unit:
+     * fratries are the norm in a real one, and they are the whole reason the
+     * federation offers a couple and a famille tariff at all. The dataset
+     * could therefore show « Justesse des tarifs » nothing to look at, and
+     * `Core\Member\FeeEstimationService` never had a second person to count.
+     *
+     * Three numbers, drawn in this order for every new filler member:
+     *
+     *   - HOUSEHOLD_JOIN_PERCENT — the chance of moving in with an existing
+     *     home that still has room and somebody living in it this year. This
+     *     is what makes fratries, and it is what makes a home CHANGE SIZE
+     *     between two years: the newcomer of A2 joins a home built in A1, so
+     *     the tariff of everyone already there moves with them.
+     *   - HOUSEHOLD_CADRE_JOIN_PERCENT — the same for a cadre, lower because
+     *     most animateurs have left home. It is not zero because the mixed
+     *     home — a big brother animateur, a little sister baladine — is the
+     *     case that produces the interesting arbitrations on that screen, and
+     *     the dataset had none.
+     *   - HOUSEHOLD_FOUND_PERCENT — the chance that a member who joined
+     *     nobody opens a home others may later join, with a parent mailbox
+     *     rather than a personal one. Whoever founds one and is never joined
+     *     is simply a member living alone, which is also true of real units.
+     *
+     * Tuned against the generated result rather than reasoned about: they
+     * land the three years between 42 % and 46 % of members sharing a home, with
+     * all three household sizes present in volume. Change one and re-run
+     * `generate.php` — the whole dataset moves.
+     */
+    public const HOUSEHOLD_JOIN_PERCENT = 46;
+    public const HOUSEHOLD_CADRE_JOIN_PERCENT = 45;
+    public const HOUSEHOLD_FOUND_PERCENT = 48;
+
+    /**
+     * How big a home is meant to get, drawn once when it is founded.
+     *
+     * A flat cap is not enough: with one, every home keeps accepting until it
+     * hits the ceiling, and the dataset comes out with more homes of four
+     * than of two — the opposite of a unit, where the pair is the common case
+     * and the household of four the notable one. Giving each home a size it
+     * is aiming for, and closing it there, puts the shape back.
+     *
+     * Weights, not probabilities, and read with `Rng::pick()`: five homes in
+     * nine want two people, three want three, one wants four. Nothing wants
+     * more — Desk's famille tariff stops distinguishing above three
+     * (`Core\Member\HouseholdFeeCategory`), so a fifth member would add a
+     * mouth and no behaviour.
+     *
+     * A home rarely reaches its target in any one year, and that is wanted
+     * too: the members arrive over three of them, and a home that fills up in
+     * A2 is exactly the household whose tariff moves between two exports.
+     *
+     * @var list<int>
+     */
+    public const HOUSEHOLD_TARGET_SIZES = [2, 2, 2, 2, 2, 3, 3, 3, 4];
+
+    /**
+     * How many homes per year carry a tariff nobody updated — issue #201.
+     *
+     * Since #194 every member's Tarif is DEDUCED from the size of their home,
+     * which makes the export perfectly coherent and « Justesse des tarifs »
+     * permanently empty: the screen exists to catch a unit that forgot to
+     * re-encode a tariff when a sibling arrived, and a dataset that never
+     * forgets shows it nothing. So a few homes forget, on purpose, in
+     * `PopulationBuilder::staleTheOldestTariffOfSomeHouseholds()`.
+     *
+     * The stale value is always one of Desk's three codes — #194 is about the
+     * fourth code that does not exist, and is not being undone here.
+     */
+    public const STALE_TARIFF_HOUSEHOLDS_PER_YEAR = 3;
+
+    /**
      * Given names, split by the Genre the export carries.
      *
      * The split is not 50/50 on purpose: a unit is rarely balanced, and
