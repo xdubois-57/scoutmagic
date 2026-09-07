@@ -126,7 +126,7 @@ that `ci.yml` calls — which is why a pull request shows them as
 | `Checks / Dynamic scan (passive)` | `./scripts/dast.sh --profile=passive` |
 | `Checks / security` | `composer audit` |
 | `All checks` | nothing of its own — it reads the reusable workflow's roll-up, so it is red exactly when a `Checks / …` job failed or was cancelled, and green when every one either passed or was deliberately skipped (`Checks / SonarQube Cloud` on a fork). Start from the red job, never from here |
-| `Claude review` | no local equivalent — read the findings on the PR; see below |
+| `Claude review` | no local equivalent — read the findings on the PR; see below. Two steps: the action, which reviews and keeps its whole transcript in the run log (`show_full_output`), then `Read what the run actually did`, which reads that transcript back into the counts the status job judges on. That second step never fails the job — a transcript it cannot parse is published as `evidence=missing`, because this is the one required check on `main` |
 | `Claude review status` | no local equivalent — it posts the comment that says what the green above means, deciding from the review job's `result`, its `conclusion` output, and the transcript the run left behind; it is the one check here that can be red on its own |
 | `Checks / SonarQube Cloud` | no local equivalent — read the bot's PR comment |
 | `Analyze (…)` (CodeQL) | no local equivalent — see `AGENTS.md` § CodeQL |
