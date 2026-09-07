@@ -126,8 +126,8 @@ that `ci.yml` calls — which is why a pull request shows them as
 | `Checks / Dynamic scan (passive)` | `./scripts/dast.sh --profile=passive` |
 | `Checks / security` | `composer audit` |
 | `All checks` | nothing of its own — it reads the reusable workflow's roll-up, so it is red exactly when a `Checks / …` job failed or was cancelled, and green when every one either passed or was deliberately skipped (`Checks / SonarQube Cloud` on a fork). Start from the red job, never from here |
-| `Claude review` | no local equivalent — read the findings on the PR; see below |
-| `Claude review status` | no local equivalent — it posts the comment that says what the green above means, deciding from the review job's `result` and the `conclusion` output it exports |
+| `Claude review` | no local equivalent — read the findings on the PR; see below. Two steps: the action, which reviews and keeps its whole transcript in the run log (`show_full_output`), then `Read what the run actually did`, which reads that transcript back into the counts the status job judges on. That second step never fails the job — a transcript it cannot parse is published as `evidence=missing`, because this is the one required check on `main` |
+| `Claude review status` | no local equivalent — it posts the comment that says what the green above means, deciding from the review job's `result`, its `conclusion` output, and the transcript the run left behind; it is the one check here that can be red on its own |
 | `Checks / SonarQube Cloud` | no local equivalent — read the bot's PR comment |
 | `Analyze (…)` (CodeQL) | no local equivalent — see `AGENTS.md` § CodeQL |
 
@@ -177,10 +177,22 @@ seconds having reviewed nothing.
 
 You no longer have to open the run to find that out: the `Claude review
 status` job posts one comment on the pull request, rewritten on every run,
-saying which of the three happened — reviewed, skipped without reviewing,
-or did not complete. It reads the action's own `conclusion` output, which
-is empty exactly when the action returned before running Claude. Read that
-comment; it is the answer the check alone cannot give.
+saying whether a review happened and going **red** when it cannot show that
+one did. Read that comment; it is the answer the check alone cannot give.
+
+**And a green `Claude review` did not always mean a review happened even
+when Claude ran.** For its first 105 runs the reviewer was refused one tool
+call per run — which one is still not known, the summary counts them
+without naming them — and on every run anybody has looked at, it launched
+no review agent, posted nothing, and reported success (2026-09-07, the
+tools its procedure needs now granted
+in `claude_args`; the story is in that file's header and in
+docs/quality-pipeline.md § Code review). Which is why the comment's verdict
+now rests on two rows — **`Review agents launched`** and **`Tool calls
+refused`** — read from the run's own transcript. Agents launched at zero,
+or any tool refused, and no review happened, whatever the check says.
+A refusal names the tool: grant it in `claude_args`, or write down in that
+file why it must stay denied.
 
 **Its `Took` row is information, not evidence.** That comment used to
 decide on duration — under a minute meant a skip — and it was wrong

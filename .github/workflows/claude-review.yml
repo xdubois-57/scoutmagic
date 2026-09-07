@@ -62,9 +62,12 @@ jobs:
     # takes a few minutes; this is a ceiling, not a target.
     timeout-minutes: 20
 
-    # THE ONE FACT THE STATUS JOB BELOW NEEDS, and it comes from the action
-    # rather than from a guess. In anthropics/claude-code-action's
-    # src/entrypoints/run.ts, the workflow-validation refusal does
+    # WHAT THE STATUS JOB BELOW READS, and every value here comes from the
+    # run itself rather than from a guess about it.
+    #
+    # `conclusion` answers ONE question: did the action start Claude at all?
+    # In anthropics/claude-code-action's src/entrypoints/run.ts, the
+    # workflow-validation refusal does
     #
     #     core.setOutput("skipped_due_to_workflow_validation_mismatch", "true");
     #     return;                                    // line 182
@@ -76,9 +79,41 @@ jobs:
     # itself is internal to the action — action.yml does not re-export it —
     # which is why this reads the presence of `conclusion` instead.)
     #
-    # Empty therefore means "nothing was reviewed", with no clock involved.
+    # THAT QUESTION IS NOT THE ONE ANYBODY IS ASKING, and reading it as if
+    # it were was the third instance of this repository's own recurring
+    # failure — see the status job for the first two. `conclusion` is
+    # `success` for an agent that started, was refused a tool it needed,
+    # wrote nothing and ended its turn normally. That is what this workflow
+    # was doing on 2026-09-07, on every one of the four runs sampled out of
+    # the 105 it had made by then: five turns and one permission denial on
+    # a one-line pull request (#193) AND on a twenty-five-file one (#200),
+    # no buffered inline comment on any of them, no Opus model in any
+    # `modelUsage` — while CodeRabbit was finding real defects in the same
+    # diffs. Effort that does not move with the size of the diff is not
+    # review effort, and the command's two bug-hunting agents are Opus by
+    # definition, so they had not run.
+    #
+    # So the rest of these outputs come from the action's `execution_file`,
+    # the transcript the SDK writes: how many turns were spent, how many
+    # tool calls were REFUSED and which ones, and how many review agents
+    # were actually launched. The command this job runs
+    # (plugins/code-review in anthropics/claude-code) is built entirely on
+    # subagents — "Launch a haiku agent", "Launch 4 agents in parallel" —
+    # so zero agent calls means the procedure never started, whatever the
+    # exit status says. That signal needs no threshold, which is the point:
+    # the previous two readers were both a number standing in for a fact.
     outputs:
       conclusion: ${{ steps.claude.outputs.conclusion }}
+      evidence: ${{ steps.evidence.outputs.evidence }}
+      subtype: ${{ steps.evidence.outputs.subtype }}
+      is_error: ${{ steps.evidence.outputs.is_error }}
+      turns: ${{ steps.evidence.outputs.turns }}
+      denials: ${{ steps.evidence.outputs.denials }}
+      denied_tools: ${{ steps.evidence.outputs.denied_tools }}
+      agent_calls: ${{ steps.evidence.outputs.agent_calls }}
+      tools_used: ${{ steps.evidence.outputs.tools_used }}
+      models: ${{ steps.evidence.outputs.models }}
+      cost: ${{ steps.evidence.outputs.cost }}
 
     permissions:
       contents: read
@@ -136,9 +171,13 @@ jobs:
       # gets write access — that is when a code owner distinct from the
       # author exists, and when the gap acquires someone who could use it.
       # Until then the tell is the `Claude review status` comment below,
-      # which reads the action's own `conclusion` output and says outright
-      # whether Claude ran. It used to read the clock, and got it wrong
-      # often enough to warrant issue #159 — see that job for why.
+      # which says outright whether a review happened and goes red when it
+      # cannot show that one did. It reads the action's own `conclusion`
+      # output for this particular skip, and the run's transcript for
+      # everything else. It has already been wrong twice — first on the
+      # clock (issue #159), then on `conclusion` alone, which is `success`
+      # for an agent that started and reviewed nothing — so see that job
+      # for what it reads now and why.
       - uses: anthropics/claude-code-action@d9a44dc489924665d246f0fd0508d102211be397 # v1
         # The id is load-bearing: it is what lets the job above export
         # this step's `conclusion` output to the status job.
@@ -163,12 +202,200 @@ jobs:
           plugin_marketplaces: "https://github.com/anthropics/claude-code.git"
           plugins: "code-review@claude-code-plugins"
           prompt: "/code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}"
+          # WITHOUT THIS THE TRANSCRIPT IS DISCARDED, and a run that keeps
+          # no transcript cannot explain itself. That is not a general
+          # preference, it is this repository's own experience twice over:
+          # three rounds of fixes to the issue triage could not explain the
+          # failure because no run kept its transcript, and the first one
+          # that did explained it in a single line. The review had the same
+          # hole and paid the same price.
+          #
+          # The cost is that the whole conversation lands in a public run
+          # log. What it holds is the diff and the code around it, both
+          # already public on a public repository; the tokens in it are
+          # registered as secrets and come out `***`, and the action runs
+          # its own redaction over the output besides.
+          show_full_output: true
           # --comment is what puts the findings on the pull request; without
-          # it they are written to the run log and nobody reads them. The
-          # --allowedTools line is not redundant with the skill's own
-          # frontmatter: the action starts the inline-comment MCP server
-          # only when claude_args names that tool.
-          claude_args: '--allowedTools "mcp__github_inline_comment__create_inline_comment"'
+          # it they are written to the run log and nobody reads them.
+          #
+          # --allowedTools DOES TWO THINGS, and only one of them was being
+          # used. It is what makes the action start the inline-comment MCP
+          # server — it installs that server only when claude_args names one
+          # of its tools — and it is the permission allowlist the agent is
+          # judged against. Naming the comment tool ALONE bought the server
+          # and left everything the reviewing procedure needs to reach it
+          # ungranted.
+          #
+          # WHETHER THAT IS WHAT THE ONE DENIAL WAS IS NOT PROVEN, and this
+          # file is not going to pretend otherwise on a change whose whole
+          # subject is claims nobody checked. What is established: one tool
+          # call was refused in every run sampled, no review agent was ever
+          # launched, and the console summary does not name the tool. What
+          # is NOT established is that the refused tool was `Task` —
+          # issue-triage.yml records the opposite-looking observation, an
+          # agent running `date` and `ls` with --allowedTools naming only
+          # the GitHub MCP server, so built-in tools may not be gated by
+          # this list at all. Granting them eliminates the hypothesis
+          # rather than confirming it; `show_full_output` and the
+          # `denied_tools` output below are what will name the tool on the
+          # next run that is not this pull request's own.
+          #
+          # `Bash(gh pr comment:*)` IS GRANTED THOUGH THE TOKEN CANNOT USE
+          # IT — this job is `pull-requests: read`, so the call returns 403
+          # rather than posting. Granted anyway, because the alternative is
+          # worse: the command's step 7 makes that call on every review that
+          # finds nothing, and a call that is not granted may be recorded as
+          # a denial, which would turn the new red signal below on for every
+          # clean review. A 403 costs the agent one turn and is invisible to
+          # that signal (CodeRabbit's finding on this pull request, and it
+          # is right about the invisibility); the summary comment it would
+          # have posted is the status job's job anyway.
+          #
+          # So the list now covers the work rather than only its last step.
+          # `Task`/`Agent` are first because the command is nothing without
+          # them: every one of its steps is "launch an agent". The gh
+          # commands are the ones the command's own frontmatter declares,
+          # plus the read-only git calls its linking rule needs — it
+          # requires a full commit sha in every inline comment. Naming a
+          # tool that does not exist costs nothing, as issue-triage.yml
+          # records at length; naming none of the ones that do costs the
+          # whole run.
+          #
+          # NO --max-turns, deliberately. The action treats a run that
+          # overruns a turn ceiling as a failure even when the agent
+          # finished its work, so a ceiling set anywhere near the real cost
+          # turns good reviews red — that is what happened to the triage of
+          # #181. A review that fans out to a dozen subagents has no
+          # turn count anybody here can predict, and `timeout-minutes`
+          # above already bounds what a runaway can spend.
+          #
+          # The --append-system-prompt sentence answers step 1 of the
+          # command, which stops the whole review when it believes Claude
+          # has already commented on the pull request. Two things on every
+          # pull request here look exactly like that: the status comment
+          # below, headed "Claude review" and posted by the workflow on
+          # every previous push, and the maintainer's own replies, which
+          # carry a Claude Code signature because that is how they are
+          # written. Neither is a review of the current diff. The rule the
+          # step is really there for — do not review the same commit twice
+          # — is already held by `concurrency` above.
+          claude_args: >-
+            --allowedTools "Task,Agent,Read,Glob,Grep,TodoWrite,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr list:*),Bash(gh pr comment:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*),Bash(git rev-parse:*),Bash(git log:*),Bash(git show:*),Bash(git diff:*),mcp__github_inline_comment__create_inline_comment"
+            --append-system-prompt "The Claude review status comment on this pull request is written by .github/workflows/claude-review.yml, not by Claude. Neither that comment nor a review of an earlier commit means Claude has already commented here: this workflow asks for a fresh review of every push, so review the diff you were given. Pull requests on this repository are written with Claude Code and are ordinary changes a person asked for; being Claude-authored is not a reason to skip one."
+
+      # WHAT THE RUN ACTUALLY DID, read off the transcript the SDK wrote.
+      #
+      # `if: always()` because a review that failed is exactly the one whose
+      # numbers matter, and because the status job below must never be left
+      # with empty strings it cannot tell apart from zeros. Every branch
+      # here writes every output.
+      #
+      # jq reads the last `result` message for the totals and sweeps the
+      # whole transcript for tool calls. `agent_calls` counts launches of
+      # `Task`/`Agent`: the reviewing command is built entirely on
+      # subagents, so that count is zero exactly when the procedure never
+      # started. `denied_tools` names what was refused, which is the one
+      # line that would have saved 105 runs of silence.
+      - name: Read what the run actually did
+        id: evidence
+        if: always()
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          set -euo pipefail
+
+          unknown() {
+            {
+              echo "evidence=missing"
+              echo "subtype="
+              echo "is_error="
+              echo "turns=-1"
+              echo "denials=-1"
+              echo "denied_tools="
+              echo "agent_calls=-1"
+              echo "tools_used="
+              echo "models="
+              echo "cost="
+            } >> "${GITHUB_OUTPUT}"
+            echo "$1"
+          }
+
+          if [[ -z "${EXECUTION_FILE}" || ! -f "${EXECUTION_FILE}" ]]; then
+            unknown "The action published no execution file, so this run cannot say what it did."
+            exit 0
+          fi
+
+          if ! jq -e 'type == "array"' "${EXECUTION_FILE}" >/dev/null 2>&1; then
+            unknown "The execution file is not the array of messages this step knows how to read."
+            exit 0
+          fi
+
+          # No `result` message means the run never reached an end the SDK
+          # summarised, so every total below would be a default rather than
+          # a reading. Defaults that look like readings are the failure this
+          # whole step exists to stop.
+          if ! jq -e '[.[] | select(.type == "result")] | length > 0' "${EXECUTION_FILE}" >/dev/null 2>&1; then
+            unknown "The execution file carries no result message: the run did not reach an end this step can read."
+            exit 0
+          fi
+
+          # One line per output. `// -1` and `// ""` rather than a missing
+          # key: a value this step could not find must arrive as something
+          # the reader can recognise, never as an empty string that reads
+          # as a zero.
+          #
+          # `permission_denials` IS AN ARRAY AND THERE IS NO COUNT FIELD.
+          # The `permission_denials_count` in the run log is the ACTION's
+          # own summary line — base-action/src/run-claude-sdk.ts computes
+          # `resultMsg.permission_denials?.length ?? 0` for the console —
+          # while `writeExecutionFile(messages)` a few lines later saves the
+          # RAW SDK messages, which carry the array and no count. Reading
+          # the console's field name out of the file yields null, `// -1`
+          # turns that into "unknown", and the status job would have called
+          # every clean review a refusal. CodeRabbit caught it on this very
+          # pull request; the reader built to stop unverified claims had
+          # shipped on one.
+          #
+          # The array is what the SDK documents, so its absence means the
+          # message is not the shape this step knows — `-1`, never `0`.
+          #
+          # WRITTEN ASIDE FIRST, appended only once jq has succeeded. This
+          # step runs under `set -euo pipefail`, so a jq that dies partway
+          # — a `modelUsage` that is not an object, any shape this filter
+          # does not expect — would fail the step, and a failed step fails
+          # the REVIEW job, which is the one required check on `main`. A
+          # reader that cannot read a transcript must say so, never take
+          # every merge down with it.
+          if ! jq -r '
+            ([.[] | select(.type == "result")] | last) as $r
+            | [ .[]
+                | select(.type == "assistant")
+                | .message.content[]?
+                | select(.type == "tool_use")
+                | .name
+              ] as $calls
+            | ($calls | map(select(. == "Task" or . == "Agent")) | length) as $agents
+            | def flat: gsub("[\r\n]"; " ");
+              [
+                "evidence=present",
+                "subtype=" + (($r.subtype // "") | tostring | flat),
+                "is_error=" + (($r.is_error // false) | tostring),
+                "turns=" + (($r.num_turns // -1) | tostring),
+                "denials=" + ((if ($r | has("permission_denials")) then (($r.permission_denials // []) | length) else -1 end) | tostring),
+                "denied_tools=" + ([$r.permission_denials[]? | (.tool_name // .toolName // .name // "unnamed")] | unique | join(", ") | flat),
+                "agent_calls=" + ($agents | tostring),
+                "tools_used=" + ($calls | unique | join(", ") | flat),
+                "models=" + ((($r.modelUsage // {}) | keys | join(", ")) | flat),
+                "cost=" + (($r.total_cost_usd // 0) | tostring)
+              ] | .[]
+          ' "${EXECUTION_FILE}" | cut -c 1-400 > evidence.env; then
+            unknown "The execution file did not read as this step expects."
+            exit 0
+          fi
+
+          cat evidence.env >> "${GITHUB_OUTPUT}"
+          echo "Evidence read from ${EXECUTION_FILE}."
 
   # WHY THIS JOB EXISTS. The review above posts inline comments when it finds
   # something and stays silent when it does not — so a green `Claude review`
@@ -180,34 +407,59 @@ jobs:
   # The code-review skill would say so itself: given `--comment` and no
   # findings it posts "No issues found" through `gh pr comment`. That needs
   # `pull-requests: write`, and the review job deliberately does not have it.
-  # Granting it there would be worse than the silence: the same skill stops
-  # early when "Claude has already commented on this PR", so its own summary
-  # comment would suppress the review of every later push — undoing the
-  # per-push guarantee `synchronize` was added for. This job is therefore a
-  # separate one, so the write permission never reaches the step that runs
-  # Claude, and its comment is authored by the workflow rather than by
-  # Claude, so it cannot trip that rule.
+  # This job is therefore a separate one, so the write permission never
+  # reaches the step that runs Claude.
   #
-  # HOW IT TELLS THE TWO APART, and why it no longer reads the clock.
+  # THE SKILL ALSO STOPS EARLY when it believes "Claude has already
+  # commented on this PR", and this comment used to be excused from that on
+  # the grounds that the workflow, not Claude, authors it. That reasoning
+  # reads an author field the skill never looks at: its step 1 hands a
+  # haiku agent the output of `gh pr view --comments` and asks whether
+  # Claude has commented, and what that agent sees is a comment headed
+  # "Claude review" saying a review ran. The answer is in the prompt now —
+  # see `--append-system-prompt` on the review job — rather than in an
+  # assumption about how a model reads a page.
   #
-  # This job used to decide on the review job's duration: under 60 seconds
-  # meant a skip, over it meant a review. That was wrong often enough to be
-  # worse than useless, and issue #159 is the report. The premise — "a real
-  # review takes minutes" — only holds when the review has findings to
-  # write. A clean review posts nothing and finishes in about 20 seconds of
-  # model time; measured across twelve consecutive runs on this repository,
-  # those land between 55 and 70 seconds of job time, straddling the
-  # threshold. So the verdict on a review that found nothing was close to a
-  # coin flip, and it announced "green without a review" over a review that
-  # had genuinely run, cost real subscription usage, and read the whole diff.
+  # HOW IT TELLS THE TWO APART, and why neither the clock nor the exit
+  # status decides it any more. This reader has now been wrong twice, in
+  # the same shape both times: a proxy standing in for the fact.
   #
-  # The signal it uses now is the action's own `conclusion` output, which is
-  # empty exactly when the action returned before running Claude — see the
-  # review job's `outputs:` block for the two lines of run.ts that make that
-  # true. Deterministic, and it stays right whatever a review costs.
+  # FIRST it read the review job's DURATION: under 60 seconds meant a skip,
+  # over it meant a review (issue #159). The premise — "a real review takes
+  # minutes" — only holds when the review has findings to write. A clean
+  # review posts nothing and finishes in about 20 seconds of model time,
+  # which lands either side of the threshold, so the verdict on exactly the
+  # pull requests it was meant to reassure was close to a coin flip.
   #
-  # The duration is still reported. It is informative — a reader can see
-  # what the run spent — but it decides nothing.
+  # THEN it read the action's `conclusion` output, which is empty exactly
+  # when the action returned before running Claude. That is deterministic
+  # and it is still read first, but it answers "did the action start
+  # Claude", not "did anybody review the diff" — and on 2026-09-07 the
+  # difference turned out to be the whole question. Every run sampled that
+  # day had spent five turns and been refused one tool, on diffs of every
+  # size, and this comment had reported "Reviewed, nothing to report" over
+  # all 105 runs the workflow had made. `conclusion` was `success` for
+  # every one of them, because an agent that starts, is refused a tool and
+  # ends its turn normally is a successful agent.
+  #
+  # SO IT NOW READS THE RUN'S OWN RECORD: how many review agents were
+  # launched, and how many tool calls were refused. Both come from the
+  # transcript, both are facts about this run rather than estimates of it,
+  # and neither needs a threshold — the question "were any agents launched
+  # at all" has no borderline. A refusal is disqualifying on its own: the
+  # agent asked for a tool this workflow did not grant, so whatever it
+  # concluded, it concluded without something it judged it needed.
+  #
+  # AND IT GOES RED when it cannot say a review happened. A reader that can
+  # only ever report good news is the failure it was built to catch, one
+  # level up again. It is not on the ruleset's required list, so it warns
+  # rather than blocks — the required check is still `Claude review`, and
+  # promoting this one is a decision for the maintainer once these signals
+  # have a few weeks of runs behind them (docs/quality-pipeline.md
+  # § Branch ruleset on `main`).
+  #
+  # The duration and the cost are still reported. They are informative — a
+  # reader can see what the run spent — but they decide nothing.
   status:
     name: Claude review status
     needs: review
@@ -237,8 +489,21 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           REVIEW_RESULT: ${{ needs.review.result }}
           # Empty when the action declined to run at all; `success` or
-          # `failure` once Claude has run. This is the verdict's source.
+          # `failure` once Claude has run. First question, not the last one.
           REVIEW_CONCLUSION: ${{ needs.review.outputs.conclusion }}
+          # What the run itself recorded. `evidence` is `present` only when
+          # the transcript was found AND carried a result message, so a
+          # value below is a reading rather than a default.
+          EVIDENCE: ${{ needs.review.outputs.evidence }}
+          SUBTYPE: ${{ needs.review.outputs.subtype }}
+          IS_ERROR: ${{ needs.review.outputs.is_error }}
+          TURNS: ${{ needs.review.outputs.turns }}
+          DENIALS: ${{ needs.review.outputs.denials }}
+          DENIED_TOOLS: ${{ needs.review.outputs.denied_tools }}
+          AGENT_CALLS: ${{ needs.review.outputs.agent_calls }}
+          TOOLS_USED: ${{ needs.review.outputs.tools_used }}
+          MODELS: ${{ needs.review.outputs.models }}
+          COST: ${{ needs.review.outputs.cost }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           # The marker identifies this workflow's own comment so each run
           # rewrites it instead of adding another. It is invisible in the
@@ -263,25 +528,70 @@ jobs:
             elapsed="unknown"
           fi
 
-          # A skip and a clean review are both `success`, so the job result
-          # alone cannot separate them — but the action's `conclusion` can:
-          # it is set only after Claude has run. An empty value is read as
-          # "not reviewed", which is the safe direction: this comment must
-          # never claim a review that did not happen.
+          # THE ORDER IS THE ARGUMENT. Each test rules out one way this
+          # check can be green over nothing, cheapest first, and every one
+          # that fires is a reason to distrust the green — so each sets
+          # `unreviewed`, and this job ends red. Only the last branch is
+          # allowed to claim a review happened.
+          unreviewed=1
+
           if [[ "${REVIEW_RESULT}" != "success" ]]; then
             verdict="**The review did not complete** (\`${REVIEW_RESULT}\`). Nothing was reviewed — treat this pull request as unread by Claude."
           elif [[ -z "${REVIEW_CONCLUSION}" ]]; then
             verdict="**Green without a review.** The job succeeded without the action ever running Claude — it declines when this workflow file differs from the copy on \`main\`. Read the diff yourself, or merge the workflow change first and re-run."
+          elif [[ "${EVIDENCE}" != "present" ]]; then
+            verdict="**Unverified.** The action reported success but left no readable transcript, so nothing here can say whether the reviewer did any work. Read the run log."
+          elif [[ "${IS_ERROR}" == "true" || "${SUBTYPE}" != "success" ]]; then
+            verdict="**The reviewer stopped on an error** (\`${SUBTYPE:-unknown}\`). Whatever it had read when it stopped, it did not finish reading the diff."
+          elif [[ "${DENIALS}" == "-1" || "${AGENT_CALLS}" == "-1" ]]; then
+            # `-1` is the evidence step saying it could not find the field,
+            # never that it found a zero. Reading it as a count would call a
+            # transcript this reader does not understand a refusal, and name
+            # no tool while doing it.
+            verdict="**Unverified.** The transcript did not carry what this check reads — refused tool calls, agents launched — so it cannot say whether a review happened. That is a defect in the reader, not a verdict on the diff: the shape of the run's own record has changed under it."
+          elif [[ "${DENIALS}" != "0" ]]; then
+            verdict="**A tool was refused, so this is not a review.** The agent asked for \`${DENIED_TOOLS:-a tool this run did not name}\` and this workflow had not granted it, so it worked around the gap or gave up — either way it reached its conclusion without something it judged it needed. Grant the tool in \`claude_args\` or say in this file why it must stay denied."
+          elif [[ "${AGENT_CALLS}" == "0" ]]; then
+            verdict="**The review agents never ran.** Every step of the code-review command launches a subagent, and this run launched none, so nothing read the diff for bugs. The run log carries the full transcript; start at the first tool call."
           else
-            verdict="**Reviewed, nothing to report.** Findings, when there are any, arrive as inline comments on the diff rather than here; this comment is only the proof that the reviewer ran."
+            verdict="**Reviewed, nothing to report.** ${AGENT_CALLS} review agents ran over ${TURNS} turns with no tool refused. Findings, when there are any, arrive as inline comments on the diff rather than here; this comment is only the proof that the reviewer ran."
+            unreviewed=0
           fi
 
-          # `-` rather than an empty cell: a blank there reads as a
-          # rendering accident, and this row is the one the verdict rests on.
+          # `-` rather than an empty cell: a blank reads as a rendering
+          # accident, and these rows are what the verdict rests on. A `-1`
+          # means this run could not be read, never zero.
+          #
+          # Every one of these is written as an `if`, never as
+          # `[[ … ]] && x=y`: a false test there returns 1, and under
+          # `set -e` that ends the job silently — which would leave the
+          # comment unwritten in exactly the cases it matters most.
           conclusion_cell="${REVIEW_CONCLUSION:--}"
 
-          body="$(printf '%s\n\n## Claude review\n\n%s\n\n| | |\n|---|---|\n| Commit | `%s` |\n| Job result | `%s` |\n| Claude ran | `%s` |\n| Took | %s |\n| Run | %s |\n\nPosted by `.github/workflows/claude-review.yml`, rewritten in place on every run. The verdict comes from the job'"'"'s result and the action'"'"'s own `conclusion` output, never from the duration. See `docs/quality-pipeline.md` for what each layer does and does not prove.\n' \
-            "${MARKER}" "${verdict}" "${HEAD_SHA}" "${REVIEW_RESULT}" "${conclusion_cell}" "${elapsed}" "${RUN_URL}")"
+          agents_cell="${AGENT_CALLS:--}"
+          if [[ "${agents_cell}" == "-1" ]]; then
+            agents_cell="unknown"
+          fi
+
+          turns_cell="${TURNS:--}"
+          if [[ "${turns_cell}" == "-1" ]]; then
+            turns_cell="unknown"
+          fi
+
+          denials_cell="${DENIALS:--}"
+          if [[ "${denials_cell}" == "-1" ]]; then
+            denials_cell="unknown"
+          fi
+          if [[ -n "${DENIED_TOOLS}" ]]; then
+            denials_cell="${denials_cell} (${DENIED_TOOLS})"
+          fi
+
+          cost_cell="${COST:--}"
+          models_cell="${MODELS:--}"
+          tools_cell="${TOOLS_USED:--}"
+
+          body="$(printf '%s\n\n## Claude review\n\n%s\n\n| | |\n|---|---|\n| Commit | `%s` |\n| Job result | `%s` |\n| Claude ran | `%s` |\n| Review agents launched | %s |\n| Tool calls refused | %s |\n| Turns | %s |\n| Tools used | %s |\n| Models | %s |\n| Cost | %s USD |\n| Took | %s |\n| Run | %s |\n\nPosted by `.github/workflows/claude-review.yml`, rewritten in place on every run. The verdict comes from what the run recorded — agents launched, tools refused — never from its duration or its exit status, both of which have already been wrong here. See `docs/quality-pipeline.md` for what each layer does and does not prove.\n' \
+            "${MARKER}" "${verdict}" "${HEAD_SHA}" "${REVIEW_RESULT}" "${conclusion_cell}" "${agents_cell}" "${denials_cell}" "${turns_cell}" "${tools_cell}" "${models_cell}" "${cost_cell}" "${elapsed}" "${RUN_URL}")"
 
           jq -n --arg body "${body}" '{body: $body}' > payload.json
 
@@ -294,4 +604,13 @@ jobs:
           else
             gh api -X POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --input payload.json >/dev/null
             echo "Created the status comment."
+          fi
+
+          # THE COMMENT IS POSTED FIRST, then the job fails. A red job whose
+          # comment never got written says only that something went wrong
+          # here; the comment is the part that says WHAT, and it has to
+          # survive the failure it is reporting.
+          if [[ "${unreviewed}" -ne 0 ]]; then
+            echo "::error::No review can be shown to have happened on this commit — see the Claude review status comment on the pull request."
+            exit 1
           fi
