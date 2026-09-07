@@ -52,11 +52,31 @@ class StatisticsPayloadBuilder
     /**
      * How many Desk vocabulary entries of each kind travel. A unit has a
      * couple of dozen functions and three cotisation types; a hundred is
-     * room for every plausible one plus the years of federation
-     * renamings that accumulate under them, and a cap that a broken
-     * import cannot turn into a payload the receiver refuses whole.
+     * room for every plausible one plus the years of federation renamings
+     * that accumulate under them.
      */
     private const MAX_VOCABULARY_ENTRIES = 100;
+
+    /**
+     * And how many BYTES of them, which is the bound that actually
+     * matters — counting entries does not bound a payload.
+     *
+     * `functions` and `fee_categories` both declare `desk_code` and
+     * `label` as `VARCHAR(100)` under `utf8mb4`, so one entry can be four
+     * hundred-odd bytes rather than the twenty a real Desk label takes.
+     * A hundred of each at that width serialises to **134 632 bytes** —
+     * against `StatisticsIntakeService::MAX_BODY_BYTES`, which is 65 536
+     * and is checked on the raw body before anything is parsed. The
+     * receiver would answer 413 and the WHOLE report would be lost, which
+     * is the exact outcome this cap exists to prevent: a unit whose Desk
+     * vocabulary is unusually verbose would silently stop reporting
+     * anything at all.
+     *
+     * 8 KB per list leaves the two of them under 16 KB, against a payload
+     * that is otherwise a couple of KB — room to spare on the one bound
+     * that can drop a report.
+     */
+    private const MAX_VOCABULARY_BYTES = 8192;
 
     public function __construct(
         private SettingService $settingService,
@@ -403,40 +423,59 @@ class StatisticsPayloadBuilder
      * verbatim out of an export; no member, no section name, no count that
      * could single anybody out. Rule 2 of this class holds.
      *
-     * Bounded at {@see self::MAX_VOCABULARY_ENTRIES}, with `total` saying
-     * what the list left out. The receiver refuses a body over 64 KB
-     * outright, and these two tables are the only part of this payload
-     * whose size a unit's own data decides — a botched import that created
-     * three hundred fee categories must cost this field its completeness,
-     * never the whole report.
+     * Bounded twice — {@see self::MAX_VOCABULARY_ENTRIES} and {@see
+     * self::MAX_VOCABULARY_BYTES} — with `total` saying what the list left
+     * out. These two tables are the only part of this payload whose size a
+     * unit's own data decides, so a verbose or botched vocabulary must
+     * cost this field its completeness, never the whole report.
      *
      * @return array{total: int, listed: array<int, array{desk_code: string, label: string, role: string,
      *     confirmed: bool}>}
      */
     private function deskFunctions(): array
     {
-        $stmt = $this->pdo->query(
-            'SELECT desk_code, label, role, confirmed FROM functions ORDER BY desk_code LIMIT '
-            . (self::MAX_VOCABULARY_ENTRIES + 1)
+        $stmt = $this->pdo->prepare(
+            'SELECT desk_code, label, role, confirmed FROM functions ORDER BY desk_code LIMIT ?'
         );
-        $rows = $stmt !== false ? $stmt->fetchAll(\PDO::FETCH_ASSOC) : [];
+        $stmt->bindValue(1, self::MAX_VOCABULARY_ENTRIES, \PDO::PARAM_INT);
+        $stmt->execute();
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
 
         $listed = [];
-        foreach (array_slice($rows, 0, self::MAX_VOCABULARY_ENTRIES) as $row) {
-            $listed[] = [
+        $bytes = 0;
+        foreach ($rows as $row) {
+            $entry = [
                 'desk_code' => (string) $row['desk_code'],
                 'label' => (string) $row['label'],
+                'role' => (string) $row['role'],
                 // `confirmed` false is « nobody has seen this in Config Desk
                 // yet », which on this list is the interesting half: it is
                 // where a function the federation just invented shows up.
-                'role' => (string) $row['role'],
                 'confirmed' => (bool) $row['confirmed'],
             ];
+            $bytes += self::entryBytes($entry);
+            if ($bytes > self::MAX_VOCABULARY_BYTES) {
+                break;
+            }
+            $listed[] = $entry;
         }
 
         $count = $this->pdo->query('SELECT COUNT(*) FROM functions');
 
         return ['total' => $count !== false ? (int) $count->fetchColumn() : count($listed), 'listed' => $listed];
+    }
+
+    /**
+     * What one vocabulary entry will cost in the transmitted document —
+     * measured on its own encoding rather than estimated from string
+     * lengths, since the budget exists to keep the encoded body under the
+     * receiver's limit and the encoding is what the receiver measures.
+     *
+     * @param array<string, mixed> $entry
+     */
+    private static function entryBytes(array $entry): int
+    {
+        return strlen((string) json_encode($entry, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));
     }
 
     /**
@@ -457,18 +496,23 @@ class StatisticsPayloadBuilder
      */
     private function deskFeeCategories(): array
     {
-        $stmt = $this->pdo->query(
-            'SELECT desk_code, label FROM fee_categories ORDER BY desk_code LIMIT '
-            . (self::MAX_VOCABULARY_ENTRIES + 1)
-        );
-        $rows = $stmt !== false ? $stmt->fetchAll(\PDO::FETCH_ASSOC) : [];
+        $stmt = $this->pdo->prepare('SELECT desk_code, label FROM fee_categories ORDER BY desk_code LIMIT ?');
+        $stmt->bindValue(1, self::MAX_VOCABULARY_ENTRIES, \PDO::PARAM_INT);
+        $stmt->execute();
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
 
         $listed = [];
-        foreach (array_slice($rows, 0, self::MAX_VOCABULARY_ENTRIES) as $row) {
-            $listed[] = [
+        $bytes = 0;
+        foreach ($rows as $row) {
+            $entry = [
                 'desk_code' => (string) $row['desk_code'],
                 'label' => (string) $row['label'],
             ];
+            $bytes += self::entryBytes($entry);
+            if ($bytes > self::MAX_VOCABULARY_BYTES) {
+                break;
+            }
+            $listed[] = $entry;
         }
 
         $count = $this->pdo->query('SELECT COUNT(*) FROM fee_categories');

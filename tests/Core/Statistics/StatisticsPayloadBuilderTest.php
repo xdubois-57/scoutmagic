@@ -623,11 +623,54 @@ class StatisticsPayloadBuilderTest extends TestCase
     }
 
     /**
-     * The receiver refuses a body over 64 KB outright, and these two
-     * tables are the only part of the payload a unit's own data can grow.
-     * A botched import that created hundreds of categories costs this
-     * field its completeness — never the whole report — and `total` says
-     * so rather than letting the truncation pass unremarked.
+     * The bound that actually matters, and the one an entry count does not
+     * give you.
+     *
+     * `desk_code` and `label` are `VARCHAR(100)` under `utf8mb4` in both
+     * tables, so one entry can be four hundred-odd bytes. A hundred of
+     * each at that width serialised to 134 632 bytes — twice
+     * `StatisticsIntakeService::MAX_BODY_BYTES`, which is checked on the
+     * raw body before parsing, so the receiver answered 413 and the WHOLE
+     * report was lost. A unit with a verbose Desk vocabulary would have
+     * silently stopped reporting anything at all.
+     */
+    public function testMaximumLengthMultibyteVocabularyStaysUnderTheReceiversBodyLimit(): void
+    {
+        $this->seedScoutYear();
+
+        $fees = $this->pdo->prepare('INSERT INTO fee_categories (desk_code, label) VALUES (?, ?)');
+        $functions = $this->pdo->prepare(
+            'INSERT INTO functions (desk_code, label, role, confirmed) VALUES (?, ?, ?, ?)'
+        );
+        for ($i = 0; $i < 150; $i++) {
+            // 100 characters, the column's declared maximum, in the widest
+            // encoding utf8mb4 allows — four bytes each.
+            $suffix = sprintf('%03d', $i);
+            $fees->execute([str_repeat('界', 97) . $suffix, str_repeat('é', 97) . $suffix]);
+            $functions->execute([
+                str_repeat('界', 97) . $suffix,
+                str_repeat('é', 97) . $suffix,
+                str_repeat('役', 20),
+                0,
+            ]);
+        }
+
+        $json = $this->builder()->buildJson();
+
+        $this->assertLessThan(65536, strlen($json));
+
+        // Truncated, and saying so: `total` still counts every row, so a
+        // reader can tell a short list from a complete one.
+        $payload = $this->builder()->build();
+        $this->assertSame(150, $payload['desk_vocabulary']['fee_categories']['total']);
+        $this->assertSame(150, $payload['desk_vocabulary']['functions']['total']);
+        $this->assertLessThan(100, count($payload['desk_vocabulary']['fee_categories']['listed']));
+        $this->assertNotSame([], $payload['desk_vocabulary']['fee_categories']['listed']);
+    }
+
+    /**
+     * The entry cap is still the second bound: ordinary short labels are
+     * limited by count long before they are limited by bytes.
      */
     public function testAnAbsurdNumberOfCategoriesIsTruncatedAndSaysSo(): void
     {

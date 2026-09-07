@@ -171,7 +171,9 @@ class MappingResolverTest extends TestCase
         $id = $this->resolver->resolveFee('X_COTISATION_INEDITE');
 
         $this->assertGreaterThan(0, $id);
-        $row = $this->pdo->query("SELECT desk_code, label FROM fee_categories WHERE id = {$id}")->fetch();
+        $stmt = $this->pdo->prepare('SELECT desk_code, label FROM fee_categories WHERE id = ?');
+        $stmt->execute([$id]);
+        $row = $stmt->fetch();
         $this->assertSame('X_COTISATION_INEDITE', $row['desk_code']);
         $this->assertSame('X_COTISATION_INEDITE', $row['label']);
     }
