@@ -871,13 +871,17 @@ verdict becomes `bug:confirmed` about the interface instead. What changed
 is the cost of being wrong, not the standard for being right.
 
 **The one thing that does close an issue automatically is a merged fix**,
-and `issue-fixed-comment.yml` is what does it — not GitHub. On every merge
-it reads the pull request body for the issues it names, posts one comment
-per issue saying the fix is on `main` and in which pull request and commit,
-and closes each as `completed` afterwards. An issue it could not comment on
-is deliberately left open and the run goes red: an open issue is five
-minutes of somebody's time, a silent closure is the thing the file exists
-to prevent.
+and on a body written to the convention below — `Corrige #158` — it is
+`issue-fixed-comment.yml` that closes it, not GitHub. On every merge the
+workflow reads the pull request body for the issues it names, posts one
+comment per issue saying the fix is on `main` and in which pull request and
+commit, and closes each as `completed` afterwards. An issue it could not
+comment on, or whose state it could not read back, is deliberately left
+open and the run goes red: an open issue is five minutes of somebody's
+time, a silent closure is the thing the file exists to prevent. A body that
+uses one of GitHub's own closing keywords instead is the exception, and it
+is the old behaviour: GitHub closes that issue at the merge and the
+workflow's comment lands beside the closure rather than before it.
 
 That order is the reason a pull request body here says `Corrige #158`
 rather than `Closes #158`. GitHub's own closing keywords close the issue

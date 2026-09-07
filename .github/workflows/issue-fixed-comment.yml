@@ -132,7 +132,16 @@ jobs:
             # Read back rather than assumed: an issue somebody had already
             # closed by hand, or one an old-style keyword closed at merge,
             # is left exactly as it is. `completed`, because it was.
-            state="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${issue}" --jq '.state' || echo 'unknown')"
+            #
+            # A read that FAILED is not a state, and treating it as one
+            # (`unknown`, then no closing) would be the whole point of
+            # this file lost to a rate limit: the comment posted, the
+            # issue still open, the run green, and nobody told.
+            if ! state="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${issue}" --jq '.state')"; then
+              echo "::error title=Could not read state::Could not tell whether #${issue} is still open."
+              unsaid=1
+              continue
+            fi
 
             if [ "${state}" = 'open' ]; then
               if gh api "repos/${GITHUB_REPOSITORY}/issues/${issue}" \

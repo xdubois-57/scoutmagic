@@ -358,9 +358,11 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
 
         self::assertMatchesRegularExpression(
             '/grep -oiE .*corrige/',
-            $workflow,
+            $this->shellOf($workflow),
             self::FIXED_COMMENT . ' no longer reads `Corrige #158`, which is the marker AGENTS.md '
-            . 'tells a pull request body to carry.',
+            . 'tells a pull request body to carry. Asserted against the script with its comments '
+            . 'stripped: the header explains the marker at length, and a test satisfied by prose '
+            . 'would pass while the extraction no longer looked for it.',
         );
 
         self::assertStringContainsString(
@@ -2600,5 +2602,42 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
         self::assertIsString($contents, 'Could not read ' . $workflow . '.');
 
         return $contents;
+    }
+
+    /**
+     * What a workflow's `run:` blocks actually EXECUTE — every `#` line
+     * dropped.
+     *
+     * These files carry more prose than script, and an assertion made
+     * against the whole text is satisfied by a comment saying the right
+     * thing. That is not a hypothetical: the paragraph explaining a
+     * marker and the command reading it are twenty lines apart, and only
+     * one of them runs.
+     */
+    private function shellOf(string $contents): string
+    {
+        $script = '';
+        $inRun = false;
+
+        foreach (explode("\n", $contents) as $line) {
+            if (preg_match('/^\s*run: \|/', $line) === 1) {
+                $inRun = true;
+                continue;
+            }
+
+            // A line back at column 0 that is not blank has left the
+            // block scalar; anything indented, or empty, is still in it.
+            if ($inRun && trim($line) !== '' && $line[0] !== ' ') {
+                $inRun = false;
+            }
+
+            if ($inRun && !str_starts_with(ltrim($line), '#')) {
+                $script .= $line . "\n";
+            }
+        }
+
+        self::assertNotSame('', trim($script), 'Found no `run:` script to read.');
+
+        return $script;
     }
 }
