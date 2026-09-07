@@ -876,12 +876,13 @@ and on a body written to the convention below — `Corrige #158` — it is
 workflow reads the pull request body for the issues it names, posts one
 comment per issue saying the fix is on `main` and in which pull request and
 commit, and closes each as `completed` afterwards. An issue it could not
-comment on, or whose state it could not read back, is deliberately left
-open and the run goes red: an open issue is five minutes of somebody's
-time, a silent closure is the thing the file exists to prevent. A body that
-uses one of GitHub's own closing keywords instead is the exception, and it
-is the old behaviour: GitHub closes that issue at the merge and the
-workflow's comment lands beside the closure rather than before it.
+comment on is deliberately left open, and every failure but one turns the
+run red (which one, and why, is two paragraphs down): an open issue is five
+minutes of somebody's time, a silent closure is the thing the file exists
+to prevent. A body that uses one of GitHub's own closing keywords instead
+is the exception, and it is the old behaviour: GitHub closes that issue at
+the merge and the workflow's comment lands beside the closure rather than
+before it.
 
 That order is the reason a pull request body here says `Corrige #158`
 rather than `Closes #158`. GitHub's own closing keywords close the issue
@@ -899,6 +900,31 @@ workflow finds it already closed. The convention is asserted in
 `tests/Security/IssueTriageWorkflowPermissionsTest.php`, because AGENTS.md
 drifting back to `Closes` would be a green pull request that silently
 restores the old ordering.
+
+That guarantee is only as good as the run's exit code, and at first it was
+not: every call in that job ended `|| echo "::warning …"`, so a run in
+which nobody was told anything finished **green**, with two annotations on
+a merge everybody had moved on from — the shape this document's last
+section is entirely about. Now exactly one failure is tolerated, and it is
+the one the code was describing: a **404**, meaning the number is not an
+issue of this repository (deleted, mistyped, pointing elsewhere), which
+warns and skips. Everything else fails the run, told apart by reading
+`gh`'s own message the way `scripts/sync-issue-labels.sh` does. Two
+consequences worth knowing: **the closing waits for the telling** — an
+issue whose comment could not be posted is left exactly as it is, since
+closing it anyway is the silent closure this job exists to prevent — and a
+merged pull request **from a fork** now goes red instead of quiet, because
+`pull_request` hands such a run a read-only token whatever the job's
+permissions say, and no permission here can change that (the alternative,
+`pull_request_target`, is forbidden for this file and asserted to be).
+
+It also says it **once**: the comment carries an invisible marker naming
+the pull request, and an issue already carrying it is skipped whole — no
+second notice on a re-run, and no re-closing of an issue a human has since
+reopened. And it reads the closing **reason**, not just the state, so a
+report closed as `not planned` before its fix landed (GitHub's keyword
+does not reopen a closed issue) stops being filed under "dropped" on a
+thread that now says it is corrected.
 
 One gap, recorded rather than papered over: **a feature request has no
 verdict.** `feature.yml` opens issues with `triage:pending` like `bug.yml`,
