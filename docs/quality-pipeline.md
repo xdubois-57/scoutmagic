@@ -465,6 +465,40 @@ ran, was skipped, or failed. Without it, a green check and no comment means
 either "read it, found nothing" or "declined to read it", and only the run
 log tells you which.
 
+**It made 105 runs before anybody could show that one of them had
+reviewed anything, and the check was green for all of them.** The reviewer
+really ran; on every run sampled it never got past the first step of the
+command it was given. `claude_args` granted a single
+tool — the one that posts a finding — because that is what makes the action
+install the inline-comment MCP server. True, and incomplete: the same list
+is the permission allowlist, the code-review command is built entirely on
+subagents, and `Task` was not on it. The four runs sampled had each spent
+five turns, been refused exactly one tool, launched no review agent and
+posted nothing — on a one-line pull request (#193) and a twenty-five-file
+one (#200) alike, and with no Opus model in any of them, which the
+command's two bug-hunting agents are by definition. Meanwhile CodeRabbit
+was finding real defects in the same diffs. What the reader above said
+about all of it was "Reviewed, nothing to report".
+
+Three things changed on 2026-09-07, and the third is the one that
+generalises:
+
+- The reviewer is granted the tools its procedure needs — `Task`/`Agent`
+  first — and told, through `--append-system-prompt`, that the status
+  comment below is written by the workflow rather than by Claude. Step 1 of
+  the command stops the whole review when it believes Claude has already
+  commented, and that comment is headed "Claude review".
+- `show_full_output: true`, so a run keeps its transcript. Three rounds of
+  fixes to the issue triage could not find its cause because no run kept
+  one; the first that did explained it in a line.
+- **The status job reads that transcript instead of the exit status**, and
+  **goes red when it cannot show a review happened**. Its two signals are
+  how many review agents were launched and how many tool calls were
+  refused: facts about the run, not estimates of it, and neither needs a
+  threshold. A refusal is disqualifying on its own — the agent asked for
+  something this workflow had not granted. `tests/Architecture/ClaudeReviewIsVerifiableTest`
+  pins each of these against the single edit that would undo it.
+
 **SonarQube Cloud** — posts a Quality Gate on each pull request. It is
 skipped entirely on pull requests from forks, because `SONAR_TOKEN` is not
 exposed to those runs. Absence of the comment there is not a failure.
@@ -734,6 +768,12 @@ an error.
   add the individual `Checks / …` names as well: that is the fragile form
   — each name is a merge that stalls forever the day that job is renamed
   — and `All checks` already waits for all of them.
+  **`Claude review status` is deliberately not on the list**, though since
+  2026-09-07 it can go red (§ Code review). It warns rather than blocks
+  while its two signals — review agents launched, tool calls refused —
+  build a run history: a check that has never been wrong on this repository
+  is not yet a check worth deadlocking every merge on. Promoting it is a
+  one-line change here and in the ruleset, and it is the maintainer's call.
 - **Require branches to be up to date before merging** — *deliberately off.*
   It is the sub-option of the rule above, and turning it on again brings back
   the failure it was turned off for: with it on, a pull request must be even
@@ -959,15 +999,31 @@ nothing**:
   workflow-file mismatch, so the check is green having reviewed nothing —
   and that happens precisely on a pull request editing the reviewer. This
   is the one on the list with a reader attached: the `Claude review status`
-  comment names which of the two a green check was, reading the action's
-  own `conclusion` output, which is set only once Claude has run.
-  **The reader itself was the next instance of this failure mode**: it
-  first judged on the run's duration, on the premise that a real review
-  takes minutes. A review that finds nothing takes about as long as a
-  refusal, so the verdict was near random on exactly the pull requests it
-  was meant to reassure — green checks reported as unread, and no way to
-  tell a true report from a false one (issue #159). A heuristic standing in
-  for a fact is the same defect one level up.
+  comment names which of the two a green check was.
+  **The reader itself has now been the next instance of this failure mode
+  twice.** It first judged on the run's duration, on the premise that a
+  real review takes minutes. A review that finds nothing takes about as
+  long as a refusal, so the verdict was near random on exactly the pull
+  requests it was meant to reassure — green checks reported as unread, and
+  no way to tell a true report from a false one (issue #159). It then
+  judged on the action's own `conclusion` output, which is deterministic
+  and answers a different question: *did the action start Claude*, not
+  *did anybody review the diff*. An agent that starts, is refused a tool
+  and ends its turn normally sets it, which is what every run sampled on
+  2026-09-07 was doing — see § Code review. A heuristic standing in for a fact,
+  then a fact standing in for a different fact: the same defect one level
+  up, twice. It now reads the run's own transcript — agents launched, tool
+  calls refused — and goes red when neither can show a review happened.
+- **An agent's own report of success means only that its turn ended.** It
+  is the same reading error as the bullet above and it deserves its own
+  line, because it applies to every job in this repository that runs one.
+  A reviewer refused a tool, a triage that read an issue and gave up, a
+  scan that answered one candidate of four: all three end normally, and
+  the pipeline sees `is_error: false`. What separates them from real work
+  is never the exit status but what the run *did* — a comment posted, a
+  label applied, an agent launched — read back from the transcript or from
+  GitHub's own state. Anything a job asserts about its agent must be a
+  count of one of those.
 - A `CODEOWNERS` entry naming a non-collaborator is **ignored silently**, so
   a protection rule can be enabled, appear active, and match nothing.
 - A local reproduction that runs on the wrong database engine, or without
