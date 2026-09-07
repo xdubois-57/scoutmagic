@@ -365,6 +365,21 @@ The generated files are committed. If you change the generator, re-run
 `--check` compares byte for byte and fails otherwise, the same mechanism as
 `js-typecheck-baseline.json`.
 
+**The composition of the population is data, not decoration.** Roughly
+half the unit shares a home with somebody, the three household sizes all
+carry volume, and three homes a year hold a tariff nobody updated
+(README §9.1 « Les foyers », issue #201). Those are what give « Justesse
+des tarifs », `FeeEstimationService` and the registration module's
+household count anything to work on; a generator change that flattens them
+back to one person per address turns three screens into blank pages
+without failing to parse. `ReferenceDatasetImportTest` holds floors under
+all of it. Two things in particular are easy to break by accident: every
+member of a home carries the **same** second address (the site groups
+households on *every* address, so one sibling with an extra address and one
+without land in differently-sized households and the screen reports an écart
+the generator invented), and any change to the `Rng` flow rewrites the whole
+dataset — expected, but the diff is enormous.
+
 The directory is in `phpstan.neon`'s `paths` on purpose: the builder composes
 core and module services by hand, exactly like the composition roots, and
 breaks the same way. Do not remove it from there.
@@ -406,18 +421,28 @@ backlog » — and it is a standing instruction, not a one-off. It means:
    what makes it a decision rather than an opinion. `bug:confirmed` alone
    selects nothing — a confirmed defect nobody has accepted is still a
    backlog item, not an instruction.
-3. **Fix them** — every one of them, under the rules in this file: a test
+3. **Read them all first, and ask your questions THEN** — in one go,
+   before writing anything. The maintainer asks for this explicitly: « first
+   have a look and ask any question that you may have to support
+   development, then when all is clear do implement ». There is exactly one
+   moment in the whole sequence where a question is welcome, and it is this
+   one, before the first line of code. Ask about what changes the work:
+   which of the options an issue lists to take, a number the issue leaves to
+   you, a criterion the code cannot satisfy as written. Do not ask for
+   permission to start, and do not save a question for later — see the rule
+   at the bottom of this section.
+4. **Fix them** — every one of them, under the rules in this file: a test
    alongside each fix, `vendor/bin/phpstan analyse` before committing PHP,
    `npm run typecheck` before committing `public/assets/js/`, French
    interface and English code.
-4. **Open a pull request and merge it.** The instruction to fix the backlog
+5. **Open a pull request and merge it.** The instruction to fix the backlog
    IS the authorization to merge that § Merging a pull request requires —
    it is the maintainer saying "do the work and land it", and coming back
    to ask again is not diligence. Everything that section requires *before*
    arming auto-merge still holds without exception: every check green on
    the current head, every review thread answered, the template's checklist
    honestly filled.
-5. **Name each issue in the pull request body with `Corrige #158`** — that
+6. **Name each issue in the pull request body with `Corrige #158`** — that
    word, one line per issue, when the PR is opened rather than afterwards.
    `Corrige` is deliberately **not** one of GitHub's closing keywords
    (`Closes`, `Fixes`, `Resolves` and their inflections): a keyword makes
@@ -430,7 +455,7 @@ backlog » — and it is a standing instruction, not a one-off. It means:
    on the issue's timeline, and the workflow's comment names the pull
    request and the merge commit outright. **Do not "fix" a body by putting
    a closing keyword back** — that is the bug, not the convention.
-6. **Close the issue once the fix is on `main`.** `issue-fixed-comment.yml`
+7. **Close the issue once the fix is on `main`.** `issue-fixed-comment.yml`
    does it on merge: one comment per issue naming the pull request, the
    commit and the branch, and *then* the closure as `completed`. An issue
    it could not comment on is left open on purpose and the run goes red.
@@ -440,8 +465,8 @@ backlog » — and it is a standing instruction, not a one-off. It means:
    still open is the backlog lying about itself; one closed with nothing
    written on it is the backlog being rude.
 
-**Do not wait for the maintainer at any point of this.** Not to start, not
-to merge, not to close. The instruction covers the whole sequence — fix,
+**Do not wait for the maintainer at any point of this**, once step 3 is
+behind you. Not to start, not to merge, not to close. The instruction covers the whole sequence — fix,
 open, merge to `main`, close the issue — and asking for a confirmation
 already given is how a backlog stays a backlog. Report what you did
 afterwards; do not ask for permission during. This overrides nothing in
