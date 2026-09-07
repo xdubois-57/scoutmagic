@@ -871,14 +871,30 @@ verdict becomes `bug:confirmed` about the interface instead. What changed
 is the cost of being wrong, not the standard for being right.
 
 **The one thing that does close an issue automatically is a merged fix**,
-through the `Closes #158` keyword GitHub reads on a pull request body —
-and `issue-fixed-comment.yml` makes sure it never happens in silence. On
-every merge it posts one comment per issue the pull request names, saying
-the fix is on `main` and in which pull request and commit, then closes as
-`completed` any that the keyword failed to close (a fork's pull request, a
-base branch that is not the default one). GitHub's own close lands a few
-seconds before that comment; what the workflow guarantees is that nobody
-finds their report closed with nothing said on it.
+and `issue-fixed-comment.yml` is what does it — not GitHub. On every merge
+it reads the pull request body for the issues it names, posts one comment
+per issue saying the fix is on `main` and in which pull request and commit,
+and closes each as `completed` afterwards. An issue it could not comment on
+is deliberately left open and the run goes red: an open issue is five
+minutes of somebody's time, a silent closure is the thing the file exists
+to prevent.
+
+That order is the reason a pull request body here says `Corrige #158`
+rather than `Closes #158`. GitHub's own closing keywords close the issue
+server-side at the instant of the merge, seconds before any workflow can
+run, so the earlier version of this file commented *beside* a closure that
+had already happened — the reporter's first notification was still a
+strikethrough. `Corrige` is not a keyword GitHub acts on, so nothing closes
+the issue but the workflow, after it has spoken. What that costs is the
+issue's *Development* sidebar link, which only a closing keyword creates;
+what stands in its place is the timeline cross-reference `Corrige #158`
+still produces and a comment that names the pull request and the commit
+outright. English keywords are still read, so a body written the old way
+gets its comment too — GitHub will have closed that one first, and the
+workflow finds it already closed. The convention is asserted in
+`tests/Security/IssueTriageWorkflowPermissionsTest.php`, because AGENTS.md
+drifting back to `Closes` would be a green pull request that silently
+restores the old ordering.
 
 One gap, recorded rather than papered over: **a feature request has no
 verdict.** `feature.yml` opens issues with `triage:pending` like `bug.yml`,

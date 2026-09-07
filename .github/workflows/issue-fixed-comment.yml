@@ -1,28 +1,37 @@
-# Says on an issue that its fix has landed, instead of letting it go
-# silent.
+# Says on an issue that its fix has landed, and only then closes it.
 #
-# A pull request body carrying `Closes #158` (AGENTS.md § Fix the backlog,
-# step 5) makes GitHub close that issue the moment the pull request merges.
-# What GitHub writes on the issue is a timeline reference and nothing else:
-# the reporter gets a notification saying their report was closed, with no
-# sentence telling them it was FIXED, in what, or where to look. Somebody
-# who wrote a careful report and waited three weeks deserves better than a
-# strikethrough.
+# GitHub closes an issue named by one of its own keywords (`Closes #158`)
+# the moment the pull request merges, and what it writes on the issue is a
+# timeline reference and nothing else: the reporter gets a notification
+# saying their report was closed, with no sentence telling them it was
+# FIXED, in what, or where to look. Somebody who wrote a careful report and
+# waited three weeks deserves better than a strikethrough.
 #
-# So on every merge this posts one comment per closed issue — the pull
-# request, the commit, and the plain statement that the fix is on `main` —
-# and then makes sure the issue really is closed as `completed`. The
-# comment is the point; the closing is the belt to GitHub's braces, for the
-# case where the keyword was missing or the auto-close silently failed.
+# So on every merge this posts one comment per issue the pull request names
+# — the pull request, the commit, the plain statement that the fix is on
+# `main` — and closes the issue afterwards, as `completed`.
 #
-# **On ordering.** GitHub's own close fires server-side at merge, and this
-# runs a few seconds later, so the comment lands beside the close rather
-# than strictly before it. What matters is that the issue never ends up
-# closed with nothing said on it, and that is what this guarantees. The
-# alternative — dropping the closing keyword so this workflow could comment
-# and then close — would cost the *Development* link that puts the pull
-# request on the issue, which is the thing that makes an issue say what is
-# fixing it.
+# **On ordering, which is the whole point of the shape below.** An earlier
+# version of this file ran beside GitHub's own close rather than before it:
+# the keyword closed the issue server-side at merge and this posted its
+# comment a few seconds later, so a reporter's first notification was still
+# a bare closure. The fix is to take the closing away from GitHub: a pull
+# request body names its issues with `Corrige #158` (AGENTS.md § Fix the
+# backlog, step 5), which is NOT one of GitHub's nine closing keywords, so
+# nothing closes the issue but this job — after it has spoken. A comment
+# that could not be posted skips the closing entirely: an issue left open
+# is something the maintainer can finish by hand, an issue closed in
+# silence is the thing this file exists to prevent.
+#
+# **What that costs, and what stands in its place.** Only a closing keyword
+# puts a pull request in an issue's *Development* section, so that sidebar
+# link is gone. `Corrige #158` still cross-references the pull request on
+# the issue's timeline where the link would have pointed, and the comment
+# below names the pull request and the merge commit outright — which is
+# more than the sidebar ever said. English keywords are still read here, so
+# a body written the old way (or by somebody who does not know this
+# convention) is still commented on; GitHub will have closed that one
+# first, and the `state` read below simply finds it already closed.
 #
 # **Nothing a contributor wrote reaches a shell.** The pull request body is
 # read for issue NUMBERS only, each one checked against `^[0-9]+$` before
@@ -54,7 +63,7 @@ jobs:
       # numbers below are validated rather than trusted.
       issues: write
     steps:
-      - name: Say on each issue that its fix is on main
+      - name: Say on each issue that its fix is on main, then close it
         env:
           GH_TOKEN: ${{ github.token }}
           # Read through the environment, never interpolated into the
@@ -69,20 +78,23 @@ jobs:
         run: |
           set -euo pipefail
 
-          # GitHub's own list of closing keywords, matched the way GitHub
-          # matches them: case-insensitive, one issue per keyword. A
-          # number mentioned in prose closes nothing and is not read here
-          # either — this comments on exactly the issues GitHub closed.
+          # `corrige` is this repository's marker and the one that leaves
+          # the closing to the job below; GitHub's own keywords are read
+          # too, so a body written the old way still gets its sentence.
+          # Case-insensitive, one issue per marker. A number mentioned in
+          # prose closes nothing and is not read here either.
           issues="$(printf '%s' "${PR_BODY}" \
-            | grep -oiE '\b(close[sd]?|fix(e[sd])?|resolve[sd]?)[[:space:]]+#[0-9]+' \
+            | grep -oiE '\b(corrige(nt)?|close[sd]?|fix(e[sd])?|resolve[sd]?)[[:space:]]+#[0-9]+' \
             | grep -oE '[0-9]+$' \
             | sort -un \
             || true)"
 
           if [ -z "${issues}" ]; then
-            echo "This pull request names no issue with a closing keyword; nothing to say."
+            echo "This pull request names no issue; nothing to say."
             exit 0
           fi
+
+          unsaid=0
 
           for issue in ${issues}; do
             # Belt and braces on a value that goes into an API path. The
@@ -103,27 +115,37 @@ jobs:
               "Si ce que vous aviez signalé se reproduit, répondez ici plutôt que d'ouvrir un nouveau ticket : le fil garde le contexte." \
               "_Generated by [Claude Code](https://claude.ai/code)_")"
 
-            if gh api "repos/${GITHUB_REPOSITORY}/issues/${issue}/comments" \
+            if ! gh api "repos/${GITHUB_REPOSITORY}/issues/${issue}/comments" \
               -X POST -f "body=${body}" --silent; then
-              echo "Told #${issue} that its fix landed."
-            else
               # A 404 is an issue in another repository, or one deleted
-              # since the body was written; neither is this workflow's to
-              # fail on. The state read back below is what decides.
-              echo "::warning title=Could not comment::Commenting on #${issue} did not succeed."
+              # since the body was written; a 5xx is GitHub having a bad
+              # minute. Either way nothing has been said on this issue,
+              # so nothing closes it — the run goes red instead and the
+              # maintainer finishes it by hand.
+              echo "::error title=Could not comment::Commenting on #${issue} did not succeed; leaving it open."
+              unsaid=1
+              continue
             fi
 
-            # GitHub has almost certainly closed it already; this settles
-            # the cases where it did not — a keyword on a pull request
-            # from a fork, a base branch that is not the default one, an
-            # auto-close that silently failed. `completed`, because it
-            # was.
+            echo "Told #${issue} that its fix landed."
+
+            # Read back rather than assumed: an issue somebody had already
+            # closed by hand, or one an old-style keyword closed at merge,
+            # is left exactly as it is. `completed`, because it was.
             state="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${issue}" --jq '.state' || echo 'unknown')"
 
             if [ "${state}" = 'open' ]; then
-              gh api "repos/${GITHUB_REPOSITORY}/issues/${issue}" \
-                -X PATCH -f state=closed -f state_reason=completed --silent \
-                || echo "::warning title=Could not close::Closing #${issue} did not succeed."
-              echo "Closed #${issue} as completed; the keyword had not."
+              if gh api "repos/${GITHUB_REPOSITORY}/issues/${issue}" \
+                -X PATCH -f state=closed -f state_reason=completed --silent; then
+                echo "Closed #${issue} as completed."
+              else
+                echo "::error title=Could not close::Closing #${issue} did not succeed."
+                unsaid=1
+              fi
             fi
           done
+
+          # A red run here means an issue is fixed and does not say so, or
+          # says so and is still open. Both are somebody's five minutes;
+          # neither is worth hiding behind a green tick.
+          exit "${unsaid}"

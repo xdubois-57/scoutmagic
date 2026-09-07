@@ -277,12 +277,13 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
      * The point of the workflow, asserted so it cannot quietly become a
      * closer that says nothing.
      *
-     * GitHub closes an issue named by a closing keyword and writes a
-     * timeline reference: the reporter is notified their report was
-     * closed, with no sentence saying it was FIXED. This exists to put
-     * that sentence there.
+     * The comment is posted first and the closure follows it, in that
+     * order, because the order is the whole reason this file stopped
+     * relying on GitHub's closing keywords: a keyword closes the issue
+     * server-side at the merge, seconds before any workflow runs, and the
+     * reporter's first notification is then a bare strikethrough.
      */
-    public function testAFixedIssueIsToldSoBeforeItIsLeftClosed(): void
+    public function testAFixedIssueIsToldSoBeforeItIsClosed(): void
     {
         $file = $this->contents(self::FIXED_COMMENT);
 
@@ -292,14 +293,14 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
         self::assertIsInt($comment, self::FIXED_COMMENT . ' no longer posts a comment at all.');
         self::assertIsInt(
             $close,
-            self::FIXED_COMMENT . ' no longer closes as `completed` the issues the keyword missed.',
+            self::FIXED_COMMENT . ' no longer closes as `completed` the issues its fix landed on.',
         );
 
         self::assertLessThan(
             $close,
             $comment,
-            self::FIXED_COMMENT . ' closes an issue before saying anything on it. The comment is '
-            . 'the point of this workflow; the closing is the belt to GitHub\'s braces.',
+            self::FIXED_COMMENT . ' closes an issue before saying anything on it. Nothing else '
+            . 'closes these issues any more, so this order is the only one there is.',
         );
 
         self::assertStringNotContainsString(
@@ -308,6 +309,77 @@ class IssueTriageWorkflowPermissionsTest extends TestCase
             self::FIXED_COMMENT . ' closes an issue as `not planned`. A merged fix completed it, '
             . 'and `not planned` is a lie the release notes would pick up.',
         );
+    }
+
+    /**
+     * An issue this workflow could not speak on is left open.
+     *
+     * "Comment, then close" is not a guarantee if a failed comment falls
+     * through to the closing anyway — that is precisely the silent
+     * closure the file exists to prevent, reached by the other road. The
+     * failure branch must leave the loop before the `PATCH`.
+     */
+    public function testAnIssueThatCouldNotBeCommentedOnIsLeftOpen(): void
+    {
+        $file = $this->contents(self::FIXED_COMMENT);
+
+        $failure = strpos($file, 'Could not comment');
+        $close = strpos($file, '-f state=closed -f state_reason=completed');
+
+        self::assertIsInt($failure, self::FIXED_COMMENT . ' no longer handles a comment that fails.');
+        self::assertIsInt($close, self::FIXED_COMMENT . ' no longer closes anything.');
+        self::assertLessThan($close, $failure, self::FIXED_COMMENT . ' handles a failed comment '
+            . 'after it has already closed the issue.');
+
+        self::assertStringContainsString(
+            'continue',
+            substr($file, $failure, $close - $failure),
+            self::FIXED_COMMENT . ' closes an issue it failed to comment on. A comment that did '
+            . 'not land must skip the closing, not be followed by it.',
+        );
+    }
+
+    /**
+     * The doctrine and the workflow name the same marker, and it is one
+     * GitHub does not act on.
+     *
+     * This is the invariant the ordering rests on, and it lives in two
+     * files that nothing otherwise ties together: AGENTS.md tells whoever
+     * writes a pull request body what to put in it, and the workflow
+     * reads it back. A body that said `Closes #158` again would close the
+     * issue at the merge, seconds before this workflow could speak — a
+     * green pull request, a green CI run, and the old bad order silently
+     * restored.
+     */
+    public function testTheDoctrineNamesAMarkerGitHubWillNotActOn(): void
+    {
+        $workflow = $this->contents(self::FIXED_COMMENT);
+        $agents = $this->contents('AGENTS.md');
+
+        self::assertMatchesRegularExpression(
+            '/grep -oiE .*corrige/',
+            $workflow,
+            self::FIXED_COMMENT . ' no longer reads `Corrige #158`, which is the marker AGENTS.md '
+            . 'tells a pull request body to carry.',
+        );
+
+        self::assertStringContainsString(
+            '`Corrige #158`',
+            $agents,
+            'AGENTS.md no longer tells a pull request body to name its issues with `Corrige #158`, '
+            . 'which is the only marker ' . self::FIXED_COMMENT . ' can close in the right order.',
+        );
+
+        foreach (['Closes #', 'Fixes #', 'Resolves #'] as $keyword) {
+            self::assertStringNotContainsString(
+                $keyword,
+                $agents,
+                'AGENTS.md tells a pull request body to write `' . $keyword . '`, one of GitHub\'s '
+                . 'own closing keywords. GitHub then closes the issue at the merge, before '
+                . self::FIXED_COMMENT . ' can say the fix landed — which is the bug this '
+                . 'convention exists to avoid.',
+            );
+        }
     }
 
     /**
