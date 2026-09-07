@@ -15,8 +15,9 @@ use Core\Member\HouseholdFeeCategory;
  * household's size implies they should be on.
  *
  * $encodedCategory is null in two different situations the card keeps
- * apart: Desk holds no fee category at all, or it holds one that is not a
- * household tariff ("Tarif animateur", "Tarif réduit", an iAM membership).
+ * apart: Desk holds no fee category at all, or it holds one the site does
+ * not recognise as a household tariff — a type the federation added after
+ * this heuristic was written, or a wording this unit spells its own way.
  * $comparable says which — a member outside the three tariffs is not
  * compared, and above all is never reported as wrong.
  */

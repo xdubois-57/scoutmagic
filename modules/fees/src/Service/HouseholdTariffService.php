@@ -20,9 +20,14 @@ use Modules\Fees\Value\HouseholdTariff;
  * The mapping is `explicit override ?? heuristic`, in that order, and the
  * heuristic is what makes the screen work on the day the module is switched
  * on. A category the classifier does not recognise and nobody mapped is not
- * a household tariff at all — "Tarif animateur", "Tarif réduit", an iAM
- * membership — and a member carrying one is simply outside the comparison
- * rather than reported as wrong.
+ * treated as a household tariff at all: a member carrying one is simply
+ * outside the comparison rather than reported as wrong.
+ *
+ * Desk offers three cotisation types today and a unit's members all carry
+ * one of them, so that case is not a category the federation already
+ * publishes — it is a wording this heuristic misses, or a type the
+ * federation adds later. Either way the answer is the same, and the
+ * override is how a unit settles it in one click.
  */
 class HouseholdTariffService
 {

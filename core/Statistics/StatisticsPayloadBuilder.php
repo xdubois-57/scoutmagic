@@ -49,6 +49,15 @@ class StatisticsPayloadBuilder
      */
     private const REAL_CRON_MAX_AGE_SECONDS = 172800;
 
+    /**
+     * How many Desk vocabulary entries of each kind travel. A unit has a
+     * couple of dozen functions and three cotisation types; a hundred is
+     * room for every plausible one plus the years of federation
+     * renamings that accumulate under them, and a cap that a broken
+     * import cannot turn into a payload the receiver refuses whole.
+     */
+    private const MAX_VOCABULARY_ENTRIES = 100;
+
     public function __construct(
         private SettingService $settingService,
         private \PDO $pdo,
@@ -94,6 +103,10 @@ class StatisticsPayloadBuilder
             ],
             'modules' => $this->collect(fn(): ?array => $this->modules()),
             'module_usage' => $this->collect(fn(): ?array => $this->moduleUsagePayload()),
+            'desk_vocabulary' => [
+                'functions' => $this->collect(fn(): array => $this->deskFunctions()),
+                'fee_categories' => $this->collect(fn(): array => $this->deskFeeCategories()),
+            ],
             'installation' => [
                 'method' => $this->collect(fn(): ?string => $this->installationMethod()),
             ],
@@ -365,6 +378,102 @@ class StatisticsPayloadBuilder
             'window_months' => ModuleUsageInterface::WINDOW_MONTHS,
             'modules' => $modules,
         ];
+    }
+
+    /**
+     * The FONCTION labels this unit's Desk exports actually contain, and
+     * the cotisation types they actually contain — the unit's Desk
+     * vocabulary, which is the one thing about an installation that the
+     * maintainer cannot guess and has to support.
+     *
+     * **Why it is here rather than only in a support package.** Both lists
+     * grow when the federation invents something: a new function, a fourth
+     * cotisation type. The site never refuses an unknown value — the
+     * import creates it (`Core\Import\MappingResolver`) and the screens
+     * that cannot classify it say so instead of guessing — so nothing
+     * breaks, and precisely because nothing breaks nobody finds out. A
+     * unit only reports what visibly goes wrong; a value quietly sitting
+     * outside every heuristic is exactly what never gets reported. Seeing
+     * it in the daily report is what turns "somebody will open a ticket in
+     * eighteen months" into "this appeared this week, on four units".
+     *
+     * This is unit VOCABULARY, never a person: a label, and how many rows
+     * carry it in total — never who. `functions.label` and
+     * `fee_categories.label` are the federation's own words, copied
+     * verbatim out of an export; no member, no section name, no count that
+     * could single anybody out. Rule 2 of this class holds.
+     *
+     * Bounded at {@see self::MAX_VOCABULARY_ENTRIES}, with `total` saying
+     * what the list left out. The receiver refuses a body over 64 KB
+     * outright, and these two tables are the only part of this payload
+     * whose size a unit's own data decides — a botched import that created
+     * three hundred fee categories must cost this field its completeness,
+     * never the whole report.
+     *
+     * @return array{total: int, listed: array<int, array{desk_code: string, label: string, role: string,
+     *     confirmed: bool}>}
+     */
+    private function deskFunctions(): array
+    {
+        $stmt = $this->pdo->query(
+            'SELECT desk_code, label, role, confirmed FROM functions ORDER BY desk_code LIMIT '
+            . (self::MAX_VOCABULARY_ENTRIES + 1)
+        );
+        $rows = $stmt !== false ? $stmt->fetchAll(\PDO::FETCH_ASSOC) : [];
+
+        $listed = [];
+        foreach (array_slice($rows, 0, self::MAX_VOCABULARY_ENTRIES) as $row) {
+            $listed[] = [
+                'desk_code' => (string) $row['desk_code'],
+                'label' => (string) $row['label'],
+                // `confirmed` false is « nobody has seen this in Config Desk
+                // yet », which on this list is the interesting half: it is
+                // where a function the federation just invented shows up.
+                'role' => (string) $row['role'],
+                'confirmed' => (bool) $row['confirmed'],
+            ];
+        }
+
+        $count = $this->pdo->query('SELECT COUNT(*) FROM functions');
+
+        return ['total' => $count !== false ? (int) $count->fetchColumn() : count($listed), 'listed' => $listed];
+    }
+
+    /**
+     * The cotisation types the unit's Desk export carries. A unit
+     * configures three (`N_COTISATION_NORMALE`, `C_COTISATION_COUPLE`,
+     * `F_COTISATION_FAMILLE`) and `Modules\Fees\Service\
+     * FeeCategoryClassifier` recognises those three; a fourth arriving one
+     * day is imported like any other value and simply left out of the
+     * household comparison until somebody maps it by hand. Which is fine
+     * for the unit, and is exactly what the maintainer needs to see here.
+     *
+     * Deliberately NOT classified before being sent. Doing that would mean
+     * naming `Modules\Fees` from core, which the `Api\` contract forbids
+     * (ARCHITECTURE.md §7.5) — and it would send a verdict where the whole
+     * value of the field is the raw label. The receiver reads the words.
+     *
+     * @return array{total: int, listed: array<int, array{desk_code: string, label: string}>}
+     */
+    private function deskFeeCategories(): array
+    {
+        $stmt = $this->pdo->query(
+            'SELECT desk_code, label FROM fee_categories ORDER BY desk_code LIMIT '
+            . (self::MAX_VOCABULARY_ENTRIES + 1)
+        );
+        $rows = $stmt !== false ? $stmt->fetchAll(\PDO::FETCH_ASSOC) : [];
+
+        $listed = [];
+        foreach (array_slice($rows, 0, self::MAX_VOCABULARY_ENTRIES) as $row) {
+            $listed[] = [
+                'desk_code' => (string) $row['desk_code'],
+                'label' => (string) $row['label'],
+            ];
+        }
+
+        $count = $this->pdo->query('SELECT COUNT(*) FROM fee_categories');
+
+        return ['total' => $count !== false ? (int) $count->fetchColumn() : count($listed), 'listed' => $listed];
     }
 
     /**

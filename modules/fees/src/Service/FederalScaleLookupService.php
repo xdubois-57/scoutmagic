@@ -404,18 +404,50 @@ class FederalScaleLookupService
     }
 
     /**
-     * The page's readable text: scripts and styles dropped whole (their
-     * contents are not prose and would waste the budget), tags removed,
-     * entities decoded, blank runs collapsed, then capped. Deliberately
-     * crude — the model reads the result, not a parser.
+     * The page's readable text: the markup repaired first, then scripts and
+     * styles dropped whole (their contents are not prose and would waste
+     * the budget), tags removed, entities decoded, blank runs collapsed,
+     * then capped. Deliberately crude — the model reads the result, not a
+     * parser.
      *
      * The two fence markers are also stripped out of the page's own text,
      * so a page that prints `PAGE>>>` cannot close the fence early and
      * have whatever follows read as though it came from us.
+     *
+     * ## Why the repair pass exists
+     *
+     * Issue #195: « Chercher les montants » refused, every time, with
+     * « Aucune année scoute n'a pu être identifiée sur cette page », on a
+     * page that displays « COTISATIONS 2026-2027 » directly above the
+     * three amounts. Nothing was wrong with the prompt or with
+     * {@see self::normalizeYear()} — the year never reached the model at
+     * all. `strip_tags()` tracks quotes inside a tag, so ONE stray double
+     * quote silently consumes the rest of the document, and the federal
+     * page carries two such defects a few characters apart:
+     * `<div class="banner-link__content bg--color5"">` (an extra quote)
+     * and `<div class="patern-deco"></div` (an unterminated end tag), both
+     * immediately before the cotisations block. The page came back whole,
+     * 22 KB of it, and this method returned its first 979 characters —
+     * everything up to the defect and not one word after it, amounts and
+     * year included. No error anywhere: the model was asked to read a year
+     * off a page it was never shown.
+     *
+     * So the bytes go through libxml's error-recovering HTML parser first
+     * and come back as well-formed markup, exactly the idiom
+     * `Modules\Gallery\Service\OgScraperService::parseOgTags()` already
+     * uses on third-party pages. A page libxml cannot parse at all falls
+     * through unrepaired — the crude pass then does what it always did,
+     * which is more than nothing.
+     *
+     * Repairing rather than replacing `strip_tags()` with a `<[^>]*>`
+     * regex is deliberate: that regex would fix this page and break on a
+     * `>` inside an attribute value, trading a rare catastrophic loss for
+     * a common small one. Here the parser settles both.
      */
     public static function extractText(string $html): string
     {
-        $stripped = preg_replace('#<(script|style|noscript)\b[^>]*>.*?</\1>#is', ' ', $html) ?? $html;
+        $repaired = self::repairMarkup($html);
+        $stripped = preg_replace('#<(script|style|noscript)\b[^>]*>.*?</\1>#is', ' ', $repaired) ?? $repaired;
         $stripped = preg_replace('#<(br|/p|/div|/li|/tr|/h[1-6])\s*/?>#i', "\n", $stripped) ?? $stripped;
         $text = html_entity_decode(strip_tags($stripped), ENT_QUOTES | ENT_HTML5, 'UTF-8');
         $text = str_replace(["\u{a0}", '<<<PAGE', 'PAGE>>>'], [' ', ' ', ' '], $text);
@@ -423,6 +455,45 @@ class FederalScaleLookupService
         $text = preg_replace('/\s*\n\s*/u', "\n", $text) ?? $text;
 
         return mb_substr(trim($text), 0, self::MAX_PROMPT_CHARS);
+    }
+
+    /**
+     * Third-party markup, re-emitted well-formed by libxml so that the
+     * crude pass above cannot lose the document on a single stray
+     * character. See {@see self::extractText()} for the failure this
+     * exists to prevent.
+     *
+     * The XML encoding declaration is the same fix `OgScraperService`
+     * carries: `loadHTML()` assumes ISO-8859-1 for a document with no
+     * `<meta charset>`, which turns « année » into mojibake before any
+     * cotisation is read. It is consumed by the parser and never appears
+     * in the output.
+     *
+     * Returns the input untouched when libxml refuses it outright, which
+     * leaves the caller exactly where it was before this pass existed.
+     */
+    private static function repairMarkup(string $html): string
+    {
+        if (trim($html) === '') {
+            return $html;
+        }
+
+        $document = new \DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        // A malformed page is the normal case here, so libxml's complaints
+        // are noise by construction: this method's whole purpose is to
+        // recover from them.
+        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?>' . $html, LIBXML_NONET);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
+        if (!$loaded) {
+            return $html;
+        }
+
+        $repaired = $document->saveHTML();
+
+        return is_string($repaired) && trim($repaired) !== '' ? $repaired : $html;
     }
 
     /**

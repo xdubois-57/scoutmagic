@@ -8,6 +8,9 @@ declare(strict_types=1);
 
 namespace Tests\Fixtures\ReferenceDataset;
 
+use Core\Member\AddressNormalizer;
+use Core\Member\HouseholdFeeCategory;
+
 /**
  * Turns UnitBlueprint's tables and ScenarioCatalog's named cases into three
  * years of people.
@@ -59,6 +62,14 @@ final class PopulationBuilder
     /** @var array<string, true> Tiers of the hand-written scenario members */
     private array $scenarioTiers = [];
 
+    /**
+     * How many cadres of each gender still have to be created for every
+     * portrait of the photo lot to find a holder. See {@see nextCadreGender()}.
+     *
+     * @var array<string, int>
+     */
+    private array $cadreGenderQuota = [];
+
     public function __construct(
         private readonly Rng $rng,
         private readonly PersonFactory $factory,
@@ -74,6 +85,7 @@ final class PopulationBuilder
         // Whoever ScenarioPeople wrote by hand: designateSectionLeads() must
         // never touch them, since their functions are what the scenarios are.
         $this->scenarioTiers = array_fill_keys(array_keys($this->people), true);
+        $this->cadreGenderQuota = $this->cadreGenderQuotaLeftByScenarios();
 
         foreach (UnitBlueprint::YEARS as $index => $year) {
             if ($index > 0) {
@@ -85,8 +97,104 @@ final class PopulationBuilder
         ksort($this->people);
         $this->designateSectionLeads();
         $this->designateSectionSpecialists();
+        $this->assignHouseholdTariffs();
 
         return $this->people;
+    }
+
+    /**
+     * Give every member the Desk cotisation type their household size
+     * calls for — the last word on the "Tarif" column, for everyone.
+     *
+     * Desk offers three types and no others (UnitBlueprint::FEE_CODES),
+     * and which one a member carries is not a property of that member: it
+     * is a property of how many members live at their address. So it
+     * cannot be decided while a person is being built, when the rest of
+     * their household may not exist yet — hence a post-pass, the same
+     * shape and for the same kind of reason as designateSectionLeads()
+     * above, and drawing nothing from the Rng for the same reason too.
+     *
+     * The grouping goes through `Core\Member\AddressNormalizer`, the very
+     * class the site uses to decide who shares a household, rather than a
+     * comparison written here: a dataset whose households the application
+     * would group differently would be quietly testing nothing on the
+     * « Justesse des tarifs » screen.
+     *
+     * Only the **Domicile** address counts. A member with a second address
+     * belongs to two households as far as the site is concerned
+     * (`Core\Member\Household\Household`, which says in as many words
+     * that which of the two the federation bills on is not something the
+     * site knows) — but a unit encoding the tariff picks one, and it is
+     * the home one.
+     *
+     * This is what makes a household that changes size change tariff:
+     * scenarios 17 and 18 (siblings arriving and leaving) now move between
+     * couple and famille on their own, and scenario 23 is a household
+     * going from one member to two.
+     */
+    private function assignHouseholdTariffs(): void
+    {
+        foreach (UnitBlueprint::YEARS as $year) {
+            $sizes = [];
+            foreach ($this->people as $person) {
+                if (!$person->isPresentIn($year)) {
+                    continue;
+                }
+                $key = self::householdKey($person);
+                if ($key === '') {
+                    continue;
+                }
+                $sizes[$key] ??= 0;
+                $sizes[$key]++;
+            }
+
+            foreach ($this->people as $person) {
+                $personYear = $person->years[$year] ?? null;
+                if ($personYear === null) {
+                    continue;
+                }
+                $key = self::householdKey($person);
+                // No usable address is not "a household of one" — it is
+                // "the site cannot say", the distinction HouseholdService
+                // draws. The tariff already on the year stands.
+                $feeCode = $key === ''
+                    ? $personYear->feeCode
+                    : UnitBlueprint::FEE_CODES[HouseholdFeeCategory::fromHouseholdSize($sizes[$key])->value];
+
+                $person->years[$year] = new PersonYear(
+                    functions: $personYear->functions,
+                    feeCode: $feeCode,
+                    totem: $personYear->totem,
+                    quali: $personYear->quali,
+                    patrol: $personYear->patrol,
+                    formationLevel: $personYear->formationLevel,
+                );
+            }
+        }
+    }
+
+    /**
+     * The normalized home address, which is what the site groups a
+     * household by. Empty when the person has no Domicile row at all,
+     * which this generator never produces but which costs one check to
+     * refuse to guess about.
+     */
+    private static function householdKey(Person $person): string
+    {
+        foreach ($person->addresses as $address) {
+            if ($address->type !== 'Domicile') {
+                continue;
+            }
+
+            return AddressNormalizer::normalize(
+                $address->street,
+                $address->number,
+                $address->box,
+                $address->postalCode
+            );
+        }
+
+        return '';
     }
 
     /**
@@ -373,7 +481,7 @@ final class PopulationBuilder
     {
         $birthYear = UnitBlueprint::referenceYear($year) - $this->rng->int(19, 38);
         $tiers = $this->nextFillerTiers();
-        $this->people[$tiers] = $this->factory->make($tiers, $birthYear, null);
+        $this->people[$tiers] = $this->factory->make($tiers, $birthYear, null, forcedGender: $this->nextCadreGender());
         $this->filler[$tiers] = [
             'birthYear' => $birthYear,
             'track' => 'cadre',
@@ -401,7 +509,7 @@ final class PopulationBuilder
     {
         $birthYear = UnitBlueprint::referenceYear($year) - $this->rng->int(24, 45);
         $tiers = $this->nextFillerTiers();
-        $this->people[$tiers] = $this->factory->make($tiers, $birthYear, null);
+        $this->people[$tiers] = $this->factory->make($tiers, $birthYear, null, forcedGender: $this->nextCadreGender());
         $unitFunctions = UnitBlueprint::UNIT_LEVEL_FUNCTIONS;
         $this->filler[$tiers] = [
             'birthYear' => $birthYear,
@@ -431,8 +539,9 @@ final class PopulationBuilder
 
         $person->years[$year] = new PersonYear(
             functions: [$this->sectionFunction('Animé', $handle, $year, true)],
-            feeCode: $previous->feeCode
-                ?? ($this->rng->chance(12) ? UnitBlueprint::FEE_CODES['anime_reduit'] : UnitBlueprint::FEE_CODES['anime']),
+            // Provisional: assignHouseholdTariffs() has the last word, once
+            // every member of every household exists.
+            feeCode: UnitBlueprint::FEE_CODES['normal'],
             totem: $totem,
             quali: $quali,
             patrol: match ($branch) {
@@ -450,7 +559,9 @@ final class PopulationBuilder
 
         $person->years[$year] = new PersonYear(
             functions: [$this->sectionFunction('Animateur', $handle, $year, true)],
-            feeCode: UnitBlueprint::FEE_CODES['cadre'],
+            // Provisional, like every other tariff here — and an animateur
+            // gets one of the same three types as anybody else (issue #194).
+            feeCode: UnitBlueprint::FEE_CODES['normal'],
             totem: $previous->totem ?? $this->rng->pick(UnitBlueprint::TOTEMS),
             quali: $previous->quali ?? $this->rng->pick(UnitBlueprint::QUALIS),
             formationLevel: $previous->formationLevel ?? $this->rng->pick(UnitBlueprint::FORMATION_LEVELS),
@@ -467,7 +578,7 @@ final class PopulationBuilder
         // that role is only known once Config Desk confirms the function.
         $person->years[$year] = new PersonYear(
             functions: [$this->unitFunction($this->filler[$tiers]['unitFunction'] ?? UnitBlueprint::UNIT_LEVEL_FUNCTIONS[0], true)],
-            feeCode: UnitBlueprint::FEE_CODES['cadre'],
+            feeCode: UnitBlueprint::FEE_CODES['normal'],
             totem: $previous->totem ?? $this->rng->pick(UnitBlueprint::TOTEMS),
             quali: $previous->quali ?? $this->rng->pick(UnitBlueprint::QUALIS),
             formationLevel: $previous->formationLevel ?? 'Formation avancée',
@@ -629,6 +740,95 @@ final class PopulationBuilder
         }
 
         return $best;
+    }
+
+    /**
+     * The gender the next filler cadre must have, or null to let the
+     * ordinary draw decide.
+     *
+     * **The photo lot and the cadre population are one constraint, and it
+     * used to be met by luck.** `PhotoLot::INDIVIDUAL_GENDERS` declares a
+     * gender for each of the forty individual portraits, and
+     * `PhotoAssigner` gives every one of them to a distinct cadre of that
+     * gender — refusing loudly, and producing no dataset at all, when it
+     * runs out. The unit has almost exactly forty cadres, so the split had
+     * to match the lot's within nothing, and it did only because
+     * `PersonFactory::GENDER_F_PERCENT` happened to land there on this
+     * seed. Removing a single unrelated `Rng` draw elsewhere (the fee code
+     * of an animé year, issue #194) moved the whole stream two cadres off
+     * and the generator stopped working — which is how a constraint that
+     * had never been written down was discovered.
+     *
+     * So it is written down here instead: as long as the lot still needs a
+     * gender, the next cadre has it, the scarcer one first. Once both
+     * quotas are met — the unit has more cadres than the lot has portraits
+     * — the ordinary draw resumes, which is what keeps the staff from
+     * being an exact copy of the lot's own balance.
+     *
+     * This decides the gender of a CADRE only. Animés, who are the bulk of
+     * the population and the whole of scenario 24's gender balance, are
+     * untouched.
+     */
+    private function nextCadreGender(): ?string
+    {
+        $needed = array_filter($this->cadreGenderQuota, static fn(int $left): bool => $left > 0);
+        if ($needed === []) {
+            return null;
+        }
+
+        // Whichever gender the lot still needs MOST, so a lot asking for 24
+        // M and 16 F interleaves the two rather than producing 24 men
+        // followed by 16 women. `arsort` keeps the keys, and a tie resolves
+        // on the first of them, so this never depends on hash order.
+        arsort($needed);
+        $gender = (string) array_key_first($needed);
+        $this->cadreGenderQuota[$gender]--;
+
+        return $gender;
+    }
+
+    /**
+     * What the photo lot still needs once the hand-written scenario cadres
+     * — whose genders are theirs and not negotiable — have been counted.
+     *
+     * @return array<string, int>
+     */
+    private function cadreGenderQuotaLeftByScenarios(): array
+    {
+        $quota = ['F' => 0, 'M' => 0];
+        foreach (PhotoLot::INDIVIDUAL_GENDERS as $gender) {
+            $quota[$gender]++;
+        }
+
+        foreach ($this->people as $person) {
+            if (!self::everHoldsACadreFunction($person)) {
+                continue;
+            }
+            if (isset($quota[$person->gender]) && $quota[$person->gender] > 0) {
+                $quota[$person->gender]--;
+            }
+        }
+
+        return $quota;
+    }
+
+    /**
+     * Whether this person ever holds a function `PhotoAssigner` counts as
+     * a cadre — the same `chief`/`admin` test it applies, so the supply
+     * counted here is the supply it will draw from.
+     */
+    private static function everHoldsACadreFunction(Person $person): bool
+    {
+        foreach ($person->years as $personYear) {
+            foreach ($personYear->functions as $function) {
+                $role = UnitBlueprint::FUNCTIONS[$function->functionCode] ?? 'identified';
+                if ($role === 'chief' || $role === 'admin') {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private function nextFillerTiers(): string

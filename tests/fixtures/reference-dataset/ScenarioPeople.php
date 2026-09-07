@@ -208,7 +208,7 @@ final class ScenarioPeople
         $person->years[self::A2] = $this->animeYear('pio1', self::A2, totem: $person->years[self::A1]->totem);
         $person->years[self::A3] = new PersonYear(
             functions: [$this->sectionFunction('Animateur', 'bal1', self::A3, true)],
-            feeCode: UnitBlueprint::FEE_CODES['cadre'],
+            feeCode: UnitBlueprint::FEE_CODES['normal'],
             totem: $person->years[self::A1]->totem,
             quali: $person->years[self::A1]->quali,
             formationLevel: 'Formation de base',
@@ -289,7 +289,7 @@ final class ScenarioPeople
                     // carries.
                     $this->unitFunction('Collaborateur d\'unité', false),
                 ],
-                feeCode: UnitBlueprint::FEE_CODES['cadre'],
+                feeCode: UnitBlueprint::FEE_CODES['normal'],
                 totem: 'Sittelle',
                 quali: 'Posé',
                 formationLevel: 'Formation avancée',
@@ -490,13 +490,37 @@ final class ScenarioPeople
 
     // ----------------------------------------------------------- scenario 23
 
-    /** @return list<Person> */
+    /**
+     * The control for scenario 23: a member who lives alone all three
+     * years, so their Desk tariff never moves off `N_COTISATION_NORMALE`.
+     *
+     * The scenario's *changes* are carried by the two households that
+     * change size — the Delvaux siblings of scenario 17 (two members in
+     * A1, three from A2: couple → familiale) and the Poncelet siblings of
+     * scenario 18 (three then two: familiale → couple). Since issue #194,
+     * a member's tariff is not a fact written down about them: it is
+     * derived from the size of their household by
+     * PopulationBuilder::assignHouseholdTariffs(), exactly the way a unit
+     * encodes it in Desk, so a household that changes size is the ONLY
+     * thing that makes a tariff change.
+     *
+     * This person is what keeps that honest from the other side. A
+     * derivation that had drifted into giving everybody the same tariff
+     * would still satisfy the two transitions above on their own; it
+     * cannot also leave this one on normale while those move.
+     *
+     * Nothing here writes a tariff. It used to write three by hand —
+     * « Tarif normal » then « Tarif réduit » twice — and two of those were
+     * values Desk has never exported.
+     *
+     * @return list<Person>
+     */
     private function feeChange(): array
     {
         $person = $this->factory->make('T0033', 2014, 'Louveteaux');
-        $person->years[self::A1] = $this->animeYear('lou2', self::A1, totem: null, feeCode: UnitBlueprint::FEE_CODES['anime']);
-        $person->years[self::A2] = $this->animeYear('lou2', self::A2, totem: null, feeCode: UnitBlueprint::FEE_CODES['anime_reduit']);
-        $person->years[self::A3] = $this->animeYear('lou2', self::A3, totem: null, feeCode: UnitBlueprint::FEE_CODES['anime_reduit']);
+        foreach ([self::A1, self::A2, self::A3] as $year) {
+            $person->years[$year] = $this->animeYear('lou2', $year, totem: null);
+        }
 
         return [$person];
     }
@@ -514,7 +538,10 @@ final class ScenarioPeople
 
         return new PersonYear(
             functions: [$this->sectionFunction('Animé', $handle, $year, true)],
-            feeCode: $feeCode ?? UnitBlueprint::FEE_CODES['anime'],
+            // Provisional: PopulationBuilder::assignHouseholdTariffs() has
+            // the last word, from the household this person turns out to
+            // be in.
+            feeCode: $feeCode ?? UnitBlueprint::FEE_CODES['normal'],
             totem: $totem,
             quali: $totem !== null ? ($quali ?? $this->rng->pick(UnitBlueprint::QUALIS)) : null,
             patrol: match ($branch) {
@@ -529,7 +556,7 @@ final class ScenarioPeople
     {
         return new PersonYear(
             functions: [$this->sectionFunction($code, $handle, $year, true)],
-            feeCode: UnitBlueprint::FEE_CODES['cadre'],
+            feeCode: UnitBlueprint::FEE_CODES['normal'],
             totem: $this->rng->pick(UnitBlueprint::TOTEMS),
             quali: $this->rng->pick(UnitBlueprint::QUALIS),
             formationLevel: $this->rng->pick(UnitBlueprint::FORMATION_LEVELS),
@@ -540,7 +567,7 @@ final class ScenarioPeople
     {
         return new PersonYear(
             functions: [$this->unitFunction($code, true)],
-            feeCode: UnitBlueprint::FEE_CODES['cadre'],
+            feeCode: UnitBlueprint::FEE_CODES['normal'],
             totem: $this->rng->pick(UnitBlueprint::TOTEMS),
             quali: $this->rng->pick(UnitBlueprint::QUALIS),
             formationLevel: 'Formation avancée',
