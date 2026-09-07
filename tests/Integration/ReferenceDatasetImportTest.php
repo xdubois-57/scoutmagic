@@ -1117,20 +1117,27 @@ final class ReferenceDatasetImportTest extends TestCase
     /** How many mailboxes of a year are shared by at least $members members. */
     private function mailboxesCovering(string $label, int $members): int
     {
-        // Both values are integers this class owns, and MySQL will not take a
-        // placeholder in a HAVING it has to fold into a derived table.
-        $row = $this->pdo->query(
-            'SELECT COUNT(*) AS n FROM (
-                 SELECT my.email_blind_index
-                 FROM member_years my
-                 WHERE my.scout_year_id = ' . $this->yearIds[$label] . ' AND my.is_active = 1
-                   AND my.email_blind_index IS NOT NULL
-                 GROUP BY my.email_blind_index
-                 HAVING COUNT(DISTINCT my.member_id) >= ' . $members . '
-             ) AS shared'
-        )?->fetch();
+        // Grouped in SQL, counted in PHP. The derived table this replaces
+        // needed its threshold in a HAVING, and a placeholder there came
+        // back as zero matches — which is how the concatenation got in.
+        // Without the wrapper there is nothing left to concatenate.
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(DISTINCT my.member_id) AS holders
+             FROM member_years my
+             WHERE my.scout_year_id = ? AND my.is_active = 1
+               AND my.email_blind_index IS NOT NULL
+             GROUP BY my.email_blind_index'
+        );
+        $stmt->execute([$this->yearIds[$label]]);
 
-        return (int) ($row['n'] ?? 0);
+        $shared = 0;
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            if ((int) $row['holders'] >= $members) {
+                $shared++;
+            }
+        }
+
+        return $shared;
     }
 
     /**
