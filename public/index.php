@@ -2946,6 +2946,13 @@ $newsArticleService = null;
 // above.
 $calendarEventLookupForOthers = null;
 
+// The other calendar read contract (ARCHITECTURE.md §7.5): which events
+// belong to a SECTION, which is what `presences` builds an attendance
+// sheet on. Deliberately a second handle rather than a widening of the
+// one above — the two answer different questions and have different
+// consumers.
+$calendarSectionEventLookupForOthers = null;
+
 // Optional dependency on the finance module (ARCHITECTURE.md §7.5) for
 // keeping a document as a receipt on one of the unit's accounts — set in
 // finance's own block below. The fees module's federation invoice is the
@@ -3377,6 +3384,11 @@ if ($isEnabled('calendar')) {
     // "this post is about that event" picker) rather than adding a second
     // lookup surface.
     $calendarEventLookupForOthers = $calendarService;
+    // CalendarService also implements Api\SectionEventLookupInterface —
+    // the same object, a different contract: « which events are this
+    // section's », which is the whole of what an attendance sheet hangs
+    // off.
+    $calendarSectionEventLookupForOthers = $calendarService;
 
     $frontController->registerController(
         \Modules\Calendar\Controller\CalendarPublicController::class,
@@ -3397,6 +3409,41 @@ if ($isEnabled('calendar')) {
         \Modules\Calendar\Controller\CalendarConfigController::class,
         new \Modules\Calendar\Controller\CalendarConfigController(
             $twig, $calendarService, $sectionService, $settingService, $journalService, $calendarNotificationService
+        )
+    );
+}
+
+// Presences declares `"requires": ["calendar"]`, so ModuleManager never
+// reports it enabled while the calendar is off — the null check below is
+// belt and braces, and it is what makes the dependency provable at the
+// one place that wires it rather than only in a manifest.
+if ($isEnabled('presences') && $calendarSectionEventLookupForOthers !== null) {
+    \Core\Debug\RequestTimeline::mark('module_presences');
+    $presenceRepository = new \Modules\Presences\Repository\PresenceRepository($pdo, $encryptionService);
+    // The section boundary is core's own service, injected rather than
+    // re-derived: one rule, one implementation, for the documents page,
+    // the calendar, Départs and now the sheets.
+    $presenceAuthorization = new \Modules\Presences\Service\PresenceAuthorizationService(
+        $sectionStaffAuthorizationService
+    );
+    $presenceSheetService = new \Modules\Presences\Service\PresenceSheetService(
+        $calendarSectionEventLookupForOthers,
+        $presenceAuthorization,
+        $sectionService,
+        $presenceRepository
+    );
+    $presenceRegisterService = new \Modules\Presences\Service\PresenceRegisterService(
+        $calendarSectionEventLookupForOthers,
+        $scoutYearService,
+        $sectionService,
+        $presenceRepository
+    );
+
+    $frontController->registerController(
+        \Modules\Presences\Controller\PresencesController::class,
+        new \Modules\Presences\Controller\PresencesController(
+            $twig, $presenceAuthorization, $presenceSheetService, $presenceRegisterService,
+            $memberService, $scoutYearResolver
         )
     );
 }

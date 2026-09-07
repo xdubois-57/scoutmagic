@@ -340,6 +340,9 @@ final class UxConventionsTest extends TestCase
         // screen — the twin of /finance/reconciliation/creances below,
         // never a page.
         '/chefs/camps/courrier/sejours',
+        // JSON for the presences register's one search field — evenings
+        // and animés at once, redrawn as somebody types, never a page.
+        '/chefs/presences/recherche',
         // JSON for « Rattacher à… » on the chief's courrier page — the
         // targets a module's own directory offers, never a page.
         '/courrier/cibles',

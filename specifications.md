@@ -24,6 +24,7 @@ Everything beyond the core site is a module (`modules/<id>/`, ARCHITECTURE.md §
 | `mass_mail` | Envoi de mails | §24, §29 |
 | `member_stats` | Statistiques des membres | §35 |
 | `news` | Actualités | §32, §29 |
+| `presences` | Présences | §43 |
 | `registration` | Inscriptions | §17, §18, §19 |
 | `rental` | Locations | §22 |
 | `retro` | Rétrospectives | §37 |
@@ -2339,3 +2340,100 @@ pas.
 pour une installation qui ne mesure pas, une cellule **vide** pour une qui mesure et n'a rien
 ouvert. Les écrire pareil laisserait un lecteur trier la colonne et conclure que la moitié du parc
 ne se sert de rien.
+
+
+## 43. Présences (module presences)
+
+Qui était là, réunion par réunion. Une seule entrée de menu — « Présences », dans l'Espace
+animateurs — et tout le reste s'atteint depuis cette page : c'est une contrainte du module, pas une
+conséquence de ce qu'il contient aujourd'hui.
+
+### 43.1 Le périmètre est décidé par le calendrier, sans drapeau à cocher
+
+**Tout évènement d'un calendrier de section ouvre une feuille.** `calendar_calendars.section_id` est
+ce qui fait d'un calendrier celui d'une section, donc ce qui fait d'un évènement une soirée
+pointable — il n'y a rien à activer par évènement, et donc rien à oublier d'activer. Deux exclusions
+en découlent : les calendriers sans section (celui des animateurs, celui de l'unité) n'ouvrent
+jamais de feuille, et les **évènements virtuels** qu'un autre module injecte dans le calendrier
+(`rental`, `sos_staff`) non plus — ils n'ont pas d'identifiant réel et sont en lecture seule.
+
+**Seuls les animés figurent sur une feuille.** Ni les animateurs, ni les intendants : ce n'est pas
+leur présence qu'on suit.
+
+**Aucune récurrence.** `calendar_events` n'en a pas — une réunion hebdomadaire y est autant de
+lignes — donc une feuille s'identifie par le seul `calendar_events.id`, sans notion d'occurrence.
+
+### 43.2 Quatre états, et « non renseigné » n'est pas une ligne
+
+Présent, excusé, absent, non renseigné, plus un commentaire libre. **Rien n'est créé à l'avance** :
+une feuille n'existe pas tant que personne ne l'a ouverte, et un animé sans ligne est « non
+renseigné ». Une ligne qui finirait par ne porter ni état ni commentaire est supprimée plutôt que
+gardée — « non renseigné » avec rien à côté est déjà ce que l'absence de ligne veut dire.
+
+**Excusé compte comme absent** dans un taux de participation : la question à laquelle un taux répond
+est combien d'animés étaient là. C'est le commentaire à côté qui dit que l'absence était annoncée.
+
+Le lien pointe sur `members.id`, l'identité persistante, et non sur `member_years.id` : une présence
+survit à l'année scoute qui l'a vue écrire, même raison que `files.owner_member_id` (§4). La liste
+des animés qu'une feuille *propose* vient en revanche de la composition de la section **à l'année
+scoute effective**, jamais d'un instantané figé à la création de l'évènement.
+
+### 43.3 Les droits sont ceux de la section, recalculés à chaque lecture
+
+Les **animateurs de la section** voient et modifient les présences de leur section, via
+`Core\Member\SectionStaffAuthorizationService` — le service qui porte déjà la même règle pour les
+documents de section (§15) et le calendrier. Les **chefs d'unité et superadmins** voient et
+modifient tout. Un `identified` n'atteint rien.
+
+Rien n'est mémorisé : un animateur qui quitte la section perd l'accès à la requête suivante, sans
+que personne ait à révoquer quoi que ce soit. Un évènement d'une autre section et un évènement qui
+n'existe pas répondent **la même chose** — la page 404 du site — pour qu'aucun visiteur ne puisse
+cartographier les identifiants qui existent.
+
+**La famille ne voit rien**, jamais : ni sur la page de l'animé, ni ailleurs. C'est un jugement du
+staff, il reste au staff — même régime que les notes de membre (§4.2).
+
+### 43.4 Le commentaire est une donnée personnelle sur un mineur
+
+« Malade », « chez son père ce week-end » : du texte libre écrit par le staff au sujet d'un enfant.
+Il est stocké en `BLOB` chiffré et déchiffré dans le Repository uniquement, jamais journalisé, jamais
+repris dans un message d'erreur. La conservation suit l'année scoute et est déclarée sur la page RGPD.
+
+Une demande d'effacement retire les commentaires et laisse les états : qu'un animé ait été là un
+samedi n'est ni un récit ni un jugement — c'est ce qui était écrit à côté qui l'était.
+
+### 43.5 Le registre : trois questions, jamais une grille
+
+**Une grille animés × évènements a été essayée puis abandonnée.** Elle montrait tout et n'apprenait
+rien, et elle débordait de tout écran dès vingt-cinq animés sur trente réunions. Ce qui la remplace
+est trois blocs répondant à trois questions distinctes — où en est la section, quelles dates ont
+mobilisé, qui décroche — et il ne faut pas la réintroduire.
+
+**Le geste du jour est en tête.** Un raccourci « Prochain évènement » ouvre la soirée à pointer avec
+le nombre d'animés dont personne ne s'est encore occupé : la première soirée encore à venir, à
+défaut la dernière passée qu'on n'a pas finie, et rien du tout quand il ne reste rien à faire. Un
+animateur qui ouvre la page le samedi à 14 h veut pointer, pas consulter des moyennes annuelles.
+
+**Une recherche unifiée, une seule.** Un champ cherche à la fois les évènements et les animés,
+résultats groupés par nature : on tape ce qu'on a, on ne choisit pas un mode. La recherche se fait
+côté serveur — les noms sont chiffrés au repos, il n'y a rien à filtrer dans le navigateur — via une
+route JSON scopée à la section, revérifiée comme une page. **Le champ vide répond déjà** : les
+évènements les plus récents et quelques animés. Un panneau vide au clic laisserait croire qu'il faut
+connaître une syntaxe.
+
+**Ce qui n'a pas été pointé n'est compté nulle part.** Une soirée que personne n'a ouverte a tous
+ses animés « non renseigné », ce qui n'est pas une soirée à 0 % : c'est une soirée dont le site ne
+sait rien. Elle est listée — pour être atteinte et remplie — et exclue du graphique, de la moyenne
+et des taux individuels. La dessiner à zéro inventerait un effondrement de participation à partir
+d'un samedi que quelqu'un a oublié de pointer. Le taux d'une soirée divise en revanche par
+l'effectif **entier** de la section : un animé pour qui personne n'a répondu n'est pas un absent,
+mais il n'est pas présent non plus.
+
+**Le graphique porte une ligne de moyenne**, met en évidence la meilleure et la plus faible date, et
+chaque barre mène à la feuille de sa date. Sans repère, un pourcentage isolé ne dit rien. La page
+écrit à l'écran qu'une date basse s'explique souvent — un congé, la météo — et que le graphique la
+montre sans l'interpréter.
+
+**Le sélecteur de section est `partials/section_picker.html.twig`**, et comme le trombinoscope il ne
+s'affiche que si plus d'une section est disponible : un animateur d'une seule section n'a rien à
+choisir.

@@ -1,0 +1,57 @@
+{
+  "id": "presences",
+  "name": "Présences",
+  "description": "Feuille de présence par évènement de section : quatre états par animé, commentaire chiffré, et registre annuel de la section.",
+  "version": "1.2.0",
+  "requires": ["calendar"],
+  "routes": [
+    {
+      "path": "/chefs/presences",
+      "method": "GET",
+      "controller": "Modules\\Presences\\Controller\\PresencesController",
+      "action": "index",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "Présences",
+      "menu_icon": "bi-check2-square",
+      "menu_group": "ma_section",
+      "breadcrumb": { "label": "Présences", "parents": ["Espace animateurs"] }
+    },
+    {
+      "path": "/chefs/presences/recherche",
+      "method": "GET",
+      "controller": "Modules\\Presences\\Controller\\PresencesController",
+      "action": "search",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/presences/feuille/{eventId}",
+      "method": "GET",
+      "controller": "Modules\\Presences\\Controller\\PresencesController",
+      "action": "sheet",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "",
+      "breadcrumb": {
+        "label": "Feuille de présence",
+        "parents": ["Espace animateurs"],
+        "ancestors": [{ "label": "Présences", "path": "/chefs/presences" }]
+      }
+    },
+    {
+      "path": "/chefs/presences/feuille/{eventId}/enregistrer",
+      "method": "POST",
+      "controller": "Modules\\Presences\\Controller\\PresencesController",
+      "action": "record",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    }
+  ],
+  "settings": [],
+  "cookies": [],
+  "scheduled_tasks": [],
+  "storage": {}
+}

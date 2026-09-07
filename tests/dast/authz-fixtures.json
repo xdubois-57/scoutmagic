@@ -93,6 +93,9 @@
     "/chefs/camps/sejours/{id}": {
       "id": "1"
     },
+    "/chefs/presences/feuille/{eventId}": {
+      "eventId": "1"
+    },
     "/chefs/staffs/documents/{id}": {
       "id": "1"
     },

@@ -121,6 +121,36 @@ class CalendarEventRepository
     }
 
     /**
+     * Several events by id, in one statement, keyed by id. For a consumer
+     * holding a set of stored event ids (an attendance history, an export)
+     * which would otherwise call findById() in a loop.
+     *
+     * @param int[] $ids
+     * @return array<int, CalendarEvent>
+     */
+    public function findByIds(array $ids): array
+    {
+        $ids = array_values(array_unique(array_map('intval', $ids)));
+        if (count($ids) === 0) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT * FROM calendar_events WHERE id IN ({$placeholders}) ORDER BY start_date, start_time"
+        );
+        $stmt->execute($ids);
+
+        $events = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $event = $this->hydrate($row);
+            $events[$event->id] = $event;
+        }
+
+        return $events;
+    }
+
+    /**
      * @param int[] $calendarIds
      * @return CalendarEvent[]
      */

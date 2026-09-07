@@ -22,7 +22,10 @@ use Modules\Calendar\Repository\CalendarRepository;
 use Modules\Calendar\Repository\CalendarUnitFeedTokenRepository;
 use Modules\Retro\Api\RetroEventLinkLookupInterface;
 
-class CalendarService implements CalendarEventLookupInterface, \Modules\Calendar\Api\CalendarDirectoryInterface
+class CalendarService implements
+    CalendarEventLookupInterface,
+    \Modules\Calendar\Api\CalendarDirectoryInterface,
+    \Modules\Calendar\Api\SectionEventLookupInterface
 {
     private const DEFAULT_CALENDAR_NAME = 'Animateurs';
     /** Fixed accent color (bordeaux) for every supplementary calendar's
@@ -367,6 +370,98 @@ class CalendarService implements CalendarEventLookupInterface, \Modules\Calendar
             );
         }
         return $activity;
+    }
+
+    /**
+     * Api\SectionEventLookupInterface implementation — see its docblock.
+     * No viewer role: the contract answers a structural question and the
+     * consumer owns the authorization.
+     */
+    public function findSectionEventsInWindow(
+        int $sectionId,
+        \DateTimeInterface $windowStart,
+        \DateTimeInterface $windowEnd
+    ): array {
+        $calendar = $this->calendarRepository->findBySectionId($sectionId);
+        if ($calendar === null) {
+            return [];
+        }
+
+        $events = $this->eventRepository->findByCalendarIdsWithEffectiveEndInRange(
+            [$calendar->id],
+            $windowStart->format('Y-m-d'),
+            $windowEnd->format('Y-m-d')
+        );
+
+        return array_values(array_map(
+            fn(CalendarEvent $e) => $this->toSectionEvent($e, $sectionId),
+            $events
+        ));
+    }
+
+    /**
+     * Api\SectionEventLookupInterface implementation — see its docblock.
+     */
+    public function findSectionEvent(int $eventId): ?\Modules\Calendar\Api\SectionEvent
+    {
+        $event = $this->eventRepository->findById($eventId);
+        if ($event === null) {
+            return null;
+        }
+
+        $calendar = $this->calendarRepository->findById($event->calendarId);
+        // A supplementary calendar answers exactly like a missing event:
+        // the contract refuses to let a consumer map out which ids exist.
+        if ($calendar === null || $calendar->sectionId === null) {
+            return null;
+        }
+
+        return $this->toSectionEvent($event, $calendar->sectionId);
+    }
+
+    /**
+     * Api\SectionEventLookupInterface implementation — see its docblock.
+     *
+     * Two statements whatever the number of ids: the events, then the
+     * calendars they sit on. The section calendars are already a bounded
+     * set (one per section), so they are read whole rather than filtered
+     * by the ids that happened to come back.
+     */
+    public function findSectionEvents(array $eventIds): array
+    {
+        $events = $this->eventRepository->findByIds($eventIds);
+        if ($events === []) {
+            return [];
+        }
+
+        $sectionIdByCalendarId = [];
+        foreach ($this->getSectionCalendars() as $calendar) {
+            if ($calendar->sectionId !== null) {
+                $sectionIdByCalendarId[$calendar->id] = $calendar->sectionId;
+            }
+        }
+
+        $sectionEvents = [];
+        foreach ($events as $event) {
+            $sectionId = $sectionIdByCalendarId[$event->calendarId] ?? null;
+            if ($sectionId !== null) {
+                $sectionEvents[$event->id] = $this->toSectionEvent($event, $sectionId);
+            }
+        }
+
+        return $sectionEvents;
+    }
+
+    private function toSectionEvent(CalendarEvent $event, int $sectionId): \Modules\Calendar\Api\SectionEvent
+    {
+        return new \Modules\Calendar\Api\SectionEvent(
+            id: $event->id,
+            sectionId: $sectionId,
+            title: $event->title,
+            startDate: $event->startDate,
+            endDate: $event->endDate ?? $event->startDate,
+            startTime: $event->startTime
+        );
     }
 
     /**
