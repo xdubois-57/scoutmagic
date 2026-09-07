@@ -28,13 +28,22 @@
             } %}
         {% endif %}
 
-        <div class="d-flex align-items-center gap-2 mb-3">
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
             {% if register.sectionColor %}
                 <span class="d-inline-block rounded flex-shrink-0"
                       style="width: 0.5rem; height: 1.5rem; background-color: {{ register.sectionColor }};"></span>
             {% endif %}
-            <h2 class="h5 mb-0">{{ register.sectionLabel }}</h2>
+            <h2 class="h5 mb-0 flex-grow-1">{{ register.sectionLabel }}</h2>
+            <a href="/chefs/presences/export?section={{ selected_section_id }}"
+               class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-download" aria-hidden="true"></i> Exporter en Excel
+            </a>
         </div>
+        <p class="small text-body-secondary">
+            L'export reprend <strong>toute</strong> la section et <strong>l'année entière</strong> :
+            chaque animé, chaque évènement, l'état et le commentaire — le détail que ces écrans
+            résument volontairement. Le fichier quitte alors les protections du site.
+        </p>
 
         {# Le geste le plus fréquent du module est en tête, pas au bout d'un
            clic dans un graphique : un animateur qui ouvre « Présences » le

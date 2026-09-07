@@ -275,6 +275,82 @@ class PresencesControllerTest extends TestCase
         ))->getStatusCode());
     }
 
+    public function testAnAnimesPageShowsTheirRateBesideTheSectionsAverage(): void
+    {
+        $this->signIn('akela@test.be', 'chief');
+
+        $response = $this->handle(new Request(
+            'GET', '/chefs/presences/anime/' . $this->animeA, [], [], [], []
+        ));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('Moyenne de la section', $response->getBody());
+        $this->assertStringContainsString(
+            "Cette page n'est jamais visible par la famille",
+            $response->getBody()
+        );
+    }
+
+    public function testAnAnimeOfAnotherSectionIsNotFound(): void
+    {
+        $this->signIn('akela@test.be', 'chief');
+
+        $this->assertSame(404, $this->handle(new Request(
+            'GET', '/chefs/presences/anime/' . $this->animeB, [], [], [], []
+        ))->getStatusCode());
+    }
+
+    public function testTheExportDownloadsTheSectionsWholeYear(): void
+    {
+        $this->signIn('akela@test.be', 'chief');
+
+        $response = $this->handle(new Request(
+            'GET', '/chefs/presences/export', ['section' => (string) $this->sectionA], [], [], []
+        ));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            $response->getHeaders()['Content-Type'] ?? null
+        );
+        $this->assertStringContainsString('presences-Louveteaux-1', $response->getHeaders()['Content-Disposition']);
+    }
+
+    public function testTheExportOfAnotherSectionIsRefused(): void
+    {
+        $this->signIn('akela@test.be', 'chief');
+
+        $this->assertSame(404, $this->handle(new Request(
+            'GET', '/chefs/presences/export', ['section' => (string) $this->sectionB], [], [], []
+        ))->getStatusCode());
+    }
+
+    /**
+     * The file carries names and the comments written about minors, so
+     * what the journal records is that an export happened and how big it
+     * was — never who is in it (AGENTS.md § Security checklist).
+     */
+    public function testTheExportIsJournaledWithCountersAndNoName(): void
+    {
+        $this->signIn('akela@test.be', 'chief');
+
+        $this->handle(new Request(
+            'GET', '/chefs/presences/export', ['section' => (string) $this->sectionA], [], [], []
+        ));
+
+        $row = $this->pdo->query(
+            "SELECT * FROM event_log WHERE event_type = 'presences_export'"
+        )->fetch(\PDO::FETCH_ASSOC);
+
+        $this->assertNotFalse($row);
+        $this->assertSame('presences', $row['category']);
+        $this->assertStringNotContainsString('Hargot', (string) $row['description'] . (string) $row['context']);
+        $this->assertStringNotContainsString('Basile', (string) $row['description'] . (string) $row['context']);
+        $context = json_decode((string) $row['context'], true);
+        $this->assertSame(1, $context['animes']);
+        $this->assertSame(1, $context['events']);
+    }
+
     public function testATapIsRecordedOnTheSpot(): void
     {
         $this->signIn('akela@test.be', 'chief');
@@ -448,6 +524,10 @@ class PresencesControllerTest extends TestCase
         // Mirrors modules/presences/module.json.
         $router->addRoute('GET', '/chefs/presences', PresencesController::class, 'index', 'chief');
         $router->addRoute('GET', '/chefs/presences/recherche', PresencesController::class, 'search', 'chief');
+        $router->addRoute('GET', '/chefs/presences/export', PresencesController::class, 'export', 'chief');
+        $router->addRoute(
+            'GET', '/chefs/presences/anime/{memberId}', PresencesController::class, 'anime', 'chief'
+        );
         $router->addRoute(
             'GET', '/chefs/presences/feuille/{eventId}', PresencesController::class, 'sheet', 'chief'
         );
@@ -456,22 +536,34 @@ class PresencesControllerTest extends TestCase
         );
 
         $calendar = PresencesTestHelper::calendarService($this->pdo, $this->encryption);
+        $sectionService = PresencesTestHelper::sectionService($this->pdo, $this->encryption);
+        $repository = new PresenceRepository($this->pdo, $this->encryption);
+        $authorization = PresencesTestHelper::authorization($this->pdo, $this->encryption);
+        $sheetService = PresencesTestHelper::sheetService($this->pdo, $this->encryption, $calendar);
+        $registerService = new PresenceRegisterService(
+            $calendar,
+            new \Core\Config\ScoutYearService($this->pdo),
+            $sectionService,
+            $repository
+        );
         $controller = new PresencesController(
             $this->twig,
-            PresencesTestHelper::authorization($this->pdo, $this->encryption),
-            PresencesTestHelper::sheetService($this->pdo, $this->encryption, $calendar),
-            new PresenceRegisterService(
-                $calendar,
-                new \Core\Config\ScoutYearService($this->pdo),
-                PresencesTestHelper::sectionService($this->pdo, $this->encryption),
-                new PresenceRepository($this->pdo, $this->encryption)
+            $authorization,
+            $sheetService,
+            $registerService,
+            new \Modules\Presences\Service\PresenceAnimeService(
+                $authorization, $sheetService, $registerService, $repository
+            ),
+            new \Modules\Presences\Service\PresenceExportService(
+                $registerService, $sectionService, $repository
             ),
             new \Core\Member\MemberService(
                 new \Core\Import\MemberYearRepository($this->pdo, $this->encryption),
                 $this->encryption,
                 \Core\Database\Connection::withPdo($this->pdo)
             ),
-            $this->stubResolver()
+            $this->stubResolver(),
+            new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo))
         );
 
         $frontController = new FrontController($router, $this->twig, $this->config);

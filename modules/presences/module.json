@@ -2,7 +2,7 @@
   "id": "presences",
   "name": "Présences",
   "description": "Feuille de présence par évènement de section : quatre états par animé, commentaire chiffré, et registre annuel de la section.",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "requires": ["calendar"],
   "routes": [
     {
@@ -25,6 +25,29 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": ""
+    },
+    {
+      "path": "/chefs/presences/export",
+      "method": "GET",
+      "controller": "Modules\\Presences\\Controller\\PresencesController",
+      "action": "export",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/presences/anime/{memberId}",
+      "method": "GET",
+      "controller": "Modules\\Presences\\Controller\\PresencesController",
+      "action": "anime",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "",
+      "breadcrumb": {
+        "label": "Animé",
+        "parents": ["Espace animateurs"],
+        "ancestors": [{ "label": "Présences", "path": "/chefs/presences" }]
+      }
     },
     {
       "path": "/chefs/presences/feuille/{eventId}",

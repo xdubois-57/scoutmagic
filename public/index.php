@@ -3439,11 +3439,24 @@ if ($isEnabled('presences') && $calendarSectionEventLookupForOthers !== null) {
         $presenceRepository
     );
 
+    $presenceAnimeService = new \Modules\Presences\Service\PresenceAnimeService(
+        $presenceAuthorization,
+        $presenceSheetService,
+        $presenceRegisterService,
+        $presenceRepository
+    );
+    $presenceExportService = new \Modules\Presences\Service\PresenceExportService(
+        $presenceRegisterService,
+        $sectionService,
+        $presenceRepository
+    );
+
     $frontController->registerController(
         \Modules\Presences\Controller\PresencesController::class,
         new \Modules\Presences\Controller\PresencesController(
             $twig, $presenceAuthorization, $presenceSheetService, $presenceRegisterService,
-            $memberService, $scoutYearResolver
+            $presenceAnimeService, $presenceExportService, $memberService, $scoutYearResolver,
+            $journalService
         )
     );
 }

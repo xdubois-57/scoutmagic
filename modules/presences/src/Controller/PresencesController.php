@@ -11,6 +11,8 @@ namespace Modules\Presences\Controller;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Http\SpreadsheetResponse;
+use Core\Journal\JournalService;
 use Core\Member\MemberService;
 use Core\Member\SectionService;
 use Core\ScoutYear\ScoutYearResolver;
@@ -19,7 +21,9 @@ use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\Role;
 use Core\View\SectionPickerHelper;
+use Modules\Presences\Service\PresenceAnimeService;
 use Modules\Presences\Service\PresenceAuthorizationService;
+use Modules\Presences\Service\PresenceExportService;
 use Modules\Presences\Service\PresenceRegisterService;
 use Modules\Presences\Service\PresenceSheetService;
 use Modules\Presences\Service\RegisterAnime;
@@ -48,8 +52,11 @@ class PresencesController extends AbstractController
         private PresenceAuthorizationService $authorization,
         private PresenceSheetService $sheetService,
         private PresenceRegisterService $registerService,
+        private PresenceAnimeService $animeService,
+        private PresenceExportService $exportService,
         private MemberService $memberService,
-        private ScoutYearResolver $scoutYearResolver
+        private ScoutYearResolver $scoutYearResolver,
+        private JournalService $journalService
     ) {
     }
 
@@ -151,6 +158,79 @@ class PresencesController extends AbstractController
                 'tone' => $anime->tone(),
             ], $results['animes']),
         ]);
+    }
+
+    /**
+     * GET /chefs/presences/anime/{memberId} — one animé's year.
+     *
+     * @param array<string, string> $params
+     */
+    public function anime(Request $request, array $params): Response
+    {
+        $role = Role::fromString(AuthSession::getRole());
+        $year = $this->scoutYearResolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $role);
+        $email = AuthSession::getEmail() ?? '';
+
+        $profile = $this->animeService->buildProfile(
+            (int) ($params['memberId'] ?? 0),
+            $email,
+            $role->value,
+            $year->id
+        );
+        // Same refusal as a sheet of another section: the site's 404, so
+        // « not one of my animés » and « nobody » are indistinguishable.
+        if ($profile === null) {
+            return $this->notFound();
+        }
+
+        return $this->render('@presences/anime.html.twig', [
+            'profile' => $profile,
+            'history_limit' => PresenceAnimeService::HISTORY_LIMIT,
+            'scout_year_label' => $year->label,
+        ]);
+    }
+
+    /**
+     * GET /chefs/presences/export — the section's whole year as .xlsx.
+     *
+     * **Journaled with counters only.** The file carries names and the
+     * comments written about minors, so what is worth recording is that
+     * an export happened and how big it was — an entry naming an animé
+     * would put in the journal exactly what the journal must not hold
+     * (AGENTS.md § Security checklist).
+     *
+     * @param array<string, string> $params
+     */
+    public function export(Request $request, array $params): Response
+    {
+        $role = Role::fromString(AuthSession::getRole());
+        $year = $this->scoutYearResolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $role);
+        $email = AuthSession::getEmail() ?? '';
+
+        $sectionId = (int) ($request->getQuery('section') ?? 0);
+        if (!$this->authorization->maySeeSection($email, $role->value, $year->id, $sectionId)) {
+            return $this->notFound();
+        }
+
+        [$spreadsheet, $fileName, $counters] = $this->exportService->build($sectionId, $year->id, $year->label);
+
+        $this->journalService->log(
+            'presences',
+            'presences_export',
+            'info',
+            'Export des présences d\'une section',
+            [
+                'section_id' => $sectionId,
+                'scout_year_id' => $year->id,
+                'animes' => $counters['animes'],
+                'events' => $counters['events'],
+                'rows' => $counters['rows'],
+                'comments' => $counters['comments'],
+            ],
+            AuthSession::getUserAccountId()
+        );
+
+        return SpreadsheetResponse::download($spreadsheet, $fileName);
     }
 
     /**

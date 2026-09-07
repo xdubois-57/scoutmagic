@@ -1,0 +1,98 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{% extends 'base.html.twig' %}
+{% block title %}{{ profile.displayName }} — Présences — {{ param('site_name') }}{% endblock %}
+
+{% block content %}
+    {% include 'partials/page_header.html.twig' with {
+        title: profile.lastName|normalize_name ~ ' ' ~ profile.firstName|normalize_name,
+        badge: scout_year_label,
+        subtitle: profile.sectionLabel,
+    } only %}
+
+    {# Un taux seul ne dit rien : la moyenne de la section est à côté, pas
+       ailleurs. #}
+    {% include 'partials/stat_tiles.html.twig' with {
+        tiles: [
+            { label: 'De présence', value: profile.rate ~ ' %', icon: 'bi-person-check', tone: profile.tone },
+            { label: 'Moyenne de la section', value: profile.sectionAverageRate ~ ' %', icon: 'bi-people', tone: 'secondary' },
+            { label: 'Présent sur les soirées pointées', value: profile.present ~ ' / ' ~ profile.pointedEvents, icon: 'bi-calendar-check', tone: 'info' },
+        ],
+        columns: 3,
+    } only %}
+
+    {% if profile.months|length > 1 %}
+        <section class="card mb-3">
+            <div class="card-body">
+                <h2 class="h6">Évolution par mois</h2>
+                <div class="d-flex align-items-end gap-2 mt-3" style="height: 6rem;">
+                    {% for month in profile.months %}
+                        <div class="flex-fill d-flex flex-column justify-content-end align-items-center h-100">
+                            <span class="small text-body-secondary">{{ month.rate }} %</span>
+                            <span class="d-block w-100 rounded-top bg-{{ month.rate < 40 ? 'danger' : (month.rate < 60 ? 'warning' : (month.rate < 80 ? 'info' : 'success')) }}"
+                                  style="height: {{ month.rate }}%; min-height: 2px;"
+                                  title="{{ month.present }} présent(s) sur {{ month.pointedEvents }} soirée(s) pointée(s)"></span>
+                            <span class="small text-body-secondary">{{ month.label }}</span>
+                        </div>
+                    {% endfor %}
+                </div>
+                <p class="small text-body-secondary mt-3 mb-0">
+                    Une pente descendante sur trois mois est ce qu'on veut repérer : ce n'est pas une
+                    absence, c'est un décrochage. Un mois sans aucune soirée pointée n'apparaît pas.
+                </p>
+            </div>
+        </section>
+    {% endif %}
+
+    {# Le détail évènement par évènement, avec les commentaires : c'est ce
+       qu'on relit avant d'appeler une famille, et ça ne tenait pas dans un
+       panneau dépliant. #}
+    <section class="card mb-3">
+        <div class="card-header">
+            <h2 class="h6 mb-0">Historique</h2>
+        </div>
+        {% if profile.history is empty %}
+            <div class="card-body">
+                {% include 'partials/empty_state.html.twig' with {
+                    message: 'Aucun évènement au calendrier de la section cette année scoute.',
+                    compact: true,
+                } only %}
+            </div>
+        {% else %}
+            <ul class="list-group list-group-flush">
+                {% for entry in profile.history %}
+                    <li class="list-group-item">
+                        <div class="d-flex align-items-center gap-2">
+                            <a href="/chefs/presences/feuille/{{ entry.eventId }}"
+                               class="flex-grow-1 text-truncate text-decoration-none text-body">
+                                <span class="text-body-secondary small">{{ entry.startDate|date_fr }}</span>
+                                {{ entry.title }}
+                            </a>
+                            <span class="badge text-bg-{{ entry.status.tone }} flex-shrink-0">{{ entry.status.label }}</span>
+                        </div>
+                        {% if entry.comment %}
+                            <p class="small text-body-secondary mb-0 mt-1">
+                                <i class="bi bi-chat-left-text" aria-hidden="true"></i> {{ entry.comment }}
+                            </p>
+                        {% endif %}
+                    </li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+        {% if profile.historyTruncated %}
+            <div class="card-footer small text-body-secondary">
+                {{ history_limit }} derniers évènements. L'export Excel de la section porte l'année entière.
+            </div>
+        {% endif %}
+    </section>
+
+    {# Pas de bouton « Retour » : le fil d'Ariane est la seule affordance
+       de retour du site (design.md §7.3), et la route déclare « Présences »
+       comme ancêtre. #}
+    <p class="small text-body-secondary">
+        Cette page n'est jamais visible par la famille — pas plus que les commentaires qu'elle porte.
+        Elle sert à préparer une conversation, pas à la remplacer.
+    </p>
+{% endblock %}

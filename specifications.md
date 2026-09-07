@@ -2437,3 +2437,38 @@ montre sans l'interpréter.
 **Le sélecteur de section est `partials/section_picker.html.twig`**, et comme le trombinoscope il ne
 s'affiche que si plus d'une section est disponible : un animateur d'une seule section n'a rien à
 choisir.
+
+### 43.6 La page d'un animé, et l'export
+
+**Un taux ne voyage jamais seul.** La page d'un animé affiche son taux annuel **à côté de la moyenne
+de sa section** : vingt pour cent dans une section à quarante et vingt pour cent dans une section à
+quatre-vingt-dix ne sont pas la même conversation. À quoi s'ajoutent l'évolution mois par mois — un
+mois sans aucune soirée pointée n'y figure pas, pour la même raison qu'ailleurs — et l'historique
+évènement par évènement **avec les commentaires**, qui est ce qu'on relit avant d'appeler une
+famille et qui ne tenait pas dans un panneau dépliant.
+
+La page montre les dix derniers évènements et le dit ; l'export porte l'année entière. Une soirée
+que personne n'a pointée figure dans l'historique en « Non renseigné » plutôt que d'en être retirée :
+un trou est un fait sur la section, et le masquer ferait lire une série de samedis oubliés comme une
+série d'absences.
+
+**La section d'un animé est résolue par intersection, jamais par consultation.** Le service énumère
+les sections que le compte anime et cherche l'animé parmi les animés de chacune : un animé d'une
+section que personne n'anime n'est trouvé nulle part, et il n'y a donc pas d'étape d'autorisation
+séparée à oublier. La forme inverse — résoudre la section puis demander si elle est permise — est à
+un refactoring de rendre la page avant d'avoir posé la question.
+
+**L'export est une ligne par (animé, évènement)**, pas une colonne par évènement : trente réunions
+feraient soixante colonnes une fois l'état et le commentaire portés, ce qu'aucun tableur ne trie ni
+ne filtre. Le format long est celui qu'un filtre, un tri et un tableau croisé comprennent tous les
+trois. Il passe par `Core\Export\TabularSpreadsheet`, la brique du site pour le domaine propre d'un
+module — `Core\Member\Export\MemberExportService` possède les colonnes **membre** canoniques et son
+propre docblock refuse de les élargir aux données d'un module. La garantie qui comptait est la même
+des deux côtés : chaque cellule est écrite avec un type chaîne explicite, donc un commentaire
+commençant par `=`, `+`, `-` ou `@` ne devient jamais une formule vivante à l'ouverture
+(`SECURITY.md` §23).
+
+**L'export est journalisé avec des compteurs seulement** — nombre d'animés, d'évènements, de lignes,
+de commentaires — jamais un nom : le fichier emporte des noms et des commentaires sur des mineurs,
+et une entrée de journal qui les nommerait mettrait dans le journal exactement ce que le journal ne
+doit pas contenir. L'écran dit que le fichier quitte alors les protections du site.

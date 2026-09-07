@@ -343,6 +343,9 @@ final class UxConventionsTest extends TestCase
         // JSON for the presences register's one search field — evenings
         // and animés at once, redrawn as somebody types, never a page.
         '/chefs/presences/recherche',
+        // XLSX download of a section's whole year of attendance — the
+        // detail the screens summarise, never a page.
+        '/chefs/presences/export',
         // JSON for « Rattacher à… » on the chief's courrier page — the
         // targets a module's own directory offers, never a page.
         '/courrier/cibles',
