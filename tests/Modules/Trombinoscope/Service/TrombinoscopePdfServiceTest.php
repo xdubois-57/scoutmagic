@@ -320,6 +320,29 @@ class TrombinoscopePdfServiceTest extends TestCase
             $service->generate(1, '2025-2026', 'Unité', 'www.example.invalid', false);
             $this->assertSame(2, $embedder->renders, 'a different setting is a different document');
             $this->assertCount(1, glob($cacheDir . '/trombinoscope/1-*.pdf') ?: [], 'the superseded copy is removed');
+
+            // #227. This directory holds names, portraits and — with the
+            // setting on — the cadres' contact details: 0700, like the
+            // section roster's, never 0755 on shared hosting.
+            $this->assertSame('0700', substr(sprintf('%o', fileperms($cacheDir . '/trombinoscope')), -4));
+
+            // And nothing survives CACHE_TTL_DAYS. A past season's sheet
+            // used to stay on disk for as long as the installation lived:
+            // the year-scoped purge never looked at it, and no scheduled
+            // task did either.
+            $old = $cacheDir . '/trombinoscope/9-' . str_repeat('a', 8) . '.pdf';
+            file_put_contents($old, '%PDF-old');
+            touch($old, time() - (8 * 24 * 60 * 60));
+            $service->generate(1, '2025-2026', 'Unité', 'www.example.invalid', true);
+            $this->assertFileDoesNotExist($old, 'un document périmé a survécu à une écriture');
+
+            // Expired on READ too, or a document whose inputs never change
+            // is never swept and is served for ever.
+            $current = (glob($cacheDir . '/trombinoscope/1-*.pdf') ?: [])[0];
+            touch($current, time() - (8 * 24 * 60 * 60));
+            $rendersBefore = $embedder->renders;
+            $service->generate(1, '2025-2026', 'Unité', 'www.example.invalid', true);
+            $this->assertGreaterThan($rendersBefore, $embedder->renders, 'un document périmé a été servi');
         } finally {
             foreach (glob($cacheDir . '/trombinoscope/*') ?: [] as $file) {
                 @unlink($file);

@@ -85,7 +85,8 @@ class PasswordResetService
 
         $this->journalService?->log(
             'core', 'password_reset_requested', 'info', 'Demande de réinitialisation de mot de passe',
-            ['ip' => $_SERVER['REMOTE_ADDR'] ?? ''], null
+            // See AuthService: the address is already event_log.ip_address.
+            [], null
         );
     }
 
@@ -122,7 +123,7 @@ class PasswordResetService
 
         $this->journalService?->log(
             'core', 'password_reset_completed', 'security', 'Mot de passe réinitialisé via lien de réinitialisation',
-            ['ip' => $_SERVER['REMOTE_ADDR'] ?? ''], $user->id
+            [], $user->id
         );
 
         return true;

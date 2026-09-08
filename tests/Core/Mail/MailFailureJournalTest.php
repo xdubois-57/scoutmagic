@@ -116,11 +116,10 @@ class MailFailureJournalTest extends TestCase
     }
 
     /**
-     * The exception the caller reads is untouched: the journal entry is
-     * an addition, never a replacement, and a caller that renders
-     * PHPMailer's own words still gets them.
+     * What diagnoses the failure still reaches the caller: the SMTP code
+     * and the server's own words are the whole point of raising at all.
      */
-    public function testTheCallerStillSeesTheOriginalFailure(): void
+    public function testTheCallerStillSeesWhatDiagnosesTheFailure(): void
     {
         $service = $this->service($this->refusingTransport('SMTP connect() failed.'), null);
 
@@ -129,6 +128,33 @@ class MailFailureJournalTest extends TestCase
             $this->fail('MailException attendue');
         } catch (MailException $e) {
             $this->assertSame('SMTP connect() failed.', $e->getMessage());
+        }
+    }
+
+    /**
+     * #226. The journal was careful and the exception was not, so the
+     * address the transport quoted travelled on in getMessage() — onto a
+     * superadmin's screen, into three modules' own journal contexts and
+     * into the support archive. One rule, both branches of the catch.
+     */
+    public function testTheExceptionCarriesTheSameRedactionAsTheJournal(): void
+    {
+        $service = $this->service(
+            $this->refusingTransport(
+                'SMTP Error: The following recipients failed: jean.dupont+scouts@exemple.be: 550 5.1.1 User unknown'
+            ),
+            null
+        );
+
+        try {
+            $service->send('jean.dupont+scouts@exemple.be', 'Bonjour', '<p>Bonjour</p>', 'Bonjour');
+            $this->fail('MailException attendue');
+        } catch (MailException $e) {
+            $this->assertStringNotContainsString('jean.dupont', $e->getMessage());
+            $this->assertStringNotContainsString('exemple.be', $e->getMessage());
+            $this->assertStringContainsString('550 5.1.1 User unknown', $e->getMessage());
+            $context = json_decode((string) $this->entries()[0]['context'], true);
+            $this->assertSame($context['reason'], $e->getMessage());
         }
     }
 

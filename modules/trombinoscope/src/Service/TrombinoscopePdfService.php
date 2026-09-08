@@ -41,6 +41,18 @@ use Modules\Trombinoscope\Pdf\TrombinoscopeHtmlBuilder;
  */
 class TrombinoscopePdfService
 {
+    /**
+     * How long a rendered sheet may sit on disk.
+     *
+     * The same seven days as Core\Member\SectionRosterPdfService, and for
+     * the same reason: a document derived from personal data gets a
+     * bounded life, not an open-ended one. This one carries strictly more
+     * — the portraits, and the cadres' contact details when
+     * `trombinoscope_show_contacts` is on — so nothing here argues for a
+     * longer bound than the section roster's.
+     */
+    private const CACHE_TTL_DAYS = 7;
+
     public function __construct(
         private TrombinoscopeService $trombinoscopeService,
         private SectionService $sectionService,
@@ -102,9 +114,18 @@ class TrombinoscopePdfService
             $staffBySection,
         );
         if ($cacheFile !== null && is_file($cacheFile)) {
-            $cached = @file_get_contents($cacheFile);
-            if ($cached !== false && $cached !== '') {
-                return $cached;
+            // The deadline is enforced HERE and not only in store(): this
+            // document's inputs rarely change, so a copy that is never
+            // rewritten would never be swept either, and a PDF of names
+            // and portraits would be served for ever. Same rule, same
+            // place, as Core\Member\SectionRosterPdfService.
+            if (self::hasExpired($cacheFile)) {
+                @unlink($cacheFile);
+            } else {
+                $cached = @file_get_contents($cacheFile);
+                if ($cached !== false && $cached !== '') {
+                    return $cached;
+                }
             }
         }
 
@@ -184,16 +205,65 @@ class TrombinoscopePdfService
     private function store(string $cacheFile, string $pdf, int $scoutYearId): void
     {
         $directory = dirname($cacheFile);
-        if (!is_dir($directory) && !@mkdir($directory, 0755, true) && !is_dir($directory)) {
+
+        // 0700, not 0755: this directory holds names, totems, portraits
+        // and — when `trombinoscope_show_contacts` is on — the cadres'
+        // telephone numbers and addresses. The reference deployment is
+        // shared hosting, where a traversable parent means another local
+        // account reads them. Fail closed: no enforceable permission, no
+        // cache, and the document is simply rendered every time. Exactly
+        // what Core\Member\SectionRosterPdfService does with strictly
+        // less personal data.
+        if (!is_dir($directory) && !@mkdir($directory, 0700, true) && !is_dir($directory)) {
             return;
         }
+        if (!@chmod($directory, 0700)) {
+            return;
+        }
+
+        // Two purges. The superseded copies of THIS year go because they
+        // are superseded; every expired copy of every year goes because a
+        // document holding portraits may not outlive CACHE_TTL_DAYS — and
+        // the year-scoped purge alone left a past season's sheet on disk
+        // for as long as the installation lived.
         foreach (glob($directory . '/' . $scoutYearId . '-*.pdf') ?: [] as $stale) {
             @unlink($stale);
         }
+        self::purgeExpired($directory);
+
         $tmp = $cacheFile . '.' . bin2hex(random_bytes(4)) . '.tmp';
         if (@file_put_contents($tmp, $pdf) === false || !@rename($tmp, $cacheFile)) {
             @unlink($tmp);
         }
+    }
+
+    /**
+     * Every cached sheet past CACHE_TTL_DAYS, whatever year it belongs
+     * to. Runs on each write rather than as a scheduled task: nothing but
+     * this service ever writes here, so the moment the directory grows is
+     * the moment to sweep it.
+     */
+    private static function purgeExpired(string $directory): void
+    {
+        foreach (glob($directory . '/*.pdf') ?: [] as $file) {
+            if (self::hasExpired($file)) {
+                @unlink($file);
+            }
+        }
+    }
+
+    /**
+     * One definition of « expired » for the sweep on write and the check
+     * on read, so the two can never come to disagree.
+     *
+     * A file whose mtime cannot be read counts as expired: unknown age is
+     * not an argument for keeping personal data.
+     */
+    private static function hasExpired(string $file): bool
+    {
+        $modified = @filemtime($file);
+
+        return $modified === false || $modified < time() - (self::CACHE_TTL_DAYS * 24 * 60 * 60);
     }
 
     /**

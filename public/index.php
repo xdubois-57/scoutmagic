@@ -3277,7 +3277,7 @@ if ($isEnabled('trombinoscope')) {
     $frontController->registerController(
         \Modules\Trombinoscope\Controller\TrombinoscopeController::class,
         new \Modules\Trombinoscope\Controller\TrombinoscopeController($twig, $sectionService, $trombinoscopeService,
-            $scoutYearResolver, $settingService, $trombinoscopePdfService, $memberPhotoService)
+            $scoutYearResolver, $settingService, $trombinoscopePdfService, $memberPhotoService, $journalService)
     );
 
     // The module's three core-hook implementations (§7.4), registered

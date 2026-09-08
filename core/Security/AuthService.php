@@ -125,7 +125,11 @@ class AuthService
 
         $this->journalService?->log(
             'core', 'magic_link_requested', 'info', 'Demande de lien magique',
-            ['ip' => $_SERVER['REMOTE_ADDR'] ?? ''],
+            // No `ip` here: JournalService::log() already writes the
+            // address into `event_log.ip_address`. A second copy in the
+            // JSON is the same personal datum stored twice in one row
+            // (ARCHITECTURE.md §8.49sexies).
+            [],
             null
         );
 
@@ -253,7 +257,11 @@ class AuthService
 
         $this->journalService?->log(
             'core', 'login_success', 'security', 'Connexion par lien magique',
-            ['ip' => $_SERVER['REMOTE_ADDR'] ?? ''],
+            // No `ip` here: JournalService::log() already writes the
+            // address into `event_log.ip_address`. A second copy in the
+            // JSON is the same personal datum stored twice in one row
+            // (ARCHITECTURE.md §8.49sexies).
+            [],
             $user->id
         );
 

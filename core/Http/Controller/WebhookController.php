@@ -55,7 +55,8 @@ class WebhookController extends AbstractController
                 'github_webhook_signature_invalid',
                 'security',
                 'Signature de webhook GitHub invalide',
-                ['ip' => $_SERVER['REMOTE_ADDR'] ?? ''],
+                // Already event_log.ip_address (JournalService::log()).
+                [],
                 null
             );
 

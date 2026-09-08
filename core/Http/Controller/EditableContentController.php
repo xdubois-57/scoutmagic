@@ -78,7 +78,8 @@ class EditableContentController extends AbstractController
 
         $this->journalService?->log(
             'core', 'content_updated', 'info', 'Contenu éditable modifié',
-            ['key' => $key, 'type' => $type, 'ip' => $_SERVER['REMOTE_ADDR'] ?? ''],
+            // The address is already event_log.ip_address.
+            ['key' => $key, 'type' => $type],
             $userId
         );
 
@@ -132,7 +133,8 @@ class EditableContentController extends AbstractController
 
         $this->journalService?->log(
             'core', 'content_updated', 'info', 'Contenu éditable modifié',
-            ['key' => $key, 'type' => $type, 'ip' => $_SERVER['REMOTE_ADDR'] ?? ''],
+            // The address is already event_log.ip_address.
+            ['key' => $key, 'type' => $type],
             $userId
         );
 

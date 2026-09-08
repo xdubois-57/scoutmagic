@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Http\Controller;
 
+use Core\Exception\UserFacingMessage;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
@@ -290,7 +291,17 @@ class EmailTemplateController extends AbstractController
                 ['template_id' => $template->id, 'error' => str_replace($to, '[adresse]', $e->getMessage())],
                 $userId
             );
-            FlashMessage::set('error', "L'envoi a échoué : {$e->getMessage()}");
+            // Never the transport's own sentence: Core\Mail\MailException
+            // carries PHPMailer's English ("SMTP connect() failed",
+            // a wiki URL), which is neither French nor a sentence a
+            // visitor can act on. UserFacingMessage is the helper that
+            // decides whether an exception claims to be showable, and
+            // this one does not.
+            FlashMessage::set('error', UserFacingMessage::from(
+                $e,
+                "L'envoi de test a échoué — vérifiez la configuration d'envoi du site "
+                    . "(Configuration > Email), puis réessayez."
+            ));
 
             return $this->redirect($this->editUrl($template->id));
         }

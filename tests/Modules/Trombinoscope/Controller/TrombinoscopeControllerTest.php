@@ -319,6 +319,9 @@ class TrombinoscopeControllerTest extends TestCase
         $this->assertSame('application/pdf', $response->getHeaders()['Content-Type']);
         $this->assertStringContainsString('trombinoscope-2025-2026.pdf', $response->getHeaders()['Content-Disposition']);
         $this->assertStringStartsWith('%PDF-', $response->getBody());
+        // #227: a document of names and portraits is never kept by a
+        // shared cache nor restored into another session's back button.
+        $this->assertSame('private, no-store', $response->getHeaders()['Cache-Control']);
     }
 
     public function testPublicIsDeniedThePdfToo(): void

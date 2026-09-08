@@ -165,12 +165,23 @@ class SettingsController extends AbstractController
             'setting_changed',
             'info',
             "Paramètre « {$key} » modifié",
+            // WHAT changed, never the two values. A setting is free text
+            // and several of them hold an address — the unit's alert
+            // e-mail, the SOS number, a contact — and `event_log.context`
+            // is a plain column any chief reads on /admin/journal and the
+            // support package exports (SECURITY.md §11: « No personal data
+            // in entries — reference `member_id` only »). Whether it
+            // changed is what an audit needs; the value itself is on the
+            // settings page, for whoever may open it.
+            //
+            // No `ip` either: JournalService::log() already writes the
+            // address into `event_log.ip_address`, and a second copy in the
+            // JSON is the same personal datum stored twice in one row
+            // (ARCHITECTURE.md §8.49sexies).
             [
                 'key' => $key,
                 'module_id' => $moduleId,
-                'old_value' => $oldValue,
-                'new_value' => $value,
-                'ip' => $_SERVER['REMOTE_ADDR'] ?? ''
+                'changed' => $oldValue !== $value,
             ],
             AuthSession::getUserAccountId()
         );
