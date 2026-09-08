@@ -156,18 +156,32 @@
      * template: `//ailleurs.example` is a URL to another host, not a path
      * on this one. Checked here, at the sink, rather than at each caller.
      *
-     * **The backslash is not paranoia.** WHATWG's URL parser treats `\`
-     * exactly like `/` after a special scheme, so `/\ailleurs.example/x`
-     * reaches the same host as `//ailleurs.example/x` — a leading-`//`
-     * test alone has a spec-documented bypass for the one class of value
-     * this guard exists to catch. Rejecting the character outright costs
-     * nothing: no path this site serves contains one.
+     * **Spelling out the shapes that escape is a losing game, so this asks
+     * the parser instead.** `//host`, `/\host` (WHATWG reads `\` as `/`
+     * after a special scheme) and `/<TAB>/host` (tab, LF and CR are
+     * stripped BEFORE parsing) all resolve to another origin while looking
+     * like a path; a test written character by character closes the three
+     * that somebody thought of. Resolving the value through the very
+     * parser `fetch()` will use, and comparing the origin it lands on,
+     * closes the class — every normalisation the parser performs is
+     * performed here first, by definition.
      *
      * @param {string} url
      * @returns {boolean}
      */
     function isOwnPath(url) {
-        return url.startsWith('/') && !url.startsWith('//') && !url.includes('\\');
+        // A path, not an absolute URL — same-origin or not, this endpoint
+        // is written by a template as a path, and anything else is a
+        // misconfiguration worth refusing.
+        if (!url.startsWith('/')) {
+            return false;
+        }
+
+        try {
+            return new URL(url, document.baseURI).origin === window.location.origin;
+        } catch (error) {
+            return false;
+        }
     }
 
     /**

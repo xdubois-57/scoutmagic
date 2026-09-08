@@ -497,13 +497,17 @@ describe('presences-lines.js', () => {
 
     describe('the endpoint a row carries', () => {
         // Read off the DOM, so it is validated at the sink rather than
-        // trusted for having been rendered by our own template. The
-        // backslash form is the one a leading-`//` test alone lets
-        // through: WHATWG's URL parser reads `/\\hôte/x` as the same
-        // cross-origin destination as `//hôte/x`.
+        // trusted for having been rendered by our own template. Every
+        // form below LOOKS like a path and resolves to another origin:
+        // WHATWG's parser reads `\\` as a second slash, and strips tab,
+        // LF and CR before parsing at all. They are the reason the guard
+        // resolves the value instead of spelling out characters.
         it.each([
             ['a protocol-relative URL', '//ailleurs.example/vol'],
             ['a backslash the URL parser reads as a second slash', '/\\ailleurs.example/vol'],
+            ['a tab the URL parser strips before parsing', '/\t/ailleurs.example/vol'],
+            ['a newline the URL parser strips before parsing', '/\n/ailleurs.example/vol'],
+            ['a carriage return the URL parser strips before parsing', '/\r/ailleurs.example/vol'],
             ['an absolute URL', 'https://ailleurs.example/vol'],
         ])('is never posted to when it is %s', async (_label, endpoint) => {
             document.body.innerHTML = `<div id="presences-lines">${line({
