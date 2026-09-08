@@ -190,6 +190,34 @@ jobs:
       # The prompt fetches the skill rather than opening it, because there
       # is no checkout. Reading it from the default branch is also what
       # pins WHICH version runs: the copy on `main`, reviewed and merged.
+      #
+      # `__SELECTED_ISSUES__` IS A PLACEHOLDER AND NOT AN OVERSIGHT. This
+      # is a JOB-LEVEL `env:`, and the `steps` context is not available in
+      # one — GitHub's context-availability table grants `jobs.<id>.env`
+      # only github, needs, strategy, matrix, vars, secrets and inputs.
+      # Writing `${{ steps.before.outputs.selected }}` here did not read
+      # as an empty string: it made the WHOLE FILE an invalid workflow.
+      #
+      # What that looks like is worth knowing, because nothing about it
+      # says "syntax error". GitHub reports an unusable workflow as a
+      # FAILED RUN ATTRIBUTED TO THE PUSH — even for a file that declares
+      # no `push:` trigger — with zero jobs, no log to open, and the run
+      # named by its file path instead of by `name:`. That is issue #256:
+      # 124 red runs across every branch, from the first push carrying
+      # the bad line (2026-09-06, on the branch of #182) to the day it
+      # was found. The path-instead-of-name is the tell, and it is why
+      # the same workflow's `schedule` runs were named `Issue backlog
+      # scan` and its `push` runs were not.
+      #
+      # It also stopped the job entirely: an invalid workflow does not
+      # run at all, so the nightly triage this file exists for made ZERO
+      # scheduled runs in the two days that followed, silently, while the
+      # only visible symptom was a red run nobody had asked for.
+      #
+      # The `before` step resolves the placeholder into
+      # `RESOLVED_SCAN_PROMPT` below. One text, one substitution, both
+      # attempts identical — which is the property this block was written
+      # for and the reason not to inline the selection into each step.
       SCAN_PROMPT: |
         You are triaging the untriaged backlog of ${{ github.repository }}.
 
@@ -202,7 +230,7 @@ jobs:
         issues to run it on.
 
         THE ISSUES ARE CHOSEN FOR YOU. Triage exactly these, and
-        nothing else: ${{ steps.before.outputs.selected }}
+        nothing else: __SELECTED_ISSUES__
 
         They were selected by this workflow, before you were started:
         open, opened more than one hour ago, carrying `triage:pending`
@@ -404,6 +432,25 @@ jobs:
 
           echo "Candidates awaiting triage: ${candidates} (this run should clear ${expected})."
           echo "Selected: ${selected:-none}"
+          # THE PROMPT, RESOLVED HERE BECAUSE HERE IS WHERE IT MAY BE.
+          # A step may read the `steps` context; the job-level `env:` that
+          # holds the prompt may not, and a run that tried made the whole
+          # file invalid rather than merely wrong (see SCAN_PROMPT above).
+          #
+          # The delimiter is not a fixed word: `GITHUB_ENV` ends a
+          # multi-line value at the first line equal to it, so a
+          # delimiter an issue title could contain would let that title
+          # end the variable and have the rest of the prompt read as
+          # further assignments. The selection is a list of integers and
+          # cannot, but the prompt around it is edited by people, so the
+          # delimiter is random per run.
+          delimiter="SCAN_PROMPT_$(openssl rand -hex 16)"
+          {
+            echo "RESOLVED_SCAN_PROMPT<<${delimiter}"
+            printf '%s\n' "${SCAN_PROMPT//__SELECTED_ISSUES__/${selected:-none}}"
+            echo "${delimiter}"
+          } >> "${GITHUB_ENV}"
+
           echo "cutoff=${CUTOFF}" >> "${GITHUB_OUTPUT}"
           echo "candidates=${candidates}" >> "${GITHUB_OUTPUT}"
           echo "expected=${expected}" >> "${GITHUB_OUTPUT}"
@@ -491,7 +538,7 @@ jobs:
 
           # Defined once under the job's `env:` above, because the retry
           # step must be given the identical string.
-          prompt: ${{ env.SCAN_PROMPT }}
+          prompt: ${{ env.RESOLVED_SCAN_PROMPT }}
 
           # See the job-level SCAN_ARGS and SCAN_SCHEMA above for what
           # each half of this is and why. Both attempts are given the
@@ -562,7 +609,7 @@ jobs:
           # attempt returned more usable entries — and de-duplicates it by
           # issue. So no reporter can get two comments on one report even
           # when both attempts succeed.
-          prompt: ${{ env.SCAN_PROMPT }}
+          prompt: ${{ env.RESOLVED_SCAN_PROMPT }}
 
           # THE ONE PLACE THE TRANSCRIPT IS KEPT. The action hides the
           # agent's output by default and that default is right for a run
