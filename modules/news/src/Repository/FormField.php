@@ -51,7 +51,13 @@ final class FormField
         public readonly ?string $optionsManual,
         public readonly ?int $capacityMax,
         public readonly ?float $pricePerUnit,
-        public readonly ?string $confirmationText
+        public readonly ?string $confirmationText,
+        /**
+         * How much of $capacityMax is taken, kept up to date by the
+         * writes (schema.sql). Read straight off the field, so showing a
+         * form costs no query and no decryption at all for it.
+         */
+        public readonly float $capacityUsed = 0.0
     ) {
     }
 

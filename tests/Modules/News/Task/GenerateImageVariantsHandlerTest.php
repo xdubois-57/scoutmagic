@@ -93,6 +93,56 @@ class GenerateImageVariantsHandlerTest extends TestCase
         $this->assertSame(count(\Core\Photo\ImageVariantService::VARIANTS), $context['generated']);
     }
 
+    /**
+     * #249. The pass walked the whole library in one go, and re-encoding
+     * two derivatives of a photograph is seconds of CPU each: on a large
+     * unit it could not finish inside a shared host's time limit, and a
+     * run killed halfway left the flag unset and started again from the
+     * top — the first images re-examined every pass, the last ones never
+     * reached.
+     */
+    public function testALibraryLargerThanOnePassIsFinishedAcrossSeveral(): void
+    {
+        $files = new FileRepository($this->pdo);
+        $ids = [];
+        for ($i = 0; $i < 27; $i++) {
+            $ids[] = $this->storeLegacyNewsImage($files);
+        }
+
+        $settings = new SettingService(new SettingRepository($this->pdo));
+        (new GenerateImageVariantsHandler())->handle([], $this->taskContext());
+
+        // Not finished, and it says so rather than claiming it is.
+        $this->assertSame('0', $settings->get(GenerateImageVariantsHandler::DONE_FLAG, 'news'));
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query(
+                "SELECT COUNT(*) FROM scheduled_actions
+                 WHERE module_id = 'news' AND task_key = 'generate_image_variants' AND status = 'pending'"
+            )->fetchColumn(),
+            'la reprise ne s\'est pas réarmée',
+        );
+
+        // The next pass picks up where this one stopped, and the one
+        // after that finds nothing left to do and closes the reprise.
+        (new GenerateImageVariantsHandler())->handle([], $this->taskContext());
+        (new GenerateImageVariantsHandler())->handle([], $this->taskContext());
+
+        // A fresh reader: SettingService caches what it has already been
+        // asked, and the handler wrote through its own instance.
+        $this->assertSame(
+            '1',
+            (new SettingService(new SettingRepository($this->pdo)))
+                ->get(GenerateImageVariantsHandler::DONE_FLAG, 'news')
+        );
+
+        $variantService = new ImageVariantService($files, new \Core\Photo\ImageVariantProcessor(), $this->storagePath);
+        foreach ($ids as $id) {
+            $file = $files->findById($id);
+            $this->assertNotNull($variantService->resolvePath((string) $file?->relativePath, 'thumb'));
+        }
+    }
+
     public function testFilesOutsideTheNewsImagesDirectoryAreLeftAlone(): void
     {
         $files = new FileRepository($this->pdo);

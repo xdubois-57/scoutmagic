@@ -82,7 +82,7 @@
                         Vous avez déjà répondu à ce formulaire.
                     </div>
                 {% else %}
-                    <form method="POST" action="/news/{{ article.id }}/form/submit" id="news-form">
+                    <form method="POST" action="/news/{{ article.id }}/form/submit" id="news-form" data-submit-once>
                         <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
                         {% include 'partials/human_check_fields.html.twig' with { human_check: human_check } %}
 
@@ -120,6 +120,14 @@
                             </div>
                         {% endif %}
 
+                        {# Disabled the moment the browser accepts the
+                           submission (assets/js/submit-once.js): the
+                           button used to stay live for the whole round
+                           trip, and a second tap sent the whole form
+                           again — a second response, and on a paying form
+                           a second receivable and a second ticket. The
+                           server refuses the duplicate too; this stops it
+                           from being sent at all. #}
                         <button type="submit" class="btn btn-primary w-100 w-sm-auto float-sm-end">Envoyer</button>
                     </form>
                 {% endif %}
@@ -129,5 +137,6 @@
 {% endblock %}
 
 {% block scripts %}
+    <script src="{{ asset('/assets/js/submit-once.js') }}" defer></script>
     <script src="{{ asset('/assets/js/news-form-builder.js') }}" defer></script>
 {% endblock %}

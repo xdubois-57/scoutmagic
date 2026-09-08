@@ -128,7 +128,71 @@ class FormFieldRepository
             optionsManual: $row['options_manual'] !== null ? (string) $row['options_manual'] : null,
             capacityMax: $row['capacity_max'] !== null ? (int) $row['capacity_max'] : null,
             pricePerUnit: $row['price_per_unit'] !== null ? (float) $row['price_per_unit'] : null,
-            confirmationText: $row['confirmation_text'] !== null ? (string) $row['confirmation_text'] : null
+            confirmationText: $row['confirmation_text'] !== null ? (string) $row['confirmation_text'] : null,
+            capacityUsed: (float) ($row['capacity_used'] ?? 0)
         );
+    }
+
+    /**
+     * The running total of what this field's capacity caps, read at the
+     * moment of a write.
+     *
+     * `FOR UPDATE` on MySQL/MariaDB, which is what makes two concurrent
+     * submissions queue on the same row rather than both read the same
+     * stale total and both fit. SQLite (tests, single-writer by design)
+     * has no such syntax and needs none — the same reasoning
+     * Repository\FormResponseRepository::sumFieldValues() already carried.
+     */
+    public function usedCapacity(int $fieldId, bool $lockForUpdate = false): float
+    {
+        $sql = 'SELECT capacity_used FROM news_form_fields WHERE id = ?';
+        if ($lockForUpdate && $this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'mysql') {
+            $sql .= ' FOR UPDATE';
+        }
+
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([$fieldId]);
+        $value = $stmt->fetchColumn();
+
+        return $value === false ? 0.0 : (float) $value;
+    }
+
+    /**
+     * Moves the running total by $delta — positive for a new answer,
+     * negative for the part an edit gives back. Written as a relative
+     * UPDATE rather than a read-then-write so it is correct under the
+     * row lock the caller already holds.
+     */
+    public function addUsedCapacity(int $fieldId, float $delta): void
+    {
+        if ($delta === 0.0) {
+            return;
+        }
+
+        $stmt = $this->pdo->prepare('UPDATE news_form_fields SET capacity_used = capacity_used + ? WHERE id = ?');
+        $stmt->execute([$delta, $fieldId]);
+    }
+
+    /**
+     * Recomputes the running total of every capped field from the
+     * answers themselves — the one-off reprise for installations whose
+     * responses were written before the column existed, and the repair
+     * if the two ever drift.
+     *
+     * @return int the number of fields recomputed
+     */
+    public function recomputeUsedCapacities(FormResponseRepository $responses): int
+    {
+        $stmt = $this->pdo->query('SELECT id FROM news_form_fields WHERE capacity_max IS NOT NULL');
+        \assert($stmt !== false);
+
+        $update = $this->pdo->prepare('UPDATE news_form_fields SET capacity_used = ? WHERE id = ?');
+        $count = 0;
+        foreach ($stmt->fetchAll(\PDO::FETCH_COLUMN) as $fieldId) {
+            $update->execute([$responses->sumFieldValues((int) $fieldId), (int) $fieldId]);
+            $count++;
+        }
+
+        return $count;
     }
 }

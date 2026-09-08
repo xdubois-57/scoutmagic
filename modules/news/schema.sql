@@ -114,6 +114,14 @@ CREATE TABLE IF NOT EXISTS news_form_fields (
     options_source ENUM('manual', 'members') NULL,
     options_manual TEXT NULL,
     capacity_max INT UNSIGNED NULL,
+    -- The running total of what capacity_max caps, kept BY THE WRITES.
+    -- It used to be recomputed on every read — Repository\FormResponseRepository
+    -- ::sumFieldValues() reads the whole column of answers for this field
+    -- and DECRYPTS each one — on a path as ordinary as displaying the
+    -- form, so a form open to the public paid one decryption per response
+    -- already received, per visitor. The submissions already computed
+    -- that sum under a row lock; they now keep it.
+    capacity_used DECIMAL(12,2) NOT NULL DEFAULT 0,
     price_per_unit DECIMAL(10, 2) NULL,
     -- Also holds the 'text' field type's content (module usability
     -- review: a static, multi-line rich-formatted block usable anywhere
@@ -181,6 +189,14 @@ CREATE TABLE IF NOT EXISTS news_form_responses (
     INDEX idx_news_response_form (form_id),
     INDEX idx_news_response_blind (form_id, contact_email_blind_index),
     UNIQUE INDEX idx_news_response_ticket (ticket_reference),
+    -- The sister lookup of the one above, and it had no index at all:
+    -- Repository\FormResponseRepository::findByStructuredCommunication()
+    -- filters on this column when a scan turns out to be an EPC transfer
+    -- QR rather than a ticket reference (Service\ScanService::
+    -- findByScannedPayload()). This table is GLOBAL — every response of
+    -- every form and every year accumulates in it — so the scan cost the
+    -- whole table, growing with the unit's whole ticketing history.
+    INDEX idx_news_response_structured (structured_communication),
     CONSTRAINT fk_news_response_form FOREIGN KEY (form_id) REFERENCES news_forms(id) ON DELETE CASCADE,
     CONSTRAINT fk_news_response_account FOREIGN KEY (user_account_id) REFERENCES user_accounts(id) ON DELETE SET NULL,
     CONSTRAINT fk_news_response_member_year FOREIGN KEY (member_year_id) REFERENCES member_years(id) ON DELETE SET NULL

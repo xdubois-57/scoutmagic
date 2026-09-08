@@ -96,6 +96,26 @@ class FormController extends AbstractController
      * impayé » is the list somebody reads to know who to write to; « payé
      * et jamais venu » explains a discrepancy in the count.
      */
+    /**
+     * How many responses one page of the responses screen shows.
+     *
+     * The screen used to show every response there was, each one costing
+     * its own query for its answers. Fifty is what the other listing
+     * screens of this site use, and it keeps the query, the decryption
+     * and the HTML all bounded by the same number.
+     */
+    private const RESPONSES_PER_PAGE = 50;
+
+    /**
+     * Where a submission leaves the response its confirmation page will
+     * describe, for the length of one redirect (Post/Redirect/Get).
+     *
+     * Kept rather than consumed on read, so a refresh of the confirmation
+     * page still shows the confirmation instead of dropping the visitor
+     * back on the form — the whole point of the redirect.
+     */
+    private const CONFIRMATION_SESSION_KEY = 'news_form_confirmation';
+
     private const FILTER_ALL = 'all';
     private const FILTER_IN_UNPAID = 'in_unpaid';
     private const FILTER_PAID_ABSENT = 'paid_absent';
@@ -186,6 +206,43 @@ class FormController extends AbstractController
             ['article_id' => $article->id, 'form_id' => $form->id, 'response_id' => $response->id], $accountId
         );
 
+        // Post/Redirect/Get. This used to RENDER the confirmation, so the
+        // browser's address bar still held the POST: a refresh, a « back »
+        // then « forward », or an application woken from the background
+        // re-sent it — and nothing on the way in stopped the second one.
+        // On a paying form that is a second response, a second receivable
+        // and a second ticket.
+        $this->rememberConfirmation($article->id, $response->id);
+
+        return $this->redirect('/news/' . $article->id . '/form/confirmation');
+    }
+
+    /**
+     * GET /news/{id}/form/confirmation — the page a submission lands on.
+     *
+     * The response it describes is named by the SESSION, never by the
+     * URL: this route is `public`, and an id in the address would let
+     * anybody read anybody's answers by counting. Nothing to show (a
+     * direct visit, a refresh long after) simply goes back to the
+     * article, which is where the form is.
+     *
+     * @param array<string, string> $params
+     */
+    public function confirmation(Request $request, array $params): Response
+    {
+        $article = $this->articleService->findById((int) $params['id']);
+        $form = $article !== null ? $this->formService->findByArticleId($article->id) : null;
+        if ($article === null || $form === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $responseId = $this->rememberedConfirmation($article->id);
+        $response = $responseId !== null ? $this->responseService->findById($responseId) : null;
+        if ($response === null || $response->formId !== $form->id) {
+            return $this->redirect('/news/' . $article->id);
+        }
+
+        $fields = $this->formService->getFields($form->id);
         $storedAnswers = $this->responseService->getAnswers($response->id);
         $total = $this->responseService->computeTotal($fields, $storedAnswers);
 
@@ -199,6 +256,25 @@ class FormController extends AbstractController
                 ? '/news/' . $article->id . '/form/responses/' . $response->id . '/edit'
                 : null,
         ]);
+    }
+
+    /**
+     * The response a just-made submission left for its confirmation page,
+     * kept in the session for the length of one redirect.
+     */
+    private function rememberConfirmation(int $articleId, int $responseId): void
+    {
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            $_SESSION[self::CONFIRMATION_SESSION_KEY][$articleId] = $responseId;
+        }
+    }
+
+    /** @see self::rememberConfirmation() */
+    private function rememberedConfirmation(int $articleId): ?int
+    {
+        $responseId = $_SESSION[self::CONFIRMATION_SESSION_KEY][$articleId] ?? null;
+
+        return is_int($responseId) ? $responseId : null;
     }
 
     /**
@@ -221,17 +297,40 @@ class FormController extends AbstractController
 
         $fields = $this->formService->getFields($form->id);
         $accountId = (int) AuthSession::getUserAccountId();
-        $allRows = array_map(function (FormResponse $response) use ($fields, $form, $role, $accountId) {
+
+        // The rows WITHOUT their answers first: the filter and its
+        // counters read the response and its payment, never the answers,
+        // and the answers are the expensive half — one query and one
+        // decryption per response.
+        $allRows = array_map(function (FormResponse $response) use ($form, $role, $accountId) {
             return [
                 'response' => $response,
-                'answers' => $this->answerLines($fields, $this->responseService->getAnswers($response->id)),
+                'answers' => [],
                 'payment' => $this->buildReceivableStatus($response),
                 'can_edit' => $this->responseService->canEditResponse($response, $form, $role, $accountId),
             ];
         }, $this->responseService->findByFormId($form->id));
 
         $filter = self::normalizeFilter((string) $request->getQuery('filter', self::FILTER_ALL));
-        $rows = self::applyFilter($allRows, $filter);
+        $filtered = self::applyFilter($allRows, $filter);
+
+        // Paginated, because a unit party's form gathers hundreds of
+        // responses and this page used to render every one of them, each
+        // costing its own query. The answers are then read for the page
+        // alone, in ONE query (Service\ResponseService::getAnswersFor()).
+        $totalPages = max(1, (int) ceil(count($filtered) / self::RESPONSES_PER_PAGE));
+        $page = max(1, min($totalPages, (int) $request->getQuery('page', 1)));
+        $rows = array_slice($filtered, ($page - 1) * self::RESPONSES_PER_PAGE, self::RESPONSES_PER_PAGE);
+
+        $answersByResponse = $this->responseService->getAnswersFor(
+            array_map(static fn (array $row): int => $row['response']->id, $rows)
+        );
+        foreach ($rows as $index => $row) {
+            $rows[$index]['answers'] = $this->answerLines(
+                $fields,
+                $answersByResponse[$row['response']->id] ?? []
+            );
+        }
 
         return $this->render('@news/responses.html.twig', [
             'article' => $article,
@@ -248,6 +347,14 @@ class FormController extends AbstractController
             ],
             'fields' => $fields,
             'rows' => $rows,
+            'page' => $page,
+            'total_pages' => $totalPages,
+            // What the export and « Écrire » cover: the whole filter, not
+            // the page on screen. The two were the same number until this
+            // screen was paginated, and telling a chief they are writing
+            // to fifty people when they are writing to three hundred is
+            // the kind of difference that only shows after the send.
+            'filtered_count' => count($filtered),
             // The ticket column and the cross filter only mean anything
             // on a form that delivers a ticket; on one that does not,
             // this screen is exactly what it was.

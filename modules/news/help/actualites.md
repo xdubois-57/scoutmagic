@@ -6,7 +6,7 @@ category: Premiers pas
 role_min: public
 question: Où lire les nouvelles de l'unité ?
 question: Comment inscrire mon enfant à une activité annoncée ?
-paths: /news, /news/*, /news/*/form/responses/*/edit
+paths: /news, /news/*, /news/*/form/confirmation, /news/*/form/responses/*/edit
 related: publier-une-actualite, decouvrir-le-site
 ---
 

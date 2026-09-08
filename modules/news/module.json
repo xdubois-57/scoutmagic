@@ -199,6 +199,16 @@
       "breadcrumb": { "label": "Actualité", "parents": ["Notre unité"] }
     },
     {
+      "path": "/news/{id}/form/confirmation",
+      "method": "GET",
+      "controller": "Modules\\News\\Controller\\FormController",
+      "action": "confirmation",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": "",
+      "breadcrumb": { "label": "Actualité", "parents": ["Notre unité"] }
+    },
+    {
       "path": "/news/{id}/form/responses",
       "method": "GET",
       "controller": "Modules\\News\\Controller\\FormController",

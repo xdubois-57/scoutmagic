@@ -11,6 +11,8 @@ namespace Modules\News\Task;
 use Core\File\FileRepository;
 use Core\Photo\ImageVariantProcessor;
 use Core\Photo\ImageVariantService;
+use Core\Scheduler\SchedulerRepository;
+use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 
@@ -34,6 +36,21 @@ class GenerateImageVariantsHandler implements TaskHandlerInterface
     public const REFERENCE = 'backfill';
     public const DONE_FLAG = 'news_image_variants_backfilled';
 
+    /**
+     * How many images one pass re-encodes before handing over.
+     *
+     * The pass used to walk the WHOLE library in one go, and re-encoding
+     * two derivatives of a multi-megabyte photograph is seconds of CPU
+     * each: on a unit with a few hundred article images it could not
+     * finish inside a shared host's time limit, and a run killed halfway
+     * left the flag unset and started again from the top on the next
+     * pass — the same first images re-examined every time, the last ones
+     * never reached. A slice that re-arms itself finishes, however long
+     * the library is. Same shape as Task\SendPendingTicketsHandler and
+     * mass_mail's send_batch.
+     */
+    private const BATCH_SIZE = 25;
+
     public function handle(array $payload, TaskContext $context): void
     {
         $fileRepository = new FileRepository($context->connection->getPdo());
@@ -45,21 +62,40 @@ class GenerateImageVariantsHandler implements TaskHandlerInterface
 
         $images = 0;
         $generated = 0;
+        $remaining = false;
+
         foreach ($fileRepository->findIdsByPathPrefix('news/images/') as $fileId) {
             $file = $fileRepository->findById($fileId);
             if ($file === null) {
                 continue;
             }
 
-            $images++;
+            $missing = [];
             foreach (ImageVariantService::VARIANTS as $variant) {
                 if ($variantService->resolvePath($file->relativePath, $variant) === null) {
-                    // generate() never throws — an image that cannot be
-                    // decoded is simply left without derivatives, exactly
-                    // like the upload path.
-                    $variantService->generate($fileId, $variant);
-                    $generated++;
+                    $missing[] = $variant;
                 }
+            }
+            if ($missing === []) {
+                // Already done — cheap to check, and what makes the pass
+                // idempotent and resumable whatever happened before.
+                continue;
+            }
+
+            if ($images >= self::BATCH_SIZE) {
+                // The rest belongs to the next pass; the flag stays unset
+                // so nothing calls this finished.
+                $remaining = true;
+                break;
+            }
+
+            $images++;
+            foreach ($missing as $variant) {
+                // generate() never throws — an image that cannot be
+                // decoded is simply left without derivatives, exactly
+                // like the upload path.
+                $variantService->generate($fileId, $variant);
+                $generated++;
             }
         }
 
@@ -72,10 +108,28 @@ class GenerateImageVariantsHandler implements TaskHandlerInterface
             'news',
             'news_image_variants_backfilled',
             'info',
-            sprintf('Reprise des vignettes d\'articles : %d image(s) parcourue(s), %d déclinaison(s) produite(s).',
-                $images, $generated),
-            ['images' => $images, 'generated' => $generated]
+            sprintf(
+                'Reprise des vignettes d\'articles : %d image(s) traitée(s), %d déclinaison(s) produite(s)%s.',
+                $images,
+                $generated,
+                $remaining ? ', reprise réarmée pour la suite' : ''
+            ),
+            ['images' => $images, 'generated' => $generated, 'remaining' => $remaining]
         );
+
+        if ($remaining) {
+            // Straight away rather than on a schedule: there is work left
+            // and nothing to wait for. Through `rearmAfter()` rather than
+            // `scheduleAfter()`, because a fixed reference re-armed from
+            // inside a handler IS a recurring chain for as long as the
+            // backlog lasts: unguarded, a second occurrence queued by the
+            // composition root's seed would keep a duplicate chain alive
+            // for ever instead of standing down on its next pass.
+            (new SchedulerService(new SchedulerRepository($context->connection->getPdo())))
+                ->rearmAfter('news', self::TASK_KEY, self::REFERENCE, 0);
+
+            return;
+        }
 
         $context->settings->setInternal(self::DONE_FLAG, '1', 'news');
     }

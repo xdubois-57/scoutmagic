@@ -38,6 +38,35 @@ class FormResponseRepository
     }
 
     /**
+     * The responses this contact left on this form since $sinceDatetime —
+     * what a submission checks itself against before writing another one.
+     *
+     * Looked up by blind index, like every other exact-match search on an
+     * encrypted column (SECURITY.md §5), and served by the
+     * (form_id, contact_email_blind_index) index that already exists.
+     *
+     * @return FormResponse[]
+     */
+    public function findRecentByContact(int $formId, string $contactEmail, string $sinceDatetime): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM news_form_responses
+             WHERE form_id = ? AND contact_email_blind_index = ? AND submitted_at >= ?
+             ORDER BY submitted_at DESC, id DESC'
+        );
+        $stmt->execute([
+            $formId,
+            $this->encryption->blindIndex(
+                EncryptionService::normalizeEmailForIndex($contactEmail),
+                'news_contact_email'
+            ),
+            $sinceDatetime,
+        ]);
+
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
      * @return FormResponse[] responses submitted strictly after $sinceDatetime — Task\SendResponseDigestHandler.
      */
     public function findByFormIdSince(int $formId, string $sinceDatetime): array
@@ -178,6 +207,42 @@ class FormResponseRepository
                 ? $this->encryption->decrypt($row['value'], 'news_form_response_values.value')
                 : '';
         }
+        return $values;
+    }
+
+    /**
+     * The answers of SEVERAL responses in one query.
+     *
+     * The batched twin of getValues(), and the reason it exists: the
+     * responses page called that one per row, so a form with three
+     * hundred answers cost three hundred round trips on top of the one
+     * that listed them. One `IN (…)` returns the lot; the decryption is
+     * the same work either way.
+     *
+     * @param int[] $responseIds
+     * @return array<int, array<int, string>> response id => field_id => decrypted answer
+     */
+    public function getValuesForResponses(array $responseIds): array
+    {
+        $responseIds = array_values(array_unique(array_map('intval', $responseIds)));
+        if ($responseIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($responseIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT response_id, field_id, value FROM news_form_response_values
+             WHERE response_id IN ({$placeholders})"
+        );
+        $stmt->execute($responseIds);
+
+        $values = array_fill_keys($responseIds, []);
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $values[(int) $row['response_id']][(int) $row['field_id']] = $row['value'] !== null
+                ? $this->encryption->decrypt($row['value'], 'news_form_response_values.value')
+                : '';
+        }
+
         return $values;
     }
 

@@ -4537,8 +4537,26 @@ if ($isEnabled('news')) {
         (string) ($settingService->get('site_name') ?: 'Unité scoute'),
         $financeStructuredCommunicationForOthers, $financeExpectedReceivableForOthers, $financeSepaQrCodeForOthers,
         $financeAccountForOthers,
-        $journalService, $newsTicketService, $newsTicketMailService
+        $journalService, $newsTicketService, $newsTicketMailService,
+        // The running capacity total lives on the field (#241).
+        $newsFieldRepo
     );
+
+    // One-shot reprise of `news_form_fields.capacity_used` for the
+    // responses written before the column existed. Same shape, and same
+    // reason, as the image-variant backfill below: a flag read from the
+    // settings cache on every later request, and a recompute that is a
+    // handful of rows on any real installation.
+    if ($settingService->get('news_field_capacity_backfilled', 'news') !== '1') {
+        $settingService->register(
+            'news_field_capacity_backfilled', '0', 'boolean', 'Capacités des champs recalculées',
+            'Indique si le total consommé de chaque champ à capacité a été reconstitué depuis les réponses.',
+            'news', null, null, false, 999
+        );
+        $newsFieldRepo->recomputeUsedCapacities($newsResponseRepo);
+        $settingRepo->updateValue('news', 'news_field_capacity_backfilled', '1');
+        $settingService->clearCache();
+    }
     // Optional dependency on the llm_connector module (ARCHITECTURE.md
     // §7.5), same reused instance as RGPD content generation above — the
     // "Générer avec l'IA" button is simply hidden when it's unavailable.
