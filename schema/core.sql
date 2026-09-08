@@ -1340,3 +1340,48 @@ CREATE TABLE IF NOT EXISTS email_template_overrides (
     UNIQUE KEY uniq_email_template_overrides_template (template_id),
     CONSTRAINT fk_email_template_overrides_author FOREIGN KEY (updated_by) REFERENCES user_accounts(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- sent_email_claims: one row per (kind of e-mail, recipient) that a
+-- background handler has already written to, so a REPLAY does not write
+-- again (issue #246).
+--
+-- Why it exists. Core\Scheduler\SchedulerRunner marks a task done only
+-- AFTER handle() returns, so an abrupt stop between an effect and that
+-- mark — a time limit, an OOM, a deploy, a fatal — replays the whole
+-- handler. For a handler that computes a total that is harmless; for a
+-- handler that sends e-mails it means the unit's families receive the
+-- same message twice, which is the one failure mode a scout unit's
+-- parents actually notice.
+--
+-- Core\Notification\NotificationRepository::claimForEmail() already
+-- solved this for notifications, with a conditional UPDATE on the
+-- notification's own row. The three handlers this table serves have no
+-- such row: their recipients are RECOMPUTED on every run (the families
+-- who have not answered, the staff of a section, a batch of form
+-- responses). This is that same claim, kept beside the send rather than
+-- inside a domain table none of them share.
+--
+-- What a row holds. `scope` names the e-mail AND its occurrence
+-- (`registration.reenrollment.opening:2026-09-30`), `recipient_key` an
+-- identifier of the person within it — a member id, a member_year id, a
+-- form response id. Never an address: an e-mail address is personal data
+-- (SECURITY.md §11) and an id says everything the claim needs.
+--
+-- The claim is taken BEFORE the transport is called, for the reason
+-- claimForEmail() gives: a send that then fails is one message somebody
+-- misses, which is recoverable; a mark written afterwards sends twice
+-- every time the process dies mid-flush, which is not. A send never
+-- attempted at all (no address, no transport) releases its claim.
+--
+-- Core\Mail\Task\PurgeSentEmailClaimsHandler drops rows past the
+-- retention window daily: a claim outlives its own occurrence by months
+-- and is dead weight after that.
+CREATE TABLE sent_email_claims (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    scope VARCHAR(190) NOT NULL,
+    recipient_key VARCHAR(190) NOT NULL,
+    claimed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_sent_email_claims_recipient (scope, recipient_key),
+    INDEX idx_sent_email_claims_claimed_at (claimed_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

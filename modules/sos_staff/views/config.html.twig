@@ -5,6 +5,16 @@
 {% block content %}
     {% include 'partials/page_header.html.twig' with { title: "SOS Staff d'U — Configuration" } only %}
 
+    {# The warning goes at the TOP of this page and nowhere else on it:
+       what depends on a real crontab here is the duty redirection of an
+       emergency number, and somebody configuring that has to read it
+       before anything else (issue #248). #}
+    {% include 'partials/cron_warning.html.twig' with {
+        cron_detected: cron_detected,
+        feature: 'Les bascules programmées de la redirection de garde',
+        consequence: "Le numéro SOS peut donc rester dirigé vers l'animateur précédent jusqu'à ce que quelqu'un ouvre le site — sur un numéro d'urgence, c'est le retard qui compte le plus sur ce site.",
+    } only %}
+
     <h2 class="h5 mb-3">Fournisseur de téléphonie</h2>
     <div class="d-flex flex-wrap gap-2 mb-4">
         {% for option in provider_options %}

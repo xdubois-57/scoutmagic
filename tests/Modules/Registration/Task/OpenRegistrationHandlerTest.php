@@ -15,6 +15,7 @@ use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
+use Modules\Registration\Task\CloseRegistrationHandler;
 use Modules\Registration\Task\OpenRegistrationHandler;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -45,6 +46,8 @@ class OpenRegistrationHandlerTest extends TestCase
         $this->settingService->register('registration_form_open', '0', 'boolean', 'Ouvert', 'desc', 'registration');
         $this->settingService->register('registration_scheduled_open_at', '', 'text', 'Ouverture', 'desc', 'registration');
         $this->settingService->register('registration_scheduled_open_applied_on', '', 'text', 'Appliqué', 'desc', 'registration');
+        $this->settingService->register('registration_scheduled_close_at', '', 'text', 'Fermeture', 'desc', 'registration');
+        $this->settingService->register('registration_scheduled_close_applied_on', '', 'text', 'Appliqué', 'desc', 'registration');
         $this->settingService->register(OpenRegistrationHandler::CATCH_UP_SETTING, '7', 'number', 'Rattrapage', 'desc', 'registration');
 
         $this->context = new TaskContext(
@@ -226,5 +229,74 @@ class OpenRegistrationHandlerTest extends TestCase
         $scheduled = $schedulerService->find('registration', 'open_registration', 'poll');
         $this->assertNotNull($scheduled);
         $this->assertSame('pending', $scheduled['status']);
+    }
+
+    public function testSettlingMarksTheOccurrenceInsideTheCatchUpWindow(): void
+    {
+        $twoDaysAgo = (new \DateTimeImmutable('-2 days'));
+        $this->settingService->set('registration_scheduled_close_at', $twoDaysAgo->format('m-d'), 'registration');
+
+        $settled = OpenRegistrationHandler::settleDueOccurrences($this->settingService);
+
+        $this->assertSame(
+            [$twoDaysAgo->format('Y-m-d')],
+            array_values($settled),
+            'The occurrence settled is the one the poll would have fired, not today.'
+        );
+        $this->assertSame(
+            $twoDaysAgo->format('Y-m-d'),
+            $this->settingService->get('registration_scheduled_close_applied_on', 'registration')
+        );
+    }
+
+    public function testSettlingLeavesAnOccurrenceOutsideTheWindowAlone(): void
+    {
+        $this->settingService->set(
+            'registration_scheduled_close_at',
+            (new \DateTimeImmutable('+40 days'))->format('m-d'),
+            'registration'
+        );
+
+        $this->assertSame([], OpenRegistrationHandler::settleDueOccurrences($this->settingService));
+        $this->assertSame(
+            '',
+            (string) $this->settingService->get('registration_scheduled_close_applied_on', 'registration')
+        );
+    }
+
+    /**
+     * The whole of issue #215: on a fresh installation both markers are
+     * empty, so the shipped « fermeture le 31 août » is still pending for
+     * a whole week afterwards. A chief who opens the desk by hand in that
+     * week used to have it shut again by the next hourly poll.
+     */
+    public function testAManualOpenInsideTheWindowSurvivesTheNextPoll(): void
+    {
+        $yesterday = (new \DateTimeImmutable('-1 day'))->format('m-d');
+        $this->settingService->set('registration_scheduled_close_at', $yesterday, 'registration');
+
+        // What Modules\Registration\Controller\RegistrationConfigController
+        // ::toggleOpen() does: flip the flag, then settle what was pending.
+        $this->settingService->set('registration_form_open', '1', 'registration');
+        OpenRegistrationHandler::settleDueOccurrences($this->settingService);
+
+        (new CloseRegistrationHandler())->handle([], $this->context);
+
+        $this->assertSame('1', $this->settingService->get('registration_form_open', 'registration'));
+    }
+
+    public function testSettlingDoesNotConsumeNextYearsOccurrence(): void
+    {
+        $yesterday = (new \DateTimeImmutable('-1 day'));
+        $this->settingService->set('registration_scheduled_close_at', $yesterday->format('m-d'), 'registration');
+        OpenRegistrationHandler::settleDueOccurrences($this->settingService);
+
+        // A year later, the same MM-DD resolves to a LATER date than the
+        // marker, so the poll fires exactly as it always did.
+        $nextYear = $yesterday->modify('+1 year')->format('Y-m-d');
+        $this->assertGreaterThan(
+            (string) $this->settingService->get('registration_scheduled_close_applied_on', 'registration'),
+            $nextYear
+        );
     }
 }

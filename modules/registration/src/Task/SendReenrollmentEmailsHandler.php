@@ -10,6 +10,7 @@ namespace Modules\Registration\Task;
 
 use Core\Config\ScoutYearService;
 use Core\Mail\MailException;
+use Core\Mail\SentEmailClaimRepository;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
@@ -39,6 +40,16 @@ use Modules\Registration\Service\ReenrollmentRecipientService;
  *
  * **Nothing about a recipient reaches the journal**: the run logs how many
  * families it wrote to, never to whom.
+ *
+ * **A replay writes to nobody twice.** The scheduler marks a task done
+ * only after `handle()` returns, so an abrupt stop mid-batch replays the
+ * whole run — and since the recipients are recomputed, every family the
+ * lost run had already written to is still « en attente » and would be
+ * written to again. Each family is claimed in `sent_email_claims` first
+ * (`Core\Mail\SentEmailClaimRepository`, the same guard
+ * `Core\Notification\NotificationRepository::claimForEmail()` gives
+ * notifications), under a scope naming this e-mail AND this campaign, so
+ * next year's campaign is a different claim and starts clean.
  */
 class SendReenrollmentEmailsHandler implements TaskHandlerInterface
 {
@@ -110,10 +121,24 @@ class SendReenrollmentEmailsHandler implements TaskHandlerInterface
         $baseUrl = rtrim((string) ($context->settings->get('base_url') ?: ''), '/');
         $closeDate = DateInput::parse('!Y-m-d', $campaignKey);
 
+        $claims = new SentEmailClaimRepository($pdo);
+        $scope = self::claimScope($type, $campaignKey);
+
         $sent = 0;
+        $skipped = 0;
         $lastKey = $afterKey;
         foreach ($families as $family) {
             $lastKey = $family['key'];
+
+            // Before the transport, never after: a claimed send that then
+            // fails is one message a family misses, which the journal
+            // records and a chief can re-run; claiming afterwards would
+            // write to every family twice each time the process died
+            // mid-batch.
+            if (!$claims->claim($scope, (string) $family['key'])) {
+                $skipped++;
+                continue;
+            }
 
             try {
                 $email = $renderer->render('registration.reenrollment_' . $type, [
@@ -138,7 +163,9 @@ class SendReenrollmentEmailsHandler implements TaskHandlerInterface
             } catch (MailException) {
                 // One bad address must never stop the rest of the unit
                 // from being written to, and the address itself never
-                // reaches the journal.
+                // reaches the journal. The claim STAYS taken: a bad
+                // address fails identically on a replay, and re-trying it
+                // on every restart is how a bounce loop starts.
             }
         }
 
@@ -147,7 +174,9 @@ class SendReenrollmentEmailsHandler implements TaskHandlerInterface
             'reenrollment_emails_sent',
             'info',
             'Envoi de la campagne de réinscription',
-            ['type' => $type, 'campaign' => $campaignKey, 'families' => $sent]
+            // `skipped` is what a replay looks like from outside: the
+            // families this run found already written to.
+            ['type' => $type, 'campaign' => $campaignKey, 'families' => $sent, 'skipped' => $skipped]
         );
 
         $scheduler = new SchedulerService(new SchedulerRepository($pdo));
@@ -191,5 +220,16 @@ class SendReenrollmentEmailsHandler implements TaskHandlerInterface
             new \Core\Mail\Template\EmailTemplateOverrideRepository($context->connection->getPdo()),
             $context->journal
         );
+    }
+
+    /**
+     * The claim scope: this e-mail, in this campaign. The campaign key is
+     * the occurrence's own close date, so the four e-mails of 2026 never
+     * collide with the four of 2027 and a purged claim can never suppress
+     * a later year's send.
+     */
+    public static function claimScope(string $type, string $campaignKey): string
+    {
+        return 'registration.reenrollment.' . $type . ':' . $campaignKey;
     }
 }

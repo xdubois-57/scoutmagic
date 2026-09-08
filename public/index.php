@@ -1929,6 +1929,12 @@ $schedulerService->rearm('core', 'check_stable_update', 'daily', new DateTimeImm
 $schedulerService->rearm('core', 'purge_human_check_rate_limits',
     \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler::REFERENCE, new DateTimeImmutable());
 
+// Same bootstrap for the sent-mail claim purge (Core\Mail\Task\
+// PurgeSentEmailClaimsHandler): the replay guards of the background
+// e-mail handlers, once their own occurrence is long past.
+$schedulerService->rearm('core', \Core\Mail\Task\PurgeSentEmailClaimsHandler::TASK_KEY,
+    \Core\Mail\Task\PurgeSentEmailClaimsHandler::REFERENCE, new DateTimeImmutable());
+
 // Same bootstrap for the help assistant's own purge (Core\Help\Assistant\
 // Task\PurgeHelpAssistantHandler): rate-limit rows past the quota window
 // and cached answers no running version can still reach.
@@ -3437,7 +3443,8 @@ if ($isEnabled('sos_staff')) {
     $frontController->registerController(
         \Modules\SosStaff\Controller\SosConfigController::class,
         new \Modules\SosStaff\Controller\SosConfigController(
-            $twig, $sosProviderConfigService, $sosSettingsService, $sectionService, $journalService
+            $twig, $sosProviderConfigService, $sosSettingsService, $sectionService, $journalService,
+            $settingService
         )
     );
     $frontController->registerController(

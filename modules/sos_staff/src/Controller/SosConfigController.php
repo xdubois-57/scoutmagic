@@ -8,12 +8,14 @@ declare(strict_types=1);
 
 namespace Modules\SosStaff\Controller;
 
+use Core\Config\SettingService;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Member\SectionService;
 use Core\Member\UnitStaffSectionService;
+use Core\Scheduler\CronHealth;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Service\IntegerInput;
@@ -36,7 +38,13 @@ class SosConfigController extends AbstractController
         private ProviderConfigService $providerConfigService,
         private SosSettingsService $settingsService,
         private SectionService $sectionService,
-        private JournalService $journalService
+        private JournalService $journalService,
+        // Optional and trailing so an installation wired before this
+        // existed keeps working: without it the page simply does not
+        // claim anything about the crontab, which is the safe answer —
+        // a false « aucune tâche planifiée » sends an administrator
+        // hunting for a problem that is not there.
+        private ?SettingService $settingService = null
     ) {
     }
 
@@ -68,6 +76,13 @@ class SosConfigController extends AbstractController
             'sections' => $allSections,
             'excluded_section_ids' => $excludedIds,
             'staffdu_desk_code' => UnitStaffSectionService::DESK_CODE,
+            // The duty redirection switches an EMERGENCY NUMBER at a
+            // programmed instant. Under the poor man's cron it switches
+            // at the occasion of a visit instead — which is the one
+            // delay on this site that somebody could actually be hurt
+            // by, and no screen said so (issue #248).
+            'cron_detected' => $this->settingService !== null
+                && CronHealth::detectedForConfigScreen($this->settingService),
         ]);
     }
 

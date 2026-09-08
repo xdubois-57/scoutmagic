@@ -1,0 +1,37 @@
+{#
+  « Aucune tâche planifiée réelle n'a été détectée » — the warning a
+  configuration screen owes its administrator when the feature it
+  configures depends on an INSTANT.
+
+  Under the poor man's cron a scheduled task runs at the occasion of a
+  visit to the site, so a reminder, a redirection or a digest arrives when
+  somebody happens to open a page — not at the hour it was set for. Three
+  screens said so; five that needed it did not, the emergency-duty
+  redirection among them (issue #248). One partial rather than eight
+  copies, so the next screen that gains a timed feature has one line to
+  write and cannot word the warning differently.
+
+  Parameters
+  ----------
+  cron_detected : bool     the verdict, from Core\Scheduler\CronHealth
+                           ::detectedForConfigScreen()
+  feature       : string   what suffers, as a French noun phrase completing
+                           « … partent quand même » below — e.g. « les
+                           rappels d'évènement ». Kept per screen because a
+                           generic « les tâches planifiées » says nothing
+                           to the person reading THIS page.
+  consequence   : string   what a delay actually costs here, one sentence.
+                           Optional: omitted, the warning still states the
+                           delay itself.
+#}
+{% if not cron_detected %}
+    <output class="alert alert-warning d-block">
+        <strong>Aucune tâche planifiée réelle n'a été détectée.</strong>
+        {{ feature }} fonctionnent quand même, mais seulement à l'occasion
+        d'une visite du site : sur un hébergement mutualisé sans crontab,
+        l'exécution peut donc arriver avec plusieurs heures de retard.
+        {% if consequence is defined and consequence %}{{ consequence }}{% endif %}
+        Si votre hébergeur le permet, faites appeler
+        <code>public/cron.php</code> toutes les minutes.
+    </output>
+{% endif %}

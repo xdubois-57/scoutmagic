@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\News\Task;
 
+use Core\Mail\SentEmailClaimRepository;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 use Core\View\TwigFactory;
@@ -44,9 +45,25 @@ use Modules\News\Service\TicketMailService;
  * and this run already received their ticket inside their ordinary
  * confirmation, so re-deriving the batch here from "every response of the
  * form" would post them a second one.
+ *
+ * **What the payload does NOT stop is a replay of this run.** The
+ * scheduler marks a task done only after `handle()` returns, so an abrupt
+ * stop mid-batch — a time limit, an OOM, a deploy — runs the whole
+ * payload again, and `hasTicket()` is « a une référence », not « son
+ * billet est parti ». Each response is claimed in `sent_email_claims`
+ * first (`Core\Mail\SentEmailClaimRepository`), which is the guard
+ * `Core\Notification\NotificationRepository::claimForEmail()` already
+ * gives notifications.
  */
 class SendPendingTicketsHandler implements TaskHandlerInterface
 {
+    /**
+     * A form response id is unique across the installation, so the scope
+     * needs nothing else to separate two forms — and this catch-up runs
+     * once per form, on the transition that turns ticketing on.
+     */
+    public const CLAIM_SCOPE = 'news.pending_ticket';
+
     public const TASK_KEY = 'send_pending_tickets';
 
     public static function referenceFor(int $formId): string
@@ -110,6 +127,7 @@ class SendPendingTicketsHandler implements TaskHandlerInterface
         );
 
         $responseRepository = new FormResponseRepository($pdo, $context->encryption);
+        $claims = new SentEmailClaimRepository($pdo);
 
         foreach ($responseIds as $responseId) {
             $response = $responseRepository->findById($responseId);
@@ -117,6 +135,14 @@ class SendPendingTicketsHandler implements TaskHandlerInterface
             // deployment in the database, so the row may be gone or may
             // belong to another form by the time it runs.
             if ($response === null || $response->formId !== $formId || !$response->hasTicket()) {
+                continue;
+            }
+
+            // Before the transport, never after: a claimed send that then
+            // fails leaves the holder their ticket on the responses screen
+            // and at the door (below), whereas claiming afterwards posts
+            // the whole batch a second time on every restart.
+            if (!$claims->claim(self::CLAIM_SCOPE, (string) $response->id)) {
                 continue;
             }
 

@@ -61,6 +61,12 @@
             sous « Aperçu de ce qui est envoyé ».
         </div>
 
+        {% include 'partials/cron_warning.html.twig' with {
+            cron_detected: cron_detected,
+            feature: "Les rapports quotidiens d'utilisation",
+            consequence: "Le rapport « quotidien » part alors quand quelqu'un ouvre le site, et pas du tout les jours où personne ne l'ouvre.",
+        } only %}
+
         <form method="post" action="/config/support/statistics">
             {{ csrf_field()|raw }}
 

@@ -58,6 +58,12 @@ final class CronHealth
      */
     public const STALE_AFTER_SECONDS = 7200;
 
+    /**
+     * The window a CONFIGURATION screen uses — see
+     * detectedForConfigScreen() for why it is not ACTIVE_WITHIN_SECONDS.
+     */
+    public const CONFIG_SCREEN_WINDOW_SECONDS = 600;
+
     /** Written by public/cron.php, relative to the storage path. */
     public const HEARTBEAT_FILE = 'temp/cron-heartbeat';
 
@@ -89,6 +95,35 @@ final class CronHealth
             : '/chemin/vers/le/site/public/cron.php';
 
         return '* * * * * php ' . $script;
+    }
+
+    /**
+     * The verdict a CONFIGURATION SCREEN needs: « is there a real crontab
+     * behind the feature this page configures? », answered from
+     * `cron_last_run` alone, and generously.
+     *
+     * Three screens (locations, courrier entrant, notifications) each
+     * carried their own copy of this expression, and issue #248 was about
+     * the five screens that had no copy at all — a warning duplicated
+     * five more times is not the fix for a warning missing five times.
+     *
+     * **Why not status()->isActive().** That verdict is the maintenance
+     * page's: it distinguishes « active », « en retard » and « jamais
+     * vue » from three sources including a heartbeat file, and it turns
+     * red after three minutes so an operator sees a stopped crontab
+     * quickly. A configuration screen asks a blunter question, and a
+     * false alarm there is expensive: an administrator told « aucune
+     * tâche planifiée » on a working installation goes looking for a
+     * problem that does not exist. Ten minutes is several missed ticks of
+     * a per-minute crontab, and `cron_last_run` — stamped only by
+     * `public/cron.php`, never by a web request — is what makes it able
+     * to tell a real crontab from the request-driven stand-in at all.
+     */
+    public static function detectedForConfigScreen(SettingService $settings, ?int $now = null): bool
+    {
+        $lastRun = (int) ($settings->get('cron_last_run') ?: 0);
+
+        return $lastRun > 0 && (($now ?? time()) - $lastRun) < self::CONFIG_SCREEN_WINDOW_SECONDS;
     }
 
     public function status(?int $now = null): CronStatus

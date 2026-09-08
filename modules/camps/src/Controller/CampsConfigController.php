@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Camps\Controller;
 
 use Core\Config\SettingService;
+use Core\Scheduler\CronHealth;
 use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
@@ -44,6 +45,10 @@ class CampsConfigController extends AbstractController
                 self::MODULE,
                 '20'
             ) ?? 20),
+            // Review reminders and place geocoding are due at an INSTANT;
+            // under the poor man's cron they run at the occasion of a
+            // visit instead (issue #248).
+            'cron_detected' => CronHealth::detectedForConfigScreen($this->settings),
         ]);
     }
 

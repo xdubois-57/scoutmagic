@@ -24,6 +24,7 @@ use Modules\Registration\Service\RegistrationException;
 use Modules\Registration\Service\RequestStatusService;
 use Modules\Registration\Service\SlotMath;
 use Modules\Registration\Service\SlotService;
+use Modules\Registration\Task\OpenRegistrationHandler;
 
 /**
  * Opens the registration desk and files RegistrationBlueprint's requests.
@@ -193,6 +194,15 @@ final class RegistrationSeeder
         // as the rest of this method takes.
         try {
             $this->settingService->set('registration_form_open', RegistrationBlueprint::FORM_OPEN, 'registration');
+            // Exactly what the button does (Modules\Registration\Controller\
+            // RegistrationConfigController::toggleOpen()), and for the same
+            // reason: on a brand-new instance both applied-on markers are
+            // empty, so any scheduled occurrence still inside its catch-up
+            // window is pending and the first cron pass would undo this.
+            // The build promised « formulaire ouvert » (README §8.3); an
+            // instance whose desk shuts on its first minute of cron did not
+            // keep that promise.
+            OpenRegistrationHandler::settleDueOccurrences($this->settingService);
         } catch (SettingException) {
             // The setting is created when the module is activated, and the
             // builder activates every module before it gets here (README

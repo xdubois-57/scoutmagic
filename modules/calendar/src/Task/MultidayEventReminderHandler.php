@@ -11,6 +11,7 @@ namespace Modules\Calendar\Task;
 use Core\Badge\MemberBadgeRepository;
 use Core\Config\ScoutYearService;
 use Core\Mail\MailException;
+use Core\Mail\SentEmailClaimRepository;
 use Core\Member\SectionService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
@@ -30,6 +31,15 @@ use Modules\Calendar\Repository\CalendarRepository;
  *
  * A fresh set of services is built from TaskContext on every run — task
  * handlers have no persistent DI container (see docs/module-development.md).
+ *
+ * **A replay reminds nobody twice.** The scheduler marks a task done only
+ * after `handle()` returns, so an abrupt stop mid-loop replays the whole
+ * send and the section's staff receive the reminder a second time. Each
+ * animator is claimed in `sent_email_claims` first (`Core\Mail\
+ * SentEmailClaimRepository`). The scope carries the event's START DATE
+ * as well as its id, deliberately: a reminder is « l'évènement approche »,
+ * so an event MOVED to another date is a new thing to say and gets its
+ * own claim, while a replay of the same date says nothing new.
  */
 class MultidayEventReminderHandler implements TaskHandlerInterface
 {
@@ -110,11 +120,24 @@ class MultidayEventReminderHandler implements TaskHandlerInterface
             $context->journal
         );
 
+        $claims = new SentEmailClaimRepository($pdo);
+        $scope = self::claimScope($event->id, $event->startDate);
+
         $sent = 0;
         $failed = 0;
+        $skipped = 0;
 
         foreach ($staff as $profile) {
             if ($profile->email === null || $profile->email === '') {
+                continue;
+            }
+
+            // Before the transport, never after: a claimed send that then
+            // fails is one reminder somebody misses, and `mail_send_failed`
+            // says so; claiming afterwards reminds the whole section twice
+            // every time the process dies mid-loop.
+            if (!$claims->claim($scope, (string) $profile->memberId)) {
+                $skipped++;
                 continue;
             }
 
@@ -164,8 +187,21 @@ class MultidayEventReminderHandler implements TaskHandlerInterface
                 'recipients' => count($staff),
                 'sent' => $sent,
                 'failed' => $failed,
+                // What a replay looks like from outside: the animators
+                // this run found already reminded.
+                'skipped' => $skipped,
             ],
             null
         );
+    }
+
+    /**
+     * The claim scope: this event, on this start date. Public so the
+     * test that proves a replay sends nothing can name the same scope
+     * the handler does, rather than restate its shape.
+     */
+    public static function claimScope(int $eventId, string $startDate): string
+    {
+        return 'calendar.multiday_event_reminder.' . $eventId . ':' . $startDate;
     }
 }
