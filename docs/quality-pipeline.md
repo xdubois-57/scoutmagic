@@ -422,6 +422,29 @@ they are in the list at the end of this document for that reason, and
 repeated in the file's own header because that is where somebody editing it
 will be looking.
 
+**And a fifth, which cost this workflow two days of not running at all.**
+A context named where it is not available does not resolve to an empty
+string: it makes the whole file an **invalid workflow**. This one
+interpolated `${{ steps.before.outputs.selected }}` into a job-level
+`env:`, and `jobs.<job_id>.env` is built before the first step runs, so
+the `steps` context is not among the ones it may read. What GitHub does
+with an unusable workflow is the part nobody expects: it creates a
+**failed run attributed to the push** — for a file that declares no
+`push:` trigger — with zero jobs, no log to open, and the run named by
+its file path instead of by its `name:`. 124 of those accumulated across
+every branch between 2026-09-06 and 2026-09-08 (issue #256), and the tell
+was in the name: every `push` run was called
+`.github/workflows/issue-backlog-scan.yml` and every `schedule` run was
+called `Issue backlog scan`. The louder half was invisible: an invalid
+workflow does not run for its own triggers either, so the nightly triage
+made **zero** scheduled runs while the bad line was on `main`, and the
+only symptom was a red run for an event nobody had asked for. The prompt
+now carries a `__SELECTED_ISSUES__` placeholder that the `before` step
+resolves into `GITHUB_ENV`, which keeps the one-copy property the
+job-level `env:` was there for;
+`tests/Architecture/WorkflowContextsAreAvailableWhereTheyAreUsedTest`
+refuses the `steps` context outside a step in every workflow here.
+
 `.github/workflows/claude-review.yml` is the AI reviewer; see below. It
 carries two jobs: `Claude review`, which reads the diff, and `Claude review
 status`, which posts the comment saying what that check's green means. They
@@ -1276,6 +1299,17 @@ nothing**:
   the top of the hour where every `0 *` cron fires at once. Nothing
   reports the drop; the run simply never happens. This is why
   `issue-backlog-scan.yml` asks for minute 17.
+- **A context used where it is not available makes the file invalid, and
+  GitHub reports that as a failed run on `push`.** Not as a syntax error,
+  not on the trigger the workflow declares: a zero-job run with no log,
+  attributed to a `push` event the file never asked for, and named by its
+  file path instead of by its `name:`. Meanwhile the workflow does not run
+  for its own triggers either — silently. `issue-backlog-scan.yml` put
+  `${{ steps.… }}` in a job-level `env:` and spent two days producing red
+  runs nobody had asked for and no nightly triage at all (issue #256). The
+  path-instead-of-name in the Actions list is the tell, and
+  `tests/Architecture/WorkflowContextsAreAvailableWhereTheyAreUsedTest`
+  is the check.
 - A **`schedule:` trigger only ever runs from the default branch**, so a
   change to `issue-backlog-scan.yml` on a pull request branch proves the
   YAML parses and nothing more. Its `workflow_dispatch:` is not a
