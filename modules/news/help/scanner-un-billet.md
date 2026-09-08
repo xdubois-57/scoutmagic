@@ -4,6 +4,7 @@ title: Contrôler les entrées à la porte
 summary: Scanner un billet, retrouver quelqu'un par son nom, suivre le compte des arrivées.
 category: Espace animateurs
 role_min: chief
+discovery: 3
 question: Comment vérifier les billets à l'entrée de notre souper ?
 question: Quelqu'un a perdu son billet, comment le retrouver ?
 question: Que faire si le réseau ne passe pas dans la salle ?

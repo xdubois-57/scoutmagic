@@ -615,6 +615,38 @@ formulaire pousse son pied hors de l'écran sur mobile, parce qu'un
 `<form>` sans `overflow` ne rétrécit jamais. Ici il n'y a rien à
 soumettre — la persistance est un `fetch`.
 
+**Quelle astuce, et quand — la clé `discovery`.** L'ordre dans lequel les
+sujets sont proposés est **éditorial** et se déclare dans le sujet
+lui-même, comme `role_min` et `paths` : écrire de l'aide ne touche jamais
+au code. Quatre valeurs, et le choix se fait à la rédaction :
+
+- **`discovery: 1`** — le sujet décrit une capacité qu'une personne peut
+  ignorer et qui lui fait gagner du temps. C'est la première carte qu'on
+  lui montrera. Exemples du corpus : `presences-feuille`, `publipostage`,
+  `camps-encoder`, `mes-paiements`, `envoyer-une-photo`,
+  `attestations-couverture`, `points-attention`.
+- **`discovery: 2`** — le défaut : utile, mais on le trouve en arrivant
+  sur la page. **Ne l'écrivez pas.** L'absence de clé vaut 2, et cent
+  vingt lignes `discovery: 2` seraient du bruit dans chaque fichier pour
+  aucune information ; le test refuse la valeur écrite en toutes lettres.
+- **`discovery: 3`** — vrai mais périphérique : un cas particulier, ou la
+  variante d'un sujet déjà étiqueté 1 — `presences-anime` à côté de
+  `presences-feuille`, `camps-modifier` à côté de `camps-encoder`.
+- **`discovery: off`** — hygiène de compte, obligation légale, opération
+  technique : ça ne se découvre pas, ça se consulte au moment voulu. Au
+  minimum `cookies`, `donnees-personnelles`, `se-connecter`,
+  `mon-compte`, `reinitialisation`, `installation-serveur`,
+  `sauvegardes`, `mises-a-jour`.
+
+**Une vingtaine de `1` au total, pas davantage.** Leur intérêt est d'être
+les premières cartes, ce que cinquante sujets prioritaires ne permettent
+plus. La contrainte du bas est l'autre moitié de la même règle :
+`tests/Core/Help/HelpDiscoveryInvariantsTest` exige **au moins trois
+sujets en priorité 1 à chaque plancher de rôle** — sans quoi un animé
+n'ouvrirait que sur des cartes de priorité 2 et le tri éditorial ne lui
+servirait à rien — et tient aussi le plafond. Six planchers, une
+vingtaine de sujets : quatre chacun.
+
 **Charte rédactionnelle** — enforced mechanically where possible by
 `tests/Core/Help/HelpInvariantsTest.php`, by review otherwise:
 

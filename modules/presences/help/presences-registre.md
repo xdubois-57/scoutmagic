@@ -4,6 +4,7 @@ title: Suivre les présences de sa section
 summary: La page qui rassemble les évènements de la section, les taux et les feuilles.
 category: Espace animateurs
 role_min: chief
+discovery: 3
 question: Comment savoir qui vient aux réunions de ma section ?
 question: Comment repérer un animé qui ne vient plus ?
 question: Pourquoi je ne vois que ma section dans les présences ?

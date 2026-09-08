@@ -4,6 +4,7 @@ title: Remplir une feuille de présence
 summary: Pointer les animés d'une réunion, et écrire ce qu'il faut retenir.
 category: Espace animateurs
 role_min: chief
+discovery: 1
 question: Comment pointer les animés au début d'une réunion ?
 question: Comment retrouver ceux que je n'ai pas encore pointés ?
 question: Est-ce que les parents voient ce que j'écris sur un animé ?

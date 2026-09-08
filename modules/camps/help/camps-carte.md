@@ -4,6 +4,7 @@ title: La carte des lieux de camp
 summary: Où sont les terrains, comment leurs coordonnées arrivent, et ce qui part vers OpenStreetMap.
 category: Espace animateurs
 role_min: chief
+discovery: 3
 question: Où voir nos lieux de camp sur une carte ?
 question: Pourquoi un terrain n'apparaît-il pas sur la carte ?
 paths: /chefs/camps/lieux/*

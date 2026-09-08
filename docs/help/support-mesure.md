@@ -4,6 +4,7 @@ title: Mesurer une lenteur du site
 summary: Cinq minutes pendant lesquelles chaque page servie est chronométrée, pour le support.
 category: Configuration
 role_min: superadmin
+discovery: 3
 question: Le site est lent, comment le montrer au support ?
 question: Que mesure le bouton « Mesurer une lenteur » ?
 paths: /config/support

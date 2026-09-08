@@ -4,6 +4,7 @@ title: Le courrier d'une réservation
 summary: Les e-mails rattachés à une réservation, les propositions à confirmer, détacher et déplacer.
 category: Espace membres
 role_min: identified
+discovery: 3
 question: Où voir les e-mails d'un locataire sur sa réservation ?
 question: Que faire d'une proposition de rattachement sur une réservation ?
 question: Que devient un message quand je le détache d'une réservation ?

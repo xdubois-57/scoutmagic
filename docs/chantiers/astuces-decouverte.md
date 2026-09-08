@@ -214,3 +214,92 @@ avec IT-02, qui est ce qui le consomme.
   lecture.
 
 **Reporté.** Rien.
+
+---
+
+## IT-03 — La passe éditoriale et la charte
+
+**Livré.**
+
+- **Le corpus entier étiqueté** — 135 sujets relus un par un : **24 en
+  priorité 1**, 40 en `3`, 13 en `off`, et 58 laissés au défaut, c'est-à-dire
+  sans clé du tout.
+- **La charte, aux deux endroits où un auteur la cherchera** :
+  `design.md` §7.11 (la règle des quatre valeurs, les exemples du corpus,
+  le plafond d'une vingtaine de `1` et le plancher de trois par rôle) et
+  la section Aide de `docs/module-development.md` (la puce `discovery`, à
+  côté de `paths`, `question` et des citations de libellés).
+- **`tests/Core/Help/HelpDiscoveryInvariantsTest`** — six invariants
+  sur le corpus livré : toute valeur `discovery` déclarée est valide ;
+  **aucun sujet n'écrit `discovery: 2`** en toutes lettres ; **chaque
+  plancher de rôle porte au moins trois sujets en priorité 1** ; les
+  huit sujets que le chantier nomme (`cookies`, `donnees-personnelles`,
+  `se-connecter`, `mon-compte`, `reinitialisation`,
+  `installation-serveur`, `sauvegardes`, `mises-a-jour`) sont bien en
+  `off` ; **la priorité 1 reste un petit ensemble** (trente au plus —
+  voir la décision 2) ; et **le corpus couvre exactement les six
+  planchers de rôle pour lesquels il est écrit**. Ce dernier existe pour
+  une cécité du précédent : le compte par plancher tire ses planchers du
+  corpus lui-même, donc un plancher qui disparaît entièrement — le
+  dernier sujet `intendant` supprimé, disons — cesse simplement d'être
+  vérifié, et la suite reste verte sur un rôle dont l'aide a disparu.
+
+**Les 24 sujets de priorité 1, par plancher de rôle** — quatre chacun,
+ce qui est la rencontre entre les deux moitiés de la règle (voir la
+décision 1) :
+
+| Plancher | Sujets |
+|---|---|
+| `public` | `installer-application`, `un-email-plusieurs-animes`, `recherche-dans-l-aide`, `modifier-une-reponse` |
+| `identified` | `mes-paiements`, `envoyer-une-photo`, `notifications-preferences`, `trombinoscope` |
+| `intendant` | `etiquettes-paiement`, `importer-extraits`, `rappels`, `campagnes` |
+| `chief` | `presences-feuille`, `publipostage`, `camps-encoder`, `envoi-de-mails` |
+| `admin` | `points-attention`, `attestations-couverture`, `edition-du-site`, `justesse-des-tarifs` |
+| `superadmin` | `config-emails`, `frequentation`, `connecteur-ia`, `config-desk` |
+
+**Décisions autonomes.**
+
+1. **Vingt-quatre plutôt que vingt.** Le document vise « une vingtaine,
+   pas davantage » ET exige trois `1` par plancher de rôle. Le corpus
+   utilise six planchers, donc le plancher seul impose dix-huit. À vingt,
+   deux planchers vivraient au minimum exact, et le premier sujet retiré
+   ou passé en `off` casserait le test. Quatre par plancher donne
+   vingt-quatre, garde une marge d'un sujet partout, et reste « une
+   vingtaine ». Le test porte les deux bornes.
+2. **Un plafond, pas seulement un plancher.** Le document ne demande que
+   l'invariant du bas ; sans plafond, « vise une vingtaine » n'est appliqué
+   par rien et le corpus dérive vers cinquante prioritaires, ce qui est le
+   défaut sous un autre nom. Le plafond est délibérément lâche (trente) :
+   il refuse une dérive, pas un arbitrage sur un sujet.
+3. **`discovery: 2` écrit en toutes lettres est une erreur de test.** La
+   charte dit de ne pas l'écrire ; une règle que rien ne vérifie est une
+   règle que la moitié du corpus finira par enfreindre.
+4. **Cinq `off` de plus que le minimum du document** : `se-desinscrire`
+   (se retirer d'une liste de diffusion — hygiène de compte),
+   `comptes-superadmin` (idem, côté administration), `config-rgpd`
+   (obligation légale), `support-github` et `support-sondes-email`
+   (opérations techniques qu'on ouvre au moment où on en a besoin). Chacun
+   tombe exactement dans une des trois catégories que le document énumère.
+5. **Les variantes d'un sujet déjà en `1` passent en `3`, systématiquement** :
+   `presences-anime` et `presences-registre` derrière `presences-feuille`,
+   les neuf sujets `camps-*` derrière `camps-encoder`,
+   `attestations-distribuer` et `attestations-verifier` derrière
+   `attestations-couverture`, `recus-compte` et `rapprochement` derrière
+   les outils de finance. C'est la règle du document appliquée à la
+   lettre, et c'est ce qui remplit la catégorie `3` — quarante sujets,
+   sans quoi elle serait restée vide.
+6. **`journal` reste en `3` plutôt qu'en `off`.** Consulter le journal du
+   site est une capacité d'administration qui vaut d'être connue, pas une
+   opération d'hygiène ; ce qui la met en `3` et non en `1`, c'est qu'on
+   n'y va que quand on cherche déjà quelque chose.
+
+**Divergences avec le dépôt réel.**
+
+- Le corpus compte **135 sujets** et non « ~120 » : 44 core et 91 livrés
+  par des modules.
+- Le document nomme sept exemples de priorité 1 ; six existent tels quels,
+  et tous ont été retenus.
+- Le document énumère huit `off` « au minimum » ; les huit existent et
+  sont bien en `off`, plus cinq autres.
+
+**Reporté.** Rien.

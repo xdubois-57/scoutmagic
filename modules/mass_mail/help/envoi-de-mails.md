@@ -4,6 +4,7 @@ title: Envoyer un e-mail groupé
 summary: Du brouillon au test, puis l'envoi et son suivi, destinataire par destinataire.
 category: Espace animateurs
 role_min: chief
+discovery: 1
 question: Comment écrire à tous les parents de ma section ?
 question: Comment prévenir tous les parents d'une section ?
 question: Comment vérifier qu'un e-mail groupé est bien parti ?

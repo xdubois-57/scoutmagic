@@ -4,6 +4,7 @@ title: Choisir le contenu de la page RGPD
 summary: Texte de référence, texte personnalisé ou texte généré par IA.
 category: Configuration
 role_min: superadmin
+discovery: off
 question: Comment rédiger la page de protection des données ?
 question: Comment faire générer la page RGPD par l'IA ?
 paths: /config/rgpd

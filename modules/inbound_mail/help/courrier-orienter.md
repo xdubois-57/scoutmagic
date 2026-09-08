@@ -4,6 +4,7 @@ title: Orienter un message
 summary: Confirmer une proposition, rattacher à la main, détacher, et ce qui disparaît quand.
 category: Espace chefs d'U
 role_min: admin
+discovery: 3
 question: Comment classer un e-mail reçu dans le bon dossier ?
 question: Comment rattacher à la main un e-mail qu'aucun module n'a reconnu ?
 question: Comment défaire un rattachement fait par erreur ?

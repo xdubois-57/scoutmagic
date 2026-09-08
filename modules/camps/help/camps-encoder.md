@@ -4,6 +4,7 @@ title: Encoder un camp
 summary: Créer un séjour et son lieu, et corriger l'un ou l'autre ensuite.
 category: Espace animateurs
 role_min: chief
+discovery: 1
 question: Comment enregistrer le camp de cet été ?
 question: Comment ajouter un nouveau terrain de camp ?
 paths: /chefs/camps/nouveau

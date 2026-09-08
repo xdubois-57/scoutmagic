@@ -4,6 +4,7 @@ title: Importer un extrait bancaire
 summary: Charger le relevé CSV de la banque et garder les soldes justes.
 category: Espace animateurs
 role_min: intendant
+discovery: 1
 question: Comment charger le relevé bancaire du mois ?
 question: Pourquoi mon solde ne correspond-il pas à celui de la banque ?
 paths: /finance/import

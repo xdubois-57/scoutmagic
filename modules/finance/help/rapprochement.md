@@ -4,6 +4,7 @@ title: Rapprocher un paiement qui tombe de travers
 summary: Les quatre situations que le site ne sait pas traiter seul, et le geste qui convient à chacune.
 category: Espace animateurs
 role_min: intendant
+discovery: 3
 question: Un parent a payé pour trois enfants en un virement, que faire ?
 question: Un virement est arrivé sans communication, comment le rattacher ?
 question: Comment rembourser une famille qui a payé en trop ?

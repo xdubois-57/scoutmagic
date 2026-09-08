@@ -4,6 +4,7 @@ title: Vérifier un lot avant de le distribuer
 summary: Relire l'appariement, trancher les homonymes et décider ce qui part.
 category: Espace chefs d'U
 role_min: admin
+discovery: 3
 question: Comment vérifier un lot d'attestations avant de l'envoyer ?
 question: Deux membres portent le même nom, laquelle est la bonne ?
 paths: /admin/attestations/*

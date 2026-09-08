@@ -4,6 +4,7 @@ title: Traiter les signalements d'un groupe
 summary: La page « Signalements » côté modérateur : masquer, ignorer, restaurer.
 category: Espace membres
 role_min: identified
+discovery: 3
 question: Que faire quand un message d'un groupe est signalé ?
 question: Comment masquer un message déplacé dans un groupe ?
 paths: /groups/*/reports

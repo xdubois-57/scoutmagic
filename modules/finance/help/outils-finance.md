@@ -4,6 +4,7 @@ title: Les outils de paiement
 summary: Fabriquer un code QR de virement, et vérifier une communication structurée.
 category: Espace animateurs
 role_min: intendant
+discovery: 3
 question: Comment fabriquer un code QR pour un virement ?
 question: Comment vérifier qu'une communication structurée est valable ?
 paths: /finance/tools
