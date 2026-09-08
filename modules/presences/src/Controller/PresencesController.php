@@ -170,7 +170,16 @@ class PresencesController extends AbstractController
     }
 
     /**
-     * GET /chefs/presences/anime/{memberId} — one animé's year.
+     * GET /chefs/presences/anime/{memberId} — one animé's year, and the
+     * one screen that corrects it date by date.
+     *
+     * The page is not read-only: each date carries the same four states
+     * and the same comment as an evening's sheet, and writes them to that
+     * evening's OWN endpoint (`record()` below). There is therefore no
+     * second write path to keep in step with the first — and no second
+     * authorization check either, which is the point: `record()` re-derives
+     * the event's section and the animé's membership of it on every call,
+     * whichever screen the request came from.
      *
      * @param array<string, string> $params
      */
@@ -195,6 +204,7 @@ class PresencesController extends AbstractController
         return $this->render('@presences/anime.html.twig', [
             'profile' => $profile,
             'history_limit' => PresenceAnimeService::HISTORY_LIMIT,
+            'statuses' => PresenceStatus::ordered(),
             'scout_year_label' => $year->label,
         ]);
     }
@@ -273,7 +283,9 @@ class PresencesController extends AbstractController
 
     /**
      * POST /chefs/presences/feuille/{eventId}/enregistrer — one tap, one
-     * save, JSON.
+     * save, JSON. The write path of BOTH screens: an evening's sheet posts
+     * every row here, and an animé's page posts each of its dates to that
+     * date's own event id.
      *
      * The body carries `status` XOR `comment`, never both: two animateurs
      * pointing the same list at once must not have one's tap erase the

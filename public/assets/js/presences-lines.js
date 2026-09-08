@@ -3,16 +3,28 @@
  * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
  */
 
-// The attendance sheet (modules/presences/views/sheet.html.twig).
+// The presence rows, on both screens that carry them: an evening's sheet
+// (modules/presences/views/sheet.html.twig, one row per animé) and an
+// animé's own page (views/anime.html.twig, one row per date). The markup
+// is literally the same partial, so the behaviour is one file rather than
+// two that drift.
 //
-// This screen is filled in standing up, in a local, at the start of a
-// meeting — which is what decides everything below. Four visible targets
-// per animé rather than a select (a select is two gestures per name, fifty
+// The sheet is what decides everything below, because it is filled in
+// standing up, in a local, at the start of a meeting. Four visible targets
+// per row rather than a select (a select is two gestures per name, fifty
 // for twenty-five names, in the noise); every tap saved on the spot rather
 // than a « Enregistrer » button at the foot of a list somebody would
 // forget one time in three; and the four counters double as the filter,
 // because the real loop is « point as they arrive, then tap Non renseigné
-// and deal with what is left ».
+// and deal with what is left ». The counters are the sheet's alone — an
+// animé's page has no filter to offer and simply does not draw them, which
+// is why everything about them is optional here.
+//
+// **Each row carries its own endpoint**, rather than the page carrying
+// one: a sheet writes every row to the evening it is, an animé's page
+// writes each row to the evening THAT date is — the same endpoint that
+// date's own sheet writes to, so there is one write path and one
+// authorization check for both screens.
 //
 // A save that fails is never silent and never leaves the screen claiming
 // something the server does not have: the button goes back to the state
@@ -24,10 +36,9 @@
     var api = window.ScoutMagicApi;
 
     var container = /** @type {HTMLElement|null} */ (document.getElementById('presences-lines'));
-    var data = api ? api.pageData('presences-sheet-data') : null;
 
     // A no-op on every other page of the site.
-    if (!container || !data?.endpoint) {
+    if (!container || !api) {
         return;
     }
 
@@ -39,22 +50,27 @@
     var filterBar = /** @type {HTMLElement|null} */ (document.getElementById('presences-filter-bar'));
     var filterSummary = /** @type {HTMLElement|null} */ (document.getElementById('presences-filter-summary'));
     var clearFilter = /** @type {HTMLElement|null} */ (document.getElementById('presences-clear-filter'));
+    // An animé's page draws its rate, its monthly slope and its counters
+    // server-side, and nothing here recomputes them — so a page whose rows
+    // have moved says so rather than going on showing a figure that is no
+    // longer true. Absent from the sheet, which has no such figures.
+    var staleNotice = /** @type {HTMLElement|null} */ (document.getElementById('presences-stale'));
 
     /** @type {string|null} the status currently filtered on, null for « tout » */
     var activeFilter = null;
 
     /**
-     * @returns {HTMLElement[]} one element per animé on the sheet
+     * @returns {HTMLElement[]} one element per row on the page
      */
     function lines() {
         return Array.prototype.slice.call(container.querySelectorAll('.presence-line'));
     }
 
     /**
-     * Paint one line's four buttons for the state it is now in. The
-     * chosen one is filled with its own colour; the other three are
-     * outlines — a fill is what can be read on a phone held at arm's
-     * length, where a border cannot.
+     * Paint one row's four buttons for the state it is now in. The chosen
+     * one is filled with its own colour; the other three are outlines — a
+     * fill is what can be read on a phone held at arm's length, where a
+     * border cannot.
      *
      * @param {HTMLElement} line
      * @param {string} status
@@ -134,19 +150,51 @@
     }
 
     /**
+     * Only a path of this very site is ever posted to. The endpoint is
+     * read off the row rather than written into this file, and a value
+     * read from the DOM is not trusted for having been rendered by our own
+     * template: `//ailleurs.example` is a URL to another host, not a path
+     * on this one. Checked here, at the sink, rather than at each caller.
+     *
+     * @param {string} url
+     * @returns {boolean}
+     */
+    function isOwnPath(url) {
+        return url.startsWith('/') && !url.startsWith('//');
+    }
+
+    /**
+     * Say that the page's server-computed figures no longer match its
+     * rows. A no-op on a screen that has none.
+     */
+    function markStale() {
+        if (staleNotice) {
+            staleNotice.classList.remove('d-none');
+        }
+    }
+
+    /**
      * One save. Resolves to whether the server recorded it — the caller
      * is what puts the screen back when it did not.
      *
-     * @param {string} memberId
+     * @param {HTMLElement} line the row being saved, which carries both
+     *        the animé and the evening the write belongs to
      * @param {Record<string, any>} payload `status` XOR `comment`: two
      *        animateurs pointing the same list must not have one's tap
      *        erase the other's comment.
      * @returns {Promise<boolean>}
      */
-    function save(memberId, payload) {
-        return api.postJson(data.endpoint, { member_id: Number(memberId), ...payload })
+    function save(line, payload) {
+        var endpoint = line.dataset.endpoint || '';
+        if (!isOwnPath(endpoint)) {
+            window.ScoutMagicToast.show('Erreur lors de l\'enregistrement.', { variant: 'error' });
+            return Promise.resolve(false);
+        }
+
+        return api.postJson(endpoint, { member_id: Number(line.dataset.memberId || 0), ...payload })
             .then(function (res) {
                 if (res.data?.success) {
+                    markStale();
                     return true;
                 }
 
@@ -184,7 +232,7 @@
             paintLine(line, chosen);
             applyFilter();
 
-            save(line.dataset.memberId || '', { status: chosen }).then(function (recorded) {
+            save(line, { status: chosen }).then(function (recorded) {
                 if (!recorded) {
                     paintLine(line, previous);
                     applyFilter();
@@ -217,11 +265,21 @@
     // an animateur who taps the next name without leaving the field must
     // not lose what they just typed.
     //
-    // The debounce is PER ANIMÉ, not per page: one shared timer would let
-    // a comment typed on the second name cancel the pending save of the
-    // first, and nothing on screen would say the first was lost.
+    // The debounce is PER ROW, not per page: one shared timer would let a
+    // comment typed on the second row cancel the pending save of the
+    // first, and nothing on screen would say the first was lost. The key
+    // is the row's own id rather than the animé's, because every row of an
+    // animé's page is the same animé on a different date.
     /** @type {Record<string, number>} */
     var pendingComments = {};
+
+    /**
+     * @param {HTMLTextAreaElement} field
+     * @returns {HTMLElement|null} the row the comment belongs to
+     */
+    function rowOf(field) {
+        return /** @type {HTMLElement|null} */ (field.closest('.presence-line'));
+    }
 
     /**
      * Is this field still holding the text the page loaded, or the text
@@ -260,14 +318,14 @@
      * @returns {Promise<boolean>|undefined}
      */
     function saveComment(field) {
-        var memberId = field.dataset.memberId || '';
-        if (isUnchanged(field)) {
+        var row = rowOf(field);
+        if (!row || isUnchanged(field)) {
             return undefined;
         }
 
         var sent = field.value;
 
-        return save(memberId, { comment: sent }).then(function (recorded) {
+        return save(row, { comment: sent }).then(function (recorded) {
             if (recorded) {
                 field.dataset.savedComment = sent;
             }
@@ -277,12 +335,22 @@
 
     /**
      * @param {HTMLTextAreaElement} field
+     * @returns {string} what keys this field's pending save
+     */
+    function debounceKeyOf(field) {
+        var row = rowOf(field);
+
+        return row ? (row.dataset.rowId || row.dataset.memberId || '') : '';
+    }
+
+    /**
+     * @param {HTMLTextAreaElement} field
      */
     function scheduleCommentSave(field) {
-        var memberId = field.dataset.memberId || '';
-        clearTimeout(pendingComments[memberId]);
-        pendingComments[memberId] = setTimeout(function () {
-            delete pendingComments[memberId];
+        var key = debounceKeyOf(field);
+        clearTimeout(pendingComments[key]);
+        pendingComments[key] = setTimeout(function () {
+            delete pendingComments[key];
             saveComment(field);
         }, COMMENT_DEBOUNCE_MS);
     }
@@ -311,9 +379,9 @@
             return;
         }
 
-        var memberId = field.dataset.memberId || '';
-        clearTimeout(pendingComments[memberId]);
-        delete pendingComments[memberId];
+        var key = debounceKeyOf(field);
+        clearTimeout(pendingComments[key]);
+        delete pendingComments[key];
         saveComment(field);
     }, true);
 

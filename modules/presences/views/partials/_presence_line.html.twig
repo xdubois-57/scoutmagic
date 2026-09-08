@@ -1,0 +1,83 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  One presence — four states and a comment, each saved the moment it is
+  touched. The SAME row on both screens the module has: one per animé on
+  an evening's sheet, one per date on an animé's page. It is one partial
+  rather than two hand-rolled copies because it is the same gesture on the
+  same row of the same table; the copy nobody is working on is the one
+  that stops matching, and « pareil que la feuille » is exactly what was
+  asked for.
+
+  Params:
+    row_id    -- unique WITHIN the page: the animé on a sheet, the date on
+                 an animé's page. It keys the comment's debounce, which is
+                 why it cannot be the member id — every row of an animé's
+                 page carries the same one.
+    member_id -- whose presence this is; what the write sends.
+    endpoint  -- where this row saves, read off the row rather than off
+                 the page: an animé's page writes each date to that
+                 evening's own endpoint, which is the endpoint its sheet
+                 already writes to.
+    status    -- the Value\PresenceStatus the row is in.
+    statuses  -- the four, in the order every screen offers them.
+    comment   -- string|null, what the staff wrote beside it.
+    subject   -- what the row is about, read after the state's label by a
+                 screen reader (« Hargot, Basile », « 13 septembre —
+                 Réunion »): a page of identically-named « Présent »
+                 buttons is unusable without it.
+
+  Block `heading` -- the row's left-hand side, the one thing the two
+  screens do not share (a name and a totem there, a date and an evening
+  here).
+#}
+<article class="card presence-line"
+         data-row-id="{{ row_id }}"
+         data-member-id="{{ member_id }}"
+         data-endpoint="{{ endpoint }}"
+         data-status="{{ status.value }}">
+    <div class="card-body p-2">
+        <div class="d-flex flex-column flex-sm-row align-items-sm-center gap-2">
+            <div class="flex-grow-1 text-truncate">
+                {% block heading %}{% endblock %}
+            </div>
+            {# Quatre cibles larges, toujours visibles : un menu déroulant
+               demanderait deux gestes par ligne, debout, pour vingt-cinq
+               noms. #}
+            <div class="btn-group flex-shrink-0">
+                {% for state in statuses %}
+                    <button type="button"
+                            class="btn tap-target presence-state {{ status.value == state.value ? 'btn-' ~ state.tone : 'btn-outline-secondary' }}"
+                            data-status="{{ state.value }}" data-tone="{{ state.tone }}"
+                            aria-pressed="{{ status.value == state.value ? 'true' : 'false' }}"
+                            title="{{ state.label }}"
+                            aria-label="{{ state.label }} — {{ subject }}">
+                        <i class="bi {{ state.icon }}" aria-hidden="true"></i>
+                    </button>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="mt-2 presence-comment-panel{{ comment ? '' : ' d-none' }}">
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'presence-comment-' ~ row_id,
+                label: 'Commentaire — ' ~ subject,
+                label_visually_hidden: true,
+                type: 'textarea',
+                rows: 2,
+                size: 'sm',
+                value: comment,
+                maxlength: 500,
+                placeholder: 'Commentaire (visible du staff uniquement)',
+                wrapper_class: 'mb-0',
+                control_class_extra: 'presence-comment',
+            } only %}
+        </div>
+        <button type="button"
+                class="btn btn-link btn-sm p-0 mt-1 presence-comment-toggle{{ comment ? ' d-none' : '' }}">
+            <i class="bi bi-chat-left-text" aria-hidden="true"></i> Ajouter un commentaire
+        </button>
+    </div>
+</article>

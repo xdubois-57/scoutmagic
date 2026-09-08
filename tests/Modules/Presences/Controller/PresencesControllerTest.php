@@ -344,6 +344,84 @@ class PresencesControllerTest extends TestCase
         );
     }
 
+    /**
+     * The animé's page is not a read-only report: « je veux aussi être
+     * capable de changer ses présences par date et mettre un commentaire ».
+     * The controls are the sheet's own partial, so what is asserted here is
+     * that the page draws them at all — the four states, the comment field,
+     * and the endpoint each date writes to.
+     */
+    public function testAnAnimesPageIsEditableDateByDate(): void
+    {
+        $this->signIn('akela@test.be', 'chief');
+
+        $body = $this->handle(new Request(
+            'GET', '/chefs/presences/anime/' . $this->animeA, [], [], [], []
+        ))->getBody();
+
+        $this->assertStringContainsString('class="card presence-line"', $body);
+        // The date still names its evening and still leads to its sheet:
+        // the row's heading is the one thing the two screens do not share,
+        // so it is the one thing an embed can silently drop.
+        $this->assertStringContainsString('Réunion', $body);
+        $this->assertStringContainsString('/chefs/presences/feuille/' . $this->eventA . '"', $body);
+        $this->assertStringContainsString('presence-state', $body);
+        $this->assertStringContainsString('presence-comment', $body);
+        $this->assertStringContainsString('Ajouter un commentaire', $body);
+        foreach (['Présent', 'Excusé', 'Absent', 'Non renseigné'] as $label) {
+            $this->assertStringContainsString($label, $body);
+        }
+    }
+
+    /**
+     * The one that ties the page to the write path: the endpoint the page
+     * puts on a date is READ BACK OUT OF THE PAGE and posted to, so a
+     * template that starts writing somewhere else fails here rather than
+     * in a browser. Both screens share `record()` on purpose — one write
+     * path, one authorization check.
+     */
+    public function testADateChangedOnAnAnimesPageIsRecordedThroughTheSheetsEndpoint(): void
+    {
+        $this->signIn('akela@test.be', 'chief');
+
+        $body = $this->handle(new Request(
+            'GET', '/chefs/presences/anime/' . $this->animeA, [], [], [], []
+        ))->getBody();
+        $this->assertSame(1, preg_match('/data-endpoint="([^"]+)"/', $body, $matches));
+        $this->assertSame('/chefs/presences/feuille/' . $this->eventA . '/enregistrer', $matches[1]);
+
+        $response = $this->handle($this->jsonPostTo($matches[1], [
+            'member_id' => $this->animeA,
+            'status' => 'excused',
+            '_csrf_token' => CsrfGuard::generateToken(),
+        ]));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(
+            PresenceStatus::EXCUSED,
+            (new PresenceRepository($this->pdo, $this->encryption))->find($this->eventA, $this->animeA)?->status
+        );
+    }
+
+    /**
+     * What is already stored comes back INTO the controls rather than
+     * beside them, so a correction starts from what is there.
+     */
+    public function testAnAnimesPageOpensOnWhatWasAlreadyRecorded(): void
+    {
+        $this->signIn('akela@test.be', 'chief');
+        $repository = new PresenceRepository($this->pdo, $this->encryption);
+        $repository->saveStatus($this->eventA, $this->animeA, PresenceStatus::ABSENT, null);
+        $repository->saveComment($this->eventA, $this->animeA, 'Sa maman a prévenu.', null);
+
+        $body = $this->handle(new Request(
+            'GET', '/chefs/presences/anime/' . $this->animeA, [], [], [], []
+        ))->getBody();
+
+        $this->assertStringContainsString('data-status="absent"', $body);
+        $this->assertStringContainsString('Sa maman a prévenu.', $body);
+    }
+
     public function testAnAnimeOfAnotherSectionIsNotFound(): void
     {
         $this->signIn('akela@test.be', 'chief');
@@ -556,10 +634,19 @@ class PresencesControllerTest extends TestCase
      */
     private function jsonPost(int $eventId, array $payload): Request
     {
+        return $this->jsonPostTo('/chefs/presences/feuille/' . $eventId . '/enregistrer', $payload);
+    }
+
+    /**
+     * The same write, aimed at a path taken from somewhere else — a page
+     * that says where it writes, rather than a path this file spells.
+     *
+     * @param array<string, mixed> $payload
+     */
+    private function jsonPostTo(string $path, array $payload): Request
+    {
         $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs([
-                'POST', '/chefs/presences/feuille/' . $eventId . '/enregistrer', [], [], [], [],
-            ])
+            ->setConstructorArgs(['POST', $path, [], [], [], []])
             ->onlyMethods(['getRawBody'])
             ->getMock();
         $request->method('getRawBody')->willReturn((string) json_encode($payload));
