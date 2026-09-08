@@ -57,53 +57,26 @@
         <div class="d-flex flex-column gap-2" id="presences-lines">
             {% for line in sheet.lines %}
                 {% set line_name = line.lastName|normalize_name ~ ', ' ~ line.firstName|normalize_name %}
-                <article class="card presence-line" data-member-id="{{ line.memberId }}"
-                         data-status="{{ line.status.value }}">
-                    <div class="card-body p-2">
-                        <div class="d-flex flex-column flex-sm-row align-items-sm-center gap-2">
-                            <p class="mb-0 flex-grow-1 text-truncate">
-                                <strong>{{ line.lastName|normalize_name }}</strong>, {{ line.firstName|normalize_name }}
-                                {%- if line.totem %} · <span class="text-body-secondary">{{ line.totem|normalize_totem }}</span>{% endif %}
-                            </p>
-                            {# Quatre cibles larges, toujours visibles : un
-                               menu déroulant demanderait deux gestes par
-                               animé, debout, pour vingt-cinq noms. #}
-                            <div class="btn-group flex-shrink-0">
-                                {% for status in statuses %}
-                                    <button type="button"
-                                            class="btn tap-target presence-state {{ line.status.value == status.value ? 'btn-' ~ status.tone : 'btn-outline-secondary' }}"
-                                            data-status="{{ status.value }}" data-tone="{{ status.tone }}"
-                                            aria-pressed="{{ line.status.value == status.value ? 'true' : 'false' }}"
-                                            title="{{ status.label }}"
-                                            aria-label="{{ status.label }} — {{ line_name }}">
-                                        <i class="bi {{ status.icon }}" aria-hidden="true"></i>
-                                    </button>
-                                {% endfor %}
-                            </div>
-                        </div>
-
-                        <div class="mt-2 presence-comment-panel{{ line.comment ? '' : ' d-none' }}">
-                            {% include 'partials/form_field.html.twig' with {
-                                field_id: 'presence-comment-' ~ line.memberId,
-                                label: 'Commentaire — ' ~ line_name,
-                                label_visually_hidden: true,
-                                type: 'textarea',
-                                rows: 2,
-                                size: 'sm',
-                                value: line.comment,
-                                maxlength: 500,
-                                placeholder: 'Commentaire (visible du staff uniquement)',
-                                wrapper_class: 'mb-0',
-                                control_class_extra: 'presence-comment',
-                                data: { 'member-id': line.memberId },
-                            } only %}
-                        </div>
-                        <button type="button"
-                                class="btn btn-link btn-sm p-0 mt-1 presence-comment-toggle{{ line.comment ? ' d-none' : '' }}">
-                            <i class="bi bi-chat-left-text" aria-hidden="true"></i> Ajouter un commentaire
-                        </button>
-                    </div>
-                </article>
+                {# La ligne elle-même est partagée avec la page d'un animé
+                   (@presences/partials/_presence_line.html.twig) : mêmes
+                   boutons, même commentaire, même enregistrement. #}
+                {% embed '@presences/partials/_presence_line.html.twig' with {
+                    row_id: line.memberId,
+                    member_id: line.memberId,
+                    endpoint: '/chefs/presences/feuille/' ~ sheet.eventId ~ '/enregistrer',
+                    status: line.status,
+                    statuses: statuses,
+                    comment: line.comment,
+                    subject: line_name,
+                    line: line,
+                } only %}
+                    {% block heading %}
+                        <p class="mb-0 text-truncate">
+                            <strong>{{ line.lastName|normalize_name }}</strong>, {{ line.firstName|normalize_name }}
+                            {%- if line.totem %} · <span class="text-body-secondary">{{ line.totem|normalize_totem }}</span>{% endif %}
+                        </p>
+                    {% endblock %}
+                {% endembed %}
             {% endfor %}
         </div>
 
@@ -113,16 +86,9 @@
             « Non renseigné » se vide à mesure qu'on la traite. Les commentaires ne sont visibles que
             du staff de la section, jamais de la famille.
         </p>
-
-        <script type="application/json" id="presences-sheet-data">
-            {{ {
-                endpoint: '/chefs/presences/feuille/' ~ sheet.eventId ~ '/enregistrer',
-                total: sheet.total(),
-            }|json_encode|raw }}
-        </script>
     {% endif %}
 {% endblock %}
 
 {% block scripts %}
-    <script src="{{ asset('/assets/js/presences-sheet.js') }}" defer nonce="{{ csp_nonce }}"></script>
+    <script src="{{ asset('/assets/js/presences-lines.js') }}" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

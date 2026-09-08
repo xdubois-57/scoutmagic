@@ -46,45 +46,63 @@
         </section>
     {% endif %}
 
-    {# Le détail évènement par évènement, avec les commentaires : c'est ce
-       qu'on relit avant d'appeler une famille, et ça ne tenait pas dans un
-       panneau dépliant. #}
-    <section class="card mb-3">
-        <div class="card-header">
-            <h2 class="h6 mb-0">Historique</h2>
-        </div>
+    {# Les tuiles et le graphique sont calculés à l'ouverture de la page, et
+       rien ne les recalcule sous les doigts : le dire vaut mieux que laisser
+       lire un taux périmé. Masqué tant que rien n'a bougé, et juste sous les
+       chiffres dont il parle. #}
+    <output class="alert alert-info d-none d-flex align-items-start gap-2" id="presences-stale">
+        <i class="bi bi-arrow-clockwise flex-shrink-0 mt-1" aria-hidden="true"></i>
+        <span>
+            Les taux et le graphique ci-dessus datent de l'ouverture de la page.
+            <a href="/chefs/presences/anime/{{ profile.memberId }}">Recharger la page</a> pour les recalculer.
+        </span>
+    </output>
+
+    {# Le détail date par date, avec les commentaires : c'est ce qu'on relit
+       avant d'appeler une famille — et c'est aussi là qu'on corrige, sans
+       ouvrir la feuille de chaque soirée. Les lignes sont exactement celles
+       de la feuille d'un évènement (@presences/partials/_presence_line.html.twig) :
+       une correction se fait du même geste des deux côtés. #}
+    <section class="mb-3">
+        <h2 class="h6">Historique</h2>
+
         {% if profile.history is empty %}
-            <div class="card-body">
-                {% include 'partials/empty_state.html.twig' with {
-                    message: 'Aucun évènement au calendrier de la section cette année scoute.',
-                    compact: true,
-                } only %}
-            </div>
+            {% include 'partials/empty_state.html.twig' with {
+                message: 'Aucun évènement au calendrier de la section cette année scoute.',
+                compact: true,
+            } only %}
         {% else %}
-            <ul class="list-group list-group-flush">
+            <div class="d-flex flex-column gap-2" id="presences-lines">
                 {% for entry in profile.history %}
-                    <li class="list-group-item">
-                        <div class="d-flex align-items-center gap-2">
+                    {% embed '@presences/partials/_presence_line.html.twig' with {
+                        row_id: entry.eventId,
+                        member_id: profile.memberId,
+                        endpoint: '/chefs/presences/feuille/' ~ entry.eventId ~ '/enregistrer',
+                        status: entry.status,
+                        statuses: statuses,
+                        comment: entry.comment,
+                        subject: entry.startDate|date_fr ~ ' — ' ~ entry.title,
+                        entry: entry,
+                    } only %}
+                        {% block heading %}
                             <a href="/chefs/presences/feuille/{{ entry.eventId }}"
-                               class="flex-grow-1 text-truncate text-decoration-none text-body">
+                               class="d-block text-truncate text-decoration-none text-body">
                                 <span class="text-body-secondary small">{{ entry.startDate|date_fr }}</span>
                                 {{ entry.title }}
                             </a>
-                            <span class="badge text-bg-{{ entry.status.tone }} flex-shrink-0">{{ entry.status.label }}</span>
-                        </div>
-                        {% if entry.comment %}
-                            <p class="small text-body-secondary mb-0 mt-1">
-                                <i class="bi bi-chat-left-text" aria-hidden="true"></i> {{ entry.comment }}
-                            </p>
-                        {% endif %}
-                    </li>
+                        {% endblock %}
+                    {% endembed %}
                 {% endfor %}
-            </ul>
-        {% endif %}
-        {% if profile.historyTruncated %}
-            <div class="card-footer small text-body-secondary">
-                {{ history_limit }} derniers évènements. L'export Excel de la section porte l'année entière.
             </div>
+
+            <p class="text-body-secondary small mt-3 mb-0">
+                L'enregistrement est automatique — il n'y a pas de bouton « Enregistrer », et sans réseau rien
+                n'est conservé. Le nom de la soirée mène à sa feuille complète, pour pointer toute la section.
+                {% if profile.historyTruncated %}
+                    Seuls les {{ history_limit }} derniers évènements sont affichés ; l'export Excel de la
+                    section porte l'année entière.
+                {% endif %}
+            </p>
         {% endif %}
     </section>
 
@@ -95,4 +113,8 @@
         Cette page n'est jamais visible par la famille — pas plus que les commentaires qu'elle porte.
         Elle sert à préparer une conversation, pas à la remplacer.
     </p>
+{% endblock %}
+
+{% block scripts %}
+    <script src="{{ asset('/assets/js/presences-lines.js') }}" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

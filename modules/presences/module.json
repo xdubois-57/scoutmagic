@@ -2,7 +2,7 @@
   "id": "presences",
   "name": "Présences",
   "description": "Feuille de présence par évènement de section : quatre états par animé, commentaire chiffré, et registre annuel de la section.",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "requires": ["calendar"],
   "routes": [
     {
