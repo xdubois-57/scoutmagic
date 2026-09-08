@@ -105,14 +105,9 @@ final class HelpDiscoveryInvariantsTest extends TestCase
     public function testEveryDeclaredDiscoveryValueIsOneTheCharterAllows(): void
     {
         $offenders = [];
-        foreach (self::shippedFiles() as $file) {
-            foreach (explode("\n", (string) file_get_contents($file)) as $line) {
-                if (str_starts_with($line, 'discovery:')) {
-                    $value = trim(substr($line, strlen('discovery:')));
-                    if (DiscoveryPriority::tryFrom($value) === null) {
-                        $offenders[] = basename($file) . ' declares discovery: ' . $value;
-                    }
-                }
+        foreach (self::declaredDiscoveryValues() as [$file, $value]) {
+            if (DiscoveryPriority::tryFrom($value) === null) {
+                $offenders[] = $file . ' declares discovery: ' . $value;
             }
         }
 
@@ -127,11 +122,9 @@ final class HelpDiscoveryInvariantsTest extends TestCase
     public function testNoTopicSpellsOutTheDefault(): void
     {
         $offenders = [];
-        foreach (self::shippedFiles() as $file) {
-            foreach (explode("\n", (string) file_get_contents($file)) as $line) {
-                if (trim($line) === 'discovery: 2') {
-                    $offenders[] = basename($file);
-                }
+        foreach (self::declaredDiscoveryValues() as [$file, $value]) {
+            if ($value === DiscoveryPriority::Normal->value) {
+                $offenders[] = $file;
             }
         }
 
@@ -140,6 +133,37 @@ final class HelpDiscoveryInvariantsTest extends TestCase
             $offenders,
             "The default is written by leaving the key out (design.md §7.11):\n  " . implode("\n  ", $offenders)
         );
+    }
+
+    /**
+     * Every `discovery` value the corpus declares, read the way
+     * Core\Help\HelpFrontMatterParser reads it: the line trimmed, split
+     * on its FIRST colon, key and value trimmed in turn.
+     *
+     * One reader for both tests above, and that is the point rather than
+     * tidiness. They were two near-copies, and each had drifted its own
+     * way: one matched `discovery:` only at column zero, the other
+     * compared the whole line against the single-space spelling, so
+     * `discovery:2` and `discovery:  2` parsed as the default and escaped
+     * the test forbidding it. A check that reads the file differently
+     * from the parser is a check about a file nobody ships.
+     *
+     * @return array<int, array{0: string, 1: string}> file name, declared value
+     */
+    private static function declaredDiscoveryValues(): array
+    {
+        $declared = [];
+        foreach (self::shippedFiles() as $file) {
+            foreach (explode("\n", (string) file_get_contents($file)) as $line) {
+                $trimmed = trim($line);
+                $colon = strpos($trimmed, ':');
+                if ($colon !== false && trim(substr($trimmed, 0, $colon)) === 'discovery') {
+                    $declared[] = [basename($file), trim(substr($trimmed, $colon + 1))];
+                }
+            }
+        }
+
+        return $declared;
     }
 
     /**
