@@ -42,8 +42,12 @@ composer install                      # dépendances dev incluses : le builder
 php tests/fixtures/reference-dataset/build.php --yes --root=/chemin/instance
 ```
 
-`--reset` vide d'abord l'installation cible ; ne jamais viser autre chose
-qu'une instance jetable. `scripts/e2e-support.php provision` en fabrique une.
+`--reset` vide d'abord l'installation cible — mais pas entièrement : il
+épargne `settings` (donc `current_scout_year_id`) et `module_registry`, si
+bien qu'une instance « remise à zéro » n'est pas une instance neuve (#212).
+Quand la reproduction dépend de ces réglages, repartir d'une instance
+fraîchement provisionnée. Ne jamais viser autre chose qu'une instance
+jetable. `scripts/e2e-support.php provision` en fabrique une.
 Les comptes de démonstration et leur mot de passe sont dans
 `tests/fixtures/reference-dataset/README.md`.
 
@@ -275,8 +279,9 @@ croisée, à confirmer sur instance) :
 **Question** : un utilisateur qui a le bon rôle peut-il atteindre l'objet d'un
 autre en changeant un identifiant dans l'URL ?
 
-**Périmètre** : toutes les routes dont le chemin porte un `{id}` — soit
-l'essentiel des 520 routes déclarées.
+**Périmètre** : toutes les routes dont le chemin porte un `{id}` — soit 294
+des 650 routes déclarées (176 dans `public/index.php`, 474 dans les 22
+`module.json`).
 
 **Ce qui est déjà couvert, et pourquoi ça ne suffit pas** : la matrice ZAP
 rejoue chaque route sous chaque rôle et compare au `role_min` déclaré. Elle
@@ -466,7 +471,8 @@ d'articles ou de fichiers ?
 plancher payé par chaque requête et l'a traité. Celui-ci cherche autre chose :
 les requêtes dont le coût dépend d'une donnée que l'unité fait grossir, y
 compris sur des pages que la campagne de mesure n'a pas ouvertes. Ne pas
-re-mesurer ce qui l'a été ; lire le §5 de ce fichier avant de commencer.
+re-mesurer ce qui l'a été ; lire le §5 de `CHANTIER-performance.md` — son
+journal, qui dit ce qui a déjà été mesuré — avant de commencer.
 
 **Ce qui doit être vérifié** :
 
@@ -511,14 +517,17 @@ scheduler est donc tenu. Les handlers des modules le sont beaucoup moins.
 **Ce qui doit être vérifié, handler par handler** :
 
 - **Idempotence** : le rejouer produit-il le même état, ou un doublon ? Le
-  poor man's cron n'a pas de garantie d'exécution unique en cas de crash après
-  effet et avant marquage.
+  planificateur ne marque une tâche « faite » qu'après le retour de
+  `handle()` : un arrêt brutal entre l'effet et ce marquage rejoue tout le
+  handler, sans garantie d'exécution unique.
 - **Reprise** : un handler qui dépasse son budget de temps reprend-il là où il
   s'est arrêté, ou recommence-t-il ? Un traitement qui recommence sur une
   unité de 1 500 membres ne finit jamais.
-- **Ce qui se passe quand personne ne visite le site** : `poor_mans_cron`
-  n'avance que sur visite. Toute fonction dépendant d'une heure précise
-  (redirection SOS, digest, rappel) doit le dire dans son écran de
+- **Ce qui se passe quand le crontab manque ou est mal réglé** : le poor man's
+  cron a été retiré (`public/index.php`), un vrai crontab est désormais une
+  exigence — mais rien ne garantit qu'il tourne réellement chez l'hébergeur, et
+  une tâche ne s'exécute alors jamais. Toute fonction dépendant d'une heure
+  précise (redirection SOS, digest, rappel) doit le dire dans son écran de
   configuration. Vérifier que l'avertissement existe là où il est nécessaire.
 - **L'échec est-il visible ?** Une tâche qui échoue en silence est la
   défaillance que `docs/quality-pipeline.md` documente à longueur de page.
