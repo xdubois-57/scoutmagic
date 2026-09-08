@@ -1087,20 +1087,19 @@ Corps en Markdown…
   topic is describing a screen instead of documenting a task**: rewrite it
   rather than pad the list. `tests/Core/Help/HelpInvariantsTest` enforces
   all of it.
-- `discovery` (optionnel) : où le sujet se place dans les astuces
-  « Le saviez-vous ? » (ARCHITECTURE.md §8.95). `1` pour une capacité
-  qu'une personne peut ignorer et qui lui fait gagner du temps — ce sera
-  une de ses premières cartes ; `3` pour un cas particulier ou la variante
-  d'un sujet déjà en `1` ; `off` pour ce qui ne se découvre pas — hygiène
-  de compte, obligation légale, opération technique, qui se consultent au
-  moment voulu. Le défaut est `2` et **ne s'écrit pas** : l'absence de clé
-  vaut 2, et le test refuse la valeur écrite en toutes lettres. Une valeur
-  inconnue est une erreur de chargement, exactement comme un `role_min`
-  inconnu, et pour la même raison : une rétrogradation silencieuse
-  transforme une faute de frappe en sujet qui n'apparaît jamais. La charte
-  qui décide de la valeur est design.md §7.11 ;
-  `tests/Core/Help/HelpDiscoveryInvariantsTest` tient le plancher (trois
-  `1` par plancher de rôle) et le plafond.
+- `discovery` (optional): where the topic sits in the « Le saviez-vous ? »
+  running order (ARCHITECTURE.md §8.95). `1` for a capability somebody can
+  plainly not know about and that saves them time — it will be one of
+  their first cards; `3` for a special case, or a variant of a topic
+  already tagged `1`; `off` for what is never discovered — account
+  hygiene, a legal obligation, a technical operation, each consulted at
+  the moment it is needed. The default is `2` and **is never written**: an
+  absent key already means it, and the test refuses the value spelled out.
+  An unknown value is a load error, exactly like an unknown `role_min` and
+  for the same reason — a silent downgrade turns a typo into a topic that
+  never appears. The charter that decides which value a topic carries is
+  design.md §7.11; `tests/Core/Help/HelpDiscoveryInvariantsTest` holds the
+  floor (three `1`s per role floor) and the ceiling.
 - **Quote a control exactly as the screen writes it.** A topic that says
   « à catégoriser » where the page shows « À catégoriser » is already
   drifting, and `tests/Core/Help/HelpLabelDriftTest` fails on a citation
