@@ -663,8 +663,8 @@ rôle, les pages des objets semés (`/news` et chaque article, `/sections`,
 
 **Périmètre parcouru** : les 294 routes portant un paramètre (sur 650
 déclarées dans `public/index.php` et les 22 `module.json`), lues contrôleur
-par contrôleur jusqu'au service qui résout l'objet — 41 du cœur, 83 de
-`finance`/`registration`/`rental`/`fees`/`attestations`, 178 des autres
+par contrôleur jusqu'au service qui résout l'objet — 40 du cœur, 83 de
+`finance`/`registration`/`rental`/`fees`/`attestations`, 171 des autres
 modules — pour répondre à une question par route : après le garde de rôle,
 quelle méthode confronte l'objet à l'appelant, et répond-elle pareil à
 « interdit » et à « inexistant ». Puis, sur l'instance de l'itération 1
