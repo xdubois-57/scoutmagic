@@ -29,7 +29,6 @@ use Tests\Modules\Calendar\CalendarTestHelper;
  */
 class PresencesTestHelper
 {
-    /** Mirrors modules/presences/schema.sql on SQLite. */
     /**
      * The SQLite mirror of `modules/presences/schema.sql`, translated only
      * where SQLite requires it: `INTEGER PRIMARY KEY AUTOINCREMENT` for
@@ -39,6 +38,14 @@ class PresencesTestHelper
      * `idx_presences_member` and the foreign-key actions are production's
      * own: a suite passing against a laxer schema than the server proves
      * less than it looks.
+     *
+     * Which is also why `short_code` carries a CHECK rather than only its
+     * `VARCHAR(16)`: SQLite records a declared length and enforces none of
+     * it, so without the CHECK the mirror would accept a code MySQL
+     * truncates or rejects. Codes are six characters
+     * (`Core\Url\ShortUrlService::CODE_LENGTH`) — the sixteen is headroom,
+     * and headroom is exactly the kind of bound a test schema stops
+     * checking without anybody noticing.
      */
     public static function createTables(\PDO $pdo): void
     {
@@ -63,7 +70,7 @@ class PresencesTestHelper
         $pdo->exec('CREATE TABLE presences_event_links (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             calendar_event_id INTEGER NOT NULL UNIQUE,
-            short_code VARCHAR(16) NOT NULL UNIQUE,
+            short_code VARCHAR(16) NOT NULL UNIQUE CHECK (length(short_code) <= 16),
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )');
     }

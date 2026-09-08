@@ -111,4 +111,19 @@ class PresenceEventCleanupServiceTest extends TestCase
 
         $this->assertSame([], $this->repository->findByEvent(999));
     }
+
+    /**
+     * The SQLite mirror has to refuse the codes production refuses, and
+     * SQLite enforces nothing from a declared `VARCHAR(16)` — so the bound
+     * lives in a CHECK, and this is what keeps it there. Delete the CHECK
+     * from `PresencesTestHelper` and only this test says so; every other
+     * test in the suite passes either way, which is precisely how a test
+     * schema drifts laxer than the server it stands in for.
+     */
+    public function testTheMirrorRefusesACodeLongerThanProductionAccepts(): void
+    {
+        $this->expectException(\PDOException::class);
+
+        $this->links->rememberCode(10, str_repeat('K', 17));
+    }
 }
