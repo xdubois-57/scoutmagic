@@ -1,0 +1,128 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{% extends 'base.html.twig' %}
+{% block title %}{{ sheet.title }} — Présences — {{ param('site_name') }}{% endblock %}
+
+{% block content %}
+    {% include 'partials/page_header.html.twig' with {
+        title: sheet.title,
+        badge: scout_year_label,
+        subtitle: sheet.startDate|french_date ~ ' · ' ~ sheet.sectionLabel,
+    } only %}
+
+    {# L'avertissement est EN TÊTE, pas en pied : le découvrir après avoir
+       pointé vingt-cinq noms est le pire moment. #}
+    <div class="alert alert-warning d-flex align-items-start gap-2" role="alert">
+        <i class="bi bi-wifi-off flex-shrink-0 mt-1" aria-hidden="true"></i>
+        <div>
+            <strong>Une connexion est nécessaire.</strong> Chaque appui est enregistré immédiatement —
+            sans réseau, rien n'est conservé. Vérifiez avant de commencer.
+        </div>
+    </div>
+
+    {% if sheet.lines is empty %}
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucun animé dans cette section pour cette année scoute.',
+            icon: 'bi-people',
+        } only %}
+    {% else %}
+        {# Les compteurs se mettent à jour à chaque appui ET filtrent la
+           liste au clic : en fin de réunion on tape « Non renseigné » et il
+           ne reste que ceux qu'on n'a pas traités. #}
+        <div class="row row-cols-4 g-2 mb-2" id="presences-counters">
+            {% for status in statuses %}
+                <div class="col">
+                    <button type="button"
+                            class="btn btn-outline-secondary w-100 h-100 px-1 py-2 presence-filter tap-target"
+                            data-status="{{ status.value }}" data-tone="{{ status.tone }}"
+                            aria-pressed="false">
+                        <span class="d-block fs-5 fw-semibold lh-1 presence-filter-count">{{ counts[status.value] }}</span>
+                        <span class="d-block small lh-sm">{{ status.label }}</span>
+                    </button>
+                </div>
+            {% endfor %}
+        </div>
+
+        {# Aucune tuile ne peut dire « 2 affichés sur 10 » : cette barre le
+           dit, et elle est aussi le chemin de retour. #}
+        <p class="d-none mb-2" id="presences-filter-bar">
+            <button type="button" class="btn btn-outline-secondary w-100" id="presences-clear-filter">
+                <i class="bi bi-x-lg" aria-hidden="true"></i>
+                <span id="presences-filter-summary"></span>
+            </button>
+        </p>
+
+        <div class="d-flex flex-column gap-2" id="presences-lines">
+            {% for line in sheet.lines %}
+                {% set line_name = line.lastName|normalize_name ~ ', ' ~ line.firstName|normalize_name %}
+                <article class="card presence-line" data-member-id="{{ line.memberId }}"
+                         data-status="{{ line.status.value }}">
+                    <div class="card-body p-2">
+                        <div class="d-flex flex-column flex-sm-row align-items-sm-center gap-2">
+                            <p class="mb-0 flex-grow-1 text-truncate">
+                                <strong>{{ line.lastName|normalize_name }}</strong>, {{ line.firstName|normalize_name }}
+                                {%- if line.totem %} · <span class="text-body-secondary">{{ line.totem|normalize_totem }}</span>{% endif %}
+                            </p>
+                            {# Quatre cibles larges, toujours visibles : un
+                               menu déroulant demanderait deux gestes par
+                               animé, debout, pour vingt-cinq noms. #}
+                            <div class="btn-group flex-shrink-0">
+                                {% for status in statuses %}
+                                    <button type="button"
+                                            class="btn tap-target presence-state {{ line.status.value == status.value ? 'btn-' ~ status.tone : 'btn-outline-secondary' }}"
+                                            data-status="{{ status.value }}" data-tone="{{ status.tone }}"
+                                            aria-pressed="{{ line.status.value == status.value ? 'true' : 'false' }}"
+                                            title="{{ status.label }}"
+                                            aria-label="{{ status.label }} — {{ line_name }}">
+                                        <i class="bi {{ status.icon }}" aria-hidden="true"></i>
+                                    </button>
+                                {% endfor %}
+                            </div>
+                        </div>
+
+                        <div class="mt-2 presence-comment-panel{{ line.comment ? '' : ' d-none' }}">
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'presence-comment-' ~ line.memberId,
+                                label: 'Commentaire — ' ~ line_name,
+                                label_visually_hidden: true,
+                                type: 'textarea',
+                                rows: 2,
+                                size: 'sm',
+                                value: line.comment,
+                                maxlength: 500,
+                                placeholder: 'Commentaire (visible du staff uniquement)',
+                                wrapper_class: 'mb-0',
+                                control_class_extra: 'presence-comment',
+                                data: { 'member-id': line.memberId },
+                            } only %}
+                        </div>
+                        <button type="button"
+                                class="btn btn-link btn-sm p-0 mt-1 presence-comment-toggle{{ line.comment ? ' d-none' : '' }}">
+                            <i class="bi bi-chat-left-text" aria-hidden="true"></i> Ajouter un commentaire
+                        </button>
+                    </div>
+                </article>
+            {% endfor %}
+        </div>
+
+        <p class="text-body-secondary small mt-3 mb-0">
+            L'enregistrement est automatique — il n'y a pas de bouton « Enregistrer ». Un animé qui change d'état
+            alors qu'un filtre est actif <strong>sort de la liste</strong> — c'est voulu : la liste
+            « Non renseigné » se vide à mesure qu'on la traite. Les commentaires ne sont visibles que
+            du staff de la section, jamais de la famille.
+        </p>
+
+        <script type="application/json" id="presences-sheet-data">
+            {{ {
+                endpoint: '/chefs/presences/feuille/' ~ sheet.eventId ~ '/enregistrer',
+                total: sheet.total(),
+            }|json_encode|raw }}
+        </script>
+    {% endif %}
+{% endblock %}
+
+{% block scripts %}
+    <script src="{{ asset('/assets/js/presences-sheet.js') }}" defer nonce="{{ csp_nonce }}"></script>
+{% endblock %}

@@ -34,6 +34,7 @@ class CalendarEventServiceTest extends TestCase
     private \PDO $pdo;
     private CalendarEventService $service;
     private CalendarService $calendarService;
+    private CalendarNotificationService $notificationService;
     private int $calendarId;
 
     protected function setUp(): void
@@ -58,6 +59,7 @@ class CalendarEventServiceTest extends TestCase
             $this->calendarService,
             $eventRepository
         );
+        $this->notificationService = $notificationService;
         $this->service = new CalendarEventService($eventRepository, $this->calendarService, $notificationService);
 
         $this->calendarId = $calendarRepository->createSupplementaryCalendar('Animateurs', true, Calendar::VISIBILITY_PUBLIC, 'tok');
@@ -474,5 +476,47 @@ class CalendarEventServiceTest extends TestCase
 
         $this->expectException(CalendarException::class);
         $this->service->createEvent($anyCalendar, 'Permanence SOS', '2026-03-15', null, null, null, null, null, null);
+    }
+
+    /**
+     * Deleting an evening has to take its attendance sheet with it, and
+     * nothing at the database level can do that: `presences_records`
+     * carries no foreign key into `calendar_events`, because a module
+     * never constrains another module's table. So the call has to be
+     * here, before the row goes — or the states and the encrypted
+     * comments of a deleted evening stay in the table for ever,
+     * unreachable from any screen and therefore never erased.
+     */
+    public function testDeletingAnEventTellsPresencesToForgetIt(): void
+    {
+        $cleanup = $this->createMock(\Modules\Presences\Api\PresenceEventCleanupInterface::class);
+        $service = new CalendarEventService(
+            new CalendarEventRepository($this->pdo),
+            $this->calendarService,
+            $this->notificationService,
+            null,
+            $cleanup
+        );
+        $event = $service->createEvent(
+            $this->calendarId, 'Réunion', '2026-03-15', null, null, null, null, null, null, false, Role::CHIEF
+        );
+        $cleanup->expects($this->once())->method('forgetEvent')->with($event->id);
+
+        $service->deleteEvent($event->id, Role::CHIEF);
+    }
+
+    /**
+     * And with the module off there is nothing to forget: the calendar
+     * deletes exactly as it always did.
+     */
+    public function testDeletingAnEventWithoutPresencesIsTheDeleteItAlwaysWas(): void
+    {
+        $event = $this->service->createEvent(
+            $this->calendarId, 'Réunion', '2026-03-15', null, null, null, null, null, null, false, Role::CHIEF
+        );
+
+        $this->service->deleteEvent($event->id, Role::CHIEF);
+
+        $this->assertNull((new CalendarEventRepository($this->pdo))->findById($event->id));
     }
 }

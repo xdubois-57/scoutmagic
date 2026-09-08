@@ -464,6 +464,37 @@ class SectionService
     }
 
     /**
+     * getSectionAnimeMemberYearIds()'s twin, in the PERSISTENT identity:
+     * the `members.id` of a section's animés for one scout year, from the
+     * same single definition of « animé of this section » and the same
+     * single query.
+     *
+     * Same reason as its sibling, applied to a table keyed on
+     * `members.id` rather than on `member_years.id` — `presences_records`
+     * is the first one (ARCHITECTURE.md §4: an attendance record must
+     * survive the September that saw it written). The attendance sheet
+     * re-checks « is this animé one of THIS section's » on every tap, and
+     * answering that through getSectionAnimes() would hydrate and decrypt
+     * every animé of the section for each of twenty-five names.
+     *
+     * @return int[]
+     */
+    public function getSectionAnimeMemberIds(int $sectionId, int $scoutYearId): array
+    {
+        $stmt = $this->connection->getPdo()->prepare(
+            'SELECT DISTINCT my.member_id
+             FROM member_functions mf
+             JOIN member_years my ON mf.member_year_id = my.id
+             JOIN functions f ON mf.function_id = f.id
+             WHERE mf.section_id = ? AND my.scout_year_id = ? AND my.is_active = 1
+               AND f.role NOT IN (\'chief\', \'admin\', \'intendant\')'
+        );
+        $stmt->execute([$sectionId, $scoutYearId]);
+
+        return array_map(fn(array $row) => (int) $row['member_id'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
      * Update a section's configurable info (name, email).
      */
     public function updateSectionInfo(int $sectionId, ?string $name, ?string $email): void

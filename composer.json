@@ -46,6 +46,7 @@
             "Modules\\MassMail\\": "modules/mass_mail/src/",
             "Modules\\MemberStats\\": "modules/member_stats/src/",
             "Modules\\News\\": "modules/news/src/",
+            "Modules\\Presences\\": "modules/presences/src/",
             "Modules\\Registration\\": "modules/registration/src/",
             "Modules\\Rental\\": "modules/rental/src/",
             "Modules\\Retro\\": "modules/retro/src/",
