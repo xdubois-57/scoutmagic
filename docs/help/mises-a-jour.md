@@ -4,6 +4,7 @@ title: Mettre à jour le site
 summary: Vérifier, installer et automatiser les mises à jour.
 category: Configuration
 role_min: admin
+discovery: off
 question: Comment installer la dernière version du site ?
 question: Comment faire installer les mises à jour toutes seules ?
 paths: /config/maintenance

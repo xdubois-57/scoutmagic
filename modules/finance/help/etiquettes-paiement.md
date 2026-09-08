@@ -4,6 +4,7 @@ title: Distribuer des étiquettes de paiement
 summary: Imprimer une feuille d'étiquettes à découper, une par créance, avec son code QR de paiement.
 category: Espace animateurs
 role_min: intendant
+discovery: 1
 question: Comment imprimer des étiquettes de paiement à distribuer ?
 question: Comment donner un code QR de paiement sur papier ?
 paths: /finance/campaigns/*

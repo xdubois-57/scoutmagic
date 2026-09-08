@@ -4,6 +4,7 @@ title: Les documents et les photos d'un séjour
 summary: Joindre un contrat, une facture ou des photos, et qui peut les rouvrir ensuite.
 category: Espace animateurs
 role_min: chief
+discovery: 3
 question: Où déposer le contrat de location du terrain de camp ?
 question: Qui peut rouvrir les documents d'un camp passé ?
 paths: /chefs/camps/sejours/*/documents, /chefs/camps/sejours/*/photos

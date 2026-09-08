@@ -1087,6 +1087,20 @@ Corps en Markdown…
   topic is describing a screen instead of documenting a task**: rewrite it
   rather than pad the list. `tests/Core/Help/HelpInvariantsTest` enforces
   all of it.
+- `discovery` (optionnel) : où le sujet se place dans les astuces
+  « Le saviez-vous ? » (ARCHITECTURE.md §8.95). `1` pour une capacité
+  qu'une personne peut ignorer et qui lui fait gagner du temps — ce sera
+  une de ses premières cartes ; `3` pour un cas particulier ou la variante
+  d'un sujet déjà en `1` ; `off` pour ce qui ne se découvre pas — hygiène
+  de compte, obligation légale, opération technique, qui se consultent au
+  moment voulu. Le défaut est `2` et **ne s'écrit pas** : l'absence de clé
+  vaut 2, et le test refuse la valeur écrite en toutes lettres. Une valeur
+  inconnue est une erreur de chargement, exactement comme un `role_min`
+  inconnu, et pour la même raison : une rétrogradation silencieuse
+  transforme une faute de frappe en sujet qui n'apparaît jamais. La charte
+  qui décide de la valeur est design.md §7.11 ;
+  `tests/Core/Help/HelpDiscoveryInvariantsTest` tient le plancher (trois
+  `1` par plancher de rôle) et le plafond.
 - **Quote a control exactly as the screen writes it.** A topic that says
   « à catégoriser » where the page shows « À catégoriser » is already
   drifting, and `tests/Core/Help/HelpLabelDriftTest` fails on a citation

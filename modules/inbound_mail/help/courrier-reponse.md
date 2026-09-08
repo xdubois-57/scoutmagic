@@ -4,6 +4,7 @@ title: L'adresse de réponse signée
 summary: Pourquoi les e-mails du site portent une adresse de réponse à rallonge, et quand la désactiver.
 category: Configuration
 role_min: superadmin
+discovery: 3
 question: Pourquoi l'adresse de réponse du site contient-elle un « + » et une référence ?
 question: Comment faire reconnaître une réponse sans référence dans l'objet ?
 question: Les réponses à nos e-mails reviennent en erreur, que faire ?

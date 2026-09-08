@@ -4,6 +4,7 @@ title: Obligations et intendants
 summary: Les 20 ans qui approchent, les candidats signalés par Desk et les inscriptions des intendants.
 category: Espace chefs d'U
 role_min: admin
+discovery: 3
 question: Quels animateurs vont bientôt avoir 20 ans ?
 question: Quels animateurs doivent encore s'inscrire à une formation ?
 paths: /admin/leadership/obligations, /admin/leadership/stewards

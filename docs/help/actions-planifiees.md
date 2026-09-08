@@ -4,6 +4,7 @@ title: Suivre les actions planifiées
 summary: Les tâches de fond du site : états, échecs et exécution.
 category: Configuration
 role_min: superadmin
+discovery: 3
 question: Pourquoi une tâche de fond du site ne s'exécute-t-elle pas ?
 question: Comment relancer une action planifiée en échec ?
 paths: /config/scheduled

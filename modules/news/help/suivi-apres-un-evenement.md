@@ -4,6 +4,7 @@ title: Recouper les entrées et les paiements après un évènement
 summary: Croiser l'état du billet et l'état du paiement le lendemain d'une soirée, et relancer sans se tromper de personne.
 category: Espace animateurs
 role_min: intendant
+discovery: 3
 question: Qui est entré à notre souper sans avoir payé ?
 question: Pourquoi le compte des entrées ne correspond-il pas aux places vendues ?
 paths: /news/*/form/responses

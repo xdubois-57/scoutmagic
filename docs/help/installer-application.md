@@ -4,6 +4,7 @@ title: Installer le site comme application
 summary: Ajouter le site à l'écran d'accueil et le consulter hors connexion.
 category: Premiers pas
 role_min: public
+discovery: 1
 question: Comment installer le site comme application sur mon téléphone ?
 question: Comment consulter le site sans connexion internet ?
 paths: /

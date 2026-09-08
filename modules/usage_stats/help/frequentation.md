@@ -4,6 +4,7 @@ title: Lire la fréquentation du site
 summary: Savoir si le site sert, et quels modules personne n'ouvre.
 category: Configuration
 role_min: superadmin
+discovery: 1
 question: Combien de familles se connectent réellement au site ?
 question: Comment savoir quel module personne n'utilise ?
 question: Le site enregistre-t-il qui a consulté quelle page ?

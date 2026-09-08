@@ -4,6 +4,7 @@ title: Citer un ticket dans un signalement GitHub
 summary: La référence d'un ticket de support, citée dans un signalement public, donne au triage automatique une copie anonymisée de l'archive.
 category: Configuration
 role_min: superadmin
+discovery: off
 question: Comment signaler un bug sur GitHub sans exposer mes journaux ?
 question: À quoi sert la référence du ticket de support sur GitHub ?
 question: Puis-je joindre le paquet de support à un signalement GitHub ?

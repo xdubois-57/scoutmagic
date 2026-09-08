@@ -4,6 +4,7 @@ title: Choisir ses cookies
 summary: Le bandeau, les trois catégories et ce que change un refus.
 category: Premiers pas
 role_min: public
+discovery: off
 question: Comment changer mon choix sur les cookies ?
 question: Que se passe-t-il si je refuse les cookies ?
 question: Où revoir le bandeau des cookies ?

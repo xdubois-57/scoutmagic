@@ -4,6 +4,7 @@ title: Laisser un avis sur un camp
 summary: Ce que le staff suivant a besoin de savoir avant d'aller sur ce terrain.
 category: Espace animateurs
 role_min: chief
+discovery: 3
 question: Comment prévenir le staff suivant que le terrain était mauvais ?
 question: Où lire ce que les staffs précédents ont pensé d'un terrain ?
 paths: /chefs/camps/sejours/*

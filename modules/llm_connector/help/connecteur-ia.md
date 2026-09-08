@@ -4,6 +4,7 @@ title: Activer l'intelligence artificielle
 summary: Choisir un fournisseur d'IA, sa clé, et ce que le site en fait.
 category: Configuration
 role_min: superadmin
+discovery: 1
 question: Comment brancher une intelligence artificielle sur le site ?
 question: Combien coûte l'IA branchée sur le site ?
 question: Que fait le site avec l'IA une fois branchée ?

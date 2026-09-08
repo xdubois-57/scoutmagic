@@ -4,6 +4,7 @@ title: Chercher dans l'aide
 summary: Le champ de recherche du panneau et de la page Aide, qui répond même hors connexion.
 category: Premiers pas
 role_min: public
+discovery: 1
 question: Comment retrouver la page qui permet de faire quelque chose ?
 question: Où chercher quand je ne sais pas comment faire ?
 question: Est-ce que l'aide fonctionne sans connexion internet ?

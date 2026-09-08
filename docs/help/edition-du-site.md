@@ -4,6 +4,7 @@ title: Modifier les textes et les photos du site
 summary: Le mode configuration, pour éditer le contenu directement dans les pages.
 category: Espace chefs d'U
 role_min: admin
+discovery: 1
 question: Comment changer le texte d'une page du site ?
 question: Comment remplacer une photo de la page d'accueil ?
 paths: /config/general

@@ -4,6 +4,7 @@ title: Préparer un appel à une famille
 summary: La page d'un animé : son taux, sa pente sur l'année, ce qui a été noté, et la correction date par date.
 category: Espace animateurs
 role_min: chief
+discovery: 3
 question: Comment voir si un animé vient moins souvent qu'avant ?
 question: Où retrouver ce qui a été noté sur un animé cette année ?
 question: Comment corriger la présence d'un animé à une date précise ?
