@@ -187,12 +187,19 @@ class AlbumService
     }
 
     /**
-     * Notification centre + push: "a new album was published" — every
-     * identified member is a candidate recipient (no per-section
-     * targeting, matching the calendar module's own "every identified
-     * member" simplification for its event notifications); dispatch()
-     * itself re-checks role_min per recipient and never pushes to the
-     * chief who created the album.
+     * Notification centre + push: "a new album was published".
+     *
+     * The audience is the album's own: a unit-wide album goes to every
+     * identified member, and a SECTION album goes to that section's
+     * members and to the cadres — the same people Controller\GalleryController
+     * ::isVisible() lets open it. It used to go to everybody in both
+     * cases, so 159 accounts received « Nouvel album — Weekend Waingunga »
+     * in their notification centre and on their devices, followed the link
+     * and got a 403. A notification carries the title and the body, which
+     * is precisely what the page was refusing them.
+     *
+     * dispatch() still re-checks role_min per recipient and never pushes
+     * to the chief who created the album.
      */
     private function dispatchAlbumPublished(Album $album, int $createdBy): void
     {
@@ -200,9 +207,16 @@ class AlbumService
             return;
         }
 
+        $recipientIds = $album->sectionId === null
+            ? $this->userAccountRepository->findAllIds()
+            : $this->userAccountRepository->findIdsForSectionAudience(
+                [$album->sectionId],
+                [$album->scoutYearId]
+            );
+
         $recipients = array_map(
             static fn(int $id): array => ['userAccountId' => $id, 'memberId' => null],
-            $this->userAccountRepository->findAllIds()
+            $recipientIds
         );
         if ($recipients === []) {
             return;

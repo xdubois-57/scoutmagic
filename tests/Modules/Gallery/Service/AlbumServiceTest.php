@@ -854,6 +854,16 @@ class AlbumServiceTest extends TestCase
         ]]);
 
         $other = $userAccountRepository->create('other-member@test.com')->id;
+        $outsider = $userAccountRepository->create('outsider@test.com')->id;
+        // #223: the audience of a SECTION album is that section's members
+        // and the cadres — the very people GalleryController::isVisible()
+        // lets open it. It used to be every account of the unit, so the
+        // album's title reached notification centres whose owners then got
+        // a 403 on the link.
+        $this->memberOfTheSection($userAccountRepository, 'other-member@test.com');
+        // The author's own account was created straight in setUp() with a
+        // literal blind index, so it is joined on that.
+        $this->memberOfTheSectionByBlindIndex('idx');
 
         $service = new AlbumService(
             $this->albumRepository, new MediaRepository($this->pdo), $this->accessService, $this->createMock(OgScraperService::class),
@@ -872,5 +882,51 @@ class AlbumServiceTest extends TestCase
         $this->assertCount(1, $otherNotifications);
         $this->assertSame('gallery.album_published', $otherNotifications[0]->typeId);
         $this->assertSame($album->title, $otherNotifications[0]->body);
+        $this->assertSame(
+            [],
+            $notificationRepository->findByUserAccountId($outsider),
+            "Un compte étranger à la section a été prévenu d'un album qu'il ne peut pas ouvrir.",
+        );
+    }
+
+    /**
+     * Makes $email a member of the album's section, which is what puts its
+     * account in that album's audience.
+     */
+    private function memberOfTheSection(UserAccountRepository $accounts, string $email): void
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $this->memberOfTheSectionByBlindIndex($encryption->blindIndex($email, 'email'));
+    }
+
+    /** @see self::memberOfTheSection() */
+    private function memberOfTheSectionByBlindIndex(string $blindIndex): void
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('T" . uniqid() . "')");
+        $memberId = (int) $this->pdo->lastInsertId();
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted,
+                 email_encrypted, email_blind_index)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            $memberId,
+            $this->scoutYearId,
+            $encryption->encrypt('Prénom', 'member_years.first_name'),
+            $encryption->encrypt('Nom', 'member_years.last_name'),
+            $encryption->encrypt('membre@test.example', 'member_years.email'),
+            $blindIndex,
+        ]);
+        $memberYearId = (int) $this->pdo->lastInsertId();
+
+        $this->pdo->exec("INSERT INTO functions (desk_code, label, role, confirmed) VALUES ('MEMBRE" . uniqid() . "', 'Membre', 'identified', 1)");
+        $functionId = (int) $this->pdo->lastInsertId();
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_functions (member_year_id, function_id, section_id) VALUES (?, ?, ?)'
+        );
+        $stmt->execute([$memberYearId, $functionId, $this->sectionId]);
     }
 }

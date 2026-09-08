@@ -88,6 +88,9 @@ final class CalendarSeeder
                 $settingService,
                 $this->calendarService,
                 $eventRepository,
+                null,
+                null,
+                new \Core\Config\ScoutYearService($pdo),
             ),
         );
     }

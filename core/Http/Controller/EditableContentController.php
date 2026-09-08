@@ -69,6 +69,15 @@ class EditableContentController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Type de contenu invalide.'], 400);
         }
 
+        // An `image` holds a `files` id and nothing else — that is what the
+        // type means, and what `editable_image()` reads back. Saying so
+        // here is the second half of the fix the service carries: the
+        // client picks the type, so the client must not be able to pick a
+        // type in order to smuggle a body past what that type accepts.
+        if ($type === 'image' && $value !== '' && preg_match('/^\d+$/', $value) !== 1) {
+            return $this->json(['success' => false, 'error' => 'Une image se réfère à un fichier envoyé.'], 400);
+        }
+
         $userId = AuthSession::getUserAccountId();
         if ($userId === null) {
             return $this->json(['success' => false, 'error' => 'Non authentifié.'], 403);
@@ -122,6 +131,15 @@ class EditableContentController extends AbstractController
 
         if (!in_array($type, ['rich_text', 'image'], true)) {
             return $this->json(['success' => false, 'error' => 'Type de contenu invalide.'], 400);
+        }
+
+        // An `image` holds a `files` id and nothing else — that is what the
+        // type means, and what `editable_image()` reads back. Saying so
+        // here is the second half of the fix the service carries: the
+        // client picks the type, so the client must not be able to pick a
+        // type in order to smuggle a body past what that type accepts.
+        if ($type === 'image' && $value !== '' && preg_match('/^\d+$/', $value) !== 1) {
+            return $this->json(['success' => false, 'error' => 'Une image se réfère à un fichier envoyé.'], 400);
         }
 
         $userId = AuthSession::getUserAccountId();

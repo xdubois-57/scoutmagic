@@ -11,6 +11,7 @@ namespace Core\View;
 use Core\Http\FlashMessage;
 use Core\Maintenance\VersionFile;
 use Core\Security\CsrfGuard;
+use Core\Security\HtmlSanitizer;
 use Core\Service\DateInput;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
@@ -646,6 +647,21 @@ class TwigFactory
         // `{{ body|autolink }}`, never `{{ body|autolink|nl2br }}`.
         $environment->addFilter(new TwigFilter('autolink', function (?string $text): string {
             return TextLinker::toHtml($text);
+        }, ['is_safe' => ['html']]));
+
+        // Rich text on its way BACK to a form, through the same allowlist
+        // that guards it on its way to the database
+        // (Core\Security\HtmlSanitizer).
+        //
+        // `partials/rich_text_form_field.html.twig` renders its value into
+        // a contenteditable surface with `|raw`, which is right on the
+        // nominal path — the stored value went through the sanitizer
+        // before it was stored. It is wrong on the OTHER path: when a
+        // validation fails, the form is re-rendered from the raw POST
+        // body, which has been through nothing at all. The sanitizing
+        // lived on the success branch only, and `|raw` trusted it on both.
+        $environment->addFilter(new TwigFilter('sanitized_html', function (?string $html): string {
+            return (new HtmlSanitizer())->sanitize((string) $html);
         }, ['is_safe' => ['html']]));
 
         return $environment;

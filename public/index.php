@@ -3352,7 +3352,8 @@ if ($isEnabled('calendar')) {
         $calendarRepo, $calendarEventRepo, $sectionService, $calendarUnitFeedTokenRepo, $calendarRetroLinks
     );
     $calendarNotificationService = new \Modules\Calendar\Service\CalendarNotificationService(
-        $schedulerService, $settingService, $calendarService, $calendarEventRepo, $notificationService, $userAccountRepo
+        $schedulerService, $settingService, $calendarService, $calendarEventRepo, $notificationService,
+        $userAccountRepo, $scoutYearService
     );
     $calendarRetroAutoCreateService = new \Modules\Calendar\Service\CalendarRetroAutoCreateService(
         $schedulerService, $calendarRetroLinks

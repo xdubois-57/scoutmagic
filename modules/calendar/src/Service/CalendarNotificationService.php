@@ -8,12 +8,14 @@ declare(strict_types=1);
 
 namespace Modules\Calendar\Service;
 
+use Core\Config\ScoutYearService;
 use Core\Config\SettingException;
 use Core\Config\SettingService;
 use Core\Notification\NotificationService;
 use Core\Scheduler\SchedulerService;
 use Core\Security\UserAccountRepository;
 use Core\Service\DateInput;
+use Modules\Calendar\Repository\Calendar;
 use Modules\Calendar\Repository\CalendarEvent;
 use Modules\Calendar\Repository\CalendarEventRepository;
 
@@ -63,7 +65,15 @@ class CalendarNotificationService
         private CalendarService $calendarService,
         private CalendarEventRepository $eventRepository,
         private ?NotificationService $notificationService = null,
-        private ?UserAccountRepository $userAccountRepository = null
+        private ?UserAccountRepository $userAccountRepository = null,
+        /**
+         * Only recipientIdsFor() uses it, and only to name the year the
+         * event belongs to. Optional so the many existing constructions
+         * keep working; without it a section calendar's notification
+         * reaches the cadres and the super-administrators, never a wider
+         * audience than the grid.
+         */
+        private ?ScoutYearService $scoutYearService = null
     ) {
     }
 
@@ -169,11 +179,11 @@ class CalendarNotificationService
     }
 
     /**
-     * Notification centre + push: "a new activity was added". Every
-     * identified member is a candidate recipient — dispatch() itself
-     * re-checks role_min per recipient, and never pushes to the acting
-     * chief who created the event (the row still appears in their own
-     * centre).
+     * Notification centre + push: "a new activity was added" — to the
+     * people the calendar itself is visible to (see recipientIdsFor()).
+     * dispatch() re-checks role_min per recipient, and never pushes to
+     * the acting chief who created the event (the row still appears in
+     * their own centre).
      */
     public function dispatchEventPublished(CalendarEvent $event, ?int $actorUserAccountId): void
     {
@@ -198,7 +208,7 @@ class CalendarNotificationService
 
         $recipients = array_map(
             static fn(int $id): array => ['userAccountId' => $id, 'memberId' => null],
-            $this->userAccountRepository->findAllIds()
+            $this->recipientIdsFor($event)
         );
         if ($recipients === []) {
             return;
@@ -217,6 +227,66 @@ class CalendarNotificationService
             'body' => $calendarLabel . ' — ' . $event->title,
             'url' => '/calendar',
         ], $actorUserAccountId);
+    }
+
+    /**
+     * Who may be told about this event: exactly who may SEE the calendar
+     * it belongs to.
+     *
+     * `calendar_calendars.visibility` decides "who may SEE" (schema.sql)
+     * and Service\CalendarService::isVisibleTo() applies it to the grid.
+     * The notification did not, so every account of the unit received
+     * « Nouvelle activité — Animateurs — Conseil d'unité » while the
+     * grid, correctly, showed them nothing: the title of a staff meeting
+     * reached 159 notification centres and as many devices.
+     *
+     * The scout year asked about is the one the event's own date falls
+     * in, not "today's": a notification sent on 31 August about an event
+     * in September must not resolve the staff of a year whose roster has
+     * not been imported yet (that is the trap the multi-day reminder fell
+     * into). An unknown year falls back to the current one.
+     *
+     * @return int[]
+     */
+    private function recipientIdsFor(CalendarEvent $event): array
+    {
+        \assert($this->userAccountRepository !== null);
+
+        $calendar = $this->calendarService->findById($event->calendarId);
+        if ($calendar === null) {
+            return [];
+        }
+
+        $yearIds = $this->scoutYearIdsFor($event);
+
+        return match ($calendar->visibility) {
+            Calendar::VISIBILITY_ADMIN => $this->userAccountRepository->findStaffAndSuperAdminIds($yearIds, ['admin']),
+            Calendar::VISIBILITY_CHIEF => $this->userAccountRepository->findStaffAndSuperAdminIds($yearIds),
+            default => $calendar->sectionId !== null
+                ? $this->userAccountRepository->findIdsForSectionAudience([$calendar->sectionId], $yearIds)
+                : $this->userAccountRepository->findAllIds(),
+        };
+    }
+
+    /**
+     * The scout year the event's start date falls in, or the current one
+     * when that year does not exist in this installation.
+     *
+     * @return int[]
+     */
+    private function scoutYearIdsFor(CalendarEvent $event): array
+    {
+        if ($this->scoutYearService === null) {
+            return [];
+        }
+
+        $date = DateInput::iso($event->startDate);
+        $year = $date !== null
+            ? $this->scoutYearService->findByLabel(ScoutYearService::labelForDate($date))
+            : null;
+        $year ??= $this->scoutYearService->getCurrentYear();
+
+        return [(int) $year['id']];
     }
 
     /**

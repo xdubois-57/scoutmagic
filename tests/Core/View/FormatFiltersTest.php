@@ -38,6 +38,55 @@ final class FormatFiltersTest extends TestCase
         return $template->render($context);
     }
 
+    /**
+     * #230. `partials/rich_text_form_field.html.twig` re-displays its
+     * value in a contenteditable surface. On the nominal path the value
+     * came out of the database, sanitized on the way in; when a
+     * validation FAILS the form is re-rendered from the raw POST body,
+     * which has been through nothing at all — and the `|raw` trusted a
+     * cleaning that only ever happened on the success branch.
+     */
+    public function testSanitizedHtmlKeepsTheMarkupAndDropsTheAttack(): void
+    {
+        $rendered = $this->render('value|sanitized_html', [
+            'value' => '<p>Ma note</p><img src=x onerror=alert(1)>',
+        ]);
+
+        $this->assertStringNotContainsString('onerror', $rendered);
+        $this->assertStringContainsString('<p>Ma note</p>', $rendered);
+    }
+
+    public function testSanitizedHtmlIsSafeOnNull(): void
+    {
+        $this->assertSame('', $this->render('value|sanitized_html', ['value' => null]));
+    }
+
+    /**
+     * The partial itself, rendered the way a refused camp form renders it:
+     * what the chief typed comes back, the payload does not.
+     */
+    public function testTheRichTextFormFieldNeverEchoesARawPostBody(): void
+    {
+        $rendered = $this->twig->render('partials/rich_text_form_field.html.twig', [
+            'field_name' => 'note',
+            'field_id' => 'camp-note',
+            'label' => 'Note',
+            'value' => '<p>Ma note</p><img src=x onerror=alert(1)>',
+        ]);
+
+        // The contenteditable surface is the one place this partial emits
+        // unescaped markup, so that is what the assertion reads. The
+        // hidden field beside it carries the same value HTML-escaped —
+        // it has to keep the text, since it is what gets posted again —
+        // and never renders as markup.
+        preg_match('~rich-text-form-surface.*?>(.*?)</div>~s', $rendered, $matches);
+        $surface = $matches[1] ?? '';
+
+        $this->assertNotSame('', $surface, 'la surface éditable n\'a pas été rendue');
+        $this->assertStringNotContainsString('onerror', $surface);
+        $this->assertStringContainsString('Ma note', $surface);
+    }
+
     public function testDateFrRendersDayMonthYear(): void
     {
         $this->assertSame('05/09/2026', $this->render("'2026-09-05'|date_fr"));
