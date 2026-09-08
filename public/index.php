@@ -4945,8 +4945,11 @@ if ($isEnabled('groups')) {
     // for why one class serves both, and modules/groups/schema.sql for why
     // there are two tables rather than one polymorphic one.
     $groupsReplyService = new \Modules\Groups\Service\ReplyService(
-        $groupsReplyRepo, $groupsActivityService, $groupsPostMediaService,
-        $groupsRateLimitService, $groupsModerationService
+        $groupsReplyRepo,
+        $groupsActivityService,
+        $groupsPostMediaService,
+        $groupsRateLimitService,
+        $groupsModerationService
     );
     $groupsReactionService = new \Modules\Groups\Service\ReactionService(
         \Modules\Groups\Repository\ReactionRepository::forPosts($pdo),
@@ -6062,12 +6065,20 @@ if ($isEnabled('registration')) {
     $frontController->registerController(
         \Modules\Registration\Controller\PublicRegistrationController::class,
         new \Modules\Registration\Controller\PublicRegistrationController(
-            $twig, $registrationService, $registrationSlotService, $sectionService, $registrationAgeBracketRepo,
-            $scoutYearResolver, $memberService, $settingService, $humanCheckService,
+            $twig,
+            $registrationService,
+            $registrationSlotService,
+            $sectionService,
+            $registrationAgeBracketRepo,
+            $scoutYearResolver,
+            $memberService,
+            $settingService,
+            $humanCheckService,
             // IT-14 — the « avec qui » names a family may type on the
             // public form, resolved and stored the same way the
             // reenrollment form's are.
-            $registrationReenrollmentService, $registrationReenrollmentRepository
+            $registrationReenrollmentService,
+            $registrationReenrollmentRepository
         )
     );
 
