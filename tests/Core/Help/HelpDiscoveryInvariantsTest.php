@@ -12,7 +12,6 @@ namespace Tests\Core\Help;
 use Core\Help\DiscoveryPriority;
 use Core\Help\HelpRegistry;
 use Core\Help\HelpTopic;
-use Core\Security\Role;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -232,14 +231,44 @@ final class HelpDiscoveryInvariantsTest extends TestCase
     }
 
     /**
-     * A sanity check on the roles themselves: every floor the corpus uses
-     * is a real Role, so a typo cannot quietly create a seventh floor
-     * that the count above then finds empty.
+     * The set of role floors the corpus actually uses, held against the
+     * six it is written for.
+     *
+     * The per-floor count above derives its floors FROM the corpus, which
+     * makes it blind in one direction: a floor that disappears entirely —
+     * the last `intendant` topic deleted, say — is simply no longer
+     * checked, and the suite stays green over a role whose help has gone.
+     * A floor appearing is caught there (it would carry no priority-1
+     * topic); a floor vanishing is caught only here.
+     *
+     * Read off the raw `role_min:` lines rather than through the parser,
+     * like the discovery-value check above: the parser refuses an unknown
+     * role before a HelpTopic is ever built, so anything asked of the
+     * parsed object is answered by PHP's own type system rather than by
+     * the corpus.
      */
-    public function testEveryRoleFloorTheCorpusUsesIsARealRole(): void
+    public function testTheCorpusCoversExactlyTheSixRoleFloorsItIsWrittenFor(): void
     {
-        foreach (self::shippedTopics() as $topic) {
-            $this->assertInstanceOf(Role::class, $topic->roleMin);
+        $expected = ['admin', 'chief', 'identified', 'intendant', 'public', 'superadmin'];
+
+        $found = [];
+        foreach (self::shippedFiles() as $file) {
+            foreach (explode("\n", (string) file_get_contents($file)) as $line) {
+                if (str_starts_with($line, 'role_min:')) {
+                    $found[trim(substr($line, strlen('role_min:')))] = true;
+                }
+            }
         }
+
+        $found = array_keys($found);
+        sort($found);
+
+        $this->assertSame(
+            $expected,
+            $found,
+            "A role floor appearing or disappearing changes what the per-floor rule above has to cover:\n"
+            . "a new one needs three priority-1 topics of its own, and one that vanished means a whole\n"
+            . "role's help has gone. Either is a deliberate change; update this list with it."
+        );
     }
 }
