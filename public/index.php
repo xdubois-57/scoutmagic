@@ -2780,7 +2780,11 @@ $helpDiscovery = $helpDiscoveryService->dialogForRequest(
     Role::fromString($currentRole),
     AuthSession::getUserAccountId(),
     $request->getMethod(),
-    $request->getPath()
+    $request->getPath(),
+    // Whether the cookie banner has been ANSWERED, either way — not
+    // whether it was accepted. A tip must never stack on top of a
+    // decision the site is asking for: see dialogForRequest().
+    $cookieConsentService->hasConsented()
 );
 if ($helpDiscovery !== null) {
     $twig->addGlobal('help_discovery', $helpDiscovery);

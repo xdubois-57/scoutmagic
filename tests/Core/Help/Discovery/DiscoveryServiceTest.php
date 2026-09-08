@@ -312,7 +312,7 @@ class DiscoveryServiceTest extends TestCase
     {
         $service = $this->serviceOver(['publipostage' => ['question' => ['Comment fusionner un e-mail ?']]]);
 
-        $dialog = $service->dialogForRequest(Role::IDENTIFIED, $this->accountId, 'GET', '/members/12');
+        $dialog = $service->dialogForRequest(Role::IDENTIFIED, $this->accountId, 'GET', '/members/12', true);
 
         $this->assertNotNull($dialog);
         $this->assertSame([[
@@ -330,7 +330,7 @@ class DiscoveryServiceTest extends TestCase
         $service = $this->serviceOver($this->manyTopics(9));
         $this->set(DiscoveryService::SETTING_BATCH_SIZE, '5');
 
-        $dialog = $service->dialogForRequest(Role::IDENTIFIED, $this->accountId, 'GET', '/');
+        $dialog = $service->dialogForRequest(Role::IDENTIFIED, $this->accountId, 'GET', '/', true);
         $this->assertNotNull($dialog);
         $this->assertCount(5, $dialog['cards']);
         $this->assertTrue($dialog['more']);
@@ -340,7 +340,7 @@ class DiscoveryServiceTest extends TestCase
             $dialog['cards']
         ));
 
-        $next = $service->dialogForRequest(Role::IDENTIFIED, $this->accountId, 'GET', '/');
+        $next = $service->dialogForRequest(Role::IDENTIFIED, $this->accountId, 'GET', '/', true);
         $this->assertNotNull($next);
         $this->assertCount(4, $next['cards']);
         $this->assertFalse($next['more'], 'Nothing left after this batch — the link must not be offered.');
@@ -373,7 +373,7 @@ class DiscoveryServiceTest extends TestCase
     {
         $service = $this->serviceOver($this->manyTopics(10));
 
-        $this->assertNull($service->dialogForRequest(Role::IDENTIFIED, $this->accountId, 'GET', $path));
+        $this->assertNull($service->dialogForRequest(Role::IDENTIFIED, $this->accountId, 'GET', $path, true));
     }
 
     /**
@@ -384,14 +384,46 @@ class DiscoveryServiceTest extends TestCase
     {
         $service = $this->serviceOver($this->manyTopics(3));
 
-        $this->assertNotNull($service->dialogForRequest(Role::IDENTIFIED, $this->accountId, 'GET', '/aidez-nous'));
+        $this->assertNotNull($service->dialogForRequest(Role::IDENTIFIED, $this->accountId, 'GET', '/aidez-nous', true));
+    }
+
+    /**
+     * The cookie banner and this dialog would otherwise land on the same
+     * screen — every account's first page after signing in — and the
+     * modal's backdrop (z-index 1050) covers the banner (1035). The
+     * reader's only way to reach « Tout accepter » is to dismiss the
+     * dialog, and dismissing IS a close: the batch is consumed and the
+     * account snoozed for a day, paid by somebody who was answering a
+     * question the site asked them.
+     */
+    public function testNoDialogIsOfferedWhileTheCookieBannerIsStillUp(): void
+    {
+        $service = $this->serviceOver($this->manyTopics(10));
+
+        $this->assertNull(
+            $service->dialogForRequest(Role::IDENTIFIED, $this->accountId, 'GET', '/', false),
+            'A tip must never stack on top of a decision the site is asking for.'
+        );
+    }
+
+    /**
+     * And answering it either way lets the tips through — the gate is
+     * "has this been answered", never "was it accepted". A visitor who
+     * refused every cookie still gets their tips: the state is on the
+     * account, server-side, and no cookie is involved (§8.95).
+     */
+    public function testAnAnsweredCookieBannerLetsTheDialogThrough(): void
+    {
+        $service = $this->serviceOver($this->manyTopics(10));
+
+        $this->assertNotNull($service->dialogForRequest(Role::IDENTIFIED, $this->accountId, 'GET', '/', true));
     }
 
     public function testNoDialogIsOfferedToAVisitorWithNoAccount(): void
     {
         $service = $this->serviceOver($this->manyTopics(10));
 
-        $this->assertNull($service->dialogForRequest(Role::PUBLIC, null, 'GET', '/'));
+        $this->assertNull($service->dialogForRequest(Role::PUBLIC, null, 'GET', '/', true));
     }
 
     /**
@@ -403,7 +435,7 @@ class DiscoveryServiceTest extends TestCase
         $service = $this->serviceOver($this->manyTopics(10));
 
         foreach (['POST', 'DELETE', 'PUT'] as $method) {
-            $this->assertNull($service->dialogForRequest(Role::IDENTIFIED, $this->accountId, $method, '/'));
+            $this->assertNull($service->dialogForRequest(Role::IDENTIFIED, $this->accountId, $method, '/', true));
         }
     }
 
@@ -412,14 +444,14 @@ class DiscoveryServiceTest extends TestCase
         $service = $this->serviceOver(['un' => [], 'deux' => []]);
         $this->seenTopics->markSeen($this->accountId, ['un', 'deux']);
 
-        $this->assertNull($service->dialogForRequest(Role::IDENTIFIED, $this->accountId, 'GET', '/'));
+        $this->assertNull($service->dialogForRequest(Role::IDENTIFIED, $this->accountId, 'GET', '/', true));
     }
 
     public function testACardCarriesNoQuestionWhenItsTopicDeclaresNone(): void
     {
         $service = $this->serviceOver(['sans-question' => []]);
 
-        $dialog = $service->dialogForRequest(Role::IDENTIFIED, $this->accountId, 'GET', '/');
+        $dialog = $service->dialogForRequest(Role::IDENTIFIED, $this->accountId, 'GET', '/', true);
         $this->assertNotNull($dialog);
         $this->assertNull($dialog['cards'][0]['question']);
     }

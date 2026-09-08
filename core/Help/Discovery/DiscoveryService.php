@@ -160,15 +160,34 @@ class DiscoveryService
      * `more` says whether « Voir d'autres astuces » has anything to
      * offer, which is the one thing a card cannot say about itself.
      *
+     * @param bool $cookieBannerAnswered whether this visitor has already
+     *        accepted or refused cookies — NOT whether they accepted.
+     *        While the banner is still up, no tip is offered at all: the
+     *        banner sits at z-index 1035 and a Bootstrap modal's backdrop
+     *        at 1050, so the dialog would cover the very decision the
+     *        site is asking for and swallow every click aimed at it. The
+     *        reader's only way out is to dismiss the dialog — which is a
+     *        close, so it consumes the batch and snoozes them for a day,
+     *        paid by somebody who was only trying to answer the banner.
+     *        Every account meets this on its first page after signing in.
+     *
      * @return array{cards: array<int, array{id: string, title: string, summary: string,
      *     question: ?string, url: string}>, more: bool}|null
      */
-    public function dialogForRequest(Role $role, ?int $accountId, string $method, string $path): ?array
-    {
+    public function dialogForRequest(
+        Role $role,
+        ?int $accountId,
+        string $method,
+        string $path,
+        bool $cookieBannerAnswered
+    ): ?array {
         // Cheapest first, and deliberately: this runs on every request of
-        // the site, and the three tests above answer "no dialog here"
+        // the site, and the four tests below answer "no dialog here"
         // without touching the database at all.
-        if ($accountId === null || strtoupper($method) !== 'GET' || !$this->isOfferablePath($path)) {
+        if ($accountId === null || !$cookieBannerAnswered) {
+            return null;
+        }
+        if (strtoupper($method) !== 'GET' || !$this->isOfferablePath($path)) {
             return null;
         }
         if (!$this->isEnabled()) {

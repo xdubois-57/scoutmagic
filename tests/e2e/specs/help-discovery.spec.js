@@ -61,10 +61,28 @@ async function setDiscoveryEnabled(page, enabled) {
 
 test('a tip is offered, walked and closed — and then leaves the reader alone', async ({ page }) => {
     await loginAsAdmin(page);
-    await answerCookieBanner(page, { accept: true });
 
+    // Deliberately BEFORE answering the cookie banner: the setting is
+    // turned on through a fetch, which needs no click, so the next
+    // navigation is the state every account really meets on its first
+    // page after signing in — tips armed, banner still up.
     await page.goto('/config/settings', { waitUntil: 'domcontentloaded' });
     await setDiscoveryEnabled(page, true);
+
+    // ---- Nothing is offered over the consent banner -------------------
+    // The banner is at z-index 1035 and a modal backdrop at 1050, so a
+    // dialog here would cover the decision the site is asking for AND
+    // swallow every click aimed at it — and dismissing it to get through
+    // is a close, which consumes the batch and snoozes the account for a
+    // day. Asserted before the click below, because otherwise this
+    // regression surfaces as an unexplained timeout on « Tout accepter ».
+    await page.goto('/', { waitUntil: 'load' });
+    await expect(
+        page.locator(DIALOG),
+        'no tip may stack on top of the cookie banner',
+    ).toHaveCount(0);
+
+    await answerCookieBanner(page, { accept: true });
 
     // ---- The dialog opens on an ordinary page -------------------------
     await page.goto('/', { waitUntil: 'load' });
