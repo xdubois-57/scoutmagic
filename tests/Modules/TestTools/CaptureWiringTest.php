@@ -48,6 +48,18 @@ class CaptureWiringTest extends TestCase
             null,
             false
         );
+
+        $this->settingService->register(
+            MailSandboxService::SETTING_DELIVER_MAGIC_LINKS,
+            '0',
+            'boolean',
+            'Laisser partir les liens de connexion',
+            'Réglage de test.',
+            MailSandboxService::MODULE_ID,
+            null,
+            null,
+            false
+        );
     }
 
     private function enableModule(): void
@@ -65,9 +77,50 @@ class CaptureWiringTest extends TestCase
         return new InstallationProfile([InstallationProfile::FLAG_LOCAL_INSTALLATION]);
     }
 
+    private function exemptMagicLinks(): void
+    {
+        $this->settingService->setInternal(
+            MailSandboxService::SETTING_DELIVER_MAGIC_LINKS,
+            '1',
+            MailSandboxService::MODULE_ID
+        );
+    }
+
     private function shouldCapture(InstallationProfile $profile): bool
     {
         return CaptureTransportFactory::shouldCapture($profile, $this->registryRepo, $this->settingService);
+    }
+
+    private function buildTransport(): ?CaptureTransport
+    {
+        return CaptureTransportFactory::forInstallation(
+            $this->localProfile(),
+            $this->registryRepo,
+            $this->settingService,
+            $this->pdo,
+            TestToolsTestHelper::encryption(),
+            sys_get_temp_dir()
+        );
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function manifestSetting(string $key): ?array
+    {
+        $manifest = json_decode(
+            (string) file_get_contents(dirname(__DIR__, 3) . '/modules/test_tools/module.json'),
+            true
+        );
+        $this->assertIsArray($manifest);
+
+        foreach ($manifest['settings'] as $setting) {
+            if ($setting['key'] === $key) {
+                return $setting;
+            }
+        }
+
+        return null;
     }
 
     public function testEverythingLinedUpMeansCapture(): void
@@ -158,20 +211,72 @@ class CaptureWiringTest extends TestCase
         $this->assertFalse($this->shouldCapture(new InstallationProfile([])));
     }
 
+    /**
+     * The exemption is NOT a fourth condition: it never decides whether
+     * capture happens, only what one category of message does once it
+     * has. Turning it on while the module is disabled, the profile
+     * ordinary or the switch off must change nothing at all.
+     */
+    public function testTheMagicLinkExemptionIsNotAFourthCaptureCondition(): void
+    {
+        $this->exemptMagicLinks();
+
+        $this->assertFalse($this->shouldCapture($this->localProfile()));
+        $this->assertNull(CaptureTransportFactory::forInstallation(
+            $this->localProfile(),
+            $this->registryRepo,
+            $this->settingService,
+            $this->pdo,
+            TestToolsTestHelper::encryption(),
+            sys_get_temp_dir()
+        ));
+
+        // …and it does not stop capture happening either.
+        $this->enableModule();
+        $this->arm();
+        $this->assertTrue($this->shouldCapture($this->localProfile()));
+    }
+
+    /**
+     * The setting reaches the transport that reads it. Nothing else can
+     * observe the wiring without actually delivering a message, which is
+     * the one thing a test must not do.
+     */
+    public function testTheExemptionReachesTheTransportItConfigures(): void
+    {
+        $this->enableModule();
+        $this->arm();
+
+        $capturingEverything = $this->buildTransport();
+        $this->assertInstanceOf(CaptureTransport::class, $capturingEverything);
+        $this->assertFalse($capturingEverything->deliversMagicLinks());
+
+        $this->exemptMagicLinks();
+
+        $exempting = $this->buildTransport();
+        $this->assertInstanceOf(CaptureTransport::class, $exempting);
+        $this->assertTrue($exempting->deliversMagicLinks());
+    }
+
+    public function testTheMagicLinkExemptionIsRegisteredNonEditableAndOffByDefault(): void
+    {
+        $setting = $this->manifestSetting(MailSandboxService::SETTING_DELIVER_MAGIC_LINKS);
+
+        $this->assertIsArray($setting, 'The exemption must be declared in module.json');
+        $this->assertFalse(
+            $setting['editable'],
+            'The exemption must never render as an editable row on Configuration > Paramètres'
+        );
+        $this->assertSame(
+            '0',
+            $setting['default_value'],
+            'Capturing everything is the default; letting sign-in links out is a decision an operator takes'
+        );
+    }
+
     public function testTheArmSwitchIsRegisteredNonEditable(): void
     {
-        $manifest = json_decode(
-            (string) file_get_contents(dirname(__DIR__, 3) . '/modules/test_tools/module.json'),
-            true
-        );
-        $this->assertIsArray($manifest);
-
-        $armSetting = null;
-        foreach ($manifest['settings'] as $setting) {
-            if ($setting['key'] === MailSandboxService::SETTING_ARMED) {
-                $armSetting = $setting;
-            }
-        }
+        $armSetting = $this->manifestSetting(MailSandboxService::SETTING_ARMED);
 
         $this->assertIsArray($armSetting, 'The arm switch must be declared in module.json');
         $this->assertFalse(

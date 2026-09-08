@@ -58,7 +58,7 @@ class MailFailureJournalTest extends TestCase
             {
             }
 
-            public function deliver(PHPMailer $mail): void
+            public function deliver(PHPMailer $mail, \Core\Mail\MailPurpose $purpose): void
             {
                 $mail->ErrorInfo = $this->message;
 
@@ -274,7 +274,7 @@ class MailFailureJournalTest extends TestCase
     public function testASuccessfulSendWritesNothing(): void
     {
         $transport = new class implements MailTransportInterface {
-            public function deliver(PHPMailer $mail): void
+            public function deliver(PHPMailer $mail, \Core\Mail\MailPurpose $purpose): void
             {
             }
         };

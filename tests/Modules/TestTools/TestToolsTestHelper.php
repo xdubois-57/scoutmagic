@@ -32,6 +32,7 @@ class TestToolsTestHelper
         $pdo->exec('CREATE TABLE captured_emails (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             captured_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            delivered INTEGER NOT NULL DEFAULT 0,
             subject TEXT NOT NULL,
             recipient BLOB NOT NULL,
             recipient_blind_index TEXT NOT NULL,

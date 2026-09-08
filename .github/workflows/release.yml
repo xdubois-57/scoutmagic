@@ -397,6 +397,15 @@ jobs:
         if: ${{ github.ref_type == 'tag' }}
         env:
           GH_TOKEN: ${{ github.token }}
+          # This job never checks the repository out — it only downloads
+          # artifacts — so `gh` has no git remote to infer the repository
+          # from and dies with « failed to run git: fatal: not a git
+          # repository » before either command below runs. It cost v1.0.42
+          # a full run: every gate green, the pack built, signed and
+          # uploaded, and no draft Release at the end of it. GH_REPO is
+          # what `gh` reads when there is no checkout, and it is cheaper
+          # than checking out a repository this job has no other use for.
+          GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail

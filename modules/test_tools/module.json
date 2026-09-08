@@ -2,7 +2,7 @@
   "id": "test_tools",
   "name": "Outils de test",
   "description": "Boîte à outils réservée à l'installation de référence et aux installations locales de développement. Le bac à sable e-mail, qui capture les messages sortants au lieu de les envoyer, et de quoi provoquer une vraie erreur pour vérifier qu'elle atterrit bien dans le journal du site.",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "enabled_by_default": false,
   "visible_when": [
     "reference_installation",
@@ -55,6 +55,15 @@
       "label": ""
     },
     {
+      "path": "/test-tools/mail-sandbox/magic-links",
+      "method": "POST",
+      "controller": "Modules\\TestTools\\Controller\\MailSandboxController",
+      "action": "toggleMagicLinks",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
       "path": "/test-tools/mail-sandbox/empty",
       "method": "POST",
       "controller": "Modules\\TestTools\\Controller\\MailSandboxController",
@@ -82,6 +91,14 @@
       "editable": false,
       "label": "Capture des e-mails sortants",
       "description": "Lorsque la capture est armée, aucun e-mail ne quitte le serveur : chaque message est assemblé puis rangé dans le bac à sable. Ce réglage se change uniquement depuis la page du bac à sable, jamais ici."
+    },
+    {
+      "key": "mail_capture_deliver_magic_links",
+      "default_value": "0",
+      "type": "boolean",
+      "editable": false,
+      "label": "Laisser partir les liens de connexion",
+      "description": "Seule exception admise à la capture : quand elle est cochée, l'e-mail contenant un lien de connexion repart vraiment vers son destinataire, ce qui permet de continuer à se connecter au site pendant que tout le reste est capturé. Le message est malgré tout rangé dans le bac à sable, marqué comme remis. Ce réglage se change uniquement depuis la page du bac à sable, jamais ici."
     },
     {
       "key": "mail_capture_retention",

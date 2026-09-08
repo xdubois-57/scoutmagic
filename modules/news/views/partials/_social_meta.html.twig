@@ -1,0 +1,33 @@
+{# Social sharing (Facebook, Instagram, and any other Open Graph /
+   Twitter Card reader) — module usability review.
+
+   One copy, included by the full article page and by the preview a
+   shareable article shows a visitor who may not read it
+   (Controller\NewsController::show()). These tags ARE the contract this
+   module makes with a link-preview crawler, and a contract kept in two
+   places drifts.
+
+   Emitted only when `social_preview` says so, which the controller gets
+   from Service\ArticleService::isSociallyShareable(): public,
+   direct_link and « Membres connectés » articles get a preview,
+   staff-only ones get none. An `identified` article is one the unit
+   posts to a group of animateurs, and the crawler building that preview
+   never signs in — so its title, summary and cover image are public by
+   design (issue #211). The body is not: it stays behind
+   Controller\NewsController::show()'s visibility check, which answers
+   that crawler with this page and nothing else. #}
+{% if social_preview %}
+    <meta property="og:type" content="article">
+    <meta property="og:title" content="{{ article.title }}">
+    {% if article.summary %}<meta property="og:description" content="{{ article.summary }}">{% endif %}
+    <meta property="og:url" content="{{ og_url }}">
+    <meta property="og:site_name" content="{{ site_name }}">
+    {% if og_image_url %}
+        <meta property="og:image" content="{{ og_image_url }}">
+        <meta name="twitter:card" content="summary_large_image">
+    {% else %}
+        <meta name="twitter:card" content="summary">
+    {% endif %}
+    <meta name="twitter:title" content="{{ article.title }}">
+    {% if article.summary %}<meta name="twitter:description" content="{{ article.summary }}">{% endif %}
+{% endif %}

@@ -34,11 +34,22 @@ use Modules\News\Service\FormService;
  *
  * **The cover and the in-body image go through Core\File\UploadHandler**, the
  * same call `NewsController::uploadImage()` makes — MIME sniffed from the
- * bytes, EXIF stripped by re-encoding, a `files` row with `role_min = public`
- * and `module_id = news`. The photo lot is the only image source this
- * repository has, so a section group photo doubles as a cover; the file is
- * copied first, exactly as the portrait pipeline does, because a handler that
- * consumes its input must never be handed a versioned fixture.
+ * bytes, EXIF stripped by re-encoding, a `files` row with `module_id = news`.
+ * The photo lot is the only image source this repository has, so a section
+ * group photo doubles as a cover; the file is copied first, exactly as the
+ * portrait pipeline does, because a handler that consumes its input must
+ * never be handed a versioned fixture.
+ *
+ * **Neither upload picks its own `role_min`, and that is the point** (issue
+ * #211). The in-body image is `public` because the product's own
+ * `NewsController::uploadBodyImage()` stores body images `public` — the
+ * article's visibility is not known when the editor uploads one. The cover is
+ * uploaded `public` and then put on its real floor by
+ * `Service\ArticleService::create()`, which is the only thing that knows the
+ * mapping. A fixture that spelled the floor out itself would be a second copy
+ * of a product rule, free to drift from it — and it did: every cover here was
+ * `public`, staff articles included, so an assertion about what leaks would
+ * have measured the fixture instead of the site.
  *
  * **The body is rich text under `news_body_{id}`**, written through
  * Core\View\EditableContentService with type `rich_text` — so the sanitizer
@@ -93,6 +104,10 @@ final class NewsSeeder
             $formRepository,
             $this->editableContent,
             new ShortUrlService(new ShortUrlRepository($pdo, $encryption)),
+            // Not decoration: this is what puts each cover on the role_min
+            // its article's visibility calls for, on the way out of
+            // create() (issue #211).
+            new FileRepository($pdo),
             // The finance side of an article is only used when a form is
             // deleted (its receivables go with it). Nothing is deleted here.
             null,
@@ -294,6 +309,10 @@ final class NewsSeeder
      * A COPY, for the reason the portraits are copied: UploadHandler moves or
      * re-encodes what it is handed, and pointing it at the versioned lot
      * would consume it.
+     *
+     * `public` is the floor a body image keeps for good (the product does the
+     * same) and the one a cover holds only until `ArticleService::create()`
+     * re-applies the article's own — see the class docblock.
      */
     private function upload(string $filename): int
     {

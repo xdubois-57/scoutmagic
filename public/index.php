@@ -4643,7 +4643,8 @@ if ($isEnabled('news')) {
     $newsResponseRepo = new \Modules\News\Repository\FormResponseRepository($pdo, $encryptionService);
 
     $newsArticleService = new \Modules\News\Service\ArticleService(
-        $newsArticleRepo, $newsFormRepo, $editableContentService, $shortUrlService, $financeExpectedReceivableForOthers
+        $newsArticleRepo, $newsFormRepo, $editableContentService, $shortUrlService, $fileRepository,
+        $financeExpectedReceivableForOthers
     );
     $newsFormService = new \Modules\News\Service\FormService($newsFormRepo, $newsFieldRepo, $newsArticleService,
         $newsResponseRepo);
@@ -4736,6 +4737,33 @@ if ($isEnabled('news')) {
             'news',
             \Modules\News\Task\GenerateImageVariantsHandler::TASK_KEY,
             \Modules\News\Task\GenerateImageVariantsHandler::REFERENCE,
+            new DateTimeImmutable()
+        );
+    }
+    // One-shot realignment of every article cover's role_min onto the
+    // article's visibility (issue #211). ArticleService applies it on
+    // every save now, but nothing ever applied it to articles already
+    // published: a « Membres connectés » cover uploaded before the
+    // preview decision would 403 inside the og:image it is now offered
+    // as, and an article whose visibility changed since kept the floor
+    // of the old one — including the direction that leaves a staff
+    // article's cover readable by anyone holding its URL.
+    if ($settingService->get(\Modules\News\Task\RealignCoverImageAccessHandler::DONE_FLAG, 'news') !== '1') {
+        $settingService->register(
+            \Modules\News\Task\RealignCoverImageAccessHandler::DONE_FLAG,
+            '0',
+            'boolean',
+            'Accès aux images d\'articles réalignés',
+            'Indicateur interne : la reprise des accès aux images de couverture des actualités a été effectuée.',
+            'news',
+            null,
+            null,
+            false
+        );
+        $schedulerService->rearm(
+            'news',
+            \Modules\News\Task\RealignCoverImageAccessHandler::TASK_KEY,
+            \Modules\News\Task\RealignCoverImageAccessHandler::REFERENCE,
             new DateTimeImmutable()
         );
     }

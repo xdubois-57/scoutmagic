@@ -1,0 +1,46 @@
+{# The page a shareable article shows a visitor who may not read it —
+   in practice a « Membres connectés » article reached without a session
+   (Controller\NewsController::show(), issue #211).
+
+   It carries exactly what the preview decision made public: the title,
+   the one-sentence summary and the cover image, plus the way in. Never
+   the body, never the form, never the author. Anything added here is
+   added to what an anonymous visitor may read, so add nothing without
+   revisiting SECURITY.md §3. #}
+{% extends "base.html.twig" %}
+
+{% block title %}{{ article.title }} — {{ site_name }}{% endblock %}
+
+{% block head_meta %}
+    {# Never indexed, whatever the article says: this page has no content
+       of its own, and offering it to every search would advertise a URL
+       whose article the searcher cannot read. A preview renders a link
+       somebody chose to post; that is a different act. #}
+    <meta name="robots" content="noindex">
+    {% if article.summary %}<meta name="description" content="{{ article.summary }}">{% endif %}
+
+    {% include '@news/partials/_social_meta.html.twig' %}
+{% endblock %}
+
+{% block content %}
+    <div>
+        {% include 'partials/page_header.html.twig' with {
+            title: article.title,
+        } only %}
+
+        {% if article.imageFileId %}
+            <img src="{{ file_url(article.imageFileId, 'md') }}" alt="" class="rounded mb-4 w-100" style="max-height:400px;object-fit:cover;" decoding="async">
+        {% endif %}
+
+        {% if article.summary %}
+            <p class="lead">{{ article.summary }}</p>
+        {% endif %}
+
+        <div class="alert alert-info d-flex flex-wrap gap-3 align-items-center">
+            <span class="flex-grow-1">
+                Cet article est réservé aux membres. Connectez-vous pour le lire en entier.
+            </span>
+            <a href="/login" class="btn btn-primary">Se connecter</a>
+        </div>
+    </div>
+{% endblock %}

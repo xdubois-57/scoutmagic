@@ -6,6 +6,7 @@ namespace Tests\Core\Security;
 
 use Core\Database\Connection;
 use Core\Mail\DkimManager;
+use Core\Mail\MailPurpose;
 use Core\Mail\MailService;
 use Core\Security\AuthService;
 use Core\Security\EncryptionService;
@@ -26,6 +27,7 @@ class AuthServiceTest extends TestCase
     private AuthService $authService;
     private UserAccountRepository $userRepo;
     private MailService $mailService;
+    private ?MailPurpose $sentPurpose = null;
     private bool $emailSent;
 
     protected function setUp(): void
@@ -122,9 +124,28 @@ class AuthServiceTest extends TestCase
         $dkimManager = new DkimManager($tempDir);
 
         $this->mailService = $this->createMock(MailService::class);
-        $this->mailService->method('send')->willReturnCallback(function () {
-            $this->emailSent = true;
-        });
+        $this->sentPurpose = null;
+        $this->mailService->method('send')->willReturnCallback(
+            /**
+             * @param array<int, array{path: string, name: string}> $attachments
+             * @param array<string, string> $extraHeaders
+             */
+            function (
+                string $to,
+                string $subject,
+                string $bodyHtml,
+                string $bodyText,
+                ?string $replyTo = null,
+                array $attachments = [],
+                ?string $fromAddressOverride = null,
+                ?string $fromNameOverride = null,
+                array $extraHeaders = [],
+                MailPurpose $purpose = MailPurpose::Ordinary
+            ): void {
+                $this->emailSent = true;
+                $this->sentPurpose = $purpose;
+            }
+        );
 
         $twig = new Environment(new ArrayLoader([
             'email/magic_link.html.twig' => '<a href="{{ magic_link_url }}">Login</a>',
@@ -156,6 +177,21 @@ class AuthServiceTest extends TestCase
         $this->assertNotNull($result->magicLinkId);
         $this->assertNull($result->error);
         $this->assertTrue($this->emailSent);
+    }
+
+    /**
+     * The one send() call in the codebase that states a purpose. It is
+     * what lets the mail sandbox let sign-in links through while capturing
+     * everything else (ARCHITECTURE.md §8.63); if this stops being stated,
+     * the exemption silently stops applying and nothing else notices.
+     */
+    public function testTheMagicLinkEmailStatesItIsASignInLink(): void
+    {
+        $this->userRepo->create('user@test.com');
+
+        $this->authService->requestMagicLink('user@test.com');
+
+        $this->assertSame(MailPurpose::MagicLink, $this->sentPurpose);
     }
 
     public function testRequestMagicLinkWithUnknownEmail(): void

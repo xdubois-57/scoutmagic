@@ -14,6 +14,13 @@ namespace Modules\TestTools\Service;
  * here — it is fetched from encrypted storage only when a detail page
  * actually needs it.
  *
+ * `$delivered` says whether this message ALSO left the server: false for
+ * every capture, true only for a sign-in link the operator chose to let
+ * through (ARCHITECTURE.md §8.63). A message the sandbox let out is still
+ * filed here rather than disappearing, so the page can answer "what did
+ * this feature actually send?" without the operator having to reason about
+ * which half of the mail went where.
+ *
  * @phpstan-type AttachmentRow array{id: int, file_name: string, mime_type: string, size_bytes: int, file_id: int|null}
  */
 final class CapturedEmail
@@ -27,6 +34,7 @@ final class CapturedEmail
     public function __construct(
         public readonly int $id,
         public readonly \DateTimeImmutable $capturedAt,
+        public readonly bool $delivered,
         public readonly string $subject,
         public readonly string $recipient,
         public readonly string $fromAddress,

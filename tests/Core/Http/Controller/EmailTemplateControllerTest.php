@@ -115,7 +115,8 @@ class EmailTemplateControllerTest extends TestCase
                 array $attachments = [],
                 ?string $fromAddressOverride = null,
                 ?string $fromNameOverride = null,
-                array $extraHeaders = []
+                array $extraHeaders = [],
+                \Core\Mail\MailPurpose $purpose = \Core\Mail\MailPurpose::Ordinary
             ): void {
                 $this->sent[] = ['to' => $to, 'subject' => $subject, 'html' => $bodyHtml, 'text' => $bodyText];
             }

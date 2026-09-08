@@ -70,7 +70,7 @@ class ScanIntegrationTest extends TestCase
 
         $editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));
         $shortUrlService = new ShortUrlService(new ShortUrlRepository($this->pdo, $encryption));
-        $this->articleService = new ArticleService($this->articles, $this->forms, $editableContentService, $shortUrlService);
+        $this->articleService = new ArticleService($this->articles, $this->forms, $editableContentService, $shortUrlService, new \Core\File\FileRepository($this->pdo));
         $this->formService = new FormService($this->forms, $this->fields, $this->articleService, $this->responses);
 
         $this->twig = TwigFactory::create(

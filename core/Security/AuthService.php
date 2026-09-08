@@ -10,6 +10,7 @@ namespace Core\Security;
 
 use Core\Database\Connection;
 use Core\Journal\JournalService;
+use Core\Mail\MailPurpose;
 use Core\Mail\MailService;
 use Core\Mail\Template\EmailTemplateRenderer;
 use Core\Member\MemberEmailRepository;
@@ -337,11 +338,17 @@ class AuthService
         // path rather than two.
         $email = $this->emailTemplateRenderer->render('magic_link', $context);
 
+        // The one send() call in the whole codebase that states a
+        // purpose. It is what lets the mail sandbox let sign-in links
+        // through while capturing everything else (ARCHITECTURE.md
+        // §8.63); everywhere else the default `Ordinary` applies and
+        // nothing knows this enum exists.
         $this->mailService->send(
             to: $to,
             subject: $email->subject,
             bodyHtml: $email->bodyHtml,
-            bodyText: $email->bodyText
+            bodyText: $email->bodyText,
+            purpose: MailPurpose::MagicLink
         );
     }
 }

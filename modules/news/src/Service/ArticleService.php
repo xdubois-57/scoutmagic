@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\News\Service;
 
+use Core\File\FileRepository;
 use Core\Module\HomeNewsProvider;
 use Core\Security\Role;
 use Core\Url\ShortUrlService;
@@ -24,6 +25,7 @@ class ArticleService implements HomeNewsProvider
         private FormRepository $formRepository,
         private EditableContentService $editableContentService,
         private ShortUrlService $shortUrlService,
+        private FileRepository $fileRepository,
         private ?ExpectedReceivableInterface $expectedReceivable = null
     ) {
     }
@@ -153,17 +155,55 @@ class ArticleService implements HomeNewsProvider
      * Whether this article's title, summary and cover image may be
      * exposed as og:/twitter: metadata.
      *
-     * The body of a restricted article is protected by canView() above,
-     * but a preview is not a body: a link pasted into a public group
-     * would otherwise render title, summary and picture for anyone. So
-     * the metadata is emitted only for an article a caller with no
-     * session may read anyway — which is exactly PUBLICLY_READABLE_
-     * VISIBILITIES. Decided server-side, before rendering, never by
-     * hiding markup the response already carries.
+     * The set is Repository\Article::SOCIALLY_SHAREABLE_VISIBILITIES,
+     * where the trade-off is written down: `identified` is in, because
+     * the crawler rendering the preview of a link posted to a group of
+     * animateurs never signs in, and a preview it cannot build is a
+     * bare URL. `chief` and `admin` are out. Decided server-side,
+     * before rendering, never by hiding markup the response already
+     * carries.
      */
     public function isSociallyShareable(Article $article): bool
     {
-        return in_array($article->visibility, Article::PUBLICLY_READABLE_VISIBILITIES, true);
+        return in_array($article->visibility, Article::SOCIALLY_SHAREABLE_VISIBILITIES, true);
+    }
+
+    /**
+     * The `files.role_min` an article's COVER image carries — the one
+     * place this mapping exists, called both by
+     * Controller\NewsController when a new cover is uploaded and by
+     * update() below when an existing one has to be re-synced.
+     *
+     * It follows the article's own visibility, with one deliberate
+     * exception: a socially shareable article's cover is `public`
+     * whatever its visibility, because the og:image URL is fetched by a
+     * crawler with no session and an image that 403s is a preview with
+     * a hole in it. That is the whole of the `identified` decision
+     * (issue #211) — see SOCIALLY_SHAREABLE_VISIBILITIES for what it
+     * costs.
+     *
+     * The in-body images are a different question and keep their own
+     * answer: Controller\NewsController::uploadBodyImage() stores them
+     * `public` because the article's visibility is not known yet at
+     * that point (mid-edit, possibly still unsaved).
+     */
+    public static function coverImageRoleMin(string $visibility): string
+    {
+        if (in_array($visibility, Article::SOCIALLY_SHAREABLE_VISIBILITIES, true)) {
+            return 'public';
+        }
+
+        return match ($visibility) {
+            Article::VISIBILITY_CHIEF => 'chief',
+            Article::VISIBILITY_ADMIN => 'admin',
+            // The column is an ENUM of five values and the three
+            // shareable ones returned above, so nothing reaches this arm
+            // but a visibility that drifted. It closes rather than opens:
+            // a cover nobody can read is a smaller accident than one
+            // everybody can, and the same posture as the guard's own
+            // "no role_min, no access".
+            default => 'admin',
+        };
     }
 
     public function canEdit(Article $article, Role $role, int $currentAccountId): bool
@@ -202,6 +242,7 @@ class ArticleService implements HomeNewsProvider
 
         $code = $this->shortUrlService->createShortUrl('/news/' . $id, $createdBy);
         $this->articleRepository->setShortUrlCode($id, $code);
+        $this->syncCoverImageAccess($imageFileId, $visibility);
 
         return $this->articleRepository->findById($id);
     }
@@ -236,7 +277,36 @@ class ArticleService implements HomeNewsProvider
         $this->articleRepository->update($id, $title, $visibility, $isIndexed, $seoKeywords, $seoStopDate, $summary,
             $imageFileId);
 
-        return $this->articleRepository->findById($id);
+        $updated = $this->articleRepository->findById($id);
+        $this->syncCoverImageAccess($updated?->imageFileId, $visibility);
+
+        return $updated;
+    }
+
+    /**
+     * Puts the cover image's `files.role_min` back on coverImageRoleMin()
+     * — from create() and update() both, so the invariant belongs to the
+     * service rather than to whoever happened to upload the file.
+     *
+     * update() is the one that matters. A new cover is uploaded with the
+     * right floor already (Controller\NewsController::
+     * resolveUploadedImageFileId()), but an author who only changes the
+     * VISIBILITY uploads nothing at all — and until this existed, the old
+     * file kept the floor of the old visibility, indefinitely. Both
+     * directions were wrong: an article moved from public to `chief` left
+     * its cover readable by anyone holding the URL, and one moved the
+     * other way left a cover that 403s inside a page anybody may read.
+     *
+     * A no-op UPDATE when the id matches no row, which is what a caller
+     * passing an image id from outside `files` gets.
+     */
+    private function syncCoverImageAccess(?int $imageFileId, string $visibility): void
+    {
+        if ($imageFileId === null) {
+            return;
+        }
+
+        $this->fileRepository->updateRoleMin($imageFileId, self::coverImageRoleMin($visibility));
     }
 
     /**
@@ -283,9 +353,17 @@ class ArticleService implements HomeNewsProvider
      * (module spec §16).
      *
      * They fail the same test for two different reasons: a direct_link
-     * article is deliberately in no list, and an `identified` one hands
-     * a crawler — which never signs in — a title, a summary and a cover
-     * image whose whole point was to stay inside the unit.
+     * article is deliberately in no list, and an `identified` one would
+     * be advertised by a search engine to visitors who then land on a
+     * 403 — the article is not in the anonymous list either, and that is
+     * the same decision.
+     *
+     * Note this is NOT the og: question, and the two parted ways with
+     * issue #211. A preview is built for a link somebody chose to post;
+     * indexing publishes the page to everybody who searches, forever,
+     * asked by nobody. `identified` now gets the first and still refuses
+     * the second — see Repository\Article::SOCIALLY_SHAREABLE_
+     * VISIBILITIES.
      *
      * @return array{0: bool, 1: ?string, 2: ?string}
      */
