@@ -25,10 +25,12 @@ l'article : Public, Membres connectés, Animateurs, Chefs d'Unité, ou
 partage que par son adresse ou le code QR de l'affiche.
 
 « Membres connectés » réserve l'article aux animés, à leurs parents et
-aux animateurs, une fois connectés. Un article réservé n'est jamais
-référencé, et un lien partagé sur les réseaux sociaux n'en affiche ni
-le titre, ni le résumé, ni l'image : l'aperçu dirait sinon ce que
-l'article voulait garder pour l'unité.
+aux animateurs, une fois connectés. Il n'est jamais référencé, mais
+reste partageable : un lien posté sur les réseaux sociaux en affiche
+le titre, le résumé et l'image — c'est ce qui rend l'annonce visible
+dans un groupe. Seul le corps reste réservé : choisissez une image et
+un résumé publiables. « Animateurs » et « Chefs d'Unité » n'affichent
+aucun aperçu.
 
 ## Construire le formulaire
 

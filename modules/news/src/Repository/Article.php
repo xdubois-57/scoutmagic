@@ -32,15 +32,40 @@ final class Article
     ];
 
     /**
-     * Visibilities whose article a caller with no session may read, and
-     * therefore the only ones whose title, summary and cover image may
-     * reach a social-network crawler as og: metadata. Everything else
-     * has a body worth protecting and a preview worth protecting with
-     * it — see Service\ArticleService::isSociallyShareable().
+     * Visibilities whose title, summary and cover image may reach a
+     * social-network crawler as og: metadata.
+     *
+     * Wider than "what an anonymous caller may read", and deliberately
+     * so (issue #211). Sharing an article to a Facebook group of
+     * animateurs is a thing the unit actually does, and the crawler that
+     * renders that preview never signs in — so a members-only article
+     * whose preview is suppressed is posted as a bare link with no
+     * title and no picture, which is the same as not being shareable at
+     * all. `identified` therefore gets a preview — and gets it at a URL
+     * that answers 200, since a crawler does not read a 403's body
+     * (Controller\NewsController::renderSocialPreview()). What that page
+     * carries is the preview and nothing more: the body, the form and
+     * the author stay behind Service\ArticleService::canView(), and so
+     * does the listing, which an anonymous visitor still never sees.
+     *
+     * What that costs is stated rather than discovered: the title, the
+     * one-sentence summary and the cover image of a members-only
+     * article are public from the moment it is published — the cover's
+     * own `files.role_min` is set to `public` for exactly this reason
+     * (Service\ArticleService::coverImageRoleMin()), since a preview
+     * whose image 403s is not a preview.
+     *
+     * `chief` and `admin` stay out. A staff-only article is not
+     * something anybody pastes into a group of parents, and its cover
+     * keeps the article's own floor.
      *
      * @var string[]
      */
-    public const PUBLICLY_READABLE_VISIBILITIES = [self::VISIBILITY_PUBLIC, self::VISIBILITY_DIRECT_LINK];
+    public const SOCIALLY_SHAREABLE_VISIBILITIES = [
+        self::VISIBILITY_PUBLIC,
+        self::VISIBILITY_DIRECT_LINK,
+        self::VISIBILITY_IDENTIFIED,
+    ];
 
     public function __construct(
         public readonly int $id,
