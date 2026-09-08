@@ -523,9 +523,11 @@ generalises:
   many review agents were launched, how many of them finished, and how many
   tool calls were refused: facts about the run, not estimates of it, and
   none needs a threshold. A refusal is disqualifying when it falls outside
-  `Bash` — the one entry granted command by command rather than whole, so
-  that a refused shell line is the allowlist working and a refusal of
-  anything else is a gap.
+  the refusals this workflow has **decided** — declared once, in
+  `DELIBERATE_DENIALS` at the top of the file, so that a refused call the
+  allowlist meant to refuse is the allowlist working and a refusal of
+  anything else is a gap. See below for why that is a declared list rather
+  than one tool name.
   `tests/Architecture/ClaudeReviewIsVerifiableTest` pins each of these
   against the single edit that would undo it.
 
@@ -545,6 +547,42 @@ does not control, and `pull-requests: read` bounds neither. That is the
 next to "grant it", and it is why the verdict counts refusals outside
 `Bash` rather than all of them: a check that cries wolf over its first real
 review is a check people learn to skip.
+
+**"A refusal is red unless it was decided" needed somewhere to write
+"decided".** The rule above shipped as a single literal — the count
+excluded `Bash` and nothing else — and every tool decided after it was
+decided in a comment the check could not read. So the check called three
+complete reviews "not a review", in three pull requests, over three
+different tools: `Bash` on #224 (fixed by #254), `Write` on #260,
+`WebFetch` on #259. That is a series rather than a coincidence, and
+naming a fourth tool in the `jq` would only have added a term to it
+(issue #261). The decided refusals are now one list at the top of the
+workflow, read by the `jq` that counts and named in the comment that
+reports, with the reason for each written beside it. `Write` and
+`WebFetch` are on it as refusals rather than grants: the run that settled
+it (34260813534) was refused `Write` twice, both times for a throwaway
+script to check string literals against a file, inside a run of
+twenty-three refusals that also included `python3`, a heredoc, a loop and
+a pipe — granting `Write` would have cleared two of twenty-three and left
+the review red at the next loop. The reviewer did not need to write; it
+needed to run code, which is the one thing this job will not grant. And
+`WebFetch` does not inherit `Write`'s cheapness at all: a file in a
+throwaway workspace is inert, while an outbound request to a URL the
+agent chose, from a job holding `CLAUDE_CODE_OAUTH_TOKEN` and
+`id-token: write` past an untrusted diff, is an exfiltration channel.
+
+**The truncated reviews had a tell, and it was in the tool list.** On
+2026-09-08 the same commit was reviewed twice and stopped part-way both
+times — 7 agents launched, 3 collected, three minutes and two dollars
+against the 11 min 37 s and 8-of-8 of a complete pass on the same pull
+request. `ScheduleWakeup` appears in the tool list of every one of those
+runs and in neither of the two complete reviews of that day (issue #262).
+A reviewer that schedules a wake-up has ended its turn, and nothing wakes
+a workflow run up: the SDK closes it a success with four agents still
+reading, which is the #208 failure in a new spelling. It is refused now,
+declared on the same list, and the prompt says why — there is no later
+turn to schedule. The `spawned` against `completed` comparison remains
+the guard; this only stops the reviewer walking into it.
 
 **Then a working reviewer found the ceiling.** #217 took 10 min 47 s
 against a `timeout-minutes: 20` written when a review took a few minutes

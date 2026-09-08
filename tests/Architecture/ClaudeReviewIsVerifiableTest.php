@@ -77,6 +77,27 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
         return [$halves[0], $halves[1]];
     }
 
+    /**
+     * The refusals this file has decided, as the verdict reads them:
+     * from `DELIBERATE_DENIALS` itself, never from the prose beside it.
+     *
+     * @return list<string>
+     */
+    private static function deliberateDenials(): array
+    {
+        $matched = preg_match('/^env:\n  DELIBERATE_DENIALS: "([^"]*)"$/m', self::workflow(), $found);
+
+        self::assertSame(
+            1,
+            $matched,
+            'The workflow no longer declares `DELIBERATE_DENIALS` as a single top-level env string. That '
+            . 'declaration is the only place a refusal can be decided in a way the verdict reads, so '
+            . 'without it every decision goes back into a comment nothing checks.',
+        );
+
+        return array_values(array_filter(explode(',', $found[1]), static fn (string $t): bool => $t !== ''));
+    }
+
     private static function claudeArgs(): string
     {
         [$review] = self::jobs();
@@ -327,7 +348,11 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
         self::assertIsInt($opens, 'The evidence step no longer reads the transcript with jq.');
 
         $start = $opens + strlen("if ! jq -r '");
-        $closes = strpos($workflow, "' \"\${EXECUTION_FILE}\"", $start);
+        // The program ends where its arguments begin, and the first of
+        // those is the decided-refusal list — see
+        // testTheDecidedRefusalsAreReadByTheVerdictRatherThanOnlyByAReader,
+        // which is what fails first if that argument is dropped.
+        $closes = strpos($workflow, "' --arg deliberate", $start);
 
         self::assertIsInt($closes, 'The jq program is no longer closed where this test expects to find its end.');
 
@@ -368,8 +393,13 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
 
             $output = [];
             $status = 0;
+            // The real declaration, not a stand-in: a program run without
+            // the argument the workflow passes it is not the program the
+            // workflow runs.
             exec(
-                'jq -r -f ' . escapeshellarg($program) . ' ' . escapeshellarg($transcript) . ' 2>&1',
+                'jq -r -f ' . escapeshellarg($program)
+                . ' --arg deliberate ' . escapeshellarg(implode(',', self::deliberateDenials()))
+                . ' ' . escapeshellarg($transcript) . ' 2>&1',
                 $output,
                 $status,
             );
@@ -825,5 +855,138 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
             'The outputs are appended before jq has been shown to succeed, so a half-written extraction can '
             . 'still reach the status job.',
         );
+    }
+
+    /**
+     * A REFUSAL IS RED UNLESS IT WAS DECIDED, and "decided" needs
+     * somewhere to be written that the verdict actually reads.
+     *
+     * It did not have one. The refusal count excluded the single literal
+     * `Bash`, and every other tool's reason lived in a comment — so each
+     * tool decided after `Bash` was decided where the check could not see
+     * it, and the check called three working reviews "not a review" over
+     * three different tools in three pull requests: `Bash` on #224,
+     * `Write` on #260, `WebFetch` on #259 (issue #261). Three in a row is
+     * a series, and naming a fourth tool in the `jq` would only have
+     * added a term to it.
+     */
+    public function testTheDecidedRefusalsAreReadByTheVerdictRatherThanOnlyByAReader(): void
+    {
+        [$review] = self::jobs();
+
+        $this->assertNotEmpty(
+            self::deliberateDenials(),
+            'The list of decided refusals is empty, so every refusal counts as a gap — including the '
+            . '`Bash` lines the allowlist refuses on purpose, on every review.',
+        );
+
+        $this->assertStringContainsString(
+            '--arg deliberate "${DELIBERATE_DENIALS:-}"',
+            $review,
+            'The evidence step no longer passes the decided refusals to `jq`, so the count it publishes '
+            . 'is taken against something other than what this file declared.',
+        );
+
+        $this->assertStringContainsString(
+            '($deliberate | split(",")',
+            $review,
+            'The `jq` filter no longer reads the decided refusals as a list. A single hard-coded tool name '
+            . 'in its place is what issue #261 was: correct for one tool and one pull request at a time.',
+        );
+
+        $this->assertDoesNotMatchRegularExpression(
+            '/select\(\. != "Bash"\)/',
+            $review,
+            'The refusal count is filtering on a hard-coded `Bash` again. Every tool decided after it '
+            . 'would be counted as a gap this file forgot, which is the defect, not the fix.',
+        );
+    }
+
+    /**
+     * `Write` AND `WebFetch` ARE REFUSED, NOT GRANTED, and that is a
+     * decision rather than an omission.
+     *
+     * Issue #261 left the choice open and run 34260813534 settled it: the
+     * two `Write` calls it was refused were both a throwaway script to
+     * check string literals against a file, in a run of twenty-three
+     * refusals that also included `python3`, a heredoc, a loop and a pipe.
+     * Granting `Write` would have cleared two of twenty-three and left the
+     * review red at the next loop — the reviewer did not need to write, it
+     * needed to run code, and that is the thing this job will not grant.
+     *
+     * `WebFetch` is not the same call at all: a file in a throwaway
+     * workspace is inert, an outbound request to a URL the agent chose,
+     * from a job holding CLAUDE_CODE_OAUTH_TOKEN and `id-token: write`
+     * while reading an untrusted diff, is an exfiltration channel.
+     */
+    public function testTheToolsThatStayRefusedAreNotQuietlyGrantedInstead(): void
+    {
+        $args = self::claudeArgs();
+        $decided = self::deliberateDenials();
+
+        foreach (['Write', 'WebFetch', 'ScheduleWakeup'] as $tool) {
+            $this->assertContains(
+                $tool,
+                $decided,
+                'The refusal of `' . $tool . '` is no longer declared, so the next review that asks for it '
+                . 'goes red as a gap in this file rather than as the decision it is.',
+            );
+        }
+
+        $this->assertDoesNotMatchRegularExpression(
+            '/--allowedTools "[^"]*\bWebFetch\b/',
+            $args,
+            '`WebFetch` has been granted. This job holds the maintainer\'s subscription token and '
+            . '`id-token: write` while reading a diff anybody can write, and an outbound request to a URL '
+            . 'the agent chose is the one refusal in this file that cannot be traded for convenience.',
+        );
+
+        $this->assertDoesNotMatchRegularExpression(
+            '/--allowedTools "[^"]*\bScheduleWakeup\b/',
+            $args,
+            '`ScheduleWakeup` has been granted. A workflow run is one-shot: there is no later turn to '
+            . 'schedule, and a reviewer that reaches for one ends the run with its agents still reading.',
+        );
+    }
+
+    /**
+     * THE OTHER HALF OF ISSUE #262, and the cheap half. The guard that
+     * catches a truncated review is the launched-against-finished
+     * comparison above; this is what stops the reviewer reaching that
+     * guard in the first place.
+     *
+     * `ScheduleWakeup` appeared in the tool list of every truncated run of
+     * 2026-09-08 — 7 agents launched and 3 collected, twice on the same
+     * commit — and in neither of the two complete reviews of the same day.
+     * A reviewer that schedules a wake-up has ended its turn, and nothing
+     * wakes a workflow up: the SDK closes the run a success with four
+     * agents still reading. Telling it so costs a sentence.
+     */
+    public function testTheReviewerIsToldWhyItCannotScheduleAWakeUp(): void
+    {
+        $args = self::claudeArgs();
+
+        $this->assertStringContainsString(
+            'ScheduleWakeup is not granted and cannot help you',
+            $args,
+            'The prompt no longer tells the reviewer that scheduling a wake-up cannot work here. That is '
+            . 'what every truncated review of 2026-09-08 did instead of waiting for its agents.',
+        );
+
+        foreach (self::deliberateDenials() as $tool) {
+            if ($tool === 'Bash') {
+                // Granted command by command, and the prompt says which
+                // shapes are refused rather than naming the tool itself.
+                continue;
+            }
+
+            $this->assertStringContainsString(
+                $tool,
+                $args,
+                'The prompt never mentions `' . $tool . '`, which this workflow refuses on purpose. A '
+                . 'refusal the reviewer cannot anticipate costs it the turns it spends rediscovering it — '
+                . 'six tries at one question, on run 34260813534.',
+            );
+        }
     }
 }
