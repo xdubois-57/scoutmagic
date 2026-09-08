@@ -522,10 +522,29 @@ generalises:
   **goes red when it cannot show a review happened**. Its signals are how
   many review agents were launched, how many of them finished, and how many
   tool calls were refused: facts about the run, not estimates of it, and
-  none needs a threshold. A refusal is disqualifying on its own — the agent
-  asked for something this workflow had not granted.
+  none needs a threshold. A refusal is disqualifying when it falls outside
+  `Bash` — the one entry granted command by command rather than whole, so
+  that a refused shell line is the allowlist working and a refusal of
+  anything else is a gap.
   `tests/Architecture/ClaudeReviewIsVerifiableTest` pins each of these
   against the single edit that would undo it.
+
+**The first review that ever ran end to end was #217**, the first pull
+request after that fix landed: 10 min 47 s against the 13 seconds a
+declined run takes, `Skill` in its tool list, sixteen agents launched and
+sixteen finished, `claude-opus-5` among its models for the first time, five
+inline findings posted — a stale SSRF claim, a route count off by 130, two
+paragraphs describing a cron that no longer exists. It also **failed the
+status check**, over nineteen refused `Bash` one-liners (`grep`, `ls`,
+`find`, `wc`, `jq`, and five `python3 -c` / `php -r`) that it went on to do
+with `Grep` and `Read` instead. The read-only utilities are granted now;
+the interpreters are not and will not be, because that job carries
+`CLAUDE_CODE_OAUTH_TOKEN` and `id-token: write` past a diff this repository
+does not control, and `pull-requests: read` bounds neither. That is the
+"say in this file why it must stay denied" branch the steward skill offers
+next to "grant it", and it is why the verdict counts refusals outside
+`Bash` rather than all of them: a check that cries wolf over its first real
+review is a check people learn to skip.
 
 **SonarQube Cloud** — posts a Quality Gate on each pull request. It is
 skipped entirely on pull requests from forks, because `SONAR_TOKEN` is not
