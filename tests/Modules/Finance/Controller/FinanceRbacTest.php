@@ -594,7 +594,15 @@ class FinanceRbacTest extends TestCase
         AuthSession::login(1, 'tresorier@test.be', 'intendant');
 
         $this->assertSame(200, $this->patchMovement($mineMovement)->getStatusCode());
-        $this->assertSame(403, $this->patchMovement($theirsMovement)->getStatusCode());
+        // 404, not 403 (#219): the same answer an id that does not exist
+        // gets. Two different answers let a treasurer walk the id space and
+        // list the movements the other accounts carry, and their rhythm.
+        $this->assertSame(404, $this->patchMovement($theirsMovement)->getStatusCode());
+        $this->assertSame(
+            $this->patchMovement(999999)->getBody(),
+            $this->patchMovement($theirsMovement)->getBody(),
+            'Un mouvement invisible et un mouvement inexistant doivent répondre la même chose.',
+        );
     }
 
     public function testReadingAMovementsAttachmentsRefusesAnAccountThisTreasurerDoesNotHold(): void
@@ -608,7 +616,12 @@ class FinanceRbacTest extends TestCase
         $controller = $this->instantiateController('MovementController');
 
         $this->assertSame(200, $controller->attachments(new Request('GET', '/x', [], [], [], []), ['id' => (string) $mineMovement])->getStatusCode());
-        $this->assertSame(403, $controller->attachments(new Request('GET', '/x', [], [], [], []), ['id' => (string) $theirsMovement])->getStatusCode());
+        // #219 again, on the route the reproduction walked.
+        $theirs = $controller->attachments(new Request('GET', '/x', [], [], [], []), ['id' => (string) $theirsMovement]);
+        $unknown = $controller->attachments(new Request('GET', '/x', [], [], [], []), ['id' => '999999']);
+        $this->assertSame(404, $theirs->getStatusCode());
+        $this->assertSame($unknown->getStatusCode(), $theirs->getStatusCode());
+        $this->assertSame($unknown->getBody(), $theirs->getBody());
     }
 
     public function testTheMovementSearchNeverReachesOutsideThisTreasurersSections(): void

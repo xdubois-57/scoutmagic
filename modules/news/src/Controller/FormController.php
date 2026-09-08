@@ -613,7 +613,15 @@ class FormController extends AbstractController
         $role = Role::fromString(AuthSession::getRole());
         $accountId = AuthSession::getUserAccountId();
         if (!$this->responseService->canEditResponse($response, $form, $role, $accountId)) {
-            return new Response('Forbidden', 403);
+            // 404, never 403 — the same answer loadResponseContext() gives
+            // for a response that is not this article's. These routes are
+            // `public`, so two different answers let anyone count the
+            // responses each form received and learn which id belongs to
+            // which article, including articles whose page they may not
+            // open. Core\Http\Controller\AuditController::page() states
+            // the rule; RentalManagementController says "404, never 403"
+            // in as many words.
+            return new Response('Not Found', 404);
         }
 
         $fields = $this->formService->getFields($form->id);
@@ -655,7 +663,8 @@ class FormController extends AbstractController
         $role = Role::fromString(AuthSession::getRole());
         $accountId = AuthSession::getUserAccountId();
         if (!$this->responseService->canEditResponse($response, $form, $role, $accountId)) {
-            return new Response('Forbidden', 403);
+            // 404, never 403 — see editResponse() above.
+            return new Response('Not Found', 404);
         }
 
         $fields = $this->formService->getFields($form->id);

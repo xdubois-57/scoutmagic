@@ -90,10 +90,17 @@ class MassMailService
     }
 
     /**
+     * @param int[]|null $visibleSectionIds null = every section (a chef d'unité and above)
      * @return array{emails: Email[], total: int, per_page: int}
      */
-    public function findFiltered(string $search, ?string $status, ?int $sectionId, int $page): array
-    {
+    public function findFiltered(
+        string $search,
+        ?string $status,
+        ?int $sectionId,
+        int $page,
+        ?array $visibleSectionIds = null,
+        ?int $ownAccountId = null
+    ): array {
         $matchesActiveMembers = $search !== '' && mb_stripos(
             MailingListService::ACTIVE_MEMBERS_LABEL,
             $search
@@ -101,9 +108,26 @@ class MassMailService
         $matchesChiefs = $search !== '' && mb_stripos(MailingListService::CHIEFS_LABEL, $search) !== false;
 
         $result = $this->emailRepository->findFiltered($search, $status, $sectionId, $matchesActiveMembers,
-            $matchesChiefs, $page);
+            $matchesChiefs, $page, $visibleSectionIds, $ownAccountId);
 
         return ['emails' => $result['emails'], 'total' => $result['total'], 'per_page' => EmailRepository::perPage()];
+    }
+
+    /**
+     * Which email an attachment belongs to, and which email a recipient
+     * row belongs to — the two ids the routes carry that are not an
+     * email's own, and that a caller therefore has to resolve before it
+     * can ask whether this session may touch that email at all.
+     */
+    public function findEmailIdForAttachment(int $attachmentId): ?int
+    {
+        return $this->attachmentRepository->findById($attachmentId)?->emailId;
+    }
+
+    /** @see self::findEmailIdForAttachment() */
+    public function findEmailIdForRecipient(int $recipientId): ?int
+    {
+        return $this->recipientRepository->findById($recipientId)?->emailId;
     }
 
     /**

@@ -22,6 +22,7 @@ use Core\Member\MemberEmailService;
 use Core\Member\MemberPageService;
 use Core\Member\MemberService;
 use Core\Member\MemberYearService;
+use Core\Member\SectionStaffAuthorizationService;
 use Core\Member\SectionService;
 use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
@@ -147,7 +148,9 @@ class MemberControllerMassMailTest extends TestCase
             new MemberYearService(),
             new JournalService(new JournalRepository($this->pdo)),
             $this->buildMemberPageService($massMailQuery),
-            new DepartureService(new DepartureRepository($this->pdo, $this->encryption), new JournalService(new JournalRepository($this->pdo)))
+            new DepartureService(new DepartureRepository($this->pdo, $this->encryption), new JournalService(new JournalRepository($this->pdo))),
+            $this->createMock(SectionStaffAuthorizationService::class),
+            $this->createMock(SectionService::class)
         );
     }
 

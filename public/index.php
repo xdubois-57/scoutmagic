@@ -3088,7 +3088,7 @@ $frontController->registerController(ImportController::class,
     );
 $frontController->registerController(MemberController::class,
     new MemberController($twig, $memberService, $memberYearService, $journalService, $memberPageService,
-        $departureService)
+        $departureService, $sectionStaffAuthorizationService, $sectionService)
     );
 $frontController->registerController(
     \Core\Http\Controller\MemberEmailAddressController::class,
@@ -6832,7 +6832,7 @@ if (
     $frontController->registerController(
         MemberController::class,
         new MemberController($twig, $memberService, $memberYearService, $journalService, $memberPageService,
-            $departureService)
+            $departureService, $sectionStaffAuthorizationService, $sectionService)
     );
 }
 

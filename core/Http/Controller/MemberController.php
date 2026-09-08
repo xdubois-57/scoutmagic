@@ -16,6 +16,8 @@ use Core\Member\MemberNotFoundException;
 use Core\Member\MemberPageService;
 use Core\Member\MemberService;
 use Core\Member\MemberYearService;
+use Core\Member\SectionService;
+use Core\Member\SectionStaffAuthorizationService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\Role;
@@ -29,7 +31,9 @@ class MemberController extends AbstractController
         private MemberYearService $memberYearService,
         private JournalService $journalService,
         private MemberPageService $memberPageService,
-        private DepartureService $departureService
+        private DepartureService $departureService,
+        private SectionStaffAuthorizationService $sectionStaffAuthorizationService,
+        private SectionService $sectionService
     ) {
     }
 
@@ -79,6 +83,42 @@ class MemberController extends AbstractController
     }
 
     /**
+     * Whether the signed-in account animates the section this member-year
+     * belongs to — the write-side boundary, built out of the same two
+     * vetted lookups DeparturesController uses rather than a second,
+     * hand-rolled version of the rule.
+     *
+     * The year asked about is the member-year's OWN scout year, not the
+     * effective one: this row is the thing being written, and whoever
+     * animates its section that year is who may write it.
+     */
+    private function accountStaffsMemberYear(int $memberYearId): bool
+    {
+        $scoutYearId = $this->memberService->getScoutYearIdForMemberYear($memberYearId);
+        if ($scoutYearId === null) {
+            return false;
+        }
+
+        $sections = $this->sectionStaffAuthorizationService->getStaffedSections(
+            AuthSession::getEmail() ?? '',
+            AuthSession::getRole(),
+            $scoutYearId
+        );
+
+        foreach ($sections as $section) {
+            if (in_array(
+                $memberYearId,
+                $this->sectionService->getSectionAnimeMemberYearIds((int) $section['id'], $scoutYearId),
+                true
+            )) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * POST /members/{id}/scout-year-offset — update a member's scout year
      * offset (AJAX, JSON). role_min: chief, enforced by the router.
      *
@@ -106,6 +146,19 @@ class MemberController extends AbstractController
             $profile = $this->memberService->getMemberProfile($memberYearId);
         } catch (MemberNotFoundException $e) {
             return $this->json(['success' => false, 'error' => 'Membre introuvable.'], 404);
+        }
+
+        // `role_min: chief` on the route proves the caller animates
+        // SOMETHING; it says nothing about whether they animate THIS animé.
+        // The other write on this very page — Modules\Registration\
+        // Controller\DeparturesController::update() — re-derives the
+        // member's section among the caller's own and answers 403 when it
+        // is not one of them (ARCHITECTURE.md §8.33). Two writes on the
+        // same member from the same card must not answer to two rules, and
+        // MemberService::canAccess() is the READ rule (§8.14): it lets
+        // every chief through by design.
+        if (!$this->accountStaffsMemberYear($memberYearId)) {
+            return $this->json(['success' => false, 'error' => "Cette section n'est pas la vôtre."], 403);
         }
 
         $oldOffset = $profile->scoutYearOffset;

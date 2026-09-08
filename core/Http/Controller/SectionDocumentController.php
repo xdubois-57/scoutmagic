@@ -91,6 +91,18 @@ class SectionDocumentController extends AbstractController
             return new Response('Forbidden', 403);
         }
 
+        // And the same for the YEAR, which is the other half of where this
+        // document lands and came from the same body. The section was
+        // validated; the year was not, so a forged body wrote a document
+        // into any year of a section the caller does animate — including
+        // years the page never offered. The allowed set is asked of the
+        // service the page itself asks (listYearsForStaffsPage()), so what
+        // the form offers and what this accepts cannot disagree.
+        if (!in_array($scoutYearId, $this->offeredScoutYearIds($sectionId), true)) {
+            $this->journalRefusal('add', [$sectionId], []);
+            return new Response('Forbidden', 403);
+        }
+
         $file = $request->getFile('file');
         if ($file === null || $file['error'] !== UPLOAD_ERR_OK) {
             FlashMessage::set('error', "Erreur lors de l'envoi du fichier.");
@@ -275,6 +287,25 @@ class SectionDocumentController extends AbstractController
                 $role,
                 $effectiveYear->id
             )
+        );
+    }
+
+    /**
+     * The scout years the Staffs page offers for this section — the years
+     * that already hold documents, plus the effective one.
+     *
+     * @return int[]
+     */
+    private function offeredScoutYearIds(int $sectionId): array
+    {
+        $effectiveYear = $this->scoutYearResolver->getEffectiveYear(
+            ScoutYearSession::getPreviewId(),
+            Role::fromString(AuthSession::getRole())
+        );
+
+        return array_map(
+            static fn (array $block): int => (int) $block['scout_year']['id'],
+            $this->service->listYearsForStaffsPage($sectionId, $effectiveYear->id)
         );
     }
 

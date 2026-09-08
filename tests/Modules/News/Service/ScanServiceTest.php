@@ -15,6 +15,7 @@ use Modules\News\Repository\FormResponseRepository;
 use Modules\News\Repository\NewsForm;
 use Modules\News\Service\ScanService;
 use Modules\News\Service\TicketService;
+use Core\Security\Role;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\News\NewsTestHelper;
@@ -115,7 +116,7 @@ class ScanServiceTest extends TestCase
         $this->fields->create($notTicketed, 0, FormField::TYPE_SHORT_TEXT, 'Nom', false, null, null, null, null, null);
         $this->responses->create($notTicketed, null, null, 'b@test.com', [], null, null);
 
-        $ids = array_column($this->service()->listControllableEvents(), 'form_id');
+        $ids = array_column($this->service()->listControllableEvents(Role::SUPERADMIN), 'form_id');
 
         // An event nobody booked has no door to hold; a form that issues
         // no ticket has no ticket to check.
@@ -134,7 +135,7 @@ class ScanServiceTest extends TestCase
         }
 
         $ids = array_column(
-            $this->service()->listControllableEvents('', new \DateTimeImmutable('2026-03-14')),
+            $this->service()->listControllableEvents(Role::SUPERADMIN, '', new \DateTimeImmutable('2026-03-14')),
             'form_id'
         );
 
@@ -153,7 +154,7 @@ class ScanServiceTest extends TestCase
         );
         $this->booking($formId, [], 'a@test.com');
 
-        $this->assertSame([$formId], array_column($this->service()->listControllableEvents(), 'form_id'));
+        $this->assertSame([$formId], array_column($this->service()->listControllableEvents(Role::SUPERADMIN), 'form_id'));
     }
 
     public function testTheEventSearchMatchesTitleAndPlace(): void
@@ -161,9 +162,9 @@ class ScanServiceTest extends TestCase
         [, $formId] = $this->event('Souper spaghetti');
         $this->booking($formId, [], 'a@test.com');
 
-        $this->assertCount(1, $this->service()->listControllableEvents('spaghetti'));
-        $this->assertCount(1, $this->service()->listControllableEvents('SOUPER'), 'case does not matter');
-        $this->assertCount(0, $this->service()->listControllableEvents('barbecue'));
+        $this->assertCount(1, $this->service()->listControllableEvents(Role::SUPERADMIN, 'spaghetti'));
+        $this->assertCount(1, $this->service()->listControllableEvents(Role::SUPERADMIN, 'SOUPER'), 'case does not matter');
+        $this->assertCount(0, $this->service()->listControllableEvents(Role::SUPERADMIN, 'barbecue'));
     }
 
     // --- The counters ---
@@ -196,7 +197,7 @@ class ScanServiceTest extends TestCase
         }
 
         $this->assertSame(15, $this->service()->counters($this->forms->findById($formId))['sold']);
-        $this->assertSame(15, $this->service()->listControllableEvents()[0]['seats']);
+        $this->assertSame(15, $this->service()->listControllableEvents(Role::SUPERADMIN)[0]['seats']);
     }
 
     public function testAPlainNumberFieldWithNoPriceAndNoCapacityIsNotASeat(): void

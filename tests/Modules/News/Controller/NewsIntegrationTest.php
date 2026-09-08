@@ -1656,7 +1656,11 @@ class NewsIntegrationTest extends TestCase
             ['id' => (string) $articleId, 'response_id' => (string) $responseId]
         );
 
-        $this->assertSame(403, $response->getStatusCode());
+        // 404 and not 403 (#219): these routes are `public`, and a distinct
+        // « exists but is not yours » let anyone count each form's responses
+        // and learn which id belongs to which article — including articles
+        // whose own page they may not open.
+        $this->assertSame(404, $response->getStatusCode());
     }
 
     public function testPosterDownloadReturnsAPdf(): void

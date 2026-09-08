@@ -135,6 +135,7 @@ class EmailRepository
      * a real column — see the two $matchesActiveMembersLabel/
      * $matchesChiefsLabel params).
      *
+     * @param int[]|null $visibleSectionIds null = every section (a chef d'unité and above)
      * @return array{emails: Email[], total: int}
      */
     public function findFiltered(
@@ -143,10 +144,34 @@ class EmailRepository
         ?int $sectionId,
         bool $matchesActiveMembersLabel,
         bool $matchesChiefsLabel,
-        int $page
+        int $page,
+        // The sections this session may see mailings of, or null for
+        // "every one of them" (a chef d'unité and above). An empty array
+        // is not the same thing as null: it means "no section at all",
+        // and only this account's own drafts then show.
+        ?array $visibleSectionIds = null,
+        ?int $ownAccountId = null
     ): array {
         $where = [];
         $params = [];
+
+        // The subject of another section's mailing is that section's
+        // business — the same boundary the detail page applies. Without it
+        // the list named every draft of the whole unit to any animateur.
+        if ($visibleSectionIds !== null) {
+            $scope = [];
+            if ($visibleSectionIds !== []) {
+                $scope[] = 'e.section_id IN (' . implode(',', array_fill(0, count($visibleSectionIds), '?')) . ')';
+                array_push($params, ...array_map('intval', $visibleSectionIds));
+            }
+            if ($ownAccountId !== null) {
+                $scope[] = 'e.created_by = ?';
+                $params[] = $ownAccountId;
+            }
+            // Nothing visible and no account: a WHERE that matches nothing,
+            // never a missing clause.
+            $where[] = $scope === [] ? '1 = 0' : '(' . implode(' OR ', $scope) . ')';
+        }
 
         if ($search !== '') {
             $like = '%' . $search . '%';

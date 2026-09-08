@@ -291,7 +291,15 @@ class MovementController extends AbstractController
         $role = Role::fromString(AuthSession::getRole());
         $account = $this->financeService->getAccount($transaction->accountId);
         if (!$this->financeService->isAccountVisibleTo($account, $role)) {
-            return $this->json(['success' => false, 'error' => 'Accès refusé.'], 403);
+            // The SAME answer as "no such movement", deliberately. A 403
+            // here and a 404 there tell a caller walking the id space which
+            // ids exist — the movements the other accounts carry, and their
+            // rhythm. Core\Http\Controller\AuditController::page() states
+            // the rule ("One answer for […] \"not registered\" and \"not
+            // yours\""); Modules\Rental\Controller\RentalManagementController
+            // and Controller\ReceiptController::changeAccount() already
+            // apply it.
+            return $this->json(['success' => false, 'error' => 'Mouvement introuvable.'], 404);
         }
 
         $categoryId = $transaction->categoryId;
@@ -349,7 +357,8 @@ class MovementController extends AbstractController
         $role = Role::fromString(AuthSession::getRole());
         $account = $this->financeService->getAccount($transaction->accountId);
         if (!$this->financeService->isAccountVisibleTo($account, $role)) {
-            return $this->json(['success' => false, 'error' => 'Accès refusé.'], 403);
+            // Same answer as "no such movement" — see update() above.
+            return $this->json(['success' => false, 'error' => 'Mouvement introuvable.'], 404);
         }
 
         $attachmentIds = $this->transactionAttachmentRepository->findAttachmentIdsForTransaction($id);
@@ -399,7 +408,8 @@ class MovementController extends AbstractController
         $role = Role::fromString(AuthSession::getRole());
         $account = $this->financeService->getAccount($transaction->accountId);
         if (!$this->financeService->isAccountVisibleTo($account, $role)) {
-            return $this->json(['success' => false, 'error' => 'Accès refusé.'], 403);
+            // Same answer as "no such movement" — see update() above.
+            return $this->json(['success' => false, 'error' => 'Mouvement introuvable.'], 404);
         }
 
         $files = $request->getFiles('receipt');

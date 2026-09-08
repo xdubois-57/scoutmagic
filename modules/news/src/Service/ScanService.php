@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\News\Service;
 
+use Core\Security\Role;
 use Core\Service\TextNormalizerService;
 use Core\Service\DateInput;
 use Modules\Finance\Api\EpcPayloadReaderInterface;
@@ -124,13 +125,26 @@ class ScanService
      *     array{form_id: int, article_id: int, title: string, event_date: ?string, event_location: ?string, seats: int}
      * >
      */
-    public function listControllableEvents(string $query = '', ?\DateTimeImmutable $today = null): array
-    {
+    public function listControllableEvents(
+        Role $viewerRole,
+        string $query = '',
+        ?\DateTimeImmutable $today = null
+    ): array {
         $today ??= new \DateTimeImmutable('today');
         $needle = self::normalizeForSearch($query);
 
         $events = [];
         foreach ($this->forms->findAllIssuingTickets() as $form) {
+            // The form's own rule about who may read its responses, applied
+            // to the list that offers them: an event this session could not
+            // open must not be named here either, or the picker tells a
+            // `chief` that an admin-only evening exists and how many seats
+            // it sold. Controller\ScanController::requireTicketedForm()
+            // applies the same rule to every action reached from this list.
+            if (!$viewerRole->hasAccess(Role::fromString($form->responseRoleMin))) {
+                continue;
+            }
+
             $article = $this->articles->findById($form->newsArticleId);
             if ($article === null) {
                 continue;

@@ -288,6 +288,33 @@ class SectionDocumentControllerTest extends TestCase
         $this->assertCount(1, $this->documentRepository->findBySectionAndYear($this->sectionId, $this->scoutYearId));
     }
 
+    /**
+     * #237. The section came from the body and was validated; the YEAR came
+     * from the same body and was not, so a forged request filed a document
+     * into any year of a section the caller does animate — including years
+     * the form never offered.
+     */
+    public function testAddRefusesAScoutYearThePageDoesNotOffer(): void
+    {
+        $this->pdo->exec(
+            "INSERT INTO scout_years (label, start_date, end_date, is_current)"
+            . " VALUES ('2019-2020', '2019-09-01', '2020-08-31', 0)"
+        );
+        $unofferedYearId = (int) $this->pdo->lastInsertId();
+        $token = $this->csrfToken();
+
+        $response = $this->controller->add(
+            $this->uploadRequest($this->sectionId, $token, $unofferedYearId),
+            []
+        );
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(
+            [],
+            $this->documentRepository->findBySectionAndYear($this->sectionId, $unofferedYearId),
+        );
+    }
+
     public function testAddRefusesASectionTheAccountDoesNotAnimate(): void
     {
         $token = $this->csrfToken();
@@ -409,7 +436,7 @@ class SectionDocumentControllerTest extends TestCase
     /**
      * @param array<string, mixed> $data
      */
-    private function uploadRequest(int $sectionId, string $token): Request
+    private function uploadRequest(int $sectionId, string $token, ?int $scoutYearId = null): Request
     {
         $tmp = tempnam(sys_get_temp_dir(), 'sdc');
         file_put_contents($tmp, '%PDF-1.4 test document');
@@ -423,7 +450,7 @@ class SectionDocumentControllerTest extends TestCase
 
         return new Request('POST', '/chefs/staffs/documents', [], [
             'section_id' => (string) $sectionId,
-            'scout_year_id' => (string) $this->scoutYearId,
+            'scout_year_id' => (string) ($scoutYearId ?? $this->scoutYearId),
             'title' => 'Carnet',
             '_csrf_token' => $token,
         ], [], []);
