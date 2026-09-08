@@ -260,6 +260,32 @@ class MailboxSyncServiceTest extends TestCase
         $this->assertSame(10, $cursor->lastUid);
     }
 
+    /**
+     * #228, at the seam. One message whose subject announces a charset
+     * `mbstring` does not know used to take a ValueError out of the
+     * parser, past the fetch loop and past this service's own clause —
+     * losing the batch, leaving the cursor where it was, and re-fetching
+     * the same message on every later pass. A mailbox anybody can write
+     * to, stopped for good, by one subject.
+     */
+    public function testOnePoisonedMessageCostsThatMessageAndNothingElse(): void
+    {
+        $this->registry->register($this->claimEverything());
+        $this->addMessage(10, messageId: 'sain-1@example.be');
+        $this->addMessage(11, subject: '=?BOGUS-CS?B?QUJD?=', messageId: 'poison@example.be');
+        $this->addMessage(12, messageId: 'sain-2@example.be');
+
+        $outcome = $this->sync();
+
+        $this->assertTrue($outcome->connected);
+        $this->assertNull($outcome->reason);
+        $this->assertSame(
+            12,
+            $this->mailboxRepository->findCursor($this->mailboxId, 'INBOX')->lastUid,
+            'le curseur est resté derrière le message empoisonné',
+        );
+    }
+
     public function testABoxNoModuleSortsIsStillReadAndStillKept(): void
     {
         // This used to skip the connection entirely, on the reasoning that

@@ -6543,15 +6543,10 @@ if ($isEnabled('rental')) {
         )
     );
 
-    // Bootstrap the hourly hold-expiry poller (Task\ExpireRentalHoldsHandler,
-    // which re-schedules itself at the end of every run — Core\Scheduler has
-    // no recurring-task concept). Module-scoped handlers are auto-resolved
-    // via ModuleManager::getTaskHandler() in both entry points, so this
-    // one-time nudge is all the wiring there is; it is idempotent, so it
-    // costs one indexed lookup per request and never queues a duplicate.
-    // Availability does not depend on it: a hold is lapsed the moment its
-    // deadline passes, which the calculator reads directly.
-    \Modules\Rental\Task\ExpireRentalHoldsHandler::bootstrap($schedulerService);
+    // The hourly hold-expiry poller is seeded by the SHARED composition
+    // root (public/scheduler-bootstrap.php), with its two sisters — it
+    // used to be seeded here, in this file's own body, which the crontab
+    // entry point never reaches.
 
     // The daily reminder pass (§6.29) and the retention purge (§6.35) are
     // auto-resolved from the manifest like any other task: each builds its

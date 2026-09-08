@@ -31,8 +31,23 @@ class SuppressedAddressRepository
         try {
             $stmt = $this->pdo->prepare('INSERT INTO mass_mail_suppressed_addresses (email_hash) VALUES (?)');
             $stmt->execute([self::hash($address)]);
-        } catch (\PDOException) {
-            // Already suppressed — the exact state the caller wanted.
+        } catch (\PDOException $e) {
+            // ONLY the duplicate. « Already suppressed » is the exact
+            // state the caller wanted and is not an error; everything else
+            // — the table missing after a half-applied schema, a
+            // read-only or full database, a connection that dropped — is,
+            // and swallowing it lost an unsubscribe in silence. This class
+            // says of itself that an unsubscribe « must outlive any
+            // retention window »; a consent decision that is not written
+            // down has not been honoured, and the next campaign writes to
+            // somebody who asked not to be written to.
+            //
+            // SQLSTATE 23000 is the integrity-constraint class in both
+            // engines this project supports and in SQLite, which is what
+            // the unique index on the hash raises.
+            if (($e->getCode() !== '23000') && ($e->errorInfo[1] ?? null) !== 1062) {
+                throw $e;
+            }
         }
     }
 

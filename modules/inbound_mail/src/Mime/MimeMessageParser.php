@@ -365,7 +365,29 @@ class MimeMessageParser
             return $value;
         }
 
-        $converted = @mb_convert_encoding($value, 'UTF-8', $charset);
+        // Every charset here is written by the SENDER — the group of an
+        // RFC 2047 encoded word (any bytes but `?`), a Content-Type's
+        // `charset=`, an RFC 2231 `filename*`. Since PHP 8.0
+        // mb_convert_encoding() THROWS a ValueError on an unknown
+        // $from_encoding, and `@` does not suppress a thrown error: one
+        // message announcing `=?BOGUS-CS?B?…?=` took the exception out of
+        // parse(), past a fetch loop that only guards the IMAP request and
+        // past a sync clause that catches MailboxConnectionException and
+        // RuntimeException — so the whole batch was lost, the cursor never
+        // advanced, and every later pass re-downloaded the same poison.
+        // A mailbox anybody can write to stopped synchronising for good.
+        //
+        // The contract of this class says it in as many words: none of
+        // these methods may throw, "because a message that cannot be
+        // parsed must be skipped, not allowed to stop the whole
+        // synchronisation and leave the mailbox permanently stuck behind
+        // it". Unknown charset: keep the bytes as they arrived, which is
+        // what an unconvertible value already did.
+        try {
+            $converted = @mb_convert_encoding($value, 'UTF-8', $charset);
+        } catch (\Throwable) {
+            return $value;
+        }
 
         return is_string($converted) && $converted !== '' ? $converted : $value;
     }

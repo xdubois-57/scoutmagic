@@ -186,7 +186,17 @@ class MailboxSyncService
 
                 $this->mailboxRepository->saveCursor($cursor);
             }
-        } catch (MailboxConnectionException | \RuntimeException $e) {
+        } catch (\Throwable $e) {
+            // \Throwable, not the two exception classes this used to name:
+            // a mailbox anybody can write to must not be stoppable by a
+            // message. A `ValueError` from an unknown charset extends
+            // \Error, so it went straight past a `MailboxConnectionException
+            // | \RuntimeException` clause, out of the runner, and the
+            // cursor stayed where it was — every later pass re-downloading
+            // the same message for ever. Both halves are fixed at their own
+            // level (Mime\MimeMessageParser::toUtf8(),
+            // Client\ImapMailboxClient::fetchSince()); this is the net
+            // under them, and it records the failure rather than losing it.
             $reason = $this->errorFormatter->format($e);
             $this->mailboxRepository->recordFailure($mailbox->id, $reason, $now);
             $client->disconnect();
