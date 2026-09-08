@@ -545,6 +545,28 @@ of them. See § "Fix the backlog" above, which also says not to come back
 for a second confirmation of it. Everything below still applies to each of
 those pull requests unchanged.
 
+**A change to these instructions themselves carries the same standing
+authorization**, granted on 2026-09-08: « une fois que tu as fait le
+changement dans les instructions, tu peux le fusionner et le pousser sur
+main immédiatement, pas besoin d'attendre ma permission ». It covers
+`AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md` and `.claude/skills/**` — the
+files that tell the next agent what to do — when the maintainer asked for
+the change. The reason is the same one that makes those files exist: a
+rule agreed in a conversation and left unmerged is a rule the next session
+never sees, so the gap between "we decided this" and "it is on `main`" is
+the whole risk. Asking again to close a gap the maintainer just asked you
+to close is how a decided rule stays undecided.
+
+It authorises the *merge*, nothing else. It is not permission to rewrite
+these files on your own initiative, and a rule you thought of yourself is
+a proposal to the maintainer, never a commit to `main`. Every requirement
+below still holds on such a pull request without exception — green checks,
+answered threads, an honest checklist — and so does the test discipline:
+a rule worth writing into `AGENTS.md` is worth an assertion in
+`tests/Architecture/` pinning it against the edit that would undo it,
+in the manner of `AutoMergeRuleIsWrittenDownTest` and
+`BacklogIsCutIntoBlocksTest`.
+
 With it, arm **auto-merge** rather than watching the pull request:
 
 ```shell
