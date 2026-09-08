@@ -184,7 +184,11 @@
                         <span class="badge text-bg-info">Remis au destinataire</span>
                     {% endif %}
                     {% if email.hasFailed %}
-                        <span class="badge text-bg-danger">Échec d'assemblage</span>
+                        {# Neutral on purpose: a failed row is now either an
+                           assembly that broke or a remise the mail server
+                           refused, and the badge cannot tell which. The
+                           detail page says both and shows the error. #}
+                        <span class="badge text-bg-danger">Échec</span>
                     {% endif %}
                 </div>
             </a>

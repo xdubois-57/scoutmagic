@@ -9,6 +9,8 @@ declare(strict_types=1);
 namespace Modules\TestTools\Mail;
 
 use Core\File\EncryptedFileStorageService;
+use Core\Journal\JournalService;
+use Core\Mail\MailErrorRedaction;
 use Core\Mail\MailPurpose;
 use Core\Mail\MailTransportInterface;
 use Modules\TestTools\Repository\CapturedEmailRepository;
@@ -34,8 +36,9 @@ use PHPMailer\PHPMailer\PHPMailer;
  * cannot answer "what did this feature actually send?". The one exception
  * survives that test because it stays answerable — a sign-in link that
  * went out is **still filed in the sandbox**, flagged `delivered`, rather
- * than becoming invisible. Nothing leaves the server without leaving a row
- * behind.
+ * than becoming invisible. Nothing leaves the server without leaving a
+ * trace behind: the row when it can be written, and an `error`-level
+ * journal entry naming the gap when the filing itself fails.
  */
 final class CaptureTransport implements MailTransportInterface
 {
@@ -58,12 +61,17 @@ final class CaptureTransport implements MailTransportInterface
      * @param bool $deliversMagicLinks Whether the sign-in link is exempted
      *   right now. Read once, at the moment the composition root built this
      *   transport, exactly like the arm switch itself.
+     * @param JournalService|null $journal Where a delivery that happened but
+     *   could not be filed is written down — see sendThenCapture(). Nullable
+     *   for the same reason MailService's is: a caller that has no journal to
+     *   give must still be able to build one of these.
      */
     public function __construct(
         private CapturedEmailRepository $repository,
         private EncryptedFileStorageService $fileStorage,
         private MailTransportInterface $passThrough,
-        private bool $deliversMagicLinks = false
+        private bool $deliversMagicLinks = false,
+        private ?JournalService $journal = null
     ) {
     }
 
@@ -170,7 +178,51 @@ final class CaptureTransport implements MailTransportInterface
             throw $e;
         }
 
-        $this->record($mail, $mail->getSentMIMEMessage(), $attachments, delivered: true);
+        // PAST THIS LINE THE MESSAGE HAS LEFT THE SERVER, and everything
+        // that follows is bookkeeping. Letting a failed write out of here
+        // would make MailService journal `mail_send_failed` and hand
+        // AuthService a MailException for a sign-in link that is already
+        // in somebody's inbox — the site telling a visitor their e-mail
+        // could not be sent while they are reading it. A storage or
+        // database fault is not a delivery fault and must not be reported
+        // as one.
+        //
+        // It is not swallowed either: the journal is the one place that
+        // can still say a message went out the sandbox does not have.
+        try {
+            $this->record($mail, $mail->getSentMIMEMessage(), $attachments, delivered: true);
+        } catch (\Throwable $e) {
+            $this->journalUnfiledDelivery($e);
+        }
+    }
+
+    /**
+     * A message that left the server and could not be filed.
+     *
+     * `error`, like MailService's own failure entry, and for the same
+     * reason: something the site did is missing from the record it keeps
+     * of what it did. No address in the entry, and the transport's words
+     * go through the shared redaction — the exception here is as likely
+     * to quote a recipient as any other mail error.
+     *
+     * The entry can never fail the send, exactly as MailService's cannot:
+     * this is already the fallback path, and the conditions that break an
+     * encrypted write (a database that just went away) are the ones that
+     * break a journal insert too.
+     */
+    private function journalUnfiledDelivery(\Throwable $e): void
+    {
+        try {
+            $this->journal?->log(
+                self::MODULE_ID,
+                'mail_capture_delivery_unfiled',
+                'error',
+                'Un lien de connexion est bien parti mais n\'a pas pu être rangé dans le bac à sable.',
+                ['reason' => MailErrorRedaction::withoutAddresses($e->getMessage())]
+            );
+        } catch (\Throwable) {
+            // Swallowed on purpose — see the docblock.
+        }
     }
 
     /**
@@ -237,7 +289,16 @@ final class CaptureTransport implements MailTransportInterface
             mimeFileId: null,
             bodyHtmlFileId: null,
             bodyTextFileId: null,
-            errorMessage: $mail->ErrorInfo !== '' ? $mail->ErrorInfo : $e->getMessage(),
+            // Through the SAME redaction the journal uses. PHPMailer glues
+            // the address that failed to the SMTP code that explains it,
+            // and a per-recipient refusal (« 550 5.1.1 <x@y> User
+            // unknown ») is the ordinary case on the exempted path, not an
+            // edge one. Writing it verbatim would put a recipient in clear
+            // in the very table that encrypts `recipient` as a BLOB
+            // because a recipient is personal data.
+            errorMessage: MailErrorRedaction::withoutAddresses(
+                $mail->ErrorInfo !== '' ? $mail->ErrorInfo : $e->getMessage()
+            ),
             attachments: $attachments,
             delivered: false
         );

@@ -6,6 +6,8 @@ namespace Tests\Modules\TestTools;
 
 use Core\File\EncryptedFileStorageService;
 use Core\File\FileRepository;
+use Core\Journal\JournalRepository;
+use Core\Journal\JournalService;
 use Core\Mail\DkimManager;
 use Core\Mail\MailException;
 use Core\Mail\MailPurpose;
@@ -74,9 +76,17 @@ class CaptureTransportTest extends TestCase
      * The same transport with the one exemption turned on, and a
      * pass-through that records what it was handed instead of sending it.
      */
-    private function exemptingTransport(MailTransportInterface $passThrough): CaptureTransport
-    {
-        return new CaptureTransport($this->repository, $this->fileStorage, $passThrough, true);
+    private function exemptingTransport(
+        MailTransportInterface $passThrough,
+        ?CapturedEmailRepository $repository = null
+    ): CaptureTransport {
+        return new CaptureTransport(
+            $repository ?? $this->repository,
+            $this->fileStorage,
+            $passThrough,
+            true,
+            new JournalService(new JournalRepository($this->pdo))
+        );
     }
 
     private function refusingPassThrough(): MailTransportInterface
@@ -535,6 +545,98 @@ class CaptureTransportTest extends TestCase
         $this->assertFalse($email->delivered);
         $this->assertNotNull($email->errorMessage);
         $this->assertNull($email->mimeFileId);
+    }
+
+    /**
+     * Past the delivery, everything is bookkeeping — and a bookkeeping
+     * fault is not a delivery fault. Letting it out would make
+     * MailService journal `mail_send_failed` and hand AuthService a
+     * MailException for a sign-in link already sitting in an inbox: the
+     * site telling a visitor their e-mail could not be sent while they
+     * are reading it.
+     */
+    public function testAFilingFailureAfterDeliveryNeitherFailsTheSendNorGoesUnrecorded(): void
+    {
+        $passThrough = $this->recordingPassThrough();
+
+        // A repository whose write fails, standing in for the encrypted
+        // write or the INSERT giving way after the message has left.
+        $breaking = new class ($this->pdo, $this->encryption) extends CapturedEmailRepository {
+            public function create(
+                \DateTimeImmutable $capturedAt,
+                string $subject,
+                string $recipient,
+                string $fromAddress,
+                ?string $replyTo,
+                int $sizeBytes,
+                bool $hasDkim,
+                ?int $mimeFileId,
+                ?int $bodyHtmlFileId,
+                ?int $bodyTextFileId,
+                ?string $errorMessage,
+                array $attachments,
+                bool $delivered = false
+            ): int {
+                throw new \RuntimeException('écriture impossible');
+            }
+        };
+
+        // No exception reaches the caller: the mail did leave.
+        $this->service(transport: $this->exemptingTransport($passThrough, $breaking))->send(
+            to: 'destinataire@example.be',
+            subject: 'Votre lien de connexion',
+            bodyHtml: '<p>Connectez-vous</p>',
+            bodyText: 'Connectez-vous',
+            purpose: MailPurpose::MagicLink
+        );
+
+        $this->assertSame(1, $passThrough->calls);
+
+        // …and the gap is written down rather than swallowed.
+        $entry = $this->pdo
+            ->query("SELECT * FROM event_log WHERE event_type = 'mail_capture_delivery_unfiled'")
+            ->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($entry, 'a delivery the sandbox could not file must reach the journal');
+        $this->assertSame('error', $entry['level']);
+        $this->assertSame('test_tools', $entry['category']);
+        $this->assertStringNotContainsString('@', (string) $entry['description']);
+    }
+
+    /**
+     * `error_message` is a plain TEXT column in the very table that
+     * encrypts `recipient` as a BLOB because a recipient is personal
+     * data. PHPMailer glues the address that failed to the SMTP code
+     * that explains it, and on the exempted path a per-recipient refusal
+     * is the ordinary case.
+     */
+    public function testAFailureReasonIsStoredWithTheAddressesTakenOut(): void
+    {
+        $refusing = new class implements MailTransportInterface {
+            public function deliver(PHPMailer $mail, MailPurpose $purpose): void
+            {
+                throw new \RuntimeException('SMTP Error: 550 5.1.1 <destinataire@example.be> User unknown');
+            }
+        };
+
+        try {
+            $this->service(transport: $this->exemptingTransport($refusing))->send(
+                to: 'destinataire@example.be',
+                subject: 'Votre lien de connexion',
+                bodyHtml: '<p>Connectez-vous</p>',
+                bodyText: 'Connectez-vous',
+                purpose: MailPurpose::MagicLink
+            );
+            $this->fail('Une MailException était attendue.');
+        } catch (MailException) {
+            // Expected — the delivery really did fail here.
+        }
+
+        $stored = (string) $this->pdo->query('SELECT error_message FROM captured_emails')->fetchColumn();
+
+        $this->assertStringNotContainsString('destinataire@example.be', $stored);
+        $this->assertStringContainsString('[adresse]', $stored);
+        // The half that actually diagnoses the problem survives.
+        $this->assertStringContainsString('550 5.1.1', $stored);
     }
 
     private static function removeDir(string $dir): void

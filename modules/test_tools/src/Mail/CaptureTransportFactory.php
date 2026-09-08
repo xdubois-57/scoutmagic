@@ -11,6 +11,8 @@ namespace Modules\TestTools\Mail;
 use Core\Config\SettingService;
 use Core\File\EncryptedFileStorageService;
 use Core\File\FileRepository;
+use Core\Journal\JournalRepository;
+use Core\Journal\JournalService;
 use Core\Mail\PhpMailerTransport;
 use Core\Module\InstallationProfile;
 use Core\Module\ModuleRegistryRepository;
@@ -100,7 +102,11 @@ final class CaptureTransportFactory
             // exactly that path, not through a second delivery mechanism
             // that could drift from it.
             new PhpMailerTransport(),
-            MailSandboxService::deliversMagicLinks($settingService)
+            MailSandboxService::deliversMagicLinks($settingService),
+            // Only ever written to on one path: a sign-in link that left
+            // the server and could not be filed (CaptureTransport::
+            // journalUnfiledDelivery()).
+            new JournalService(new JournalRepository($pdo))
         );
     }
 }

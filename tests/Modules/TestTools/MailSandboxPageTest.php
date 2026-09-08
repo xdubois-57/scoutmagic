@@ -126,7 +126,8 @@ class MailSandboxPageTest extends TestCase
         ?string $text = null,
         bool $hasDkim = false,
         string $rawMessage = "Subject: brut\r\nTo: qui@example.be\r\n\r\ncorps brut",
-        bool $delivered = false
+        bool $delivered = false,
+        ?string $errorMessage = null
     ): int {
         $store = fn(?string $content, string $mime, string $name): ?int => $content === null
             ? null
@@ -143,7 +144,7 @@ class MailSandboxPageTest extends TestCase
             $store($rawMessage, 'message/rfc822', 'message.eml'),
             $store($html, 'text/html', 'corps.html'),
             $store($text, 'text/plain', 'corps.txt'),
-            null,
+            $errorMessage,
             [],
             $delivered
         );
@@ -375,6 +376,33 @@ class MailSandboxPageTest extends TestCase
 
         $detail = $this->detail($id);
         $this->assertStringContainsString('Remis au destinataire', $detail);
+    }
+
+    /**
+     * A failed row used to mean one thing — `preSend()` refused to
+     * assemble — so « Échec d'assemblage » was accurate. It can now also
+     * mean the mail server refused an exempted sign-in link, which
+     * assembled and was sent perfectly well. The copy has to cover both
+     * without asserting the wrong one.
+     */
+    public function testTheFailureCopyDoesNotBlameAssemblyForARefusedDelivery(): void
+    {
+        $id = $this->capture(
+            '[25SV] Votre lien de connexion',
+            'chef@example.be',
+            '2026-03-01 09:00:00',
+            errorMessage: 'SMTP Error: 550 5.1.1 <[adresse]> User unknown'
+        );
+
+        $list = $this->list();
+        $this->assertStringContainsString('Échec', $list);
+        $this->assertStringNotContainsString("Échec d'assemblage", $list);
+
+        $detail = $this->detail($id);
+        $this->assertStringContainsString("Ce message n'a pas abouti", $detail);
+        $this->assertStringNotContainsString("L'assemblage de ce message a échoué", $detail);
+        // The library's own words still reach the operator.
+        $this->assertStringContainsString('550 5.1.1', $detail);
     }
 
     public function testACapturedMessageSaysSoOnItsDetailPage(): void
