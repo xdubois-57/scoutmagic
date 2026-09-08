@@ -189,7 +189,7 @@ class SqlParserTest extends TestCase
         $schemaPath = dirname(__DIR__, 3) . '/schema/core.sql';
         $tables = $this->parser->parseFile($schemaPath);
 
-        $this->assertCount(48, $tables);
+        $this->assertCount(49, $tables);
 
         $tableNames = array_map(fn($t) => $t->name, $tables);
         $this->assertContains('sent_email_claims', $tableNames);
@@ -203,6 +203,7 @@ class SqlParserTest extends TestCase
         // The help assistant's quota and answer cache (§8.87).
         $this->assertContains('help_assistant_rate_limits', $tableNames);
         $this->assertContains('help_assistant_cache', $tableNames);
+        $this->assertContains('help_topics_seen', $tableNames);
         // Moved in from modules/fees with the roster snapshot itself.
         $this->assertContains('fees_roster_snapshots', $tableNames);
         $this->assertContains('fees_roster_snapshot_members', $tableNames);

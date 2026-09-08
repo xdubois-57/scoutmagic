@@ -49,6 +49,10 @@ final class HelpTopic
      * @param ?string $moduleId The module that ships this topic, null for
      *        a core topic (docs/help/). Display-only (the /aide index
      *        badges module topics) — a topic behaves identically either way.
+     * @param DiscoveryPriority $discovery Where this topic sits in the
+     *        « Le saviez-vous ? » running order (ARCHITECTURE.md §8.95),
+     *        from the optional `discovery:` front-matter line. Normal
+     *        when the line is absent, which is the ordinary case.
      */
     public function __construct(
         public readonly string $id,
@@ -61,6 +65,7 @@ final class HelpTopic
         public readonly array $questions,
         public readonly string $filePath,
         public readonly ?string $moduleId = null,
+        public readonly DiscoveryPriority $discovery = DiscoveryPriority::Normal,
     ) {
     }
 

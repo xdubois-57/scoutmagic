@@ -78,6 +78,14 @@ CREATE TABLE user_accounts (
     quiet_hours_start TIME,
     quiet_hours_end TIME,
     notification_discretion BOOLEAN NOT NULL DEFAULT FALSE,
+    -- Before this instant, no discovery tip is offered to this account
+    -- (« Le saviez-vous ? », ARCHITECTURE.md §8.95). Set when the dialog
+    -- is closed (+ help_discovery_interval_hours) or explicitly put off
+    -- (+ help_discovery_snooze_days) — the same question asked with two
+    -- delays, which is why it is one column and not two. NULL holds
+    -- nothing back, which is the value of every row predating this
+    -- column, so adding it never hides the tips from anybody.
+    help_discovery_snoozed_until DATETIME,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_login_at DATETIME,
     UNIQUE INDEX idx_email_blind (email_blind_index)
@@ -1190,6 +1198,33 @@ CREATE TABLE help_assistant_cache (
     topic_ids TEXT NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_help_assistant_cache_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- help_topics_seen: which discovery tips an account has already been
+-- shown (« Le saviez-vous ? », ARCHITECTURE.md §8.95).
+--
+-- A preference, not a reading trace. §8.64 locks "no journaling of help
+-- consultation" and discovery does not get an exception: nothing here is
+-- ever displayed to anybody but the account it belongs to, there is no
+-- counter, no per-topic audience figure and no event_log row. What it
+-- exists for is the single question the dialog asks — is there still a
+-- topic this account has never been offered? — and « Ne plus me proposer
+-- d'astuces » is expressed by filling it rather than by a second mute
+-- flag, so a promotion or a newly enabled module brings the dialog back
+-- on its own.
+CREATE TABLE help_topics_seen (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    user_account_id INT UNSIGNED NOT NULL,
+    -- The help topic's id, and never a foreign key: a topic is a file
+    -- shipped in the release, not a row. An id left orphaned by a removed
+    -- module or a renamed topic is inert — it matches nothing in the
+    -- corpus, costs one row, and is deliberately never purged.
+    topic_id VARCHAR(100) NOT NULL,
+    seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE INDEX idx_hts_user_topic (user_account_id, topic_id),
+    CONSTRAINT fk_hts_user FOREIGN KEY (user_account_id)
+        REFERENCES user_accounts(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 

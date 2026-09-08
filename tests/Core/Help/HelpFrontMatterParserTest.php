@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace Tests\Core\Help;
 
+use Core\Help\DiscoveryPriority;
 use Core\Help\HelpException;
 use Core\Help\HelpFrontMatterParser;
 use Core\Security\Role;
@@ -209,5 +210,62 @@ class HelpFrontMatterParserTest extends TestCase
         $this->assertStringStartsWith('## Section', $body);
         $this->assertStringContainsString('Texte --- avec des tirets.', $body);
         $this->assertStringNotContainsString('role_min', $body);
+    }
+
+    public function testDiscoveryDefaultsToNormalWhenTheKeyIsAbsent(): void
+    {
+        $dir = $this->makeTopicDir();
+        $path = $this->writeTopic($dir, 'sans-cle');
+
+        $this->assertSame(DiscoveryPriority::Normal, $this->parser->parse($path)->discovery);
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: DiscoveryPriority}>
+     */
+    public static function discoveryValues(): array
+    {
+        return [
+            'haute' => ['1', DiscoveryPriority::High],
+            'normale' => ['2', DiscoveryPriority::Normal],
+            'basse' => ['3', DiscoveryPriority::Low],
+            'jamais' => ['off', DiscoveryPriority::Off],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('discoveryValues')]
+    public function testDiscoveryRecognisesEveryDeclaredValue(string $declared, DiscoveryPriority $expected): void
+    {
+        $dir = $this->makeTopicDir();
+        $path = $this->writeTopic($dir, 'valeur-' . ($declared === 'off' ? 'off' : $declared), [
+            'discovery' => $declared,
+        ]);
+
+        $this->assertSame($expected, $this->parser->parse($path)->discovery);
+    }
+
+    /**
+     * The reason the parser throws rather than falling back on the
+     * default, and the reason it is worth a test of its own: a silent
+     * downgrade turns a typo into a topic that never leads a batch, and
+     * nothing anywhere ever says so. Same rule as role_min.
+     */
+    public function testAnUnknownDiscoveryValueThrowsAndNamesTheFile(): void
+    {
+        $dir = $this->makeTopicDir();
+        $path = $this->writeTopic($dir, 'valeur-inconnue', ['discovery' => '0']);
+
+        $this->expectException(HelpException::class);
+        $this->expectExceptionMessage($path);
+        $this->parser->parse($path);
+    }
+
+    public function testAnEmptyDiscoveryValueThrows(): void
+    {
+        $dir = $this->makeTopicDir();
+        $path = $this->writeTopic($dir, 'valeur-vide', ['discovery' => '']);
+
+        $this->expectException(HelpException::class);
+        $this->parser->parse($path);
     }
 }

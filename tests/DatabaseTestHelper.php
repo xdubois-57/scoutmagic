@@ -116,8 +116,18 @@ class DatabaseTestHelper
             quiet_hours_start TEXT,
             quiet_hours_end TEXT,
             notification_discretion INTEGER NOT NULL DEFAULT 0,
+            help_discovery_snoozed_until TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             last_login_at TEXT
+        )');
+
+        $pdo->exec('CREATE TABLE help_topics_seen (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_account_id INTEGER NOT NULL,
+            topic_id TEXT NOT NULL,
+            seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (user_account_id, topic_id),
+            FOREIGN KEY (user_account_id) REFERENCES user_accounts(id) ON DELETE CASCADE
         )');
 
         $pdo->exec('CREATE TABLE magic_links (

@@ -44,6 +44,23 @@ namespace Core\Help;
  */
 class HelpRegistry
 {
+    /**
+     * Bumped whenever the SHAPE of what is cached changes — a field added
+     * to HelpTopic, a value object it holds gaining one.
+     *
+     * The version + module list alone is not enough, and the failure is
+     * silent. A site deployed by checkout reports 'dev' and caches
+     * nothing, but one deployed from a release artifact and then updated
+     * in place keeps a version that only moves when somebody releases —
+     * so an index serialized before a new field existed deserializes into
+     * HelpTopic objects that simply lack it, and PHP hands out an
+     * uninitialized typed property (or the constructor default is never
+     * applied) on every request until the next release. `discovery` was
+     * the first field to be added after this cache shipped, which is when
+     * this mark was introduced.
+     */
+    private const CACHE_FORMAT = 2;
+
     /** @var array<string, string> moduleId => absolute topics directory */
     private array $moduleDirectories = [];
 
@@ -154,7 +171,11 @@ class HelpRegistry
     {
         return new \Core\Cache\SerializedFileCache(
             $this->cacheFilePath(),
-            [HelpTopic::class, \Core\Security\Role::class]
+            // Every class the stored index may contain, enums included: an
+            // enum is not something unserialize() can degrade into an
+            // incomplete object, so one missing from this list is a fatal
+            // rather than the miss the cache is written to survive.
+            [HelpTopic::class, \Core\Security\Role::class, DiscoveryPriority::class]
         );
     }
 
@@ -187,7 +208,7 @@ class HelpRegistry
         $moduleIds = array_keys($this->moduleDirectories);
         sort($moduleIds);
 
-        return $this->installedVersion . '|' . implode(',', $moduleIds);
+        return self::CACHE_FORMAT . '|' . $this->installedVersion . '|' . implode(',', $moduleIds);
     }
 
     private function cacheFilePath(): string

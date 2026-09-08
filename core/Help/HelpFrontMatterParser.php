@@ -39,7 +39,7 @@ use Core\Security\Role;
 class HelpFrontMatterParser
 {
     private const REQUIRED_KEYS = ['id', 'title', 'summary', 'category', 'role_min'];
-    private const OPTIONAL_KEYS = ['paths', 'related', 'question'];
+    private const OPTIONAL_KEYS = ['paths', 'related', 'question', 'discovery'];
 
     /**
      * Keys that may appear SEVERAL times, one value per line, instead of
@@ -178,6 +178,20 @@ class HelpFrontMatterParser
             throw new HelpException("Help topic {$filePath} declares an unknown role_min '{$values['role_min']}'");
         }
 
+        // Same posture as role_min just above, for the same reason: an
+        // unknown value throws rather than falling back on the default.
+        // A silent downgrade would turn `discovery: 0` (a typo for `1`)
+        // into an ordinary topic that never leads a batch, and nothing
+        // anywhere would ever say so.
+        $discovery = DiscoveryPriority::Normal;
+        if (isset($values['discovery'])) {
+            $discovery = DiscoveryPriority::tryFrom($values['discovery']);
+            if ($discovery === null) {
+                throw new HelpException("Help topic {$filePath} declares an unknown discovery "
+                    . "'{$values['discovery']}' (expected 1, 2, 3 or off)");
+            }
+        }
+
         return new HelpTopic(
             id: $id,
             title: $values['title'],
@@ -189,6 +203,7 @@ class HelpFrontMatterParser
             questions: $questions,
             filePath: $filePath,
             moduleId: $moduleId,
+            discovery: $discovery,
         );
     }
 
