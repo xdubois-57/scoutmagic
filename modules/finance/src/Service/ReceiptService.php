@@ -392,22 +392,45 @@ class ReceiptService
             $account->id
         );
 
-        // Three writes after the file: the new receipt, the archiving of
-        // the old one, and the transfer of its movement associations. A
-        // failure between them used to leave TWO active receipts for one
-        // document — the replaced one never archived — plus the orphan
-        // blob of the first write. The new receipt is undone in the same
-        // order it was made.
+        // Three writes after the file: the new receipt, the transfer of
+        // the old one's movement associations, and the archiving of the
+        // old one. A failure between them used to leave TWO active
+        // receipts for one document — the replaced one never archived —
+        // plus the orphan blob of the first write.
+        //
+        // **The archive goes LAST, and that ordering is the fix.** It is
+        // the only one of the three that can make a document DISAPPEAR:
+        // every listing filters on `status = 'active'`, so an old receipt
+        // archived while its replacement is not yet usable is a document
+        // nobody can reach — and `AttachmentRepository` has no un-archive
+        // (this module never un-does a receipt row, its own spec), so
+        // nothing could put it back. Done first, a failure at the transfer
+        // left BOTH archived, which is worse than the state this method
+        // was fixed to prevent.
+        //
+        // Ordered this way, every partial failure errs toward VISIBLE: the
+        // old receipt keeps its status and its associations until the very
+        // last statement, a single UPDATE. The compensation below undoes
+        // what the earlier steps did, in the reverse order.
         $newId = null;
+        $transferred = false;
         try {
             $newId = $this->attachmentRepository->create(
                 $old->accountId, $fileId, $mimeType, $originalFilename, null, null, $attachmentId, $uploadedBy
             );
 
-            $this->attachmentRepository->archive($attachmentId);
             $this->transactionAttachmentRepository->transferAttachment($attachmentId, $newId);
+            $transferred = true;
+
+            $this->attachmentRepository->archive($attachmentId);
         } catch (\Throwable $e) {
             if ($newId !== null) {
+                if ($transferred) {
+                    // The associations are the movements this document
+                    // proves. Left on a receipt about to be archived, they
+                    // would be invisible on both sides.
+                    $this->transactionAttachmentRepository->transferAttachment($newId, $attachmentId);
+                }
                 // Archived rather than deleted: this module never removes
                 // a receipt row (its own spec), so the half-made
                 // replacement is put out of the way instead.

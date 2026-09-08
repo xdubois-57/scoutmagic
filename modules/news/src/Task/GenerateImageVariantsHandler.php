@@ -51,8 +51,14 @@ class GenerateImageVariantsHandler implements TaskHandlerInterface
      */
     private const BATCH_SIZE = 25;
 
+    /**
+     * @param array<string, mixed> $payload `after_id`: resume past this
+     *     file id — see the cursor's own note in handle().
+     */
     public function handle(array $payload, TaskContext $context): void
     {
+        $afterId = (int) ($payload['after_id'] ?? 0);
+
         $fileRepository = new FileRepository($context->connection->getPdo());
         $variantService = new ImageVariantService(
             $fileRepository,
@@ -63,10 +69,34 @@ class GenerateImageVariantsHandler implements TaskHandlerInterface
         $images = 0;
         $generated = 0;
         $remaining = false;
+        $lastId = $afterId;
 
+        // `findIdsByPathPrefix()` is ORDER BY id, so a high-water mark is
+        // a sound cursor.
+        //
+        // **Without one, a file that can never be processed blocks the
+        // whole backfill.** `generate()` swallows a source it cannot read
+        // or decode — the upload path does the same — so such a file
+        // still has no derivative afterwards and is picked up again on
+        // the very next pass. With fewer than BATCH_SIZE of them that
+        // only wastes a slot; with BATCH_SIZE or more (the shape a
+        // partial storage restore leaves: `files` rows whose bytes are
+        // gone), every pass spends its whole batch on the same files,
+        // finds work « remaining », re-arms with no delay and never
+        // reaches the images behind them — a hot loop that also writes a
+        // journal line each time and never sets the flag.
+        //
+        // Resuming past what the last pass already examined bounds the
+        // walk: an unprocessable file costs one attempt, once, and the
+        // scan runs out.
         foreach ($fileRepository->findIdsByPathPrefix('news/images/') as $fileId) {
+            if ($fileId <= $afterId) {
+                continue;
+            }
+
             $file = $fileRepository->findById($fileId);
             if ($file === null) {
+                $lastId = $fileId;
                 continue;
             }
 
@@ -79,12 +109,14 @@ class GenerateImageVariantsHandler implements TaskHandlerInterface
             if ($missing === []) {
                 // Already done — cheap to check, and what makes the pass
                 // idempotent and resumable whatever happened before.
+                $lastId = $fileId;
                 continue;
             }
 
             if ($images >= self::BATCH_SIZE) {
                 // The rest belongs to the next pass; the flag stays unset
-                // so nothing calls this finished.
+                // so nothing calls this finished. $lastId is NOT advanced
+                // here: this file has not been examined.
                 $remaining = true;
                 break;
             }
@@ -93,10 +125,12 @@ class GenerateImageVariantsHandler implements TaskHandlerInterface
             foreach ($missing as $variant) {
                 // generate() never throws — an image that cannot be
                 // decoded is simply left without derivatives, exactly
-                // like the upload path.
+                // like the upload path. The cursor is what stops such a
+                // file being retried for ever.
                 $variantService->generate($fileId, $variant);
                 $generated++;
             }
+            $lastId = $fileId;
         }
 
         // A one-shot pass that runs once in an installation's life, and
@@ -114,7 +148,14 @@ class GenerateImageVariantsHandler implements TaskHandlerInterface
                 $generated,
                 $remaining ? ', reprise réarmée pour la suite' : ''
             ),
-            ['images' => $images, 'generated' => $generated, 'remaining' => $remaining]
+            [
+                'images' => $images,
+                'generated' => $generated,
+                'remaining' => $remaining,
+                // Where the next pass picks up: the id this one examined
+                // last, so a file that produced nothing is behind it.
+                'after_id' => $lastId,
+            ]
         );
 
         if ($remaining) {
@@ -126,7 +167,7 @@ class GenerateImageVariantsHandler implements TaskHandlerInterface
             // composition root's seed would keep a duplicate chain alive
             // for ever instead of standing down on its next pass.
             (new SchedulerService(new SchedulerRepository($context->connection->getPdo())))
-                ->rearmAfter('news', self::TASK_KEY, self::REFERENCE, 0);
+                ->rearmAfter('news', self::TASK_KEY, self::REFERENCE, 0, ['after_id' => $lastId]);
 
             return;
         }

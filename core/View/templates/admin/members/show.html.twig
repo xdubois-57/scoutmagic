@@ -116,6 +116,15 @@
             {# The three site actions are three cards now: the old
                « Données du site » heading stopped meaning anything once
                the page grew — everything below is site data. #}
+            {# Only where the save can succeed. « Année dans la branche »
+               is an animé's fact — a chief has no branch year to shift —
+               and the write refuses a staff member-year, an inactive row,
+               or an animé of a section this account does not staff
+               (Core\Http\Controller\MemberController::
+               updateScoutYearOffset()). Rendered unconditionally, the
+               buttons were offered on pages where every click answered
+               403. Same predicate on both sides, so they cannot drift. #}
+            {% if can_edit_scout_year_offset|default(false) %}
             <section class="card mb-3">
                 <div class="card-header d-flex align-items-center gap-2">
                     <i class="bi bi-calendar" aria-hidden="true"></i>
@@ -139,6 +148,7 @@
                     </div>
                 </div>
             </section>
+            {% endif %}
 
             {# What this person does and has earned THIS year — the same
                subject as the two cards above, so they sit under them

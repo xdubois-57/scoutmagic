@@ -16,7 +16,6 @@ use Core\Member\MemberNotFoundException;
 use Core\Member\MemberPageService;
 use Core\Member\MemberService;
 use Core\Member\MemberYearService;
-use Core\Member\SectionService;
 use Core\Member\SectionStaffAuthorizationService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
@@ -32,8 +31,7 @@ class MemberController extends AbstractController
         private JournalService $journalService,
         private MemberPageService $memberPageService,
         private DepartureService $departureService,
-        private SectionStaffAuthorizationService $sectionStaffAuthorizationService,
-        private SectionService $sectionService
+        private SectionStaffAuthorizationService $sectionStaffAuthorizationService
     ) {
     }
 
@@ -84,9 +82,14 @@ class MemberController extends AbstractController
 
     /**
      * Whether the signed-in account animates the section this member-year
-     * belongs to — the write-side boundary, built out of the same two
-     * vetted lookups DeparturesController uses rather than a second,
-     * hand-rolled version of the rule.
+     * belongs to — the write-side boundary, asked of the service that
+     * owns it (ARCHITECTURE.md §8.33) rather than re-derived here.
+     *
+     * It lived here as its own copy first, and the copy is what let the
+     * member page offer the control to member-years the rule refuses:
+     * one predicate, so the screen and the write cannot drift apart —
+     * Core\Member\Controller\MemberSearchController::show() calls the
+     * same one to decide whether to render the card at all.
      *
      * The year asked about is the member-year's OWN scout year, not the
      * effective one: this row is the thing being written, and whoever
@@ -99,23 +102,12 @@ class MemberController extends AbstractController
             return false;
         }
 
-        $sections = $this->sectionStaffAuthorizationService->getStaffedSections(
+        return $this->sectionStaffAuthorizationService->staffsAnimeMemberYear(
             AuthSession::getEmail() ?? '',
             AuthSession::getRole(),
-            $scoutYearId
+            $scoutYearId,
+            $memberYearId
         );
-
-        foreach ($sections as $section) {
-            if (in_array(
-                $memberYearId,
-                $this->sectionService->getSectionAnimeMemberYearIds((int) $section['id'], $scoutYearId),
-                true
-            )) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /**

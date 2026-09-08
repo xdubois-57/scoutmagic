@@ -3108,7 +3108,7 @@ $frontController->registerController(ImportController::class,
     );
 $frontController->registerController(MemberController::class,
     new MemberController($twig, $memberService, $memberYearService, $journalService, $memberPageService,
-        $departureService, $sectionStaffAuthorizationService, $sectionService)
+        $departureService, $sectionStaffAuthorizationService)
     );
 $frontController->registerController(
     \Core\Http\Controller\MemberEmailAddressController::class,
@@ -7011,7 +7011,7 @@ if (
     $frontController->registerController(
         MemberController::class,
         new MemberController($twig, $memberService, $memberYearService, $journalService, $memberPageService,
-            $departureService, $sectionStaffAuthorizationService, $sectionService)
+            $departureService, $sectionStaffAuthorizationService)
     );
 }
 
@@ -7039,7 +7039,11 @@ $frontController->registerController(MemberSearchController::class, new MemberSe
     ),
     $memberDocumentService,
     new \Core\Member\MemberDocumentMailer($mailService, $encryptedFileStorageService, $storagePath),
-    $settingService
+    $settingService,
+    // The one predicate the « Année dans la branche » card and the write
+    // behind it both ask, so the buttons are never offered where saving
+    // would answer 403.
+    $sectionStaffAuthorizationService
 ));
 
 // File access (/files/{id}) — built here, deliberately last, because

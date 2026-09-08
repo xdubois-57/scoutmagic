@@ -69,8 +69,7 @@ class MemberControllerScoutYearOffsetTest extends TestCase
             $journalService,
             $this->createMock(MemberPageService::class),
             new DepartureService(new DepartureRepository($this->pdo, $this->encryption), $journalService),
-            new SectionStaffAuthorizationService($connection, $this->encryption, $sectionService),
-            $sectionService
+            new SectionStaffAuthorizationService($connection, $this->encryption, $sectionService)
         );
 
         // Scout year 2025-2026 → reference year 2025.
@@ -294,6 +293,41 @@ class MemberControllerScoutYearOffsetTest extends TestCase
         $stmt = $this->pdo->prepare('SELECT scout_year_offset FROM member_years WHERE id = ?');
         $stmt->execute([$memberYearId]);
         $this->assertSame(0, (int) $stmt->fetchColumn(), 'Le décalage a été écrit malgré le refus.');
+    }
+
+    /**
+     * The write rule is animé-only by construction — a section's own staff
+     * are not among « the animés of my section », and a chief has no branch
+     * year to shift. Pinned here because the member page renders the card
+     * from the SAME predicate (Core\Member\Controller\
+     * MemberSearchController::show()), so this refusal is what stops the
+     * buttons being drawn rather than a dead end somebody can click.
+     */
+    public function testAStaffMemberYearIsRefused(): void
+    {
+        $colleagueId = $this->staffMemberYear('colleague@example.test', $this->sectionId);
+
+        $token = $this->startSessionWithCsrfToken();
+        $response = $this->controller->updateScoutYearOffset(
+            $this->jsonRequest(['_csrf_token' => $token, 'offset' => 1]),
+            ['id' => (string) $colleagueId]
+        );
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    public function testAnInactiveMemberYearIsRefused(): void
+    {
+        $memberYearId = $this->createMemberYear('2014-01-01');
+        $this->pdo->exec("UPDATE member_years SET is_active = 0 WHERE id = {$memberYearId}");
+
+        $token = $this->startSessionWithCsrfToken();
+        $response = $this->controller->updateScoutYearOffset(
+            $this->jsonRequest(['_csrf_token' => $token, 'offset' => 1]),
+            ['id' => (string) $memberYearId]
+        );
+
+        $this->assertSame(403, $response->getStatusCode());
     }
 
     public function testOffsetChangeIsJournaled(): void
