@@ -116,8 +116,10 @@ final class CronHealth
      * tâche planifiée » on a working installation goes looking for a
      * problem that does not exist. Ten minutes is several missed ticks of
      * a per-minute crontab, and `cron_last_run` — stamped only by
-     * `public/cron.php`, never by a web request — is what makes it able
-     * to tell a real crontab from the request-driven stand-in at all.
+     * `public/cron.php`, never by a web request — is the one stamp that
+     * answers « is the crontab running », which since the in-request
+     * triggers were removed (ARCHITECTURE.md §8.5) is the same question
+     * as « will this feature run at all ».
      */
     public static function detectedForConfigScreen(SettingService $settings, ?int $now = null): bool
     {

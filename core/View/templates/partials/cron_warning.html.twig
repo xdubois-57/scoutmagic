@@ -3,35 +3,40 @@
   configuration screen owes its administrator when the feature it
   configures depends on an INSTANT.
 
-  Under the poor man's cron a scheduled task runs at the occasion of a
-  visit to the site, so a reminder, a redirection or a digest arrives when
-  somebody happens to open a page — not at the hour it was set for. Three
-  screens said so; five that needed it did not, the emergency-duty
-  redirection among them (issue #248). One partial rather than eight
-  copies, so the next screen that gains a timed feature has one line to
-  write and cannot word the warning differently.
+  A real crontab is a REQUIREMENT (ARCHITECTURE.md §8.5): the in-request
+  fallback that used to run one scheduler slice on the back of a visitor's
+  page load is gone, deliberately, because a safety net that hides the
+  failure it catches is why one production installation ran for days on a
+  crontab entry that executed nothing. So without it the timed function
+  does not run late — it does not run at all, and that is what this says.
+
+  Three screens warned; five that needed it did not, the emergency-duty
+  redirection among them (issue #248). Two of the three also still
+  described the old visit-driven fallback as though it were there. One
+  partial rather than eight copies, so the next screen that gains a timed
+  feature has one line to write and cannot word the warning differently —
+  nor keep an old one true-sounding after the mechanism behind it went.
 
   Parameters
   ----------
   cron_detected : bool     the verdict, from Core\Scheduler\CronHealth
                            ::detectedForConfigScreen()
-  feature       : string   what suffers, as a French noun phrase completing
-                           « … partent quand même » below — e.g. « les
-                           rappels d'évènement ». Kept per screen because a
-                           generic « les tâches planifiées » says nothing
-                           to the person reading THIS page.
-  consequence   : string   what a delay actually costs here, one sentence.
-                           Optional: omitted, the warning still states the
-                           delay itself.
+  feature       : string   what does not run, as a French noun phrase
+                           subject of « … ne fonctionnent pas » below —
+                           e.g. « Les rappels d'évènement ». Kept per
+                           screen because a generic « les tâches
+                           planifiées » says nothing to the person reading
+                           THIS page.
+  consequence   : string   what that costs here, one sentence. Optional.
 #}
 {% if not cron_detected %}
     <output class="alert alert-warning d-block">
         <strong>Aucune tâche planifiée réelle n'a été détectée.</strong>
-        {{ feature }} fonctionnent quand même, mais seulement à l'occasion
-        d'une visite du site : sur un hébergement mutualisé sans crontab,
-        l'exécution peut donc arriver avec plusieurs heures de retard.
+        {{ feature }} ne fonctionnent alors pas du tout : le crontab du
+        serveur est le seul mécanisme qui les déclenche, et il n'existe
+        plus de rattrapage à l'occasion d'une visite du site.
         {% if consequence is defined and consequence %}{{ consequence }}{% endif %}
-        Si votre hébergeur le permet, faites appeler
-        <code>public/cron.php</code> toutes les minutes.
+        Faites appeler <code>public/cron.php</code> toutes les minutes
+        (<code>* * * * * php /chemin/vers/le/site/public/cron.php</code>).
     </output>
 {% endif %}

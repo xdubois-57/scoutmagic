@@ -12,7 +12,7 @@
     {% include 'partials/cron_warning.html.twig' with {
         cron_detected: cron_detected,
         feature: 'Les bascules programmées de la redirection de garde',
-        consequence: "Le numéro SOS peut donc rester dirigé vers l'animateur précédent jusqu'à ce que quelqu'un ouvre le site — sur un numéro d'urgence, c'est le retard qui compte le plus sur ce site.",
+        consequence: "Le numéro SOS reste alors dirigé vers l'animateur précédent, indéfiniment — sur un numéro d'urgence, c'est la panne la plus grave que ce site puisse avoir.",
     } only %}
 
     <h2 class="h5 mb-3">Fournisseur de téléphonie</h2>

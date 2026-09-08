@@ -106,16 +106,25 @@ class RentalReminderWiringTest extends TestCase
 
     public function testTheConfigurationPageWarnsWhenNoRealCronIsDetected(): void
     {
-        // On shared hosting without a crontab the reminders still go out,
-        // but hours late — and a unit that does not know that reads the
-        // delay as a bug. Saying it is the whole point.
+        // Without a crontab the reminders do not go out at all — the
+        // in-request fallback that used to run them late was removed with
+        // the poor man's cron (ARCHITECTURE.md §8.5), and this page was
+        // still describing it (issue #248). The warning now comes from the
+        // shared partial every timed configuration screen uses, so the
+        // wording is corrected in one place rather than eight.
         $template = file_get_contents(
             dirname(__DIR__, 4) . '/modules/rental/views/config/index.html.twig'
         );
         $this->assertNotFalse($template);
 
-        $this->assertStringContainsString('{% if not cron_detected %}', $template);
-        $this->assertStringContainsString('cron.php', $template);
+        $this->assertStringContainsString("partials/cron_warning.html.twig", $template);
+        $this->assertStringContainsString('cron_detected: cron_detected', $template);
+
+        $partial = file_get_contents(
+            dirname(__DIR__, 4) . '/core/View/templates/partials/cron_warning.html.twig'
+        );
+        $this->assertNotFalse($partial);
+        $this->assertStringContainsString('cron.php', $partial);
     }
 
     public function testTheWarningUsesTheSameSignalAsThePushNotificationPage(): void

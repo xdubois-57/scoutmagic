@@ -495,17 +495,16 @@
         {% endif %}
 
         {# ── Rappels automatiques (§6.29) ─────────────────────────────── #}
-        {% if not cron_detected %}
-            <output class="alert alert-warning d-block">
-                <strong>Aucune tâche planifiée réelle n'a été détectée.</strong>
-                Les rappels automatiques (acompte non reçu, état des lieux à faire,
-                document de conformité expirant, informations pratiques au locataire…)
-                partent quand même, mais seulement à l'occasion d'une visite du site :
-                sur un hébergement mutualisé sans crontab, un rappel peut donc arriver
-                avec plusieurs heures de retard. Si votre hébergeur le permet, faites
-                appeler <code>public/cron.php</code> toutes les minutes.
-            </output>
-        {% endif %}
+        {# Through the shared partial since issue #248: this warning was
+           one of three that existed, and one of two still describing the
+           visit-driven fallback that was removed with the poor man's cron
+           (ARCHITECTURE.md §8.5). Without a crontab the reminders do not
+           arrive late — they do not arrive. #}
+        {% include 'partials/cron_warning.html.twig' with {
+            cron_detected: cron_detected,
+            feature: 'Les rappels automatiques (acompte non reçu, état des lieux à faire, document de conformité expirant, informations pratiques au locataire…)',
+            consequence: "Un locataire peut donc arriver sans avoir jamais reçu les informations pratiques.",
+        } only %}
 
         {# ── Section: courrier entrant (§7.5) ─────────────────────────── #}
         <div class="card mb-4" id="courrier">

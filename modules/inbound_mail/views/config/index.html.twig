@@ -41,18 +41,15 @@
     </div>
 </div>
 
-{% if not cron_detected %}
-    {# The same signal the rental and push-notification pages read:
-       `cron_last_run` is stamped only by public/cron.php. Without a real
-       cron the relève only happens on page views, and a unit that does
-       not know that reads the delay as a broken box. #}
-    <div class="alert alert-info">
-        <strong>Aucune tâche planifiée détectée.</strong> Le courrier n'est relevé qu'à l'occasion
-        d'une visite du site : sans crontab chez l'hébergeur, une réponse peut n'apparaître que
-        plusieurs heures après son arrivée. Si votre hébergeur le permet, faites appeler
-        <code>public/cron.php</code> toutes les minutes.
-    </div>
-{% endif %}
+{# Through the shared partial since issue #248, and reworded with it:
+   this page said the mailbox was polled « à l'occasion d'une visite du
+   site », which stopped being true when the poor man's cron was removed
+   (ARCHITECTURE.md §8.5). Without a crontab the box is never polled. #}
+{% include 'partials/cron_warning.html.twig' with {
+    cron_detected: cron_detected,
+    feature: 'La relève du courrier entrant',
+    consequence: "Une réponse arrivée dans la boîte n'apparaîtra jamais sur cette page.",
+} only %}
 
 {# ── Configured mailboxes ───────────────────────────────────────────── #}
 <div class="card mb-4">

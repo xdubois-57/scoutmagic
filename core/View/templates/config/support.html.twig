@@ -64,7 +64,7 @@
         {% include 'partials/cron_warning.html.twig' with {
             cron_detected: cron_detected,
             feature: "Les rapports quotidiens d'utilisation",
-            consequence: "Le rapport « quotidien » part alors quand quelqu'un ouvre le site, et pas du tout les jours où personne ne l'ouvre.",
+            consequence: "L'envoi de test ci-dessous reste utilisable : c'est le seul qui ne dépende pas du crontab.",
         } only %}
 
         <form method="post" action="/config/support/statistics">
