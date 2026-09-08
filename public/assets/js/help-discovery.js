@@ -56,7 +56,7 @@
      */
     function remember(at) {
         var id = cards[at].dataset.discoveryId;
-        if (id && seen.indexOf(id) === -1) {
+        if (id && !seen.includes(id)) {
             seen.push(id);
         }
     }

@@ -188,14 +188,16 @@ class DiscoveryService
             return null;
         }
 
+        $card = static fn (HelpTopic $t): array => [
+            'id' => $t->id,
+            'title' => $t->title,
+            'summary' => $t->summary,
+            'question' => $t->questions[0] ?? null,
+            'url' => '/aide/' . $t->id,
+        ];
+
         return [
-            'cards' => array_map(static fn (HelpTopic $t): array => [
-                'id' => $t->id,
-                'title' => $t->title,
-                'summary' => $t->summary,
-                'question' => $t->questions[0] ?? null,
-                'url' => '/aide/' . $t->id,
-            ], $cards),
+            'cards' => array_map($card, $cards),
             'more' => count($eligible) > count($cards),
         ];
     }

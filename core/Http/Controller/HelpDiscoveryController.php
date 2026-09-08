@@ -75,8 +75,8 @@ class HelpDiscoveryController extends AbstractController
         // token is read out of it as well as out of the header — the same
         // shape as every other JSON endpoint here. SECURITY.md §4: the
         // GitHub webhook is the site's only tokenless POST.
-        if (($guard = $this->guardCsrfJson($request,
-            isset($body['_csrf_token']) && is_string($body['_csrf_token']) ? $body['_csrf_token'] : null)) !== null) {
+        $token = isset($body['_csrf_token']) && is_string($body['_csrf_token']) ? $body['_csrf_token'] : null;
+        if (($guard = $this->guardCsrfJson($request, $token)) !== null) {
             return $guard;
         }
 
@@ -103,15 +103,16 @@ class HelpDiscoveryController extends AbstractController
             ? $eligibleIds
             : array_values(array_intersect($eligibleIds, $this->claimedIds($body)));
 
-        $this->seenTopics->markSeen($accountId, $toMark);
-        $this->seenTopics->snooze($accountId, match ($action) {
+        // `never` has consumed everything there was, and `more` is asking
+        // for the next batch right now: neither wants a delay on top.
+        $until = match ($action) {
             'close' => $this->discovery->nextOrdinaryOpening(),
             'snooze' => $this->discovery->nextOpeningAfterSnooze(),
-            // `never` has consumed everything there was, and `more` is
-            // asking for the next batch right now: neither wants a delay
-            // on top.
             default => null,
-        });
+        };
+
+        $this->seenTopics->markSeen($accountId, $toMark);
+        $this->seenTopics->snooze($accountId, $until);
 
         return $this->json(['success' => true]);
     }
