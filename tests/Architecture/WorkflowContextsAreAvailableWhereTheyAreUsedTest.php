@@ -47,6 +47,24 @@ use PHPUnit\Framework\TestCase;
 final class WorkflowContextsAreAvailableWhereTheyAreUsedTest extends TestCase
 {
     /**
+     * One GitHub expression, `${{ … }}`, naming the `steps` context
+     * somewhere inside it.
+     *
+     * `}(?!})` RATHER THAN `[^}]`, and that is not pedantry: an
+     * expression may contain a single `}` of its own, and the shortest
+     * realistic way to write one is the very alternative that was
+     * considered and rejected when fixing #256 —
+     *
+     *     SELECTED: ${{ format('{0}', steps.before.outputs.selected) }}
+     *
+     * A `[^}]*` reach stops dead at the `}` of `{0}` and can never get to
+     * `steps.`, so that line reads as clean while being the same invalid
+     * workflow. The expression ends at `}}`, so that is where the reach
+     * has to stop — and nowhere earlier.
+     */
+    private const STEPS_IN_AN_EXPRESSION = '/\$\{\{(?:[^}]|\}(?!\}))*?\bsteps\./';
+
+    /**
      * Every workflow this repository ships.
      *
      * @return array<string, array{0: string}>
@@ -163,7 +181,7 @@ final class WorkflowContextsAreAvailableWhereTheyAreUsedTest extends TestCase
             }
 
             $this->assertDoesNotMatchRegularExpression(
-                '/\$\{\{[^}]*\bsteps\./',
+                self::STEPS_IN_AN_EXPRESSION,
                 $line,
                 $name . ' line ' . ($number + 1) . ' names the `steps` context before any step exists: '
                 . trim($line) . "\n\n"
@@ -191,6 +209,61 @@ final class WorkflowContextsAreAvailableWhereTheyAreUsedTest extends TestCase
             $stepBlocks,
             $name . ' has `steps:` blocks the loop above never reached, so part of the file was read as '
             . 'job configuration when it is a step, or the other way round.',
+        );
+    }
+
+    /**
+     * Lines the detector above must and must not fire on.
+     *
+     * @return array<string, array{0: bool, 1: string}>
+     */
+    public static function expressions(): array
+    {
+        return [
+            'the defect itself' =>
+                [true, "      SCAN_PROMPT: \${{ steps.before.outputs.selected }}"],
+            'the same defect written through format()' =>
+                [true, "      SELECTED: \${{ format('{0}', steps.before.outputs.selected) }}"],
+            'two expressions, the second one guilty' =>
+                [true, "      X: \${{ github.repository }}-\${{ steps.before.outputs.selected }}"],
+            'a context that is available here' =>
+                [false, "      REPO: \${{ github.repository }}"],
+            'a brace of its own and no steps' =>
+                [false, "      GREETING: \${{ format('{0}', github.repository) }}"],
+            'the word outside any expression' =>
+                [false, '      # the steps context is not available here'],
+        ];
+    }
+
+    /**
+     * THE DETECTOR IS ITSELF A PLACE THE DEFECT CAN HIDE, and it hid
+     * there once: the first spelling of this pattern reached with
+     * `[^}]*`, which stops at any `}` — so an expression carrying a brace
+     * of its own, like `format('{0}', steps.…)`, passed as clean while
+     * being exactly the invalid workflow of #256. A regex nobody exercises
+     * is an assertion nobody has read.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('expressions')]
+    public function testTheDetectorFiresOnEverySpellingOfTheDefectAndOnNothingElse(
+        bool $shouldFire,
+        string $line,
+    ): void {
+        if ($shouldFire) {
+            $this->assertMatchesRegularExpression(
+                self::STEPS_IN_AN_EXPRESSION,
+                $line,
+                'This line names the `steps` context in an expression and the detector does not see it, '
+                . 'so the workflow scan above passes over it.',
+            );
+
+            return;
+        }
+
+        $this->assertDoesNotMatchRegularExpression(
+            self::STEPS_IN_AN_EXPRESSION,
+            $line,
+            'The detector fires on a line that names no `steps` context, which would make every workflow '
+            . 'here unfixable rather than merely wrong.',
         );
     }
 
