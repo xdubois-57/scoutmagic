@@ -7082,9 +7082,15 @@ if (isset(
     $frontController->registerController(
         \Modules\Gallery\Controller\GalleryConfigController::class,
         new \Modules\Gallery\Controller\GalleryConfigController(
-            $twig, $settingService, $galleryFfmpegAvailability, $journalService,
-            $galleryS3ErrorExplainerService, $galleryStorageLocationService, $galleryStorageLocationRepo,
-            $galleryAlbumService, $galleryDelegatedAlbumDescriberRegistry
+            $twig,
+            $settingService,
+            $galleryFfmpegAvailability,
+            $journalService,
+            $galleryS3ErrorExplainerService,
+            $galleryStorageLocationService,
+            $galleryStorageLocationRepo,
+            $galleryAlbumService,
+            $galleryDelegatedAlbumDescriberRegistry
         )
     );
     $frontController->registerController(
