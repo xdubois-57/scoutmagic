@@ -431,18 +431,62 @@ backlog » — and it is a standing instruction, not a one-off. It means:
    you, a criterion the code cannot satisfy as written. Do not ask for
    permission to start, and do not save a question for later — see the rule
    at the bottom of this section.
-4. **Fix them** — every one of them, under the rules in this file: a test
+4. **Cut the work into blocks, and one block is one pull request.** This
+   comes straight after the questions and before the first line of code.
+   A block is a set of accepted issues that belong together: the same
+   subject, or the same files. Group them so a reviewer can hold one pull
+   request in their head, and so that its title is a sentence rather than
+   a list — "if I cannot say what this changes in one sentence, it is two
+   blocks" is the test. Say what the blocks are before you start, in the
+   same message as your questions if you have them, so the maintainer sees
+   the shape of the work rather than discovering it at the end.
+
+   **Ceiling: no more than 10 issues and about 50 changed files in one
+   pull request.** Split a theme that outgrows it by sub-theme rather than
+   arbitrarily. The number is not a style preference. On #257 — 40 issues,
+   185 files, 7 000 lines — `Claude review` was cancelled twice on its own
+   timeout with the reviewer still working, and because that check is
+   REQUIRED on `main` the pull request was simply unmergeable; the
+   reviewer's ceiling is 60 minutes now, but a diff nobody can read in an
+   hour is a diff nobody reads. The same size produced the other two
+   defects of that day: a silent semantic conflict with `main` (both sides
+   had fixed the same issue, differently, and `git merge` reported
+   nothing), and a test-harness leak that only showed up under load. All
+   three are size, not content. The measured point of comparison is #217:
+   25 files, reviewed end to end in 10 min 47 s, sixteen agents, five real
+   findings.
+
+5. **Run the blocks, in parallel where they do not touch each other.**
+   Blocks whose files are disjoint may be in flight at once — each on its
+   own branch off `main`, each merged as it goes green, no waiting on a
+   sibling. Blocks that touch the same files are **serialised**: the later
+   one branches from `main` *after* the earlier has merged. Overlapping
+   branches are exactly how the same file gets fixed twice, differently,
+   and merged without a conflict marker.
+
+   Land the block others build on first, and after **each** merge bring
+   `main` into every branch still open, then re-run the checks locally on
+   the merged state — `vendor/bin/phpstan analyse` above all, which is
+   what catches a semantic conflict that compiles on each side and not
+   together. « Require branches up to date » is deliberately off on this
+   repository (docs/quality-pipeline.md § Branch ruleset), so nothing does
+   this for you.
+
+6. **Fix them** — every one of them, under the rules in this file: a test
    alongside each fix, `vendor/bin/phpstan analyse` before committing PHP,
    `npm run typecheck` before committing `public/assets/js/`, French
-   interface and English code.
-5. **Open a pull request and merge it.** The instruction to fix the backlog
-   IS the authorization to merge that § Merging a pull request requires —
-   it is the maintainer saying "do the work and land it", and coming back
-   to ask again is not diligence. Everything that section requires *before*
-   arming auto-merge still holds without exception: every check green on
-   the current head, every review thread answered, the template's checklist
-   honestly filled.
-6. **Name each issue in the pull request body with `Corrige #158`** — that
+   interface and English code. Reproduce the CI job rather than its
+   neighbour: `npm run test:coverage`, which is what `javascript-tests`
+   runs, and not `npm test`, which passes over failures it would catch.
+7. **Open each block's pull request and merge it.** The instruction to fix
+   the backlog IS the authorization to merge that § Merging a pull request
+   requires — for every pull request in the set, not for one of them. It
+   is the maintainer saying "do the work and land it", and coming back to
+   ask again is not diligence. Everything that section requires *before*
+   arming auto-merge still holds without exception, on each: every check
+   green on the current head, every review thread answered, the template's
+   checklist honestly filled.
+8. **Name each issue in the pull request body with `Corrige #158`** — that
    word, one line per issue, when the PR is opened rather than afterwards.
    `Corrige` is deliberately **not** one of GitHub's closing keywords
    (`Closes`, `Fixes`, `Resolves` and their inflections): a keyword makes
@@ -455,7 +499,7 @@ backlog » — and it is a standing instruction, not a one-off. It means:
    on the issue's timeline, and the workflow's comment names the pull
    request and the merge commit outright. **Do not "fix" a body by putting
    a closing keyword back** — that is the bug, not the convention.
-7. **Close the issue once the fix is on `main`.** `issue-fixed-comment.yml`
+9. **Close the issue once the fix is on `main`.** `issue-fixed-comment.yml`
    does it on merge: one comment per issue naming the pull request, the
    commit and the branch, and *then* the closure as `completed`. An issue
    it could not comment on is left open on purpose and the run goes red.
@@ -463,12 +507,16 @@ backlog » — and it is a standing instruction, not a one-off. It means:
    hand any it left open (comment first, then `state_reason: completed` —
    the fix shipped). An accepted issue whose fix is merged and which is
    still open is the backlog lying about itself; one closed with nothing
-   written on it is the backlog being rude.
+   written on it is the backlog being rude. Verify per block, as each one
+   lands, rather than saving it all for the last merge.
 
 **Do not wait for the maintainer at any point of this**, once step 3 is
-behind you. Not to start, not to merge, not to close. The instruction covers the whole sequence — fix,
-open, merge to `main`, close the issue — and asking for a confirmation
-already given is how a backlog stays a backlog. Report what you did
+behind you. Not to start, not to cut the blocks, not to merge, not to
+close. The instruction covers the whole sequence — plan, fix,
+open, merge to `main`, close the issue — for every block, and asking for a
+confirmation already given is how a backlog stays a backlog. Announcing
+the blocks in step 4 is telling, not asking: you say what you are about to
+do and then do it, and you do not stop for an answer. Report what you did
 afterwards; do not ask for permission during. This overrides nothing in
 § Merging a pull request about what must be TRUE before you merge (every
 check green on the current head, every review thread answered, the
@@ -490,10 +538,12 @@ nothing substitutes for it — not a green pipeline, not this file, not your
 reading of what they would probably want. Without it, green and
 merge-ready is where your work stops and you say so.
 
-« Fixe le backlog » **is** that instruction, standing, for the pull request
-that fixes the accepted issues — see § "Fix the backlog" above, which also
-says not to come back for a second confirmation of it. Everything below
-still applies to that pull request unchanged.
+« Fixe le backlog » **is** that instruction, standing, for **every** pull
+request that fixes accepted issues — the work is cut into one pull request
+per block of issues, and the authorization covers the set, not the first
+of them. See § "Fix the backlog" above, which also says not to come back
+for a second confirmation of it. Everything below still applies to each of
+those pull requests unchanged.
 
 With it, arm **auto-merge** rather than watching the pull request:
 
