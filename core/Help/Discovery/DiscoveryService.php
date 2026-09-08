@@ -57,9 +57,20 @@ class DiscoveryService
      * offline page is somebody with no network — where the close call
      * would fail and nothing would be recorded.
      *
+     * `/cookies` is the one that is not about the help at all, and this
+     * repository has already made the same call once: the consent banner
+     * is excluded from that route because it "was covering the very page
+     * its own 'Personnaliser' action leads to — the category toggles and
+     * the 'Enregistrer mes choix' button were unreachable"
+     * (base.html.twig). A modal backdrop does exactly that, to exactly
+     * those controls, and the reader's way out consumes their batch. A
+     * page where consent is given or withdrawn carries nothing on top of
+     * it; that is the rule, and it is narrower than "a page about
+     * privacy" — the RGPD page reads, it does not decide.
+     *
      * @var string[]
      */
-    private const NEVER_ON = ['/aide', '/api', '/login', '/offline'];
+    private const NEVER_ON = ['/aide', '/api', '/cookies', '/login', '/offline'];
 
     public function __construct(
         private readonly HelpService $helpService,

@@ -363,6 +363,7 @@ class DiscoveryServiceTest extends TestCase
             "l'assistant" => ['/aide/assistant'],
             'une réponse JSON' => ['/api/notifications/unread-count'],
             'un autre endpoint' => ['/api/aide/decouverte'],
+            'les préférences cookies' => ['/cookies'],
             'la connexion' => ['/login'],
             'la page hors connexion' => ['/offline'],
         ];
