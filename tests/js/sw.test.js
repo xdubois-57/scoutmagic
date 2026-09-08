@@ -383,6 +383,120 @@ describe('sw.js: networkFirstWithCacheFallback()', () => {
 
         expect(caches.open).toHaveBeenCalledWith('content-other-9');
     });
+
+    // ── the scope the response was actually served under (issue #252) ──
+
+    /**
+     * The worker answers a navigation from the config the PREVIOUS page
+     * delivered. After a silent expiry and a reconnection as somebody
+     * else, the first navigation therefore holds the OLD scope — and
+     * writing then puts this reader's page into the other's cache.
+     */
+    it('does not cache when the response was served under another account scope', async () => {
+        const caches = createCachesFake();
+        global.caches = caches;
+        global.fetch = vi.fn(() => Promise.resolve(
+            makeResponse('<body>live</body>', { headers: { 'X-Offline-Scope': 'acct2' } })
+        ));
+
+        await sw.networkFirstWithCacheFallback(request, url, config);
+        await vi.waitFor(() => expect(caches.stores.get(cacheName)?.size ?? 0).toBe(0));
+    });
+
+    it('drops the stale scope\'s caches rather than merely declining to write', async () => {
+        const caches = createCachesFake({
+            'content-acct1-1.2.3': { [request.url]: makeResponse('<body>acct1</body>') },
+            'content-acct2-1.2.3': { [request.url]: makeResponse('<body>acct2</body>') },
+        });
+        global.caches = caches;
+        global.fetch = vi.fn(() => Promise.resolve(
+            makeResponse('<body>live</body>', { headers: { 'X-Offline-Scope': 'acct2' } })
+        ));
+
+        await sw.networkFirstWithCacheFallback(request, url, config);
+
+        await vi.waitFor(() => expect(caches.stores.has('content-acct1-1.2.3')).toBe(false));
+        expect(caches.stores.has('content-acct2-1.2.3')).toBe(true);
+    });
+
+    it('caches normally when the served scope agrees with the stored one', async () => {
+        const caches = createCachesFake();
+        global.caches = caches;
+        global.fetch = vi.fn(() => Promise.resolve(
+            makeResponse('<body>live</body>', { headers: { 'X-Offline-Scope': 'acct1' } })
+        ));
+
+        await sw.networkFirstWithCacheFallback(request, url, config);
+
+        await vi.waitFor(() => expect(caches.stores.get(cacheName)?.size).toBe(1));
+    });
+
+    /**
+     * A response with no header says nothing — an older build still in
+     * flight, or a response the worker cannot read headers off. It must
+     * behave exactly as it did before this guard existed.
+     */
+    it('treats a response without the header as agreeing', async () => {
+        const caches = createCachesFake();
+        global.caches = caches;
+        global.fetch = vi.fn(() => Promise.resolve(makeResponse('<body>live</body>')));
+
+        await sw.networkFirstWithCacheFallback(request, url, config);
+
+        await vi.waitFor(() => expect(caches.stores.get(cacheName)?.size).toBe(1));
+    });
+});
+
+// ---------------------------------------------------------------------------
+// purgeContentCachesExcept — what a change of identity leaves behind
+// ---------------------------------------------------------------------------
+describe('sw.js: purgeContentCachesExcept()', () => {
+    it('drops every content cache but the scope named', async () => {
+        const caches = createCachesFake({
+            'content-a-1': {}, 'content-a-2': {}, 'content-b-1': {}, 'app-shell-1': {},
+        });
+        global.caches = caches;
+
+        await sw.purgeContentCachesExcept('b');
+
+        expect([...caches.stores.keys()]).toEqual(['content-b-1', 'app-shell-1']);
+    });
+
+    /**
+     * A scope's own caches include every VERSION of it — the version
+     * suffix is the app's, not the account's, and an older one left
+     * behind is the same account's data.
+     */
+    it('keeps every version of the scope named', async () => {
+        const caches = createCachesFake({ 'content-a-1': {}, 'content-a-2': {}, 'content-b-1': {} });
+        global.caches = caches;
+
+        await sw.purgeContentCachesExcept('a');
+
+        expect([...caches.stores.keys()].sort()).toEqual(['content-a-1', 'content-a-2']);
+    });
+
+    /**
+     * A scope that is a PREFIX of another must not take that other's
+     * caches with it — 'content-1-' never matches 'content-12-'.
+     */
+    it('does not confuse one scope with another that starts the same way', async () => {
+        const caches = createCachesFake({ 'content-1-9': {}, 'content-12-9': {} });
+        global.caches = caches;
+
+        await sw.purgeContentCachesExcept('1');
+
+        expect([...caches.stores.keys()]).toEqual(['content-1-9']);
+    });
+
+    it('keeps nothing when no scope is named — the plain logout purge', async () => {
+        const caches = createCachesFake({ 'content-a-1': {}, 'content-b-1': {}, 'app-shell-1': {} });
+        global.caches = caches;
+
+        await sw.purgeAllContentCaches();
+
+        expect([...caches.stores.keys()]).toEqual(['app-shell-1']);
+    });
 });
 
 // ---------------------------------------------------------------------------

@@ -240,7 +240,11 @@ class RentalManagementControllerTest extends TestCase
                 new \Modules\Rental\Repository\RentalComplianceRepository($this->pdo),
                 new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo)),
                 $journal,
-                $this->fileRepository
+                new \Core\File\EncryptedFileStorageService(
+                    $this->fileRepository,
+                    new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)),
+                    $this->storagePath
+                )
             ),
             null,
             // Only « Régénérer le lien de suivi » reaches it.

@@ -738,8 +738,21 @@ class NewsIntegrationTest extends TestCase
             'field_' . $fieldId => 'Alice',
         ], [], []);
 
-        $confirmationResponse = $this->formController->submit($submitRequest, ['id' => (string) $articleId]);
+        $submitResponse = $this->formController->submit($submitRequest, ['id' => (string) $articleId]);
 
+        // Post/Redirect/Get since #251: the submission answers a redirect,
+        // and the confirmation is its own GET — so a refresh re-reads a
+        // page instead of re-sending the form.
+        $this->assertSame(302, $submitResponse->getStatusCode());
+        $this->assertSame(
+            '/news/' . $articleId . '/form/confirmation',
+            $submitResponse->getHeaders()['Location'] ?? null
+        );
+
+        $confirmationResponse = $this->formController->confirmation(
+            new Request('GET', '/news/' . $articleId . '/form/confirmation', [], [], [], []),
+            ['id' => (string) $articleId]
+        );
         $this->assertSame(200, $confirmationResponse->getStatusCode());
         $this->assertStringContainsString('Votre réponse a été enregistrée', $confirmationResponse->getBody());
         $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM news_form_responses')->fetchColumn());
@@ -802,7 +815,11 @@ class NewsIntegrationTest extends TestCase
             'field_' . $nameId => 'Alice',
         ], [], []);
 
-        $confirmation = $this->formController->submit($submitRequest, ['id' => (string) $articleId]);
+        $this->assertSame(302, $this->formController->submit($submitRequest, ['id' => (string) $articleId])->getStatusCode());
+        $confirmation = $this->formController->confirmation(
+            new Request('GET', '/news/' . $articleId . '/form/confirmation', [], [], [], []),
+            ['id' => (string) $articleId]
+        );
 
         $this->assertSame(200, $confirmation->getStatusCode());
         $this->assertStringContainsString('Votre réponse a été enregistrée', $confirmation->getBody());
@@ -1736,7 +1753,11 @@ class NewsIntegrationTest extends TestCase
             ['id' => (string) $articleId, 'response_id' => (string) $responseId]
         );
 
-        $this->assertSame(403, $response->getStatusCode());
+        // 404 and not 403 (#219): these routes are `public`, and a distinct
+        // « exists but is not yours » let anyone count each form's responses
+        // and learn which id belongs to which article — including articles
+        // whose own page they may not open.
+        $this->assertSame(404, $response->getStatusCode());
     }
 
     public function testPosterDownloadReturnsAPdf(): void
@@ -2342,7 +2363,99 @@ class NewsIntegrationTest extends TestCase
 
         $response = $this->formController->submit($submitRequest, ['id' => (string) $articleId]);
 
-        $this->assertSame(200, $response->getStatusCode());
+        // A redirect since #251 (Post/Redirect/Get) — the journal entry
+        // this test is about is written before it.
+        $this->assertSame(302, $response->getStatusCode());
+    }
+
+    /**
+     * #251, server side. The public form had no guard against a double
+     * submission at all: no disabled button, no redirect after POST, and
+     * no server-side de-duplication for a form that accepts any number of
+     * answers. A double click created two responses — and on a paying
+     * form, two receivables and two tickets.
+     */
+    public function testTheSameAnswerSentTwiceIsOneResponse(): void
+    {
+        $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $fieldId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
+
+        $body = [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'contact_email' => 'parent@test.com',
+            'field_' . $fieldId => 'Alice',
+        ];
+        $submit = fn (): \Core\Http\Response => $this->formController->submit(
+            new Request('POST', '/news/' . $articleId . '/form/submit', [], $body, [], []),
+            ['id' => (string) $articleId]
+        );
+
+        $this->assertSame(302, $submit()->getStatusCode());
+        $this->assertSame(302, $submit()->getStatusCode(), 'le second envoi doit répondre comme le premier');
+
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM news_form_responses')->fetchColumn(),
+            'un double clic a créé deux réponses',
+        );
+    }
+
+    /** A different answer from the same address is a different response. */
+    public function testADifferentAnswerFromTheSameAddressIsStillANewResponse(): void
+    {
+        $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $fieldId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
+
+        foreach (['Alice', 'Basile'] as $name) {
+            $this->formController->submit(
+                new Request('POST', '/news/' . $articleId . '/form/submit', [], [
+                    '_csrf_token' => CsrfGuard::generateToken(),
+                    'contact_email' => 'parent@test.com',
+                    'field_' . $fieldId => $name,
+                ], [], []),
+                ['id' => (string) $articleId]
+            );
+        }
+
+        $this->assertSame(2, (int) $this->pdo->query('SELECT COUNT(*) FROM news_form_responses')->fetchColumn());
+    }
+
+    /**
+     * #240. The responses page rendered every response there was, and
+     * asked for each one's answers in its own query.
+     */
+    public function testTheResponsesPageIsPaginated(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'admin');
+        $articleId = $this->articleRepository->create('Souper', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $fieldId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
+        for ($i = 0; $i < 55; $i++) {
+            $this->responseRepository->create($formId, null, null, 'p' . $i . '@test.com', [$fieldId => 'Nom ' . $i], null, null);
+        }
+
+        $first = $this->formController->responses(
+            new Request('GET', '/news/' . $articleId . '/form/responses', [], [], [], []),
+            ['id' => (string) $articleId]
+        )->getBody();
+
+        $this->assertStringContainsString('Nom 0', $first);
+        $this->assertStringNotContainsString('Nom 54', $first);
+        // The export and « Écrire » still cover the whole filter, not the
+        // page: telling a chief they are writing to fifty people when they
+        // are writing to fifty-five only shows after the send.
+        $this->assertStringContainsString('Exporter (55)', $first);
+        $this->assertStringContainsString('Pagination des réponses', $first);
+
+        $second = $this->formController->responses(
+            new Request('GET', '/news/' . $articleId . '/form/responses', ['page' => '2'], [], [], []),
+            ['id' => (string) $articleId]
+        )->getBody();
+
+        $this->assertStringContainsString('Nom 54', $second);
+        $this->assertStringNotContainsString('Nom 0<', $second);
     }
 
     public function testExportResponsesJournalsTheExport(): void

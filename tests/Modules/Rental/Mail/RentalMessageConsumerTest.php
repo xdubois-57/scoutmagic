@@ -580,13 +580,51 @@ class RentalMessageConsumerTest extends TestCase
         $this->assertCount(2, $this->communicationService->timeline($booking));
     }
 
+    /**
+     * #231. The reference is sequential and printed on every contract, so
+     * it is guessable — and the rule asked nothing else: any sender who
+     * quoted `[LOC-2027-0042]` had their message, and its attachments,
+     * filed on that booking's internal thread. The neighbours bound their
+     * equivalent rule (Modules\Finance's consumer requires a resolved
+     * sender, camps keeps its weakest rule behind a dedicated mailbox);
+     * this one now does too.
+     */
+    public function testAReferenceFromSomebodyElseIsProposedRatherThanFiled(): void
+    {
+        $booking = $this->createBooking();
+        $this->deliver(10, 'Re: [LOC-2027-0042]', from: 'quelquun@ailleurs.example');
+        $this->sync();
+
+        $this->assertSame(0, $this->countRentalAssociations(), 'La référence seule a suffi à rattacher.');
+        $this->assertSame([], $this->communicationService->timeline($booking));
+
+        // Nothing is lost: the message is kept and named, one click from
+        // being filed by a human.
+        $candidates = $this->inboundMail->findCandidatesFor(
+            RentalMessageConsumer::CONSUMER_ID,
+            $this->storedMessageIds()
+        );
+        $this->assertNotSame([], $candidates);
+    }
+
+    public function testTheRenterQuotingTheirOwnReferenceIsStillFiledStraightAway(): void
+    {
+        $booking = $this->createBooking();
+        $this->deliver(10, 'Re: [LOC-2027-0042]', from: 'jeanne@example.be');
+        $this->sync();
+
+        $messages = $this->communicationService->timeline($booking);
+        $this->assertCount(1, $messages);
+        $this->assertSame(LinkOrigin::REFERENCE, $messages[0]->linkOrigin);
+    }
+
     public function testAnAutomaticAssociationTeachesNothing(): void
     {
         // Only a person's decision is worth learning from: an address the
         // rules attached on their own is already known, and an address
         // the thread rule attached may be anybody in the conversation.
         $booking = $this->createBooking();
-        $this->deliver(10, 'Re: [LOC-2027-0042]', from: 'quelquun@ailleurs.example');
+        $this->deliver(10, 'Re: [LOC-2027-0042]', from: 'jeanne@example.be');
         $this->sync();
         $this->assertSame(1, $this->countRentalAssociations());
 

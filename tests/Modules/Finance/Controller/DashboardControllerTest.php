@@ -140,7 +140,11 @@ class DashboardControllerTest extends TestCase
                     $encryption
                 )
             ),
-            new \Core\Config\ScoutYearService($this->pdo)
+            new \Core\ScoutYear\ScoutYearResolver(
+                new \Core\Config\ScoutYearService($this->pdo),
+                new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo)),
+                new \Core\Import\MemberYearRepository($this->pdo)
+            )
         );
 
         if (session_status() === PHP_SESSION_NONE) {

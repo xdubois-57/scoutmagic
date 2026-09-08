@@ -217,10 +217,44 @@ function getOfflineConfig() {
 }
 
 function purgeAllContentCaches() {
+    return purgeContentCachesExcept(null);
+}
+
+/**
+ * Drop every content cache except the one belonging to `keepScope`.
+ *
+ * The content cache is named per account (`content-{scope}-{version}`),
+ * which stops one account NAMING another's cache — but naming is not the
+ * only way to reach it. A session that expires in silence never submits
+ * the logout form, so nothing purged the previous account's caches, and
+ * the worker went on answering navigations from the config the PREVIOUS
+ * page delivered: the first navigation after a change of scope read, and
+ * wrote, under the old one (issue #252).
+ *
+ * So a scope that is no longer the one being served has its copies
+ * dropped, on the two occasions the worker can actually tell: a page
+ * announcing a different scope (the message handler below) and a live
+ * response saying so (the X-Offline-Scope header, in
+ * networkFirstWithCacheFallback()).
+ *
+ * `null` keeps nothing — the plain purge, on logout or on functional
+ * consent being withdrawn.
+ *
+ * @param {string|null} keepScope
+ * @returns {Promise<any>}
+ */
+function purgeContentCachesExcept(keepScope) {
+    const keptPrefix = keepScope === null ? null : CONTENT_CACHE_PREFIX + keepScope + '-';
+
     return caches.keys().then(function (names) {
         return Promise.all(
             names
-                .filter(function (name) { return name.startsWith(CONTENT_CACHE_PREFIX); })
+                .filter(function (name) {
+                    if (!name.startsWith(CONTENT_CACHE_PREFIX)) {
+                        return false;
+                    }
+                    return keptPrefix === null || !name.startsWith(keptPrefix);
+                })
                 .map(function (name) { return caches.delete(name); })
         );
     });
@@ -243,9 +277,18 @@ self.addEventListener('message', function (event) {
         // itself purge — this is the one path a plain page reload of the
         // cookie preferences page goes through (see offline-cache.js),
         // not just the explicit 'purge-content-caches' message below.
+        //
+        // And a config announcing a DIFFERENT account scope purges the
+        // previous one's copies: a session that expires in silence never
+        // submits the logout form, so this message is the first — and
+        // often only — moment the worker is told the identity behind the
+        // caches it holds has changed (issue #252).
         event.waitUntil(
             storeOfflineConfig(data).then(function () {
-                return data.consent ? undefined : purgeAllContentCaches();
+                if (!data.consent) {
+                    return purgeAllContentCaches();
+                }
+                return purgeContentCachesExcept(String(data.account_scope));
             })
         );
     } else if (data.type === 'purge-content-caches') {
@@ -786,7 +829,30 @@ function networkFirstWithCacheFallback(request, url, config, network, event) {
         // installed app does. READS below stay unconditional regardless:
         // a single tab visit must not blind the installed app's own
         // already-cached copy until its next page load.
-        if (response?.ok && !response.redirected && config.standalone) {
+        // The scope the response was actually SERVED under, straight
+        // from the session that served it (public/index.php sets the
+        // header on every response). `config.account_scope` came from
+        // the PREVIOUS page's postMessage, so on the first navigation
+        // after a silent expiry the two disagree — and writing then
+        // would put this account's page into the other's cache, which a
+        // later offline read would hand back to the wrong reader (issue
+        // #252). A response with no header at all (an older build still
+        // in flight, a cross-origin opaque response) says nothing and is
+        // treated as agreeing, exactly as before this existed.
+        const servedScope = response?.headers?.get
+            ? response.headers.get('X-Offline-Scope')
+            : null;
+        const scopeMatches = servedScope === null || servedScope === String(config.account_scope);
+
+        if (!scopeMatches) {
+            // Not merely « do not write »: the copies stored under the
+            // stale scope are the ones a later offline navigation would
+            // serve, so they go now, while the worker knows they are
+            // stale. The scope now being served keeps its own.
+            keepAlive(event, purgeContentCachesExcept(servedScope).catch(function () {}));
+        }
+
+        if (response?.ok && !response.redirected && config.standalone && scopeMatches) {
             const copy = response.clone();
             // Kept alive for the same reason the slow path's refresh is:
             // on the fast path respondWith() settles the instant this
@@ -989,5 +1055,6 @@ globalThis.ScoutMagicServiceWorkerInternals = {
     storeOfflineConfig: storeOfflineConfig,
     getOfflineConfig: getOfflineConfig,
     purgeAllContentCaches: purgeAllContentCaches,
+    purgeContentCachesExcept: purgeContentCachesExcept,
     CONTENT_CACHE_PREFIX: CONTENT_CACHE_PREFIX,
 };

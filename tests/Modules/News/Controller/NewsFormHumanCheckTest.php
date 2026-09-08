@@ -198,7 +198,9 @@ class NewsFormHumanCheckTest extends TestCase
 
         $response = $this->formController->submit($request, ['id' => (string) $articleId]);
 
-        $this->assertSame(200, $response->getStatusCode());
+        // Accepted, and answered with the Post/Redirect/Get of #251 — the
+        // point of this test is the response that got written.
+        $this->assertSame(302, $response->getStatusCode());
         $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM news_form_responses')->fetchColumn());
     }
 

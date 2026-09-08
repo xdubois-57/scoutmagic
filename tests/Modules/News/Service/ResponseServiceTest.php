@@ -99,7 +99,11 @@ class ResponseServiceTest extends TestCase
             $this->mailService, $renderer, $shortUrlService, 'https://example.com', 'Test Unit',
             $structuredCommunication, $expectedReceivable, $sepaQrCode, $financeAccount, $journalService,
             new \Modules\News\Service\TicketService($this->responseRepository),
-            new \Modules\News\Service\TicketMailService($this->mailService, $renderer, 'Test Unit', $icsBuilder)
+            new \Modules\News\Service\TicketMailService($this->mailService, $renderer, 'Test Unit', $icsBuilder),
+            // Where the running capacity total lives since #241 — without
+            // it the service falls back on summing the whole column, which
+            // is exactly what this dependency exists to stop doing.
+            $this->fieldRepository
         );
     }
 
@@ -127,10 +131,60 @@ class ResponseServiceTest extends TestCase
     public function testRemainingCapacitySubtractsExistingSum(): void
     {
         $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Places', false, null, null, 10, null, null);
-        $this->responseRepository->create($this->formId, null, null, 'a@test.com', [$fieldId => '3'], null, null);
+        // Through the service, because since #241 the running total is
+        // kept by the SUBMISSION: a row written straight into the
+        // repository is a row the application itself cannot produce, and
+        // the reprise (recomputeUsedCapacities()) is what exists for the
+        // rows that predate the column.
+        $this->service()->submit($this->article, $this->form(), [$this->fieldRepository->findById($fieldId)],
+            null, null, 1, 'a@test.com', [$fieldId => '3'], null);
 
         $field = $this->fieldRepository->findById($fieldId);
         $this->assertSame(7, $this->service()->remainingCapacity($field));
+    }
+
+    /**
+     * #241. The remaining capacity used to be recomputed on every read —
+     * one query over the whole column of answers for that field, each of
+     * them decrypted — on the ordinary path of DISPLAYING the form. The
+     * submissions already computed that sum under a row lock; they keep
+     * it now, and the display reads it off the field.
+     */
+    public function testTheRunningTotalIsKeptByTheWritesAndReadWithoutDecrypting(): void
+    {
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Couchages', true, null, null, 20, null, null);
+        $field = $this->fieldRepository->findById($fieldId);
+
+        $this->service()->submit($this->article, $this->form(), [$field], null, null, 1, 'a@test.com',
+            [$fieldId => '5'], null);
+        $this->service()->submit($this->article, $this->form(), [$field], null, null, 1, 'b@test.com',
+            [$fieldId => '3'], null);
+
+        $this->assertSame(8.0, $this->fieldRepository->usedCapacity($fieldId));
+        $this->assertSame(12, $this->service()->remainingCapacity($this->fieldRepository->findById($fieldId)));
+
+        // An edit gives its own share back before taking the new one.
+        $response = $this->responseRepository->findByFormId($this->formId)[0];
+        $this->service()->update($response, $this->form(), [$field], 'a@test.com', [$fieldId => '2'], null, 1);
+
+        $this->assertSame(5.0, $this->fieldRepository->usedCapacity($fieldId));
+        $this->assertSame(15, $this->service()->remainingCapacity($this->fieldRepository->findById($fieldId)));
+    }
+
+    /**
+     * And the reprise for the rows written before the column existed: the
+     * answers themselves are the source of truth it is rebuilt from.
+     */
+    public function testTheRunningTotalCanBeRecomputedFromTheAnswers(): void
+    {
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Couchages', true, null, null, 20, null, null);
+        $this->responseRepository->create($this->formId, null, null, 'a@test.com', [$fieldId => '4'], null, null);
+        $this->responseRepository->create($this->formId, null, null, 'b@test.com', [$fieldId => '6'], null, null);
+
+        $this->assertSame(0.0, $this->fieldRepository->usedCapacity($fieldId), 'les réponses ont été écrites sous le service');
+        $this->fieldRepository->recomputeUsedCapacities($this->responseRepository);
+
+        $this->assertSame(10.0, $this->fieldRepository->usedCapacity($fieldId));
     }
 
     public function testSubmitCreatesResponseAndSendsEmail(): void
@@ -256,6 +310,10 @@ class ResponseServiceTest extends TestCase
         $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Places', false, null, null, 5, null, null);
         $field = $this->fieldRepository->findById($fieldId);
         $this->responseRepository->create($this->formId, null, null, 'x@test.com', [$fieldId => '4'], null, null);
+        // Written straight into the repository, so the running total
+        // (#241) is rebuilt from the answers — the same reprise an
+        // installation runs for the rows that predate the column.
+        $this->fieldRepository->recomputeUsedCapacities($this->responseRepository);
 
         $this->expectException(NewsException::class);
         $this->service()->submit($this->article, $this->form(), [$field], null, null, 1, 'a@test.com', [$fieldId => '2'], null);
@@ -282,6 +340,10 @@ class ResponseServiceTest extends TestCase
         $placesId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Places bus', true, null, null, 5, null, null);
         $nameId = $this->fieldRepository->create($this->formId, 1, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
         $this->responseRepository->create($this->formId, null, null, 'x@test.com', [$placesId => '5'], null, null);
+        // Written straight into the repository, so the running total
+        // (#241) is rebuilt from the answers — the same reprise an
+        // installation runs for the rows that predate the column.
+        $this->fieldRepository->recomputeUsedCapacities($this->responseRepository);
         $fields = [$this->fieldRepository->findById($placesId), $this->fieldRepository->findById($nameId)];
 
         $response = $this->service()->submit($this->article, $this->form(), $fields, null, null, 1, 'a@test.com', [$placesId => '', $nameId => 'Alice'], null);
@@ -293,6 +355,10 @@ class ResponseServiceTest extends TestCase
     {
         $placesId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Places bus', true, null, null, 5, null, null);
         $this->responseRepository->create($this->formId, null, null, 'x@test.com', [$placesId => '3'], null, null);
+        // Written straight into the repository, so the running total
+        // (#241) is rebuilt from the answers — the same reprise an
+        // installation runs for the rows that predate the column.
+        $this->fieldRepository->recomputeUsedCapacities($this->responseRepository);
         $field = $this->fieldRepository->findById($placesId);
 
         $this->expectException(NewsException::class);
@@ -307,6 +373,10 @@ class ResponseServiceTest extends TestCase
         $placesId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Places bus', true, null, null, 5, null, null);
         $nameId = $this->fieldRepository->create($this->formId, 1, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
         $this->responseRepository->create($this->formId, null, null, 'x@test.com', [$placesId => '5'], null, null);
+        // Written straight into the repository, so the running total
+        // (#241) is rebuilt from the answers — the same reprise an
+        // installation runs for the rows that predate the column.
+        $this->fieldRepository->recomputeUsedCapacities($this->responseRepository);
         $ownId = $this->responseRepository->create($this->formId, 42, null, 'me@test.com', [$nameId => 'Old'], null, null);
         $own = $this->responseRepository->findById($ownId);
         $fields = [$this->fieldRepository->findById($placesId), $this->fieldRepository->findById($nameId)];

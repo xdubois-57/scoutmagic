@@ -56,7 +56,11 @@ class OfflineControllerTest extends TestCase
             new SectionPhotoService(new SectionPhotoRepository($this->pdo)),
             new SectionService($connection, $encryption, new \Core\Badge\MemberBadgeRepository($this->pdo)),
             new UnitStaffSectionService($this->pdo),
-            new ScoutYearService($this->pdo),
+            new \Core\ScoutYear\ScoutYearResolver(
+                new \Core\Config\ScoutYearService($this->pdo),
+                new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo)),
+                new \Core\Import\MemberYearRepository($this->pdo)
+            ),
             new EditableContentService(new EditableContentRepository($this->pdo)),
             new AgeBranchRepository($this->pdo),
             null

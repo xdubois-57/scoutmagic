@@ -149,6 +149,52 @@ class ReceiptServiceTest extends TestCase
         $this->assertSame([$transactionId], $this->transactionAttachmentRepository->findTransactionIdsForAttachment($replacement->id));
     }
 
+    /**
+     * The order of the three writes is the guarantee, not a detail: the
+     * archive of the OLD receipt is the only one that can make a document
+     * unreachable — every listing filters on `status = 'active'` and this
+     * module has no un-archive — so it goes last. A failure before it
+     * must leave the old receipt exactly as it was.
+     */
+    public function testAFailedTransferLeavesTheOldReceiptActiveAndAssociated(): void
+    {
+        $original = $this->service->upload('content', 'application/pdf', 'v1.pdf', $this->accountId, null, null, 1);
+        $transactionId = $this->createTransaction();
+        $this->transactionAttachmentRepository->associate($transactionId, $original->id);
+
+        $failing = new class ($this->pdo) extends TransactionAttachmentRepository {
+            public function transferAttachment(int $oldAttachmentId, int $newAttachmentId): void
+            {
+                throw new \RuntimeException('the connection dropped mid-transfer');
+            }
+        };
+        $service = new ReceiptService(
+            $this->attachmentRepository,
+            $this->accountRepository,
+            $failing,
+            $this->fileStorage,
+            $this->transactionRepository
+        );
+
+        try {
+            $service->replace($original->id, 'content v2', 'application/pdf', 'v2.pdf', 1);
+            $this->fail('the failing transfer must surface');
+        } catch (\RuntimeException) {
+            // Expected — what matters is the state it left behind.
+        }
+
+        $this->assertSame(
+            Attachment::STATUS_ACTIVE,
+            $this->attachmentRepository->findById($original->id)->status,
+            'a document must never be archived before its replacement is usable — it would vanish from every listing',
+        );
+        $this->assertSame(
+            [$transactionId],
+            $this->transactionAttachmentRepository->findTransactionIdsForAttachment($original->id),
+            'the movements this receipt proves must still point at it',
+        );
+    }
+
     public function testReplaceThrowsForUnknownAttachment(): void
     {
         $this->expectException(FinanceException::class);

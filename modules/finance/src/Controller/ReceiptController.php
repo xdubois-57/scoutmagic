@@ -817,7 +817,11 @@ class ReceiptController extends AbstractController
             );
 
         if (!$allowed) {
-            return $this->json(['success' => false, 'error' => 'Accès refusé.'], 403);
+            // Same answer as "no such receipt", and for the reason
+            // changeAccount() already gives about accounts: two different
+            // answers map the id space for whoever walks it — here, which
+            // receipts the other accounts hold and how many.
+            return $this->json(['success' => false, 'error' => 'Reçu introuvable.'], 404);
         }
 
         return $attachment;

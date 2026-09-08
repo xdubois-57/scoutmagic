@@ -68,6 +68,20 @@ final class AttachedFileRemover
         $this->deleteStoredFile($fileId);
     }
 
+    /**
+     * Removes a file that never got the row it was stored for.
+     *
+     * The compensation half of a two-write upload: the bytes and the
+     * `files` row exist, the module's own document row does not, so
+     * nothing references them and nothing ever will. remove() cannot
+     * serve here — it starts by deleting a document row that was never
+     * written.
+     */
+    public function removeOrphan(int $fileId): void
+    {
+        $this->deleteStoredFile($fileId);
+    }
+
     private function deleteStoredFile(int $fileId): void
     {
         $file = $this->files->findById($fileId);

@@ -8,7 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\InboundMail\Service;
 
-use Core\File\FileRepository;
+use Core\File\EncryptedFileStorageService;
 use Core\File\UploadException;
 use Core\File\UploadHandler;
 use Modules\InboundMail\Api\AttachmentOmission;
@@ -85,8 +85,13 @@ class MailboxSyncService
          * messages it frees. Null simply means the rows go and the bytes
          * are left — recoverable and invisible, which is the safe
          * direction.
+         *
+         * The STORAGE service, not the repository: the repository's
+         * delete() removes the `files` row and nothing else, so a purge
+         * wired with it freed no space at all — every blob it was called
+         * to reclaim stayed on the disk it was called to relieve.
          */
-        private ?FileRepository $fileRepository = null,
+        private ?EncryptedFileStorageService $fileStorage = null,
         /**
          * What each box lets each module do (IT-05). Null means "everybody
          * analyses everything", which is what the contract was before the
@@ -186,7 +191,17 @@ class MailboxSyncService
 
                 $this->mailboxRepository->saveCursor($cursor);
             }
-        } catch (MailboxConnectionException | \RuntimeException $e) {
+        } catch (\Throwable $e) {
+            // \Throwable, not the two exception classes this used to name:
+            // a mailbox anybody can write to must not be stoppable by a
+            // message. A `ValueError` from an unknown charset extends
+            // \Error, so it went straight past a `MailboxConnectionException
+            // | \RuntimeException` clause, out of the runner, and the
+            // cursor stayed where it was — every later pass re-downloading
+            // the same message for ever. Both halves are fixed at their own
+            // level (Mime\MimeMessageParser::toUtf8(),
+            // Client\ImapMailboxClient::fetchSince()); this is the net
+            // under them, and it records the failure rather than losing it.
             $reason = $this->errorFormatter->format($e);
             $this->mailboxRepository->recordFailure($mailbox->id, $reason, $now);
             $client->disconnect();
@@ -521,7 +536,7 @@ class MailboxSyncService
 
                     foreach (array_unique($fileIds) as $fileId) {
                         if ($this->messageRepository->countAttachmentsForFile($fileId) === 0) {
-                            $this->fileRepository?->delete($fileId);
+                            $this->fileStorage?->delete($fileId);
                         }
                     }
                 },

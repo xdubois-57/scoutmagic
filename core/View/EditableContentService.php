@@ -44,13 +44,26 @@ class EditableContentService
 
     /**
      * Update the content for a key. Creates the record if it doesn't exist.
-     * For rich_text: sanitizes HTML BEFORE storing (SECURITY.md §7).
+     * Sanitizes HTML BEFORE storing, whatever the type (SECURITY.md §7).
+     *
+     * **Whatever the type**, because the type is not a property of the
+     * value: it comes from the request body on both writing routes
+     * (Core\Http\Controller\EditableContentController), validated only
+     * against the two names, while the READ path ignores it entirely —
+     * `get()` returns the string and `partials/rich_text_field.html.twig`
+     * renders it through `|raw`, on public pages included. Sanitizing one
+     * of the two types therefore let a caller choose whether the barrier
+     * applied: `type=image` with an HTML body stored arbitrary markup that
+     * came back verbatim on /rgpd, on the home banner and on a rental's
+     * public page.
+     *
+     * An `image` value is a `files` id (Core\Photo\PhotoIngestionService),
+     * which the sanitizer leaves untouched — so this costs that type
+     * nothing and closes the hole for good.
      */
     public function set(string $key, string $value, string $type, int $modifiedBy): void
     {
-        if ($type === 'rich_text') {
-            $value = $this->sanitizer->sanitize($value);
-        }
+        $value = $this->sanitizer->sanitize($value);
 
         $this->repository->upsert($key, $type, $value, null, $modifiedBy);
         unset($this->rows[$key]);

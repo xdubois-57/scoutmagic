@@ -49,6 +49,9 @@ class CalendarNotificationServiceTest extends TestCase
     private SettingService $settingService;
     private int $sectionCalendarId;
     private int $supplementaryCalendarId;
+    private int $sectionId;
+    private int $scoutYearId;
+    private int $animeFunctionId;
 
     protected function setUp(): void
     {
@@ -114,7 +117,8 @@ class CalendarNotificationServiceTest extends TestCase
             $calendarService,
             $this->eventRepository,
             $this->notificationService,
-            $this->userAccountRepository
+            $this->userAccountRepository,
+            new \Core\Config\ScoutYearService($this->pdo)
         );
 
         $stmt = $this->pdo->prepare('INSERT INTO age_branches (desk_code, label, sort_order) VALUES (?, ?, ?)');
@@ -124,8 +128,51 @@ class CalendarNotificationServiceTest extends TestCase
         $stmt->execute(['ECL01', $branchId, 'Éclaireurs']);
         $sectionId = (int) $this->pdo->lastInsertId();
 
+        $this->sectionId = $sectionId;
         $this->sectionCalendarId = $this->calendarRepository->createSectionCalendar($sectionId, Calendar::VISIBILITY_PUBLIC);
         $this->supplementaryCalendarId = $this->calendarRepository->createSupplementaryCalendar('Animateurs', true, Calendar::VISIBILITY_PUBLIC, 'tok');
+
+        // The scout year the events of these tests fall in — the one the
+        // audience of a section calendar is resolved against (#223).
+        $label = \Core\Config\ScoutYearService::labelForDate(new \DateTimeImmutable('+5 days'));
+        [$start, $end] = [substr($label, 0, 4) . '-09-01', substr($label, 5, 4) . '-08-31'];
+        $stmt = $this->pdo->prepare('INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES (?, ?, ?, 1)');
+        $stmt->execute([$label, $start, $end]);
+        $this->scoutYearId = (int) $this->pdo->lastInsertId();
+
+        $this->pdo->exec("INSERT INTO functions (desk_code, label, role, confirmed) VALUES ('MEMBRE', 'Membre', 'identified', 1)");
+        $this->animeFunctionId = (int) $this->pdo->lastInsertId();
+    }
+
+    /**
+     * Makes $email a member of the section the section calendar belongs
+     * to, which is what puts its account in that calendar's audience.
+     */
+    private function memberOfTheSection(string $email): void
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('T" . uniqid() . "')");
+        $memberId = (int) $this->pdo->lastInsertId();
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted,
+                 email_encrypted, email_blind_index)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            $memberId,
+            $this->scoutYearId,
+            $encryption->encrypt('Prénom', 'member_years.first_name'),
+            $encryption->encrypt('Nom', 'member_years.last_name'),
+            $encryption->encrypt($email, 'member_years.email'),
+            $encryption->blindIndex($email, 'email'),
+        ]);
+        $memberYearId = (int) $this->pdo->lastInsertId();
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_functions (member_year_id, function_id, section_id) VALUES (?, ?, ?)'
+        );
+        $stmt->execute([$memberYearId, $this->animeFunctionId, $this->sectionId]);
     }
 
     private function createEvent(int $calendarId, string $startDate, ?string $endDate): int
@@ -302,6 +349,8 @@ class CalendarNotificationServiceTest extends TestCase
     {
         $actor = $this->userAccountRepository->create('actor@test.com')->id;
         $other = $this->userAccountRepository->create('other@test.com')->id;
+        $this->memberOfTheSection('actor@test.com');
+        $this->memberOfTheSection('other@test.com');
         $eventId = $this->createEvent($this->sectionCalendarId, (new \DateTimeImmutable('+5 days'))->format('Y-m-d'), null);
         $event = $this->eventRepository->findById($eventId);
 
@@ -332,6 +381,7 @@ class CalendarNotificationServiceTest extends TestCase
     public function testDispatchEventChangedUsesItsOwnType(): void
     {
         $other = $this->userAccountRepository->create('other2@test.com')->id;
+        $this->memberOfTheSection('other2@test.com');
         $eventId = $this->createEvent($this->sectionCalendarId, (new \DateTimeImmutable('+5 days'))->format('Y-m-d'), null);
         $event = $this->eventRepository->findById($eventId);
 
@@ -340,6 +390,41 @@ class CalendarNotificationServiceTest extends TestCase
         $notifications = $this->notificationRepository->findByUserAccountId($other);
         $this->assertCount(1, $notifications);
         $this->assertSame('calendar.event_changed', $notifications[0]->typeId);
+    }
+
+    /**
+     * #223. `calendar_calendars.visibility` decides who may SEE a
+     * calendar, and the grid applied it while the notification did not:
+     * every account of the unit received « Nouvelle activité —
+     * Animateurs — Conseil d'unité » for a calendar their own page,
+     * correctly, showed them nothing of.
+     */
+    public function testAChiefOnlyCalendarIsNeverAnnouncedToAnOrdinaryMember(): void
+    {
+        $anime = $this->userAccountRepository->create('anime@test.com')->id;
+        $this->memberOfTheSection('anime@test.com');
+        $chiefOnly = $this->calendarRepository->createSupplementaryCalendar(
+            'Animateurs',
+            true,
+            Calendar::VISIBILITY_CHIEF,
+            'tok-chief'
+        );
+        $eventId = $this->createEvent($chiefOnly, (new \DateTimeImmutable('+5 days'))->format('Y-m-d'), null);
+
+        $this->serviceWithNotifications->dispatchEventPublished($this->eventRepository->findById($eventId), null);
+
+        $this->assertSame([], $this->notificationRepository->findByUserAccountId($anime));
+    }
+
+    /** #223, the other half: a section's activity stays in that section. */
+    public function testASectionActivityIsNeverAnnouncedToAnotherSectionsMember(): void
+    {
+        $outsider = $this->userAccountRepository->create('outsider@test.com')->id;
+        $eventId = $this->createEvent($this->sectionCalendarId, (new \DateTimeImmutable('+5 days'))->format('Y-m-d'), null);
+
+        $this->serviceWithNotifications->dispatchEventPublished($this->eventRepository->findById($eventId), null);
+
+        $this->assertSame([], $this->notificationRepository->findByUserAccountId($outsider));
     }
 
     public function testDispatchIsANoOpWithoutNotificationDependencies(): void

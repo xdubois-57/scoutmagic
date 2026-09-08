@@ -50,6 +50,18 @@ if (PHP_SAPI !== 'cli') {
 
 require_once __DIR__ . '/autoload.php';
 
+// The same clock as the application this builder writes into, and for the
+// same reason scripts/e2e-support.php applies it (e2e_apply_application_clock()):
+// public/index.php, public/cron.php and tests/bootstrap.php all call this as
+// their first act after the autoloader, so every naive DATETIME in the
+// database is Europe/Brussels. This script did not, and ran on php.ini's
+// timezone — UTC on this container, on a CI runner and on a stock macOS PHP —
+// which dated everything it wrote two hours before the site that serves it,
+// journal entries and scheduled tasks included. Between 22:00 and 24:00 UTC
+// the two clocks also disagree about the DATE, which is the boundary a scout
+// year turns on (Core\Config\ScoutYearService::labelForDate()).
+\Core\Config\AppClock::apply();
+
 use Tests\Fixtures\ReferenceDataset\DatasetGenerator;
 use Tests\Fixtures\ReferenceDataset\DemoAccounts;
 use Tests\Fixtures\ReferenceDataset\DeskImportReplay;
@@ -152,8 +164,9 @@ if ($reset) {
     }
 
     printf(
-        "  → %d table(s) vidée(s), %d fichier(s) supprimé(s)\n",
+        "  → %d table(s) vidée(s), %d réglage(s) d'état purgé(s), %d fichier(s) supprimé(s)\n",
         $resetResult['tables'],
+        $resetResult['settings'],
         $resetResult['files'],
     );
     echo $resetResult['backupPath'] !== null
@@ -191,9 +204,17 @@ $moduleActivator = new ModuleActivator(
     $pdo,
     new \Core\Config\SettingService(new \Core\Config\SettingRepository($pdo)),
     $instanceRoot . '/modules',
+    $context->baseUrl(),
 );
 $moduleResult = $moduleActivator->activateAll();
 printf("Modules activés : %d\n", count($moduleResult['activated']));
+foreach ($moduleResult['skipped'] as $moduleId) {
+    fwrite(
+        STDERR,
+        "  ! module « {$moduleId} » non activé : le profil de cette installation ne le rend pas visible "
+        . "(`visible_when` dans son module.json).\n"
+    );
+}
 foreach ($moduleResult['failed'] as $moduleId => $reason) {
     fwrite(STDERR, "  ! module « {$moduleId} » non activé : {$reason}\n");
 }

@@ -181,6 +181,48 @@ class RentalComplianceServiceTest extends TestCase
         $this->assertSame([], $this->service->forAsset($this->assetId));
     }
 
+    /**
+     * #242. `FileRepository::delete()` removes the `files` row and nothing
+     * else, so every path wired with it — this one, the inbound-mail
+     * retention purge, the over-quota purge — deleted the record of a
+     * document and left the document itself on disk for ever. A retention
+     * that only forgets is not a retention.
+     */
+    public function testDeletingAnEntryTakesItsFileWithIt(): void
+    {
+        $storagePath = sys_get_temp_dir() . '/scoutmagic-compliance-' . bin2hex(random_bytes(4));
+        mkdir($storagePath, 0700, true);
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $fileStorage = new \Core\File\EncryptedFileStorageService(
+            new \Core\File\FileRepository($this->pdo),
+            $encryption,
+            $storagePath
+        );
+        $service = new RentalComplianceService(
+            $this->repository,
+            new SettingService(new SettingRepository($this->pdo)),
+            new JournalService(new JournalRepository($this->pdo)),
+            $fileStorage
+        );
+
+        $fileId = $fileStorage->store('%PDF-1.4 attestation', 'application/pdf', 'attestation.pdf',
+            'rental/compliance', 'chief', 'rental', null);
+        $file = (new \Core\File\FileRepository($this->pdo))->findById($fileId);
+        $this->assertNotNull($file);
+        $blob = $storagePath . '/' . $file->relativePath;
+        $this->assertFileExists($blob);
+
+        $itemId = $service->add($this->assetId, 'Attestation incendie', null, null);
+        $service->attachFile($this->assetId, $itemId, $fileId, null);
+        $service->delete($this->assetId, $itemId);
+
+        $this->assertFileDoesNotExist($blob, 'la ligne est partie, le fichier est resté');
+        $this->assertNull((new \Core\File\FileRepository($this->pdo))->findById($fileId));
+
+        @rmdir(dirname($blob));
+        @rmdir($storagePath);
+    }
+
     // ── Suggestions live in configuration, never in code (§6.33) ─────────
 
     public function testTheSuggestedLabelsComeFromASetting(): void

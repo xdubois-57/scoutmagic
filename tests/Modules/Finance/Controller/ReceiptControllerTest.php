@@ -478,8 +478,9 @@ class ReceiptControllerTest extends TestCase
             ['id' => (string) $attachment->id]
         );
 
-        $this->assertSame(403, $deleted->getStatusCode());
-        $this->assertSame(403, $updated->getStatusCode());
+        // 404, the same answer as an unknown receipt (#219).
+        $this->assertSame(404, $deleted->getStatusCode());
+        $this->assertSame(404, $updated->getStatusCode());
         $this->assertCount(1, $this->attachmentRepository->findActiveOrdered(), 'the receipt must not have been archived');
     }
 
@@ -838,7 +839,8 @@ class ReceiptControllerTest extends TestCase
         $token = $this->csrfToken();
         $response = $this->controller->delete($this->jsonRequest('DELETE', '/finance/receipts/' . $attachment->id, ['_csrf_token' => $token]), ['id' => (string) $attachment->id]);
 
-        $this->assertSame(403, $response->getStatusCode());
+        // 404, the same answer as an unknown receipt (#219).
+        $this->assertSame(404, $response->getStatusCode());
     }
     // ── « Courrier à trier » (§8.59bis) ─────────────────────────────────
 

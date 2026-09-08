@@ -42,7 +42,7 @@ class RetroBoardControllerTest extends TestCase
     private Environment $twig;
     private RateLimitService $rateLimitService;
     private SettingService $settingService;
-    private ScoutYearService $scoutYearService;
+    private \Core\ScoutYear\ScoutYearResolver $scoutYearService;
 
     protected function setUp(): void
     {
@@ -59,7 +59,11 @@ class RetroBoardControllerTest extends TestCase
         $this->boardService = $this->createMock(BoardService::class);
         $this->boardService->method('publicUrl')->willReturn('/r/dummy-token');
         $this->settingService = new SettingService(new SettingRepository($this->pdo));
-        $this->scoutYearService = new ScoutYearService($this->pdo);
+        $this->scoutYearService = new \Core\ScoutYear\ScoutYearResolver(
+            new ScoutYearService($this->pdo),
+            new SettingService(new SettingRepository($this->pdo)),
+            new \Core\Import\MemberYearRepository($this->pdo)
+        );
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 4) . '/modules/retro/views';

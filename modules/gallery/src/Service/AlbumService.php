@@ -118,7 +118,16 @@ class AlbumService
         ?string $externalUrl,
         int $createdBy,
         Role $role,
-        string $email
+        string $email,
+        /**
+         * The year the chief is actually working in — their preview, or
+         * their staff year, or the public one
+         * (Core\ScoutYear\ScoutYearResolver). Passed in rather than
+         * resolved here, because resolving it reads the session and a
+         * Service does not (ARCHITECTURE.md, layering). Null keeps the
+         * previous behaviour for a caller that has none.
+         */
+        ?int $effectiveScoutYearId = null
     ): Album {
         $this->assertValidType($type);
         $this->assertTypeAllowed($type);
@@ -170,7 +179,7 @@ class AlbumService
         }
         $this->assertValidLength($title, self::MAX_TITLE_LENGTH, 'Le titre');
 
-        $scoutYearId = $this->scoutYearService->getCurrentYear()['id'];
+        $scoutYearId = $this->resolveScoutYearId($albumDate, $effectiveScoutYearId);
         $id = $this->albumRepository->create($type, $title, $subtitle, $albumDate, $sectionId, $scoutYearId,
             $externalUrl, $storageLocationId, $createdBy);
 
@@ -187,12 +196,45 @@ class AlbumService
     }
 
     /**
-     * Notification centre + push: "a new album was published" — every
-     * identified member is a candidate recipient (no per-section
-     * targeting, matching the calendar module's own "every identified
-     * member" simplification for its event notifications); dispatch()
-     * itself re-checks role_min per recipient and never pushes to the
-     * chief who created the album.
+     * Which scout year an album belongs to.
+     *
+     * The album's OWN date decides, when that year exists in this
+     * installation: an album of the November 2024 camp belongs to
+     * 2024-2025 whatever today is, and a chief filing photographs months
+     * later would otherwise file them under this year. Failing that, the
+     * year the chief is working in — their preview or their staff year.
+     * `getCurrentYear()`, the date-computed public year, was neither: it
+     * ignored the preview, the staff year, the `current_scout_year_id`
+     * setting AND the album's date, so an album created « in » 2024-2025
+     * and dated November 2024 landed in 2026-2027.
+     */
+    private function resolveScoutYearId(string $albumDate, ?int $effectiveScoutYearId): int
+    {
+        $date = DateInput::iso($albumDate);
+        if ($date !== null) {
+            $year = $this->scoutYearService->findByLabel(ScoutYearService::labelForDate($date));
+            if ($year !== null) {
+                return (int) $year['id'];
+            }
+        }
+
+        return $effectiveScoutYearId ?? (int) $this->scoutYearService->getCurrentYear()['id'];
+    }
+
+    /**
+     * Notification centre + push: "a new album was published".
+     *
+     * The audience is the album's own: a unit-wide album goes to every
+     * identified member, and a SECTION album goes to that section's
+     * members and to the cadres — the same people Controller\GalleryController
+     * ::isVisible() lets open it. It used to go to everybody in both
+     * cases, so 159 accounts received « Nouvel album — Weekend Waingunga »
+     * in their notification centre and on their devices, followed the link
+     * and got a 403. A notification carries the title and the body, which
+     * is precisely what the page was refusing them.
+     *
+     * dispatch() still re-checks role_min per recipient and never pushes
+     * to the chief who created the album.
      */
     private function dispatchAlbumPublished(Album $album, int $createdBy): void
     {
@@ -200,9 +242,16 @@ class AlbumService
             return;
         }
 
+        $recipientIds = $album->sectionId === null
+            ? $this->userAccountRepository->findAllIds()
+            : $this->userAccountRepository->findIdsForSectionAudience(
+                [$album->sectionId],
+                [$album->scoutYearId]
+            );
+
         $recipients = array_map(
             static fn(int $id): array => ['userAccountId' => $id, 'memberId' => null],
-            $this->userAccountRepository->findAllIds()
+            $recipientIds
         );
         if ($recipients === []) {
             return;

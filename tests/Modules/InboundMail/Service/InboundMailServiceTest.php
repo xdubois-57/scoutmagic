@@ -52,7 +52,19 @@ class InboundMailServiceTest extends TestCase
         $this->service = new InboundMailService(
             $this->messageRepository,
             $this->mailboxRepository,
-            new FileRepository($this->pdo)
+            new FileRepository($this->pdo),
+            null,
+            null,
+            null,
+            null,
+            // Row AND bytes when a retention window takes an attachment
+            // away (#242) — the repository's own delete() removes the row
+            // alone, which is what left the files behind.
+            new \Core\File\EncryptedFileStorageService(
+                new FileRepository($this->pdo),
+                new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)),
+                sys_get_temp_dir()
+            )
         );
 
         $this->mailboxId = $this->mailboxRepository->create(

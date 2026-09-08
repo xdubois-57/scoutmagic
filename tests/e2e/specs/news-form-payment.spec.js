@@ -289,7 +289,16 @@ test('a chief publishes an article with a paying form, a family signs up and is 
         // what ties the future bank transfer to this response. Read off
         // the page rather than guessed — its shape is that module's
         // business, not this scenario's.
-        const communication = (await familyPage.locator('p', { hasText: 'Communication structurée' })
+        //
+        // Scoped to the payment card rather than looked for anywhere on
+        // the page: this page carries a help topic of its own now, and
+        // that topic explains what a structured communication IS (« la
+        // communication structurée à recopier telle quelle »). A
+        // page-wide `p` filter matched the explanation as well as the
+        // value and failed on strict mode — the help being there is
+        // right, so the locator is what had to say which paragraph it
+        // means.
+        const communication = (await familyPage.locator('.card.border-primary p', { hasText: 'Communication structurée' })
             .innerText()).replace('Communication structurée :', '').trim();
         expect(communication, 'the confirmation must quote a structured communication').not.toBe('');
 

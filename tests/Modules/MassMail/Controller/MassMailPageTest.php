@@ -573,6 +573,84 @@ class MassMailPageTest extends TestCase
         $this->assertSame(403, $response->getStatusCode());
     }
 
+    /**
+     * #218. `role_min: chief` opens these routes to every animateur of the
+     * unit; only the SENDING section of a NEW draft was ever checked. An
+     * existing draft of another section was therefore readable, editable,
+     * movable to test and sendable by anybody who animates anything.
+     */
+    public function testASectionChiefCannotTouchADraftOfAnotherSection(): void
+    {
+        $this->pdo->exec("INSERT INTO sections (desk_code, age_branch_id, name) SELECT 'LOU02', age_branch_id, 'Meute B' FROM sections WHERE id = {$this->sectionId}");
+        $otherSectionId = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec("INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES ('x', 'blind-other-" . uniqid() . "')");
+        $otherAccountId = (int) $this->pdo->lastInsertId();
+
+        $email = $this->massMailService->createDraft(
+            'Brouillon de la Meute B',
+            '<p>Message</p>',
+            $otherSectionId,
+            Email::LIST_TYPE_DEFAULT_SECTION,
+            null,
+            $otherSectionId,
+            [$this->scoutYearId],
+            $otherAccountId,
+            new SenderAuthorization(true, [], null),
+            null
+        );
+
+        AuthSession::login($this->accountId, 'chief@test.com', 'chief');
+
+        // Not 403: the same answer an unknown id gets, so the ids cannot be
+        // walked to map the unit's mailings.
+        $this->assertSame(404, $this->controller->show(
+            $this->get('/mass-mail/' . $email->id),
+            ['id' => (string) $email->id]
+        )->getStatusCode());
+        $this->assertSame(404, $this->controller->recipients(
+            $this->get('/mass-mail/' . $email->id . '/recipients'),
+            ['id' => (string) $email->id]
+        )->getStatusCode());
+        $this->assertSame(404, $this->controller->tracking(
+            $this->get('/mass-mail/' . $email->id . '/tracking'),
+            ['id' => (string) $email->id]
+        )->getStatusCode());
+
+        $status = $this->controller->changeStatus(
+            $this->post([
+                'action' => 'to_test',
+                '_csrf_token' => CsrfGuard::generateToken(),
+            ]),
+            ['id' => (string) $email->id]
+        );
+        $this->assertSame(404, $status->getStatusCode());
+        $this->assertSame(
+            Email::STATUS_DRAFT,
+            $this->massMailService->findById($email->id)?->status,
+            "L'état a changé malgré le refus.",
+        );
+
+        $saved = $this->controller->save(
+            $this->post([
+                'subject' => 'Réécrit',
+                'body_html' => '<p>Réécrit</p>',
+                'section_id' => (string) $otherSectionId,
+                'list' => 'default_section:' . $otherSectionId,
+                'scout_year_ids' => [(string) $this->scoutYearId],
+                '_csrf_token' => CsrfGuard::generateToken(),
+            ]),
+            ['id' => (string) $email->id]
+        );
+        $this->assertSame(404, $saved->getStatusCode());
+        $this->assertSame('Brouillon de la Meute B', $this->massMailService->findById($email->id)?->subject);
+
+        // And the list does not even name it.
+        $this->assertStringNotContainsString(
+            'Brouillon de la Meute B',
+            (string) $this->controller->index($this->get('/mass-mail'), [])->getBody(),
+        );
+    }
+
     // -----------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------

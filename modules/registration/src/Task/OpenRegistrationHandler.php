@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Registration\Task;
 
+use Core\Config\SettingException;
 use Core\Config\SettingService;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
@@ -38,8 +39,11 @@ use Core\Service\DateInput;
  * cleared, unlike the old one-shot design, since the schedule itself is
  * meant to persist. A chief can still open/close the form
  * immediately at any time via Controller\RegistrationConfigController's
- * own manual toggle; that path never touches this applied-on marker, so
- * it never interferes with next year's automatic transition.
+ * own manual toggle; that path settles the marker for the occurrence
+ * CURRENTLY inside its catch-up window and nothing beyond it (see
+ * settleDueOccurrences()), so the manual decision is not undone by a
+ * transition that had not fired yet, and next year's transition is not
+ * disturbed either.
  */
 class OpenRegistrationHandler implements TaskHandlerInterface
 {
@@ -149,6 +153,72 @@ class OpenRegistrationHandler implements TaskHandlerInterface
         }
 
         return null;
+    }
+
+    /**
+     * Writes both applied-on markers to whichever occurrence is currently
+     * inside its catch-up window, so a transition that has NOT fired yet
+     * stops being pending. Returns the occurrences it settled, keyed by
+     * setting, for a caller that wants to say so in a journal line.
+     *
+     * **Why a manual open/close has to do this.** The catch-up window
+     * (dueDateForYear()) lets a missed occurrence still fire days later.
+     * The marker is what stops it firing twice — and on a fresh
+     * installation it is empty, so EVERY occurrence inside the window is
+     * still pending. A unit that installs the site on 2 September, with
+     * the shipped « fermeture le 31 août », and opens the form by hand
+     * from Configuration › Inscriptions, had it closed again by the next
+     * poll, under a journal line announcing a « fermeture programmée
+     * annuelle » it never programmed (issue #215).
+     *
+     * Deciding by hand IS deciding about the occurrence in progress. So
+     * the manual toggle settles it: the window's occurrence is marked
+     * applied, the poll finds nothing pending, and the chief's choice
+     * holds. Next year's occurrence has a later date than the marker and
+     * fires normally — the reciprocal of the promise this handler's
+     * docblock already made in the other direction.
+     *
+     * @return array<string, string> applied-on setting key => occurrence date
+     */
+    public static function settleDueOccurrences(SettingService $settings, ?\DateTimeImmutable $now = null): array
+    {
+        $now ??= new \DateTimeImmutable();
+        $catchUpDays = self::catchUpDays($settings);
+        $settled = [];
+
+        foreach ([
+            'registration_scheduled_open_at' => 'registration_scheduled_open_applied_on',
+            'registration_scheduled_close_at' => 'registration_scheduled_close_applied_on',
+        ] as $scheduleKey => $markerKey) {
+            $monthDay = trim((string) ($settings->get($scheduleKey, 'registration') ?: ''));
+            if (preg_match('/^\d{2}-\d{2}$/', $monthDay) !== 1) {
+                continue;
+            }
+
+            $dueOn = self::dueDateForYear($monthDay, $now, $catchUpDays);
+            if ($dueOn === null) {
+                continue;
+            }
+
+            $appliedOn = (string) ($settings->get($markerKey, 'registration') ?: '');
+            if ($appliedOn >= $dueOn) {
+                continue;
+            }
+
+            try {
+                $settings->set($markerKey, $dueOn, 'registration');
+            } catch (SettingException) {
+                // The marker is declared in module.json and created when
+                // the module is activated. If it is absent, the schedule
+                // setting read just above came from an older registration
+                // of the same block — settle what can be settled rather
+                // than turning a manual open into a 500.
+                continue;
+            }
+            $settled[$markerKey] = $dueOn;
+        }
+
+        return $settled;
     }
 
     /**

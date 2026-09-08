@@ -633,6 +633,13 @@ class LeadershipRbacTest extends TestCase
         // asset() is what base.html.twig references every static file through
         // (Core\View\TwigFactory); the bare path is enough for a test render.
         $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        // Same allowlist as Core\View\TwigFactory's own filter, which
+        // partials/rich_text_field.html.twig renders its value through.
+        $twig->addFilter(new TwigFilter(
+            'sanitized_html',
+            static fn (?string $html): string => (new \Core\Security\HtmlSanitizer())->sanitize((string) $html),
+            ['is_safe' => ['html']]
+        ));
 
         // The shared French format filters (core/View/TwigFactory.php) the
         // templates under test use — same rendering as the shipped ones.

@@ -10,6 +10,7 @@ namespace Modules\News\Controller;
 
 use Core\Config\ScoutYearService;
 use Core\Config\SettingService;
+use Core\Scheduler\CronHealth;
 use Core\Exception\UserFacingMessage;
 use Core\File\FileRepository;
 use Core\File\UploadException;
@@ -657,6 +658,11 @@ class NewsController extends AbstractController
 
         return [
             'article' => $article,
+            // The daily digest of a form's responses is due at an INSTANT;
+            // under the poor man's cron it goes out at the occasion of a
+            // visit instead (issue #248). partials/_form_settings.html.twig
+            // says so, beside the digest switch itself.
+            'cron_detected' => CronHealth::detectedForConfigScreen($this->settingService),
             // Only meaningful for edit/update (a real article, whose title
             // is worth showing in the trail) — create/store pass $article
             // as null, so this falls back to the route's static

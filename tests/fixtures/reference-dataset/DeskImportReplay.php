@@ -14,7 +14,9 @@ use Core\File\FileRepository;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Import\AgeBranchRepository;
+use Core\Database\Connection;
 use Core\Import\DeskCsvParser;
+use Core\Import\DeskImportListenerRegistry;
 use Core\Import\DeskImportService;
 use Core\Import\FeeCategoryRepository;
 use Core\Import\FunctionRepository;
@@ -201,10 +203,19 @@ final class DeskImportReplay
      * The composition the application performs in public/index.php, rebuilt
      * here for a context that has no request.
      *
-     * No DeskImportListener is wired: those are module-provided
-     * (ARCHITECTURE.md §7.4) and the composition root supplies them from the
-     * enabled modules. The builder passes the real ones in IT-06; the import
-     * itself behaves identically without them.
+     * The module-provided DeskImportListeners (ARCHITECTURE.md §7.4) are
+     * wired here too, the same two public/index.php registers from the
+     * modules' own blocks: without them an import writes members and stops,
+     * where the real one also reconciles the rental managers and journals
+     * the formation wordings it did not understand. A dataset built without
+     * that second half is a dataset in which those effects never happened.
+     *
+     * Each is guarded by "is this module enabled here?", which is the same
+     * condition public/index.php registers them under — its module blocks
+     * only run for enabled modules. Not class_exists(): the class is always
+     * autoloadable, and it is the module's TABLES that a listener needs. A
+     * replay against a database that never installed the rental schema (the
+     * unit tests next door) must therefore register nothing.
      */
     private function buildImportService(): DeskImportService
     {
@@ -243,6 +254,57 @@ final class DeskImportReplay
                 $this->storagePath,
             ),
             new ImportDiffCalculator(new RosterSnapshotRepository($this->pdo)),
+            null,
+            $this->importListeners(),
         );
+    }
+
+    /**
+     * The two listeners the composition root registers, when their modules
+     * are on disk.
+     */
+    private function importListeners(): DeskImportListenerRegistry
+    {
+        $registry = new DeskImportListenerRegistry();
+        $journalService = new JournalService(new JournalRepository($this->pdo));
+        $connection = Connection::withPdo($this->pdo);
+
+        if ($this->moduleIsEnabled('rental')) {
+            $registry->register(new \Modules\Rental\Service\RentalDeskImportListener(
+                new \Modules\Rental\Repository\RentalAssetManagerRepository($this->pdo),
+                $journalService,
+            ));
+        }
+
+        if ($this->moduleIsEnabled('leadership')) {
+            $registry->register(new \Modules\Leadership\Service\LeadershipDeskImportListener(
+                new \Modules\Leadership\Repository\LeadershipRepository($connection, $this->encryption),
+                new \Modules\Leadership\Repository\FormationLevelMappingRepository($connection),
+                new \Modules\Leadership\Service\FormationLevelResolver(),
+                $journalService,
+            ));
+        }
+
+        return $registry;
+    }
+
+    /**
+     * Whether this instance has the module switched on, read from the
+     * registry the application itself reads. A database with no
+     * `module_registry` at all is one no module was ever installed into:
+     * nothing is enabled there, and the question is not an error.
+     */
+    private function moduleIsEnabled(string $moduleId): bool
+    {
+        try {
+            $statement = $this->pdo->prepare(
+                'SELECT COUNT(*) FROM module_registry WHERE module_id = ? AND enabled = 1'
+            );
+            $statement->execute([$moduleId]);
+
+            return (int) $statement->fetchColumn() > 0;
+        } catch (\PDOException) {
+            return false;
+        }
     }
 }

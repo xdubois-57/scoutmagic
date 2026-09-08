@@ -24,6 +24,7 @@ use Modules\Registration\Service\RegistrationException;
 use Modules\Registration\Service\RequestStatusService;
 use Modules\Registration\Service\SlotMath;
 use Modules\Registration\Service\SlotService;
+use Modules\Registration\Task\OpenRegistrationHandler;
 
 /**
  * Opens the registration desk and files RegistrationBlueprint's requests.
@@ -72,6 +73,8 @@ final class RegistrationSeeder
 
     private readonly ScoutYearService $scoutYearService;
 
+    private readonly JournalService $journalService;
+
     /** @param array<string, int> $sectionIds section handle => sections.id */
     public function __construct(
         \PDO $pdo,
@@ -79,9 +82,10 @@ final class RegistrationSeeder
         private readonly array $sectionIds,
     ) {
         $this->requestRepository = new RegistrationRequestRepository($pdo, $encryption);
+        $this->journalService = new JournalService(new JournalRepository($pdo));
         $this->statusService = new RequestStatusService(
             $this->requestRepository,
-            new JournalService(new JournalRepository($pdo)),
+            $this->journalService,
         );
         $this->bracketRepository = new AgeBracketRepository($pdo);
         $this->capacityRepository = new SlotCapacityRepository($pdo);
@@ -147,6 +151,19 @@ final class RegistrationSeeder
             );
             $requests++;
 
+            // Service\RegistrationService::submit() writes this line before
+            // it sends anything. The confirmation e-mail is the reason this
+            // seeder goes through the repository (README §8.3) — the journal
+            // entry is not part of that reason, and its absence left 23
+            // requests that nothing in the journal accounts for.
+            $this->journalService->log(
+                'registration',
+                'registration_request_received',
+                'info',
+                'Nouvelle demande d\'inscription reçue',
+                ['request_id' => $created['id']],
+            );
+
             if ($declared['status'] === RegistrationRequest::STATUS_PENDING) {
                 continue;
             }
@@ -177,6 +194,15 @@ final class RegistrationSeeder
         // as the rest of this method takes.
         try {
             $this->settingService->set('registration_form_open', RegistrationBlueprint::FORM_OPEN, 'registration');
+            // Exactly what the button does (Modules\Registration\Controller\
+            // RegistrationConfigController::toggleOpen()), and for the same
+            // reason: on a brand-new instance both applied-on markers are
+            // empty, so any scheduled occurrence still inside its catch-up
+            // window is pending and the first cron pass would undo this.
+            // The build promised « formulaire ouvert » (README §8.3); an
+            // instance whose desk shuts on its first minute of cron did not
+            // keep that promise.
+            OpenRegistrationHandler::settleDueOccurrences($this->settingService);
         } catch (SettingException) {
             // The setting is created when the module is activated, and the
             // builder activates every module before it gets here (README

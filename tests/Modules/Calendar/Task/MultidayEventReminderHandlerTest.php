@@ -141,6 +141,142 @@ class MultidayEventReminderHandlerTest extends TestCase
         $this->assertSame('done', $stmt->fetchColumn());
     }
 
+    /**
+     * #236. The handler resolved its recipients with getCurrentYear() —
+     * the date-computed year, which also CREATES the new year's empty row.
+     * A reminder for an event of late August running after the 1st of
+     * September therefore looked for the section's staff in a year whose
+     * roster is not imported yet, found nobody, and returned in silence.
+     * The staff of that event exist: in the event's own year.
+     */
+    public function testTheRecipientsAreResolvedInTheEventsOwnYearNotTodays(): void
+    {
+        // The staff live in the event's year, and nobody lives in the year
+        // the clock is in.
+        $this->pdo->exec(
+            "INSERT INTO scout_years (label, start_date, end_date, is_current)"
+            . " VALUES ('2025-2026', '2025-09-01', '2026-08-31', 0)"
+        );
+        $eventYearId = (int) $this->pdo->lastInsertId();
+        $todayYearId = $this->scoutYearId;
+        $this->scoutYearId = $eventYearId;
+        $this->createStaffMember('Akela', 'akela@example.test');
+        $this->scoutYearId = $todayYearId;
+
+        $calendarRepository = new CalendarRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
+        $calendarId = $calendarRepository->createSectionCalendar($this->sectionId, Calendar::VISIBILITY_PUBLIC);
+        $eventId = $this->createEvent($calendarId, '2026-08-28', '2026-09-02');
+
+        $this->mailService->expects($this->once())
+            ->method('send')
+            ->with('akela@example.test', $this->stringContains('Camp'));
+
+        $this->schedulerRepository->create(
+            'calendar',
+            'multiday_event_reminder',
+            (new \DateTimeImmutable('-1 minute'))->format('Y-m-d H:i:s'),
+            json_encode(['event_id' => $eventId, 'calendar_id' => $calendarId]),
+            'event-' . $eventId
+        );
+
+        $this->runner->processOverdue();
+    }
+
+    /**
+     * #247, the other half of the same handler: the journal line said
+     * « Rappel envoyé » before the first send, and counted the people
+     * AIMED AT. A run where every send failed left that line and nothing
+     * else.
+     */
+    public function testTheJournalCountsWhatActuallyLeft(): void
+    {
+        $this->createStaffMember('Akela', 'akela@example.test');
+        $calendarRepository = new CalendarRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
+        $calendarId = $calendarRepository->createSectionCalendar($this->sectionId, Calendar::VISIBILITY_PUBLIC);
+        $eventId = $this->createEvent($calendarId, '2026-08-10', '2026-08-13');
+
+        $this->mailService->method('send')->willThrowException(new \Core\Mail\MailException('SMTP connect() failed.'));
+
+        $this->schedulerRepository->create(
+            'calendar',
+            'multiday_event_reminder',
+            (new \DateTimeImmutable('-1 minute'))->format('Y-m-d H:i:s'),
+            json_encode(['event_id' => $eventId, 'calendar_id' => $calendarId]),
+            'event-' . $eventId
+        );
+
+        $this->runner->processOverdue();
+
+        $row = $this->pdo->query(
+            "SELECT level, context FROM event_log WHERE event_type = 'multiday_event_reminder_sent' ORDER BY id DESC LIMIT 1"
+        )->fetch(\PDO::FETCH_ASSOC);
+        $context = json_decode((string) $row['context'], true);
+
+        $this->assertSame('warning', $row['level']);
+        $this->assertSame(0, $context['sent']);
+        $this->assertSame(1, $context['failed']);
+    }
+
+    // ── a replay reminds nobody twice (issue #246) ────────────────────
+
+    /**
+     * The scheduler marks a task done only after handle() returns, so an
+     * abrupt stop mid-loop replays the whole send and the section's staff
+     * are reminded a second time.
+     */
+    public function testAReplayOfTheSameReminderSendsNothingASecondTime(): void
+    {
+        $this->createStaffMember('Akela', 'akela@example.test');
+        $eventId = $this->createEvent($this->sectionCalendar(), '2026-08-10', '2026-08-13');
+
+        $this->mailService->expects($this->once())->method('send');
+
+        $payload = ['event_id' => $eventId, 'calendar_id' => $this->sectionCalendar()];
+        (new MultidayEventReminderHandler())->handle($payload, $this->taskContext());
+        (new MultidayEventReminderHandler())->handle($payload, $this->taskContext());
+    }
+
+    /**
+     * The scope carries the event's start date on purpose: an event MOVED
+     * to another date is a new thing to say, and « l'évènement approche »
+     * has to be said again.
+     */
+    public function testAnEventMovedToAnotherDateIsRemindedAgain(): void
+    {
+        $this->createStaffMember('Akela', 'akela@example.test');
+        $calendarId = $this->sectionCalendar();
+        $eventId = $this->createEvent($calendarId, '2026-08-10', '2026-08-13');
+
+        $this->mailService->expects($this->exactly(2))->method('send');
+
+        $payload = ['event_id' => $eventId, 'calendar_id' => $calendarId];
+        (new MultidayEventReminderHandler())->handle($payload, $this->taskContext());
+
+        $stmt = $this->pdo->prepare('UPDATE calendar_events SET start_date = ?, end_date = ? WHERE id = ?');
+        $stmt->execute(['2026-09-14', '2026-09-17', $eventId]);
+
+        (new MultidayEventReminderHandler())->handle($payload, $this->taskContext());
+    }
+
+    public function testTheJournalSaysHowManyAnimatorsTheRunFoundAlreadyReminded(): void
+    {
+        $this->createStaffMember('Akela', 'akela@example.test');
+        $calendarId = $this->sectionCalendar();
+        $eventId = $this->createEvent($calendarId, '2026-08-10', '2026-08-13');
+
+        $payload = ['event_id' => $eventId, 'calendar_id' => $calendarId];
+        (new MultidayEventReminderHandler())->handle($payload, $this->taskContext());
+        (new MultidayEventReminderHandler())->handle($payload, $this->taskContext());
+
+        $row = $this->pdo->query(
+            "SELECT context FROM event_log WHERE event_type = 'multiday_event_reminder_sent' ORDER BY id DESC LIMIT 1"
+        )->fetch(\PDO::FETCH_ASSOC);
+        $context = json_decode((string) $row['context'], true);
+
+        $this->assertSame(0, $context['sent']);
+        $this->assertSame(1, $context['skipped']);
+    }
+
     public function testHandleSkipsMembersWithoutEmail(): void
     {
         $this->createStaffMember('Akela', null);
@@ -180,5 +316,38 @@ class MultidayEventReminderHandlerTest extends TestCase
         $stmt = $this->pdo->prepare('SELECT status FROM scheduled_actions WHERE reference = ?');
         $stmt->execute(['event-999999']);
         $this->assertSame('done', $stmt->fetchColumn());
+    }
+
+    /**
+     * The section's calendar, created on first use — the handler resolves
+     * it by section, so every test that needs one needs the same one.
+     */
+    private function sectionCalendar(): int
+    {
+        $existing = $this->pdo->query('SELECT id FROM calendar_calendars ORDER BY id LIMIT 1')->fetchColumn();
+        if ($existing !== false) {
+            return (int) $existing;
+        }
+
+        return (new CalendarRepository($this->pdo, $this->encryption))
+            ->createSectionCalendar($this->sectionId, Calendar::VISIBILITY_PUBLIC);
+    }
+
+    /**
+     * The same context the runner hands the handler — built here so a
+     * test can call handle() twice in a row, which is exactly what a
+     * replay is.
+     */
+    private function taskContext(): TaskContext
+    {
+        return new TaskContext(
+            Connection::withPdo($this->pdo),
+            $this->encryption,
+            $this->mailService,
+            new JournalService($this->journalRepository),
+            new SettingService(new SettingRepository($this->pdo)),
+            new UserAccountRepository($this->pdo, $this->encryption),
+            sys_get_temp_dir()
+        );
     }
 }

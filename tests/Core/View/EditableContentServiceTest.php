@@ -94,6 +94,22 @@ class EditableContentServiceTest extends TestCase
         $this->assertSame('42', $result);
     }
 
+    /**
+     * #229. The type comes from the request body on both writing routes
+     * and the read path ignores it — `get()` hands the string to a `|raw`
+     * on public pages. Sanitizing only `rich_text` therefore let the
+     * caller choose whether the barrier applied: `type=image` with an HTML
+     * body stored arbitrary markup that came back verbatim.
+     */
+    public function testSetSanitizesWhateverTypeItIsToldAbout(): void
+    {
+        $this->service->set('test.image.xss', '<p>Intro</p><img src=x onerror=alert(1)>', 'image', 1);
+
+        $stored = (string) $this->service->get('test.image.xss');
+        $this->assertStringNotContainsString('onerror', $stored);
+        $this->assertStringContainsString('Intro', $stored);
+    }
+
     public function testUpdateOverwritesPreviousValue(): void
     {
         $this->service->set('test.update', '<p>First</p>', 'rich_text', 1);

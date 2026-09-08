@@ -500,6 +500,20 @@
                         Archive ZIP protégée par mot de passe, générée en arrière-plan. Vous recevrez une
                         notification lorsqu'elle sera prête.
                     </p>
+                    {# Core\Maintenance\BackupService exclut storage/keys et
+                       storage/config de l'archive (« secrets never leave the
+                       server in a backup »). C'est voulu, et l'écran ne le
+                       disait nulle part : restaurée sur un autre hébergement,
+                       une sauvegarde donne une base illisible sans que rien
+                       n'explique pourquoi. #}
+                    <p class="small text-warning-emphasis">
+                        <i class="bi bi-key"></i>
+                        <strong>Les clés de chiffrement ne sont pas dans l'archive</strong> — elles ne quittent
+                        jamais le serveur. Restaurée <em>ici</em>, cette sauvegarde se relit normalement ;
+                        restaurée sur un autre hébergement, la base reste illisible tant que
+                        <code>storage/keys/</code> et <code>storage/config/</code> n'y ont pas été recopiés
+                        séparément, par un autre moyen.
+                    </p>
                     <form id="full-backup-form" {{ not zip_encryption_supported ? 'class="d-none"' : '' }}>
                         {# A group of radios is labelled by a legend inside a
                            fieldset, not by a loose label pointing at nothing: a
@@ -631,6 +645,13 @@
                     <p class="text-body-secondary small">
                         Restaure la base de données et les fichiers depuis une sauvegarde existante ou un fichier
                         téléversé.
+                    </p>
+                    <p class="small text-warning-emphasis">
+                        <i class="bi bi-key"></i>
+                        Une archive ne contient <strong>pas les clés de chiffrement</strong> : elle ne se relit
+                        que sur l'installation qui l'a produite, ou sur une installation dont
+                        <code>storage/keys/</code> et <code>storage/config/</code> ont été recopiés depuis
+                        celle-là.
                     </p>
                     <form id="restore-backup-form" method="post" action="/config/maintenance/reset/restore" enctype="multipart/form-data">
                         {{ csrf_field()|raw }}

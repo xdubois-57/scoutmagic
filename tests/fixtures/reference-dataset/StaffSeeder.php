@@ -8,10 +8,13 @@ declare(strict_types=1);
 
 namespace Tests\Fixtures\ReferenceDataset;
 
+use Core\Badge\BadgeException;
 use Core\Badge\BadgeRepository;
 use Core\Badge\BadgeService;
 use Core\Badge\MemberBadgeRepository;
 use Core\Import\FunctionRepository;
+use Core\Journal\JournalRepository;
+use Core\Journal\JournalService;
 use Core\Member\SectionService;
 use Modules\Trombinoscope\Repository\FunctionFlagsRepository;
 
@@ -41,6 +44,8 @@ final class StaffSeeder
 
     private readonly FunctionRepository $functionRepository;
 
+    private readonly JournalService $journalService;
+
     /**
      * @param array<string, int> $sectionIds section handle => sections.id
      * @param array<string, int> $yearIds    scout year label => scout_years.id
@@ -58,6 +63,7 @@ final class StaffSeeder
         $this->memberBadgeRepository = new MemberBadgeRepository($pdo);
         $this->badgeService = new BadgeService($this->badgeRepository, $this->memberBadgeRepository, $sectionService);
         $this->functionRepository = new FunctionRepository($pdo);
+        $this->journalService = new JournalService(new JournalRepository($pdo));
     }
 
     /**
@@ -101,8 +107,9 @@ final class StaffSeeder
                     if ($badge === null || $this->memberBadgeRepository->isAssigned($memberYearId, $badge->id)) {
                         continue;
                     }
-                    $this->memberBadgeRepository->assign($memberYearId, $badge->id, $this->actorId);
-                    $assigned++;
+                    if ($this->assign($memberYearId, $badge->id)) {
+                        $assigned++;
+                    }
                 }
             }
         }
@@ -113,11 +120,58 @@ final class StaffSeeder
             if ($badge === null || $memberYearId === null || $this->memberBadgeRepository->isAssigned($memberYearId, $badge->id)) {
                 continue;
             }
-            $this->memberBadgeRepository->assign($memberYearId, $badge->id, $this->actorId);
-            $assigned++;
+            if ($this->assign($memberYearId, $badge->id)) {
+                $assigned++;
+            }
         }
 
         return $assigned;
+    }
+
+    /**
+     * One badge assignment, through the service the page uses and with the
+     * line the controller writes.
+     *
+     * Core\Http\Controller\StaffsController calls
+     * Core\Badge\BadgeService::toggleAssignment() — which is where the
+     * guards live (a referent badge belongs to the Staff d'U; the Trésorier
+     * badge belongs to somebody who actually animates a section) — and
+     * journals `badge_assigned` afterwards. Writing straight to
+     * MemberBadgeRepository skipped both, so the dataset could hold badge
+     * rows the application itself would have refused, and 46 assignments
+     * the journal never mentioned.
+     *
+     * A refusal is not fatal: it means the blueprint asks for a badge this
+     * member may not hold, which is a mistake in the table rather than a
+     * reason to abandon a build. The returned false is what the counter
+     * reports.
+     */
+    private function assign(int $memberYearId, int $badgeId): bool
+    {
+        try {
+            $assigned = $this->badgeService->toggleAssignment($memberYearId, $badgeId, $this->actorId);
+        } catch (BadgeException) {
+            return false;
+        }
+
+        if (!$assigned) {
+            // toggleAssignment() removes a badge the member already had.
+            // isAssigned() is checked before every call here, so this is
+            // unreachable in practice — and if it ever happens, undoing
+            // somebody's badge must not be counted as having given one.
+            return false;
+        }
+
+        $this->journalService->log(
+            'core',
+            'badge_assigned',
+            'info',
+            'Badge attribué à un membre',
+            ['member_year_id' => $memberYearId, 'badge_id' => $badgeId],
+            $this->actorId,
+        );
+
+        return true;
     }
 
     /**

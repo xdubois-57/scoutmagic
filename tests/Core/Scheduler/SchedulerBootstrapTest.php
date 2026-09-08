@@ -87,6 +87,18 @@ class SchedulerBootstrapTest extends TestCase
         $this->assertStringNotContainsString('->setTaskContext(', $source, $file);
         $this->assertStringNotContainsString('->setModuleManager(', $source, $file);
         $this->assertStringNotContainsString('CoreTaskHandlers::registerAll(', $source, $file);
+
+        // #232. A recurring task is SEEDED by a static
+        // `Handler::bootstrap($schedulerService)`, which is none of the
+        // arrow-calls above and so slipped past this test entirely:
+        // `expire_rental_holds` sat in index.php's own body, and a site
+        // reached only by its crontab never queued it once. Every seed
+        // belongs to the shared root, where both entry points reach it.
+        $this->assertDoesNotMatchRegularExpression(
+            '/::bootstrap\(\s*\$schedulerService/',
+            $source,
+            $file . " amorce une tâche récurrente lui-même : elle appartient à scheduler-bootstrap.php."
+        );
     }
 
     public function testTheBootstrapFileRefusesADirectWebHit(): void

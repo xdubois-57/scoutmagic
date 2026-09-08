@@ -251,9 +251,36 @@ class RentalMessageConsumer implements
             return AnalysisResult::linkedTo(self::CONSUMER_ID, $addressed, LinkOrigin::REPLY_ADDRESS);
         }
 
+        // Level 1: a reference quoted in the subject or the body. The
+        // reference is SEQUENTIAL and printed on every contract, so it is
+        // guessable — and this rule used to ask nothing else, so anybody
+        // writing `[LOC-2027-0042]` to a mailbox the operator opened to
+        // this consumer had their message filed on that booking's internal
+        // thread, attachments and all. The neighbours bound their
+        // equivalent rule and said so: Modules\Finance's own consumer
+        // ("the address behind it is not authenticated") requires a
+        // resolved sender, and the camps one keeps its weakest rule behind
+        // `mailboxDedicatedTo`.
+        //
+        // So the reference alone no longer LINKS: it links when the sender
+        // is the renter of that booking, and otherwise it becomes a
+        // proposition a human confirms — which loses nothing, because the
+        // message is still shown, named and one click from being filed.
         $reference = $this->referenceMatcher->match($message->subject, $message->bodyText);
-        if ($reference !== null && $this->bookingRepository->findByReference($reference) !== null) {
-            return AnalysisResult::linkedTo(self::CONSUMER_ID, $reference, LinkOrigin::REFERENCE);
+        $referenced = $reference !== null ? $this->bookingRepository->findByReference($reference) : null;
+        if ($referenced !== null) {
+            if ($this->isRenterOf($referenced, $message->fromEmail)) {
+                return AnalysisResult::linkedTo(self::CONSUMER_ID, $referenced->reference, LinkOrigin::REFERENCE);
+            }
+
+            return AnalysisResult::proposing(new MessageCandidate(
+                businessReference: $referenced->reference,
+                label: $this->labelFor($referenced),
+                evidenceType: 'reference',
+                explanation: 'Le message cite la référence de cette réservation, mais il ne vient pas de '
+                    . "l'adresse du locataire. Une référence est séquentielle et imprimée sur le contrat : "
+                    . 'ScoutMagic ne rattache pas sans confirmation.'
+            ));
         }
 
         $threaded = $this->inboundMail->findReferenceByThread(
@@ -364,6 +391,20 @@ class RentalMessageConsumer implements
         }
 
         return new AnalysisResult([], $candidates);
+    }
+
+    /**
+     * Whether this address is the one the booking was made with.
+     *
+     * Compared the way the mail layer hands addresses over — lowercased
+     * and trimmed — and never a substring: an address is equal to the
+     * renter's or it is not.
+     */
+    private function isRenterOf(RentalBooking $booking, string $fromEmail): bool
+    {
+        $from = mb_strtolower(trim($fromEmail));
+
+        return $from !== '' && $from === mb_strtolower(trim($booking->renterEmail));
     }
 
     /**

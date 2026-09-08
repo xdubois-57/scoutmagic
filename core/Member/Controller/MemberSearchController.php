@@ -30,6 +30,7 @@ use Core\Member\Service\MemberSearchService;
 use Core\Member\TemporaryMemberSession;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\ScoutYear\ScoutYearSession;
+use Core\Member\SectionStaffAuthorizationService;
 use Core\Security\AuthSession;
 use Core\Security\Role;
 use Twig\Environment;
@@ -54,7 +55,12 @@ class MemberSearchController extends AbstractController
         private MemberNoteService $memberNoteService,
         private MemberDocumentService $memberDocumentService,
         private MemberDocumentMailer $memberDocumentMailer,
-        private SettingService $settingService
+        private SettingService $settingService,
+        // Optional and trailing so an installation wired before this
+        // existed keeps working: without it the offset card simply is not
+        // offered, which is the safe answer — the write would refuse it
+        // anyway, and a control that cannot succeed is worse than none.
+        private ?SectionStaffAuthorizationService $sectionStaffAuthorizationService = null
     ) {
     }
 
@@ -172,8 +178,37 @@ class MemberSearchController extends AbstractController
                 // member's own latest — not necessarily the effective one.
                 'year_label' => $profile->scoutYearLabel,
                 'is_past_year' => $profile->scoutYearLabel !== $effective->label,
+                // « Année dans la branche » is an ANIMÉ's fact, and the
+                // write behind those buttons refuses anybody else
+                // (Core\Http\Controller\MemberController::
+                // updateScoutYearOffset()). Asked here with the same
+                // predicate rather than a second rule, so the card is
+                // never rendered where saving is guaranteed to fail — a
+                // staff member-year, an inactive row, or an animé of a
+                // section this account does not staff.
+                'can_edit_scout_year_offset' => $this->canEditScoutYearOffset($profile->memberYearId),
             ]
         ));
+    }
+
+    /**
+     * @see \Core\Member\SectionStaffAuthorizationService::staffsAnimeMemberYear()
+     *     for why this is an animé-only question, and why the card has to
+     *     ask it rather than render unconditionally.
+     */
+    private function canEditScoutYearOffset(int $memberYearId): bool
+    {
+        $scoutYearId = $this->memberService->getScoutYearIdForMemberYear($memberYearId);
+        if ($scoutYearId === null || $this->sectionStaffAuthorizationService === null) {
+            return false;
+        }
+
+        return $this->sectionStaffAuthorizationService->staffsAnimeMemberYear(
+            AuthSession::getEmail() ?? '',
+            AuthSession::getRole(),
+            $scoutYearId,
+            $memberYearId
+        );
     }
 
     /**

@@ -258,6 +258,49 @@ class SettingsControllerTest extends TestCase
         $this->assertSame('new_value', $this->settingService->get('editable'));
     }
 
+    /**
+     * #225. A setting is free text, and several of them hold an address —
+     * the unit's alert e-mail, the SOS number, a contact. The journal
+     * copied both values into `event_log.context`, a plain column any
+     * chief reads and the support package exports, and it copied the IP a
+     * second time next to the column that already holds it.
+     */
+    public function testTheJournalSaysWhichSettingChangedAndNeitherValue(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+        $_SERVER['REMOTE_ADDR'] = '203.0.113.7';
+
+        $this->settingService->register('registration_unit_alert_email', 'ancienne@exemple.org', 'email', 'L', 'D');
+        $this->settingService->clearCache();
+
+        $this->controller->update(
+            $this->createJsonRequest([
+                'key' => 'registration_unit_alert_email',
+                'value' => 'alerte.unite@exemple.org',
+                '_csrf_token' => $token,
+            ]),
+            []
+        );
+
+        $row = $this->pdo->query(
+            "SELECT context FROM event_log WHERE event_type = 'setting_changed' ORDER BY id DESC LIMIT 1"
+        )->fetch(\PDO::FETCH_ASSOC);
+        $context = json_decode((string) $row['context'], true);
+
+        $this->assertSame('registration_unit_alert_email', $context['key']);
+        $this->assertTrue($context['changed']);
+        $this->assertArrayNotHasKey('old_value', $context);
+        $this->assertArrayNotHasKey('new_value', $context);
+        // Already in event_log.ip_address; a second copy is the same
+        // personal datum stored twice in one row.
+        $this->assertArrayNotHasKey('ip', $context);
+        $this->assertStringNotContainsString('exemple.org', (string) $row['context']);
+    }
+
     public function testUpdateNonEditableReturnsError(): void
     {
         if (session_status() === PHP_SESSION_NONE) {

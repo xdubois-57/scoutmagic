@@ -89,6 +89,12 @@ class DecorativeLabelMisuseTest extends TestCase
             'functions' => [],
             'section_history' => [],
             'member_emails' => [],
+            // The offset card renders only for a member-year whose offset
+            // this reader may actually set — an animé of a section they
+            // staff (Core\Member\SectionStaffAuthorizationService::
+            // staffsAnimeMemberYear()). This case is about the heading's
+            // MARKUP, so it renders the page in the state that has one.
+            'can_edit_scout_year_offset' => true,
         ]);
 
         $this->assertTextIsNotInsideALabel($html, 'Année dans la branche');

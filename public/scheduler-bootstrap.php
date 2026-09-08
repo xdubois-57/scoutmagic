@@ -156,6 +156,13 @@ function scoutmagic_bootstrap_scheduler(
                 $encryptionService,
                 null,
                 $settingService
+            ),
+            // Row AND bytes when a retention window takes an attachment
+            // away (#242).
+            new \Core\File\EncryptedFileStorageService(
+                new \Core\File\FileRepository($pdo),
+                $encryptionService,
+                $storagePath
             )
         )
     );
@@ -768,6 +775,17 @@ function scoutmagic_bootstrap_scheduler(
     if (in_array('rental', $enabledModuleIds, true)) {
         \Modules\Rental\Task\SendRentalRemindersHandler::bootstrap($schedulerService);
         \Modules\Rental\Task\PurgeRentalBookingsHandler::bootstrap($schedulerService);
+        // The third sister, left behind in public/index.php's own body
+        // until it was noticed: a site reached only by its crontab never
+        // seeded the hourly hold-expiry poller at all. Availability was
+        // never the point — a hold is lapsed the moment its deadline
+        // passes, which the calculator reads directly — but
+        // Service\RentalBookingService::expireLapsedHolds() also REFUSES
+        // the pending change requests of an expired hold (without which
+        // "the renter's tracking page kept offering « Accepter » on a
+        // proposal for a booking that no longer existed"), journals and
+        // audits the expiry. On a crontab-only site none of that happened.
+        \Modules\Rental\Task\ExpireRentalHoldsHandler::bootstrap($schedulerService);
     }
 
     return $context;

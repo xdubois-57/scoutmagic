@@ -606,6 +606,18 @@ class DatabaseTestHelper
             FOREIGN KEY (created_by) REFERENCES user_accounts(id) ON DELETE SET NULL
         )');
 
+        // The replay guard of the background e-mail handlers (schema/
+        // core.sql: sent_email_claims). The UNIQUE key is the whole
+        // mechanism — Core\Mail\SentEmailClaimRepository::claim() reads
+        // a lost race off it — so it is declared here too.
+        $pdo->exec('CREATE TABLE sent_email_claims (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scope TEXT NOT NULL,
+            recipient_key TEXT NOT NULL,
+            claimed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (scope, recipient_key)
+        )');
+
         $pdo->exec('CREATE TABLE human_check_rate_limits (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             ip_hash TEXT NOT NULL,

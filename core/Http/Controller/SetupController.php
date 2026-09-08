@@ -729,7 +729,9 @@ class SetupController extends AbstractController
             SessionStore::set('setup_token_verified', true);
             $this->journalService?->log(
                 'core', 'setup_token_verified', 'security', 'Jeton d\'installation vérifié avec succès',
-                ['ip' => $_SERVER['REMOTE_ADDR'] ?? '']
+                // The address is already in event_log.ip_address (JournalService::log());
+                // a second copy in the JSON stores the same personal datum twice.
+                []
             );
             return $this->redirect('/setup');
         }
@@ -751,7 +753,8 @@ class SetupController extends AbstractController
 
         $this->journalService?->log(
             'core', 'setup_token_failed', 'security', 'Tentative de jeton d\'installation invalide',
-            ['ip' => $_SERVER['REMOTE_ADDR'] ?? '', 'attempts' => $attempts]
+            // Only what event_log.ip_address does not already hold.
+            ['attempts' => $attempts]
         );
 
         return $this->redirect('/setup');
@@ -1111,7 +1114,8 @@ class SetupController extends AbstractController
 
             $this->journalService?->log(
                 'core', 'setup_completed', 'security', 'Configuration du site enregistrée',
-                ['ip' => $_SERVER['REMOTE_ADDR'] ?? ''],
+                // Already event_log.ip_address — see above.
+                [],
                 AuthSession::getUserAccountId()
             );
 
@@ -1437,7 +1441,9 @@ class SetupController extends AbstractController
         $this->journalService?->log(
             'core', 'setup_token_gate_blocked', 'security',
             'Accès à un point d\'entrée d\'installation sans jeton vérifié',
-            ['ip' => $_SERVER['REMOTE_ADDR'] ?? '']
+            // The address is already in event_log.ip_address (JournalService::log());
+            // a second copy in the JSON stores the same personal datum twice.
+            []
         );
 
         if ($asJson) {

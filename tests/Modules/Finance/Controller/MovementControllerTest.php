@@ -548,7 +548,10 @@ class MovementControllerTest extends TestCase
             ['id' => (string) $id]
         );
 
-        $this->assertSame(403, $response->getStatusCode());
+        // 404 rather than 403 (#219): an account this session may not open
+        // answers exactly as a movement that does not exist, so walking the
+        // ids tells nobody which ones are real.
+        $this->assertSame(404, $response->getStatusCode());
     }
 
     public function testAttachmentsIncludesReceiptSuggestedAmountLabelAndDescription(): void

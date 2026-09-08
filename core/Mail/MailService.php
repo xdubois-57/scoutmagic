@@ -178,7 +178,15 @@ class MailService
             $reason = $mail->ErrorInfo ?: $e->getMessage();
             $this->journalFailure($reason);
 
-            throw new MailException($reason);
+            // The SAME redaction as the journal entry, and for the same
+            // reason. The journal was careful and the exception was not,
+            // so the address the transport quoted travelled on in
+            // $e->getMessage() — into a flash message on a superadmin's
+            // screen, into three modules' own journal contexts, into the
+            // support archive. There is one rule about addresses in a
+            // message that reaches a screen or a log (SECURITY.md §11),
+            // and it cannot hold in one branch of the same catch.
+            throw new MailException(MailErrorRedaction::withoutAddresses($reason));
         }
     }
 

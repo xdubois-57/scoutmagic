@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\InboundMail\Service;
 
+use Core\File\EncryptedFileStorageService;
 use Core\File\FileRepository;
 use Modules\InboundMail\Api\InboundMailInterface;
 use Modules\InboundMail\Api\CandidateAttachment;
@@ -65,7 +66,18 @@ class InboundMailService implements InboundMailInterface
          * built one: nothing is minted, and nothing is recognised on
          * re-analysis — the arrival pass has its own.
          */
-        private ?ReplyAddressService $replyAddresses = null
+        private ?ReplyAddressService $replyAddresses = null,
+        /**
+         * How an attachment is REMOVED — row and bytes together
+         * (Core\File\EncryptedFileStorageService::delete()). The
+         * repository's own delete() removes the `files` row alone, so a
+         * retention purge wired with it erased the record of an
+         * attachment and left the attachment on disk. Trailing so the
+         * many existing constructions keep working; null then leaves the
+         * bytes, which is the safe direction and never the intended one
+         * on a retention path.
+         */
+        private ?EncryptedFileStorageService $fileStorage = null
     ) {
         $this->consumerRegistry?->setAnalysisJournal($analysisJournal);
     }
@@ -507,7 +519,11 @@ class InboundMailService implements InboundMailInterface
             }
 
             if ($this->messageRepository->countAttachmentsForFile($fileId) === 0) {
-                $this->fileRepository?->delete($fileId);
+                // The storage service, never the repository: the latter
+                // deletes the `files` row alone, so the retention this
+                // method exists to honour removed the record of an
+                // attachment and left the attachment itself on disk.
+                $this->fileStorage?->delete($fileId);
                 continue;
             }
 

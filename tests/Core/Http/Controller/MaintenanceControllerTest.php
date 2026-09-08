@@ -218,6 +218,24 @@ class MaintenanceControllerTest extends TestCase
         $this->assertStringContainsString('Aucune sauvegarde', $response->getBody());
     }
 
+    /**
+     * #245. Core\Maintenance\BackupService excludes storage/keys and
+     * storage/config from the archive — rightly, "secrets never leave the
+     * server in a backup" — and the screen said so nowhere. An
+     * administrator who restored a full backup on another host got an
+     * undecipherable database and no explanation anywhere on the page
+     * that produced the archive.
+     */
+    public function testThePageSaysTheArchiveCarriesNoEncryptionKey(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString("Les clés de chiffrement ne sont pas dans l'archive", $body);
+        $this->assertStringContainsString('storage/keys/', $body);
+        // And on the restore side, where the consequence is met.
+        $this->assertStringContainsString('pas les clés de chiffrement', $body);
+    }
+
     // --- Bloc « État » : cron réel + mise à jour automatique ---------------
 
     private function writeCronHeartbeat(int $at): void

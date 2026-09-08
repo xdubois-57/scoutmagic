@@ -17,6 +17,7 @@ use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\HumanCheck\HumanCheckService;
 use Core\Security\Role;
+use Core\Security\SessionStore;
 use Core\Http\FlashMessage;
 use Core\Service\IntegerInput;
 use Modules\Finance\Api\ExpectedReceivableInterface;
@@ -96,6 +97,26 @@ class FormController extends AbstractController
      * impayé » is the list somebody reads to know who to write to; « payé
      * et jamais venu » explains a discrepancy in the count.
      */
+    /**
+     * How many responses one page of the responses screen shows.
+     *
+     * The screen used to show every response there was, each one costing
+     * its own query for its answers. Fifty is what the other listing
+     * screens of this site use, and it keeps the query, the decryption
+     * and the HTML all bounded by the same number.
+     */
+    private const RESPONSES_PER_PAGE = 50;
+
+    /**
+     * Where a submission leaves the response its confirmation page will
+     * describe, for the length of one redirect (Post/Redirect/Get).
+     *
+     * Kept rather than consumed on read, so a refresh of the confirmation
+     * page still shows the confirmation instead of dropping the visitor
+     * back on the form — the whole point of the redirect.
+     */
+    private const CONFIRMATION_SESSION_KEY = 'news_form_confirmation';
+
     private const FILTER_ALL = 'all';
     private const FILTER_IN_UNPAID = 'in_unpaid';
     private const FILTER_PAID_ABSENT = 'paid_absent';
@@ -186,6 +207,43 @@ class FormController extends AbstractController
             ['article_id' => $article->id, 'form_id' => $form->id, 'response_id' => $response->id], $accountId
         );
 
+        // Post/Redirect/Get. This used to RENDER the confirmation, so the
+        // browser's address bar still held the POST: a refresh, a « back »
+        // then « forward », or an application woken from the background
+        // re-sent it — and nothing on the way in stopped the second one.
+        // On a paying form that is a second response, a second receivable
+        // and a second ticket.
+        $this->rememberConfirmation($article->id, $response->id);
+
+        return $this->redirect('/news/' . $article->id . '/form/confirmation');
+    }
+
+    /**
+     * GET /news/{id}/form/confirmation — the page a submission lands on.
+     *
+     * The response it describes is named by the SESSION, never by the
+     * URL: this route is `public`, and an id in the address would let
+     * anybody read anybody's answers by counting. Nothing to show (a
+     * direct visit, a refresh long after) simply goes back to the
+     * article, which is where the form is.
+     *
+     * @param array<string, string> $params
+     */
+    public function confirmation(Request $request, array $params): Response
+    {
+        $article = $this->articleService->findById((int) $params['id']);
+        $form = $article !== null ? $this->formService->findByArticleId($article->id) : null;
+        if ($article === null || $form === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $responseId = $this->rememberedConfirmation($article->id);
+        $response = $responseId !== null ? $this->responseService->findById($responseId) : null;
+        if ($response === null || $response->formId !== $form->id) {
+            return $this->redirect('/news/' . $article->id);
+        }
+
+        $fields = $this->formService->getFields($form->id);
         $storedAnswers = $this->responseService->getAnswers($response->id);
         $total = $this->responseService->computeTotal($fields, $storedAnswers);
 
@@ -199,6 +257,44 @@ class FormController extends AbstractController
                 ? '/news/' . $article->id . '/form/responses/' . $response->id . '/edit'
                 : null,
         ]);
+    }
+
+    /**
+     * The response a just-made submission left for its confirmation page,
+     * kept in the session for the length of one redirect.
+     *
+     * **Through SessionStore, never `$_SESSION` directly**, and the
+     * distinction is not style: `public/index.php` calls
+     * `session_write_close()` early, before the database connection, so
+     * that a slow request does not hold the session file's lock for its
+     * whole duration (ARCHITECTURE.md §8.20). From then on
+     * `session_status()` is `PHP_SESSION_NONE` for the rest of the
+     * request while `$_SESSION` stays readable in memory — so a write
+     * guarded on `PHP_SESSION_ACTIVE` never runs, and an unguarded one is
+     * never persisted. Either way the confirmation page found nothing and
+     * bounced the family back to the article, having taken their answer.
+     *
+     * The unit tests could not see it: they call this controller
+     * directly, with a session nobody closed. The browser tier did, on
+     * the first run — which is the division of labour docs/quality
+     * -pipeline.md describes.
+     */
+    private function rememberConfirmation(int $articleId, int $responseId): void
+    {
+        $remembered = SessionStore::get(self::CONFIRMATION_SESSION_KEY, []);
+        $remembered = is_array($remembered) ? $remembered : [];
+        $remembered[$articleId] = $responseId;
+
+        SessionStore::set(self::CONFIRMATION_SESSION_KEY, $remembered);
+    }
+
+    /** @see self::rememberConfirmation() */
+    private function rememberedConfirmation(int $articleId): ?int
+    {
+        $remembered = SessionStore::get(self::CONFIRMATION_SESSION_KEY, []);
+        $responseId = is_array($remembered) ? ($remembered[$articleId] ?? null) : null;
+
+        return is_int($responseId) ? $responseId : null;
     }
 
     /**
@@ -221,17 +317,40 @@ class FormController extends AbstractController
 
         $fields = $this->formService->getFields($form->id);
         $accountId = (int) AuthSession::getUserAccountId();
-        $allRows = array_map(function (FormResponse $response) use ($fields, $form, $role, $accountId) {
+
+        // The rows WITHOUT their answers first: the filter and its
+        // counters read the response and its payment, never the answers,
+        // and the answers are the expensive half — one query and one
+        // decryption per response.
+        $allRows = array_map(function (FormResponse $response) use ($form, $role, $accountId) {
             return [
                 'response' => $response,
-                'answers' => $this->answerLines($fields, $this->responseService->getAnswers($response->id)),
+                'answers' => [],
                 'payment' => $this->buildReceivableStatus($response),
                 'can_edit' => $this->responseService->canEditResponse($response, $form, $role, $accountId),
             ];
         }, $this->responseService->findByFormId($form->id));
 
         $filter = self::normalizeFilter((string) $request->getQuery('filter', self::FILTER_ALL));
-        $rows = self::applyFilter($allRows, $filter);
+        $filtered = self::applyFilter($allRows, $filter);
+
+        // Paginated, because a unit party's form gathers hundreds of
+        // responses and this page used to render every one of them, each
+        // costing its own query. The answers are then read for the page
+        // alone, in ONE query (Service\ResponseService::getAnswersFor()).
+        $totalPages = max(1, (int) ceil(count($filtered) / self::RESPONSES_PER_PAGE));
+        $page = max(1, min($totalPages, (int) $request->getQuery('page', 1)));
+        $rows = array_slice($filtered, ($page - 1) * self::RESPONSES_PER_PAGE, self::RESPONSES_PER_PAGE);
+
+        $answersByResponse = $this->responseService->getAnswersFor(
+            array_map(static fn (array $row): int => $row['response']->id, $rows)
+        );
+        foreach ($rows as $index => $row) {
+            $rows[$index]['answers'] = $this->answerLines(
+                $fields,
+                $answersByResponse[$row['response']->id] ?? []
+            );
+        }
 
         return $this->render('@news/responses.html.twig', [
             'article' => $article,
@@ -248,6 +367,14 @@ class FormController extends AbstractController
             ],
             'fields' => $fields,
             'rows' => $rows,
+            'page' => $page,
+            'total_pages' => $totalPages,
+            // What the export and « Écrire » cover: the whole filter, not
+            // the page on screen. The two were the same number until this
+            // screen was paginated, and telling a chief they are writing
+            // to fifty people when they are writing to three hundred is
+            // the kind of difference that only shows after the send.
+            'filtered_count' => count($filtered),
             // The ticket column and the cross filter only mean anything
             // on a form that delivers a ticket; on one that does not,
             // this screen is exactly what it was.
@@ -613,7 +740,15 @@ class FormController extends AbstractController
         $role = Role::fromString(AuthSession::getRole());
         $accountId = AuthSession::getUserAccountId();
         if (!$this->responseService->canEditResponse($response, $form, $role, $accountId)) {
-            return new Response('Forbidden', 403);
+            // 404, never 403 — the same answer loadResponseContext() gives
+            // for a response that is not this article's. These routes are
+            // `public`, so two different answers let anyone count the
+            // responses each form received and learn which id belongs to
+            // which article, including articles whose page they may not
+            // open. Core\Http\Controller\AuditController::page() states
+            // the rule; RentalManagementController says "404, never 403"
+            // in as many words.
+            return new Response('Not Found', 404);
         }
 
         $fields = $this->formService->getFields($form->id);
@@ -655,7 +790,8 @@ class FormController extends AbstractController
         $role = Role::fromString(AuthSession::getRole());
         $accountId = AuthSession::getUserAccountId();
         if (!$this->responseService->canEditResponse($response, $form, $role, $accountId)) {
-            return new Response('Forbidden', 403);
+            // 404, never 403 — see editResponse() above.
+            return new Response('Not Found', 404);
         }
 
         $fields = $this->formService->getFields($form->id);

@@ -69,6 +69,32 @@ class MimeMessageParserTest extends TestCase
         $this->assertSame('Réservation [LOC-2027-0042]', $message->subject);
     }
 
+    /**
+     * #228. The charset of an encoded word is anything the sender writes.
+     * Since PHP 8.0 mb_convert_encoding() THROWS on an unknown one, and
+     * `@` does not suppress a thrown error — so a single message with
+     * `=?BOGUS-CS?B?…?=` in its subject took a ValueError out of parse(),
+     * past the fetch loop and past a sync clause that catches
+     * MailboxConnectionException and RuntimeException. The batch was lost,
+     * the cursor never advanced, and every later pass re-downloaded the
+     * same poison: a mailbox anybody can write to, stopped for good.
+     */
+    public function testASubjectInAnUnknownCharsetNeverThrows(): void
+    {
+        $message = $this->parser->parse($this->raw(
+            'From: attaquant@example.invalid',
+            'Subject: =?BOGUS-CS?B?QUJD?=',
+            'Message-ID: <a@b>',
+            '',
+            'Corps'
+        ), 1, 'INBOX');
+
+        // The bytes are kept as they arrived — the documented fallback for
+        // a value that cannot be converted — and the message goes on
+        // living.
+        $this->assertSame('ABC', $message->subject);
+    }
+
     public function testAQuotedPrintableEncodedSubjectIsDecodedToo(): void
     {
         $message = $this->parser->parse($this->raw(

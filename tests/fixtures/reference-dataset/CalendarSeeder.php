@@ -10,6 +10,8 @@ namespace Tests\Fixtures\ReferenceDataset;
 
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
+use Core\Journal\JournalRepository;
+use Core\Journal\JournalService;
 use Core\Member\SectionService;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
@@ -47,6 +49,8 @@ final class CalendarSeeder
 
     private readonly CalendarEventService $eventService;
 
+    private readonly JournalService $journalService;
+
     /**
      * The scout years are not passed in: a calendar event carries a DATE,
      * never a scout year id, and UnitBlueprint::YEARS plus
@@ -64,6 +68,7 @@ final class CalendarSeeder
         $this->calendarRepository = new CalendarRepository($pdo, $encryption);
         $eventRepository = new CalendarEventRepository($pdo);
         $settingService = new SettingService(new SettingRepository($pdo));
+        $this->journalService = new JournalService(new JournalRepository($pdo));
 
         $this->calendarService = new CalendarService(
             $this->calendarRepository,
@@ -83,6 +88,9 @@ final class CalendarSeeder
                 $settingService,
                 $this->calendarService,
                 $eventRepository,
+                null,
+                null,
+                new \Core\Config\ScoutYearService($pdo),
             ),
         );
     }
@@ -268,7 +276,7 @@ final class CalendarSeeder
         $start = ExtrasBlueprint::dateIn($yearLabel, $day);
         $end = $event['duration'] > 0 ? ExtrasBlueprint::dateIn($yearLabel, $day + $event['duration']) : null;
 
-        $this->eventService->createEvent(
+        $created = $this->eventService->createEvent(
             $calendarId,
             $event['title'],
             $start,
@@ -284,6 +292,19 @@ final class CalendarSeeder
             // role a chef d'unité would carry, and every section it staffs.
             Role::SUPERADMIN,
             array_values($this->sectionIds),
+        );
+
+        // The journal line the real path writes. CalendarChiefController
+        // logs `event_created` right after createEvent() returns, and a
+        // dataset whose journal says nothing about its own 520 events
+        // cannot be used to read what the journal is supposed to contain.
+        $this->journalService->log(
+            'calendar',
+            'event_created',
+            'info',
+            "Évènement « {$created->title} » créé",
+            ['event_id' => $created->id, 'calendar_id' => $created->calendarId],
+            $this->actorId,
         );
 
         return true;

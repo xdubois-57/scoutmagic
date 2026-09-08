@@ -109,6 +109,37 @@ class SectionDocumentServiceTest extends TestCase
         $this->assertTrue($file->encrypted);
     }
 
+    /**
+     * #243. store() writes the encrypted file AND its `files` row; the
+     * document row that owns them is a second write with no transaction
+     * across the two. A failure there left both behind, owned by nothing
+     * and collected by nothing — where three other paths in this codebase
+     * already compensate (Modules\Finance\Service\CampaignService::
+     * createFromFile(), Core\Import\DeskImportService::import(),
+     * Modules\Finance\Service\BatchDepositService::deposit()).
+     */
+    public function testAFailedDocumentRowTakesTheStoredFileWithIt(): void
+    {
+        $before = (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn();
+        $this->pdo->exec('DROP TABLE section_documents');
+
+        try {
+            $this->service->upload($this->sectionId, $this->scoutYearId, '%PDF-1.4 fake content',
+                'application/pdf', 'camp.pdf', 'Camp booklet', null, 7);
+            $this->fail('une exception était attendue');
+        } catch (\Throwable) {
+            // The point is what is left behind.
+        }
+
+        $this->assertSame(
+            $before,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn(),
+            'une ligne `files` orpheline est restée',
+        );
+        $stored = glob($this->storagePath . '/section_documents/*') ?: [];
+        $this->assertSame([], $stored, 'un fichier chiffré orphelin est resté sur le disque');
+    }
+
     public function testUploadDefaultsTitleToTheOriginalFilenameWhenBlank(): void
     {
         $document = $this->service->upload($this->sectionId, $this->scoutYearId, 'content', 'text/plain', 'materiel.txt', '', null, null);

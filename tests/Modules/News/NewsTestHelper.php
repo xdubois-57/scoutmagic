@@ -54,6 +54,7 @@ class NewsTestHelper
             options_source TEXT NULL,
             options_manual TEXT NULL,
             capacity_max INTEGER NULL,
+            capacity_used REAL NOT NULL DEFAULT 0,
             price_per_unit REAL NULL,
             confirmation_text TEXT NULL,
             FOREIGN KEY (form_id) REFERENCES news_forms(id)

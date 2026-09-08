@@ -46,7 +46,15 @@ class TrombinoscopeController extends AbstractController
          * Optional so the many existing constructions keep working; without
          * it every portrait resolves its own photo.
          */
-        private ?\Core\Photo\MemberPhotoService $memberPhotoService = null
+        private ?\Core\Photo\MemberPhotoService $memberPhotoService = null,
+        /**
+         * Optional for the same reason, and only the PDF export uses it:
+         * an export of every member's name and portrait is a sensitive
+         * action, and AGENTS.md's checklist n° 10 asks for those to be
+         * journaled. A construction that does not pass it still serves the
+         * page; it just cannot write the line.
+         */
+        private ?\Core\Journal\JournalService $journalService = null
     ) {
     }
 
@@ -173,10 +181,26 @@ class TrombinoscopeController extends AbstractController
             $this->showsContacts()
         );
 
+        // Counters only, never a name — the same shape as
+        // Core\Http\Controller\SectionRosterController's own entry for the
+        // document next door.
+        $this->journalService?->log(
+            'trombinoscope',
+            'trombinoscope_pdf_exported',
+            'info',
+            'Export PDF du trombinoscope',
+            ['scout_year_id' => $effectiveYear->id, 'with_contacts' => $this->showsContacts()],
+            AuthSession::getUserAccountId()
+        );
+
         return (new Response($pdf))
             ->setHeader('Content-Type', 'application/pdf')
             ->setHeader('Content-Disposition',
                 'attachment; filename="' . $this->pdfService->fileName($effectiveYear->label) . '"')
+            // A document of names and portraits is never kept by a shared
+            // cache, and never restored into another session's back
+            // button — the header the section roster already sets.
+            ->setHeader('Cache-Control', 'private, no-store')
             ->setHeader('Content-Length', (string) strlen($pdf));
     }
 }

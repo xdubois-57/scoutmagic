@@ -69,7 +69,9 @@ class PasswordAuthMethod
         if ($lockout > 0) {
             $this->journalService?->log(
                 'core', 'login_lockout', 'security', 'Compte temporairement verrouillé (trop de tentatives)',
-                ['ip' => $_SERVER['REMOTE_ADDR'] ?? '', 'locked_seconds' => $lockout]
+                // The address is already event_log.ip_address; only the
+                // lockout length is not.
+                ['locked_seconds' => $lockout]
             );
             return ['account' => null, 'locked_seconds' => $lockout];
         }
@@ -97,7 +99,7 @@ class PasswordAuthMethod
 
         $this->journalService?->log(
             'core', 'login_success', 'security', 'Connexion par mot de passe',
-            ['ip' => $_SERVER['REMOTE_ADDR'] ?? ''],
+            [],
             $account->id
         );
 

@@ -8,7 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\Finance\Controller;
 
-use Core\Config\ScoutYearService;
+use Core\ScoutYear\ScoutYearResolver;
+use Core\ScoutYear\ScoutYearSession;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
@@ -47,8 +48,24 @@ class DashboardController extends AbstractController
         private StatementImportRepository $statementImportRepository,
         private FirstReceiptResolver $firstReceiptResolver,
         private ReconciliationService $reconciliationService,
-        private ScoutYearService $scoutYears
+        private ScoutYearResolver $scoutYears
     ) {
+    }
+
+
+    /**
+     * The year this session is actually looking at — its preview, its
+     * staff year, or the public one (Core\ScoutYear\ScoutYearResolver).
+     *
+     * Not `getCurrentYear()`, the date-computed public year: the family
+     * view of this very module already resolves the effective one
+     * (Service\FamilyPaymentService), so the two halves of Finances
+     * disagreed about which year they were counting during a preview and
+     * across the 1st of September.
+     */
+    private function effectiveScoutYearId(Role $role): int
+    {
+        return $this->scoutYears->getEffectiveYear(ScoutYearSession::getPreviewId(), $role)->id;
     }
 
     /**
@@ -156,7 +173,7 @@ class DashboardController extends AbstractController
         // the site will do it.
         $reconciliationCounts = $this->reconciliationService->pendingCounts(
             $account->id,
-            (int) ($this->scoutYears->getCurrentYear()['id']),
+            $this->effectiveScoutYearId($role),
             $role
         );
 

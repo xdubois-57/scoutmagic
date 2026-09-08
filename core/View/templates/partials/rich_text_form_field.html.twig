@@ -124,7 +124,7 @@
          id="{{ field_id }}"
          aria-hidden="true"
          {% if label is defined and label %}aria-labelledby="{{ field_id }}-label"{% endif %}
-         style="min-height: {{ rows_height|default('16rem') }}; overflow-y: auto;">{{ value|raw }}</div>
+         style="min-height: {{ rows_height|default('16rem') }}; overflow-y: auto;">{{ value|sanitized_html }}</div>
 
     {# The value that is actually posted. Already correct on arrival, so a
        form submitted before the script runs saves what was there. #}

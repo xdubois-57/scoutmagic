@@ -102,6 +102,48 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
     }
 
     /**
+     * A CEILING THAT BECAME A SIZE LIMIT ON PULL REQUESTS.
+     *
+     * `timeout-minutes` was 20, written when a review took a few minutes
+     * and the number was a formality. Pull request #257 — 185 files — was
+     * cancelled at 20m20s, and again at 20m21s on an independent run:
+     * nothing was wrong with either, the reviewer was working when the
+     * clock stopped it. `Claude review` is one of the two required
+     * contexts on `main`, a cancelled required check is unmergeable, and
+     * re-running cannot help because the second attempt is as long as the
+     * first. So the guard against a runaway had quietly become a limit on
+     * how large a change this repository can merge, and it announced
+     * itself as a merge refusal rather than as anything about the
+     * reviewer.
+     *
+     * The floor is what the largest real review needs, not what a typical
+     * one costs. Raising the number is fine and lowering it below the
+     * floor is the edit this catches.
+     */
+    public function testTheReviewerIsGivenTimeToFinishALargeDiff(): void
+    {
+        [$review] = self::jobs();
+
+        $matched = preg_match('/^    timeout-minutes: (\d+)$/m', $review, $found);
+
+        self::assertSame(
+            1,
+            $matched,
+            'The review job declares no `timeout-minutes:`, so a review that never converges runs until '
+            . "GitHub's own six-hour ceiling stops it.",
+        );
+
+        $this->assertGreaterThanOrEqual(
+            60,
+            (int) $found[1],
+            'The review job is capped at ' . $found[1] . ' minutes. A review of the largest diff this '
+            . 'repository has produced does not fit, it is cancelled rather than failed, and because '
+            . '`Claude review` is required on `main` that shows up as an unmergeable pull request with '
+            . 'nothing wrong in it — see docs/quality-pipeline.md § Code review.',
+        );
+    }
+
+    /**
      * THE FIX ITSELF. Drop either name and the reviewing procedure is
      * refused on its first call again, which is the state this whole file
      * documents.

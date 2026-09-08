@@ -169,7 +169,19 @@ class ImapMailboxClient implements IncomingMailboxClientInterface
                 continue;
             }
 
-            $fetched[] = $this->toFetchedMessage($message, $folder, $uid);
+            // Parsing is INSIDE the loop's own guard, not only the IMAP
+            // request above. One unparseable message must cost that
+            // message and nothing else: an exception escaping here loses
+            // the whole batch, leaves the cursor where it was, and makes
+            // every later pass re-download the same message —
+            // Service\MailboxSyncService only catches
+            // MailboxConnectionException and RuntimeException, and a
+            // ValueError is neither.
+            try {
+                $fetched[] = $this->toFetchedMessage($message, $folder, $uid);
+            } catch (\Throwable) {
+                continue;
+            }
         }
 
         return $fetched;

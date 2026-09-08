@@ -105,6 +105,28 @@ class CookieRegistry
                 'duration' => 'Jusqu\'à péremption (durée configurable, 30 jours par défaut), déconnexion, ou retrait '
                     . 'de ce consentement',
             ],
+            [
+                // The third Cache Storage entry, and the one that was
+                // missing from this list while its two siblings above
+                // were declared (issue #233). public/sw.js writes it
+                // (CONFIG_CACHE_NAME) on every installed client: it is
+                // how the worker knows, on a navigation it serves with no
+                // page running, which pages the whitelist covers and
+                // which account scope names the content cache.
+                //
+                // Strictly necessary rather than functional, and the
+                // distinction is real: the entry holds the CONFIGURATION,
+                // never a page and never a photo. Without it the worker
+                // cannot decide whether offline caching is allowed at
+                // all — a functional-consent gate on the thing that
+                // carries the consent decision would have nothing to read.
+                'name' => 'offline-config',
+                'category' => 'necessary',
+                'purpose' => 'Conserve les réglages du mode hors ligne (liste des pages consultables hors '
+                    . 'connexion, durée de conservation) pour que l\'application installée sache quoi faire '
+                    . 'lorsqu\'elle s\'ouvre sans réseau — aucune page, aucune photo, aucune donnée personnelle.',
+                'duration' => 'Jusqu\'à la prochaine mise à jour des réglages (remplacé automatiquement)',
+            ],
         ];
     }
 }

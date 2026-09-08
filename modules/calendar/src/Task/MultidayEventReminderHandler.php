@@ -11,9 +11,11 @@ namespace Modules\Calendar\Task;
 use Core\Badge\MemberBadgeRepository;
 use Core\Config\ScoutYearService;
 use Core\Mail\MailException;
+use Core\Mail\SentEmailClaimRepository;
 use Core\Member\SectionService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
+use Core\Service\DateInput;
 use Core\View\TwigFactory;
 use Modules\Calendar\Repository\CalendarEventRepository;
 use Modules\Calendar\Repository\CalendarRepository;
@@ -29,6 +31,15 @@ use Modules\Calendar\Repository\CalendarRepository;
  *
  * A fresh set of services is built from TaskContext on every run — task
  * handlers have no persistent DI container (see docs/module-development.md).
+ *
+ * **A replay reminds nobody twice.** The scheduler marks a task done only
+ * after `handle()` returns, so an abrupt stop mid-loop replays the whole
+ * send and the section's staff receive the reminder a second time. Each
+ * animator is claimed in `sent_email_claims` first (`Core\Mail\
+ * SentEmailClaimRepository`). The scope carries the event's START DATE
+ * as well as its id, deliberately: a reminder is « l'évènement approche »,
+ * so an event MOVED to another date is a new thing to say and gets its
+ * own claim, while a replay of the same date says nothing new.
  */
 class MultidayEventReminderHandler implements TaskHandlerInterface
 {
@@ -54,9 +65,37 @@ class MultidayEventReminderHandler implements TaskHandlerInterface
             $context->encryption,
             new MemberBadgeRepository($pdo)
         );
-        $scoutYearId = (int) (new ScoutYearService($pdo))->getCurrentYear()['id'];
+        // The year the EVENT falls in, not "today's". getCurrentYear() is
+        // the date-computed year and it goes further than reading: it
+        // CREATES the new year's row (ScoutYearService::ensureYear()). A
+        // reminder for an event of late August, running after the 1st of
+        // September, therefore looked for the section's staff in a year
+        // whose roster has not been imported yet, found nobody, and
+        // returned — no e-mail, no journal line, nothing anywhere saying
+        // the reminder had been dropped. The staff of that event exist;
+        // they exist in the event's own year.
+        $scoutYearService = new ScoutYearService($pdo);
+        $eventDate = DateInput::iso($event->startDate);
+        $year = $eventDate !== null
+            ? $scoutYearService->findByLabel(ScoutYearService::labelForDate($eventDate))
+            : null;
+        $scoutYearId = (int) ($year['id'] ?? $scoutYearService->getCurrentYear()['id']);
+
         $staff = $sectionService->getSectionStaff($calendar->sectionId, $scoutYearId);
         if ($staff === []) {
+            // Said out loud rather than returned in silence: "the section
+            // has no staff that year" is a state somebody has to be able
+            // to find afterwards, and it is the shape the disappearance
+            // above took.
+            $context->journal->log(
+                'calendar',
+                'multiday_event_reminder_skipped',
+                'warning',
+                "Rappel non envoyé pour l'évènement « {$event->title} » : aucun animateur pour cette section",
+                ['event_id' => $event->id, 'calendar_id' => $calendar->id, 'scout_year_id' => $scoutYearId],
+                null
+            );
+
             return;
         }
 
@@ -64,15 +103,6 @@ class MultidayEventReminderHandler implements TaskHandlerInterface
             dirname(__DIR__, 4) . '/core/View/templates',
             false,
             ['calendar' => dirname(__DIR__, 4) . '/modules/calendar/views']
-        );
-
-        $context->journal->log(
-            'calendar',
-            'multiday_event_reminder_sent',
-            'info',
-            "Rappel envoyé pour l'évènement « {$event->title} »",
-            ['event_id' => $event->id, 'calendar_id' => $calendar->id, 'recipients' => count($staff)],
-            null
         );
 
         // Core's templates plus this module's own: a handler runs outside
@@ -90,8 +120,24 @@ class MultidayEventReminderHandler implements TaskHandlerInterface
             $context->journal
         );
 
+        $claims = new SentEmailClaimRepository($pdo);
+        $scope = self::claimScope($event->id, $event->startDate);
+
+        $sent = 0;
+        $failed = 0;
+        $skipped = 0;
+
         foreach ($staff as $profile) {
             if ($profile->email === null || $profile->email === '') {
+                continue;
+            }
+
+            // Before the transport, never after: a claimed send that then
+            // fails is one reminder somebody misses, and `mail_send_failed`
+            // says so; claiming afterwards reminds the whole section twice
+            // every time the process dies mid-loop.
+            if (!$claims->claim($scope, (string) $profile->memberId)) {
+                $skipped++;
                 continue;
             }
 
@@ -113,10 +159,49 @@ class MultidayEventReminderHandler implements TaskHandlerInterface
                     bodyHtml: $email->bodyHtml,
                     bodyText: $email->bodyText
                 );
-            } catch (MailException $e) {
+                $sent++;
+            } catch (MailException) {
                 // Best-effort per recipient — one bad address must never
-                // stop the rest of the section's staff from being reminded.
+                // stop the rest of the section's staff from being
+                // reminded — but counted, never swallowed whole. The
+                // reason itself is already in the journal:
+                // Core\Mail\MailService writes `mail_send_failed` for
+                // every send that does not leave.
+                $failed++;
             }
         }
+
+        // AFTER the loop, and counting what actually left. The line used
+        // to be written before the first send, with « recipients » set to
+        // the number of people AIMED AT — so a run where every single
+        // send failed left a journal reading « Rappel envoyé », and
+        // nothing else anywhere.
+        $context->journal->log(
+            'calendar',
+            'multiday_event_reminder_sent',
+            $failed > 0 ? 'warning' : 'info',
+            "Rappel envoyé pour l'évènement « {$event->title} »",
+            [
+                'event_id' => $event->id,
+                'calendar_id' => $calendar->id,
+                'recipients' => count($staff),
+                'sent' => $sent,
+                'failed' => $failed,
+                // What a replay looks like from outside: the animators
+                // this run found already reminded.
+                'skipped' => $skipped,
+            ],
+            null
+        );
+    }
+
+    /**
+     * The claim scope: this event, on this start date. Public so the
+     * test that proves a replay sends nothing can name the same scope
+     * the handler does, rather than restate its shape.
+     */
+    public static function claimScope(int $eventId, string $startDate): string
+    {
+        return 'calendar.multiday_event_reminder.' . $eventId . ':' . $startDate;
     }
 }

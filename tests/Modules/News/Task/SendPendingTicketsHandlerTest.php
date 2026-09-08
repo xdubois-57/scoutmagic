@@ -96,6 +96,47 @@ class SendPendingTicketsHandlerTest extends TestCase
         );
     }
 
+    /**
+     * Issue #246: the scheduler marks a task done only after handle()
+     * returns, so an abrupt stop mid-batch runs the whole payload again —
+     * and hasTicket() is « a une référence », not « son billet est parti ».
+     */
+    public function testAReplayOfTheSameBatchPostsNothingASecondTime(): void
+    {
+        $first = $this->ticketedResponse('a@test.com');
+        $second = $this->ticketedResponse('b@test.com');
+        $payload = ['form_id' => $this->formId, 'response_ids' => [$first, $second]];
+
+        $mailService = $this->createMock(MailService::class);
+        $mailService->expects($this->exactly(2))->method('send');
+        (new SendPendingTicketsHandler())->handle($payload, $this->context($mailService));
+
+        $replayMailService = $this->createMock(MailService::class);
+        $replayMailService->expects($this->never())->method('send');
+        (new SendPendingTicketsHandler())->handle($payload, $this->context($replayMailService));
+    }
+
+    public function testAResponseTheFirstRunNeverReachedStillGetsItsTicket(): void
+    {
+        $first = $this->ticketedResponse('a@test.com');
+
+        $mailService = $this->createMock(MailService::class);
+        $mailService->expects($this->once())->method('send');
+        (new SendPendingTicketsHandler())->handle(
+            ['form_id' => $this->formId, 'response_ids' => [$first]],
+            $this->context($mailService)
+        );
+
+        // The run died before reaching this one; the replay names both.
+        $second = $this->ticketedResponse('b@test.com');
+        $replayMailService = $this->createMock(MailService::class);
+        $replayMailService->expects($this->once())->method('send')->with('b@test.com');
+        (new SendPendingTicketsHandler())->handle(
+            ['form_id' => $this->formId, 'response_ids' => [$first, $second]],
+            $this->context($replayMailService)
+        );
+    }
+
     public function testItPostsNothingToAResponseTheControllerDidNotName(): void
     {
         // Somebody who answered between the switch being flipped and this

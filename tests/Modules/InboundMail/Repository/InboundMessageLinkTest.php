@@ -48,7 +48,17 @@ class InboundMessageLinkTest extends TestCase
         $this->service = new InboundMailService(
             $this->messages,
             $mailboxes,
-            new FileRepository($this->pdo)
+            new FileRepository($this->pdo),
+            null,
+            null,
+            null,
+            null,
+            // Row AND bytes (#242).
+            new \Core\File\EncryptedFileStorageService(
+                new FileRepository($this->pdo),
+                new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)),
+                sys_get_temp_dir()
+            )
         );
 
         $this->mailboxId = $mailboxes->create(

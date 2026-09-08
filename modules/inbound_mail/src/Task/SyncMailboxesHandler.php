@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\InboundMail\Task;
 
 use Core\Config\SettingService;
+use Core\File\EncryptedFileStorageService;
 use Core\File\FileRepository;
 use Core\File\UploadHandler;
 use Core\Scheduler\SchedulerRepository;
@@ -142,7 +143,7 @@ class SyncMailboxesHandler implements TaskHandlerInterface
                 new AnalysisResultApplier($messageRepository),
                 new UploadHandler(new FileRepository($pdo), $context->storagePath),
                 $this->quotaService,
-                new FileRepository($pdo),
+                new EncryptedFileStorageService(new FileRepository($pdo), $context->encryption, $context->storagePath),
                 $this->scopeService,
                 $this->analysisJournal,
                 $this->replyAddresses

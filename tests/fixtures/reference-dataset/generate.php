@@ -40,6 +40,13 @@ if (PHP_SAPI !== 'cli') {
 
 require_once __DIR__ . '/autoload.php';
 
+// Same clock as build.php and as the application itself; see the comment
+// there. Nothing this generator writes is dated today, so the timezone
+// changes none of its output — it is here so that the two entry points of
+// this directory cannot drift apart, and so the next generator that does
+// read the clock starts out on the right one.
+\Core\Config\AppClock::apply();
+
 use Tests\Fixtures\ReferenceDataset\DatasetGenerator;
 
 $check = in_array('--check', $argv, true);

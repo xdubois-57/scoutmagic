@@ -473,6 +473,16 @@ services** — jamais une écriture directe dans `member_photos`,
   statut**, eux, passent bien par le service (`RequestStatusService`), qui est
   ce qui refuse une transition impossible.
 
+  Le courrier est la raison de ne pas appeler `submit()` ; il n'a jamais été
+  une raison pour que **la ligne de journal et le compte de l'auteur**
+  manquent aussi. Les deux semeurs écrivent donc eux-mêmes l'entrée que le
+  contrôleur écrit (`form_response_submitted`, `registration_request_received`),
+  et une réponse sur un formulaire `identified` porte le compte du membre qui
+  l'a déposée — `submit()` refuse une réponse sans compte sur un tel
+  formulaire, si bien qu'une ligne à `user_account_id NULL` était un état que
+  l'application ne peut pas produire. Le blueprint nomme donc un Tiers, et le
+  semeur résout le compte que l'import Desk a créé pour ce membre.
+
 **Non couverts, délibérément.** Le chantier demandait « une couverture large
 des modules, pas l'exhaustivité », et autorisait explicitement à proposer un
 sous-ensemble plutôt que de livrer une couverture partielle non documentée.
@@ -545,7 +555,20 @@ Dans cet ordre, par `InstanceReset` :
    une installation configurée du début à la fin. Les compteurs
    `AUTO_INCREMENT` repartent à 1, et c'est voulu : deux constructions
    `--reset` successives produisent les mêmes identifiants.
-3. **Les fichiers téléversés sous `storage/` sont supprimés**, sauf `keys/`,
+3. **Les réglages qui sont de l'état sont purgés** de la table épargnée.
+   `settings` survit parce qu'elle porte le nom de l'unité et les réglages
+   SMTP ; elle porte aussi les drapeaux qu'une vraie exécution laisse
+   derrière elle — `current_scout_year_id`, les `…_backfilled`, les
+   `…_seeded`, les `…_applied_on`, les `…_last_run`,
+   `statistics_installation_id`. Conservés, ils affirment quelque chose de
+   données qui n'existent plus, et ceux qui gardent une reprise à passage
+   unique la neutralisent pour une base qui en a justement besoin. Celui qui
+   se voyait est le premier : le provisionnement l'épingle sur l'unique année
+   qu'il crée, les compteurs repartent à 1, et le réglage désignait ensuite
+   la plus ancienne des trois années — le site servait 2024-2025 comme année
+   publique. La règle est le suffixe ; la liste explicite est pour ce qui n'en
+   a pas.
+4. **Les fichiers téléversés sous `storage/` sont supprimés**, sauf `keys/`,
    `config/` et `maintenance/`. Une table `files` vidée avec les photos encore
    sur le disque n'est pas une table rase, c'est un tas d'orphelins — et la
    sauvegarde qui vient d'être écrite vit dans `maintenance/`.

@@ -8,7 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\Retro\Controller;
 
-use Core\Config\ScoutYearService;
+use Core\ScoutYear\ScoutYearResolver;
+use Core\ScoutYear\ScoutYearSession;
 use Core\Config\SettingService;
 use Core\Cookie\CookieConsentException;
 use Core\Cookie\CookieConsentService;
@@ -68,7 +69,7 @@ class RetroBoardController extends AbstractController
         private ?ModerationService $moderationService,
         private CookieConsentService $cookieConsentService,
         private SettingService $settingService,
-        private ScoutYearService $scoutYearService
+        private ScoutYearResolver $scoutYearService
     ) {
         parent::__construct($twig);
     }
@@ -90,7 +91,13 @@ class RetroBoardController extends AbstractController
             return false;
         }
 
-        return $this->boardService->isUnitChief($email, $this->scoutYearService->getCurrentYear()['id']);
+        // The effective year, never the date-computed one: see
+        // Controller\RetroConfigController for what the latter does to the
+        // real chef d'unité on the 1st of September.
+        return $this->boardService->isUnitChief($email, $this->scoutYearService->getEffectiveYear(
+            ScoutYearSession::getPreviewId(),
+            Role::fromString(AuthSession::getRole())
+        )->id);
     }
 
     /**

@@ -7,6 +7,12 @@
             subtitle: 'Réglages du module des lieux de camp et des séjours.',
         } only %}
 
+        {% include 'partials/cron_warning.html.twig' with {
+            cron_detected: cron_detected,
+            feature: 'Les rappels de relecture des séjours et le géocodage des lieux',
+            consequence: 'Un lieu créé sans coordonnées reste alors définitivement absent de la carte.',
+        } only %}
+
         <form method="post" action="/config/camps">
             {{ csrf_field()|raw }}
 

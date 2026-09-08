@@ -14,6 +14,7 @@ use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Pdf\DocumentPdfService;
 use Core\Security\AuthSession;
+use Core\Security\Role;
 use Core\Security\CsrfGuard;
 use Modules\News\Repository\FormResponse;
 use Modules\News\Repository\NewsForm;
@@ -70,7 +71,7 @@ class ScanController extends AbstractController
      */
     public function index(Request $request, array $params): Response
     {
-        $events = $this->scanService->listControllableEvents();
+        $events = $this->scanService->listControllableEvents(Role::fromString(AuthSession::getRole()));
 
         if (count($events) === 1) {
             return $this->redirect('/news/scan/' . $events[0]['form_id']);
@@ -95,7 +96,10 @@ class ScanController extends AbstractController
      */
     public function searchEvents(Request $request, array $params): Response
     {
-        $events = $this->scanService->listControllableEvents((string) $request->getQuery('q', ''));
+        $events = $this->scanService->listControllableEvents(
+            Role::fromString(AuthSession::getRole()),
+            (string) $request->getQuery('q', '')
+        );
 
         return $this->json(['success' => true, 'events' => $events]);
     }
@@ -344,8 +348,21 @@ class ScanController extends AbstractController
     private function requireTicketedForm(array $params): ?NewsForm
     {
         $form = $this->formService->findById((int) ($params['form_id'] ?? 0));
+        if ($form === null || !$form->issuesTicket) {
+            return null;
+        }
 
-        return $form !== null && $form->issuesTicket ? $form : null;
+        // `response_role_min` is the form's own rule about who may READ its
+        // responses (schema.sql), and this door reads exactly the same
+        // ones: the printable list of who is expected, the search that
+        // returns a totem, a number of beds and a payment state, and the
+        // write that marks a ticket used. Controller\FormController's
+        // responses(), exportResponses() and createMailDraft() all apply
+        // it; the scanner did not, so a `chief` read through /news/scan
+        // what /news/{id}/form/responses answered 403 to.
+        return Role::fromString(AuthSession::getRole())->hasAccess(Role::fromString($form->responseRoleMin))
+            ? $form
+            : null;
     }
 
     private function resolveResponseOfForm(NewsForm $form, int $responseId): ?FormResponse

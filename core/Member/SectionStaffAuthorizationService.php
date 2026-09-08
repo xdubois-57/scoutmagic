@@ -125,4 +125,45 @@ class SectionStaffAuthorizationService
 
         return $sections;
     }
+
+    /**
+     * Whether this account staffs the section a given ANIMÉ member-year
+     * belongs to — the write-side boundary §8.33 describes, as one
+     * predicate rather than a copy per caller.
+     *
+     * **Animé, and the word is load-bearing.** It goes through
+     * SectionService::getSectionAnimeMemberYearIds(), which excludes
+     * chief/admin/intendant functions and inactive rows: a section's own
+     * staff are not among "the animés of my section", so this answers
+     * false for them. That is right for what it guards — the scout-year
+     * offset is « en avance ou en retard sur l'année habituelle de sa
+     * section », a fact about an animé's branch year, and a chief has no
+     * branch year to shift.
+     *
+     * It also means **a screen must not offer that control where this
+     * answers false**, which is exactly the bug the first version caused:
+     * the member page rendered the offset buttons for everybody while the
+     * write refused staff and inactive rows, so the control was on screen
+     * and guaranteed to fail. Core\Member\Controller\
+     * MemberSearchController::show() now asks this the same question the
+     * write asks, and hides the card when the answer is no.
+     */
+    public function staffsAnimeMemberYear(
+        string $email,
+        string $accountRole,
+        int $scoutYearId,
+        int $memberYearId
+    ): bool {
+        foreach ($this->getStaffedSections($email, $accountRole, $scoutYearId) as $section) {
+            if (in_array(
+                $memberYearId,
+                $this->sectionService->getSectionAnimeMemberYearIds((int) $section['id'], $scoutYearId),
+                true
+            )) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }

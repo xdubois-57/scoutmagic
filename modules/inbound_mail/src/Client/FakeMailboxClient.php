@@ -138,7 +138,15 @@ class FakeMailboxClient implements IncomingMailboxClientInterface
                 break;
             }
 
-            $fetched[] = $this->parser->parse($entry['raw'], $entry['uid'], $folder);
+            // The same per-message guard the real client carries
+            // (Client\ImapMailboxClient::fetchSince()): a double that
+            // loses a whole batch where production loses one message is a
+            // double that tests the wrong thing.
+            try {
+                $fetched[] = $this->parser->parse($entry['raw'], $entry['uid'], $folder);
+            } catch (\Throwable) {
+                continue;
+            }
         }
 
         return $fetched;

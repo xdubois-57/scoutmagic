@@ -72,6 +72,40 @@ class BadgeServiceTest extends TestCase
         $stmt->execute([$memberYearId, $functionId, $sectionId]);
     }
 
+    /**
+     * A function on a section that does NOT animate it — an `intendant`,
+     * the role that exists to reach the finances without being a chief.
+     */
+    private function linkMemberToSectionAsIntendant(int $memberYearId, int $sectionId): void
+    {
+        $this->pdo->exec(
+            "INSERT INTO functions (desk_code, label, role) VALUES ('FN_" . uniqid() . "', 'Intendant', 'intendant')"
+        );
+        $functionId = (int) $this->pdo->lastInsertId();
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_functions (member_year_id, function_id, section_id, is_main_function) VALUES (?, ?, ?, 1)'
+        );
+        $stmt->execute([$memberYearId, $functionId, $sectionId]);
+    }
+
+    /** Turns the animating function of a member into a non-animating one. */
+    private function demoteToIntendant(int $memberYearId): void
+    {
+        $this->pdo->exec(
+            "UPDATE functions SET role = 'intendant' WHERE id IN ("
+            . "SELECT function_id FROM member_functions WHERE member_year_id = {$memberYearId})"
+        );
+    }
+
+    private function treasurerBadgeId(): int
+    {
+        $this->service->ensureDefaults();
+        $badge = $this->badgeRepository->findByName(BadgeService::BADGE_TREASURER);
+        $this->assertNotNull($badge);
+
+        return $badge->id;
+    }
+
     public function testEnsureDefaultsCreatesInfirmierAndTresorier(): void
     {
         $this->service->ensureDefaults();
@@ -241,6 +275,103 @@ class BadgeServiceTest extends TestCase
 
         $this->expectException(BadgeException::class);
         $this->service->toggleAssignment($memberYearId, $badge->id, null);
+    }
+
+    // ── the Trésorier badge and what it actually grants (issue #222) ──
+
+    /**
+     * The badge grants exactly one thing: the finance account of a section
+     * its holder ANIMATES. Given to an intendant it granted nothing while
+     * the page said « attribué » — and, worse, switched the whole unit's
+     * account partition on, so the intendant who saw every section's
+     * account before now saw none.
+     */
+    public function testTheTreasurerBadgeIsRefusedToSomebodyWhoAnimatesNothing(): void
+    {
+        $memberYearId = $this->createMemberYear('D1');
+        $this->linkMemberToSectionAsIntendant($memberYearId, $this->createSection('POSTE', 'Poste'));
+
+        $this->expectException(BadgeException::class);
+        $this->expectExceptionMessage('anime une section');
+        $this->service->toggleAssignment($memberYearId, $this->treasurerBadgeId(), null);
+    }
+
+    public function testTheTreasurerBadgeIsRefusedToSomebodyWithNoFunctionAtAll(): void
+    {
+        $memberYearId = $this->createMemberYear('D1');
+
+        $this->expectException(BadgeException::class);
+        $this->service->toggleAssignment($memberYearId, $this->treasurerBadgeId(), null);
+    }
+
+    public function testTheTreasurerBadgeIsGivenToAnAnimator(): void
+    {
+        $memberYearId = $this->createMemberYear('D1');
+        $this->linkMemberToSection($memberYearId, $this->createSection('MEUTE', 'Meute'));
+
+        $this->assertTrue($this->service->toggleAssignment($memberYearId, $this->treasurerBadgeId(), null));
+    }
+
+    /**
+     * Removing is always allowed, which is what makes an installation that
+     * already carries a useless assignment repairable — and what stops the
+     * refusal from trapping somebody whose function changed under them.
+     */
+    public function testABadgeSomebodyShouldNeverHaveHadCanStillBeRemoved(): void
+    {
+        $memberYearId = $this->createMemberYear('D1');
+        $this->linkMemberToSection($memberYearId, $this->createSection('MEUTE', 'Meute'));
+        $badgeId = $this->treasurerBadgeId();
+        $this->service->toggleAssignment($memberYearId, $badgeId, null);
+
+        $this->demoteToIntendant($memberYearId);
+
+        $this->assertFalse($this->service->toggleAssignment($memberYearId, $badgeId, null));
+        $this->assertEmpty($this->service->getBadgesForMemberYear($memberYearId));
+    }
+
+    /** Another badge is not the treasurer's: nothing about it is gated. */
+    public function testAnotherBadgeIsUnaffectedByTheAnimationRule(): void
+    {
+        $badge = $this->service->create('Communication');
+        $memberYearId = $this->createMemberYear('D1');
+        $this->linkMemberToSectionAsIntendant($memberYearId, $this->createSection('POSTE', 'Poste'));
+
+        $this->assertTrue($this->service->toggleAssignment($memberYearId, $badge->id, null));
+    }
+
+    // ── the other door: an import that strands a badge ────────────────
+
+    public function testAHolderWhoStoppedAnimatingIsReportedAsStranded(): void
+    {
+        $memberYearId = $this->createMemberYear('D1');
+        $this->linkMemberToSection($memberYearId, $this->createSection('MEUTE', 'Meute'));
+        $this->service->toggleAssignment($memberYearId, $this->treasurerBadgeId(), null);
+
+        $this->assertSame([], $this->service->findStrandedTreasurerMemberYearIds($this->scoutYearId));
+
+        // What a Desk import does when the export says « Intendant ».
+        $this->demoteToIntendant($memberYearId);
+
+        $this->assertSame(
+            [$memberYearId],
+            $this->service->findStrandedTreasurerMemberYearIds($this->scoutYearId)
+        );
+    }
+
+    public function testADeactivatedTreasurerBadgeStrandsNobody(): void
+    {
+        $memberYearId = $this->createMemberYear('D1');
+        $this->linkMemberToSection($memberYearId, $this->createSection('MEUTE', 'Meute'));
+        $badgeId = $this->treasurerBadgeId();
+        $this->service->toggleAssignment($memberYearId, $badgeId, null);
+        $this->demoteToIntendant($memberYearId);
+
+        // Deactivating the badge is how a unit says « we do not work this
+        // way »; the rule is off, so nothing is stranded.
+        $this->service->setActive($badgeId, false);
+
+        $this->assertSame([], $this->service->findStrandedTreasurerMemberYearIds($this->scoutYearId));
     }
 
     public function testGetBadgesForMemberYearsBatchesAcrossMembers(): void

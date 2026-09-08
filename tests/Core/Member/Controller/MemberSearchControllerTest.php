@@ -163,7 +163,17 @@ class MemberSearchControllerTest extends TestCase
                 $this->fileStorage,
                 $this->storageRoot
             ),
-            new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo))
+            new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo)),
+            // « Année dans la branche » is rendered only where its write
+            // would succeed, so the page needs the same predicate the
+            // write asks (Core\Member\SectionStaffAuthorizationService
+            // ::staffsAnimeMemberYear()). The signed-in account below is
+            // an admin, which staffs every section.
+            new \Core\Member\SectionStaffAuthorizationService(
+                \Core\Database\Connection::withPdo($this->pdo),
+                $this->enc,
+                $sectionService
+            )
         );
 
         if (session_status() !== PHP_SESSION_ACTIVE) {
@@ -188,9 +198,25 @@ class MemberSearchControllerTest extends TestCase
         }
     }
 
-    private function seedMember(?string $birthDate = null, string $firstName = 'jean', bool $active = true): int
-    {
+    /**
+     * $asAnime gives the member an ANIMÉ function rather than the
+     * `Animateur` one the other cases have always used. It matters for
+     * one thing only, and that thing is real: « Année dans la branche »
+     * is an animé's fact, so the card renders only for one
+     * (Core\Member\SectionStaffAuthorizationService::
+     * staffsAnimeMemberYear()). The default is left as it was so no
+     * unrelated expectation moves.
+     */
+    private function seedMember(
+        ?string $birthDate = null,
+        string $firstName = 'jean',
+        bool $active = true,
+        bool $asAnime = false
+    ): int {
         [$sectionId, $functionId] = $this->ensureReferenceRows();
+        if ($asAnime) {
+            $functionId = $this->animeFunctionId();
+        }
 
         $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('D" . uniqid() . "')");
         $memberId = (int) $this->pdo->lastInsertId();
@@ -236,6 +262,20 @@ class MemberSearchControllerTest extends TestCase
         ]);
 
         return (int) $this->pdo->lastInsertId();
+    }
+
+    /** A function that does NOT animate — what an animé actually carries. */
+    private function animeFunctionId(): int
+    {
+        $id = $this->pdo->query("SELECT id FROM functions WHERE desk_code = 'MEMBRE'")->fetchColumn();
+        if ($id === false) {
+            $this->pdo->exec(
+                "INSERT INTO functions (desk_code, label, role, confirmed) VALUES ('MEMBRE', 'Membre', 'identified', 1)"
+            );
+            $id = $this->pdo->lastInsertId();
+        }
+
+        return (int) $id;
     }
 
     /**
@@ -496,7 +536,7 @@ class MemberSearchControllerTest extends TestCase
      */
     public function testTheThreeSiteActionsAreThreeSeparateCards(): void
     {
-        $body = $this->showMember($this->seedMember())->getBody();
+        $body = $this->showMember($this->seedMember(asAnime: true))->getBody();
 
         $this->assertStringNotContainsString('Données du site', $body);
         $this->assertStringContainsString('Année dans la branche', $body);
@@ -504,11 +544,28 @@ class MemberSearchControllerTest extends TestCase
         $this->assertStringContainsString('Voir le site à sa place', $body);
     }
 
+    /**
+     * « Année dans la branche » is an animé's fact, and the write behind
+     * those buttons refuses anybody else. Offered on a page where every
+     * click answers 403, the card is a dead end — so it is not offered.
+     * « Départ » beside it is deliberately reachable for staff too (its
+     * own comment in the template says so), which is why only one of the
+     * two disappears here.
+     */
+    public function testTheOffsetCardIsNotOfferedOnAStaffMemberPage(): void
+    {
+        $body = $this->showMember($this->seedMember())->getBody();
+
+        $this->assertStringNotContainsString('id="scout-year-offset-card"', $body);
+        $this->assertStringNotContainsString('Année dans la branche', $body);
+        $this->assertStringContainsString('Départ', $body);
+    }
+
     public function testMemberPageShowsScoutYearOffsetControlAndBranchYearLabel(): void
     {
         // 2014-01-01 → raw age 11 in scout year 2025-2026 (reference year 2025)
         // → louveteaux, 4e année.
-        $id = $this->seedMember('2014-01-01');
+        $id = $this->seedMember('2014-01-01', asAnime: true);
 
         $body = $this->showMember($id)->getBody();
 

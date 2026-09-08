@@ -486,6 +486,27 @@ class MassMailServiceTest extends TestCase
         $this->assertSame(Recipient::STATUS_PENDING, $recipients[1]->status);
     }
 
+    /**
+     * #244. `suppress()` caught every PDOException — the intent was « the
+     * hash is already there », the reach was « anything at all ». A table
+     * missing after a half-applied schema, a full or read-only database,
+     * a dropped connection: the unsubscribe was lost in silence, and the
+     * next campaign wrote to somebody who had asked not to be written to.
+     */
+    public function testAnUnsubscribeIsNeverLostInSilence(): void
+    {
+        // Twice is not an error: the mailbox prefetch, the confirmation
+        // page and a manual resubmit all land here for one address.
+        $this->suppressedAddressRepository->suppress('deux-fois@test.be');
+        $this->suppressedAddressRepository->suppress('deux-fois@test.be');
+        $this->assertTrue($this->suppressedAddressRepository->isSuppressed('deux-fois@test.be'));
+
+        // Anything else is.
+        $this->pdo->exec('DROP TABLE mass_mail_suppressed_addresses');
+        $this->expectException(\PDOException::class);
+        $this->suppressedAddressRepository->suppress('perdue@test.be');
+    }
+
     public function testMergeMemberWithoutAnyAddressBecomesAnErrorRowNotARefusal(): void
     {
         $memberId = $this->createMemberWithEmail(null);

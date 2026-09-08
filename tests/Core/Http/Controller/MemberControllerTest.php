@@ -13,6 +13,8 @@ use Core\Member\MemberPageService;
 use Core\Member\MemberProfile;
 use Core\Member\MemberService;
 use Core\Member\MemberYearService;
+use Core\Member\SectionService;
+use Core\Member\SectionStaffAuthorizationService;
 use Core\Security\AuthSession;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -115,7 +117,9 @@ class MemberControllerTest extends TestCase
             new MemberYearService(),
             $this->createMock(JournalService::class),
             $memberPageService,
-            $this->createMock(DepartureService::class)
+            $this->createMock(DepartureService::class),
+            $this->createMock(SectionStaffAuthorizationService::class),
+            $this->createMock(SectionService::class)
         );
     }
 

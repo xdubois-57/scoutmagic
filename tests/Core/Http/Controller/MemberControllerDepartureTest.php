@@ -15,6 +15,8 @@ use Core\Member\DepartureService;
 use Core\Member\MemberPageService;
 use Core\Member\MemberService;
 use Core\Member\MemberYearService;
+use Core\Member\SectionService;
+use Core\Member\SectionStaffAuthorizationService;
 use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
 use PHPUnit\Framework\TestCase;
@@ -60,7 +62,9 @@ class MemberControllerDepartureTest extends TestCase
             new MemberYearService(),
             $journalService,
             $this->createMock(MemberPageService::class),
-            $this->departureService
+            $this->departureService,
+            $this->createMock(SectionStaffAuthorizationService::class),
+            $this->createMock(SectionService::class)
         );
 
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");

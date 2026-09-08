@@ -107,6 +107,24 @@ final class InstanceContext
     }
 
     /**
+     * The URL this installation answers on, read where it actually lives
+     * before a browser has ever reached the site.
+     *
+     * `base_url` is written into secrets.enc by the setup wizard and copied
+     * into `settings` only by public/index.php's one-time migration — that
+     * is, by the FIRST web request. A CLI builder runs before that request,
+     * so reading the setting returns an empty string, and anything decided
+     * from it (Core\Module\InstallationProfile, and through it which modules
+     * are visible at all) silently decides "no flags hold". That cost the
+     * build two modules, unactivated and unreported.
+     * scripts/e2e-support.php passes the URL explicitly for the same reason.
+     */
+    public function baseUrl(): string
+    {
+        return (string) ($this->secrets()['base_url'] ?? '');
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function secrets(): array

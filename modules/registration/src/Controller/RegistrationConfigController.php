@@ -31,6 +31,7 @@ use Modules\Registration\Service\RequestExportService;
 use Modules\Registration\Service\RequestStatusService;
 use Modules\Registration\Service\SlotMath;
 use Modules\Registration\Service\SlotService;
+use Modules\Registration\Task\OpenRegistrationHandler;
 use Twig\Environment;
 
 /**
@@ -378,10 +379,16 @@ class RegistrationConfigController extends AbstractController
 
     /**
      * POST /config/inscriptions/toggle-open — immediate manual open/close
-     * of the public form, independent of the recurring schedule below (see
-     * Task\OpenRegistrationHandler's docblock: a manual toggle never
-     * touches the applied-on markers, so it never interferes with next
-     * year's automatic transition).
+     * of the public form, independent of the recurring schedule below.
+     *
+     * Deciding by hand also SETTLES whichever scheduled occurrence is
+     * currently inside its catch-up window (Task\OpenRegistrationHandler
+     * ::settleDueOccurrences()). Without that, a fresh installation —
+     * where both markers are empty, so every occurrence in the window is
+     * still pending — had the chief's manual open reversed by the next
+     * hourly poll, under a journal line announcing an annual transition
+     * nobody had programmed. Occurrences OUTSIDE the window, next year's
+     * included, are untouched: the schedule keeps working.
      *
      * @param array<string, string> $params
      */
@@ -393,12 +400,14 @@ class RegistrationConfigController extends AbstractController
 
         $isOpen = $this->settingService->get('registration_form_open', 'registration', '0') === '1';
         $this->settingService->set('registration_form_open', $isOpen ? '0' : '1', 'registration');
+        $settled = OpenRegistrationHandler::settleDueOccurrences($this->settingService);
 
         $this->journalService->log(
             'registration',
             $isOpen ? 'registration_form_manually_closed' : 'registration_form_manually_opened',
             'info',
-            $isOpen ? 'Formulaire d\'inscription fermé manuellement' : 'Formulaire d\'inscription ouvert manuellement'
+            $isOpen ? 'Formulaire d\'inscription fermé manuellement' : 'Formulaire d\'inscription ouvert manuellement',
+            $settled === [] ? [] : ['settled_occurrences' => $settled]
         );
 
         FlashMessage::set('success', $isOpen ? 'Formulaire fermé.' : 'Formulaire ouvert.');

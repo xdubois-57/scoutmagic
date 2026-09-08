@@ -332,7 +332,10 @@ class FunctionsController extends AbstractController
             'section_info_updated',
             'info',
             "Email de la section {$section['desk_code']} modifié",
-            ['section_id' => $sectionId, 'old_email' => $section['email'], 'new_email' => $email],
+            // The section id, never the two addresses: a section's mailbox
+            // is a contact address like any other, and `event_log.context`
+            // is neither encrypted nor restricted (SECURITY.md §11).
+            ['section_id' => $sectionId, 'changed' => $section['email'] !== $email],
             AuthSession::getUserAccountId()
         );
 

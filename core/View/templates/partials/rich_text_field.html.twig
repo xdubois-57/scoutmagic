@@ -12,4 +12,9 @@
       content_value: item.content
   } %}
 #}
-<div class="rich-text-field-preview rich-text" data-key="{{ content_key }}">{{ content_value|raw }}</div>
+{# `sanitized_html` and not `raw`: the write path sanitizes every editable
+   content now (Core\View\EditableContentService::set()), but a row stored
+   before it did — by the `type=image` hole — is still on disk, and this
+   partial renders on public pages. The filter is idempotent over the
+   allowlist, so legitimate rich text passes through unchanged. #}
+<div class="rich-text-field-preview rich-text" data-key="{{ content_key }}">{{ content_value|sanitized_html }}</div>

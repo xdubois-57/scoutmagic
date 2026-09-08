@@ -10,6 +10,7 @@ namespace Modules\Calendar\Controller;
 
 use Core\Config\SettingException;
 use Core\Config\SettingService;
+use Core\Scheduler\CronHealth;
 use Core\Exception\UserFacingMessage;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
@@ -89,6 +90,10 @@ class CalendarConfigController extends AbstractController
             'supplementary_calendars' => $this->calendarService->getSupplementaryCalendars(),
             'calendar_ids_with_events' => $calendarIdsWithEvents,
             'unit_feed_token' => $this->calendarService->getOrCreateUnitFeedToken(),
+            // The multi-day reminder is due at an INSTANT; under the poor
+            // man's cron it goes out at the occasion of a visit instead
+            // (issue #248). partials/cron_warning.html.twig says so.
+            'cron_detected' => CronHealth::detectedForConfigScreen($this->settingService),
         ]);
     }
 

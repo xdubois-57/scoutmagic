@@ -396,6 +396,52 @@ final class ReferenceDatasetBuilderTest extends TestCase
         self::assertGreaterThan(0, $result['tables']);
     }
 
+    /**
+     * The preserved `settings` table also carries the flags a real run
+     * leaves behind, and those are claims about data the wipe has just
+     * removed. `current_scout_year_id` was the one that showed: pinned by
+     * the provisioning on the single year it created, it designated
+     * whichever year the builder wrote first once the id counters restarted
+     * — and the site served 2024-2025 as its public year.
+     */
+    public function testTheResetPurgesExecutionStateFromThePreservedSettings(): void
+    {
+        $this->seedConfigurationRows();
+        foreach ([
+            'current_scout_year_id',
+            'news_image_variants_backfilled',
+            'categories_seeded',
+            'registration_scheduled_close_applied_on',
+            'statistics_installation_id',
+            'cron_last_run',
+        ] as $key) {
+            $statement = $this->pdo->prepare(
+                'INSERT INTO settings (module_id, setting_key, setting_value, setting_type, label, description)'
+                . " VALUES (NULL, ?, '1', 'text', 'État', 'Un drapeau que la vraie vie pose')"
+            );
+            $statement->execute([$key]);
+        }
+
+        $result = (new InstanceReset(
+            Connection::withPdo($this->pdo),
+            $this->storagePath,
+            dirname($this->storagePath),
+        ))->run(false);
+
+        self::assertSame(
+            0,
+            (int) $this->pdo->query(
+                "SELECT COUNT(*) FROM settings WHERE setting_key <> 'reset_probe_unit_name'"
+            )->fetchColumn(),
+            'Un drapeau d\'exécution a survécu au vidage : il affirme quelque chose des données effacées.',
+        );
+        self::assertSame(6, $result['settings']);
+
+        // Et la configuration, elle, reste : c'est tout l'intérêt d'épargner
+        // cette table.
+        self::assertTrue($this->configurationProbesSurvive());
+    }
+
     public function testTheResetPreservesExactlyWhatTheApplicationCallsConfiguration(): void
     {
         // La liste n'est pas une invention de InstanceReset : c'est celle de

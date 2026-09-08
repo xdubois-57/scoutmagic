@@ -17,6 +17,7 @@ use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Scheduler\CronHealth;
 use Core\Scheduler\SchedulerService;
 use Core\Service\DateInput;
 use Core\Statistics\DestinationMatcher;
@@ -184,6 +185,11 @@ class SupportController extends AbstractController
             'archive_transmitted_at' => $this->archiveSender?->transmittedAt() ?? '',
             'archive_destination' => (string) ($this->settingService->get('statistics_destination') ?? ''),
             'statistics_enabled' => $this->settingService->get('statistics_enabled') === '1',
+            // The daily report is due at an INSTANT; under the poor man's
+            // cron it leaves at the occasion of a visit instead, so a unit
+            // reading « envoi quotidien » on a host without a crontab is
+            // reading something that is not quite true (issue #248).
+            'cron_detected' => CronHealth::detectedForConfigScreen($this->settingService),
             // `statistics_destination` is deliberately NOT passed to the
             // view. Where the report goes is a project-level fact, not a
             // unit-level choice: the only legitimate reason to change it is

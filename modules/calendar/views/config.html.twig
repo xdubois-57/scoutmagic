@@ -55,6 +55,12 @@
         encore fait) et d'envoyer la liste des intendants à l'avance au Staff d'U. Seuls les évènements
         des calendriers de section sont concernés.
     </p>
+    {% include 'partials/cron_warning.html.twig' with {
+        cron_detected: cron_detected,
+        feature: "Les rappels d'évènements multi-jours",
+        consequence: "Un rappel réglé sur « sept jours avant » ne partira jamais, et rien sur cette page ne le dira une fois la date passée.",
+    } only %}
+
     <form id="notifications-form" class="border rounded-3 p-3 mb-4">
         <div class="row g-2 align-items-end">
             <div class="col-12">

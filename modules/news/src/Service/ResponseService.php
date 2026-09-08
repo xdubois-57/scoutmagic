@@ -22,6 +22,7 @@ use Modules\Finance\Api\SepaQrCodeInterface;
 use Modules\Finance\Api\StructuredCommunicationInterface;
 use Modules\News\Repository\Article;
 use Modules\News\Repository\FormField;
+use Modules\News\Repository\FormFieldRepository;
 use Modules\News\Repository\FormResponse;
 use Modules\News\Repository\FormResponseRepository;
 use Modules\News\Repository\NewsForm;
@@ -60,7 +61,15 @@ class ResponseService
         // needs the read side (the responses screen, the digest) has no
         // business constructing a mailer. When they are null the form
         // simply issues no ticket.
-        private ?TicketMailService $ticketMail = null
+        private ?TicketMailService $ticketMail = null,
+        /**
+         * Where the running capacity total lives
+         * (`news_form_fields.capacity_used`). Trailing-optional so the
+         * many existing constructions keep working; when it is absent the
+         * capacity check falls back on summing the whole column, which is
+         * what every caller did before.
+         */
+        private ?FormFieldRepository $fieldRepository = null
     ) {
     }
 
@@ -83,6 +92,18 @@ class ResponseService
     public function getAnswers(int $responseId): array
     {
         return $this->responseRepository->getValues($responseId);
+    }
+
+    /**
+     * The answers of a whole page of responses, in one query — see
+     * Repository\FormResponseRepository::getValuesForResponses().
+     *
+     * @param int[] $responseIds
+     * @return array<int, array<int, string>> response id => field_id => answer
+     */
+    public function getAnswersFor(array $responseIds): array
+    {
+        return $this->responseRepository->getValuesForResponses($responseIds);
     }
 
     /**
@@ -166,8 +187,66 @@ class ResponseService
             return null;
         }
 
-        $used = $this->responseRepository->sumFieldValues($field->id, $excludeResponseId);
+        // The running total the writes keep (schema.sql), read straight
+        // off the field: no query, no decryption. This used to re-read
+        // and re-decrypt the whole column of answers on every display of
+        // the form and, inside the door's own loop, once per priced field
+        // per scan.
+        $used = $this->fieldRepository !== null
+            ? $field->capacityUsed
+            : $this->responseRepository->sumFieldValues($field->id, $excludeResponseId);
+
+        // One response's own share, given back for the length of its
+        // edit (module spec §11.9). Bounded to that response, unlike the
+        // whole-column sum it replaces.
+        if ($excludeResponseId !== null && $this->fieldRepository !== null) {
+            $used -= self::numericAnswer($this->responseRepository->getValues($excludeResponseId)[$field->id] ?? null);
+        }
+
         return max(0, (int) ($field->capacityMax - $used));
+    }
+
+    /**
+     * How long two identical answers from one address count as one
+     * submission.
+     *
+     * Long enough to cover a double click, a refresh and a woken
+     * application; short enough that a family answering again on purpose
+     * an hour later is never turned away.
+     */
+    private const DUPLICATE_WINDOW_SECONDS = 120;
+
+    /**
+     * The response this submission would duplicate, or null.
+     *
+     * @param array<int, string> $normalizedAnswers the answers as they would be stored
+     */
+    private function findRecentIdenticalResponse(
+        NewsForm $form,
+        string $contactEmail,
+        array $normalizedAnswers
+    ): ?FormResponse {
+        if (trim($contactEmail) === '') {
+            return null;
+        }
+
+        $since = (new \DateTimeImmutable())
+            ->modify('-' . self::DUPLICATE_WINDOW_SECONDS . ' seconds')
+            ->format('Y-m-d H:i:s');
+
+        foreach ($this->responseRepository->findRecentByContact($form->id, $contactEmail, $since) as $candidate) {
+            if ($this->responseRepository->getValues($candidate->id) == $normalizedAnswers) {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    /** An answer read as the number it consumes, or zero when it is not one. */
+    private static function numericAnswer(?string $answer): float
+    {
+        return $answer !== null && is_numeric($answer) ? (float) $answer : 0.0;
     }
 
     /**
@@ -254,6 +333,21 @@ class ResponseService
             : [];
         $normalizedAnswers = $this->validateAndNormalizeAnswers($fields, $answers, $memberOptions, null);
 
+        // The double submission, which no rule above catches on a form
+        // that accepts any number of answers: a second click while the
+        // first request is in flight, a refresh, an application woken
+        // from the background. On a paying form that was a second
+        // response, a second receivable and a second ticket. An identical
+        // answer from the same address inside the window is the SAME
+        // submission, so it gets that submission's own response back
+        // rather than a new one — a family legitimately answering twice
+        // for two children types something different, and a minute later
+        // is a new submission whatever they type.
+        $duplicate = $this->findRecentIdenticalResponse($form, $contactEmail, $normalizedAnswers);
+        if ($duplicate !== null) {
+            return $duplicate;
+        }
+
         $this->responseRepository->beginTransaction();
         try {
             foreach ($fields as $field) {
@@ -261,7 +355,12 @@ class ResponseService
                     continue;
                 }
                 $requested = (float) ($normalizedAnswers[$field->id] ?? 0);
-                $used = $this->responseRepository->sumFieldValues($field->id, null, lockForUpdate: true);
+                // The running total, under the same row lock the
+                // whole-column sum used to take — and moved by this
+                // submission's own share once it is written.
+                $used = $this->fieldRepository !== null
+                    ? $this->fieldRepository->usedCapacity($field->id, lockForUpdate: true)
+                    : $this->responseRepository->sumFieldValues($field->id, null, lockForUpdate: true);
                 if ($used + $requested > $field->capacityMax) {
                     throw new NewsException('Il n\'y a plus assez de places disponibles pour "' . $field->label . '".');
                 }
@@ -283,6 +382,16 @@ class ResponseService
                 $form->id, $userAccountId, $memberYearId, $contactEmail,
                 $normalizedAnswers, $structuredCommunication, $receivableId
             );
+
+            foreach ($fields as $field) {
+                if ($field->capacityMax === null) {
+                    continue;
+                }
+                $this->fieldRepository?->addUsedCapacity(
+                    $field->id,
+                    (float) ($normalizedAnswers[$field->id] ?? 0)
+                );
+            }
 
             $this->responseRepository->commit();
         } catch (\Throwable $e) {
@@ -364,18 +473,38 @@ class ResponseService
 
         $this->responseRepository->beginTransaction();
         try {
+            // What this response already holds, so an edit is measured
+            // against the pool MINUS its own share (module spec §11.9)
+            // and the running total moves by the difference.
+            $previousAnswers = $this->responseRepository->getValues($response->id);
+
             foreach ($fields as $field) {
                 if ($field->capacityMax === null) {
                     continue;
                 }
                 $requested = (float) ($normalizedAnswers[$field->id] ?? 0);
-                $used = $this->responseRepository->sumFieldValues($field->id, $response->id, lockForUpdate: true);
+                $previous = self::numericAnswer($previousAnswers[$field->id] ?? null);
+                $used = $this->fieldRepository !== null
+                    ? $this->fieldRepository->usedCapacity($field->id, lockForUpdate: true) - $previous
+                    : $this->responseRepository->sumFieldValues($field->id, $response->id, lockForUpdate: true);
                 if ($used + $requested > $field->capacityMax) {
                     throw new NewsException('Il n\'y a plus assez de places disponibles pour "' . $field->label . '".');
                 }
             }
 
             $this->responseRepository->update($response->id, $contactEmail, $normalizedAnswers);
+
+            foreach ($fields as $field) {
+                if ($field->capacityMax === null) {
+                    continue;
+                }
+                $this->fieldRepository?->addUsedCapacity(
+                    $field->id,
+                    (float) ($normalizedAnswers[$field->id] ?? 0)
+                        - self::numericAnswer($previousAnswers[$field->id] ?? null)
+                );
+            }
+
             $this->responseRepository->commit();
         } catch (\Throwable $e) {
             $this->responseRepository->rollBack();

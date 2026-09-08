@@ -76,7 +76,15 @@ class MassMailController extends AbstractController
         $sectionId = $sectionId > 0 ? $sectionId : null;
         $page = max(1, (int) $request->getQuery('page', 1));
 
-        $result = $this->massMailService->findFiltered($search, $status, $sectionId, $page);
+        $authorization = $this->buildAuthorization();
+        $result = $this->massMailService->findFiltered(
+            $search,
+            $status,
+            $sectionId,
+            $page,
+            $authorization->isChefDUniteOrAbove ? null : $authorization->allowedListSectionIds,
+            $authorization->isChefDUniteOrAbove ? null : AuthSession::getUserAccountId(),
+        );
 
         $recipientCounts = [];
         foreach ($result['emails'] as $email) {
@@ -131,7 +139,7 @@ class MassMailController extends AbstractController
      */
     public function show(Request $request, array $params): Response
     {
-        $email = $this->massMailService->findById((int) $params['id']);
+        $email = $this->findVisibleEmail((int) $params['id']);
         if ($email === null) {
             return $this->notFound();
         }
@@ -158,7 +166,7 @@ class MassMailController extends AbstractController
             return $guard;
         }
 
-        $email = $this->massMailService->findById($id);
+        $email = $this->findVisibleEmail($id);
         if ($email === null) {
             return $this->notFound();
         }
@@ -208,7 +216,7 @@ class MassMailController extends AbstractController
     public function recipients(Request $request, array $params): Response
     {
         $id = (int) $params['id'];
-        $email = $this->massMailService->findById($id);
+        $email = $this->findVisibleEmail($id);
         if ($email === null) {
             return $this->notFound();
         }
@@ -261,6 +269,10 @@ class MassMailController extends AbstractController
      */
     public function recipientCount(Request $request, array $params): Response
     {
+        if ($this->findVisibleEmail((int) $params['id']) === null) {
+            return $this->json(['success' => false, 'error' => 'Email introuvable.'], 404);
+        }
+
         try {
             $estimate = $this->massMailService->estimateRecipientCount((int) $params['id']);
         } catch (MassMailException $e) {
@@ -419,6 +431,10 @@ class MassMailController extends AbstractController
      */
     public function mergePreview(Request $request, array $params): Response
     {
+        if ($this->findVisibleEmail((int) $params['id']) === null) {
+            return $this->json(['success' => false, 'error' => 'Email introuvable.'], 404);
+        }
+
         try {
             $preview = $this->massMailService->getMergePreview((int) $params['id'],
                 (int) $request->getQuery('offset', 0));
@@ -440,6 +456,10 @@ class MassMailController extends AbstractController
         $id = (int) $params['id'];
         if (($guard = $this->guardCsrf($request, '/mass-mail/' . $id)) !== null) {
             return $guard;
+        }
+
+        if ($this->findVisibleEmail($id) === null) {
+            return $this->notFound();
         }
 
         $action = (string) $request->getBody('action', '');
@@ -476,6 +496,10 @@ class MassMailController extends AbstractController
         $id = (int) $params['id'];
         if (($guard = $this->guardCsrf($request, '/mass-mail/' . $id)) !== null) {
             return $guard;
+        }
+
+        if ($this->findVisibleEmail($id) === null) {
+            return $this->notFound();
         }
 
         try {
@@ -521,6 +545,10 @@ class MassMailController extends AbstractController
         }
 
         $emailId = (int) $params['id'];
+        if ($this->findVisibleEmail($emailId) === null) {
+            return $this->notFound();
+        }
+
         $uploadedFile = $request->getFile('file');
         if ($uploadedFile === null) {
             FlashMessage::set('error', 'Aucun fichier envoyé.');
@@ -562,6 +590,14 @@ class MassMailController extends AbstractController
             return $guard;
         }
 
+        // The route carries the ATTACHMENT's id, so the email it hangs off
+        // is resolved here — never taken from the body, which the caller
+        // also writes.
+        $owningEmailId = $this->massMailService->findEmailIdForAttachment((int) $params['id']);
+        if ($owningEmailId === null || $this->findVisibleEmail($owningEmailId) === null) {
+            return $this->notFound();
+        }
+
         try {
             $this->massMailService->removeAttachment((int) $params['id']);
         } catch (MassMailException $e) {
@@ -587,6 +623,10 @@ class MassMailController extends AbstractController
      */
     public function tracking(Request $request, array $params): Response
     {
+        if ($this->findVisibleEmail((int) $params['id']) === null) {
+            return $this->notFound();
+        }
+
         try {
             $data = $this->massMailService->getTrackingData((int) $params['id']);
         } catch (MassMailException) {
@@ -619,6 +659,11 @@ class MassMailController extends AbstractController
         $data = json_decode($request->getRawBody(), true);
         if (!is_array($data) || !CsrfGuard::validateToken((string) ($data['_csrf_token'] ?? ''))) {
             return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+
+        $owningEmailId = $this->massMailService->findEmailIdForRecipient((int) $params['id']);
+        if ($owningEmailId === null || $this->findVisibleEmail($owningEmailId) === null) {
+            return $this->json(['success' => false, 'error' => 'Destinataire introuvable.'], 404);
         }
 
         try {
@@ -968,6 +1013,44 @@ class MassMailController extends AbstractController
      * year the email itself targets — a chief's authorization follows who
      * they are today, not a hypothetical future assignment.
      */
+    /**
+     * The email behind an {id}, or null when this session has no business
+     * with it — it does not exist, or it belongs to another section.
+     *
+     * `role_min: chief` on every route here proves the caller animates
+     * SOMETHING; Service\MassMailAccessService only ever guarded the
+     * SENDING section of a NEW draft, so every existing draft was open to
+     * every animateur of the unit: read, rewritten, moved to test, sent
+     * for real, its recipients and its tracking listed. The boundary is
+     * the one the composer already computes — the sections this account
+     * may send from — plus the drafts this account itself created (a
+     * mail-merge draft made from a form's responses carries the section
+     * of its author).
+     *
+     * Absent and out-of-scope answer the same way, deliberately: two
+     * different answers let a caller walk the ids and map the unit's
+     * mailings (Core\Http\Controller\AuditController::page()).
+     */
+    private function findVisibleEmail(int $id): ?Email
+    {
+        $email = $this->massMailService->findById($id);
+        if ($email === null) {
+            return null;
+        }
+
+        $authorization = $this->buildAuthorization();
+        if ($authorization->isChefDUniteOrAbove) {
+            return $email;
+        }
+
+        $accountId = AuthSession::getUserAccountId();
+        if ($email->createdBy !== null && $accountId !== null && $email->createdBy === $accountId) {
+            return $email;
+        }
+
+        return in_array($email->sectionId, $authorization->allowedListSectionIds, true) ? $email : null;
+    }
+
     private function buildAuthorization(): SenderAuthorization
     {
         if (Role::fromString(AuthSession::getRole())->hasAccess(Role::ADMIN)) {

@@ -120,15 +120,56 @@ class ScanIntegrationTest extends TestCase
     }
 
     /** @return array{0: int, 1: int} article id, form id */
-    private function event(string $title, bool $issuesTicket = true, ?string $eventDate = null): array
-    {
+    private function event(
+        string $title,
+        bool $issuesTicket = true,
+        ?string $eventDate = null,
+        string $responseRoleMin = 'chief'
+    ): array {
         $articleId = $this->articles->create($title, Article::VISIBILITY_PUBLIC, true, null, null, $this->accountId);
         $formId = $this->forms->create(
             $articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED,
-            null, null, false, 'chief', false, null, $issuesTicket, $eventDate, null
+            null, null, false, $responseRoleMin, false, null, $issuesTicket, $eventDate, null
         );
 
         return [$articleId, $formId];
+    }
+
+    /**
+     * #220. `response_role_min` is the form's own rule about who may read
+     * its responses, and the door reads exactly those — the printable list
+     * of who is expected, a search returning a totem and a payment state,
+     * and the write that marks a ticket used. The page that lists the
+     * responses applied it; the scanner did not.
+     */
+    public function testAnEventReservedForTheUnitChiefIsClosedToASectionChief(): void
+    {
+        [, $formId] = $this->event('Weekend de staff', true, null, 'admin');
+        $this->booking($formId, 'Chamois', 'chamois@test.com');
+
+        AuthSession::login($this->accountId, 'chief@test.com', 'chief');
+
+        $this->assertSame(404, $this->controller()->event(
+            new Request('GET', '/news/scan/' . $formId, [], [], [], []),
+            ['form_id' => (string) $formId]
+        )->getStatusCode());
+
+        $lookup = $this->controller()->lookup(
+            new Request('GET', '/news/scan/' . $formId . '/lookup', ['q' => 'Chamois'], [], [], []),
+            ['form_id' => (string) $formId]
+        );
+        $this->assertSame(404, $lookup->getStatusCode());
+        $this->assertStringNotContainsString('Chamois', $lookup->getBody());
+
+        $this->assertSame(404, $this->controller()->printableList(
+            new Request('GET', '/news/scan/' . $formId . '/liste', [], [], [], []),
+            ['form_id' => (string) $formId]
+        )->getStatusCode());
+
+        // And the picker does not even name it: an event this session
+        // cannot open must not be advertised, seat count included.
+        $index = $this->controller()->index(new Request('GET', '/news/scan', [], [], [], []), []);
+        $this->assertStringNotContainsString('Weekend de staff', $index->getBody());
     }
 
     private function booking(int $formId, string $name, string $email, int $adults = 1): int

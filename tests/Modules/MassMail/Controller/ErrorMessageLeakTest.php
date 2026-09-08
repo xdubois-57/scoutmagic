@@ -9,6 +9,7 @@ use Core\Config\ScoutYearService;
 use Core\Config\SettingException;
 use Core\Config\SettingService;
 use Core\Database\Connection;
+use Core\Security\AuthSession;
 use Core\Exception\UserFacingMessage;
 use Core\File\FileRepository;
 use Core\File\UploadHandler;
@@ -27,6 +28,7 @@ use Modules\MassMail\Repository\MemberResolutionRepository;
 use Modules\MassMail\Service\AudienceImportService;
 use Modules\MassMail\Service\MailingListService;
 use Modules\MassMail\Service\MassMailAccessService;
+use Modules\MassMail\Repository\Email;
 use Modules\MassMail\Service\MassMailService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -60,6 +62,20 @@ class ErrorMessageLeakTest extends TestCase
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
         }
+
+        // Since #218 every {id} action of this controller answers 404 for
+        // an email this session may not touch, so a test about the FLASH
+        // MESSAGE has to get past that door first: a chef d'unité, and a
+        // service that has the email to hand back.
+        AuthSession::login(1, 'chef@test.be', 'admin');
+    }
+
+    private function draft(): Email
+    {
+        return new Email(
+            1, 'Sujet', '<p>Corps</p>', 1, Email::LIST_TYPE_DEFAULT_ACTIVE_MEMBERS, null, null, null,
+            [1], Email::STATUS_DRAFT, '2026-01-01 10:00:00', '2026-01-01 10:00:00', null, 1
+        );
     }
 
     /**
@@ -123,6 +139,7 @@ class ErrorMessageLeakTest extends TestCase
     public function testTestSendNeverFlashesThePhpMailerTextToTheChief(): void
     {
         $massMailService = $this->createMock(MassMailService::class);
+        $massMailService->method('findById')->willReturn($this->draft());
         $massMailService->method('sendTestEmail')->willThrowException(new MailException(
             'SMTP connect() failed. https://github.com/PHPMailer/PHPMailer/wiki/Troubleshooting'
         ));
@@ -148,6 +165,7 @@ class ErrorMessageLeakTest extends TestCase
     public function testTestSendStillShowsAMarkedRefusalVerbatim(): void
     {
         $massMailService = $this->createMock(MassMailService::class);
+        $massMailService->method('findById')->willReturn($this->draft());
         $massMailService->method('sendTestEmail')->willThrowException(
             new \Modules\MassMail\Api\MassMailException('Adresse email invalide.')
         );

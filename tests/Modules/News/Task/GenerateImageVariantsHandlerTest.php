@@ -93,6 +93,118 @@ class GenerateImageVariantsHandlerTest extends TestCase
         $this->assertSame(count(\Core\Photo\ImageVariantService::VARIANTS), $context['generated']);
     }
 
+    /**
+     * #249. The pass walked the whole library in one go, and re-encoding
+     * two derivatives of a photograph is seconds of CPU each: on a large
+     * unit it could not finish inside a shared host's time limit, and a
+     * run killed halfway left the flag unset and started again from the
+     * top — the first images re-examined every pass, the last ones never
+     * reached.
+     */
+    public function testALibraryLargerThanOnePassIsFinishedAcrossSeveral(): void
+    {
+        $files = new FileRepository($this->pdo);
+        $ids = [];
+        for ($i = 0; $i < 27; $i++) {
+            $ids[] = $this->storeLegacyNewsImage($files);
+        }
+
+        $settings = new SettingService(new SettingRepository($this->pdo));
+        (new GenerateImageVariantsHandler())->handle([], $this->taskContext());
+
+        // Not finished, and it says so rather than claiming it is.
+        $this->assertSame('0', $settings->get(GenerateImageVariantsHandler::DONE_FLAG, 'news'));
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query(
+                "SELECT COUNT(*) FROM scheduled_actions
+                 WHERE module_id = 'news' AND task_key = 'generate_image_variants' AND status = 'pending'"
+            )->fetchColumn(),
+            'la reprise ne s\'est pas réarmée',
+        );
+
+        // The next pass picks up where this one stopped — through the
+        // cursor the re-arm carries, the way the scheduler hands it back
+        // — and the one after that finds nothing left and closes the
+        // reprise.
+        $afterId = (int) json_decode((string) $this->pdo->query(
+            "SELECT context FROM event_log WHERE event_type = 'news_image_variants_backfilled'"
+            . ' ORDER BY id DESC LIMIT 1'
+        )->fetchColumn(), true)['after_id'];
+        (new GenerateImageVariantsHandler())->handle(['after_id' => $afterId], $this->taskContext());
+        (new GenerateImageVariantsHandler())->handle([], $this->taskContext());
+
+        // A fresh reader: SettingService caches what it has already been
+        // asked, and the handler wrote through its own instance.
+        $this->assertSame(
+            '1',
+            (new SettingService(new SettingRepository($this->pdo)))
+                ->get(GenerateImageVariantsHandler::DONE_FLAG, 'news')
+        );
+
+        $variantService = new ImageVariantService($files, new \Core\Photo\ImageVariantProcessor(), $this->storagePath);
+        foreach ($ids as $id) {
+            $file = $files->findById($id);
+            $this->assertNotNull($variantService->resolvePath((string) $file?->relativePath, 'thumb'));
+        }
+    }
+
+    /**
+     * A `files` row whose bytes are gone — the shape a partial storage
+     * restore leaves — can never gain a derivative: ImageVariantService
+     * ::generate() swallows a source it cannot read, exactly as the
+     * upload path does. Without a cursor such a file is picked up again
+     * on every pass, and BATCH_SIZE of them consume every batch for ever:
+     * « remaining » is always true, the re-arm has no delay, the flag is
+     * never set, and the images BEHIND them are never reached.
+     */
+    public function testFilesThatCanNeverBeProcessedDoNotBlockTheOnesBehindThem(): void
+    {
+        $files = new FileRepository($this->pdo);
+
+        // A full batch of broken rows first, so they are what a
+        // cursor-less pass would spend all of itself on, every time.
+        for ($i = 0; $i < 26; $i++) {
+            $brokenId = $this->storeLegacyNewsImage($files);
+            $broken = $files->findById($brokenId);
+            @unlink($this->storagePath . '/' . (string) $broken?->relativePath);
+        }
+        $goodId = $this->storeLegacyNewsImage($files);
+
+        // Passes chained the way the scheduler chains them: each one
+        // resumes past what the last examined.
+        $afterId = 0;
+        for ($pass = 0; $pass < 5; $pass++) {
+            (new GenerateImageVariantsHandler())->handle(
+                $afterId > 0 ? ['after_id' => $afterId] : [],
+                $this->taskContext()
+            );
+            $row = $this->pdo->query(
+                "SELECT context FROM event_log WHERE event_type = 'news_image_variants_backfilled'"
+                . ' ORDER BY id DESC LIMIT 1'
+            )->fetch(\PDO::FETCH_ASSOC);
+            $context = json_decode((string) $row['context'], true);
+            $afterId = (int) $context['after_id'];
+            if (!$context['remaining']) {
+                break;
+            }
+        }
+
+        $variantService = new ImageVariantService($files, new \Core\Photo\ImageVariantProcessor(), $this->storagePath);
+        $good = $files->findById($goodId);
+        $this->assertNotNull(
+            $variantService->resolvePath((string) $good?->relativePath, 'thumb'),
+            'an image behind a batch of unprocessable ones must still be reached',
+        );
+
+        $this->assertSame(
+            '1',
+            (new SettingService(new SettingRepository($this->pdo)))
+                ->get(GenerateImageVariantsHandler::DONE_FLAG, 'news'),
+            'the reprise must finish rather than re-arm for ever on files it can never process',
+        );
+    }
+
     public function testFilesOutsideTheNewsImagesDirectoryAreLeftAlone(): void
     {
         $files = new FileRepository($this->pdo);

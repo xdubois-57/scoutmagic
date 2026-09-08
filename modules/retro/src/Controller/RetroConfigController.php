@@ -8,7 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\Retro\Controller;
 
-use Core\Config\ScoutYearService;
+use Core\ScoutYear\ScoutYearResolver;
+use Core\ScoutYear\ScoutYearSession;
 use Core\Config\SettingService;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
@@ -16,6 +17,7 @@ use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Member\MemberService;
 use Core\Security\AuthSession;
+use Core\Security\Role;
 use Core\Security\CsrfGuard;
 use Core\Service\IntegerInput;
 use Modules\Retro\Service\ModerationService;
@@ -42,7 +44,7 @@ class RetroConfigController extends AbstractController
         private SettingService $settingService,
         private JournalService $journalService,
         private MemberService $memberService,
-        private ScoutYearService $scoutYearService,
+        private ScoutYearResolver $scoutYearService,
         private ?ModerationService $moderationService = null
     ) {
     }
@@ -178,7 +180,15 @@ class RetroConfigController extends AbstractController
     private function requireUnitChief(): ?Response
     {
         $email = AuthSession::getEmail();
-        $scoutYearId = $this->scoutYearService->getCurrentYear()['id'];
+        // The year this session is actually looking at. On the
+        // date-computed year, « est-ce le chef d'unité ? » is false for
+        // everybody between the 1st of September and the import of the new
+        // roster — a fail-closed that locks the real chief out of the
+        // configuration of a board they are looking at in another year.
+        $scoutYearId = $this->scoutYearService->getEffectiveYear(
+            ScoutYearSession::getPreviewId(),
+            Role::fromString(AuthSession::getRole())
+        )->id;
         if ($email === null || !$this->memberService->isUnitChief($email, $scoutYearId)) {
             return (new Response('', 403))->setBody('Forbidden');
         }

@@ -338,6 +338,69 @@ class SendReenrollmentEmailsHandlerTest extends TestCase
 
     // ── the journal ───────────────────────────────────────────────────
 
+    // ── a replay writes to nobody twice (issue #246) ──────────────────
+
+    /**
+     * The scheduler marks a task done only after handle() returns, so an
+     * abrupt stop replays the whole run — and since the recipients are
+     * recomputed, a family already written to is still « en attente ».
+     */
+    public function testARerunOfTheSameCampaignWritesToNobodyASecondTime(): void
+    {
+        $this->createAnime('Alix', 'a@example.be');
+        $this->createAnime('Bo', 'b@example.be');
+
+        $this->deliver(ReenrollmentCampaignService::EMAIL_OPENING);
+        $this->assertCount(2, $this->sent);
+
+        $this->sent = [];
+        $this->deliver(ReenrollmentCampaignService::EMAIL_OPENING);
+
+        $this->assertSame([], $this->sent, 'A replay must post nothing at all.');
+    }
+
+    public function testTheReplayGuardIsPerFamilyNotPerRun(): void
+    {
+        $this->createAnime('Alix', 'a@example.be');
+        $this->deliver(ReenrollmentCampaignService::EMAIL_OPENING);
+        $this->sent = [];
+
+        // A family created between the two runs is new to the campaign
+        // and owed its e-mail, even though the run itself is a repeat.
+        $this->createAnime('Bo', 'b@example.be');
+        $this->deliver(ReenrollmentCampaignService::EMAIL_OPENING);
+
+        $this->assertCount(1, $this->sent);
+        $this->assertSame('b@example.be', $this->sent[0]['to']);
+    }
+
+    /**
+     * Each of the campaign's four e-mails is its own thing to say: the
+     * guard must never make the first reminder look already sent because
+     * the opening was.
+     */
+    public function testAnotherEmailOfTheSameCampaignIsNotSuppressed(): void
+    {
+        $this->createAnime('Alix', 'a@example.be');
+
+        $this->deliver(ReenrollmentCampaignService::EMAIL_OPENING);
+        $this->sent = [];
+        $this->deliver(ReenrollmentCampaignService::EMAIL_REMINDER_1);
+
+        $this->assertCount(1, $this->sent);
+    }
+
+    public function testTheJournalSaysHowManyFamiliesTheRunFoundAlreadyWrittenTo(): void
+    {
+        $this->createAnime('Alix', 'a@example.be');
+        $this->deliver(ReenrollmentCampaignService::EMAIL_OPENING);
+        $this->deliver(ReenrollmentCampaignService::EMAIL_OPENING);
+
+        $entry = $this->lastJournalEntry();
+        $this->assertStringContainsString('"families":0', (string) $entry['context']);
+        $this->assertStringContainsString('"skipped":1', (string) $entry['context']);
+    }
+
     public function testTheJournalCountsTheFamiliesItWroteTo(): void
     {
         $this->createAnime('Alix', 'a@example.be');

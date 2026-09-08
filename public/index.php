@@ -1466,6 +1466,13 @@ $rosterReplacementGuard = new \Core\Import\RosterReplacementGuard(
 // the file. (It used to be an array, which forced a second, early rental
 // block before this line and a conditional rebuild of the service.)
 $deskImportListeners = new \Core\Import\DeskImportListenerRegistry();
+// Core's own listener, registered here rather than in a module block:
+// a Trésorier badge whose holder stopped animating a section grants
+// nothing from that import on, and nobody reports a permission that
+// used to work (issue #222). It writes at most one journal line.
+$deskImportListeners->register(
+    new \Core\Badge\TreasurerBadgeDeskImportListener($badgeService, $journalService)
+);
 $importService = new DeskImportService(
     $pdo, $encryptionService, $csvParser, $mappingResolver,
     $memberRepo, $memberYearRepo, $importJournalRepo, $userAccountRepo, $unitStaffSectionService,
@@ -1928,6 +1935,12 @@ $schedulerService->rearm('core', 'check_stable_update', 'daily', new DateTimeImm
 // HumanCheck\Task\PurgeHumanCheckRateLimitsHandler).
 $schedulerService->rearm('core', 'purge_human_check_rate_limits',
     \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler::REFERENCE, new DateTimeImmutable());
+
+// Same bootstrap for the sent-mail claim purge (Core\Mail\Task\
+// PurgeSentEmailClaimsHandler): the replay guards of the background
+// e-mail handlers, once their own occurrence is long past.
+$schedulerService->rearm('core', \Core\Mail\Task\PurgeSentEmailClaimsHandler::TASK_KEY,
+    \Core\Mail\Task\PurgeSentEmailClaimsHandler::REFERENCE, new DateTimeImmutable());
 
 // Same bootstrap for the help assistant's own purge (Core\Help\Assistant\
 // Task\PurgeHelpAssistantHandler): rate-limit rows past the quota window
@@ -3095,7 +3108,7 @@ $frontController->registerController(ImportController::class,
     );
 $frontController->registerController(MemberController::class,
     new MemberController($twig, $memberService, $memberYearService, $journalService, $memberPageService,
-        $departureService)
+        $departureService, $sectionStaffAuthorizationService)
     );
 $frontController->registerController(
     \Core\Http\Controller\MemberEmailAddressController::class,
@@ -3140,7 +3153,7 @@ $frontController->registerController(EditableContentController::class, $editable
 // photos.
 $offlineManifestService = new \Core\Offline\OfflineManifestService(
     $offlineWhitelist, $memberService, $memberPhotoService, $sectionPhotoService, $sectionService,
-    $unitStaffSectionService, $scoutYearService, $editableContentService, $ageBranchRepo, $moduleHooks,
+    $unitStaffSectionService, $scoutYearResolver, $editableContentService, $ageBranchRepo, $moduleHooks,
     $temporaryMemberProvider
 );
 $offlineController = new OfflineController($twig, $offlineManifestService);
@@ -3296,7 +3309,7 @@ if ($isEnabled('trombinoscope')) {
     $frontController->registerController(
         \Modules\Trombinoscope\Controller\TrombinoscopeController::class,
         new \Modules\Trombinoscope\Controller\TrombinoscopeController($twig, $sectionService, $trombinoscopeService,
-            $scoutYearResolver, $settingService, $trombinoscopePdfService, $memberPhotoService)
+            $scoutYearResolver, $settingService, $trombinoscopePdfService, $memberPhotoService, $journalService)
     );
 
     // The module's three core-hook implementations (§7.4), registered
@@ -3386,7 +3399,8 @@ if ($isEnabled('calendar')) {
         $calendarRepo, $calendarEventRepo, $sectionService, $calendarUnitFeedTokenRepo, $calendarRetroLinks
     );
     $calendarNotificationService = new \Modules\Calendar\Service\CalendarNotificationService(
-        $schedulerService, $settingService, $calendarService, $calendarEventRepo, $notificationService, $userAccountRepo
+        $schedulerService, $settingService, $calendarService, $calendarEventRepo, $notificationService,
+        $userAccountRepo, $scoutYearService
     );
     $calendarRetroAutoCreateService = new \Modules\Calendar\Service\CalendarRetroAutoCreateService(
         $schedulerService, $calendarRetroLinks
@@ -3562,7 +3576,8 @@ if ($isEnabled('sos_staff')) {
     $frontController->registerController(
         \Modules\SosStaff\Controller\SosConfigController::class,
         new \Modules\SosStaff\Controller\SosConfigController(
-            $twig, $sosProviderConfigService, $sosSettingsService, $sectionService, $journalService
+            $twig, $sosProviderConfigService, $sosSettingsService, $sectionService, $journalService,
+            $settingService
         )
     );
     $frontController->registerController(
@@ -3750,7 +3765,10 @@ if ($isEnabled('inbound_mail')) {
         $inboundReadConsumers,
         $inboundScopeService,
         null,
-        $inboundReplyAddresses
+        $inboundReplyAddresses,
+        // Row AND bytes when a message, a box or a retention window takes
+        // an attachment away (#242).
+        $encryptedFileStorageService
     );
 
     // One-time reprise for installs that stored a message's consumer and
@@ -3869,7 +3887,7 @@ if ($isEnabled('inbound_mail')) {
                 new \Modules\InboundMail\Service\AnalysisResultApplier($inboundMessageRepository),
                 new \Core\File\UploadHandler(new \Core\File\FileRepository($pdo), $storagePath),
                 null,
-                new \Core\File\FileRepository($pdo),
+                $encryptedFileStorageService,
                 $inboundScopeService,
                 null,
                 $inboundReplyAddresses
@@ -4243,7 +4261,7 @@ if ($isEnabled('finance')) {
             $twig, $financeService, $financeBalanceService, $financeTransactionRepo, $financeReceiptService,
             $financeCategoryRepo, $financeAttachmentRepo, $financeTransactionAttachmentRepo,
             $financeStatementImportRepo,
-            $financeFirstReceiptResolver, $financeReconciliationService, $scoutYearService
+            $financeFirstReceiptResolver, $financeReconciliationService, $scoutYearResolver
         )
     );
     $frontController->registerController(
@@ -4485,7 +4503,7 @@ if ($isEnabled('finance')) {
             $financeExpectedReceivableRepo,
             $financeService,
             $memberService,
-            $scoutYearService,
+            $scoutYearResolver,
             $financeSepaQrCodeForOthers,
             // « Quelle créance ? » answered by typing a name instead of
             // by looking an id up in a spreadsheet. Same member-name
@@ -4660,8 +4678,26 @@ if ($isEnabled('news')) {
         (string) ($settingService->get('site_name') ?: 'Unité scoute'),
         $financeStructuredCommunicationForOthers, $financeExpectedReceivableForOthers, $financeSepaQrCodeForOthers,
         $financeAccountForOthers,
-        $journalService, $newsTicketService, $newsTicketMailService
+        $journalService, $newsTicketService, $newsTicketMailService,
+        // The running capacity total lives on the field (#241).
+        $newsFieldRepo
     );
+
+    // One-shot reprise of `news_form_fields.capacity_used` for the
+    // responses written before the column existed. Same shape, and same
+    // reason, as the image-variant backfill below: a flag read from the
+    // settings cache on every later request, and a recompute that is a
+    // handful of rows on any real installation.
+    if ($settingService->get('news_field_capacity_backfilled', 'news') !== '1') {
+        $settingService->register(
+            'news_field_capacity_backfilled', '0', 'boolean', 'Capacités des champs recalculées',
+            'Indique si le total consommé de chaque champ à capacité a été reconstitué depuis les réponses.',
+            'news', null, null, false, 999
+        );
+        $newsFieldRepo->recomputeUsedCapacities($newsResponseRepo);
+        $settingRepo->updateValue('news', 'news_field_capacity_backfilled', '1');
+        $settingService->clearCache();
+    }
     // Optional dependency on the llm_connector module (ARCHITECTURE.md
     // §7.5), same reused instance as RGPD content generation above — the
     // "Générer avec l'IA" button is simply hidden when it's unavailable.
@@ -4875,7 +4911,7 @@ if ($isEnabled('gallery')) {
         new \Modules\Gallery\Controller\GalleryChiefController(
             $twig, $galleryAlbumService, $galleryMediaService, $galleryMediaRepo, $galleryAccessService,
             $sectionService, $settingService, $galleryStorageLocationRepo, $galleryStorageLocationService,
-            new \Core\File\ChunkedUploadStore($storagePath), $scoutYearService
+            new \Core\File\ChunkedUploadStore($storagePath), $scoutYearService, $scoutYearResolver
         )
     );
     // GalleryConfigController is NOT registered here — see the late block
@@ -5850,13 +5886,13 @@ if ($isEnabled('retro')) {
         \Modules\Retro\Controller\RetroBoardController::class,
         new \Modules\Retro\Controller\RetroBoardController(
             $twig, $retroBoardRepo, $retroCommentRepo, $retroCommentService, $retroVoteService, $retroBoardService,
-            $retroRateLimitService, $retroModerationService, $cookieConsentService, $settingService, $scoutYearService
+            $retroRateLimitService, $retroModerationService, $cookieConsentService, $settingService, $scoutYearResolver
         )
     );
     $frontController->registerController(
         \Modules\Retro\Controller\RetroConfigController::class,
         new \Modules\Retro\Controller\RetroConfigController(
-            $twig, $settingService, $journalService, $memberService, $scoutYearService, $retroModerationService
+            $twig, $settingService, $journalService, $memberService, $scoutYearResolver, $retroModerationService
         )
     );
 
@@ -6541,7 +6577,7 @@ if ($isEnabled('rental')) {
         new \Modules\Rental\Repository\RentalComplianceRepository($pdo),
         $settingService,
         $journalService,
-        $fileRepository
+        $encryptedFileStorageService
     );
 
     // Its documents follow the same rule as a booking's: readable only by
@@ -6718,15 +6754,10 @@ if ($isEnabled('rental')) {
         )
     );
 
-    // Bootstrap the hourly hold-expiry poller (Task\ExpireRentalHoldsHandler,
-    // which re-schedules itself at the end of every run — Core\Scheduler has
-    // no recurring-task concept). Module-scoped handlers are auto-resolved
-    // via ModuleManager::getTaskHandler() in both entry points, so this
-    // one-time nudge is all the wiring there is; it is idempotent, so it
-    // costs one indexed lookup per request and never queues a duplicate.
-    // Availability does not depend on it: a hold is lapsed the moment its
-    // deadline passes, which the calculator reads directly.
-    \Modules\Rental\Task\ExpireRentalHoldsHandler::bootstrap($schedulerService);
+    // The hourly hold-expiry poller is seeded by the SHARED composition
+    // root (public/scheduler-bootstrap.php), with its two sisters — it
+    // used to be seeded here, in this file's own body, which the crontab
+    // entry point never reaches.
 
     // The daily reminder pass (§6.29) and the retention purge (§6.35) are
     // auto-resolved from the manifest like any other task: each builds its
@@ -7008,7 +7039,7 @@ if (
     $frontController->registerController(
         MemberController::class,
         new MemberController($twig, $memberService, $memberYearService, $journalService, $memberPageService,
-            $departureService)
+            $departureService, $sectionStaffAuthorizationService)
     );
 }
 
@@ -7036,7 +7067,11 @@ $frontController->registerController(MemberSearchController::class, new MemberSe
     ),
     $memberDocumentService,
     new \Core\Member\MemberDocumentMailer($mailService, $encryptedFileStorageService, $storagePath),
-    $settingService
+    $settingService,
+    // The one predicate the « Année dans la branche » card and the write
+    // behind it both ask, so the buttons are never offered where saving
+    // would answer 403.
+    $sectionStaffAuthorizationService
 ));
 
 // File access (/files/{id}) — built here, deliberately last, because
@@ -7227,6 +7262,25 @@ if (isset($galleryStorageLocationRepo)) {
 if (isset($campsMapTileOrigin)) {
     $response->addImgSrcOrigin($campsMapTileOrigin);
 }
+
+// The account scope the SESSION SERVING THIS RESPONSE is in — the same
+// value the offline config carries, on the response itself.
+//
+// The service worker answers a navigation from its PERSISTED config,
+// written by the postMessage of the PREVIOUS page: the first navigation
+// after a scope change therefore reads and writes the previous account's
+// content cache (issue #252). A session that expires in silence never
+// goes through the logout form either, so nothing purged the old scope.
+// This header is what lets the worker revalidate — it compares it with
+// the scope it holds and, when they differ, refuses to write and drops
+// the caches of the scope that is no longer the one being served.
+//
+// It names an opaque scope, never an identity: an account id the browser
+// already has (it IS the session) or the literal 'guest'.
+$response->setHeader(
+    'X-Offline-Scope',
+    AuthSession::isAuthenticated() ? (string) AuthSession::getUserAccountId() : 'guest'
+);
 
 \Core\Debug\RequestTimeline::mark('response_send_begin');
 $response->send();

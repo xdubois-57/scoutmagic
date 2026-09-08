@@ -15,6 +15,9 @@ use Core\Member\DepartureService;
 use Core\Member\MemberPageService;
 use Core\Member\MemberService;
 use Core\Member\MemberYearService;
+use Core\Badge\MemberBadgeRepository;
+use Core\Member\SectionService;
+use Core\Member\SectionStaffAuthorizationService;
 use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
 use PHPUnit\Framework\TestCase;
@@ -35,6 +38,13 @@ class MemberControllerScoutYearOffsetTest extends TestCase
     private MemberService $memberService;
     private EncryptionService $encryption;
     private int $scoutYearId;
+    private int $sectionId;
+    private int $otherSectionId;
+    private int $staffFunctionId;
+    private int $animeFunctionId;
+
+    /** The address the signed-in chief of these tests uses. */
+    private const CHIEF_EMAIL = 'chief@test.example';
 
     protected function setUp(): void
     {
@@ -49,18 +59,67 @@ class MemberControllerScoutYearOffsetTest extends TestCase
         $this->memberService = new MemberService($memberYearRepo, $this->encryption, Connection::withPdo($this->pdo));
         $journalService = new JournalService(new JournalRepository($this->pdo));
 
+        $connection = Connection::withPdo($this->pdo);
+        $sectionService = new SectionService($connection, $this->encryption, new MemberBadgeRepository($this->pdo));
+
         $this->controller = new MemberController(
             $this->createMock(Environment::class),
             $this->memberService,
             new MemberYearService(),
             $journalService,
             $this->createMock(MemberPageService::class),
-            new DepartureService(new DepartureRepository($this->pdo, $this->encryption), $journalService)
+            new DepartureService(new DepartureRepository($this->pdo, $this->encryption), $journalService),
+            new SectionStaffAuthorizationService($connection, $this->encryption, $sectionService)
         );
 
         // Scout year 2025-2026 → reference year 2025.
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
         $this->scoutYearId = (int) $this->pdo->lastInsertId();
+
+        $this->pdo->exec("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('LOU', 'Louveteaux', 2)");
+        $branchId = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec("INSERT INTO sections (age_branch_id, desk_code, name) VALUES ({$branchId}, 'lou1', 'Meute')");
+        $this->sectionId = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec("INSERT INTO sections (age_branch_id, desk_code, name) VALUES ({$branchId}, 'lou2', 'Autre meute')");
+        $this->otherSectionId = (int) $this->pdo->lastInsertId();
+
+        $this->pdo->exec("INSERT INTO functions (desk_code, label, role, confirmed) VALUES ('ANIM', 'Animateur', 'chief', 1)");
+        $this->staffFunctionId = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec("INSERT INTO functions (desk_code, label, role, confirmed) VALUES ('MEMBRE', 'Membre', 'identified', 1)");
+        $this->animeFunctionId = (int) $this->pdo->lastInsertId();
+
+        // The signed-in chief, an animateur of the first section: the write
+        // guard resolves them by e-mail, exactly as the site does.
+        $this->staffMemberYear(self::CHIEF_EMAIL, $this->sectionId);
+    }
+
+    /** Creates a staff member_year for $email, animating $sectionId. */
+    private function staffMemberYear(string $email, int $sectionId): int
+    {
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('STAFF_" . uniqid() . "')");
+        $memberId = (int) $this->pdo->lastInsertId();
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted,
+                 email_encrypted, email_blind_index)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            $memberId,
+            $this->scoutYearId,
+            $this->encryption->encrypt('Akela', 'member_years.first_name'),
+            $this->encryption->encrypt('Loup', 'member_years.last_name'),
+            $this->encryption->encrypt($email, 'member_years.email'),
+            $this->encryption->blindIndex($email, 'email'),
+        ]);
+        $memberYearId = (int) $this->pdo->lastInsertId();
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_functions (member_year_id, function_id, section_id) VALUES (?, ?, ?)'
+        );
+        $stmt->execute([$memberYearId, $this->staffFunctionId, $sectionId]);
+
+        return $memberYearId;
     }
 
     protected function tearDown(): void
@@ -72,7 +131,7 @@ class MemberControllerScoutYearOffsetTest extends TestCase
      * Creates a member_year with the given birth date. Reference year is 2025,
      * so a birth date of 2014-01-01 gives a raw age of 11 (louveteaux 4e année).
      */
-    private function createMemberYear(string $birthDate): int
+    private function createMemberYear(string $birthDate, ?int $sectionId = null): int
     {
         $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('TEST_" . uniqid() . "')");
         $memberId = (int) $this->pdo->lastInsertId();
@@ -88,8 +147,16 @@ class MemberControllerScoutYearOffsetTest extends TestCase
             $this->encryption->encrypt('Doe', 'member_years.last_name'),
             $this->encryption->encrypt($birthDate, 'member_years.birth_date'),
         ]);
+        $memberYearId = (int) $this->pdo->lastInsertId();
 
-        return (int) $this->pdo->lastInsertId();
+        // An animé of the section, which is what makes the caller's own
+        // staffed section the one being written into.
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_functions (member_year_id, function_id, section_id) VALUES (?, ?, ?)'
+        );
+        $stmt->execute([$memberYearId, $this->animeFunctionId, $sectionId ?? $this->sectionId]);
+
+        return $memberYearId;
     }
 
     private function startSessionWithCsrfToken(): string
@@ -101,7 +168,7 @@ class MemberControllerScoutYearOffsetTest extends TestCase
         }
         $token = bin2hex(random_bytes(32));
         $_SESSION['_csrf_token'] = $token;
-        AuthSession::login(1, 'chief@test.example', 'chief');
+        AuthSession::login(1, self::CHIEF_EMAIL, 'chief');
 
         return $token;
     }
@@ -202,6 +269,65 @@ class MemberControllerScoutYearOffsetTest extends TestCase
         );
 
         $this->assertSame(404, $response->getStatusCode());
+    }
+
+    /**
+     * #221. `role_min: chief` proves the caller animates something, not
+     * that they animate THIS animé — the same rule the Départs write on the
+     * same card has always applied.
+     */
+    public function testAChiefOfAnotherSectionIsRefused(): void
+    {
+        $token = $this->startSessionWithCsrfToken();
+        $memberYearId = $this->createMemberYear('2014-01-01', $this->otherSectionId);
+
+        $response = $this->controller->updateScoutYearOffset(
+            $this->jsonRequest(['offset' => 1, '_csrf_token' => $token]),
+            ['id' => (string) $memberYearId]
+        );
+
+        $this->assertSame(403, $response->getStatusCode());
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+
+        $stmt = $this->pdo->prepare('SELECT scout_year_offset FROM member_years WHERE id = ?');
+        $stmt->execute([$memberYearId]);
+        $this->assertSame(0, (int) $stmt->fetchColumn(), 'Le décalage a été écrit malgré le refus.');
+    }
+
+    /**
+     * The write rule is animé-only by construction — a section's own staff
+     * are not among « the animés of my section », and a chief has no branch
+     * year to shift. Pinned here because the member page renders the card
+     * from the SAME predicate (Core\Member\Controller\
+     * MemberSearchController::show()), so this refusal is what stops the
+     * buttons being drawn rather than a dead end somebody can click.
+     */
+    public function testAStaffMemberYearIsRefused(): void
+    {
+        $colleagueId = $this->staffMemberYear('colleague@example.test', $this->sectionId);
+
+        $token = $this->startSessionWithCsrfToken();
+        $response = $this->controller->updateScoutYearOffset(
+            $this->jsonRequest(['_csrf_token' => $token, 'offset' => 1]),
+            ['id' => (string) $colleagueId]
+        );
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    public function testAnInactiveMemberYearIsRefused(): void
+    {
+        $memberYearId = $this->createMemberYear('2014-01-01');
+        $this->pdo->exec("UPDATE member_years SET is_active = 0 WHERE id = {$memberYearId}");
+
+        $token = $this->startSessionWithCsrfToken();
+        $response = $this->controller->updateScoutYearOffset(
+            $this->jsonRequest(['_csrf_token' => $token, 'offset' => 1]),
+            ['id' => (string) $memberYearId]
+        );
+
+        $this->assertSame(403, $response->getStatusCode());
     }
 
     public function testOffsetChangeIsJournaled(): void

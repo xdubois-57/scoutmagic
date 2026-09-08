@@ -75,6 +75,8 @@ class RegistrationConfigControllerTest extends TestCase
         $settingService->register('registration_form_open', '0', 'boolean', 'Ouvert', 'desc', 'registration');
         $settingService->register('registration_scheduled_open_at', '09-30', 'text', 'Ouverture', 'desc', 'registration');
         $settingService->register('registration_scheduled_close_at', '08-31', 'text', 'Fermeture', 'desc', 'registration');
+        $settingService->register('registration_scheduled_open_applied_on', '', 'text', 'Appliqué', 'desc', 'registration');
+        $settingService->register('registration_scheduled_close_applied_on', '', 'text', 'Appliqué', 'desc', 'registration');
         $settingService->register(ScoutYearResolver::SETTING_PUBLIC_YEAR, '0', 'number', 'Public', 'desc', null, '^[0-9]+$', null, false);
         $settingService->register(ScoutYearResolver::SETTING_STAFF_YEAR, '0', 'number', 'Staff', 'desc', null, '^[0-9]+$', null, false);
         $this->settingService = $settingService;
@@ -710,6 +712,48 @@ class RegistrationConfigControllerTest extends TestCase
         ], [], []), []);
 
         $this->assertSame('0', $this->settingService->get('registration_form_open', 'registration'));
+    }
+
+    /**
+     * Issue #215: the button and the hourly poll write the same setting,
+     * and on a fresh installation every marker is empty — so a scheduled
+     * transition still inside its catch-up window would undo the choice
+     * that was just made by hand. Opening the desk settles it.
+     */
+    public function testToggleOpenSettlesAScheduledTransitionStillPending(): void
+    {
+        $yesterday = (new \DateTimeImmutable('-1 day'));
+        $this->settingService->set('registration_scheduled_close_at', $yesterday->format('m-d'), 'registration');
+
+        $token = CsrfGuard::generateToken();
+        $this->controller->toggleOpen(new Request('POST', '/config/inscriptions/toggle-open', [], [
+            '_csrf_token' => $token,
+        ], [], []), []);
+
+        $this->assertSame('1', $this->settingService->get('registration_form_open', 'registration'));
+        $this->assertSame(
+            $yesterday->format('Y-m-d'),
+            $this->settingService->get('registration_scheduled_close_applied_on', 'registration')
+        );
+    }
+
+    public function testToggleOpenLeavesAScheduleThatIsNotDueAlone(): void
+    {
+        $this->settingService->set(
+            'registration_scheduled_close_at',
+            (new \DateTimeImmutable('+40 days'))->format('m-d'),
+            'registration'
+        );
+
+        $token = CsrfGuard::generateToken();
+        $this->controller->toggleOpen(new Request('POST', '/config/inscriptions/toggle-open', [], [
+            '_csrf_token' => $token,
+        ], [], []), []);
+
+        $this->assertSame(
+            '',
+            (string) $this->settingService->get('registration_scheduled_close_applied_on', 'registration')
+        );
     }
 
     public function testSaveScheduleRejectsInvalidCsrf(): void

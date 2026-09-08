@@ -46,8 +46,26 @@ class GalleryChiefController extends AbstractController
         // Trailing/nullable for the same reason: with it, the manage list
         // defaults to the current + previous scout years (?all=1 shows
         // everything); without it, the full unfiltered list as before.
-        private ?\Core\Config\ScoutYearService $scoutYearService = null
+        private ?\Core\Config\ScoutYearService $scoutYearService = null,
+        /**
+         * Trailing/nullable for the same reason: with it, a new album is
+         * filed in the year the chief is actually working in when its own
+         * date names no known year; without it, in the public one.
+         */
+        private ?\Core\ScoutYear\ScoutYearResolver $scoutYearResolver = null
     ) {
+    }
+
+    /**
+     * The year this chief is working in — their preview, their staff year,
+     * or the public one. Null when the resolver was not wired.
+     */
+    private function effectiveScoutYearId(Role $role): ?int
+    {
+        return $this->scoutYearResolver?->getEffectiveYear(
+            \Core\ScoutYear\ScoutYearSession::getPreviewId(),
+            $role
+        )->id;
     }
 
     /**
@@ -124,7 +142,8 @@ class GalleryChiefController extends AbstractController
                 $this->nullableString($request->getBody('external_url')),
                 $accountId,
                 $role,
-                $email
+                $email,
+                $this->effectiveScoutYearId($role)
             );
         } catch (GalleryException $e) {
             $context = $this->formContext(null);
