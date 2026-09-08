@@ -14,13 +14,13 @@
        Twitter Card reader) — module usability review.
 
        Emitted only when `social_preview` says so, which the controller
-       gets from Service\ArticleService::isSociallyShareable(): an
-       article restricted to identified members (or to the staff) keeps
-       its title, its summary and its cover image off every link preview.
-       The body is already protected by the 403 in
-       Controller\NewsController::show(), but a preview is not a body —
-       a link pasted into a public group would otherwise say everything
-       the page was hiding. #}
+       gets from Service\ArticleService::isSociallyShareable(): public,
+       direct_link and « Membres connectés » articles get a preview,
+       staff-only ones get none. An `identified` article is one the unit
+       posts to a group of animateurs, and the crawler building that
+       preview never signs in — so its title, summary and cover image are
+       public by design (issue #211). The body is not: it stays behind
+       the 403 in Controller\NewsController::show(). #}
     {% if social_preview %}
         <meta property="og:type" content="article">
         <meta property="og:title" content="{{ article.title }}">

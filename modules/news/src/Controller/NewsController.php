@@ -542,11 +542,12 @@ class NewsController extends AbstractController
             // The share target is always the short URL (works whether the
             // visitor shared the short or the full link — a crawler
             // re-fetching og:url gets redirected the same way either way).
-            // ...and only for an article a caller with no session could
-            // read anyway (Service\ArticleService::isSociallyShareable()).
-            // A members-only article's preview would otherwise render its
-            // title, summary and cover image in any chat it is pasted
-            // into, leaving the body protected and the gist of it not.
+            // ...and only for a visibility that accepts a preview
+            // (Service\ArticleService::isSociallyShareable()): public,
+            // direct_link, and — since issue #211 — identified, whose
+            // title, summary and cover image are what makes an article
+            // postable to a group of animateurs at all. Staff-only
+            // articles emit nothing.
             'social_preview' => $this->articleService->isSociallyShareable($article),
             'og_url' => $article->shortUrlCode !== null
                 ? $baseUrl . '/s/' . $article->shortUrlCode
@@ -713,15 +714,13 @@ class NewsController extends AbstractController
             return null;
         }
 
-        // The file's role_min mirrors the article's own visibility
-        // (schema.sql) — the cover image of a members-only article is
-        // members-only too, or the picture leaks what the page does not.
-        $roleMin = match ($visibility) {
-            Article::VISIBILITY_IDENTIFIED => 'identified',
-            Article::VISIBILITY_CHIEF => 'chief',
-            Article::VISIBILITY_ADMIN => 'admin',
-            default => 'public',
-        };
+        // The mapping lives in the service, which is also what re-syncs
+        // this file when the article's visibility changes later
+        // (Service\ArticleService::coverImageRoleMin(), schema.sql):
+        // the article's own floor, except for a socially shareable one,
+        // whose cover has to be fetchable by the crawler that renders
+        // its og:image.
+        $roleMin = ArticleService::coverImageRoleMin($visibility);
 
         try {
             $fileId = $this->uploadHandler->handle(

@@ -96,7 +96,7 @@ class NewsRbacTest extends TestCase
 
         $editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));
         $shortUrlService = new ShortUrlService(new ShortUrlRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))));
-        $articleService = new ArticleService($articleRepository, $formRepository, $editableContentService, $shortUrlService);
+        $articleService = new ArticleService($articleRepository, $formRepository, $editableContentService, $shortUrlService, new \Core\File\FileRepository($this->pdo));
         $formService = new FormService($formRepository, new \Modules\News\Repository\FormFieldRepository($this->pdo), $articleService, new \Modules\News\Repository\FormResponseRepository($this->pdo, $encryption));
 
         $connection = Connection::withPdo($this->pdo);

@@ -102,7 +102,7 @@ class NewsIntegrationTest extends TestCase
 
         $editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));
         $shortUrlService = new ShortUrlService(new ShortUrlRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))));
-        $articleService = new ArticleService($this->articleRepository, $this->formRepository, $editableContentService, $shortUrlService);
+        $articleService = new ArticleService($this->articleRepository, $this->formRepository, $editableContentService, $shortUrlService, new \Core\File\FileRepository($this->pdo));
         $formService = new FormService($this->formRepository, $this->fieldRepository, $articleService, $this->responseRepository);
         $this->articleService = $articleService;
         $this->formService = $formService;
@@ -612,17 +612,41 @@ class NewsIntegrationTest extends TestCase
     }
 
     /**
-     * The decision recorded in schema.sql and in the module spec: the
-     * body of a members-only article is protected by the 403 above, and
-     * its PREVIEW has to be protected too — otherwise a link pasted into
-     * a public group renders the title, the summary and the cover image
-     * for everyone.
+     * Issue #211: a « Membres connectés » article IS posted to a group of
+     * animateurs, and the crawler rendering that preview never signs in —
+     * so its title, summary and cover image are emitted like any other
+     * article's. Only the body stays behind the 403.
+     *
+     * The preview and the indexing are two different questions and this
+     * test pins both: og: yes, noindex still yes. A search engine
+     * offering the page to everybody who searches is not the same act as
+     * a preview of a link somebody chose to post.
      */
-    public function testIdentifiedArticleExposesNoOpenGraphMetadataEvenToAReaderWhoMaySeeIt(): void
+    public function testIdentifiedArticleExposesItsPreviewButStaysUnindexed(): void
     {
         AuthSession::login($this->chiefAccountId, 'parent@test.com', 'identified');
         $id = $this->articleRepository->create('Camp reserve', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->chiefAccountId);
-        $this->articleRepository->update($id, 'Camp reserve', Article::VISIBILITY_IDENTIFIED, false, null, null, 'Un secret de famille.', 55);
+        $this->articleRepository->update($id, 'Camp reserve', Article::VISIBILITY_IDENTIFIED, false, null, null, 'Reserve aux membres.', 55);
+        $this->settingService->register('base_url', 'https://example.test', 'text', 'label', 'desc');
+
+        $body = $this->newsController->show(new Request('GET', '/news/' . $id, [], [], [], []), ['id' => (string) $id])->getBody();
+
+        $this->assertStringContainsString('property="og:title" content="Camp reserve"', $body);
+        $this->assertStringContainsString('property="og:description" content="Reserve aux membres."', $body);
+        $this->assertStringContainsString('property="og:image" content="https://example.test/files/55"', $body);
+        $this->assertStringContainsString('name="robots" content="noindex"', $body);
+    }
+
+    /**
+     * The other side of the same decision: a staff-only article is not
+     * something anybody pastes into a group, so it emits no preview at
+     * all — the widening stops at « Membres connectés ».
+     */
+    public function testChiefArticleExposesNoOpenGraphMetadataEvenToAReaderWhoMaySeeIt(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $id = $this->articleRepository->create('Weekend de staff', Article::VISIBILITY_CHIEF, false, null, null, $this->chiefAccountId);
+        $this->articleRepository->update($id, 'Weekend de staff', Article::VISIBILITY_CHIEF, false, null, null, 'Un secret de famille.', 55);
         $this->settingService->register('base_url', 'https://example.test', 'text', 'label', 'desc');
 
         $body = $this->newsController->show(new Request('GET', '/news/' . $id, [], [], [], []), ['id' => (string) $id])->getBody();

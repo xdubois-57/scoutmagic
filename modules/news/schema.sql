@@ -21,9 +21,20 @@ CREATE TABLE IF NOT EXISTS news_articles (
     summary VARCHAR(300) NULL,
     -- Featured image — mandatory at the service layer alongside summary.
     -- Not encrypted (SECURITY.md: public content files aren't personal
-    -- data) — a plain Core\File\UploadHandler upload, role_min mirrors
-    -- the article's own visibility. Used as the list thumbnail and the
-    -- og:image for social sharing.
+    -- data) — a plain Core\File\UploadHandler upload whose role_min
+    -- follows the article's own visibility, EXCEPT for a visibility that
+    -- accepts a link preview (public, direct_link, identified), where it
+    -- is `public` so the crawler fetching og:image gets the picture
+    -- rather than a 403. Service\ArticleService::coverImageRoleMin() is
+    -- the mapping, and the service re-applies it on every create and
+    -- update, since changing an article's visibility changes the floor
+    -- its existing cover must carry.
+    --
+    -- So the cover of a « Membres connectés » article is readable by
+    -- anyone holding its /files/{id} URL, deliberately (issue #211):
+    -- that image, the title and the summary ARE the preview, and an
+    -- article nobody can post to a group of animateurs with a picture
+    -- was the complaint. The body stays behind the 403.
     image_file_id INT UNSIGNED NULL,
     -- 'identified' is a rung of the role ladder (Core\Security\Role):
     -- animés, their parents and the staff, once signed in. 'direct_link'
@@ -32,9 +43,10 @@ CREATE TABLE IF NOT EXISTS news_articles (
     has_form BOOLEAN NOT NULL DEFAULT FALSE,
     -- direct_link AND identified visibility both force is_indexed =
     -- false (Service\ArticleService, enforced server-side, not just
-    -- hidden in the UI). For identified the reason is the preview, not
-    -- the listing: an indexed page hands its title, summary and cover
-    -- image to a crawler that will never be asked to log in.
+    -- hidden in the UI). Indexing is not the preview question above and
+    -- did not move with it: a preview renders a link somebody chose to
+    -- post, while an indexed page is offered to every search, forever,
+    -- and sends anonymous visitors to a 403.
     is_indexed BOOLEAN NOT NULL DEFAULT FALSE,
     seo_keywords TEXT NULL,
     seo_stop_date DATE NULL,
