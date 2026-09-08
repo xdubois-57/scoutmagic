@@ -49,6 +49,62 @@
     var friendWishBranchLabels = data.friendWishBranchLabels || [];
     var friendWishesZone = document.getElementById('friend-wishes-zone');
 
+    // « Section souhaitée ». Every <option> the template writes carries
+    // the branch it belongs to (`data-branch-id`), so the list can be
+    // narrowed to the branch the birth date lands in without asking the
+    // server anything — the same reasoning as the hint above.
+    var desiredSection = /** @type {HTMLSelectElement|null} */ (
+        document.getElementById('desired_section_id')
+    );
+
+    /**
+     * Keep only the sections of the branch the child would join, and put
+     * the whole list back when no branch is known.
+     *
+     * WHY THIS IS NOT COSMETIC. `Controller\PublicRegistrationController::
+     * resolveDesiredSectionId()` refuses a section outside the branch the
+     * birth date falls into and stores « Aucune préférence » instead —
+     * the right guard against a forged POST, and silent. So a family who
+     * picked a section from the full list, in good faith, had their
+     * choice dropped with nothing said. Narrowing the list here is what
+     * makes that branch unreachable for anybody filling the form
+     * honestly (issue #264).
+     *
+     * `hidden` AND `disabled`, not one of them: `hidden` is what removes
+     * an option from the dropdown, and Safari — the browser this was
+     * reported on — has shipped versions that ignore it on an <option>.
+     * A disabled option cannot be picked in any of them.
+     *
+     * A selection that has just become invalid is reset rather than left
+     * standing: an <option> that is hidden and still selected shows the
+     * family a section the server is about to refuse.
+     *
+     * @param {number|null} branchId
+     */
+    function updateDesiredSections(branchId) {
+        if (!desiredSection) return;
+
+        var options = desiredSection.options;
+
+        for (var i = 0; i < options.length; i++) {
+            var option = options[i];
+            var optionBranch = option.getAttribute('data-branch-id');
+
+            // « Aucune préférence » carries no branch and is always on
+            // offer: not choosing is a valid answer at every age.
+            var offered = branchId === null
+                || optionBranch === null
+                || Number(optionBranch) === branchId;
+
+            option.hidden = !offered;
+            option.disabled = !offered;
+
+            if (!offered && option.selected) {
+                desiredSection.value = '';
+            }
+        }
+    }
+
     /**
      * Show the « avec qui » fields for a branch that has a choice to
      * offer, hide them otherwise.
@@ -72,6 +128,7 @@
         if (!year || String(year).length !== 4) {
             hint.textContent = '';
             updateFriendWishes(null);
+            updateDesiredSections(null);
             return;
         }
 
@@ -82,6 +139,10 @@
             hint.textContent = "Hors des tranches d'âge de l'unité pour l'année "
                 + targetYearLabel + '.';
             updateFriendWishes(null);
+            // The whole list comes back rather than emptying: a birth year
+            // outside every branch is usually a typo being corrected, and
+            // a dropdown that has gone blank reads as a broken page.
+            updateDesiredSections(null);
             return;
         }
 
@@ -93,6 +154,9 @@
         // textContent, not innerHTML: a branch label is configured text.
         hint.textContent = text;
         updateFriendWishes(match.branch_label);
+        updateDesiredSections(
+            typeof match.age_branch_id === 'number' ? match.age_branch_id : null
+        );
     }
 
     birthDateInput.addEventListener('change', updateHint);
