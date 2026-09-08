@@ -87,27 +87,57 @@ final class WorkflowContextsAreAvailableWhereTheyAreUsedTest extends TestCase
         $lines = explode("\n", $contents);
         $name = basename($file);
 
-        // Everything from the top of the file to the first `steps:` of
-        // each job is read before a step exists. `outputs:` is the one
-        // block inside that region where `steps` is legal, and it is
-        // tracked rather than assumed: a key at its own indentation ends
-        // it.
+        // The region this test reads is, in each job, everything from the
+        // job's header down to its `steps:`. PER JOB, and the difference
+        // is the whole test: a flag that latches at the first `steps:` of
+        // a file skips every later job in it, and `checks.yml` has eight.
+        // A `${{ steps.… }}` reintroduced into the second job's `env:` —
+        // the exact defect this file exists for — would then pass green.
+        // So a job header resets the reading.
+        //
+        // `outputs:` is the one block in that region where the `steps`
+        // context is legal, and it is tracked rather than assumed: a key
+        // at its own indentation or shallower ends it.
+        $inJobs = false;
+        $inSteps = false;
         $inOutputs = false;
-        $sawSteps = false;
+        $jobHeaders = 0;
+        $stepBlocks = 0;
 
         foreach ($lines as $number => $line) {
-            if (preg_match('/^ {4}steps:\s*$/', $line) === 1) {
-                $sawSteps = true;
+            if (preg_match('/^jobs:\s*$/', $line) === 1) {
+                $inJobs = true;
                 continue;
             }
 
-            if ($sawSteps) {
-                // Past the first `steps:` of a job, every later block of
-                // this file belongs to a step or to the next job's
-                // header — and a job header naming `steps` is caught on
-                // the next file-wide pass this loop cannot make. The
-                // violation this test exists for is above `steps:`,
-                // which is where a job-level `env:` is written.
+            // Back out at any top-level key: `jobs:` is last in these
+            // files today, and a reader that assumes so is a reader that
+            // breaks silently when it stops being true.
+            if ($inJobs && preg_match('/^\S/', $line) === 1) {
+                $inJobs = false;
+                $inSteps = false;
+                $inOutputs = false;
+            }
+
+            // A job header — two spaces, a name, a colon, nothing after
+            // it. This is where the next job's configuration begins, so
+            // it is where the previous job's `steps:` stops counting.
+            if ($inJobs && preg_match('/^ {2}[A-Za-z0-9_-]+:\s*$/', $line) === 1) {
+                $jobHeaders++;
+                $inSteps = false;
+                $inOutputs = false;
+                continue;
+            }
+
+            if (preg_match('/^ {4}steps:\s*$/', $line) === 1) {
+                $inSteps = true;
+                $stepBlocks++;
+                continue;
+            }
+
+            if ($inSteps) {
+                // Inside a step, where the `steps` context is exactly
+                // what a step is allowed to read.
                 continue;
             }
 
@@ -145,11 +175,22 @@ final class WorkflowContextsAreAvailableWhereTheyAreUsedTest extends TestCase
             );
         }
 
-        $this->assertTrue(
-            $sawSteps,
-            $name . ' has no `steps:` block at the indentation this test reads, so it checked the whole '
-            . 'file as job configuration or none of it. Either way the reading above is not the one it '
-            . 'claims to make.',
+        // ANTI-VACUITY, and both halves are needed. A file whose jobs
+        // this loop never recognised reads as one long block of
+        // something, and whichever way that block falls the assertion
+        // above stops meaning what it says.
+        $this->assertGreaterThan(
+            0,
+            $jobHeaders,
+            $name . ' has no job header at the indentation this test reads, so the loop above never told '
+            . 'one job from the next — and the reading it claims to make is not the one it made.',
+        );
+
+        $this->assertSame(
+            substr_count($contents, "\n    steps:\n"),
+            $stepBlocks,
+            $name . ' has `steps:` blocks the loop above never reached, so part of the file was read as '
+            . 'job configuration when it is a step, or the other way round.',
         );
     }
 
