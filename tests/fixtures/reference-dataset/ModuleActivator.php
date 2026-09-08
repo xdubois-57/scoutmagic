@@ -56,13 +56,15 @@ final class ModuleActivator
         private readonly \PDO $pdo,
         private readonly SettingService $settingService,
         private readonly string $modulesDir,
+        private readonly string $baseUrl,
     ) {
     }
 
     /**
-     * @return array{activated: list<string>, failed: array<string, string>}
-     *         the module ids enabled, in the order they were, and any that
-     *         refused with the reason they gave
+     * @return array{activated: list<string>, failed: array<string, string>, skipped: list<string>}
+     *         the module ids enabled, in the order they were, any that
+     *         refused with the reason they gave, and any the installation
+     *         profile hid from discovery
      */
     public function activateAll(): array
     {
@@ -76,9 +78,22 @@ final class ModuleActivator
             $requirements[$module->manifest->id] = $module->manifest->requires;
         }
 
+        // Every module directory on disk, whatever the profile decided. A
+        // module filtered out by `visible_when` is not an error — a build
+        // against an installation that is not the statistics receiver has
+        // nothing to activate there — but it is never silent either: the
+        // README promises "22, all those present on disk", and a build that
+        // enables 20 has to say which two it did not, and that it knew.
+        $skipped = array_values(array_diff($this->moduleIdsOnDisk(), array_keys($requirements)));
+        sort($skipped);
+
         $order = self::activationOrder($requirements);
         if ($order === null) {
-            return ['activated' => [], 'failed' => ['*' => "Les déclarations `requires` des modules ne forment pas un ordre installable."]];
+            return [
+                'activated' => [],
+                'failed' => ['*' => "Les déclarations `requires` des modules ne forment pas un ordre installable."],
+                'skipped' => $skipped,
+            ];
         }
 
         $activated = [];
@@ -95,7 +110,27 @@ final class ModuleActivator
             }
         }
 
-        return ['activated' => $activated, 'failed' => $failed];
+        return ['activated' => $activated, 'failed' => $failed, 'skipped' => $skipped];
+    }
+
+    /**
+     * The module ids present under `modules/`, read from the manifests
+     * themselves rather than from the directory names: discoverModules()
+     * keys on the manifest id, so comparing the two sets has to compare
+     * like with like.
+     *
+     * @return list<string>
+     */
+    private function moduleIdsOnDisk(): array
+    {
+        $ids = [];
+        foreach (glob($this->modulesDir . '/*/module.json') ?: [] as $manifestPath) {
+            $decoded = json_decode((string) file_get_contents($manifestPath), true);
+            $id = is_array($decoded) ? ($decoded['id'] ?? null) : null;
+            $ids[] = is_string($id) && $id !== '' ? $id : basename(dirname($manifestPath));
+        }
+
+        return $ids;
     }
 
     /**
@@ -141,11 +176,19 @@ final class ModuleActivator
      * notification service — a build has nobody to tell that a module was
      * switched on.
      *
-     * The installation profile is resolved from the instance's own settings
+     * The installation profile is resolved from the instance's own base URL
      * rather than invented: it decides which modules are visible at all
      * (ARCHITECTURE.md §8.49), and a hand-built profile would silently hide
      * the receiver-only modules from a build that is meant to enable
      * everything.
+     *
+     * The URL is passed in (InstanceContext::baseUrl(), which reads
+     * secrets.enc) rather than read from `settings`, because public/index.php
+     * copies it into `settings` only on the first web request — later than
+     * this. Reading the setting resolved an empty URL, no flags held, and
+     * `support_dashboard` and `test_tools` were filtered out of discovery:
+     * 20 modules activated where the README promises 22, and not one line
+     * saying so.
      */
     private function manager(): ModuleManager
     {
@@ -160,7 +203,7 @@ final class ModuleActivator
             null,
             new OfflineWhitelist(),
             InstallationProfile::resolve(
-                (string) ($this->settingService->get('base_url') ?? ''),
+                $this->baseUrl,
                 (string) ($this->settingService->get('statistics_destination') ?? ''),
             ),
         );

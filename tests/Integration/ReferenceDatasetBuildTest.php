@@ -4,6 +4,15 @@ declare(strict_types=1);
 
 namespace Tests\Integration;
 
+use Core\Config\AppClock;
+use Core\Config\ScoutYearService;
+use Core\Config\SettingRepository;
+use Core\Config\SettingService;
+use Core\Import\MemberYearRepository;
+use Core\ScoutYear\ScoutYearResolver;
+use Core\File\FileRepository;
+use Core\Photo\ImageVariantProcessor;
+use Core\Photo\ImageVariantService;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\Fixtures\ReferenceDataset\CampsBlueprint;
@@ -254,6 +263,169 @@ final class ReferenceDatasetBuildTest extends TestCase
             'finance_expected_receivables' => 'les créances',
         ] as $table => $domain) {
             self::assertGreaterThan(0, $this->rowCount($table), "Rien n'a été semé pour {$domain}.");
+        }
+    }
+
+    /**
+     * #212. `--reset` preserves `settings`, which is right for the unit's
+     * name and wrong for the flags a run leaves behind. The one that showed
+     * is `current_scout_year_id`: the provisioning pins it on the single
+     * year it creates, the wipe restarts the id counters, and the setting
+     * then designates 2024-2025 — the site served its oldest year as the
+     * public one.
+     */
+    public function testTheBuiltInstanceServesTheDateComputedYearAsItsPublicYear(): void
+    {
+        // README §5: "Le builder ne pose pas le réglage
+        // `current_scout_year_id` : le site retombe donc sur son année
+        // date-calculée". The provisioning DID pin it, and the reset used to
+        // preserve it — pointing it, after the id counters restarted, at
+        // whichever year the builder wrote first.
+        self::assertSame(
+            0,
+            (int) $this->pdo()->query(
+                "SELECT COUNT(*) FROM settings WHERE setting_key = 'current_scout_year_id'"
+            )->fetchColumn(),
+            "L'instance construite épingle une année publique — le site n'affiche plus l'année du jour.",
+        );
+
+        $expected = ScoutYearService::labelForDate(new \DateTimeImmutable('now', new \DateTimeZone(AppClock::TIMEZONE)));
+        $resolver = new ScoutYearResolver(
+            new ScoutYearService($this->pdo()),
+            new SettingService(new SettingRepository($this->pdo())),
+            new MemberYearRepository($this->pdo()),
+        );
+
+        self::assertSame(
+            $expected,
+            (string) ($resolver->getCurrentPublicYear()['label'] ?? ''),
+            "L'année publique de l'instance construite n'est pas celle du jour.",
+        );
+    }
+
+    /**
+     * #213. The modules gated by `visible_when` are filtered out of
+     * discovery when the installation profile resolves from an empty base
+     * URL — which is what reading it from `settings` did, since
+     * public/index.php only copies it there on the first web request.
+     */
+    public function testEveryModuleOnDiskIsActivatedAndAnySkipIsNamed(): void
+    {
+        $onDisk = count(glob(self::repositoryRoot() . '/modules/*/module.json') ?: []);
+
+        self::assertStringContainsString(
+            'Modules activés : ' . $onDisk,
+            self::$buildOutput,
+            "Le builder n'a pas activé tous les modules présents sur le disque. Sa sortie :\n" . self::$buildOutput,
+        );
+        self::assertStringNotContainsString('non activé', self::$buildOutput);
+        self::assertSame(
+            $onDisk,
+            (int) $this->pdo()->query(
+                "SELECT COUNT(*) FROM event_log WHERE event_type = 'module_activated'"
+            )->fetchColumn(),
+        );
+    }
+
+    /**
+     * #214. The builder ran on php.ini's timezone (UTC here) while the site
+     * it writes into runs on Europe/Brussels, so everything it wrote was
+     * dated two hours before the site that serves it.
+     */
+    public function testTheBuilderWritesOnTheApplicationClock(): void
+    {
+        $loggedAt = (string) $this->pdo()->query(
+            "SELECT logged_at FROM event_log WHERE event_type = 'module_activated' ORDER BY id LIMIT 1"
+        )->fetchColumn();
+
+        $written = new \DateTimeImmutable($loggedAt, new \DateTimeZone(AppClock::TIMEZONE));
+        $now = new \DateTimeImmutable('now', new \DateTimeZone(AppClock::TIMEZONE));
+
+        self::assertLessThan(
+            1800,
+            abs($now->getTimestamp() - $written->getTimestamp()),
+            'Le builder date ce qu\'il écrit sur une autre horloge que celle de l\'application '
+            . "(écrit : {$loggedAt}, application : " . $now->format('Y-m-d H:i:s') . ').',
+        );
+    }
+
+    /**
+     * #216. A seeder that calls the repository instead of the service skips
+     * the journal line the controller writes — and a reference instance
+     * whose journal says nothing about its own data cannot be used to read
+     * what the journal is supposed to contain.
+     */
+    public function testEveryGestureTheControllersJournalIsInTheJournal(): void
+    {
+        $counts = [];
+        foreach ($this->query('SELECT event_type, COUNT(*) AS total FROM event_log GROUP BY event_type') as $row) {
+            $counts[(string) $row['event_type']] = (int) $row['total'];
+        }
+
+        foreach ([
+            'article_created' => 'les articles',
+            'form_response_submitted' => 'les réponses de formulaire',
+            'registration_request_received' => 'les demandes d\'inscription',
+            'badge_assigned' => 'les badges',
+            'member_scout_year_offset_changed' => 'les décalages d\'année',
+            'event_created' => 'les évènements du calendrier',
+            'banner_created' => 'les bannières',
+        ] as $eventType => $domain) {
+            self::assertGreaterThan(
+                0,
+                $counts[$eventType] ?? 0,
+                "Le journal ne dit rien de {$domain} ({$eventType}).",
+            );
+        }
+    }
+
+    /**
+     * #216, the other half: `ResponseService::submit()` refuses a response
+     * with no account on an `identified` form, so a seeded row carrying
+     * `user_account_id = NULL` there is a state the application cannot
+     * reach.
+     */
+    public function testEveryResponseOnAnIdentifiedFormHasAnAccountBehindIt(): void
+    {
+        $orphans = (int) $this->pdo()->query(
+            "SELECT COUNT(*)
+             FROM news_form_responses r
+             JOIN news_forms f ON f.id = r.form_id
+             WHERE f.access = 'identified' AND r.user_account_id IS NULL"
+        )->fetchColumn();
+
+        self::assertSame(0, $orphans, 'Une réponse sans compte sur un formulaire réservé aux connectés.');
+    }
+
+    /**
+     * #210. The real upload path generates every derivative right after
+     * storing the original; FileController::variant() answers 404 rather
+     * than falling back, so a missing one is a broken image on every card.
+     */
+    public function testEveryNewsImageCarriesItsDerivatives(): void
+    {
+        $paths = $this->query(
+            "SELECT relative_path FROM files WHERE relative_path LIKE 'news/images/%'"
+        );
+        self::assertNotSame([], $paths, "Aucune image d'article n'a été stockée.");
+
+        // Asked of the service itself rather than recomputed here: the
+        // naming rule of a derivative is its business, and a test that
+        // restates it stops testing the day the rule changes.
+        $variants = new ImageVariantService(
+            new FileRepository($this->pdo()),
+            new ImageVariantProcessor(),
+            self::$instanceRoot . '/storage',
+        );
+
+        foreach ($paths as $row) {
+            $relative = (string) $row['relative_path'];
+            foreach (ImageVariantService::VARIANTS as $variant) {
+                self::assertNotNull(
+                    $variants->resolvePath($relative, $variant),
+                    "Le dérivé « {$variant} » de {$relative} n'a pas été produit.",
+                );
+            }
         }
     }
 

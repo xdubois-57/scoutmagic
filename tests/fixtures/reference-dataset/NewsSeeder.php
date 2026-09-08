@@ -9,7 +9,11 @@ declare(strict_types=1);
 namespace Tests\Fixtures\ReferenceDataset;
 
 use Core\File\FileRepository;
+use Core\Journal\JournalRepository;
+use Core\Journal\JournalService;
 use Core\File\UploadHandler;
+use Core\Photo\ImageVariantProcessor;
+use Core\Photo\ImageVariantService;
 use Core\Security\EncryptionService;
 use Core\Url\ShortUrlRepository;
 use Core\Url\ShortUrlService;
@@ -18,6 +22,7 @@ use Core\View\EditableContentService;
 use Modules\News\Repository\ArticleRepository;
 use Modules\News\Repository\FormFieldRepository;
 use Modules\News\Repository\FormRepository;
+use Modules\News\Repository\NewsForm;
 use Modules\News\Repository\FormResponseRepository;
 use Modules\News\Service\ArticleService;
 use Modules\News\Service\FormService;
@@ -63,14 +68,18 @@ final class NewsSeeder
 
     private readonly UploadHandler $uploadHandler;
 
+    private readonly ImageVariantService $imageVariantService;
+
+    private readonly JournalService $journalService;
+
     /** @var list<string> MIME types NewsController accepts for an article image. */
     private const IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/webp'];
 
     private const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 
     public function __construct(
-        \PDO $pdo,
-        EncryptionService $encryption,
+        private readonly \PDO $pdo,
+        private readonly EncryptionService $encryption,
         private readonly string $storagePath,
         private readonly string $datasetRoot,
         private readonly int $authorId,
@@ -90,7 +99,10 @@ final class NewsSeeder
         );
         $this->formService = new FormService($formRepository, new FormFieldRepository($pdo), $this->articleService, new FormResponseRepository($pdo, $encryption));
         $this->responseRepository = new FormResponseRepository($pdo, $encryption);
-        $this->uploadHandler = new UploadHandler(new FileRepository($pdo), $this->storagePath);
+        $fileRepository = new FileRepository($pdo);
+        $this->uploadHandler = new UploadHandler($fileRepository, $this->storagePath);
+        $this->imageVariantService = new ImageVariantService($fileRepository, new ImageVariantProcessor(), $this->storagePath);
+        $this->journalService = new JournalService(new JournalRepository($pdo));
     }
 
     /**
@@ -114,6 +126,19 @@ final class NewsSeeder
                 $this->upload($declared['cover']),
             );
             $articles++;
+
+            // Controller\NewsController::create() journals every article it
+            // publishes; ArticleService does not. Five articles the journal
+            // never mentioned is exactly the gap this dataset exists to make
+            // visible rather than to reproduce.
+            $this->journalService->log(
+                'news',
+                'article_created',
+                'info',
+                "Article « {$article->title} » créé",
+                ['article_id' => $article->id],
+                $this->authorId,
+            );
 
             $this->editableContent->set(
                 ArticleService::bodyContentKey($article->id),
@@ -157,12 +182,89 @@ final class NewsSeeder
                         $values[$fieldIds[$index]] = $answer;
                     }
                 }
-                $this->responseRepository->create($form->id, null, null, $response['email'], $values, null, null);
+
+                $identity = $this->identityOf($response['tiers'], $response['email']);
+                if ($form->access === NewsForm::ACCESS_IDENTIFIED && $identity['accountId'] === null) {
+                    // Exactly what Service\ResponseService::submit() does with
+                    // a response nobody is logged in for on an `identified`
+                    // form: it refuses it. Writing the row anyway produced a
+                    // state the application cannot reach — and the page that
+                    // lists the responses then shows a submitter it cannot
+                    // name.
+                    continue;
+                }
+
+                $responseId = $this->responseRepository->create(
+                    $form->id,
+                    $identity['accountId'],
+                    null,
+                    $identity['email'],
+                    $values,
+                    null,
+                    null,
+                );
                 $responses++;
+
+                // The line Controller\FormController writes after every
+                // submission. The confirmation e-mail is why this seeder goes
+                // through the repository rather than submit() (README §8.3);
+                // the journal entry was never part of that reason.
+                $this->journalService->log(
+                    'news',
+                    'form_response_submitted',
+                    'info',
+                    "Réponse soumise pour l'article « {$article->title} »",
+                    ['article_id' => $article->id, 'form_id' => $form->id, 'response_id' => $responseId],
+                    $identity['accountId'],
+                );
             }
         }
 
         return ['articles' => $articles, 'forms' => $forms, 'responses' => $responses];
+    }
+
+    /**
+     * Who a declared response belongs to.
+     *
+     * A response on an `identified` form has an account behind it — that is
+     * the whole meaning of the access level — so the blueprint names a
+     * member by Tiers and this resolves the account the Desk import created
+     * for that member's address. The link between the two is the e-mail
+     * blind index, which is how the application itself finds an account
+     * from a member (Core\Security\UserAccountRepository::findByBlindIndex(),
+     * Core\Import\DeskImportService::ensureUserAccount()).
+     *
+     * A `public` form's responses carry a plain address and no account,
+     * which is a state submit() produces every day.
+     *
+     * @return array{accountId: ?int, email: string}
+     */
+    private function identityOf(?string $tiers, ?string $email): array
+    {
+        if ($tiers === null) {
+            return ['accountId' => null, 'email' => (string) $email];
+        }
+
+        $statement = $this->pdo->prepare(
+            'SELECT my.email_encrypted, ua.id AS account_id
+             FROM members m
+             JOIN member_years my ON my.member_id = m.id
+             LEFT JOIN user_accounts ua ON ua.email_blind_index = my.email_blind_index
+             WHERE m.desk_id = ? AND my.email_blind_index IS NOT NULL
+             ORDER BY my.scout_year_id DESC
+             LIMIT 1'
+        );
+        $statement->execute([$tiers]);
+        $row = $statement->fetch(\PDO::FETCH_ASSOC);
+
+        if ($row === false) {
+            return ['accountId' => null, 'email' => (string) $email];
+        }
+
+        return [
+            'accountId' => $row['account_id'] !== null ? (int) $row['account_id'] : null,
+            'email' => $this->encryption->decrypt($row['email_encrypted'], 'member_years.email'),
+        ];
     }
 
     /**
@@ -204,7 +306,7 @@ final class NewsSeeder
         copy($source, $copy);
 
         try {
-            return $this->uploadHandler->handle(
+            $fileId = $this->uploadHandler->handle(
                 [
                     'name' => $filename,
                     'type' => 'image/jpeg',
@@ -219,6 +321,24 @@ final class NewsSeeder
                 'news',
                 $this->authorId,
             );
+
+            // The other half of the real upload path, and the half this
+            // seeder used to skip: Modules\News\Controller\NewsController::
+            // resolveUploadedImageFileId() generates every derivative right
+            // after handle(), because the cards render the 192px thumb and
+            // the detail page the 1024px md rendition — and
+            // Core\Http\Controller\FileController::variant() answers 404
+            // rather than falling back to the original when one is missing,
+            // deliberately. A dataset built without them served a broken
+            // image on every news card until a cron pass caught up, and
+            // never again after a `--reset` (the backfill flag survived the
+            // wipe). generate() never throws; a derivative that cannot be
+            // produced must not fail the upload.
+            foreach (ImageVariantService::VARIANTS as $variant) {
+                $this->imageVariantService->generate($fileId, $variant);
+            }
+
+            return $fileId;
         } finally {
             if (is_file($copy)) {
                 @unlink($copy);

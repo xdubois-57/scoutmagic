@@ -72,6 +72,8 @@ final class RegistrationSeeder
 
     private readonly ScoutYearService $scoutYearService;
 
+    private readonly JournalService $journalService;
+
     /** @param array<string, int> $sectionIds section handle => sections.id */
     public function __construct(
         \PDO $pdo,
@@ -79,9 +81,10 @@ final class RegistrationSeeder
         private readonly array $sectionIds,
     ) {
         $this->requestRepository = new RegistrationRequestRepository($pdo, $encryption);
+        $this->journalService = new JournalService(new JournalRepository($pdo));
         $this->statusService = new RequestStatusService(
             $this->requestRepository,
-            new JournalService(new JournalRepository($pdo)),
+            $this->journalService,
         );
         $this->bracketRepository = new AgeBracketRepository($pdo);
         $this->capacityRepository = new SlotCapacityRepository($pdo);
@@ -146,6 +149,19 @@ final class RegistrationSeeder
                 [],
             );
             $requests++;
+
+            // Service\RegistrationService::submit() writes this line before
+            // it sends anything. The confirmation e-mail is the reason this
+            // seeder goes through the repository (README §8.3) — the journal
+            // entry is not part of that reason, and its absence left 23
+            // requests that nothing in the journal accounts for.
+            $this->journalService->log(
+                'registration',
+                'registration_request_received',
+                'info',
+                'Nouvelle demande d\'inscription reçue',
+                ['request_id' => $created['id']],
+            );
 
             if ($declared['status'] === RegistrationRequest::STATUS_PENDING) {
                 continue;

@@ -340,6 +340,7 @@ final class ExtrasApplier
     private function applyScoutYearOffsets(array $yearIds): int
     {
         $repository = new MemberYearRepository($this->pdo);
+        $journalService = new JournalService(new JournalRepository($this->pdo));
         $applied = 0;
 
         foreach (ExtrasBlueprint::SCOUT_YEAR_OFFSETS as $tiers => $byYear) {
@@ -349,6 +350,19 @@ final class ExtrasApplier
                     continue;
                 }
                 $repository->updateScoutYearOffset($memberYearId, $offset);
+
+                // Core\Http\Controller\MemberController::updateScoutYearOffset()
+                // journals every change of this value, and the offset is what
+                // decides the branch year the site displays: a change nothing
+                // records is exactly what the journal exists to prevent.
+                $journalService->log(
+                    'core',
+                    'member_scout_year_offset_changed',
+                    'info',
+                    'Décalage année scoute modifié pour un membre',
+                    ['member_year_id' => $memberYearId, 'old_offset' => 0, 'new_offset' => $offset],
+                    $this->actorId,
+                );
                 $applied++;
             }
         }

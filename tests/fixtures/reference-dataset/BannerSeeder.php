@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Tests\Fixtures\ReferenceDataset;
 
+use Core\Journal\JournalRepository;
+use Core\Journal\JournalService;
 use Core\View\EditableContentRepository;
 use Core\View\EditableContentService;
 use Modules\Banner\Repository\BannerRepository;
@@ -34,10 +36,13 @@ final class BannerSeeder
 
     private readonly EditableContentService $editableContent;
 
+    private readonly JournalService $journalService;
+
     public function __construct(\PDO $pdo, private readonly int $actorId)
     {
         $this->editableContent = new EditableContentService(new EditableContentRepository($pdo));
         $this->bannerService = new BannerService(new BannerRepository($pdo), $this->editableContent);
+        $this->journalService = new JournalService(new JournalRepository($pdo));
     }
 
     /** @return int the number of banners created */
@@ -49,6 +54,35 @@ final class BannerSeeder
             $banner = $this->bannerService->create();
             $this->bannerService->setRoleMin($banner->id, $declared['roleMin']);
             $this->bannerService->setActive($banner->id, $declared['isActive']);
+
+            // The three lines BannerConfigController writes for these three
+            // gestures. The service does not journal; the controller does,
+            // and a seeder that calls the service without them produces
+            // banners no journal ever mentions.
+            $this->journalService->log(
+                'banner',
+                'banner_created',
+                'info',
+                'Bannière créée',
+                ['banner_id' => $banner->id],
+                $this->actorId,
+            );
+            $this->journalService->log(
+                'banner',
+                'banner_role_min_changed',
+                'info',
+                'Visibilité minimale d\'une bannière modifiée',
+                ['banner_id' => $banner->id, 'role_min' => $declared['roleMin']],
+                $this->actorId,
+            );
+            $this->journalService->log(
+                'banner',
+                'banner_active_changed',
+                'info',
+                'Statut actif d\'une bannière modifié',
+                ['banner_id' => $banner->id, 'active' => $declared['isActive']],
+                $this->actorId,
+            );
             $this->editableContent->set(
                 'banner_content_' . $banner->id,
                 $declared['html'],

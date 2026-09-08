@@ -83,6 +83,42 @@ final class InstanceReset
      */
     private const PRESERVED_TABLES = ['settings', 'module_registry'];
 
+    /**
+     * Settings that are execution STATE rather than configuration, and that a
+     * preserved `settings` table would otherwise carry across the wipe.
+     *
+     * `settings` survives because it holds the unit's name, its SMTP settings
+     * and — decisively — nothing this class could rebuild. But the same table
+     * is also where the application parks the flags a real run leaves behind:
+     * "the thumbnails have been backfilled", "the annual close has been
+     * applied", "this is installation X", "the last cron pass was at T". Kept
+     * across a wipe, every one of them makes a claim about data that no longer
+     * exists — and the ones that gate a one-shot backfill make it *false*, so
+     * the backfill an emptied instance needs never runs again.
+     *
+     * `current_scout_year_id` is the one that shows: the provisioning script
+     * pins it on the single year it creates (id 1), the wipe restarts the
+     * AUTO_INCREMENT counters, and the setting then designates whichever year
+     * the builder happens to write first — 2024-2025. The site served the
+     * oldest of its three years as the public one, group photos and all, and
+     * the reference chief could not reach /config/banner.
+     *
+     * The suffixes are the rule; the explicit keys are what has no suffix.
+     * A new one-shot flag named in the house style is covered on the day it is
+     * written, which is the point — this list is not meant to be maintained by
+     * remembering it.
+     */
+    private const STATE_SETTING_KEYS = ['current_scout_year_id'];
+
+    /** @see self::STATE_SETTING_KEYS */
+    private const STATE_SETTING_SUFFIXES = [
+        '_backfilled',
+        '_seeded',
+        '_last_run',
+        '_applied_on',
+        '_installation_id',
+    ];
+
     public function __construct(
         private readonly Connection $connection,
         private readonly string $storagePath,
@@ -92,7 +128,7 @@ final class InstanceReset
 
     /**
      * @param bool $withBackup false only on an explicit second confirmation
-     * @return array{backupPath: ?string, backupError: ?string, tables: int, files: int}
+     * @return array{backupPath: ?string, backupError: ?string, tables: int, settings: int, files: int}
      * @throws \RuntimeException when the dump fails and no backup was waived
      */
     public function run(bool $withBackup = true): array
@@ -122,12 +158,14 @@ final class InstanceReset
         // cassent rien ; l'inverse laisserait des lignes `files` pointant vers
         // des fichiers disparus, ce que l'application, elle, sait mal vivre.
         $tables = $this->truncateAllTables();
+        $settings = $this->purgeStateSettings();
         $files = $this->wipeUploadedFiles();
 
         return [
             'backupPath' => $backupPath,
             'backupError' => $backupError,
             'tables' => $tables,
+            'settings' => $settings,
             'files' => $files,
         ];
     }
@@ -170,6 +208,47 @@ final class InstanceReset
         }
 
         return count($tables);
+    }
+
+    /**
+     * Remove the state flags from the one data table this reset preserves.
+     *
+     * @return int the number of settings removed
+     */
+    private function purgeStateSettings(): int
+    {
+        $pdo = $this->connection->getPdo();
+        $statement = $pdo->query('SELECT setting_key FROM settings');
+        $keys = $statement === false ? [] : $statement->fetchAll(\PDO::FETCH_COLUMN);
+
+        $removed = 0;
+        $delete = $pdo->prepare('DELETE FROM settings WHERE setting_key = ?');
+        foreach ($keys as $key) {
+            $key = (string) $key;
+            if (!$this->isStateSetting($key)) {
+                continue;
+            }
+            $delete->execute([$key]);
+            $removed += $delete->rowCount();
+        }
+
+        return $removed;
+    }
+
+    /** Execution state parked in `settings`, as against site configuration. */
+    private function isStateSetting(string $key): bool
+    {
+        if (in_array($key, self::STATE_SETTING_KEYS, true)) {
+            return true;
+        }
+
+        foreach (self::STATE_SETTING_SUFFIXES as $suffix) {
+            if (str_ends_with($key, $suffix)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

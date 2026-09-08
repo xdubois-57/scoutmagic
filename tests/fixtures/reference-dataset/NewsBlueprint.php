@@ -64,7 +64,7 @@ final class NewsBlueprint
      *     responseRoleMin: string,
      *     dailyDigest: bool,
      *     fields: list<array{field_type: string, label: ?string, is_required: bool, options_source: ?string, options_manual: ?string, capacity_max: ?int, price_per_unit: ?float, confirmation_text: ?string}>,
-     *     responses: list<array{email: string, answers: array<int, string>}>
+     *     responses: list<array{tiers: ?string, email: ?string, answers: array<int, string>}>
      *   }
      * }>
      */
@@ -108,12 +108,12 @@ final class NewsBlueprint
                     ['field_type' => FormField::TYPE_CONFIRMATION, 'label' => null, 'is_required' => false, 'options_source' => null, 'options_manual' => null, 'capacity_max' => null, 'price_per_unit' => null, 'confirmation_text' => "Je confirme ma participation et je préviendrai en cas d'empêchement."],
                 ],
                 'responses' => [
-                    ['email' => 'famille.bastin@example.org', 'answers' => [0 => 'Bastin', 1 => '4', 2 => 'Barbecue', 3 => '']],
-                    ['email' => 'famille.collard@example.org', 'answers' => [0 => 'Collard', 1 => '2', 2 => 'Végétarien', 3 => 'Une allergie aux fruits à coque.']],
-                    ['email' => 'famille.dumont@example.org', 'answers' => [0 => 'Dumont', 1 => '5', 2 => 'Barbecue', 3 => '']],
-                    ['email' => 'famille.hallet@example.org', 'answers' => [0 => 'Hallet', 1 => '3', 2 => 'Pas de repas', 3 => 'Nous passerons seulement l\'après-midi.']],
-                    ['email' => 'famille.lejeune@example.org', 'answers' => [0 => 'Lejeune', 1 => '2', 2 => 'Barbecue', 3 => '']],
-                    ['email' => 'famille.renard@example.org', 'answers' => [0 => 'Renard', 1 => '6', 2 => 'Barbecue', 3 => 'Nous amenons une tarte.']],
+                    ['tiers' => null, 'email' => 'famille.bastin@example.org', 'answers' => [0 => 'Bastin', 1 => '4', 2 => 'Barbecue', 3 => '']],
+                    ['tiers' => null, 'email' => 'famille.collard@example.org', 'answers' => [0 => 'Collard', 1 => '2', 2 => 'Végétarien', 3 => 'Une allergie aux fruits à coque.']],
+                    ['tiers' => null, 'email' => 'famille.dumont@example.org', 'answers' => [0 => 'Dumont', 1 => '5', 2 => 'Barbecue', 3 => '']],
+                    ['tiers' => null, 'email' => 'famille.hallet@example.org', 'answers' => [0 => 'Hallet', 1 => '3', 2 => 'Pas de repas', 3 => 'Nous passerons seulement l\'après-midi.']],
+                    ['tiers' => null, 'email' => 'famille.lejeune@example.org', 'answers' => [0 => 'Lejeune', 1 => '2', 2 => 'Barbecue', 3 => '']],
+                    ['tiers' => null, 'email' => 'famille.renard@example.org', 'answers' => [0 => 'Renard', 1 => '6', 2 => 'Barbecue', 3 => 'Nous amenons une tarte.']],
                 ],
             ],
         ],
@@ -141,11 +141,20 @@ final class NewsBlueprint
                     ['field_type' => FormField::TYPE_NUMBER, 'label' => 'Nombre de couchages', 'is_required' => true, 'options_source' => null, 'options_manual' => null, 'capacity_max' => 20, 'price_per_unit' => 25.0, 'confirmation_text' => null],
                     ['field_type' => FormField::TYPE_RADIO, 'label' => 'Arrivée', 'is_required' => true, 'options_source' => 'manual', 'options_manual' => "Vendredi soir\nSamedi matin", 'capacity_max' => null, 'price_per_unit' => null, 'confirmation_text' => null],
                 ],
+                // Named members rather than free e-mail addresses, because
+                // this form is `identified` and limited to one response per
+                // account: Service\ResponseService::submit() refuses a
+                // response with no account behind it, so four rows carrying
+                // `user_account_id = NULL` were a state the application
+                // itself cannot produce. The seeder resolves each Tiers to
+                // the account the Desk import created for that member
+                // (Core\Import\DeskImportService::ensureUserAccount()), and
+                // stores that member's own address as the contact.
                 'responses' => [
-                    ['email' => 'staff.seeonee@example.org', 'answers' => [0 => 'Chamois', 1 => '5', 2 => 'Vendredi soir']],
-                    ['email' => 'staff.waingunga@example.org', 'answers' => [0 => 'Ibis', 1 => '3', 2 => 'Vendredi soir']],
-                    ['email' => 'staff.faucon@example.org', 'answers' => [0 => 'Okapi', 1 => '6', 2 => 'Samedi matin']],
-                    ['email' => 'staff.escaut@example.org', 'answers' => [0 => 'Fennec', 1 => '3', 2 => 'Vendredi soir']],
+                    ['tiers' => 'T0014', 'email' => null, 'answers' => [0 => 'Chamois', 1 => '5', 2 => 'Vendredi soir']],
+                    ['tiers' => 'T0015', 'email' => null, 'answers' => [0 => 'Ibis', 1 => '3', 2 => 'Vendredi soir']],
+                    ['tiers' => 'T0016', 'email' => null, 'answers' => [0 => 'Okapi', 1 => '6', 2 => 'Samedi matin']],
+                    ['tiers' => 'T0017', 'email' => null, 'answers' => [0 => 'Fennec', 1 => '3', 2 => 'Vendredi soir']],
                 ],
             ],
         ],
