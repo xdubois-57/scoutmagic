@@ -27,6 +27,14 @@ class MailSandboxService
     /** The arm switch. Registered non-editable, toggled only from here. */
     public const SETTING_ARMED = 'mail_capture_armed';
 
+    /**
+     * The one exception to the capture: whether the sign-in link still
+     * leaves the server while everything else is captured. Registered
+     * non-editable and toggled only from here, exactly like the arm switch
+     * — it changes what does and does not reach a real inbox.
+     */
+    public const SETTING_DELIVER_MAGIC_LINKS = 'mail_capture_deliver_magic_links';
+
     /** How many captured messages are kept — see purge() below. */
     public const SETTING_RETENTION = 'mail_capture_retention';
 
@@ -63,6 +71,57 @@ class MailSandboxService
     public function armed(): bool
     {
         return self::isArmed($this->settingService);
+    }
+
+    /**
+     * Whether a sign-in link is exempted from the capture right now.
+     *
+     * Static for the same reason as isArmed(): the composition root has to
+     * answer it before any of this module's services exist.
+     *
+     * The exemption exists because the sandbox otherwise deadlocks the
+     * installation it is meant to make testable — armed, the sign-in
+     * e-mail lands on the sandbox page instead of in an inbox, so nobody
+     * can sign in to the site being tested. It says nothing on its own:
+     * with the capture disarmed, every e-mail leaves anyway.
+     */
+    public static function deliversMagicLinks(SettingService $settingService): bool
+    {
+        return (string) ($settingService->get(self::SETTING_DELIVER_MAGIC_LINKS, self::MODULE_ID) ?? '0') === '1';
+    }
+
+    public function magicLinksDelivered(): bool
+    {
+        return self::deliversMagicLinks($this->settingService);
+    }
+
+    /**
+     * Lets sign-in links through, or captures them like everything else.
+     *
+     * Journaled at level `security` in both directions, for the same
+     * reason as the arm switch: it decides whether a live sign-in link
+     * reaches a real inbox. No address ever appears in the entry.
+     */
+    public function setMagicLinksDelivered(bool $delivered, ?int $userId = null): void
+    {
+        // setInternal(), like the arm switch: registered non-editable so it
+        // never renders as a row on Configuration > Paramètres.
+        $this->settingService->setInternal(
+            self::SETTING_DELIVER_MAGIC_LINKS,
+            $delivered ? '1' : '0',
+            self::MODULE_ID
+        );
+
+        $this->journalService->log(
+            self::MODULE_ID,
+            $delivered ? 'mail_capture_magic_links_delivered' : 'mail_capture_magic_links_captured',
+            'security',
+            $delivered
+                ? 'Liens de connexion exemptés de la capture : ils repartent vers leur destinataire.'
+                : 'Liens de connexion à nouveau capturés : plus aucun ne quitte le serveur.',
+            [],
+            $userId
+        );
     }
 
     /**

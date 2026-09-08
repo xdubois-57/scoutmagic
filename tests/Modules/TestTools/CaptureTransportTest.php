@@ -6,8 +6,11 @@ namespace Tests\Modules\TestTools;
 
 use Core\File\EncryptedFileStorageService;
 use Core\File\FileRepository;
+use Core\Journal\JournalRepository;
+use Core\Journal\JournalService;
 use Core\Mail\DkimManager;
 use Core\Mail\MailException;
+use Core\Mail\MailPurpose;
 use Core\Mail\MailService;
 use Core\Mail\MailTransportInterface;
 use Core\Security\EncryptionService;
@@ -58,12 +61,62 @@ class CaptureTransportTest extends TestCase
         self::removeDir($this->tempDir);
     }
 
+    /**
+     * A transport that captures everything, sign-in links included — the
+     * default, and what every test below uses unless it says otherwise.
+     * Its pass-through refuses to be called at all, which is the assertion
+     * that nothing reaches the network on this path.
+     */
     private function transport(): CaptureTransport
     {
-        return new CaptureTransport($this->repository, $this->fileStorage);
+        return new CaptureTransport($this->repository, $this->fileStorage, $this->refusingPassThrough());
     }
 
-    private function service(?DkimManager $dkimManager = null): MailService
+    /**
+     * The same transport with the one exemption turned on, and a
+     * pass-through that records what it was handed instead of sending it.
+     */
+    private function exemptingTransport(
+        MailTransportInterface $passThrough,
+        ?CapturedEmailRepository $repository = null
+    ): CaptureTransport {
+        return new CaptureTransport(
+            $repository ?? $this->repository,
+            $this->fileStorage,
+            $passThrough,
+            true,
+            new JournalService(new JournalRepository($this->pdo))
+        );
+    }
+
+    private function refusingPassThrough(): MailTransportInterface
+    {
+        return new class implements MailTransportInterface {
+            public function deliver(PHPMailer $mail, MailPurpose $purpose): void
+            {
+                throw new \LogicException('Le transport de secours ne doit jamais être appelé ici.');
+            }
+        };
+    }
+
+    private function recordingPassThrough(): MailTransportInterface
+    {
+        return new class implements MailTransportInterface {
+            public int $calls = 0;
+            public ?MailPurpose $purpose = null;
+
+            public function deliver(PHPMailer $mail, MailPurpose $purpose): void
+            {
+                $this->calls++;
+                $this->purpose = $purpose;
+                // What PhpMailerTransport's send() leaves behind, minus
+                // the network: the assembled message on the instance.
+                $mail->preSend();
+            }
+        };
+    }
+
+    private function service(?DkimManager $dkimManager = null, ?MailTransportInterface $transport = null): MailService
     {
         return new MailService(
             mode: 'local',
@@ -72,7 +125,7 @@ class CaptureTransportTest extends TestCase
             shortName: '25SV',
             dkimManager: $dkimManager ?? new DkimManager($this->tempDir . '/dkim-empty'),
             dkimSelector: 'mail',
-            transport: $this->transport()
+            transport: $transport ?? $this->transport()
         );
     }
 
@@ -244,7 +297,7 @@ class CaptureTransportTest extends TestCase
 
         try {
             // preSend() refuses a message with no recipient at all.
-            $this->transport()->deliver($mail);
+            $this->transport()->deliver($mail, MailPurpose::Ordinary);
             $this->fail('Expected the transport to rethrow');
         } catch (\Exception) {
             // Expected: whatever PHPMailer raised comes straight back out.
@@ -279,11 +332,11 @@ class CaptureTransportTest extends TestCase
                 {
                 }
 
-                public function deliver(PHPMailer $mail): void
+                public function deliver(PHPMailer $mail, MailPurpose $purpose): void
                 {
                     // Same shape as the real failure path: capture, then
                     // rethrow what PHPMailer raised.
-                    $this->inner->deliver($mail);
+                    $this->inner->deliver($mail, $purpose);
                     throw new \RuntimeException('assemblage impossible');
                 }
             }
@@ -348,6 +401,10 @@ class CaptureTransportTest extends TestCase
     {
         $source = (string) file_get_contents(dirname(__DIR__, 3) . '/modules/test_tools/src/Mail/CaptureTransport.php');
 
+        // Still true with the sign-in exemption in place: this module does
+        // not send anything itself even then — it hands the message to the
+        // ordinary transport, which is the only thing in the codebase that
+        // calls send().
         $this->assertStringNotContainsString('->postSend(', $source);
         $this->assertStringNotContainsString('$mail->send(', $source);
         $this->assertStringContainsString('->preSend(', $source);
@@ -373,7 +430,7 @@ class CaptureTransportTest extends TestCase
         $mail->Body = '<p>Bonjour</p>';
         $mail->AltBody = 'Bonjour';
 
-        $this->transport()->deliver($mail);
+        $this->transport()->deliver($mail, MailPurpose::Ordinary);
 
         $email = $this->repository->findPage(10, 0)[0];
         $this->assertNotNull($email->mimeFileId);
@@ -381,6 +438,205 @@ class CaptureTransportTest extends TestCase
 
         $this->assertStringContainsString('To: destinataire@example.be', $message);
         $this->assertStringContainsString('Subject: [25SV] Bonjour', $message);
+    }
+
+    // ----------------------------------------------------------------
+    // The one exception the capture admits: the sign-in link
+    // (ARCHITECTURE.md §8.63). Off by default — these tests pin both
+    // states, and that the exemption is a CATEGORY and not an address.
+    // ----------------------------------------------------------------
+
+    public function testASignInLinkIsCapturedLikeEverythingElseByDefault(): void
+    {
+        // The pass-through here throws if it is ever reached, so this
+        // asserts the default really is "nothing leaves the server".
+        $this->service()->send(
+            to: 'destinataire@example.be',
+            subject: 'Votre lien de connexion',
+            bodyHtml: '<p>Connectez-vous</p>',
+            bodyText: 'Connectez-vous',
+            purpose: MailPurpose::MagicLink
+        );
+
+        $email = $this->repository->findPage(10, 0)[0];
+        $this->assertFalse($email->delivered);
+    }
+
+    public function testTheExemptionLetsASignInLinkOutAndStillFilesIt(): void
+    {
+        $passThrough = $this->recordingPassThrough();
+
+        $this->service(transport: $this->exemptingTransport($passThrough))->send(
+            to: 'destinataire@example.be',
+            subject: 'Votre lien de connexion',
+            bodyHtml: '<p>Connectez-vous</p>',
+            bodyText: 'Connectez-vous',
+            purpose: MailPurpose::MagicLink
+        );
+
+        // It really went out, through the ordinary transport and with the
+        // purpose intact.
+        $this->assertSame(1, $passThrough->calls);
+        $this->assertSame(MailPurpose::MagicLink, $passThrough->purpose);
+
+        // …and it is filed anyway, flagged, so the sandbox stays a
+        // complete record of what the site sent.
+        $email = $this->repository->findPage(10, 0)[0];
+        $this->assertTrue($email->delivered);
+        $this->assertSame('[25SV] Votre lien de connexion', $email->subject);
+        $this->assertNull($email->errorMessage);
+        $this->assertNotNull($email->mimeFileId);
+        $this->assertStringContainsString(
+            'Votre lien de connexion',
+            (string) $this->fileStorage->retrieve($email->mimeFileId)
+        );
+    }
+
+    /**
+     * The exemption is a category, never an address and never "everything
+     * while I am testing": an ordinary e-mail is captured exactly as
+     * before, even with the exemption on.
+     */
+    public function testTheExemptionAppliesToSignInLinksAndToNothingElse(): void
+    {
+        $passThrough = $this->recordingPassThrough();
+
+        $this->service(transport: $this->exemptingTransport($passThrough))->send(
+            to: 'destinataire@example.be',
+            subject: 'Convocation',
+            bodyHtml: '<p>Bonjour</p>',
+            bodyText: 'Bonjour'
+        );
+
+        $this->assertSame(0, $passThrough->calls);
+
+        $email = $this->repository->findPage(10, 0)[0];
+        $this->assertFalse($email->delivered);
+    }
+
+    /**
+     * A refused delivery on the exempted path behaves like a failed
+     * assembly: the row is written with the error, `delivered` stays
+     * false, and the exception reaches the caller as a MailException.
+     */
+    public function testARefusedDeliveryOnTheExemptedPathIsFiledAndRethrown(): void
+    {
+        $refusing = new class implements MailTransportInterface {
+            public function deliver(PHPMailer $mail, MailPurpose $purpose): void
+            {
+                throw new \RuntimeException('serveur de messagerie injoignable');
+            }
+        };
+
+        try {
+            $this->service(transport: $this->exemptingTransport($refusing))->send(
+                to: 'destinataire@example.be',
+                subject: 'Votre lien de connexion',
+                bodyHtml: '<p>Connectez-vous</p>',
+                bodyText: 'Connectez-vous',
+                purpose: MailPurpose::MagicLink
+            );
+            $this->fail('Une MailException était attendue.');
+        } catch (MailException $e) {
+            $this->assertStringContainsString('serveur de messagerie injoignable', $e->getMessage());
+        }
+
+        $email = $this->repository->findPage(10, 0)[0];
+        $this->assertFalse($email->delivered);
+        $this->assertNotNull($email->errorMessage);
+        $this->assertNull($email->mimeFileId);
+    }
+
+    /**
+     * Past the delivery, everything is bookkeeping — and a bookkeeping
+     * fault is not a delivery fault. Letting it out would make
+     * MailService journal `mail_send_failed` and hand AuthService a
+     * MailException for a sign-in link already sitting in an inbox: the
+     * site telling a visitor their e-mail could not be sent while they
+     * are reading it.
+     */
+    public function testAFilingFailureAfterDeliveryNeitherFailsTheSendNorGoesUnrecorded(): void
+    {
+        $passThrough = $this->recordingPassThrough();
+
+        // A repository whose write fails, standing in for the encrypted
+        // write or the INSERT giving way after the message has left.
+        $breaking = new class ($this->pdo, $this->encryption) extends CapturedEmailRepository {
+            public function create(
+                \DateTimeImmutable $capturedAt,
+                string $subject,
+                string $recipient,
+                string $fromAddress,
+                ?string $replyTo,
+                int $sizeBytes,
+                bool $hasDkim,
+                ?int $mimeFileId,
+                ?int $bodyHtmlFileId,
+                ?int $bodyTextFileId,
+                ?string $errorMessage,
+                array $attachments,
+                bool $delivered = false
+            ): int {
+                throw new \RuntimeException('écriture impossible');
+            }
+        };
+
+        // No exception reaches the caller: the mail did leave.
+        $this->service(transport: $this->exemptingTransport($passThrough, $breaking))->send(
+            to: 'destinataire@example.be',
+            subject: 'Votre lien de connexion',
+            bodyHtml: '<p>Connectez-vous</p>',
+            bodyText: 'Connectez-vous',
+            purpose: MailPurpose::MagicLink
+        );
+
+        $this->assertSame(1, $passThrough->calls);
+
+        // …and the gap is written down rather than swallowed.
+        $entry = $this->pdo
+            ->query("SELECT * FROM event_log WHERE event_type = 'mail_capture_delivery_unfiled'")
+            ->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($entry, 'a delivery the sandbox could not file must reach the journal');
+        $this->assertSame('error', $entry['level']);
+        $this->assertSame('test_tools', $entry['category']);
+        $this->assertStringNotContainsString('@', (string) $entry['description']);
+    }
+
+    /**
+     * `error_message` is a plain TEXT column in the very table that
+     * encrypts `recipient` as a BLOB because a recipient is personal
+     * data. PHPMailer glues the address that failed to the SMTP code
+     * that explains it, and on the exempted path a per-recipient refusal
+     * is the ordinary case.
+     */
+    public function testAFailureReasonIsStoredWithTheAddressesTakenOut(): void
+    {
+        $refusing = new class implements MailTransportInterface {
+            public function deliver(PHPMailer $mail, MailPurpose $purpose): void
+            {
+                throw new \RuntimeException('SMTP Error: 550 5.1.1 <destinataire@example.be> User unknown');
+            }
+        };
+
+        try {
+            $this->service(transport: $this->exemptingTransport($refusing))->send(
+                to: 'destinataire@example.be',
+                subject: 'Votre lien de connexion',
+                bodyHtml: '<p>Connectez-vous</p>',
+                bodyText: 'Connectez-vous',
+                purpose: MailPurpose::MagicLink
+            );
+            $this->fail('Une MailException était attendue.');
+        } catch (MailException) {
+            // Expected — the delivery really did fail here.
+        }
+
+        $stored = (string) $this->pdo->query('SELECT error_message FROM captured_emails')->fetchColumn();
+
+        $this->assertStringNotContainsString('destinataire@example.be', $stored);
+        $this->assertStringContainsString('[adresse]', $stored);
+        // The half that actually diagnoses the problem survives.
+        $this->assertStringContainsString('550 5.1.1', $stored);
     }
 
     private static function removeDir(string $dir): void

@@ -21,7 +21,12 @@ use PHPMailer\PHPMailer\PHPMailer;
  */
 final class PhpMailerTransport implements MailTransportInterface
 {
-    public function deliver(PHPMailer $mail): void
+    /**
+     * The purpose is ignored here, and deliberately so: putting a message
+     * on the wire is the same operation whatever it says. Only a transport
+     * that does something OTHER than send has a reason to look at it.
+     */
+    public function deliver(PHPMailer $mail, MailPurpose $purpose): void
     {
         $mail->send();
     }

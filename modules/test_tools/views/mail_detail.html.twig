@@ -24,6 +24,15 @@
     <dt class="col-4 col-lg-2">Taille</dt>
     <dd class="col-8 col-lg-10">{{ (email.sizeBytes / 1024)|round(1) }} Ko</dd>
 
+    <dt class="col-4 col-lg-2">Remise</dt>
+    <dd class="col-8 col-lg-10">
+        {% if email.delivered %}
+            <span class="badge text-bg-info">Remis au destinataire</span>
+        {% else %}
+            <span class="badge text-bg-secondary">Capturé, non remis</span>
+        {% endif %}
+    </dd>
+
     <dt class="col-4 col-lg-2">Signature</dt>
     <dd class="col-8 col-lg-10">
         {% if email.hasDkim %}
@@ -36,8 +45,14 @@
 
 {% if email.hasFailed %}
     <div class="alert alert-danger" role="alert">
-        <p class="fw-semibold mb-1">L'assemblage de ce message a échoué.</p>
-        <p class="mb-0 small">{{ email.errorMessage }}</p>
+        <p class="fw-semibold mb-1">Ce message n'a pas abouti.</p>
+        <p class="mb-1 small">
+            Son assemblage a échoué, ou le serveur de messagerie a refusé de le remettre —
+            ce second cas ne peut se produire que pour un lien de connexion laissé partir.
+            Les adresses e-mail ont été retirées du message d'erreur ci-dessous&nbsp;: elles
+            sont des données personnelles, et il est conservé en clair.
+        </p>
+        <p class="mb-0 small font-monospace">{{ email.errorMessage }}</p>
     </div>
 {% endif %}
 

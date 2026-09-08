@@ -90,6 +90,9 @@ class MailService
      * @param array<string, string> $extraHeaders Raw header name => value pairs added as-is (e.g. mass_mail's
      *                                             List-Unsubscribe / List-Unsubscribe-Post, RFC 8058) — the caller is
      *                                             responsible for values being header-safe (no newlines).
+     * @param MailPurpose $purpose What this message is, for DELIVERY purposes only, and nothing else: the
+     *                             transport is the only thing that reads it, and the default transport ignores
+     *                             it. Left at `Ordinary` by all but one call site — see MailPurpose.
      * @throws MailException on failure
      */
     public function send(
@@ -101,7 +104,8 @@ class MailService
         array $attachments = [],
         ?string $fromAddressOverride = null,
         ?string $fromNameOverride = null,
-        array $extraHeaders = []
+        array $extraHeaders = [],
+        MailPurpose $purpose = MailPurpose::Ordinary
     ): void {
         $mail = new PHPMailer(true);
 
@@ -169,7 +173,7 @@ class MailService
             // The delivery step, and only the delivery step: everything
             // above stays here so a captured message is byte-for-byte the
             // message that would have gone out.
-            $this->transport->deliver($mail);
+            $this->transport->deliver($mail, $purpose);
         } catch (\Exception $e) {
             $reason = $mail->ErrorInfo ?: $e->getMessage();
             $this->journalFailure($reason);
@@ -222,40 +226,12 @@ class MailService
                     'mode' => $this->getDeliveryMode(),
                     'configured' => $this->isDeliveryConfigured(),
                     'origin' => self::callerOutsideThisNamespace(),
-                    'reason' => self::redact($reason),
+                    'reason' => MailErrorRedaction::withoutAddresses($reason),
                 ]
             );
         } catch (\Throwable) {
             // Swallowed on purpose — see the docblock.
         }
-    }
-
-    /**
-     * What the transport said, with e-mail addresses taken out.
-     *
-     * PHPMailer's `ErrorInfo` quotes the conversation, and the useful
-     * half of it — « 550 5.1.1 User unknown », « Could not authenticate »,
-     * « SMTP connect() failed » — arrives glued to the address that
-     * failed. That address is personal data, this journal is readable by
-     * every admin and travels to the maintainer inside the diagnostic
-     * archive, and SECURITY.md's rule for journal entries has no
-     * exception for « it was in the error message ». The SMTP code and
-     * the server's words are what diagnoses the problem anyway; the
-     * address only says which member happened to be next in the queue.
-     *
-     * Bounded too: `event_log.context` is JSON on a shared-hosting
-     * database, and a transport that answers with a wall of text is
-     * exactly the transport that is misbehaving.
-     */
-    private static function redact(string $reason): string
-    {
-        $clean = (string) preg_replace(
-            '/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/u',
-            '[adresse]',
-            trim($reason)
-        );
-
-        return mb_substr($clean, 0, 400);
     }
 
     /**

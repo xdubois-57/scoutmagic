@@ -493,7 +493,7 @@ final class CapturingMailTransport implements MailTransportInterface
     /** An address to refuse, or `*` for all of them. */
     public ?string $failFor = null;
 
-    public function deliver(PHPMailer $mail): void
+    public function deliver(PHPMailer $mail, \Core\Mail\MailPurpose $purpose): void
     {
         $recipient = $mail->getToAddresses()[0][0] ?? '';
         if ($this->failFor === '*' || ($this->failFor !== null && $this->failFor === $recipient)) {

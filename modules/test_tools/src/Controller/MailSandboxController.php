@@ -19,8 +19,8 @@ use Twig\Environment;
 
 /**
  * `/test-tools/mail-sandbox` (`role_min: superadmin`) — the captured
- * messages, and the switch that decides whether mail leaves the server at
- * all (ARCHITECTURE.md §8.63).
+ * messages, the switch that decides whether mail leaves the server at all,
+ * and the one exception that switch admits (ARCHITECTURE.md §8.63).
  */
 class MailSandboxController extends AbstractController
 {
@@ -52,6 +52,7 @@ class MailSandboxController extends AbstractController
 
         return $this->render('@test_tools/mail_sandbox.html.twig', [
             'armed' => $this->sandboxService->armed(),
+            'magic_links_delivered' => $this->sandboxService->magicLinksDelivered(),
             'filters' => $filters,
             'emails' => $this->sandboxService->page(
                 MailSandboxFilters::PAGE_SIZE,
@@ -137,6 +138,32 @@ class MailSandboxController extends AbstractController
 
         $this->sandboxService->setArmed(
             (string) $request->getBody('armed', '0') === '1',
+            AuthSession::getUserAccountId()
+        );
+
+        return $this->redirect('/test-tools/mail-sandbox');
+    }
+
+    /**
+     * `POST /test-tools/mail-sandbox/magic-links` — the one exception the
+     * capture admits: let the sign-in e-mail out, or capture it like
+     * everything else.
+     *
+     * A checkbox, so an unchecked box submits nothing at all: the absent
+     * field is read as "off", which is the same reading the browser gives
+     * it. Nothing here toggles blind either — the setting is set to the
+     * submitted state, not flipped.
+     *
+     * @param array<string, string> $params
+     */
+    public function toggleMagicLinks(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, '/test-tools/mail-sandbox')) !== null) {
+            return $guard;
+        }
+
+        $this->sandboxService->setMagicLinksDelivered(
+            (string) $request->getBody('deliver_magic_links', '0') === '1',
             AuthSession::getUserAccountId()
         );
 
