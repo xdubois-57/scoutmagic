@@ -658,3 +658,47 @@ rôle, les pages des objets semés (`/news` et chaque article, `/sections`,
 - Les deux extras que le README §8.3 déclare non couverts (documents de section, groupes de discussion) : rien à confronter.
 - La rejouabilité **sans** `--reset` est un refus propre par construction (README §8) ; une seconde construction ne se teste que par `--reset`, et c'est là que #212 apparaît.
 - Trois écarts de documentation, notés ici plutôt qu'en issue : la réservation « à cheval sur aujourd'hui » du README §8.3 s'est terminée le 4 septembre (dates figées, calendrier qui avance) ; le docblock de `DeskImportReplay` dit encore que `DeskImportService::import()` supprime le fichier ; le §1 du présent chantier parle d'un poor man's cron qui n'existe plus.
+
+### Itération 2 — La portée objet, au-delà du `role_min` — 2026-09-07
+
+**Périmètre parcouru** : les 294 routes portant un paramètre (sur 650
+déclarées dans `public/index.php` et les 22 `module.json`), lues contrôleur
+par contrôleur jusqu'au service qui résout l'objet — 41 du cœur, 83 de
+`finance`/`registration`/`rental`/`fees`/`attestations`, 178 des autres
+modules — pour répondre à une question par route : après le garde de rôle,
+quelle méthode confronte l'objet à l'appelant, et répond-elle pareil à
+« interdit » et à « inexistant ». Puis, sur l'instance de l'itération 1
+(le réglage `current_scout_year_id` retiré pour retrouver l'année
+date-calculée que le README promet — voir #212), avec les six comptes du
+README §10 plus deux animateurs d'autres sections dotés d'un mot de passe
+comme `DemoAccounts` le fait : chaque candidat rejoué en `curl`, GET et
+POST, avec le code HTTP obtenu.
+
+**Issues ouvertes** :
+- #218 — envois groupés : tout animateur lit, réécrit et fait changer d'état le brouillon d'une autre section (la règle de section ne porte que sur la liste choisie à la création) ;
+- #219 — deux routes répondent 403 sur un objet existant et 404 sinon : les mouvements financiers d'un compte invisible (`MovementController`, et `ReceiptController` par lecture) et les réponses de formulaire, sans être connecté (`FormController::editResponse()`) ;
+- #220 — le scanner de billets ignore `response_role_min` : un `chief` lit les inscrits d'un formulaire réservé au chef d'unité ;
+- #221 — le décalage d'année scoute d'un animé se modifie depuis n'importe quelle section, alors que la grille « Départs » refuse le même compte sur le même membre ;
+- #222 — un intendant ne peut jamais être trésorier : le badge s'attribue, mais `TreasurerScopeService` exige une fonction `chief`/`admin`, et le compte de section reste invisible.
+
+**Vérifié et tenu** :
+- `MemberService::canAccess()` sur `/members/{id}` : soi-même et les membres du même foyer (le parent ouvre ses trois enfants), 403 pour un autre membre **et** pour un id inexistant ; tout `chief`/`admin` voit tout membre, ce qui est la règle documentée (§8.14) — le manque n'est pas là mais sur l'écriture (#221).
+- Les adresses secondaires (`/members/{id}/emails/*`, `requireOwnMemberId()` sans contournement), les documents de membre (`/admin/members/{id}/documents/{document_id}/renvoyer`, égalité du membre), les notes (`requireOwnNote()`), les documents de section (`staffsEverySection()`), les notifications (compte propriétaire) : chaque objet imbriqué est rattaché à son parent — par lecture pour ceux que le jeu de données ne contient pas (aucun `member_emails`, `member_documents`, `section_documents`, `notifications` semé).
+- `FileAccessGuard::check()` : 403 uniforme pour « refusé » et « inexistant » ; l'accès à l'audit (`/api/audit/{type}/{id}`) répond 403 dans tous les cas, avec son commentaire qui énonce la règle que #219 viole ailleurs.
+- La partition des comptes financiers : l'intendant sans badge ne voit que les comptes d'unité, l'animateur trésorier de Waingunga voit son compte et ceux de l'unité, `?account_id=` d'un autre compte retombe sur un compte visible sur les huit pages `/finance/*` ; `CampaignService::requireCampaign()`, `ReceivableAllocationService::requirePair()` (transaction et créance sur le même compte), `ReceiptController::changeAccount()` (404 sur le compte cible) tiennent.
+- Les Départs : `POST /departs/{member_year_id}` refuse l'animé d'une autre section (« Cette section n'est pas la vôtre ») et accepte celui de la sienne ; 403 aussi pour un id inexistant.
+- Les jetons : `/inscriptions/suivi/{id}/{token}` (bcrypt, `password_verify`), `/locations/suivi/{id}/{token}` (64 hex, `hash_equals`), `/finance/qr/{id}/{token}` et `/news/qr/{reference}/{token}` (HMAC, `hash_equals`) : 404 uniforme pour un mauvais jeton comme pour un id inconnu, l'identifiant seul n'ouvre rien. Le jeton QR des créances est dérivé, sans expiration — révocable par rotation de clé seulement, ce que son en-tête dit.
+- Les locations : `/mes-locations/{slug}*` répond 404 (jamais 403) à qui ne gère pas le bien, animé et parent compris, y compris sur les réglages et une réservation ; `bookingOfAsset()` rattache la réservation au bien. Le suivi par jeton ne dépend pas de l'id.
+- Les groupes de discussion : 404 pour un non-membre sur les 40 routes, 403 pour un membre non modérateur, chaque message et réponse rattaché à son groupe — par lecture seule, le jeu de données ne contenant aucun groupe (README §8.3).
+- Les actualités : `/news/{id}` refuse selon la visibilité (l'animé, l'intendant et le parent reçoivent 403 sur l'article `chief`) ; `/news/{id}/gerer` refuse l'animateur qui n'est pas l'auteur ; `loadResponseContext()` rattache la réponse à l'article (pas de réponse d'un autre article) ; `/news/{id}/form/responses` applique `response_role_min` (403 pour l'intendant et l'animateur sur le formulaire réservé au chef d'unité).
+- La galerie : un album de section créé par un animateur est lu par les animateurs des autres sections (200) et refusé à ses animés/parents d'une autre section (403) ; l'édition ne s'ouvre qu'à sa section (403 ailleurs). Lecture large, écriture étroite — cohérent avec la règle des membres.
+- Les camps : tout animateur voit tout séjour et tout lieu — écrit trois fois dans le module comme voulu (`CampAlbumAccessChecker`, `CampsMessageConsumer`, `schema.sql`).
+- Les demandes d'inscription, factures de cotisation, lots d'attestations, propositions de doublons, rapports d'import : objets d'unité derrière `admin`, sans second contrôle et sans en avoir besoin ; `/inscriptions/suivi/demande/{id}` refuse un compte non lié (403, identique pour un id inconnu).
+- Deux remarques notées sans issue, faute de conséquence au-delà d'un rôle déjà unitaire : `GET /api/maintenance/reset-status/{id}` rend le statut et le `last_error` de n'importe quelle tâche planifiée à tout `admin` (`SupportController::packageStatus()` filtre, lui, sur sa `task_key`) ; `POST /passage/membre/{id}/note` accepte tout entier positif sans vérifier le membre.
+
+**Non vérifiable, et pourquoi** :
+- `CampaignController::waive()` accepte une créance d'une autre campagne du même compte visible (lecture) : une seule campagne dans le jeu de données.
+- `ReceiptController::requireVisibleAttachment()` (le second endroit de #219) : aucun reçu sur un compte invisible ; le mécanisme est le même que celui des mouvements, exercé.
+- `FileAccessGuard` et l'année effective : les identifiants de membre liés sont rebâtis pour l'année effective alors que `files.owner_member_id` est un `members.id` persistant (lecture de `public/index.php`) — un membre sans ligne dans l'année effective, ou une session en aperçu d'année, perdrait l'accès à ses propres documents ; aucun fichier à propriétaire dans le jeu de données (`owner_member_id` toujours nul). À reprendre en itération 6.
+- `MassMailService::sendTestEmail()`, `resendToRecipient()`, `removeAttachment()` : même forme que #218, non exercés pour ne pas envoyer de courrier ni téléverser de pièce jointe.
+- Les listeners d'import Desk et les groupes : hors jeu de données, lecture seule.
