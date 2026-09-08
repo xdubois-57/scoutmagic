@@ -464,6 +464,38 @@ class SectionService
     }
 
     /**
+     * The sections one member year ANIMATES — the exact complement of
+     * getSectionAnimeMemberYearIds() above, asked from the person's side.
+     *
+     * « Animates » is `member_functions` of role chief/admin on a real
+     * section, the same resolution SectionStaffAuthorizationService and
+     * Modules\Finance\Service\TreasurerScopeService use. An
+     * `intendant` function does not animate: the role exists to reach the
+     * finances without being a chief, and it carries no section staff.
+     *
+     * First consumer: Core\Badge\BadgeService, which refuses the
+     * Trésorier badge to somebody it could not possibly help — the badge
+     * only ever grants the account of a section its holder animates
+     * (issue #222).
+     *
+     * @return int[]
+     */
+    public function getAnimatedSectionIds(int $memberYearId): array
+    {
+        $stmt = $this->connection->getPdo()->prepare(
+            'SELECT DISTINCT mf.section_id
+             FROM member_functions mf
+             JOIN functions f ON mf.function_id = f.id
+             WHERE mf.member_year_id = ?
+               AND mf.section_id IS NOT NULL
+               AND f.role IN (\'chief\', \'admin\')'
+        );
+        $stmt->execute([$memberYearId]);
+
+        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
+    /**
      * Update a section's configurable info (name, email).
      */
     public function updateSectionInfo(int $sectionId, ?string $name, ?string $email): void

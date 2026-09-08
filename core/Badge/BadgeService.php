@@ -215,6 +215,39 @@ class BadgeService
     }
 
     /**
+     * Trésorier badge holders of a year whose functions no longer animate
+     * any section — the badge is there, and it grants nothing.
+     *
+     * toggleAssignment() refuses to CREATE that situation, but a Desk
+     * import can walk into it from the other side: an animateur who
+     * carried the badge in September becomes intendant in the next
+     * export, and their badge quietly stops meaning anything. Nobody
+     * looks for a permission that used to work, so the import is where it
+     * has to be said (Core\Badge\TreasurerBadgeDeskImportListener).
+     *
+     * Returns member_year ids and nothing else: who they are is on the
+     * Staffs page, for whoever may see it (SECURITY.md §11).
+     *
+     * @return int[]
+     */
+    public function findStrandedTreasurerMemberYearIds(int $scoutYearId): array
+    {
+        $badge = $this->badgeRepository->findByName(self::BADGE_TREASURER);
+        if ($badge === null || !$badge->isActive) {
+            return [];
+        }
+
+        $stranded = [];
+        foreach ($this->memberBadgeRepository->findMemberYearIdsForBadgeAndYear($badge->id, $scoutYearId) as $id) {
+            if ($this->sectionService->getAnimatedSectionIds($id) === []) {
+                $stranded[] = $id;
+            }
+        }
+
+        return $stranded;
+    }
+
+    /**
      * Toggle a badge assignment for a member. Returns true if now assigned,
      * false if it was removed.
      *
@@ -229,6 +262,32 @@ class BadgeService
         if ($badge->referentSectionId !== null
             && !$this->sectionService->isMemberYearInSection($memberYearId, UnitStaffSectionService::DESK_CODE)) {
             throw new BadgeException("Ce badge ne peut être attribué qu'à un membre du Staff d'U.");
+        }
+
+        // The Trésorier badge does exactly one thing: it grants its holder
+        // the finance account of a section THEY ANIMATE (Modules\Finance\
+        // Service\TreasurerScopeService). Given to somebody whose only
+        // function is `intendant` — a role that exists precisely to reach
+        // the finances without being a chief — it granted nothing, and the
+        // page said « attribué » all the same. Worse: assigning it switched
+        // the partition rule ON for the whole unit, so an intendant who had
+        // been seeing every section's account before now saw none, and
+        // nothing anywhere explained either half (issue #222).
+        //
+        // Refused rather than accepted-and-ignored, and only when it would
+        // be turned ON: removing a badge somebody should never have had is
+        // always allowed, which is what makes an installation that already
+        // carries one repairable.
+        if (
+            $badge->name === self::BADGE_TREASURER
+            && !$this->memberBadgeRepository->isAssigned($memberYearId, $badgeId)
+            && $this->sectionService->getAnimatedSectionIds($memberYearId) === []
+        ) {
+            throw new BadgeException(
+                'Le badge « Trésorier » ne peut être attribué qu\'à une personne qui anime une section : '
+                . 'il donne accès au compte de sa section, et une fonction qui n\'anime pas (intendant, par '
+                . 'exemple) n\'en a aucune.'
+            );
         }
 
         if ($this->memberBadgeRepository->isAssigned($memberYearId, $badgeId)) {

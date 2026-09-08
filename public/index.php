@@ -1466,6 +1466,13 @@ $rosterReplacementGuard = new \Core\Import\RosterReplacementGuard(
 // the file. (It used to be an array, which forced a second, early rental
 // block before this line and a conditional rebuild of the service.)
 $deskImportListeners = new \Core\Import\DeskImportListenerRegistry();
+// Core's own listener, registered here rather than in a module block:
+// a Trésorier badge whose holder stopped animating a section grants
+// nothing from that import on, and nobody reports a permission that
+// used to work (issue #222). It writes at most one journal line.
+$deskImportListeners->register(
+    new \Core\Badge\TreasurerBadgeDeskImportListener($badgeService, $journalService)
+);
 $importService = new DeskImportService(
     $pdo, $encryptionService, $csvParser, $mappingResolver,
     $memberRepo, $memberYearRepo, $importJournalRepo, $userAccountRepo, $unitStaffSectionService,
