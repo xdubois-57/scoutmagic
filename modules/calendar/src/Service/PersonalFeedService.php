@@ -17,6 +17,7 @@ use Modules\Calendar\Api\VirtualEventViewer;
 use Modules\Calendar\Repository\CalendarEvent;
 use Modules\Calendar\Repository\CalendarEventRepository;
 use Modules\Calendar\Repository\CalendarPersonalTokenRepository;
+use Modules\Presences\Api\PresenceSheetLinkLookupInterface;
 use Modules\Retro\Api\RetroEventLinkLookupInterface;
 
 /**
@@ -38,7 +39,8 @@ class PersonalFeedService
         private MemberService $memberService,
         private UserAccountRepository $userAccountRepository,
         private SectionService $sectionService,
-        private ?RetroEventLinkLookupInterface $retroEventLinkLookup = null
+        private ?RetroEventLinkLookupInterface $retroEventLinkLookup = null,
+        private ?PresenceSheetLinkLookupInterface $presenceSheetLinkLookup = null
     ) {
     }
 
@@ -146,40 +148,61 @@ class PersonalFeedService
 
         $events = $this->eventRepository->findByCalendarIds($calendarIds);
 
-        if ($this->retroEventLinkLookup === null) {
+        if ($this->retroEventLinkLookup === null && $this->presenceSheetLinkLookup === null) {
             return $events;
         }
 
         // The only ICS feed with a real, identified viewer — calendarFeed()/
-        // unitFeed() have no viewer at all, so the retro link must never
-        // appear there regardless of a board's configured link_visibility
-        // (see Api\RetroEventLinkLookupInterface's docblock).
+        // unitFeed() have no viewer at all, so neither the retro link
+        // (whatever a board's configured link_visibility) nor the
+        // attendance-sheet link must ever appear there. Both are resolved
+        // HERE, at generation time, for this reader: a token that
+        // remembered yesterday's rights would be a permanent leak.
         $role = Role::fromString($this->roleResolver->resolve($userAccount->email, $scoutYearId));
 
         return array_map(function (CalendarEvent $event) use ($role, $userAccount, $scoutYearId): CalendarEvent {
-            $link = $this->retroEventLinkLookup->findLinkedBoardLink($event->id, $role, $userAccount->email,
-                $scoutYearId);
-            if ($link === null) {
-                return $event;
+            $lines = [];
+
+            $board = $this->retroEventLinkLookup?->findLinkedBoardLink(
+                $event->id,
+                $role,
+                $userAccount->email,
+                $scoutYearId
+            );
+            if ($board !== null) {
+                $lines[] = 'Rétrospective : ' . $board->url;
             }
 
-            return $this->withAppendedRetroLink($event, $link->url);
+            $sheet = $this->presenceSheetLinkLookup?->findSheetLink(
+                $event->id,
+                $role,
+                $userAccount->email,
+                $scoutYearId
+            );
+            if ($sheet !== null) {
+                $lines[] = 'Prendre les présences : ' . $sheet->url;
+            }
+
+            return $lines === [] ? $event : $this->withAppendedLines($event, $lines);
         }, $events);
     }
 
     /**
      * CalendarEvent is a readonly DTO — construct a new instance with the
-     * link appended to its description, in plain unescaped text: IcsBuilder
-     * escapes the WHOLE description as one unit when it builds the VEVENT
-     * block, so appending here (before it ever reaches IcsBuilder) is the
-     * only correct place to do this — appending after escaping would
-     * double-escape or bypass folding entirely.
+     * lines appended to its description, in plain unescaped text:
+     * IcsBuilder escapes the WHOLE description as one unit when it builds
+     * the VEVENT block, so appending here (before it ever reaches
+     * IcsBuilder) is the only correct place to do this — appending after
+     * escaping would double-escape or bypass folding entirely.
+     *
+     * @param list<string> $lines already-composed « Libellé : url » lines
      */
-    private function withAppendedRetroLink(CalendarEvent $event, string $url): CalendarEvent
+    private function withAppendedLines(CalendarEvent $event, array $lines): CalendarEvent
     {
+        $appended = implode("\n", $lines);
         $description = $event->description !== null && $event->description !== ''
-            ? $event->description . "\n\nRétrospective : " . $url
-            : 'Rétrospective : ' . $url;
+            ? $event->description . "\n\n" . $appended
+            : $appended;
 
         return new CalendarEvent(
             id: $event->id,

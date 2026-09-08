@@ -230,6 +230,131 @@ class PersonalFeedServiceTest extends TestCase
         );
     }
 
+    private function serviceWithPresenceLookup(
+        \Modules\Presences\Api\PresenceSheetLinkLookupInterface $lookup
+    ): PersonalFeedService {
+        $connection = Connection::withPdo($this->pdo);
+        $memberYearRepo = new MemberYearRepository($this->pdo);
+        $sectionService = new SectionService($connection, $this->encryption, new MemberBadgeRepository($this->pdo));
+
+        return new PersonalFeedService(
+            $this->tokenRepository,
+            $this->calendarService,
+            $this->eventRepository,
+            new RoleResolver($memberYearRepo, $this->encryption, $this->pdo),
+            new MemberService($memberYearRepo, $this->encryption, $connection),
+            new UserAccountRepository($this->pdo, $this->encryption),
+            $sectionService,
+            null,
+            $lookup
+        );
+    }
+
+    /**
+     * The presences link travels the same road as the retro one, and the
+     * property that matters is the same: it is resolved HERE, for this
+     * reader, at generation time — never carried by the token.
+     */
+    public function testGetEventsForTokenAppendsTheAttendanceSheetLinkForItsReader(): void
+    {
+        $email = 'akela@test.be';
+        $sectionId = $this->createSection('BAL01', 'Renards');
+        $branchId = (int) $this->pdo->query("SELECT age_branch_id FROM sections WHERE id = {$sectionId}")->fetchColumn();
+        $this->createMemberWithFunction($email, $sectionId, $branchId, 'chief');
+        $this->calendarService->ensureSectionCalendars();
+        $sectionCalendar = (new CalendarRepository($this->pdo, $this->encryption))->findBySectionId($sectionId);
+        $eventId = $this->eventRepository->create(
+            $sectionCalendar->id, 'Réunion', '2026-03-15', null, null, null, null, 'Prévoir le matériel.', null
+        );
+
+        $lookup = $this->createMock(\Modules\Presences\Api\PresenceSheetLinkLookupInterface::class);
+        $lookup->method('findSheetLink')->with($eventId, $this->anything(), $email, $this->scoutYearId)
+            ->willReturn(new \Modules\Presences\Api\PresenceSheetLink('https://example.test/s/K7m2Qa'));
+        $service = $this->serviceWithPresenceLookup($lookup);
+
+        $token = $service->getOrCreateToken($this->createUserAccount($email));
+        $events = $service->getEventsForToken($token, $this->scoutYearId);
+
+        $this->assertCount(1, $events);
+        $this->assertStringContainsString('Prévoir le matériel.', $events[0]->description);
+        $this->assertStringContainsString('Prendre les présences : https://example.test/s/K7m2Qa', $events[0]->description);
+    }
+
+    public function testGetEventsForTokenLeavesTheDescriptionUnchangedWhenNoSheetLinkIsOffered(): void
+    {
+        $email = 'parent@test.be';
+        $sectionId = $this->createSection('BAL01', 'Renards');
+        $branchId = (int) $this->pdo->query("SELECT age_branch_id FROM sections WHERE id = {$sectionId}")->fetchColumn();
+        $this->createMemberWithFunction($email, $sectionId, $branchId, 'identified');
+        $this->calendarService->ensureSectionCalendars();
+        $sectionCalendar = (new CalendarRepository($this->pdo, $this->encryption))->findBySectionId($sectionId);
+        $this->eventRepository->create(
+            $sectionCalendar->id, 'Réunion', '2026-03-15', null, null, null, null, 'Prévoir le matériel.', null
+        );
+
+        $lookup = $this->createMock(\Modules\Presences\Api\PresenceSheetLinkLookupInterface::class);
+        $lookup->method('findSheetLink')->willReturn(null);
+        $service = $this->serviceWithPresenceLookup($lookup);
+
+        $token = $service->getOrCreateToken($this->createUserAccount($email));
+        $events = $service->getEventsForToken($token, $this->scoutYearId);
+
+        $this->assertSame('Prévoir le matériel.', $events[0]->description);
+    }
+
+    /**
+     * Both links on one evening: two lines, in a fixed order, with the
+     * event's own description still readable above them.
+     */
+    public function testBothLinksCanShareOneEveningWithoutTramplingTheDescription(): void
+    {
+        $email = 'akela@test.be';
+        $sectionId = $this->createSection('BAL01', 'Renards');
+        $branchId = (int) $this->pdo->query("SELECT age_branch_id FROM sections WHERE id = {$sectionId}")->fetchColumn();
+        $this->createMemberWithFunction($email, $sectionId, $branchId, 'chief');
+        $this->calendarService->ensureSectionCalendars();
+        $sectionCalendar = (new CalendarRepository($this->pdo, $this->encryption))->findBySectionId($sectionId);
+        $this->eventRepository->create(
+            $sectionCalendar->id, 'Réunion', '2026-03-15', null, null, null, null, 'Grand jeu dans le bois.', null
+        );
+
+        $retro = $this->createMock(\Modules\Retro\Api\RetroEventLinkLookupInterface::class);
+        $retro->method('findLinkedBoardLink')
+            ->willReturn(new \Modules\Retro\Api\RetroLinkSummary('https://example.test/r/abc123', 'Rétro'));
+        $presences = $this->createMock(\Modules\Presences\Api\PresenceSheetLinkLookupInterface::class);
+        $presences->method('findSheetLink')
+            ->willReturn(new \Modules\Presences\Api\PresenceSheetLink('https://example.test/s/K7m2Qa'));
+
+        $connection = Connection::withPdo($this->pdo);
+        $memberYearRepo = new MemberYearRepository($this->pdo);
+        $service = new PersonalFeedService(
+            $this->tokenRepository,
+            $this->calendarService,
+            $this->eventRepository,
+            new RoleResolver($memberYearRepo, $this->encryption, $this->pdo),
+            new MemberService($memberYearRepo, $this->encryption, $connection),
+            new UserAccountRepository($this->pdo, $this->encryption),
+            new SectionService($connection, $this->encryption, new MemberBadgeRepository($this->pdo)),
+            $retro,
+            $presences
+        );
+
+        $token = $service->getOrCreateToken($this->createUserAccount($email));
+        $description = $service->getEventsForToken($token, $this->scoutYearId)[0]->description;
+
+        $this->assertStringContainsString('Grand jeu dans le bois.', $description);
+        // Asserted present before asserting ordered: strpos() answers
+        // false for an absent needle, PHP compares false as 0, and the
+        // ordering alone would therefore pass on a feed that lost the
+        // very line this test exists to protect.
+        $this->assertStringContainsString('Rétrospective : https://example.test/r/abc123', $description);
+        $this->assertStringContainsString('Prendre les présences : https://example.test/s/K7m2Qa', $description);
+        $this->assertLessThan(
+            strpos($description, 'Prendre les présences :'),
+            strpos($description, 'Rétrospective :')
+        );
+    }
+
     private function serviceWithLookup(\Modules\Retro\Api\RetroEventLinkLookupInterface $lookup): PersonalFeedService
     {
         $connection = Connection::withPdo($this->pdo);

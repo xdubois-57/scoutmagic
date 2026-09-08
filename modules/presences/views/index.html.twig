@@ -1,0 +1,226 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{% extends 'base.html.twig' %}
+{% block title %}Présences — {{ param('site_name') }}{% endblock %}
+
+{% block content %}
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Présences',
+        badge: scout_year_label,
+        subtitle: 'Les évènements de la section, et qui était là.',
+    } only %}
+
+    {% if sections is empty %}
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Vous n\'animez aucune section cette année scoute.',
+            icon: 'bi-people',
+        } only %}
+    {% else %}
+        {# Comme le trombinoscope : rien à choisir quand il n'y a qu'une
+           section, donc pas de sélecteur du tout. #}
+        {% if sections|length > 1 %}
+            {% include 'partials/section_picker.html.twig' with {
+                sections: sections,
+                selected_id: selected_section_id,
+                base_url: '/chefs/presences?section=',
+            } %}
+        {% endif %}
+
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+            {% if register.sectionColor %}
+                <span class="d-inline-block rounded flex-shrink-0"
+                      style="width: 0.5rem; height: 1.5rem; background-color: {{ register.sectionColor }};"></span>
+            {% endif %}
+            <h2 class="h5 mb-0 flex-grow-1">{{ register.sectionLabel }}</h2>
+            <a href="/chefs/presences/export?section={{ selected_section_id }}"
+               class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-download" aria-hidden="true"></i> Exporter en Excel
+            </a>
+        </div>
+        <p class="small text-body-secondary">
+            L'export reprend <strong>toute</strong> la section et <strong>l'année entière</strong> :
+            chaque animé, chaque évènement, l'état et le commentaire — le détail que ces écrans
+            résument volontairement. Le fichier quitte alors les protections du site.
+        </p>
+
+        {# Le geste le plus fréquent du module est en tête, pas au bout d'un
+           clic dans un graphique : un animateur qui ouvre « Présences » le
+           samedi à 14 h veut pointer. #}
+        {% if register.nextEvent %}
+            <div class="card border-primary mb-3">
+                <div class="card-body d-flex align-items-center gap-3 py-3">
+                    <div class="flex-grow-1 min-w-0">
+                        <p class="small text-primary text-uppercase fw-semibold mb-0">Prochain évènement</p>
+                        <p class="fw-semibold mb-0 text-truncate">
+                            {{ register.nextEvent.title }} — {{ register.nextEvent.startDate|french_date }}
+                        </p>
+                        <p class="small text-body-secondary mb-0">
+                            {% if register.nextEventPending > 0 %}
+                                {{ register.nextEventPending }}
+                                animé{{ register.nextEventPending > 1 ? 's' : '' }} pas encore pointé{{ register.nextEventPending > 1 ? 's' : '' }}
+                            {% else %}
+                                Tout le monde est pointé.
+                            {% endif %}
+                        </p>
+                    </div>
+                    <a href="/chefs/presences/feuille/{{ register.nextEvent.eventId }}"
+                       class="btn btn-primary flex-shrink-0">Pointer</a>
+                </div>
+            </div>
+        {% endif %}
+
+        {# Un champ unique : on tape ce qu'on a, sans choisir un mode de
+           recherche. Route JSON + ScoutMagicApi.getJson(), résultats
+           redessinés à la frappe — même mécanique que l'association d'un
+           reçu dans finance. #}
+        <div class="mb-3" id="presences-search" data-section-id="{{ selected_section_id }}">
+            <div class="input-group">
+                <span class="input-group-text"><i class="bi bi-search" aria-hidden="true"></i></span>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'presences-search-input',
+                    label: 'Chercher un évènement ou un animé',
+                    label_visually_hidden: true,
+                    type: 'text',
+                    placeholder: 'Chercher un évènement ou un animé…',
+                    wrapper_class: 'flex-grow-1',
+                    control_class_extra: 'rounded-start-0',
+                } only %}
+            </div>
+            <div class="list-group mt-1 d-none" id="presences-search-results"></div>
+        </div>
+
+        {% include 'partials/stat_tiles.html.twig' with {
+            tiles: [
+                { label: 'Présence moyenne', value: register.averageRate ~ ' %', icon: 'bi-graph-up', tone: 'success' },
+                { label: 'Animés', value: register.animeCount, icon: 'bi-people-fill', tone: 'primary' },
+                { label: 'Évènements pointés', value: register.pointedEventCount ~ ' / ' ~ register.eventCount, icon: 'bi-calendar3', tone: 'info' },
+            ],
+            columns: 3,
+        } only %}
+
+        {# Question 1 : quelles dates ont mobilisé ? Un graphique répond en
+           un coup d'œil là où une colonne de pourcentages demande à être
+           lue. Barres en CSS : pas de bibliothèque, pas de canvas, et la
+           page reste lisible sans JavaScript. #}
+        <section class="card mb-3">
+            <div class="card-body">
+                <h2 class="h6">Participation par date</h2>
+                {% if chart_events is empty %}
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucun évènement pointé pour le moment.',
+                        compact: true,
+                    } only %}
+                {% else %}
+                    <div class="d-flex align-items-end gap-1 mt-3" style="height: 7rem;">
+                        {% for event in chart_events %}
+                            {% set is_best = register.best and event.eventId == register.best.eventId %}
+                            {% set is_worst = register.worst and event.eventId == register.worst.eventId %}
+                            <a href="/chefs/presences/feuille/{{ event.eventId }}"
+                               class="flex-fill d-flex flex-column justify-content-end h-100 text-decoration-none"
+                               title="{{ event.startDate|date_fr }} — {{ event.rate }} % · ouvrir la feuille"
+                               aria-label="{{ event.title }}, {{ event.startDate|date_fr }} — {{ event.rate }} % de présence">
+                                <span class="d-block rounded-top bg-{{ is_best ? 'success' : (is_worst ? 'danger' : 'secondary') }}"
+                                      style="height: {{ event.rate }}%; min-height: 2px;"></span>
+                            </a>
+                        {% endfor %}
+                    </div>
+                    {# Ligne de moyenne : sans repère, un pourcentage isolé
+                       ne dit rien. #}
+                    <div class="border-top border-2 border-dashed mt-1 position-relative">
+                        <span class="position-absolute end-0 small text-body-secondary bg-body px-1"
+                              style="top: -0.6rem;">moyenne {{ register.averageRate }} %</span>
+                    </div>
+
+                    <div class="row row-cols-2 g-2 mt-3 small">
+                        <div class="col">
+                            <div class="border rounded px-2 py-1">
+                                <p class="text-body-secondary mb-0">Meilleure date</p>
+                                <p class="fw-semibold text-success mb-0">
+                                    {{ register.best.startDate|date_fr }} · {{ register.best.rate }} %
+                                </p>
+                            </div>
+                        </div>
+                        <div class="col">
+                            <div class="border rounded px-2 py-1">
+                                <p class="text-body-secondary mb-0">Plus faible</p>
+                                <p class="fw-semibold text-danger mb-0">
+                                    {{ register.worst.startDate|date_fr }} · {{ register.worst.rate }} %
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <p class="small text-body-secondary mt-3 mb-0">
+                        Une date très basse s'explique souvent : un week-end de congé, une météo, un autre
+                        évènement. Le graphique la montre, il ne l'interprète pas.
+                        <strong>Touchez une barre</strong> pour ouvrir la feuille de cet évènement. Une soirée
+                        que personne n'a pointée n'y figure pas : ce n'est pas une soirée à 0 %.
+                    </p>
+                {% endif %}
+            </div>
+        </section>
+
+        {# Question 2 : qui décroche ? C'est le seul bloc qui appelle une
+           action — un coup de téléphone à une famille. #}
+        <section class="card mb-3">
+            <div class="card-header d-flex align-items-center gap-2">
+                <h2 class="h6 mb-0 flex-grow-1">Les moins présents</h2>
+                {% include 'partials/nav_rail.html.twig' with {
+                    picker_id: 'presences-top-picker',
+                    items: least_present_sizes|map(size => {
+                        id: size,
+                        label: size ~ '',
+                        selected: size == top,
+                    }),
+                    base_url: '/chefs/presences?section=' ~ selected_section_id ~ '&top=',
+                    aria_label: 'Nombre d\'animés listés',
+                } %}
+            </div>
+            {% if register.pointedEventCount == 0 %}
+                <div class="card-body">
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Rien à classer tant qu\'aucune feuille n\'a été remplie.',
+                        compact: true,
+                    } only %}
+                </div>
+            {% else %}
+                <ul class="list-group list-group-flush">
+                    {% for anime in register.leastPresent(top) %}
+                        <li class="list-group-item p-0">
+                            <a href="/chefs/presences/anime/{{ anime.memberId }}"
+                               class="d-flex align-items-center gap-3 px-3 py-2 text-decoration-none text-body">
+                                <span class="flex-grow-1 text-truncate">
+                                    <strong>{{ anime.lastName|normalize_name }}</strong>, {{ anime.firstName|normalize_name }}
+                                </span>
+                                {# Purement décorative : le pourcentage est
+                                   écrit juste à côté, en toutes lettres. #}
+                                <span class="progress flex-shrink-0 d-none d-sm-block" style="width: 6rem; height: 0.4rem;"
+                                      aria-hidden="true">
+                                    <span class="progress-bar bg-{{ anime.tone }}" style="width: {{ anime.rate }}%;"></span>
+                                </span>
+                                <span class="fw-semibold text-{{ anime.tone }} flex-shrink-0">{{ anime.rate }} %</span>
+                                <i class="bi bi-chevron-right text-body-secondary flex-shrink-0" aria-hidden="true"></i>
+                            </a>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
+        </section>
+
+        {# « Comment j'arrive à la page d'un animé » est la première
+           question qu'on se pose : on y répond plutôt que de la laisser
+           chercher. #}
+        <p class="small text-body-secondary">
+            <strong>Une seule entrée dans le menu : « Présences ».</strong> Elle ouvre cette page. De là,
+            trois chemins vers une feuille ou un animé : le raccourci du jour, la recherche ci-dessus, et
+            le graphique dont chaque barre mène à la feuille de sa date. L'agenda d'un animateur de la
+            section porte en plus un lien direct vers la feuille du jour.
+        </p>
+    {% endif %}
+{% endblock %}
+
+{% block scripts %}
+    <script src="{{ asset('/assets/js/presences-search.js') }}" defer nonce="{{ csp_nonce }}"></script>
+{% endblock %}

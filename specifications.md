@@ -24,6 +24,7 @@ Everything beyond the core site is a module (`modules/<id>/`, ARCHITECTURE.md §
 | `mass_mail` | Envoi de mails | §24, §29 |
 | `member_stats` | Statistiques des membres | §35 |
 | `news` | Actualités | §32, §29 |
+| `presences` | Présences | §43 |
 | `registration` | Inscriptions | §17, §18, §19 |
 | `rental` | Locations | §22 |
 | `retro` | Rétrospectives | §37 |
@@ -2339,3 +2340,189 @@ pas.
 pour une installation qui ne mesure pas, une cellule **vide** pour une qui mesure et n'a rien
 ouvert. Les écrire pareil laisserait un lecteur trier la colonne et conclure que la moitié du parc
 ne se sert de rien.
+
+
+## 43. Présences (module presences)
+
+Qui était là, réunion par réunion. Une seule entrée de menu — « Présences », dans l'Espace
+animateurs — et tout le reste s'atteint depuis cette page : c'est une contrainte du module, pas une
+conséquence de ce qu'il contient aujourd'hui.
+
+### 43.1 Le périmètre est décidé par le calendrier, sans drapeau à cocher
+
+**Tout évènement d'un calendrier de section ouvre une feuille.** `calendar_calendars.section_id` est
+ce qui fait d'un calendrier celui d'une section, donc ce qui fait d'un évènement une soirée
+pointable — il n'y a rien à activer par évènement, et donc rien à oublier d'activer. Deux exclusions
+en découlent : les calendriers sans section (celui des animateurs, celui de l'unité) n'ouvrent
+jamais de feuille, et les **évènements virtuels** qu'un autre module injecte dans le calendrier
+(`rental`, `sos_staff`) non plus — ils n'ont pas d'identifiant réel et sont en lecture seule.
+
+**Seuls les animés figurent sur une feuille.** Ni les animateurs, ni les intendants : ce n'est pas
+leur présence qu'on suit.
+
+**Aucune récurrence.** `calendar_events` n'en a pas — une réunion hebdomadaire y est autant de
+lignes — donc une feuille s'identifie par le seul `calendar_events.id`, sans notion d'occurrence.
+
+### 43.2 Quatre états, et « non renseigné » n'est pas une ligne
+
+Présent, excusé, absent, non renseigné, plus un commentaire libre. **Rien n'est créé à l'avance** :
+une feuille n'existe pas tant que personne ne l'a ouverte, et un animé sans ligne est « non
+renseigné ». Une ligne qui finirait par ne porter ni état ni commentaire est supprimée plutôt que
+gardée — « non renseigné » avec rien à côté est déjà ce que l'absence de ligne veut dire.
+
+**Excusé compte comme absent** dans un taux de participation : la question à laquelle un taux répond
+est combien d'animés étaient là. C'est le commentaire à côté qui dit que l'absence était annoncée.
+
+Le lien pointe sur `members.id`, l'identité persistante, et non sur `member_years.id` : une présence
+survit à l'année scoute qui l'a vue écrire, même raison que `files.owner_member_id` (§4). La liste
+des animés qu'une feuille *propose* vient en revanche de la composition de la section **à l'année
+scoute effective**, jamais d'un instantané figé à la création de l'évènement.
+
+### 43.3 Les droits sont ceux de la section, recalculés à chaque lecture
+
+Les **animateurs de la section** voient et modifient les présences de leur section, via
+`Core\Member\SectionStaffAuthorizationService` — le service qui porte déjà la même règle pour les
+documents de section (§15) et le calendrier. Les **chefs d'unité et superadmins** voient et
+modifient tout. Un `identified` n'atteint rien.
+
+Rien n'est mémorisé : un animateur qui quitte la section perd l'accès à la requête suivante, sans
+que personne ait à révoquer quoi que ce soit. Un évènement d'une autre section et un évènement qui
+n'existe pas répondent **la même chose** — la page 404 du site — pour qu'aucun visiteur ne puisse
+cartographier les identifiants qui existent.
+
+**La famille ne voit rien**, jamais : ni sur la page de l'animé, ni ailleurs. C'est un jugement du
+staff, il reste au staff — même régime que les notes de membre (§4.2).
+
+### 43.4 Le commentaire est une donnée personnelle sur un mineur
+
+« Malade », « chez son père ce week-end » : du texte libre écrit par le staff au sujet d'un enfant.
+Il est stocké en `BLOB` chiffré et déchiffré dans le Repository uniquement, jamais journalisé, jamais
+repris dans un message d'erreur. La conservation suit l'année scoute et est déclarée sur la page RGPD.
+
+Une demande d'effacement retire les commentaires et laisse les états : qu'un animé ait été là un
+samedi n'est ni un récit ni un jugement — c'est ce qui était écrit à côté qui l'était.
+`PresenceRepository::eraseComments()` fait exactement cela, **et aucun écran ne l'appelle encore** :
+les deux effacements câblés sont ceux qui suffisent au cas ordinaire — la fiche du membre qui part
+emporte les lignes (`ON DELETE CASCADE`), l'évènement supprimé emporte sa feuille. L'effacement
+partiel, lui, relève des demandes traitées par l'unité (page RGPD §7) ; lui donner un bouton est un
+chantier à soi, pas un coin du module qui l'a introduit.
+
+**Le commentaire est borné côté serveur** à 500 caractères (`MAX_COMMENT_LENGTH`), le `maxlength` du
+textarea n'étant qu'un confort : l'endpoint est du JSON, et au-delà de ~65 508 octets le chiffré ne
+tient plus dans le `BLOB` — après quoi le déchiffrement échoue à *chaque* lecture ultérieure et
+emporte la feuille, le registre, la page de l'animé et l'export de toute la section.
+
+**Supprimer un évènement supprime sa feuille.** Aucune clé étrangère ne le fait — une table de module
+ne contraint pas celle d'un autre (ARCHITECTURE.md §7.6) — donc le calendrier appelle
+`Api\PresenceEventCleanupInterface` avant d'effacer la ligne de l'évènement. Sans cet appel, les états
+et les commentaires chiffrés d'une soirée disparue resteraient en base : plus aucun écran n'y mène,
+donc plus personne ne les relit ni ne les efface. Le code court de la feuille part avec eux ; la ligne
+`short_urls` qu'il désignait, elle, reste, et redirige désormais vers une page qui refuse.
+
+**L'état et le commentaire s'écrivent chacun dans sa colonne**, jamais dans la même requête. Deux
+animateurs pointent la même liste en même temps : une écriture qui porterait les deux champs
+remplacerait silencieusement ce que l'autre vient d'enregistrer. Chaque écriture est par ailleurs un
+`upsert` en une instruction, pour que deux premiers appuis simultanés sur le même animé ne se
+heurtent pas à l'index unique.
+
+### 43.5 Le registre : trois questions, jamais une grille
+
+**Une grille animés × évènements a été essayée puis abandonnée.** Elle montrait tout et n'apprenait
+rien, et elle débordait de tout écran dès vingt-cinq animés sur trente réunions. Ce qui la remplace
+est trois blocs répondant à trois questions distinctes — où en est la section, quelles dates ont
+mobilisé, qui décroche — et il ne faut pas la réintroduire.
+
+**Le geste du jour est en tête.** Un raccourci « Prochain évènement » ouvre la soirée à pointer avec
+le nombre d'animés dont personne ne s'est encore occupé : la première soirée encore à venir, à
+défaut la dernière passée qu'on n'a pas finie, et rien du tout quand il ne reste rien à faire. Un
+animateur qui ouvre la page le samedi à 14 h veut pointer, pas consulter des moyennes annuelles.
+
+**Une recherche unifiée, une seule.** Un champ cherche à la fois les évènements et les animés,
+résultats groupés par nature : on tape ce qu'on a, on ne choisit pas un mode. La recherche se fait
+côté serveur — les noms sont chiffrés au repos, il n'y a rien à filtrer dans le navigateur — via une
+route JSON scopée à la section, revérifiée comme une page. **Le champ vide répond déjà** : les
+évènements les plus récents et quelques animés. Un panneau vide au clic laisserait croire qu'il faut
+connaître une syntaxe.
+
+**Ce qui n'a pas été pointé n'est compté nulle part.** Une soirée que personne n'a ouverte a tous
+ses animés « non renseigné », ce qui n'est pas une soirée à 0 % : c'est une soirée dont le site ne
+sait rien. Elle est listée — pour être atteinte et remplie — et exclue du graphique, de la moyenne
+et des taux individuels. La dessiner à zéro inventerait un effondrement de participation à partir
+d'un samedi que quelqu'un a oublié de pointer. Le taux d'une soirée divise en revanche par
+l'effectif **entier** de la section : un animé pour qui personne n'a répondu n'est pas un absent,
+mais il n'est pas présent non plus.
+
+**Le graphique porte une ligne de moyenne**, met en évidence la meilleure et la plus faible date, et
+chaque barre mène à la feuille de sa date. Sans repère, un pourcentage isolé ne dit rien. La page
+écrit à l'écran qu'une date basse s'explique souvent — un congé, la météo — et que le graphique la
+montre sans l'interpréter.
+
+**Le sélecteur de section est `partials/section_picker.html.twig`**, et comme le trombinoscope il ne
+s'affiche que si plus d'une section est disponible : un animateur d'une seule section n'a rien à
+choisir.
+
+### 43.6 La page d'un animé, et l'export
+
+**Un taux ne voyage jamais seul.** La page d'un animé affiche son taux annuel **à côté de la moyenne
+de sa section** : vingt pour cent dans une section à quarante et vingt pour cent dans une section à
+quatre-vingt-dix ne sont pas la même conversation. À quoi s'ajoutent l'évolution mois par mois — un
+mois sans aucune soirée pointée n'y figure pas, pour la même raison qu'ailleurs — et l'historique
+évènement par évènement **avec les commentaires**, qui est ce qu'on relit avant d'appeler une
+famille et qui ne tenait pas dans un panneau dépliant.
+
+La page montre les dix derniers évènements et le dit ; l'export porte l'année entière. Une soirée
+que personne n'a pointée figure dans l'historique en « Non renseigné » plutôt que d'en être retirée :
+un trou est un fait sur la section, et le masquer ferait lire une série de samedis oubliés comme une
+série d'absences.
+
+**La section d'un animé est résolue par intersection, jamais par consultation.** Le service énumère
+les sections que le compte anime et cherche l'animé parmi les animés de chacune : un animé d'une
+section que personne n'anime n'est trouvé nulle part, et il n'y a donc pas d'étape d'autorisation
+séparée à oublier. La forme inverse — résoudre la section puis demander si elle est permise — est à
+un refactoring de rendre la page avant d'avoir posé la question.
+
+**L'export est une ligne par (animé, évènement)**, pas une colonne par évènement : trente réunions
+feraient soixante colonnes une fois l'état et le commentaire portés, ce qu'aucun tableur ne trie ni
+ne filtre. Le format long est celui qu'un filtre, un tri et un tableau croisé comprennent tous les
+trois. Il passe par `Core\Export\TabularSpreadsheet`, la brique du site pour le domaine propre d'un
+module — `Core\Member\Export\MemberExportService` possède les colonnes **membre** canoniques et son
+propre docblock refuse de les élargir aux données d'un module. La garantie qui comptait est la même
+des deux côtés : chaque cellule est écrite avec un type chaîne explicite, donc un commentaire
+commençant par `=`, `+`, `-` ou `@` ne devient jamais une formule vivante à l'ouverture
+(`SECURITY.md` §23).
+
+**L'export est journalisé avec des compteurs seulement** — nombre d'animés, d'évènements, de lignes,
+de commentaires — jamais un nom : le fichier emporte des noms et des commentaires sur des mineurs,
+et une entrée de journal qui les nommerait mettrait dans le journal exactement ce que le journal ne
+doit pas contenir. L'écran dit que le fichier quitte alors les protections du site.
+
+### 43.7 Le lien dans l'agenda de l'animateur
+
+Le flux ICS **personnel** d'un animateur porte, sous la description de chaque évènement de sa
+section, une ligne « Prendre les présences : … ». Le motif est celui du module `retro`
+(`Modules\Retro\Api\RetroEventLinkLookupInterface`), repris à l'identique parce qu'il vise le même
+consommateur : `presences` publie son interface dans son propre `Api`, le flux personnel la prend en
+dépendance nullable, et le composition root la câble quand le module est actif. Le cycle
+(`presences` lit `calendar`, `calendar` lit `presences`) est cassé par un registre mutable
+appartenant au calendrier, comme celui de `retro` à côté.
+
+**Le lien est résolu à chaque lecture, pour le lecteur.** Le docblock de `PersonalFeedService` est
+catégorique : « un gestionnaire qui a perdu son droit hier doit cesser de voir le détail
+aujourd'hui, et un jeton qui se souviendrait de ses anciens droits serait une fuite permanente ». Un
+animateur qui quitte la section cesse donc de voir le lien au rafraîchissement suivant de son
+agenda, sans rien à révoquer. Le lien n'existe **que** dans ce flux : ni dans celui de l'unité, ni
+dans celui d'un calendrier, qui n'ont aucun lecteur identifié à qualifier.
+
+**Le lien est court, et créé une fois par évènement.** `Core\Url\ShortUrlService::createShortUrl()`
+rend **le code, pas l'URL** — son commentaire précise qu'il n'a « aucune notion de schéma ni d'hôte »
+— donc l'appelant compose l'adresse à partir de `base_url` ; sans `base_url` configuré il n'y a pas
+d'adresse à composer et le lien n'est pas proposé, plutôt qu'émis relatif dans un fichier ICS où il
+ne résoudrait rien. Le code est mémorisé dans `presences_event_links` et réutilisé : un agenda se
+rafraîchit toutes les quelques heures, et un code par lecture remplirait la table tout en changeant
+le lien à chaque synchronisation. L'index unique sur l'évènement arbitre la course entre deux
+agendas rafraîchis à la même seconde.
+
+**Le lien court n'est pas une protection.** `/s/{code}` est une route publique : elle abrège, elle ne
+défend rien. C'est la page de présences qui refuse un visiteur qui n'anime pas la section — un
+contrôle nécessaire de toute façon, un lien pouvant être transféré. Deux barrières indépendantes,
+dont aucune ne repose sur le secret du code.

@@ -2959,6 +2959,13 @@ $newsArticleService = null;
 // above.
 $calendarEventLookupForOthers = null;
 
+// The other calendar read contract (ARCHITECTURE.md §7.5): which events
+// belong to a SECTION, which is what `presences` builds an attendance
+// sheet on. Deliberately a second handle rather than a widening of the
+// one above — the two answer different questions and have different
+// consumers.
+$calendarSectionEventLookupForOthers = null;
+
 // Optional dependency on the finance module (ARCHITECTURE.md §7.5) for
 // keeping a document as a receipt on one of the unit's accounts — set in
 // finance's own block below. The fees module's federation invoice is the
@@ -3238,12 +3245,24 @@ $frontController->registerController(ConfigModulesController::class,
     new ConfigModulesController($twig, $moduleManager, $journalService));
 $frontController->registerController(ConfigBadgesController::class,
     new ConfigBadgesController($twig, $badgeService, $journalService));
-$frontController->registerController(SuperAdminAccountsController::class,
-    new SuperAdminAccountsController($twig, $userAccountRepo, $superAdminService));
-$frontController->registerController(FunctionsController::class,
-    new FunctionsController($twig, $functionRepo, $journalService, $sectionService, $unitStaffSectionService,
-        $scoutYearResolver, $badgeService, $ageBranchRepo, $moduleHooks)
-    );
+$frontController->registerController(
+    SuperAdminAccountsController::class,
+    new SuperAdminAccountsController($twig, $userAccountRepo, $superAdminService)
+);
+$frontController->registerController(
+    FunctionsController::class,
+    new FunctionsController(
+        $twig,
+        $functionRepo,
+        $journalService,
+        $sectionService,
+        $unitStaffSectionService,
+        $scoutYearResolver,
+        $badgeService,
+        $ageBranchRepo,
+        $moduleHooks
+    )
+);
 $frontController->registerController(PlaceholderController::class, new PlaceholderController($twig));
 
 // Module controllers with dependencies (only wired when the module is enabled).
@@ -3329,6 +3348,19 @@ $calendarVirtualEventRegistry = null;
 // enabled, and provably skip when it is not.
 $calendarRetroLinks = null;
 
+// The same shape again, for the attendance-sheet link an animateur gets
+// in their own agenda: `presences` reads `calendar` (which events belong
+// to a section) and `calendar` reads `presences` (the link for this
+// reader), so the cycle is broken by a registry the personal feed reads
+// at call time. Null when calendar is disabled — presences then has
+// nothing to publish onto and never builds a lookup.
+$calendarPresenceSheetLinks = null;
+
+// And once more for the other direction of the same pair: deleting an
+// evening must erase the sheet somebody took on it, which no foreign key
+// can do across two modules' tables.
+$calendarPresenceEventCleanup = null;
+
 // The calendar collaborators other modules consume, seeded null and
 // assigned inside the block below — same convention as
 // $financeExpectedReceivableForOthers above. Declaring them here rather
@@ -3348,6 +3380,8 @@ if ($isEnabled('calendar')) {
     // retro — a duplicate block whose re-registration silently dropped
     // the virtual-event registry from the public controller.
     $calendarRetroLinks = new \Modules\Calendar\Service\RetroEventLinkRegistry();
+    $calendarPresenceSheetLinks = new \Modules\Calendar\Service\PresenceSheetLinkRegistry();
+    $calendarPresenceEventCleanup = new \Modules\Calendar\Service\PresenceEventCleanupRegistry();
     $calendarRepo = new \Modules\Calendar\Repository\CalendarRepository($pdo, $encryptionService);
     $calendarEventRepo = new \Modules\Calendar\Repository\CalendarEventRepository($pdo);
     $calendarPersonalTokenRepo = new \Modules\Calendar\Repository\CalendarPersonalTokenRepository($pdo,
@@ -3372,11 +3406,23 @@ if ($isEnabled('calendar')) {
         $schedulerService, $calendarRetroLinks
     );
     $calendarEventService = new \Modules\Calendar\Service\CalendarEventService(
-        $calendarEventRepo, $calendarService, $calendarNotificationService, $calendarRetroAutoCreateService
+        $calendarEventRepo,
+        $calendarService,
+        $calendarNotificationService,
+        $calendarRetroAutoCreateService,
+        $calendarPresenceEventCleanup,
+        $pdo
     );
     $calendarPersonalFeedService = new \Modules\Calendar\Service\PersonalFeedService(
-        $calendarPersonalTokenRepo, $calendarService, $calendarEventRepo,
-        $roleResolver, $memberService, $userAccountRepo, $sectionService, $calendarRetroLinks
+        $calendarPersonalTokenRepo,
+        $calendarService,
+        $calendarEventRepo,
+        $roleResolver,
+        $memberService,
+        $userAccountRepo,
+        $sectionService,
+        $calendarRetroLinks,
+        $calendarPresenceSheetLinks
     );
     $calendarPickerService = new \Modules\Calendar\Service\CalendarPickerService(
         $calendarService, $calendarPersonalFeedService
@@ -3391,6 +3437,11 @@ if ($isEnabled('calendar')) {
     // "this post is about that event" picker) rather than adding a second
     // lookup surface.
     $calendarEventLookupForOthers = $calendarService;
+    // CalendarService also implements Api\SectionEventLookupInterface —
+    // the same object, a different contract: « which events are this
+    // section's », which is the whole of what an attendance sheet hangs
+    // off.
+    $calendarSectionEventLookupForOthers = $calendarService;
 
     $frontController->registerController(
         \Modules\Calendar\Controller\CalendarPublicController::class,
@@ -3411,6 +3462,81 @@ if ($isEnabled('calendar')) {
         \Modules\Calendar\Controller\CalendarConfigController::class,
         new \Modules\Calendar\Controller\CalendarConfigController(
             $twig, $calendarService, $sectionService, $settingService, $journalService, $calendarNotificationService
+        )
+    );
+}
+
+// Presences declares `"requires": ["calendar"]`, so ModuleManager never
+// reports it enabled while the calendar is off — the null check below is
+// belt and braces, and it is what makes the dependency provable at the
+// one place that wires it rather than only in a manifest.
+if ($isEnabled('presences') && $calendarSectionEventLookupForOthers !== null) {
+    \Core\Debug\RequestTimeline::mark('module_presences');
+    $presenceRepository = new \Modules\Presences\Repository\PresenceRepository($pdo, $encryptionService);
+    $presenceEventLinkRepository = new \Modules\Presences\Repository\PresenceEventLinkRepository($pdo);
+    // The section boundary is core's own service, injected rather than
+    // re-derived: one rule, one implementation, for the documents page,
+    // the calendar, Départs and now the sheets.
+    $presenceAuthorization = new \Modules\Presences\Service\PresenceAuthorizationService(
+        $sectionStaffAuthorizationService
+    );
+    $presenceSheetService = new \Modules\Presences\Service\PresenceSheetService(
+        $calendarSectionEventLookupForOthers,
+        $presenceAuthorization,
+        $sectionService,
+        $presenceRepository
+    );
+    $presenceRegisterService = new \Modules\Presences\Service\PresenceRegisterService(
+        $calendarSectionEventLookupForOthers,
+        $scoutYearService,
+        $sectionService,
+        $presenceRepository
+    );
+
+    $presenceAnimeService = new \Modules\Presences\Service\PresenceAnimeService(
+        $presenceAuthorization,
+        $presenceSheetService,
+        $presenceRegisterService,
+        $presenceRepository
+    );
+    // The other half of the calendar ↔ presences pair (§7.6): the personal
+    // feed renders a link to the sheet through the registry it was built
+    // with — provide this module's lookup into it. The registry exists
+    // here by construction: this block only runs with the calendar's
+    // section lookup in hand, which is set in the same block that builds
+    // the registry.
+    $calendarPresenceSheetLinks->provide(new \Modules\Presences\Service\PresenceSheetLinkService(
+        $presenceSheetService,
+        $presenceEventLinkRepository,
+        $shortUrlService,
+        (string) ($settingService->get('base_url') ?: '')
+    ));
+    // The same pair the other way round: the calendar tells this module
+    // that an evening is gone, so its states, its comments and its short
+    // code go with it.
+    $calendarPresenceEventCleanup->provide(new \Modules\Presences\Service\PresenceEventCleanupService(
+        $presenceRepository,
+        $presenceEventLinkRepository
+    ));
+
+    $presenceExportService = new \Modules\Presences\Service\PresenceExportService(
+        $presenceRegisterService,
+        $sectionService,
+        $presenceRepository
+    );
+
+    $frontController->registerController(
+        \Modules\Presences\Controller\PresencesController::class,
+        new \Modules\Presences\Controller\PresencesController(
+            $twig,
+            $presenceAuthorization,
+            $presenceSheetService,
+            $presenceRegisterService,
+            $presenceAnimeService,
+            $presenceExportService,
+            $memberService,
+            $scoutYearResolver,
+            $journalService
         )
     );
 }
@@ -4855,8 +4981,11 @@ if ($isEnabled('groups')) {
     // for why one class serves both, and modules/groups/schema.sql for why
     // there are two tables rather than one polymorphic one.
     $groupsReplyService = new \Modules\Groups\Service\ReplyService(
-        $groupsReplyRepo, $groupsActivityService, $groupsPostMediaService,
-        $groupsRateLimitService, $groupsModerationService
+        $groupsReplyRepo,
+        $groupsActivityService,
+        $groupsPostMediaService,
+        $groupsRateLimitService,
+        $groupsModerationService
     );
     $groupsReactionService = new \Modules\Groups\Service\ReactionService(
         \Modules\Groups\Repository\ReactionRepository::forPosts($pdo),
@@ -5506,7 +5635,10 @@ if ($isEnabled('camps')) {
     // where its last-in-registration-order rule is enforced once.
     $campsMessageReader = new \Modules\Camps\Mail\MessageReader();
     $campsFieldCompletion = new \Modules\Camps\Mail\MailFieldCompletionService(
-        $campsCampRepo, $campsProposalRepo, $auditService, $campsMessageReader
+        $campsCampRepo,
+        $campsProposalRepo,
+        $auditService,
+        $campsMessageReader
     );
     // `camps_auto_create_from_mail`: the SAME reading behind the automatic
     // stay and behind « Créer un camp depuis ce message », so the two can
@@ -5515,8 +5647,12 @@ if ($isEnabled('camps')) {
     // place may be named from the message body; without it, a message can
     // still join a place already known, and nothing else is ever created.
     $campsStayFromMail = new \Modules\Camps\Mail\StayFromMailService(
-        $campsCampRepo, $campsCampService, $campsPlaceService,
-        $campsDuplicateDetector, $campsMessageReader, $settingService,
+        $campsCampRepo,
+        $campsCampService,
+        $campsPlaceService,
+        $campsDuplicateDetector,
+        $campsMessageReader,
+        $settingService,
         $llmConnectorForOthers ?? null,
         // A booking arrives as a PDF contract with a one-word covering
         // note: everything worth reading is in the attachment, which is
@@ -5965,12 +6101,20 @@ if ($isEnabled('registration')) {
     $frontController->registerController(
         \Modules\Registration\Controller\PublicRegistrationController::class,
         new \Modules\Registration\Controller\PublicRegistrationController(
-            $twig, $registrationService, $registrationSlotService, $sectionService, $registrationAgeBracketRepo,
-            $scoutYearResolver, $memberService, $settingService, $humanCheckService,
+            $twig,
+            $registrationService,
+            $registrationSlotService,
+            $sectionService,
+            $registrationAgeBracketRepo,
+            $scoutYearResolver,
+            $memberService,
+            $settingService,
+            $humanCheckService,
             // IT-14 — the « avec qui » names a family may type on the
             // public form, resolved and stored the same way the
             // reenrollment form's are.
-            $registrationReenrollmentService, $registrationReenrollmentRepository
+            $registrationReenrollmentService,
+            $registrationReenrollmentRepository
         )
     );
 
@@ -5983,7 +6127,11 @@ if ($isEnabled('registration')) {
     $frontController->registerController(
         \Modules\Registration\Controller\DeparturesController::class,
         new \Modules\Registration\Controller\DeparturesController(
-            $twig, $sectionStaffAuthorizationService, $sectionService, $departureService, $scoutYearResolver,
+            $twig,
+            $sectionStaffAuthorizationService,
+            $sectionService,
+            $departureService,
+            $scoutYearResolver,
             $registrationReenrollmentDeparture
         )
     );
