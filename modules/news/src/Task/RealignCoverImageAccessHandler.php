@@ -80,8 +80,11 @@ class RealignCoverImageAccessHandler implements TaskHandlerInterface
             'news',
             'news_cover_access_realigned',
             'security',
-            sprintf('Reprise des accès aux images d\'articles : %d couverture(s) parcourue(s), %d réalignée(s).',
-                $covers, $realigned),
+            sprintf(
+                'Reprise des accès aux images d\'articles : %d couverture(s) parcourue(s), %d réalignée(s).',
+                $covers,
+                $realigned
+            ),
             ['covers' => $covers, 'realigned' => $realigned]
         );
 
