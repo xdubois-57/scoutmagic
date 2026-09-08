@@ -966,6 +966,30 @@ $settingService->register('support_last_mail_probe_key', '', 'text', "Clé de la
     "Clé de corrélation de la dernière sonde de diagnostic envoyée, pour la citer au support. Renseignée "
         . "automatiquement.",
     null, null, null, false, 296);
+// Discovery tips — « Le saviez-vous ? » (ARCHITECTURE.md §8.95). Four
+// knobs and no content: the corpus served is the contextual help's own
+// (§8.64), so a unit that writes a help topic has written a tip.
+$settingService->register(\Core\Help\Discovery\DiscoveryService::SETTING_ENABLED, '1', 'boolean',
+    'Astuces de découverte',
+    'Propose de temps en temps, dans une petite fenêtre, un sujet d\'aide que la personne connectée n\'a jamais '
+        . 'vu — pour faire découvrir ce que le site sait faire. Décochez pour ne jamais rien proposer.',
+    null, null, null, true, 297);
+$settingService->register(\Core\Help\Discovery\DiscoveryService::SETTING_INTERVAL_HOURS,
+    (string) \Core\Help\Discovery\DiscoveryService::DEFAULT_INTERVAL_HOURS, 'number',
+    'Astuces — délai entre deux passages (heures)',
+    'Nombre d\'heures pendant lesquelles plus aucune astuce n\'est proposée après la fermeture de la fenêtre.',
+    null, null, null, true, 298);
+$settingService->register(\Core\Help\Discovery\DiscoveryService::SETTING_SNOOZE_DAYS,
+    (string) \Core\Help\Discovery\DiscoveryService::DEFAULT_SNOOZE_DAYS, 'number',
+    'Astuces — délai du report explicite (jours)',
+    'Nombre de jours d\'attente lorsque la personne choisit « Pas avant une semaine ».',
+    null, null, null, true, 299);
+$settingService->register(\Core\Help\Discovery\DiscoveryService::SETTING_BATCH_SIZE,
+    (string) \Core\Help\Discovery\DiscoveryService::DEFAULT_BATCH_SIZE, 'number',
+    'Astuces — nombre par passage',
+    'Nombre d\'astuces enchaînées dans une même fenêtre avant qu\'elle ne se referme.',
+    null, null, null, true, 300);
+
 // `installed_at` declares itself (Core\Statistics\InstallationDateService::
 // register()) because SetupController writes it before this file has ever
 // run — see that method's own comment. Backfilled here once for every

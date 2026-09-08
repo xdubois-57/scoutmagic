@@ -107,4 +107,56 @@ class HelpRegistryCacheTest extends TestCase
         $this->assertNull($this->registry('dev')->cacheDirectory());
         $this->assertNull((new HelpRegistry($this->topicsDir, new HelpFrontMatterParser()))->cacheDirectory());
     }
+
+    /**
+     * The trap the format mark exists for: a site deployed from a release
+     * artefact and updated in place keeps its version between releases,
+     * so an index serialized before a HelpTopic field existed would be
+     * served — with that field missing from every topic — for as long as
+     * nobody released. An index written under a key that predates the
+     * mark must therefore be a miss.
+     */
+    public function testAnIndexWrittenUnderAKeyWithoutTheFormatMarkIsAMiss(): void
+    {
+        $this->registry('1.0.0')->all();
+        $stored = unserialize((string) file_get_contents($this->cacheDir . '/help-index.cache'));
+        $this->assertIsArray($stored);
+        // The key shape as it was before the format mark: version, then
+        // the module list.
+        $stored['key'] = '1.0.0|';
+        file_put_contents($this->cacheDir . '/help-index.cache', serialize($stored));
+
+        unlink($this->topicsDir . '/premier.md');
+
+        $this->assertSame([], $this->registry('1.0.0')->all());
+    }
+
+    /**
+     * A field added to HelpTopic since the cache shipped survives the
+     * round trip — an enum among them, which unserialize() cannot degrade
+     * into an incomplete object and would fatal on if the allowed-class
+     * list had been left behind.
+     */
+    public function testACachedTopicKeepsItsDiscoveryPriority(): void
+    {
+        file_put_contents($this->topicsDir . '/second.md', <<<MD
+        ---
+        id: second
+        title: Second sujet
+        summary: Une phrase.
+        category: Premiers pas
+        role_min: public
+        discovery: 1
+        ---
+        Le corps du sujet.
+        MD);
+
+        $this->registry('1.0.0')->all();
+        unlink($this->topicsDir . '/second.md');
+
+        $this->assertSame(
+            \Core\Help\DiscoveryPriority::High,
+            $this->registry('1.0.0')->all()['second']->discovery
+        );
+    }
 }
