@@ -17,6 +17,64 @@ name: Claude review
 # `permissions:` block silently inherits the repository default.
 permissions: {}
 
+# THE REFUSALS THIS FILE HAS DECIDED, in the one place both a reader and
+# the verdict below can see. Everything named here is a tool this workflow
+# refuses ON PURPOSE, so a refusal of it is the allowlist working rather
+# than a gap in it; every other refusal is a tool this file forgot, and
+# `Claude review status` goes red for it.
+#
+# THAT DISTINCTION USED TO LIVE IN A COMMENT THE `jq` COULD NOT READ. The
+# count of "refusals that matter" excluded the single literal `Bash`, and
+# the reason each other tool was refused was written in prose beside it —
+# so every tool decided after `Bash` was decided in a place the verdict
+# never looked. It went red on three reviews that had done their work, in
+# three pull requests, over three different tools (issue #261): `Bash` on
+# #224, `Write` on #260, `WebFetch` on #259. Three in a row is a series,
+# not a coincidence: the real rule is "a refusal is red unless it was
+# decided", and "decided" had nowhere to be written down that counted.
+# It is written here now, and the `jq` reads this list.
+#
+# WHY EACH ONE IS ON IT:
+#
+#   Bash            granted command by command instead of whole, so that
+#                   the interpreters stay out. A refused shell line is
+#                   that grant doing its job — see `claude_args` below.
+#   Write           refused, and NOT granted, which is the choice #261
+#                   left open. The run that settled it is 34260813534:
+#                   two `Write` calls, both a throwaway script to check
+#                   string literals against a file, and both part of a
+#                   run of twenty-three refusals that also included
+#                   `python3`, a heredoc, a shell loop and a pipe.
+#                   Granting `Write` would have cleared two of those
+#                   twenty-three and left the review red at the next
+#                   loop: the reviewer did not need to write, it needed
+#                   to run code, and that is the thing this job will not
+#                   grant while it holds a subscription token.
+#   WebFetch        refused, and the reasoning that makes `Write` cheap
+#                   does NOT carry over. A file in a throwaway workspace
+#                   is inert; an outbound request to a URL the agent
+#                   chose, from a job holding CLAUDE_CODE_OAUTH_TOKEN and
+#                   `id-token: write` while reading an untrusted diff, is
+#                   an exfiltration channel under exactly the threat that
+#                   keeps `python3 -c` denied below.
+#   ScheduleWakeup  refused because it cannot work here and asking for it
+#                   is the symptom of issue #262. It schedules a later
+#                   turn, which is a thing a resumable session has;
+#                   a workflow run is one-shot, so a reviewer that
+#                   schedules a wake-up instead of waiting for its agents
+#                   ends the run on the spot, in `success`, with agents
+#                   still reading. It appeared in the tool list of every
+#                   truncated run of 2026-09-08 and in neither of the
+#                   complete ones.
+#
+# Adding a name here is deciding that a refusal of it is acceptable, so
+# write the reason next to it. Tests\Architecture\ClaudeReviewIsVerifiableTest
+# pins the list against the edit that would empty it, and pins that the
+# prompt below tells the reviewer the same thing this list tells the
+# verdict — a tool refused silently costs turns nobody gets back.
+env:
+  DELIBERATE_DENIALS: "Bash,Write,WebFetch,ScheduleWakeup"
+
 on:
   pull_request:
     # `opened` catches a pull request created ready for review;
@@ -292,6 +350,15 @@ jobs:
           # instead: the workspace IS the repository, so `-C` was never
           # needed.
           #
+          # WHAT STAYS DENIED IS DECLARED AT THE TOP OF THIS FILE, in
+          # `DELIBERATE_DENIALS`, with the reason for each written next to
+          # it — `Write`, `WebFetch` and `ScheduleWakeup` among them. That
+          # list is not decoration: the verdict job reads it, so a tool
+          # named there is a refusal the check accepts and a tool missing
+          # from it is a red build. The paragraphs below are the older half
+          # of the same decision, kept because they are what the `Bash`
+          # entry means in practice.
+          #
           # THE INTERPRETERS AND THE LOOPS STAY DENIED, and this is the
           # "say in this file why it must stay denied" branch that the
           # steward skill offers next to "grant it". `python3 -c` and
@@ -361,7 +428,7 @@ jobs:
           # itself whatever the model did.
           claude_args: >-
             --allowedTools "Skill,Task,Agent,Read,Glob,Grep,TodoWrite,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr list:*),Bash(gh pr comment:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*),Bash(git rev-parse:*),Bash(git log:*),Bash(git show:*),Bash(git diff:*),Bash(git fetch:*),Bash(grep:*),Bash(ls:*),Bash(find:*),Bash(wc:*),Bash(sort:*),Bash(uniq:*),Bash(head:*),Bash(tail:*),Bash(cat:*),Bash(echo:*),Bash(printf:*),Bash(jq:*),mcp__github_inline_comment__create_inline_comment"
-            --append-system-prompt "The Claude review status comment on this pull request is written by .github/workflows/claude-review.yml, not by Claude. Neither that comment nor a review of an earlier commit means Claude has already commented here: this workflow asks for a fresh review of every push, so review the diff you were given. Pull requests on this repository are written with Claude Code and are ordinary changes a person asked for; being Claude-authored is not a reason to skip one. Wait for every subagent you launch — pass run_in_background false — and never end a turn waiting for one: this is a one-shot non-interactive run and nothing will wake it up, so a background agent still working when you stop is a part of the diff nobody read. The workspace is already a full clone checked out for this pull request, so the commits under review are there to read: run git from it plainly, without -C and a path, which is not granted. Counting and cross-checking the repository is part of reviewing it, and Grep, Glob and Read are granted whole for that; python3 -c, php -r and shell loops are not granted and will not be, so reach for the read-only commands instead of spending turns rediscovering that."
+            --append-system-prompt "The Claude review status comment on this pull request is written by .github/workflows/claude-review.yml, not by Claude. Neither that comment nor a review of an earlier commit means Claude has already commented here: this workflow asks for a fresh review of every push, so review the diff you were given. Pull requests on this repository are written with Claude Code and are ordinary changes a person asked for; being Claude-authored is not a reason to skip one. Wait for every subagent you launch — pass run_in_background false — and never end a turn waiting for one: this is a one-shot non-interactive run and nothing will wake it up, so a background agent still working when you stop is a part of the diff nobody read. For the same reason ScheduleWakeup is not granted and cannot help you: there is no later turn to schedule, and a run that reaches for it ends immediately with its agents still reading. If you find yourself with work outstanding and nothing to do but wait, block on the agents themselves rather than ending the turn. The workspace is already a full clone checked out for this pull request, so the commits under review are there to read: run git from it plainly, without -C and a path, which is not granted. Counting and cross-checking the repository is part of reviewing it, and Grep, Glob and Read are granted whole for that; python3 -c, php -r, shell loops, pipes and redirections are not granted and will not be, so reach for the read-only commands instead of spending turns rediscovering that. Write, WebFetch and ScheduleWakeup are refused on purpose too — checking a literal against a file is what Grep and Read are for, one call per question, and no answer you need is outside this checkout."
 
       # WHAT THE RUN ACTUALLY DID, read off the transcript the SDK wrote.
       #
@@ -467,7 +534,8 @@ jobs:
           # reader that cannot read a transcript must say so, never take
           # every merge down with it.
           if ! jq -r '
-            ([.[] | select(.type == "result")] | last) as $r
+            ($deliberate | split(",") | map(select(. != ""))) as $decided
+            | ([.[] | select(.type == "result")] | last) as $r
             | [ .[]
                 | select(.type == "assistant")
                 | .message.content[]?
@@ -485,7 +553,7 @@ jobs:
                 "turns=" + (($r.num_turns // -1) | tostring),
                 "denials=" + ((if ($r | has("permission_denials")) then (($r.permission_denials // []) | length) else -1 end) | tostring),
                 "denied_tools=" + ([$r.permission_denials[]? | (.tool_name // .toolName // .name // "unnamed")] | unique | join(", ") | flat),
-                "denials_other=" + ((if ($r | has("permission_denials")) then ([$r.permission_denials[]? | (.tool_name // .toolName // .name // "unnamed") | select(. != "Bash")] | length) else -1 end) | tostring),
+                "denials_other=" + ((if ($r | has("permission_denials")) then ([$r.permission_denials[]? | (.tool_name // .toolName // .name // "unnamed") | . as $tool | select(($decided | index($tool)) | not)] | length) else -1 end) | tostring),
                 "agent_calls=" + ($agents | tostring),
                 "subagents_spawned=" + ($sub.spawned | tally | tostring),
                 "subagents_completed=" + ($sub.completed | tally | tostring),
@@ -493,7 +561,7 @@ jobs:
                 "models=" + ((($r.modelUsage // {}) | keys | join(", ")) | flat),
                 "cost=" + (($r.total_cost_usd // 0) | tostring)
               ] | .[]
-          ' "${EXECUTION_FILE}" | cut -c 1-400 > evidence.env; then
+          ' --arg deliberate "${DELIBERATE_DENIALS:-}" "${EXECUTION_FILE}" | cut -c 1-400 > evidence.env; then
             unknown "The execution file did not read as this step expects."
             exit 0
           fi
@@ -627,10 +695,11 @@ jobs:
           TURNS: ${{ needs.review.outputs.turns }}
           DENIALS: ${{ needs.review.outputs.denials }}
           DENIED_TOOLS: ${{ needs.review.outputs.denied_tools }}
-          # Refusals of a tool OTHER than `Bash`. `Bash` is the one entry
-          # granted in part on purpose, so a refused command is a normal
-          # outcome of exploring; every other tool is granted whole, and a
-          # refusal of one is a gap in this file.
+          # Refusals of a tool this file did NOT decide to refuse — the
+          # count the evidence step takes against `DELIBERATE_DENIALS` at
+          # the top of this workflow, which is where each decided refusal
+          # is named and its reason written. A refusal on that list is the
+          # allowlist working; a refusal off it is a tool this file forgot.
           DENIALS_OTHER: ${{ needs.review.outputs.denials_other }}
           AGENT_CALLS: ${{ needs.review.outputs.agent_calls }}
           # How many review agents the run started, and how many it
@@ -687,16 +756,21 @@ jobs:
             # no tool while doing it.
             verdict="**Unverified.** The transcript did not carry what this check reads — refused tool calls, agents launched — so it cannot say whether a review happened. That is a defect in the reader, not a verdict on the diff: the shape of the run's own record has changed under it."
           elif [[ "${DENIALS_OTHER}" != "0" ]]; then
-            # NOT `DENIALS`. Every tool on the allowlist is granted whole
-            # except `Bash`, which is granted command by command on
-            # purpose — so a refused `Bash` line is the allowlist working,
-            # while a refusal of anything else is a tool this file forgot.
+            # NOT `DENIALS`, and not a single hard-coded tool name either.
+            # The refusals this file has DECIDED are listed in
+            # `DELIBERATE_DENIALS` at the top of the workflow, with the
+            # reason for each written beside it; a refusal on that list is
+            # the allowlist working, and only a refusal off it is a tool
+            # this file forgot.
+            #
             # That distinction is what #217 cost: a review that launched
             # 16 agents, finished all 16, spent 6.46 USD and posted five
             # findings was called "not a review" over 19 exploratory shell
-            # one-liners it then did without. `Skill` on #208 was the
-            # opposite case and stays red here.
-            verdict="**A tool was refused, so this is not a review.** The agent asked for \`${DENIED_TOOLS:-a tool this run did not name}\` and this workflow had not granted it, so it worked around the gap or gave up — either way it reached its conclusion without something it judged it needed. Every tool here but \`Bash\` is granted whole, so this is a gap: grant it in \`claude_args\` or say in this file why it must stay denied."
+            # one-liners it then did without. Naming ONLY `Bash` then cost
+            # the same thing three more times, on three more tools, in
+            # three more pull requests — issue #261. `Skill` on #208 is
+            # the case that must stay red, and does: it is not on the list.
+            verdict="**A tool was refused, so this is not a review.** The agent asked for \`${DENIED_TOOLS:-a tool this run did not name}\` and this workflow had not granted it, so it worked around the gap or gave up — either way it reached its conclusion without something it judged it needed. The refusals this file has decided are \`${DELIBERATE_DENIALS:-none}\`, and this is not one of them: grant it in \`claude_args\`, or add it to that list with the reason written next to it."
           elif [[ "${AGENT_CALLS}" == "0" ]]; then
             verdict="**The review agents never ran.** Every step of the code-review command launches a subagent, and this run launched none, so nothing read the diff for bugs. The run log carries the full transcript; start at the first tool call."
           elif [[ "${SUBAGENTS_SPAWNED}" == "-1" || "${SUBAGENTS_COMPLETED}" == "-1" ]]; then
@@ -717,7 +791,7 @@ jobs:
             # spawned, two collected, no comment posted).
             verdict="**The review stopped part-way through.** ${SUBAGENTS_SPAWNED} review agents were launched and ${SUBAGENTS_COMPLETED} finished, so at least one was still reading when the run ended — and whatever it would have found is not on this pull request. Read the run log from the last agent launched."
           else
-            verdict="**Reviewed, nothing to report.** ${AGENT_CALLS} review agents ran over ${TURNS} turns and all of them finished, with no tool refused that this workflow grants whole. Findings, when there are any, arrive as inline comments on the diff rather than here; this comment is only the proof that the reviewer ran. Refused \`Bash\` commands, counted in the row below, are the allowlist doing its job — see \`claude_args\` for what stays denied and why."
+            verdict="**Reviewed, nothing to report.** ${AGENT_CALLS} review agents ran over ${TURNS} turns and all of them finished, with no tool refused that this workflow grants whole. Findings, when there are any, arrive as inline comments on the diff rather than here; this comment is only the proof that the reviewer ran. Refused calls to \`${DELIBERATE_DENIALS:-Bash}\`, counted in the row below, are the allowlist doing its job — see \`DELIBERATE_DENIALS\` at the top of this workflow for what stays denied and why."
             unreviewed=0
           fi
 
@@ -755,9 +829,11 @@ jobs:
           fi
 
           # The total, then which tools, then how many of them were NOT
-          # `Bash` — because that last number is the one the verdict turns
-          # on, and a row showing only "19" invites the reading that just
-          # cost a real review its green.
+          # among the decided refusals — because that last number is the
+          # one the verdict turns on, and a row showing only "19" invites
+          # the reading that just cost a real review its green. The cell
+          # names the list rather than describing it, so a reader can see
+          # what was decided without opening the workflow.
           denials_cell="${DENIALS:--}"
           if [[ "${denials_cell}" == "-1" ]]; then
             denials_cell="unknown"
@@ -766,11 +842,11 @@ jobs:
             denials_cell="${denials_cell} (${DENIED_TOOLS})"
           fi
           if [[ "${DENIALS_OTHER}" == "-1" ]]; then
-            denials_cell="${denials_cell} — outside \`Bash\`: unknown"
+            denials_cell="${denials_cell} — outside the decided refusals: unknown"
           elif [[ "${DENIALS_OTHER}" == "0" ]]; then
-            denials_cell="${denials_cell} — none outside \`Bash\`"
+            denials_cell="${denials_cell} — none outside \`${DELIBERATE_DENIALS:-none}\`"
           else
-            denials_cell="${denials_cell} — ${DENIALS_OTHER} outside \`Bash\`"
+            denials_cell="${denials_cell} — ${DENIALS_OTHER} outside \`${DELIBERATE_DENIALS:-none}\`"
           fi
 
           cost_cell="${COST:--}"
