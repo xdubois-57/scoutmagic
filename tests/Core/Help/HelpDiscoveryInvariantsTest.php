@@ -154,16 +154,57 @@ final class HelpDiscoveryInvariantsTest extends TestCase
     {
         $declared = [];
         foreach (self::shippedFiles() as $file) {
-            foreach (explode("\n", (string) file_get_contents($file)) as $line) {
-                $trimmed = trim($line);
-                $colon = strpos($trimmed, ':');
-                if ($colon !== false && trim(substr($trimmed, 0, $colon)) === 'discovery') {
-                    $declared[] = [basename($file), trim(substr($trimmed, $colon + 1))];
-                }
+            foreach (self::frontMatterValues($file, 'discovery') as $value) {
+                $declared[] = [basename($file), $value];
             }
         }
 
         return $declared;
+    }
+
+    /**
+     * Every value one file's FRONT MATTER declares for one key, read the
+     * way Core\Help\HelpFrontMatterParser::parse() reads it: the block
+     * between the opening `---` and the closing one, each line trimmed and
+     * split on its first colon.
+     *
+     * **The bound at the closing `---` is the whole point**, and leaving it
+     * out was the same mistake twice. The parser breaks there; a scan that
+     * does not walks the Markdown body too, and a body is prose — it may
+     * quote front matter, and docs/module-development.md's own example
+     * already carries a column-zero `role_min: public`. Unbounded, the two
+     * checks above fail in opposite directions: the discovery-value one
+     * would refuse a corpus over a value written in a sentence, and the
+     * role-floor one would keep a floor alive on the strength of a line in
+     * a body long after the last real declaration was deleted — silently
+     * defeating the one gap it exists to close.
+     *
+     * A file whose front matter never closes has none the parser would
+     * use, so it yields nothing; `shippedTopics()` already refuses such a
+     * corpus outright through an empty `loadErrors()`.
+     *
+     * @return string[]
+     */
+    private static function frontMatterValues(string $file, string $key): array
+    {
+        $lines = explode("\n", (string) file_get_contents($file));
+        $values = [];
+
+        // Line 0 is the opening delimiter — the parser requires it before
+        // reading anything, so the block starts at line 1.
+        foreach (array_slice($lines, 1) as $line) {
+            $trimmed = trim($line);
+            if ($trimmed === '---') {
+                return $values;
+            }
+
+            $colon = strpos($trimmed, ':');
+            if ($colon !== false && trim(substr($trimmed, 0, $colon)) === $key) {
+                $values[] = trim(substr($trimmed, $colon + 1));
+            }
+        }
+
+        return [];
     }
 
     /**
@@ -277,10 +318,8 @@ final class HelpDiscoveryInvariantsTest extends TestCase
 
         $found = [];
         foreach (self::shippedFiles() as $file) {
-            foreach (explode("\n", (string) file_get_contents($file)) as $line) {
-                if (str_starts_with($line, 'role_min:')) {
-                    $found[trim(substr($line, strlen('role_min:')))] = true;
-                }
+            foreach (self::frontMatterValues($file, 'role_min') as $value) {
+                $found[$value] = true;
             }
         }
 
