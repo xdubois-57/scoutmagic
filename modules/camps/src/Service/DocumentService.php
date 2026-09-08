@@ -73,7 +73,19 @@ class DocumentService
         }
 
         $title = $this->cleanTitle($title, $uploadedFile);
-        $id = $this->documents->create($campId, $title, $fileId);
+
+        // The file is on disk and in `files` before the document row that
+        // points at it exists. A failure here left both behind, owned by
+        // nothing — and this class is already injected with the very
+        // collaborator that removes such a file; it simply never used it
+        // on this path.
+        try {
+            $id = $this->documents->create($campId, $title, $fileId);
+        } catch (\Throwable $e) {
+            $this->fileRemover->removeOrphan($fileId);
+
+            throw $e;
+        }
 
         $this->audit->record(
             CampService::ENTITY_TYPE, $campId, 'document', null, $title,

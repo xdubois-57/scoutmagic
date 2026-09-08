@@ -247,11 +247,27 @@ class ReceiptService
         $suggestedSource = ($suggestedAmount !== null || $suggestedDate !== null)
             ? Attachment::SUGGESTED_SOURCE_MANUAL
             : null;
-        $id = $this->attachmentRepository->create(
-            $account?->id, $fileId, $mimeType, $originalFilename, $suggestedAmount, $suggestedDate, null, $uploadedBy,
-            $suggestedSource,
-            $contentHash
-        );
+
+        // store() wrote a file and a `files` row; create() writes the
+        // receipt that points at them. Two writes, no transaction across
+        // them — so a failure here used to leave the encrypted blob and
+        // its row belonging to nothing, for ever: receipts are never
+        // deleted physically, so no later pass would ever have collected
+        // them. The compensation is the one Service\CampaignService::
+        // createFromFile() and Service\BatchDepositService::deposit()
+        // already perform.
+        try {
+            $id = $this->attachmentRepository->create(
+                $account?->id, $fileId, $mimeType, $originalFilename, $suggestedAmount, $suggestedDate, null,
+                $uploadedBy,
+                $suggestedSource,
+                $contentHash
+            );
+        } catch (\Throwable $e) {
+            $this->fileStorage->delete($fileId);
+
+            throw $e;
+        }
 
         $attachment = $this->attachmentRepository->findById($id);
         \assert($attachment !== null);
@@ -376,12 +392,31 @@ class ReceiptService
             $account->id
         );
 
-        $newId = $this->attachmentRepository->create(
-            $old->accountId, $fileId, $mimeType, $originalFilename, null, null, $attachmentId, $uploadedBy
-        );
+        // Three writes after the file: the new receipt, the archiving of
+        // the old one, and the transfer of its movement associations. A
+        // failure between them used to leave TWO active receipts for one
+        // document — the replaced one never archived — plus the orphan
+        // blob of the first write. The new receipt is undone in the same
+        // order it was made.
+        $newId = null;
+        try {
+            $newId = $this->attachmentRepository->create(
+                $old->accountId, $fileId, $mimeType, $originalFilename, null, null, $attachmentId, $uploadedBy
+            );
 
-        $this->attachmentRepository->archive($attachmentId);
-        $this->transactionAttachmentRepository->transferAttachment($attachmentId, $newId);
+            $this->attachmentRepository->archive($attachmentId);
+            $this->transactionAttachmentRepository->transferAttachment($attachmentId, $newId);
+        } catch (\Throwable $e) {
+            if ($newId !== null) {
+                // Archived rather than deleted: this module never removes
+                // a receipt row (its own spec), so the half-made
+                // replacement is put out of the way instead.
+                $this->attachmentRepository->archive($newId);
+            }
+            $this->fileStorage->delete($fileId);
+
+            throw $e;
+        }
 
         $attachment = $this->attachmentRepository->findById($newId);
         \assert($attachment !== null);

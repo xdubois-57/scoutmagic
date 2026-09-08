@@ -8,7 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\InboundMail\Service;
 
-use Core\File\FileRepository;
+use Core\File\EncryptedFileStorageService;
 use Core\File\UploadException;
 use Core\File\UploadHandler;
 use Modules\InboundMail\Api\AttachmentOmission;
@@ -85,8 +85,13 @@ class MailboxSyncService
          * messages it frees. Null simply means the rows go and the bytes
          * are left — recoverable and invisible, which is the safe
          * direction.
+         *
+         * The STORAGE service, not the repository: the repository's
+         * delete() removes the `files` row and nothing else, so a purge
+         * wired with it freed no space at all — every blob it was called
+         * to reclaim stayed on the disk it was called to relieve.
          */
-        private ?FileRepository $fileRepository = null,
+        private ?EncryptedFileStorageService $fileStorage = null,
         /**
          * What each box lets each module do (IT-05). Null means "everybody
          * analyses everything", which is what the contract was before the
@@ -531,7 +536,7 @@ class MailboxSyncService
 
                     foreach (array_unique($fileIds) as $fileId) {
                         if ($this->messageRepository->countAttachmentsForFile($fileId) === 0) {
-                            $this->fileRepository?->delete($fileId);
+                            $this->fileStorage?->delete($fileId);
                         }
                     }
                 },

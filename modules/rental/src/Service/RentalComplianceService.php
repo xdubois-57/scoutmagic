@@ -9,7 +9,7 @@ declare(strict_types=1);
 namespace Modules\Rental\Service;
 
 use Core\Config\SettingService;
-use Core\File\FileRepository;
+use Core\File\EncryptedFileStorageService;
 use Core\Journal\JournalService;
 use Core\Service\DateInput;
 use Modules\Rental\Compliance\ComplianceItem;
@@ -57,7 +57,13 @@ class RentalComplianceService
         private RentalComplianceRepository $repository,
         private SettingService $settingService,
         private JournalService $journal,
-        private ?FileRepository $fileRepository = null
+        /**
+         * The STORAGE service, not the repository: FileRepository::delete()
+         * only removes the `files` row, so a replaced or deleted
+         * compliance document left its bytes on disk for ever — the row
+         * said gone, the file was not.
+         */
+        private ?EncryptedFileStorageService $fileStorage = null
     ) {
     }
 
@@ -167,7 +173,7 @@ class RentalComplianceService
         // which is recoverable, rather than a register entry pointing at
         // nothing, which is not.
         if ($item->fileId !== null && $item->fileId !== $fileId) {
-            $this->fileRepository?->delete($item->fileId);
+            $this->fileStorage?->delete($item->fileId);
         }
 
         $this->journal->log(
@@ -190,7 +196,7 @@ class RentalComplianceService
         $this->repository->delete($itemId);
 
         if ($item->fileId !== null) {
-            $this->fileRepository?->delete($item->fileId);
+            $this->fileStorage?->delete($item->fileId);
         }
 
         $this->journal->log(

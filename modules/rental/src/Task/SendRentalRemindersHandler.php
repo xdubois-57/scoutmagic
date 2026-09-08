@@ -134,7 +134,7 @@ class SendRentalRemindersHandler implements TaskHandlerInterface
                 new RentalComplianceRepository($pdo),
                 $context->settings,
                 $context->journal,
-                $fileRepository
+                new \Core\File\EncryptedFileStorageService($fileRepository, $context->encryption, $context->storagePath)
             ),
             new RentalReminderRepository($pdo),
             new ReminderPlanner(),

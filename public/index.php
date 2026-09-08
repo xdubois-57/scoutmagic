@@ -3625,7 +3625,10 @@ if ($isEnabled('inbound_mail')) {
         $inboundReadConsumers,
         $inboundScopeService,
         null,
-        $inboundReplyAddresses
+        $inboundReplyAddresses,
+        // Row AND bytes when a message, a box or a retention window takes
+        // an attachment away (#242).
+        $encryptedFileStorageService
     );
 
     // One-time reprise for installs that stored a message's consumer and
@@ -3744,7 +3747,7 @@ if ($isEnabled('inbound_mail')) {
                 new \Modules\InboundMail\Service\AnalysisResultApplier($inboundMessageRepository),
                 new \Core\File\UploadHandler(new \Core\File\FileRepository($pdo), $storagePath),
                 null,
-                new \Core\File\FileRepository($pdo),
+                $encryptedFileStorageService,
                 $inboundScopeService,
                 null,
                 $inboundReplyAddresses
@@ -6366,7 +6369,7 @@ if ($isEnabled('rental')) {
         new \Modules\Rental\Repository\RentalComplianceRepository($pdo),
         $settingService,
         $journalService,
-        $fileRepository
+        $encryptedFileStorageService
     );
 
     // Its documents follow the same rule as a booking's: readable only by

@@ -156,6 +156,13 @@ function scoutmagic_bootstrap_scheduler(
                 $encryptionService,
                 null,
                 $settingService
+            ),
+            // Row AND bytes when a retention window takes an attachment
+            // away (#242).
+            new \Core\File\EncryptedFileStorageService(
+                new \Core\File\FileRepository($pdo),
+                $encryptionService,
+                $storagePath
             )
         )
     );

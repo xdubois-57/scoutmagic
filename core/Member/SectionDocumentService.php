@@ -178,9 +178,22 @@ class SectionDocumentService
             $content, $mimeType, $originalFilename, self::STORAGE_SUBDIRECTORY, 'identified', 'core', $uploadedBy
         );
 
-        $documentId = $this->repository->create($sectionId, $scoutYearId, $fileId, $title, $description,
-            strlen($content), $uploadedBy);
-        $this->fileRepository->updateOwner($fileId, 'section_document', $documentId);
+        // store() wrote the encrypted file and its `files` row; the two
+        // writes below are what make them belong to something. A failure
+        // between them left the blob and the row owned by nothing, with
+        // no later pass to collect them — the compensation three other
+        // paths in this codebase already perform (Modules\Finance\Service\
+        // CampaignService::createFromFile(), Core\Import\DeskImportService
+        // ::import(), Modules\Finance\Service\BatchDepositService::deposit()).
+        try {
+            $documentId = $this->repository->create($sectionId, $scoutYearId, $fileId, $title, $description,
+                strlen($content), $uploadedBy);
+            $this->fileRepository->updateOwner($fileId, 'section_document', $documentId);
+        } catch (\Throwable $e) {
+            $this->fileStorage->delete($fileId);
+
+            throw $e;
+        }
 
         $this->journalService->log(
             'core', 'section_document_added', 'info', 'Document de section ajouté',
