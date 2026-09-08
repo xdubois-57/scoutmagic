@@ -41,9 +41,12 @@ final class Article
      * renders that preview never signs in — so a members-only article
      * whose preview is suppressed is posted as a bare link with no
      * title and no picture, which is the same as not being shareable at
-     * all. `identified` therefore gets a preview; the body stays behind
-     * Service\ArticleService::canView()'s 403, and so does the rest of
-     * the list, which an anonymous visitor still never sees.
+     * all. `identified` therefore gets a preview — and gets it at a URL
+     * that answers 200, since a crawler does not read a 403's body
+     * (Controller\NewsController::renderSocialPreview()). What that page
+     * carries is the preview and nothing more: the body, the form and
+     * the author stay behind Service\ArticleService::canView(), and so
+     * does the listing, which an anonymous visitor still never sees.
      *
      * What that costs is stated rather than discovered: the title, the
      * one-sentence summary and the cover image of a members-only

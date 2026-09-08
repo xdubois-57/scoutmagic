@@ -577,15 +577,71 @@ class NewsIntegrationTest extends TestCase
     /**
      * The visibility check is a server-side boundary, not a listing
      * filter (SECURITY.md §3): hiding the article from /news does not
-     * protect it, refusing /news/{id} does.
+     * protect it, refusing its CONTENT at /news/{id} does.
+     *
+     * Since issue #211 the refusal is a preview page rather than a bare
+     * 403 — a crawler does not read a 403's body, so og: tags behind one
+     * reach nobody. The boundary is unchanged and this is what pins it:
+     * an anonymous caller gets the title, the summary and the cover, and
+     * not one word of the body or of the form.
      */
-    public function testShowReturns403ForIdentifiedArticleWhenAnonymous(): void
+    public function testAnonymousGetsThePreviewOfAnIdentifiedArticleAndNoneOfItsContent(): void
     {
         $id = $this->articleRepository->create('Membres', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->chiefAccountId);
+        $this->articleRepository->update($id, 'Membres', Article::VISIBILITY_IDENTIFIED, false, null, null, 'Un resume public.', 55);
+        $this->editableContentService->set(ArticleService::bodyContentKey($id), '<p>Le corps secret du camp.</p>', 'rich_text', $this->chiefAccountId);
+        $this->formRepository->create($id, NewsForm::ACCESS_IDENTIFIED, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+
+        $response = $this->newsController->show(new Request('GET', '/news/' . $id, [], [], [], []), ['id' => (string) $id]);
+        $body = $response->getBody();
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('Un resume public.', $body);
+        $this->assertStringContainsString('name="robots" content="noindex"', $body);
+
+        $this->assertStringNotContainsString('Le corps secret du camp.', $body);
+        $this->assertStringNotContainsString('news-form', $body);
+        $this->assertStringNotContainsString('contact_email', $body);
+    }
+
+    /**
+     * The half of the feature the preview exists for, and the one a test
+     * signing in first cannot reach: the crawler that renders a link
+     * posted to a group of animateurs holds no session, so the og: tags
+     * have to survive an ANONYMOUS request or the whole decision ships
+     * its cost — a public cover image — and none of its effect.
+     */
+    public function testAnAnonymousCrawlerReceivesTheOpenGraphTagsOfAnIdentifiedArticle(): void
+    {
+        $id = $this->articleRepository->create('Camp reserve', Article::VISIBILITY_IDENTIFIED, false, null, null, $this->chiefAccountId);
+        $this->articleRepository->update($id, 'Camp reserve', Article::VISIBILITY_IDENTIFIED, false, null, null, 'Reserve aux membres.', 55);
+        $this->articleRepository->setShortUrlCode($id, 'abc123');
+        $this->settingService->register('base_url', 'https://example.test', 'text', 'label', 'desc');
+
+        $response = $this->newsController->show(new Request('GET', '/news/' . $id, [], [], [], []), ['id' => (string) $id]);
+        $body = $response->getBody();
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('property="og:title" content="Camp reserve"', $body);
+        $this->assertStringContainsString('property="og:description" content="Reserve aux membres."', $body);
+        $this->assertStringContainsString('property="og:url" content="https://example.test/s/abc123"', $body);
+        $this->assertStringContainsString('property="og:image" content="https://example.test/files/55"', $body);
+        $this->assertStringContainsString('name="twitter:card" content="summary_large_image"', $body);
+    }
+
+    /**
+     * And a staff-only article keeps the bare refusal: no preview means
+     * nothing to serve an anonymous caller, so nothing is.
+     */
+    public function testAnonymousStillGetsAFlat403OnAChiefArticle(): void
+    {
+        $id = $this->articleRepository->create('Weekend de staff', Article::VISIBILITY_CHIEF, false, null, null, $this->chiefAccountId);
+        $this->articleRepository->update($id, 'Weekend de staff', Article::VISIBILITY_CHIEF, false, null, null, 'Un secret de famille.', 55);
 
         $response = $this->newsController->show(new Request('GET', '/news/' . $id, [], [], [], []), ['id' => (string) $id]);
 
         $this->assertSame(403, $response->getStatusCode());
+        $this->assertStringNotContainsString('Un secret de famille.', $response->getBody());
     }
 
     public function testShowRendersIdentifiedArticleForASignedInMember(): void

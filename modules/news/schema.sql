@@ -34,7 +34,9 @@ CREATE TABLE IF NOT EXISTS news_articles (
     -- anyone holding its /files/{id} URL, deliberately (issue #211):
     -- that image, the title and the summary ARE the preview, and an
     -- article nobody can post to a group of animateurs with a picture
-    -- was the complaint. The body stays behind the 403.
+    -- was the complaint. The body does not follow: a caller who may not
+    -- read the article is served the preview alone
+    -- (Controller\NewsController::renderSocialPreview()).
     image_file_id INT UNSIGNED NULL,
     -- 'identified' is a rung of the role ladder (Core\Security\Role):
     -- animés, their parents and the staff, once signed in. 'direct_link'

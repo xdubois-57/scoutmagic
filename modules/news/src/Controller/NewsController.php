@@ -489,7 +489,12 @@ class NewsController extends AbstractController
 
         $role = Role::fromString(AuthSession::getRole());
         if (!$this->articleService->canView($article, $role)) {
-            return new Response('Forbidden', 403);
+            // A shareable article answers the caller its preview rather
+            // than a bare 403 — see renderSocialPreview(). Everything
+            // else is refused as before.
+            return $this->articleService->isSociallyShareable($article)
+                ? $this->renderSocialPreview($article)
+                : new Response('Forbidden', 403);
         }
 
         $form = $this->formService->findByArticleId($article->id);
@@ -514,7 +519,6 @@ class NewsController extends AbstractController
         }
 
         $author = $this->userAccountRepository->findById($article->createdBy);
-        $baseUrl = rtrim((string) ($this->settingService->get('base_url') ?: ''), '/');
 
         return $this->render('@news/detail.html.twig', [
             'article' => $article,
@@ -535,26 +539,66 @@ class NewsController extends AbstractController
             'contact_email_default' => $email ?? '',
             'member_options' => $memberOptions,
             'csrf_token' => CsrfGuard::generateToken(),
+            'human_check' => $this->humanCheckChallenge(),
             // Social sharing (Facebook/Instagram/etc. — module usability
-            // review). Absolute URLs are mandatory: the og:image/og:url
-            // meta tags are read by an external crawler, not the browser,
-            // so a relative /files/{id} path would never resolve for it.
-            // The share target is always the short URL (works whether the
-            // visitor shared the short or the full link — a crawler
-            // re-fetching og:url gets redirected the same way either way).
-            // ...and only for a visibility that accepts a preview
-            // (Service\ArticleService::isSociallyShareable()): public,
-            // direct_link, and — since issue #211 — identified, whose
-            // title, summary and cover image are what makes an article
-            // postable to a group of animateurs at all. Staff-only
-            // articles emit nothing.
+            // review), shared with the preview page below.
+            ...$this->socialMetaContext($article),
+        ]);
+    }
+
+    /**
+     * The preview a shareable article shows a caller who may not read it
+     * — in practice a « Membres connectés » article fetched without a
+     * session, by the crawler rendering a link posted to a group of
+     * animateurs or by anyone who follows that link.
+     *
+     * **It answers 200, and it has to.** A crawler does not read a 403's
+     * body, so meta tags behind one reach nobody: emitting them while
+     * show() still refused the page would have shipped the whole cost of
+     * the preview decision (issue #211) — a public cover image on every
+     * members-only article — and none of its effect. The 403 stays for
+     * everything isSociallyShareable() leaves out.
+     *
+     * It carries exactly what that decision made public: the title, the
+     * one-sentence summary and the cover image, plus the way in. Never
+     * the body, the form, the author, or anything else the page shows a
+     * member — views/preview.html.twig says the same, next to the markup.
+     */
+    private function renderSocialPreview(Article $article): Response
+    {
+        return $this->render('@news/preview.html.twig', [
+            'article' => $article,
+            'breadcrumb_current' => $article->title,
+            ...$this->socialMetaContext($article),
+        ]);
+    }
+
+    /**
+     * The og:/twitter: half of a render context, built once for the two
+     * templates that emit those tags (detail and preview, through
+     * views/partials/_social_meta.html.twig). One builder because the
+     * two must agree: a crawler that follows og:url from the preview
+     * has to land on the page the full article would have named.
+     *
+     * Absolute URLs are mandatory — those tags are read by an external
+     * crawler, not by the browser, so a relative /files/{id} would never
+     * resolve for it. The share target is always the short URL: a
+     * visitor may have shared either form, and a crawler re-fetching
+     * og:url gets redirected the same way from both.
+     *
+     * @return array{social_preview: bool, og_url: string, og_image_url: ?string}
+     */
+    private function socialMetaContext(Article $article): array
+    {
+        $baseUrl = rtrim((string) ($this->settingService->get('base_url') ?: ''), '/');
+
+        return [
             'social_preview' => $this->articleService->isSociallyShareable($article),
             'og_url' => $article->shortUrlCode !== null
                 ? $baseUrl . '/s/' . $article->shortUrlCode
                 : $baseUrl . '/news/' . $article->id,
             'og_image_url' => $article->imageFileId !== null ? $baseUrl . '/files/' . $article->imageFileId : null,
-            'human_check' => $this->humanCheckChallenge(),
-        ]);
+        ];
     }
 
     /**
