@@ -183,6 +183,43 @@ class MagicLinkWindowIdentityTest extends TestCase
     }
 
     /**
+     * AND THE TAB IT LEFT BEHIND STOPS WAITING. On a phone the link opens
+     * in a new tab of the same browser, so the tab still showing « En
+     * attente de confirmation… » holds the same session that
+     * verifyMagicLink() has just signed in — and its next poll has to say
+     * so.
+     *
+     * It did not. Confirming the link forgot the pending id, so
+     * `matches()` was false from then on and GET /auth/poll/{id} answered
+     * `{confirmed: false}` for ever, to a session that was already
+     * authenticated. The visitor had to reload by hand, every time
+     * (issue #263, Safari on iPhone, « à chaque fois »).
+     */
+    public function testTheWaitingWindowIsToldWhenTheSameBrowserOpensTheLink(): void
+    {
+        $this->startTestSession();
+        $magicLinkId = $this->requestLink(self::EMAIL);
+
+        // The mail's link, opened in another tab of the same browser:
+        // same session, same cookie.
+        $this->controller->verifyMagicLink($this->verifyRequestFor($magicLinkId), []);
+
+        // The tab that asked, polling on its timer.
+        $response = $this->controller->pollMagicLink(
+            new Request('GET', '/auth/poll/' . $magicLinkId, [], [], [], []),
+            ['id' => (string) $magicLinkId]
+        );
+
+        $this->assertTrue(
+            json_decode($response->getBody(), true)['confirmed'],
+            'The window that asked for the link is still being told to wait, in a session that is already '
+            . 'signed in — so it shows « En attente de confirmation… » until the visitor reloads by hand.'
+        );
+        $this->assertTrue(AuthSession::isAuthenticated());
+        $this->assertSame(self::EMAIL, AuthSession::getEmail());
+    }
+
+    /**
      * A second browser cannot collect what the first one asked for: the
      * poll endpoint answers "not confirmed yet" to anyone but the
      * requesting session, whatever the id (Core\Security\PendingMagicLink).

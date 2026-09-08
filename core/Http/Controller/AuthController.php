@@ -173,6 +173,10 @@ class AuthController extends AbstractController
      * anyway through its own poll, and it has now additionally proven
      * possession of the emailed token.
      *
+     * That case is also the one where the tab is usually NOT discarded,
+     * and this request must leave its poll working — see the comment on
+     * the branch itself.
+     *
      * @param array<string, string> $params
      */
     public function verifyMagicLink(Request $request, array $params): Response
@@ -202,7 +206,25 @@ class AuthController extends AbstractController
             $role = $this->resolveRole($verified->email, $verified->userAccountId);
             AuthSession::login($verified->userAccountId, $verified->email, $role);
             $this->storeLinkedMembers($verified->email);
-            PendingMagicLink::forget();
+            // AND THE PENDING LINK IS LEFT ALONE, deliberately. This
+            // branch runs when the link opened in the SAME session that
+            // asked for it — which, on a phone, is the ordinary case:
+            // Safari opens the mail's link in a new tab of the same
+            // browser, so it carries the same session cookie as the tab
+            // still showing "En attente de confirmation…".
+            //
+            // Forgetting it here spent the one thing that tab has. Its
+            // next GET /auth/poll/{id} found `matches()` false — the
+            // pending had just been dropped by the other tab — and got
+            // `{confirmed: false}` for ever, over a session that was
+            // already authenticated. The visitor saw "En attente de
+            // confirmation…" until they reloaded by hand, every time
+            // (issue #263).
+            //
+            // pollMagicLink() below is what forgets it, once the window
+            // that asked has been told. That is also the order the
+            // docblock above describes: this request confirms, that one
+            // collects.
         }
 
         return $this->render('auth/verify.html.twig', [
@@ -239,7 +261,11 @@ class AuthController extends AbstractController
             return $this->json(['confirmed' => false]);
         }
 
-        // If this device (Device A) is not yet authenticated, create session
+        // If this device (Device A) is not yet authenticated, create the
+        // session. It already is in the same-browser case — verifyMagicLink()
+        // signed this very session in when the mail's link opened in another
+        // tab of it — and then there is nothing left to do but say so, which
+        // is what stops the "En attente de confirmation…" screen (issue #263).
         if (!AuthSession::isAuthenticated()) {
             $user = $this->authService->getUserForConfirmedLink($id);
             if ($user !== null && $this->isMemberAuthorized($user->email)) {
