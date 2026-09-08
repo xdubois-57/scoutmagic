@@ -186,7 +186,7 @@ class MailService
             // support archive. There is one rule about addresses in a
             // message that reaches a screen or a log (SECURITY.md §11),
             // and it cannot hold in one branch of the same catch.
-            throw new MailException(self::redact($reason));
+            throw new MailException(MailErrorRedaction::withoutAddresses($reason));
         }
     }
 
