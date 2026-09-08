@@ -165,11 +165,25 @@ class DiscoveryService
      */
     public function dialogForRequest(Role $role, ?int $accountId, string $method, string $path): ?array
     {
+        // Cheapest first, and deliberately: this runs on every request of
+        // the site, and the three tests above answer "no dialog here"
+        // without touching the database at all.
         if ($accountId === null || strtoupper($method) !== 'GET' || !$this->isOfferablePath($path)) {
             return null;
         }
+        if (!$this->isEnabled()) {
+            return null;
+        }
 
-        $cards = $this->nextTopics($role, $accountId);
+        $snoozedUntil = $this->seenTopics->snoozedUntil($accountId);
+        if ($snoozedUntil !== null && $snoozedUntil > AppClock::now()) {
+            return null;
+        }
+
+        // Ordered once, then sliced — nextTopics() and eligibleTopics()
+        // would each re-read the same two rows, and this is the hot path.
+        $eligible = $this->ordered($role, $accountId, $snoozedUntil);
+        $cards = array_slice($eligible, 0, $this->batchSize());
         if ($cards === []) {
             return null;
         }
@@ -182,7 +196,7 @@ class DiscoveryService
                 'question' => $t->questions[0] ?? null,
                 'url' => '/aide/' . $t->id,
             ], $cards),
-            'more' => count($this->eligibleTopics($role, $accountId)) > count($cards),
+            'more' => count($eligible) > count($cards),
         ];
     }
 
