@@ -13,16 +13,36 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const SLOTS = [
-    { birth_year: 2018, branch_label: 'Louveteaux', year_in_branch: 1, tier: 'available' },
-    { birth_year: 2014, branch_label: 'Éclaireurs', year_in_branch: 2, tier: 'limited' },
-    { birth_year: 2013, branch_label: 'Éclaireurs', year_in_branch: 3, tier: 'heavy' },
-    { birth_year: 2012, branch_label: 'Pionniers', year_in_branch: 1, tier: null },
+    { birth_year: 2018, age_branch_id: 2, branch_label: 'Louveteaux', year_in_branch: 1, tier: 'available' },
+    { birth_year: 2014, age_branch_id: 3, branch_label: 'Éclaireurs', year_in_branch: 2, tier: 'limited' },
+    { birth_year: 2013, age_branch_id: 3, branch_label: 'Éclaireurs', year_in_branch: 3, tier: 'heavy' },
+    { birth_year: 2012, age_branch_id: 4, branch_label: 'Pionniers', year_in_branch: 1, tier: null },
 ];
+
+// The « Section souhaitée » list as modules/registration/views/public.html.twig
+// writes it: « Aucune préférence » with no branch, then one option per
+// section carrying the branch it belongs to.
+const SECTIONS = [
+    { id: 11, branch: 2, label: 'Louveteaux — Meute A' },
+    { id: 12, branch: 2, label: 'Louveteaux — Meute B' },
+    { id: 21, branch: 3, label: 'Éclaireurs — Troupe' },
+    { id: 31, branch: 4, label: 'Pionniers — Poste' },
+];
+
+function sectionOptions() {
+    return SECTIONS
+        .map((s) => `<option value="${s.id}" data-branch-id="${s.branch}">${s.label}</option>`)
+        .join('');
+}
 
 function page(data) {
     return `
         <input type="date" id="birth_date" value="">
         <div class="form-text" id="birth-date-branch-hint"></div>
+        <select id="desired_section_id" name="desired_section_id">
+            <option value="">Aucune préférence</option>
+            ${sectionOptions()}
+        </select>
         <script type="application/json" id="registration-slots-data">${JSON.stringify(data)}<\/script>`;
 }
 
@@ -46,6 +66,12 @@ describe('registration-public-form.js', () => {
 
     const field = () => document.getElementById('birth_date');
     const hint = () => document.getElementById('birth-date-branch-hint').textContent;
+    const sections = () => document.getElementById('desired_section_id');
+
+    /** The labels a parent can actually pick, in order. */
+    const offered = () => Array.from(sections().options)
+        .filter((option) => !option.hidden && !option.disabled)
+        .map((option) => option.textContent.trim());
 
     function type(value) {
         field().value = value;
@@ -148,6 +174,12 @@ describe('registration-public-form.js', () => {
             expect(hint()).toBe('Branche prévue : Louveteaux — 1ᵉ année. Disponible.');
         });
 
+        it('leaves the section list alone until a branch is known', async () => {
+            await boot();
+
+            expect(offered()).toHaveLength(SECTIONS.length + 1);
+        });
+
         it('writes the branch label as TEXT, not markup', async () => {
             document.body.innerHTML = page({
                 ...DEFAULT_DATA,
@@ -159,6 +191,112 @@ describe('registration-public-form.js', () => {
             type('2018-05-04');
 
             expect(document.getElementById('birth-date-branch-hint').querySelector('b')).toBeNull();
+        });
+    });
+
+    // The list of sections a parent may ask for, narrowed to the branch
+    // the birth date lands in. The server already refuses a section from
+    // another branch — and replaces it with « Aucune préférence » without
+    // a word, which is what made the full list a real defect rather than
+    // an untidy one (issue #264).
+    describe('the « Section souhaitée » list', () => {
+        it('keeps only the sections of the branch the birth date lands in', async () => {
+            await boot();
+            type('2018-05-04');
+
+            expect(offered()).toEqual([
+                'Aucune préférence',
+                'Louveteaux — Meute A',
+                'Louveteaux — Meute B',
+            ]);
+        });
+
+        it('follows a corrected birth date from one branch to another', async () => {
+            await boot();
+            type('2018-05-04');
+            type('2012-05-04');
+
+            expect(offered()).toEqual(['Aucune préférence', 'Pionniers — Poste']);
+        });
+
+        it('always offers « Aucune préférence » — not choosing is valid at every age', async () => {
+            await boot();
+            type('2014-05-04');
+
+            expect(offered()).toContain('Aucune préférence');
+        });
+
+        it('hides AND disables what it removes, because Safari has ignored one of the two', async () => {
+            await boot();
+            type('2018-05-04');
+
+            const pionniers = Array.from(sections().options)
+                .find((option) => option.value === '31');
+
+            expect(pionniers.hidden).toBe(true);
+            expect(pionniers.disabled).toBe(true);
+        });
+
+        it('drops a selection the corrected date has just invalidated', async () => {
+            await boot();
+            type('2018-05-04');
+            sections().value = '12';
+
+            type('2012-05-04');
+
+            expect(sections().value).toBe('');
+        });
+
+        it('keeps a selection the corrected date leaves valid', async () => {
+            await boot();
+            type('2018-05-04');
+            sections().value = '12';
+
+            // Another Louveteaux birth year: same branch, same offer.
+            type('2018-11-30');
+
+            expect(sections().value).toBe('12');
+        });
+
+        it('puts the whole list back when the birth date is cleared', async () => {
+            await boot();
+            type('2018-05-04');
+            expect(offered()).toHaveLength(3);
+
+            type('');
+
+            expect(offered()).toHaveLength(SECTIONS.length + 1);
+        });
+
+        it('puts the whole list back for a year outside every branch, rather than emptying it', async () => {
+            await boot();
+            type('1998-06-01');
+
+            expect(offered()).toHaveLength(SECTIONS.length + 1);
+        });
+
+        it('does nothing at all on a page that has no such list', async () => {
+            document.body.innerHTML = `
+                <input type="date" id="birth_date" value="">
+                <div id="birth-date-branch-hint"></div>
+                <script type="application/json" id="registration-slots-data">${JSON.stringify(DEFAULT_DATA)}<\/script>`;
+            await boot();
+
+            expect(() => type('2018-05-04')).not.toThrow();
+            expect(hint()).toBe('Branche prévue : Louveteaux — 1ᵉ année. Disponible.');
+        });
+
+        it('offers every section when the row carries no branch id', async () => {
+            document.body.innerHTML = page({
+                ...DEFAULT_DATA,
+                birthYearSlots: [{
+                    birth_year: 2018, branch_label: 'Louveteaux', year_in_branch: 1, tier: null,
+                }],
+            });
+            await boot();
+            type('2018-05-04');
+
+            expect(offered()).toHaveLength(SECTIONS.length + 1);
         });
     });
 });

@@ -194,7 +194,21 @@ class SlotService
      * only the same available/limited/heavy tier the "Disponibilité des
      * places" section already shows, never the numbers behind it.
      *
-     * @return array<int, array{birth_year: int, branch_label: string, year_in_branch: int, tier: ?string}>
+     * `age_branch_id` is here for the « Section souhaitée » list, which
+     * has to keep only the sections of the branch the birth date lands
+     * in. It is the SAME identity
+     * Controller\PublicRegistrationController::resolveDesiredSectionId()
+     * validates the submitted section against, and that is the point of
+     * shipping the id rather than matching on `branch_label`: two readings
+     * of one relation that could disagree would let the form offer a
+     * section the server then drops. It identifies a branch and nothing
+     * else — the same value the page already prints on every
+     * `<option data-branch-id>` — so it exposes nothing a visitor cannot
+     * already read in the markup.
+     *
+     * @return array<int, array{
+     *   birth_year: int, age_branch_id: int, branch_label: string, year_in_branch: int, tier: ?string
+     * }>
      */
     public function birthYearSlotsForPublic(
         int $targetScoutYearId,
@@ -228,6 +242,7 @@ class SlotService
                 $birthYear = SlotMath::birthYearForSlot($bracket, $yearInBranch, $referenceYear);
                 $rows[] = [
                     'birth_year' => $birthYear,
+                    'age_branch_id' => $bracket->ageBranchId,
                     'branch_label' => $bracket->branchLabel,
                     'year_in_branch' => $yearInBranch,
                     'tier' => $tierByBirthYear[$birthYear] ?? null,

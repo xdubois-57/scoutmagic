@@ -133,6 +133,43 @@ class SlotServiceTest extends TestCase
     }
 
     /**
+     * The public page narrows « Section souhaitée » to the branch the
+     * typed birth date lands in, and it does that in the browser, from
+     * these rows — so a row that names the branch without identifying it
+     * leaves the list unfilterable.
+     *
+     * The ID, not the label: it is the identity
+     * Controller\PublicRegistrationController::resolveDesiredSectionId()
+     * validates the submitted section against, and matching on anything
+     * else would be a second reading of one relation. When those two
+     * disagree the form offers a section the server then drops, silently
+     * — which is issue #264.
+     */
+    public function testBirthYearSlotsForPublicIdentifyTheBranchAndDoNotOnlyNameIt(): void
+    {
+        $currentYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
+        $targetYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2027-2028', '2027-09-01', '2028-08-31');
+
+        $rows = $this->service->birthYearSlotsForPublic($targetYearId, '2027-2028', $currentYearId, false);
+
+        $bracket = $this->bracketRepository->findForBranch($this->baladinsId);
+        $birthYear = SlotMath::birthYearForSlot($bracket, 1, 2027);
+
+        $row = current(array_filter($rows, fn($r) => $r['birth_year'] === $birthYear));
+        $this->assertNotFalse($row);
+        $this->assertSame(
+            $this->baladinsId,
+            $row['age_branch_id'],
+            'A public slot row no longer carries the branch id, so the browser cannot tell which sections '
+            . 'belong to the branch a birth date lands in and offers all of them.',
+        );
+
+        foreach ($rows as $each) {
+            $this->assertArrayHasKey('age_branch_id', $each);
+        }
+    }
+
+    /**
      * The rule this whole change exists for, at the service level: a
      * branch with NO recorded capacity is unlimited, so it is never
      * announced full — whatever the projected headcount or the accepted
