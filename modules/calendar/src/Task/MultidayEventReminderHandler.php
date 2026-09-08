@@ -14,6 +14,7 @@ use Core\Mail\MailException;
 use Core\Member\SectionService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
+use Core\Service\DateInput;
 use Core\View\TwigFactory;
 use Modules\Calendar\Repository\CalendarEventRepository;
 use Modules\Calendar\Repository\CalendarRepository;
@@ -54,9 +55,37 @@ class MultidayEventReminderHandler implements TaskHandlerInterface
             $context->encryption,
             new MemberBadgeRepository($pdo)
         );
-        $scoutYearId = (int) (new ScoutYearService($pdo))->getCurrentYear()['id'];
+        // The year the EVENT falls in, not "today's". getCurrentYear() is
+        // the date-computed year and it goes further than reading: it
+        // CREATES the new year's row (ScoutYearService::ensureYear()). A
+        // reminder for an event of late August, running after the 1st of
+        // September, therefore looked for the section's staff in a year
+        // whose roster has not been imported yet, found nobody, and
+        // returned — no e-mail, no journal line, nothing anywhere saying
+        // the reminder had been dropped. The staff of that event exist;
+        // they exist in the event's own year.
+        $scoutYearService = new ScoutYearService($pdo);
+        $eventDate = DateInput::iso($event->startDate);
+        $year = $eventDate !== null
+            ? $scoutYearService->findByLabel(ScoutYearService::labelForDate($eventDate))
+            : null;
+        $scoutYearId = (int) ($year['id'] ?? $scoutYearService->getCurrentYear()['id']);
+
         $staff = $sectionService->getSectionStaff($calendar->sectionId, $scoutYearId);
         if ($staff === []) {
+            // Said out loud rather than returned in silence: "the section
+            // has no staff that year" is a state somebody has to be able
+            // to find afterwards, and it is the shape the disappearance
+            // above took.
+            $context->journal->log(
+                'calendar',
+                'multiday_event_reminder_skipped',
+                'warning',
+                "Rappel non envoyé pour l'évènement « {$event->title} » : aucun animateur pour cette section",
+                ['event_id' => $event->id, 'calendar_id' => $calendar->id, 'scout_year_id' => $scoutYearId],
+                null
+            );
+
             return;
         }
 
@@ -64,15 +93,6 @@ class MultidayEventReminderHandler implements TaskHandlerInterface
             dirname(__DIR__, 4) . '/core/View/templates',
             false,
             ['calendar' => dirname(__DIR__, 4) . '/modules/calendar/views']
-        );
-
-        $context->journal->log(
-            'calendar',
-            'multiday_event_reminder_sent',
-            'info',
-            "Rappel envoyé pour l'évènement « {$event->title} »",
-            ['event_id' => $event->id, 'calendar_id' => $calendar->id, 'recipients' => count($staff)],
-            null
         );
 
         // Core's templates plus this module's own: a handler runs outside
@@ -89,6 +109,9 @@ class MultidayEventReminderHandler implements TaskHandlerInterface
             new \Core\Mail\Template\EmailTemplateOverrideRepository($context->connection->getPdo()),
             $context->journal
         );
+
+        $sent = 0;
+        $failed = 0;
 
         foreach ($staff as $profile) {
             if ($profile->email === null || $profile->email === '') {
@@ -113,10 +136,36 @@ class MultidayEventReminderHandler implements TaskHandlerInterface
                     bodyHtml: $email->bodyHtml,
                     bodyText: $email->bodyText
                 );
-            } catch (MailException $e) {
+                $sent++;
+            } catch (MailException) {
                 // Best-effort per recipient — one bad address must never
-                // stop the rest of the section's staff from being reminded.
+                // stop the rest of the section's staff from being
+                // reminded — but counted, never swallowed whole. The
+                // reason itself is already in the journal:
+                // Core\Mail\MailService writes `mail_send_failed` for
+                // every send that does not leave.
+                $failed++;
             }
         }
+
+        // AFTER the loop, and counting what actually left. The line used
+        // to be written before the first send, with « recipients » set to
+        // the number of people AIMED AT — so a run where every single
+        // send failed left a journal reading « Rappel envoyé », and
+        // nothing else anywhere.
+        $context->journal->log(
+            'calendar',
+            'multiday_event_reminder_sent',
+            $failed > 0 ? 'warning' : 'info',
+            "Rappel envoyé pour l'évènement « {$event->title} »",
+            [
+                'event_id' => $event->id,
+                'calendar_id' => $calendar->id,
+                'recipients' => count($staff),
+                'sent' => $sent,
+                'failed' => $failed,
+            ],
+            null
+        );
     }
 }

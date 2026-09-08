@@ -890,6 +890,65 @@ class AlbumServiceTest extends TestCase
     }
 
     /**
+     * #235. `create()` filed every album in the date-computed public year:
+     * not the chief's preview, not their staff year, not even the album's
+     * own date. An album « of » November 2024, created in a preview of
+     * 2024-2025, landed in 2026-2027 — invisible from the year the chief
+     * believed they were filling.
+     */
+    public function testAnAlbumIsFiledInTheYearItsOwnDateFallsIn(): void
+    {
+        $this->pdo->exec(
+            "INSERT INTO scout_years (label, start_date, end_date)"
+            . " VALUES ('2024-2025', '2024-09-01', '2025-08-31')"
+        );
+        $pastYearId = (int) $this->pdo->lastInsertId();
+
+        $album = $this->service->create(
+            Album::TYPE_LOCAL,
+            'Camp 2024',
+            null,
+            '2024-11-15',
+            $this->sectionId,
+            null,
+            $this->authorId,
+            Role::CHIEF,
+            'chief@test.com'
+        );
+
+        $this->assertSame($pastYearId, $this->albumRepository->findById($album->id)?->scoutYearId);
+    }
+
+    /**
+     * And when the album's date names no year this installation knows, the
+     * year the chief is working in — their preview or their staff year —
+     * rather than the public one.
+     */
+    public function testAnAlbumOfAnUnknownYearFallsBackOnTheYearTheChiefIsWorkingIn(): void
+    {
+        $this->pdo->exec(
+            "INSERT INTO scout_years (label, start_date, end_date)"
+            . " VALUES ('2019-2020', '2019-09-01', '2020-08-31')"
+        );
+        $previewYearId = (int) $this->pdo->lastInsertId();
+
+        $album = $this->service->create(
+            Album::TYPE_LOCAL,
+            'Album sans année connue',
+            null,
+            '2015-11-15',
+            $this->sectionId,
+            null,
+            $this->authorId,
+            Role::CHIEF,
+            'chief@test.com',
+            $previewYearId
+        );
+
+        $this->assertSame($previewYearId, $this->albumRepository->findById($album->id)?->scoutYearId);
+    }
+
+    /**
      * Makes $email a member of the album's section, which is what puts its
      * account in that album's audience.
      */

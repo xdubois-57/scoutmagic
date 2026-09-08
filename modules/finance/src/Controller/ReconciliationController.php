@@ -8,7 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\Finance\Controller;
 
-use Core\Config\ScoutYearService;
+use Core\ScoutYear\ScoutYearResolver;
+use Core\ScoutYear\ScoutYearSession;
 use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
@@ -44,7 +45,7 @@ class ReconciliationController extends AbstractController
         private ExpectedReceivableRepository $receivables,
         private FinanceService $financeService,
         private MemberService $members,
-        private ScoutYearService $scoutYears,
+        private ScoutYearResolver $scoutYears,
         private ?SepaQrCodeInterface $sepaQrCode = null,
         /**
          * « Quelle créance ? » answered by typing a name — see
@@ -110,7 +111,13 @@ class ReconciliationController extends AbstractController
             ]);
         }
 
-        $scoutYearId = (int) ($this->scoutYears->getCurrentYear()['id']);
+        // The year this session is actually looking at, not the
+        // date-computed public one — the same resolution the family view
+        // of this very module already uses
+        // (Service\FamilyPaymentService), so the two halves of Finances
+        // cannot disagree about which year they are counting during a
+        // preview or across the 1st of September.
+        $scoutYearId = $this->effectiveScoutYearId($role);
 
         try {
             $view = $this->reconciliation->build($account->id, $scoutYearId, $role);
@@ -286,7 +293,7 @@ class ReconciliationController extends AbstractController
 
         $name = null;
         if ($receivable->memberId !== null) {
-            $scoutYearId = (int) ($this->scoutYears->getCurrentYear()['id']);
+            $scoutYearId = $this->effectiveScoutYearId(Role::fromString(AuthSession::getRole()));
             foreach ($this->members->findDirectoryForYear($scoutYearId) as $entry) {
                 if ($entry->memberId === $receivable->memberId) {
                     $name = trim($entry->firstName . ' ' . $entry->lastName);
@@ -352,5 +359,14 @@ class ReconciliationController extends AbstractController
     private static function parseAmountCents(string $raw): ?int
     {
         return \Modules\Finance\Service\CampaignImportService::parseAmountCents($raw);
+    }
+
+    /**
+     * The year this session is actually looking at — its preview, its
+     * staff year, or the public one (Core\ScoutYear\ScoutYearResolver).
+     */
+    private function effectiveScoutYearId(Role $role): int
+    {
+        return $this->scoutYears->getEffectiveYear(ScoutYearSession::getPreviewId(), $role)->id;
     }
 }

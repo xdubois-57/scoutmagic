@@ -8,7 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Offline;
 
-use Core\Config\ScoutYearService;
+use Core\ScoutYear\ScoutYearResolver;
+use Core\ScoutYear\ScoutYearSession;
 use Core\Import\AgeBranchRepository;
 use Core\Member\MemberService;
 use Core\Member\SectionService;
@@ -56,7 +57,7 @@ class OfflineManifestService
         private SectionPhotoService $sectionPhotoService,
         private SectionService $sectionService,
         private UnitStaffSectionService $unitStaffSectionService,
-        private ScoutYearService $scoutYearService,
+        private ScoutYearResolver $scoutYearService,
         private EditableContentService $editableContentService,
         private AgeBranchRepository $ageBranchRepository,
         private ?HookRegistry $hooks = null,
@@ -69,7 +70,11 @@ class OfflineManifestService
      */
     public function buildManifest(Role $role, ?string $email): array
     {
-        $scoutYearId = (int) $this->scoutYearService->getCurrentYear()['id'];
+        // The year this viewer is actually browsing, not the public
+        // date-computed one: this service is handed the Role precisely so
+        // that a chief in preview gets the manifest of the year they are
+        // looking at rather than of the year the site shows the public.
+        $scoutYearId = $this->scoutYearService->getEffectiveYear(ScoutYearSession::getPreviewId(), $role)->id;
         $entries = $this->offlineWhitelist->getEntriesForRole($role);
 
         $pages = [];

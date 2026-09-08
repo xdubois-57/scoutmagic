@@ -108,7 +108,11 @@ class ReconciliationControllerTest extends TestCase
             $this->receivables,
             $financeService,
             $memberService,
-            $scoutYearService,
+            new \Core\ScoutYear\ScoutYearResolver(
+                $scoutYearService,
+                new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo)),
+                new \Core\Import\MemberYearRepository($this->pdo)
+            ),
             new SepaQrCodeService(),
             new \Modules\Finance\Service\ReceivableSearchService(
                 $this->receivables,

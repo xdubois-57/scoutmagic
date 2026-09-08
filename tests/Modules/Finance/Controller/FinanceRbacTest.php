@@ -294,7 +294,11 @@ class FinanceRbacTest extends TestCase
             'DashboardController' => new DashboardController(
                 $this->twig, $this->financeService, $this->balanceService, $this->transactionRepository, $this->receiptService,
                 $this->categoryRepository, $this->attachmentRepository, $this->transactionAttachmentRepository, $this->statementImportRepository,
-                $this->firstReceiptResolver, $this->reconciliationServiceForDashboard(), new \Core\Config\ScoutYearService($this->pdo)
+                $this->firstReceiptResolver, $this->reconciliationServiceForDashboard(), new \Core\ScoutYear\ScoutYearResolver(
+                new \Core\Config\ScoutYearService($this->pdo),
+                new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo)),
+                new \Core\Import\MemberYearRepository($this->pdo)
+            )
             ),
             'MovementController' => new MovementController(
                 $this->twig, $this->financeService, $this->transactionRepository, $this->categoryRepository, $this->fiscalYearRepository,
@@ -485,7 +489,11 @@ class FinanceRbacTest extends TestCase
             $this->expectedReceivableRepository,
             $this->financeService,
             $this->memberServiceForCampaigns(),
-            new \Core\Config\ScoutYearService($this->pdo),
+            new \Core\ScoutYear\ScoutYearResolver(
+                new \Core\Config\ScoutYearService($this->pdo),
+                new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo)),
+                new \Core\Import\MemberYearRepository($this->pdo)
+            ),
             new \Modules\Finance\Service\SepaQrCodeService()
         );
     }

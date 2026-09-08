@@ -3133,7 +3133,7 @@ $frontController->registerController(EditableContentController::class, $editable
 // photos.
 $offlineManifestService = new \Core\Offline\OfflineManifestService(
     $offlineWhitelist, $memberService, $memberPhotoService, $sectionPhotoService, $sectionService,
-    $unitStaffSectionService, $scoutYearService, $editableContentService, $ageBranchRepo, $moduleHooks,
+    $unitStaffSectionService, $scoutYearResolver, $editableContentService, $ageBranchRepo, $moduleHooks,
     $temporaryMemberProvider
 );
 $offlineController = new OfflineController($twig, $offlineManifestService);
@@ -4118,7 +4118,7 @@ if ($isEnabled('finance')) {
             $twig, $financeService, $financeBalanceService, $financeTransactionRepo, $financeReceiptService,
             $financeCategoryRepo, $financeAttachmentRepo, $financeTransactionAttachmentRepo,
             $financeStatementImportRepo,
-            $financeFirstReceiptResolver, $financeReconciliationService, $scoutYearService
+            $financeFirstReceiptResolver, $financeReconciliationService, $scoutYearResolver
         )
     );
     $frontController->registerController(
@@ -4360,7 +4360,7 @@ if ($isEnabled('finance')) {
             $financeExpectedReceivableRepo,
             $financeService,
             $memberService,
-            $scoutYearService,
+            $scoutYearResolver,
             $financeSepaQrCodeForOthers,
             // « Quelle créance ? » answered by typing a name instead of
             // by looking an id up in a spreadsheet. Same member-name
@@ -4722,7 +4722,7 @@ if ($isEnabled('gallery')) {
         new \Modules\Gallery\Controller\GalleryChiefController(
             $twig, $galleryAlbumService, $galleryMediaService, $galleryMediaRepo, $galleryAccessService,
             $sectionService, $settingService, $galleryStorageLocationRepo, $galleryStorageLocationService,
-            new \Core\File\ChunkedUploadStore($storagePath), $scoutYearService
+            new \Core\File\ChunkedUploadStore($storagePath), $scoutYearService, $scoutYearResolver
         )
     );
     // GalleryConfigController is NOT registered here — see the late block
@@ -5687,13 +5687,13 @@ if ($isEnabled('retro')) {
         \Modules\Retro\Controller\RetroBoardController::class,
         new \Modules\Retro\Controller\RetroBoardController(
             $twig, $retroBoardRepo, $retroCommentRepo, $retroCommentService, $retroVoteService, $retroBoardService,
-            $retroRateLimitService, $retroModerationService, $cookieConsentService, $settingService, $scoutYearService
+            $retroRateLimitService, $retroModerationService, $cookieConsentService, $settingService, $scoutYearResolver
         )
     );
     $frontController->registerController(
         \Modules\Retro\Controller\RetroConfigController::class,
         new \Modules\Retro\Controller\RetroConfigController(
-            $twig, $settingService, $journalService, $memberService, $scoutYearService, $retroModerationService
+            $twig, $settingService, $journalService, $memberService, $scoutYearResolver, $retroModerationService
         )
     );
 

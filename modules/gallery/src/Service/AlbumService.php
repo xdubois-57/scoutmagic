@@ -118,7 +118,16 @@ class AlbumService
         ?string $externalUrl,
         int $createdBy,
         Role $role,
-        string $email
+        string $email,
+        /**
+         * The year the chief is actually working in — their preview, or
+         * their staff year, or the public one
+         * (Core\ScoutYear\ScoutYearResolver). Passed in rather than
+         * resolved here, because resolving it reads the session and a
+         * Service does not (ARCHITECTURE.md, layering). Null keeps the
+         * previous behaviour for a caller that has none.
+         */
+        ?int $effectiveScoutYearId = null
     ): Album {
         $this->assertValidType($type);
         $this->assertTypeAllowed($type);
@@ -170,7 +179,7 @@ class AlbumService
         }
         $this->assertValidLength($title, self::MAX_TITLE_LENGTH, 'Le titre');
 
-        $scoutYearId = $this->scoutYearService->getCurrentYear()['id'];
+        $scoutYearId = $this->resolveScoutYearId($albumDate, $effectiveScoutYearId);
         $id = $this->albumRepository->create($type, $title, $subtitle, $albumDate, $sectionId, $scoutYearId,
             $externalUrl, $storageLocationId, $createdBy);
 
@@ -184,6 +193,32 @@ class AlbumService
         $this->dispatchAlbumPublished($created, $createdBy);
 
         return $created;
+    }
+
+    /**
+     * Which scout year an album belongs to.
+     *
+     * The album's OWN date decides, when that year exists in this
+     * installation: an album of the November 2024 camp belongs to
+     * 2024-2025 whatever today is, and a chief filing photographs months
+     * later would otherwise file them under this year. Failing that, the
+     * year the chief is working in — their preview or their staff year.
+     * `getCurrentYear()`, the date-computed public year, was neither: it
+     * ignored the preview, the staff year, the `current_scout_year_id`
+     * setting AND the album's date, so an album created « in » 2024-2025
+     * and dated November 2024 landed in 2026-2027.
+     */
+    private function resolveScoutYearId(string $albumDate, ?int $effectiveScoutYearId): int
+    {
+        $date = DateInput::iso($albumDate);
+        if ($date !== null) {
+            $year = $this->scoutYearService->findByLabel(ScoutYearService::labelForDate($date));
+            if ($year !== null) {
+                return (int) $year['id'];
+            }
+        }
+
+        return $effectiveScoutYearId ?? (int) $this->scoutYearService->getCurrentYear()['id'];
     }
 
     /**

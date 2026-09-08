@@ -30,7 +30,7 @@ class RetroConfigControllerTest extends TestCase
     private \PDO $pdo;
     private SettingService $settingService;
     private MemberService $memberService;
-    private ScoutYearService $scoutYearService;
+    private \Core\ScoutYear\ScoutYearResolver $scoutYearService;
     private ?ModerationService $moderationService = null;
     private Environment $twig;
 
@@ -57,8 +57,9 @@ class RetroConfigControllerTest extends TestCase
         // Core\Member\MemberServiceTest.
         $this->memberService = $this->createMock(MemberService::class);
         $this->memberService->method('isUnitChief')->willReturn(true);
-        $this->scoutYearService = $this->createMock(ScoutYearService::class);
-        $this->scoutYearService->method('getCurrentYear')->willReturn(['id' => 1, 'label' => '2025-2026', 'start_date' => '2025-09-01', 'end_date' => '2026-08-31']);
+        $this->scoutYearService = $this->createMock(\Core\ScoutYear\ScoutYearResolver::class);
+        $this->scoutYearService->method('getEffectiveYear')
+            ->willReturn(new \Core\ScoutYear\EffectiveScoutYear(1, '2025-2026', null));
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 4) . '/modules/retro/views';
