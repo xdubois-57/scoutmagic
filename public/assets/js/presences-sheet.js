@@ -245,15 +245,34 @@
     }
 
     /**
+     * **The text counts as saved only once the server says so.** Marking
+     * it before the answer would make the next blur see an unchanged
+     * field and skip the retry — so a comment the server refused would sit
+     * on screen looking written, and be gone on reload. That is exactly
+     * what this file's header forbids, and it is why the state path a few
+     * lines above repaints on `!recorded` rather than trusting the tap.
+     *
+     * The value sent is captured now: somebody who keeps typing while the
+     * request is in flight must not have their newer text marked saved by
+     * the answer to the older one.
+     *
      * @param {HTMLTextAreaElement} field
+     * @returns {Promise<boolean>|undefined}
      */
     function saveComment(field) {
         var memberId = field.dataset.memberId || '';
         if (isUnchanged(field)) {
-            return;
+            return undefined;
         }
-        field.dataset.savedComment = field.value;
-        save(memberId, { comment: field.value });
+
+        var sent = field.value;
+
+        return save(memberId, { comment: sent }).then(function (recorded) {
+            if (recorded) {
+                field.dataset.savedComment = sent;
+            }
+            return recorded;
+        });
     }
 
     /**

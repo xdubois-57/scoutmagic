@@ -302,6 +302,30 @@ describe('presences-sheet.js', () => {
             expect(fetch).not.toHaveBeenCalled();
         });
 
+        it('retries on the next blur when the server refused the comment', async () => {
+            // The failure this guards: marking the text saved before the
+            // server answers makes the next blur see an unchanged field
+            // and skip the retry — so a comment the server never received
+            // sits on screen looking written, and is gone on reload.
+            await boot();
+            global.fetch = vi.fn(() => Promise.resolve({
+                ok: false,
+                status: 500,
+                json: () => Promise.resolve({ success: false, error: 'Erreur.' }),
+            }));
+
+            const field = row('13').querySelector('.presence-comment');
+            field.value = 'Prévenu jeudi.';
+            field.dispatchEvent(new Event('focusout', { bubbles: true }));
+            await flush();
+            expect(fetch).toHaveBeenCalledTimes(1);
+
+            // Same text, untouched — but never acknowledged, so it goes again.
+            field.dispatchEvent(new Event('focusout', { bubbles: true }));
+            await flush();
+            expect(fetch).toHaveBeenCalledTimes(2);
+        });
+
         it('sends nothing on a second blur when the text has not moved since', async () => {
             await boot();
 
