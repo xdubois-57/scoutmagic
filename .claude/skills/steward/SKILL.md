@@ -190,8 +190,20 @@ them (#208, 2026-09-07; the story is in that file's header and in
 docs/quality-pipeline.md § Code review). Which is why the comment's verdict
 now rests on three rows — **`Review agents launched`**, **`Review agents
 finished`** and **`Tool calls refused`** — read from the run's own
-transcript. Agents launched at zero, fewer finished than launched, or any
-tool refused, and no review happened, whatever the check says.
+transcript. Agents launched at zero, fewer finished than launched, or a
+tool refused **outside `Bash`**, and no review happened, whatever the check
+says.
+
+**`Bash` is the one entry granted command by command**, so a refused shell
+line there is the allowlist working and does not fail the check — the row
+still counts them. Every other tool is granted whole, so a refusal of one
+is a gap in `claude_args`. That distinction was bought on #217: a review
+that launched sixteen agents, finished all sixteen, spent 6.46 USD and
+posted five findings was reported as "not a review" because it had also
+tried nineteen exploratory one-liners and then done without them.
+`python3 -c`, `php -r` and shell loops stay denied on purpose — that job
+carries the maintainer's subscription token past an untrusted diff — and
+the reason is written next to the list.
 
 **`Review agents finished` is the one that catches a run that stopped
 half-way.** Subagents start in the background, and a reviewer that ends its

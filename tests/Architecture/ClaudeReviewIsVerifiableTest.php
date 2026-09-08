@@ -255,7 +255,10 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
     {
         [$review] = self::jobs();
 
-        $outputs = ['evidence', 'turns', 'denials', 'denied_tools', 'agent_calls', 'subagents_spawned', 'subagents_completed'];
+        $outputs = [
+            'evidence', 'turns', 'denials', 'denied_tools', 'denials_other',
+            'agent_calls', 'subagents_spawned', 'subagents_completed',
+        ];
 
         foreach ($outputs as $output) {
             $this->assertMatchesRegularExpression(
@@ -461,6 +464,98 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
             $status,
             'The status job cannot fail any more, so a review that never ran is once again a green check '
             . 'and a comment saying so.',
+        );
+    }
+
+    /**
+     * REVIEWING A REPOSITORY MEANS COUNTING THINGS IN IT. The first run
+     * that ever got past its opening call (#217) was refused nineteen
+     * shell commands, and not one of them was a `gh` call or a diff: they
+     * were `grep`, `ls`, `find`, `wc`, `jq` — checking a document's claims
+     * against the code, which is the work. `Grep` and `Read` cover reading;
+     * these cover counting, and refusing them only bought turns spent
+     * rediscovering the gap.
+     */
+    public function testTheReviewerCanCountWhatItReads(): void
+    {
+        $args = self::claudeArgs();
+
+        foreach (['grep', 'ls', 'find', 'wc', 'sort', 'head', 'cat', 'jq'] as $tool) {
+            $this->assertStringContainsString(
+                'Bash(' . $tool . ':*)',
+                $args,
+                'The reviewer was refused `' . $tool . '` on #217 while checking a document against the '
+                . 'repository. It reads and writes nothing.',
+            );
+        }
+    }
+
+    /**
+     * THE OTHER BRANCH THE STEWARD SKILL OFFERS: "grant it in
+     * `claude_args`, or say in this file why it must stay denied."
+     *
+     * `python3 -c` and `php -r` are arbitrary code execution — granting
+     * them is granting `Bash` whole under another spelling — and this job
+     * holds the maintainer's subscription token and `id-token: write`
+     * while reading the one input this repository does not control. So
+     * they stay denied, and the file has to say so, or the next person to
+     * see them in `denied_tools` grants them to make a red go away.
+     */
+    public function testWhatStaysDeniedIsWrittenDown(): void
+    {
+        [$review] = self::jobs();
+
+        $this->assertStringNotContainsString(
+            'Bash(python3',
+            self::claudeArgs(),
+            'The reviewer has been granted `python3`, which runs anything. That is `Bash` whole, in a job '
+            . 'holding CLAUDE_CODE_OAUTH_TOKEN and reading an untrusted diff.',
+        );
+        $this->assertStringNotContainsString(
+            'Bash(php',
+            self::claudeArgs(),
+            'The reviewer has been granted `php`, which runs anything through `php -r`.',
+        );
+        $this->assertStringContainsString(
+            'CLAUDE_CODE_OAUTH_TOKEN',
+            $review,
+            'The reason the interpreters stay denied is no longer written next to the list. Without it the '
+            . 'next refusal in `denied_tools` reads as an oversight to be granted.',
+        );
+    }
+
+    /**
+     * WHY THE VERDICT COUNTS REFUSALS OUTSIDE `Bash` RATHER THAN ALL OF
+     * THEM. Every tool on the allowlist is granted whole except `Bash`,
+     * which is granted command by command on purpose — so a refused shell
+     * line is the allowlist working, and a refusal of anything else is a
+     * gap in this file.
+     *
+     * #217 is what the old rule cost: 16 agents launched, 16 finished,
+     * 6.46 USD, five findings posted on the diff — reported as "not a
+     * review" because it had also tried nineteen exploratory one-liners
+     * and then done without them. A check that cries wolf over its first
+     * real review is a check people learn to skip, which is how one dies.
+     * `Skill` on #208 is the case that must stay red, and does.
+     */
+    public function testOnlyARefusalOutsideBashDisqualifiesTheReview(): void
+    {
+        [, $status] = self::jobs();
+
+        $matched = preg_match('/elif \[\[ "\$\{DENIALS_OTHER\}" != "0" \]\]; then/', $status);
+
+        $this->assertSame(
+            1,
+            $matched,
+            'The verdict no longer turns on refusals outside `Bash`. Reading `DENIALS` instead marks every '
+            . 'review that explored with a shell one-liner as no review at all.',
+        );
+
+        $this->assertMatchesRegularExpression(
+            '/\| Tool calls refused \|/',
+            $status,
+            'The refusal row is gone. It is what named `Skill` on #208, which is how the reviewer’s real '
+            . 'defect was found — demoting it from the verdict must not remove it from the report.',
         );
     }
 
