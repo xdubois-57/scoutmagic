@@ -1,0 +1,79 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  « Le saviez-vous ? » — the discovery dialog (ARCHITECTURE.md §8.95).
+
+  A modal and not the help panel, deliberately: the panel is opened BY the
+  reader and coexists with reading the page, while a tip has to be
+  noticed. Two behaviours in one component would be a permanent source of
+  regression.
+
+  One card at a time, walked in the browser by
+  /assets/js/help-discovery.js. Everything is server-rendered here — the
+  script never builds a card from a string — and the only network call is
+  the one that closes the dialog.
+
+  The question comes BEFORE the title. That is what separates a tip from
+  a table of contents: somebody reads « Comment mettre le prénom de
+  chacun dans un e-mail groupé ? » and recognises their own problem,
+  where « Publipostage » says nothing to whoever does not already know
+  the word.
+
+  No <form> around the body and the footer, and that is worth stating:
+  a .modal-dialog-scrollable whose body and footer are wrapped in one
+  pushes its footer off a phone's screen, because a <form> with no
+  `overflow` never shrinks. There is nothing to submit here — the
+  persistence is a fetch — so there is no form at all.
+#}
+{% embed 'partials/modal.html.twig' with {
+    id: 'help-discovery-modal',
+    title: 'Le saviez-vous ?',
+    static_backdrop: false,
+} only %}
+    {% block body %}
+        {# The position indicator sits at the top of the body rather than
+           beside the title: the shared skeleton owns the header, and
+           reaching into it would start the drift that partial exists to
+           stop. #}
+        <p class="text-body-secondary small text-end mb-2" data-discovery-position aria-live="polite"></p>
+
+        {% for card in help_discovery.cards %}
+            <div class="{{ loop.first ? '' : 'd-none' }}" data-discovery-card data-discovery-id="{{ card.id }}">
+                {% if card.question %}
+                    <p class="fs-5 fw-semibold mb-3">{{ card.question }}</p>
+                {% endif %}
+                <p class="fw-semibold mb-1">{{ card.title }}</p>
+                <p class="text-body-secondary mb-3">{{ card.summary }}</p>
+                <a href="{{ card.url }}" class="icon-link">
+                    <i class="bi bi-book" aria-hidden="true"></i>
+                    En savoir plus
+                </a>
+            </div>
+        {% endfor %}
+    {% endblock %}
+
+    {% block footer %}
+        <div class="d-flex flex-column gap-2 w-100">
+            {# Two buttons rather than one whose label the script rewrites:
+               every word a reader sees stays in this file. #}
+            <button type="button" class="btn btn-primary w-100" data-discovery-next>Suivant</button>
+            <button type="button" class="btn btn-primary w-100 d-none" data-discovery-done
+                    data-bs-dismiss="modal">Terminé</button>
+            {% if help_discovery.more %}
+                <button type="button" class="btn btn-link w-100 d-none" data-discovery-more>
+                    Voir d'autres astuces
+                </button>
+            {% endif %}
+            <div class="d-flex flex-wrap justify-content-center gap-3 small">
+                <button type="button" class="btn btn-link btn-sm p-0" data-discovery-snooze>
+                    Pas avant une semaine
+                </button>
+                <button type="button" class="btn btn-link btn-sm p-0 text-body-secondary" data-discovery-never>
+                    Ne plus me proposer
+                </button>
+            </div>
+        </div>
+    {% endblock %}
+{% endembed %}

@@ -113,3 +113,104 @@ ce qui peut casser les ~120 fichiers du corpus, ils passent seuls.
 
 **Reporté.** Rien. Le câblage du service dans le root de composition part
 avec IT-02, qui est ce qui le consomme.
+
+---
+
+## IT-02 — Le dialogue
+
+**Livré.**
+
+- **Le global Twig `help_discovery`**, posé dans `public/index.php` à côté
+  de `help_search_index` — donc après le chargement de tous les modules,
+  seul moment où « un sujet que ce compte n'a jamais vu » est une question
+  à réponse complète. Il n'est **posé que s'il y a quelque chose à
+  montrer** : `base.html.twig` inclut le partiel ou ne l'inclut pas, même
+  forme que la bannière cookies.
+- `DiscoveryService::dialogForRequest()` — toute la décision en un point :
+  compte connecté, requête GET, page hors de `/aide`, `/api/`, `/login` et
+  de la page hors connexion, puis les barrières d'IT-01.
+- **`partials/help_discovery_dialog.html.twig`** — modale Bootstrap 5
+  bâtie sur `partials/modal.html.twig`, une carte à la fois, la question
+  avant le titre, « En savoir plus » vers `/aide/{id}`. Pied :
+  « Suivant » → « Terminé » sur la dernière carte, « Voir d'autres
+  astuces » si le reliquat n'est pas vide, puis « Pas avant une semaine »
+  et « Ne plus me proposer ». **Rien n'est enveloppé dans un `<form>`** —
+  la persistance est un `fetch`, donc le piège de rendu documenté
+  (`.modal-dialog-scrollable` + `<form>` = pied hors écran sur mobile) ne
+  se pose pas.
+- **`public/assets/js/help-discovery.js`** — navigation en place,
+  accumulation des ids réellement dépassés, **un seul appel réseau**, à la
+  fermeture. Ajouté à l'app shell de `sw.js`.
+- **`POST /api/aide/decouverte`** (`Core\Http\Controller\HelpDiscoveryController`,
+  `role_min: identified`, jeton CSRF obligatoire) — `close`, `snooze`,
+  `never` et `more`. Les ids reçus sont revalidés contre l'ensemble
+  éligible courant du compte, jamais écrits tels quels.
+- **« Revoir les astuces »** sur `/account` (`POST /account/discovery/reset`,
+  CSRF, `data-confirm`), affiché seulement si le compte a déjà vu quelque
+  chose.
+- **Documentation** : `ARCHITECTURE.md` §8.95 (avec la règle de graine et
+  sa raison, et le renvoi à §8.64 pour le corpus), `specifications.md`
+  §4.6 et la ligne « Mon compte », `design.md` §7.11 pour la forme du
+  dialogue, `core/View/rgpd_default.html` (données collectées et durée de
+  conservation), et le sujet d'aide `docs/help/mon-compte.md`.
+- **Tests** : contrôleur (les quatre actions, la revalidation des ids, un
+  id de forme invalide, l'absence de jeton CSRF sur les deux routes),
+  RBAC (`identified` et `chief` acceptés, `public` refusé sur les deux
+  routes), le rendu du partiel (absent sans global, une carte par sujet,
+  la question avant le titre, l'échappement), le service (aucun dialogue
+  sur `/aide`, `/aide/{id}`, `/aide/assistant`, `/api/*`, `/login`,
+  `/offline`, pour un visiteur sans compte ou sur une écriture), et
+  Vitest (13 cas : la marche entre cartes, l'accumulation, l'appel unique,
+  chaque action, et une page sans boîte à outils).
+
+**Décisions autonomes.**
+
+1. **Une quatrième action, `more`.** Le document en liste trois, mais
+   « Voir d'autres astuces » n'en est aucune : `close` poserait le délai
+   et il ne se passerait rien. `more` marque le lot vu et remet
+   `snoozed_until` à `NULL`, après quoi le navigateur **recharge** la page
+   et le serveur rend le lot suivant par le même gabarit. Recharger plutôt
+   que rendre des cartes en JavaScript : pas de seconde implémentation de
+   la carte, et aucun puits DOM alimenté par des chaînes venant du
+   serveur — la forme exacte que CodeQL signale en `js/xss-through-dom`.
+2. **`help_discovery` porte `{cards, more}`** et non la seule liste. Une
+   carte ne peut pas dire s'il en reste d'autres après elle, et deux
+   globals pour une décision valaient moins qu'un.
+3. **L'indicateur « 2 / 5 » est en haut du corps, pas dans l'en-tête.**
+   `partials/modal.html.twig` possède l'en-tête et l'échappe ; y injecter
+   du balisage rouvrirait la dérive que ce partiel existe pour empêcher.
+   La zone visuelle est la même.
+4. **Une carte affichée est une carte vue.** « Réellement dépassés » se
+   lit ainsi : qui a vu l'astuce l'a vue, qu'il ait ensuite appuyé sur
+   « Suivant » ou fermé la fenêtre. Fermer d'emblée consomme donc la
+   première carte, et une seule.
+5. **`POST /account/discovery/reset` vit sur `HelpDiscoveryController`**,
+   pas sur `AccountController` : la route est sous `/account`, le domaine
+   non. `AccountController` reçoit seulement un `SeenTopicRepository`
+   optionnel en dernier paramètre, pour savoir s'il y a quelque chose à
+   défaire.
+6. **Le bouton n'apparaît qu'au-delà de zéro astuce vue.** Un bouton qui
+   propose de défaire ce qui n'existe pas se lit comme cassé.
+7. **`Write` refusé au relecteur IA n'a pas été corrigé ici** — voir le
+   commentaire de la PR IT-01 : toute modification de
+   `.github/workflows/claude-review.yml` fait *refuser* la revue, qui sort
+   alors en succès sans avoir rien relu. C'est le défaut #261 et il se
+   corrige sur `main`.
+
+**Divergences avec le dépôt réel.**
+
+- Le squelette de modale partagé (`partials/modal.html.twig`) existe et
+  s'impose ; le document décrit la modale comme si elle s'écrivait à la
+  main.
+- Le refus RBAC d'un visiteur non connecté est une **redirection vers
+  `/login`**, pas un 403 : c'est ce que rend `FrontController` quelle que
+  soit la méthode. Le test l'épingle sous cette forme, plus une seconde
+  moitié avec une session dont le rôle est `public`.
+- `Core\Http\Response` expose `getBody()` et non `getContent()`.
+- La page hors connexion est `/offline` ; le document ne la nomme pas.
+- `Core\View\rgpd_default.html` devait être mis à jour (AGENTS.md § RGPD),
+  ce que le document ne mentionne pas : `help_topics_seen` est une donnée
+  rattachée à un compte, même si c'est une préférence et non une trace de
+  lecture.
+
+**Reporté.** Rien.

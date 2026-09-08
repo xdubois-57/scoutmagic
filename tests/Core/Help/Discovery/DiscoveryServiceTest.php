@@ -253,7 +253,7 @@ class DiscoveryServiceTest extends TestCase
     }
 
     /**
-     * @return array<string, array<string, string>>
+     * @return array<string, array<string, string|string[]>>
      */
     private function manyTopics(int $count): array
     {
@@ -266,7 +266,7 @@ class DiscoveryServiceTest extends TestCase
     }
 
     /**
-     * @param array<string, array<string, string>> $topics id => extra front matter
+     * @param array<string, array<string, string|string[]>> $topics id => extra front matter
      */
     private function serviceOver(array $topics): DiscoveryService
     {
@@ -304,5 +304,123 @@ class DiscoveryServiceTest extends TestCase
         $stmt->execute([$email, hash('sha256', $email)]);
 
         return (int) $this->pdo->lastInsertId();
+    }
+
+    // --- What the composition root asks: is there a dialog on THIS page?
+
+    public function testADialogIsOfferedOnAnOrdinaryPage(): void
+    {
+        $service = $this->serviceOver(['publipostage' => ['question' => ['Comment fusionner un e-mail ?']]]);
+
+        $dialog = $service->dialogForRequest(Role::IDENTIFIED, $this->accountId, 'GET', '/members/12');
+
+        $this->assertNotNull($dialog);
+        $this->assertSame([[
+            'id' => 'publipostage',
+            'title' => 'Titre publipostage',
+            'summary' => 'Résumé publipostage',
+            'question' => 'Comment fusionner un e-mail ?',
+            'url' => '/aide/publipostage',
+        ]], $dialog['cards']);
+        $this->assertFalse($dialog['more']);
+    }
+
+    public function testTheDialogSaysWhetherThereIsAnythingLeftAfterThisBatch(): void
+    {
+        $service = $this->serviceOver($this->manyTopics(9));
+        $this->set(DiscoveryService::SETTING_BATCH_SIZE, '5');
+
+        $dialog = $service->dialogForRequest(Role::IDENTIFIED, $this->accountId, 'GET', '/');
+        $this->assertNotNull($dialog);
+        $this->assertCount(5, $dialog['cards']);
+        $this->assertTrue($dialog['more']);
+
+        $this->seenTopics->markSeen($this->accountId, array_map(
+            static fn (array $card): string => $card['id'],
+            $dialog['cards']
+        ));
+
+        $next = $service->dialogForRequest(Role::IDENTIFIED, $this->accountId, 'GET', '/');
+        $this->assertNotNull($next);
+        $this->assertCount(4, $next['cards']);
+        $this->assertFalse($next['more'], 'Nothing left after this batch — the link must not be offered.');
+    }
+
+    /**
+     * The pages a tip never interrupts, and the reason each is on the
+     * list. This test is the one that fails if the dialog ever starts
+     * appearing over the help itself, inside a JSON answer, on the login
+     * form or on the offline page — none of which any other check would
+     * notice, because the page renders perfectly well either way.
+     *
+     * @return array<string, array{0: string}>
+     */
+    public static function pagesTheDialogNeverOpensOn(): array
+    {
+        return [
+            "l'index de l'aide" => ['/aide'],
+            "un sujet d'aide" => ['/aide/publipostage'],
+            "l'assistant" => ['/aide/assistant'],
+            'une réponse JSON' => ['/api/notifications/unread-count'],
+            'un autre endpoint' => ['/api/aide/decouverte'],
+            'la connexion' => ['/login'],
+            'la page hors connexion' => ['/offline'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('pagesTheDialogNeverOpensOn')]
+    public function testNoDialogIsOfferedOnTheExcludedPages(string $path): void
+    {
+        $service = $this->serviceOver($this->manyTopics(10));
+
+        $this->assertNull($service->dialogForRequest(Role::IDENTIFIED, $this->accountId, 'GET', $path));
+    }
+
+    /**
+     * Prefix, then boundary — a page whose name merely starts with the
+     * same letters is an ordinary page.
+     */
+    public function testAPageWhoseNameOnlyStartsLikeAnExcludedOneStillGetsADialog(): void
+    {
+        $service = $this->serviceOver($this->manyTopics(3));
+
+        $this->assertNotNull($service->dialogForRequest(Role::IDENTIFIED, $this->accountId, 'GET', '/aidez-nous'));
+    }
+
+    public function testNoDialogIsOfferedToAVisitorWithNoAccount(): void
+    {
+        $service = $this->serviceOver($this->manyTopics(10));
+
+        $this->assertNull($service->dialogForRequest(Role::PUBLIC, null, 'GET', '/'));
+    }
+
+    /**
+     * A POST is somebody's action being recorded, and it may not even
+     * render a page — a dialog there would be answered into a redirect.
+     */
+    public function testNoDialogIsOfferedOnAWrite(): void
+    {
+        $service = $this->serviceOver($this->manyTopics(10));
+
+        foreach (['POST', 'DELETE', 'PUT'] as $method) {
+            $this->assertNull($service->dialogForRequest(Role::IDENTIFIED, $this->accountId, $method, '/'));
+        }
+    }
+
+    public function testNoDialogWhenNothingIsLeftToShow(): void
+    {
+        $service = $this->serviceOver(['un' => [], 'deux' => []]);
+        $this->seenTopics->markSeen($this->accountId, ['un', 'deux']);
+
+        $this->assertNull($service->dialogForRequest(Role::IDENTIFIED, $this->accountId, 'GET', '/'));
+    }
+
+    public function testACardCarriesNoQuestionWhenItsTopicDeclaresNone(): void
+    {
+        $service = $this->serviceOver(['sans-question' => []]);
+
+        $dialog = $service->dialogForRequest(Role::IDENTIFIED, $this->accountId, 'GET', '/');
+        $this->assertNotNull($dialog);
+        $this->assertNull($dialog['cards'][0]['question']);
     }
 }

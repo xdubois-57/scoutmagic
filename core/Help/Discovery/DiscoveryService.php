@@ -46,6 +46,21 @@ class DiscoveryService
     public const DEFAULT_SNOOZE_DAYS = 7;
     public const DEFAULT_BATCH_SIZE = 5;
 
+    /**
+     * Pages the dialog never opens on, as path prefixes — the whole path,
+     * or the whole path plus a `/` and more.
+     *
+     * Each for its own reason. `/aide` IS the corpus, and a modal
+     * covering the help index to advertise a help topic is a joke.
+     * `/api/` answers JSON to a script, which has no modal to draw and no
+     * reader to interrupt. `/login` is somebody who is not in yet, and the
+     * offline page is somebody with no network — where the close call
+     * would fail and nothing would be recorded.
+     *
+     * @var string[]
+     */
+    private const NEVER_ON = ['/aide', '/api', '/login', '/offline'];
+
     public function __construct(
         private readonly HelpService $helpService,
         private readonly SeenTopicRepository $seenTopics,
@@ -127,6 +142,65 @@ class DiscoveryService
         });
 
         return $eligible;
+    }
+
+    /**
+     * What the dialog renders on this request, or null when it must not
+     * be rendered at all — the single entry point the composition root
+     * calls, so the whole decision is here and testable rather than
+     * spread across an `{% if %}` in a template and a condition in
+     * public/index.php.
+     *
+     * A card carries exactly what the dialog shows: the topic's FIRST
+     * question as the hook (« Comment mettre le prénom de chacun dans un
+     * e-mail groupé ? »), then the title, then the summary, then the link
+     * to the whole topic. The question comes first because that is what
+     * separates a tip from a table of contents.
+     *
+     * `more` says whether « Voir d'autres astuces » has anything to
+     * offer, which is the one thing a card cannot say about itself.
+     *
+     * @return array{cards: array<int, array{id: string, title: string, summary: string,
+     *     question: ?string, url: string}>, more: bool}|null
+     */
+    public function dialogForRequest(Role $role, ?int $accountId, string $method, string $path): ?array
+    {
+        if ($accountId === null || strtoupper($method) !== 'GET' || !$this->isOfferablePath($path)) {
+            return null;
+        }
+
+        $cards = $this->nextTopics($role, $accountId);
+        if ($cards === []) {
+            return null;
+        }
+
+        return [
+            'cards' => array_map(static fn (HelpTopic $t): array => [
+                'id' => $t->id,
+                'title' => $t->title,
+                'summary' => $t->summary,
+                'question' => $t->questions[0] ?? null,
+                'url' => '/aide/' . $t->id,
+            ], $cards),
+            'more' => count($this->eligibleTopics($role, $accountId)) > count($cards),
+        ];
+    }
+
+    /**
+     * Whether a tip may interrupt this page at all — see NEVER_ON.
+     *
+     * Prefix, then boundary: `/aide` and `/aide/publipostage` are the
+     * help, `/aidez-nous` would not be.
+     */
+    private function isOfferablePath(string $path): bool
+    {
+        foreach (self::NEVER_ON as $excluded) {
+            if ($path === $excluded || str_starts_with($path, $excluded . '/')) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

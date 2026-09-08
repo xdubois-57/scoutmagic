@@ -738,6 +738,41 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
         210
     );
 
+    // « Le saviez-vous ? » OFF in the fixture, and this is a decision about
+    // the harness rather than about the feature (ARCHITECTURE.md §8.95).
+    //
+    // The dialog opens on EVERY page load of a signed-in account until it
+    // is closed once — that is its design, and on a brand-new instance
+    // every account is brand new. A Bootstrap modal's backdrop intercepts
+    // pointer events, so with it on, forty-four scenarios that have
+    // nothing to do with the help stopped being able to click anything at
+    // all: « <div id="help-discovery-modal"> intercepts pointer events »,
+    // on the cookie banner, on a breadcrumb, on a gallery upload.
+    //
+    // Turning it off here is not hiding the feature from the suite:
+    // specs/help-discovery.spec.js turns it back on for itself and drives
+    // the whole chain in a real browser. What it removes is a nag standing
+    // in front of every OTHER scenario's subject — the same reason a
+    // fixture pins the scout year rather than letting the calendar move
+    // under a run.
+    //
+    // Registered rather than set, for the same reason as the two keys
+    // above: public/index.php registers this one at boot, later than this.
+    $settingService->register(
+        Core\Help\Discovery\DiscoveryService::SETTING_ENABLED,
+        '0',
+        'boolean',
+        'Astuces de découverte',
+        "Éteintes par le harnais E2E : la fenêtre s'ouvre sur chaque page tant qu'elle n'a pas été "
+        . "fermée, et son fond capte les clics de tous les autres scénarios. "
+        . 'specs/help-discovery.spec.js la rallume pour elle-même.',
+        null,
+        null,
+        null,
+        true,
+        297
+    );
+
     $activated = e2e_activate_all_modules(
         $repoRoot,
         $connection,

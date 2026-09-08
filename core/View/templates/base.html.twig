@@ -333,6 +333,12 @@
        doing — without it, offline, the field would just swallow a
        question. #}
     <script src="{{ asset('/assets/js/help-assistant.js') }}" defer></script>
+    {# The discovery dialog's own wiring — walking its cards and the one
+       call that closes it. Loaded unconditionally like every other
+       site-wide script (and precached in the offline shell for that
+       reason): it returns immediately on a page carrying no dialog, which
+       is most of them. #}
+    <script src="{{ asset('/assets/js/help-discovery.js') }}" defer></script>
     {% block scripts %}{% endblock %}
 
     {# The confirmation behind every form carrying data-confirm lives in
@@ -352,6 +358,18 @@
        stays reachable (see "COOKIE BANNER HEIGHT COMPENSATION" there). #}
     {% if cookie_consent_given is defined and not cookie_consent_given and current_path|default('') != '/cookies' %}
         {% include 'partials/cookie_banner.html.twig' %}
+    {% endif %}
+
+    {# « Le saviez-vous ? » (ARCHITECTURE.md §8.95). Same shape as the
+       cookie banner just above, and for the same reason: whether a tip is
+       offered at all is a SERVER decision — the account, the role, the
+       page, the request method, the delay and what has already been seen
+       — not a CSS class on markup that shipped anyway. The global is set
+       only when there is something to show (Core\Help\Discovery\
+       DiscoveryService::dialogForRequest(), public/index.php), so the
+       partial is either included whole or not at all. #}
+    {% if help_discovery is defined and help_discovery %}
+        {% include 'partials/help_discovery_dialog.html.twig' %}
     {% endif %}
 </body>
 </html>
