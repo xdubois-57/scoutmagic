@@ -16,15 +16,18 @@ function createCachesFake() {
     return { store, cache, open: vi.fn(() => Promise.resolve(cache)) };
 }
 
-function response(body, { status = 200, headers = {} } = {}) {
+function response(body, { status = 200, headers = {}, redirected = false } = {}) {
     const h = new Map(Object.entries(headers));
     return {
         ok: status >= 200 && status < 300,
         status,
         statusText: 'OK',
+        // fetch() follows redirects by default, so a login bounce arrives
+        // as ok:true with this flag set — the whole of issue #250.
+        redirected,
         headers: { get: (n) => h.get(n) ?? null },
         json: () => Promise.resolve(JSON.parse(body)),
-        clone() { return response(body, { status, headers }); },
+        clone() { return response(body, { status, headers, redirected }); },
         blob: () => Promise.resolve(body),
     };
 }
@@ -200,6 +203,42 @@ describe('offline-prefetch.js: how it runs', () => {
         expect(fetched).not.toContain('/files/1/thumb');
         expect(fetched).toContain('/files/2/md');
         expect(caches.store.has('/files/99/thumb')).toBe(false);
+    });
+
+    it('never caches a page whose fetch followed a redirect — a session expiring mid-run', async () => {
+        // The session expires part-way through the loop: /calendar
+        // answers 302 -> /login, fetch follows it, and the login page
+        // comes back ok:true, redirected:true. Storing that would serve
+        // « Se connecter » under /calendar on the next offline visit.
+        global.fetch = vi.fn((url) => Promise.resolve(
+            url === '/api/offline/manifest'
+                ? response(JSON.stringify(MANIFEST))
+                : (url === '/calendar'
+                    ? response('<title>Se connecter</title>', { redirected: true })
+                    : response('<body>ok</body>'))
+        ));
+        config();
+        await boot();
+        await settle();
+
+        expect(caches.store.has('/calendar')).toBe(false);
+        expect(caches.store.has('/contact')).toBe(true);
+    });
+
+    it('never caches an image whose fetch followed a redirect', async () => {
+        global.fetch = vi.fn((url) => Promise.resolve(
+            url === '/api/offline/manifest'
+                ? response(JSON.stringify({ pages: [], images: ['/files/1/thumb', '/files/2/md'] }))
+                : (url === '/files/1/thumb'
+                    ? response('login', { redirected: true })
+                    : response('img'))
+        ));
+        config();
+        await boot();
+        await settle();
+
+        expect(caches.store.has('/files/1/thumb')).toBe(false);
+        expect(caches.store.has('/files/2/md')).toBe(true);
     });
 
     it('carries on when one fetch fails', async () => {

@@ -191,10 +191,32 @@ class ModuleManifestTest extends TestCase
         $paths = array_column($this->manifest->offline, 'path');
         $this->assertNotContains('/groups/', $paths, 'a group conversation must never be cached on the device');
 
-        // Unchanged: the module sets no cookie of its own, and stores no
-        // file outside gallery's delegated album.
-        $this->assertSame([], $this->manifest->cookies);
+        // The module stores no file outside gallery's delegated album.
         $this->assertSame([], $this->manifest->storage);
+    }
+
+    /**
+     * The two draft caches groups.js writes in `localStorage`, declared
+     * here so the cookie preferences page stays the complete picture of
+     * the site's local storage it promises to be (issue #233). They were
+     * written while this said `"cookies": []`.
+     *
+     * Functional, both: a draft is a convenience, and the composer works
+     * without one — public/assets/js/groups.js gates every write and
+     * every read on the visitor's own functional consent (issue #234).
+     */
+    public function testItDeclaresTheTwoDraftCachesItWrites(): void
+    {
+        $this->assertSame(
+            ['groups-draft-{groupId}', 'groups-reply-draft-{groupId}-{postId}'],
+            array_column($this->manifest->cookies, 'name')
+        );
+
+        foreach ($this->manifest->cookies as $cookie) {
+            $this->assertSame('functional', $cookie['category'], "{$cookie['name']} is a convenience, not essential.");
+            $this->assertNotSame('', trim((string) $cookie['purpose']));
+            $this->assertNotSame('', trim((string) $cookie['duration']));
+        }
     }
 
     /**

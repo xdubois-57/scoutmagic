@@ -517,7 +517,20 @@
       "description": "Durée pendant laquelle un message pas encore publié reste conservé dans le navigateur (jamais sur le serveur) après une erreur ou une perte de connexion, pour permettre de réessayer sans avoir à tout retaper. Passé ce délai, le brouillon local est simplement oublié."
     }
   ],
-  "cookies": [],
+  "cookies": [
+    {
+      "name": "groups-draft-{groupId}",
+      "category": "functional",
+      "purpose": "Conservation locale d'un message pas encore publié, pour pouvoir le retrouver après une erreur, une perte de connexion ou une fermeture d'onglet — jamais envoyé au serveur.",
+      "duration": "Durée configurable (60 minutes par défaut), ou jusqu'à la publication du message"
+    },
+    {
+      "name": "groups-reply-draft-{groupId}-{postId}",
+      "category": "functional",
+      "purpose": "Conservation locale d'une réponse pas encore envoyée, pour les mêmes raisons que le brouillon de message ci-dessus — jamais envoyée au serveur.",
+      "duration": "Durée configurable (60 minutes par défaut), ou jusqu'à l'envoi de la réponse"
+    }
+  ],
   "scheduled_tasks": [
     {
       "key": "purge_rate_limits",

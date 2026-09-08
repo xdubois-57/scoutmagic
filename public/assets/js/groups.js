@@ -18,6 +18,46 @@
 // uses on its own container — an external file has no Twig
 // interpolation to lean on.
 (function () {
+    /**
+     * Functional cookie consent, read from the client-readable
+     * `cookie_consent` cookie (httponly:false on purpose — see
+     * Core\Cookie\CookieConsentService::writeCookie()). No cookie, or
+     * unparseable content, means no consent.
+     *
+     * **Why this file needs it.** The two draft caches below are
+     * FUNCTIONAL storage, and AGENTS.md's rule is that no non-essential
+     * key is written before the visitor has said yes. They were written
+     * unconditionally (issue #234) while the camps map, whose fold is the
+     * same kind of convenience, already asked. Without consent the
+     * drafts simply live in the box the writer is typing in — nothing is
+     * stored, nothing is restored, and publishing works exactly as it
+     * always did.
+     *
+     * Deliberately its own copy of the reader in camps-map.js and
+     * theme.js rather than a call into either: these are unbundled
+     * classic scripts, and a four-line cookie parse is not worth a
+     * cross-script dependency that would silently make a module's drafts
+     * depend on another file having loaded.
+     *
+     * @returns {boolean}
+     */
+    function hasFunctionalConsent() {
+        var cookies = document.cookie ? document.cookie.split(';') : [];
+        for (const pair of cookies) {
+            var eq = pair.indexOf('=');
+            if (eq === -1) continue;
+            if (pair.slice(0, eq).trim() !== 'cookie_consent') continue;
+            try {
+                var data = JSON.parse(decodeURIComponent(pair.slice(eq + 1).trim()));
+                return !!(data?.functional);
+            } catch {
+                // A malformed consent cookie is not consent.
+                return false;
+            }
+        }
+        return false;
+    }
+
     // The composer as a whole: the media picker, the live link-preview
     // card, the localStorage draft cache, and the dynamic submit itself.
     // One IIFE rather than several, because all four have to coordinate
@@ -340,6 +380,15 @@
         var draftSaveTimer = null;
 
         function saveDraft() {
+            // Functional storage: nothing is written before the writer
+            // has agreed to it (AGENTS.md § Cookie consent). Refusing
+            // costs the recovery of an interrupted draft, never the
+            // ability to write or publish one.
+            if (!hasFunctionalConsent()) {
+                clearDraft();
+                return;
+            }
+
             var body = textarea.value;
             if (body.trim() === '') {
                 clearDraft();
@@ -362,6 +411,15 @@
         }
 
         function restoreDraft() {
+            // Consent gates the READ as well, and the read clears what it
+            // may not use: somebody who agreed, typed, then withdrew that
+            // consent must stop being remembered, and nothing else here
+            // would ever come back to remove what they left behind.
+            if (!hasFunctionalConsent()) {
+                clearDraft();
+                return;
+            }
+
             var raw;
             try {
                 raw = localStorage.getItem(draftKey);
@@ -1296,6 +1354,11 @@
         if (!key || !input) {
             return;
         }
+        // Same functional-storage gate as the composer's own draft above.
+        if (!hasFunctionalConsent()) {
+            clearReplyDraft(form);
+            return;
+        }
         try {
             if (input.value.trim() === '') {
                 localStorage.removeItem(key);
@@ -1329,8 +1392,16 @@
     // rejected_draft (partials/post_card.html.twig) is more specific than
     // a merely locally-cached one, exactly as in the message composer.
     function restoreReplyDrafts() {
+        var allowed = hasFunctionalConsent();
+
         document.querySelectorAll('.groups-reply-form').forEach(function (element) {
             var form = /** @type {HTMLFormElement} */ (element);
+            // Consent gates the read, and the read clears what it may not
+            // use — same rule as the composer's own draft.
+            if (!allowed) {
+                clearReplyDraft(form);
+                return;
+            }
             var key = replyDraftKey(form);
             var input = /** @type {HTMLInputElement} */ (form.querySelector('input[name="body"]'));
             if (!key || input?.value.trim() !== '') {

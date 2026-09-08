@@ -191,7 +191,14 @@
      */
     function fetchAndCacheImage(cache, url) {
         return fetch(url).then(function (response) {
-            if (response.ok) {
+            // `!response.redirected` is not belt and braces: fetch()
+            // follows redirects by default, so a session that expires
+            // mid-prefetch turns every request into a 200 for the login
+            // page — ok true, redirected true — and caching that stores
+            // the login page UNDER the content URL. sw.js carries the
+            // same guard on its own writes to this same cache; this is
+            // the second writer, and it had only `ok`.
+            if (response.ok && !response.redirected) {
                 return cache.put(url, response);
             }
             return undefined;
@@ -249,7 +256,13 @@
                     if (response.status === 304 && cached) {
                         return refreshCachedDate(cache, url, cached);
                     }
-                    if (response.ok) {
+                    // Same guard as sw.js's own write to this cache, and
+                    // for the same reason: a session expiring during the
+                    // loop makes fetch() follow the 302 to /login and
+                    // hand back ok:true, redirected:true. Without this,
+                    // « Version hors ligne du… » is served over the login
+                    // page, under /notifications.
+                    if (response.ok && !response.redirected) {
                         return cache.put(url, response);
                     }
                     return undefined;

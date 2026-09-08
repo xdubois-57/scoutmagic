@@ -7076,6 +7076,25 @@ if (isset($campsMapTileOrigin)) {
     $response->addImgSrcOrigin($campsMapTileOrigin);
 }
 
+// The account scope the SESSION SERVING THIS RESPONSE is in — the same
+// value the offline config carries, on the response itself.
+//
+// The service worker answers a navigation from its PERSISTED config,
+// written by the postMessage of the PREVIOUS page: the first navigation
+// after a scope change therefore reads and writes the previous account's
+// content cache (issue #252). A session that expires in silence never
+// goes through the logout form either, so nothing purged the old scope.
+// This header is what lets the worker revalidate — it compares it with
+// the scope it holds and, when they differ, refuses to write and drops
+// the caches of the scope that is no longer the one being served.
+//
+// It names an opaque scope, never an identity: an account id the browser
+// already has (it IS the session) or the literal 'guest'.
+$response->setHeader(
+    'X-Offline-Scope',
+    AuthSession::isAuthenticated() ? (string) AuthSession::getUserAccountId() : 'guest'
+);
+
 \Core\Debug\RequestTimeline::mark('response_send_begin');
 $response->send();
 \Core\Debug\RequestTimeline::mark('response_send_done');

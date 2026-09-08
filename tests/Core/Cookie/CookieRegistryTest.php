@@ -9,12 +9,29 @@ use PHPUnit\Framework\TestCase;
 
 class CookieRegistryTest extends TestCase
 {
-    public function testGetCoreCookiesReturnsSevenCookies(): void
+    public function testGetCoreCookiesReturnsEightCookies(): void
     {
-        // Six historical entries plus theme_preference (the dark-mode
-        // choice, functional, stored client-side).
+        // Six historical entries, plus theme_preference (the dark-mode
+        // choice, functional, stored client-side) and offline-config
+        // (the third Cache Storage entry, issue #233).
         $cookies = CookieRegistry::getCoreCookies();
-        $this->assertCount(7, $cookies);
+        $this->assertCount(8, $cookies);
+    }
+
+    /**
+     * Issue #233: the preferences page claims to be a COMPLETE picture of
+     * the site's local storage, and public/sw.js writes three Cache
+     * Storage entries. Two were declared and the third was not, so a page
+     * that promised exhaustiveness listed nine lines while eleven things
+     * were stored.
+     */
+    public function testTheOfflineConfigCacheIsDeclared(): void
+    {
+        $names = array_column(CookieRegistry::getCoreCookies(), 'name');
+
+        $this->assertContains('offline-config', $names);
+        $this->assertContains('app-shell-{version}', $names);
+        $this->assertContains('content-{accountScope}-{version}', $names);
     }
 
     public function testEachCookieHasRequiredKeys(): void
@@ -53,6 +70,10 @@ class CookieRegistryTest extends TestCase
     public function testMostCoreCookiesAreNecessaryExceptTheFunctionalOnes(): void
     {
         $cookies = CookieRegistry::getCoreCookies();
+        // offline-config is deliberately NOT here: it holds the
+        // configuration the worker reads to decide whether caching is
+        // allowed at all, so gating it on that same decision would leave
+        // nothing to read.
         $functionalNames = ['last_login_method', 'content-{accountScope}-{version}', 'theme_preference'];
 
         foreach ($cookies as $cookie) {

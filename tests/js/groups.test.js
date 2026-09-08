@@ -28,6 +28,22 @@ class FakeDataTransfer {
     }
 }
 
+/**
+ * The two draft caches are FUNCTIONAL storage and are gated on the
+ * visitor's own consent, read client-side from the `cookie_consent`
+ * cookie (issue #234). Every test below that is about the composer or a
+ * reply box — rather than about the gate itself — runs as the ordinary
+ * signed-in member does: consent given.
+ */
+function setFunctionalConsent(granted) {
+    document.cookie = 'cookie_consent=' + encodeURIComponent(JSON.stringify({ functional: granted }))
+        + '; path=/';
+}
+
+beforeEach(() => {
+    setFunctionalConsent(true);
+});
+
 describe('groups.js composer media picker', () => {
     beforeEach(() => {
         localStorage.clear();
@@ -1250,6 +1266,123 @@ describe('groups.js comment draft cache', () => {
 // two a poll needs. Deterministic logic over a small DOM — the kind
 // AGENTS.md § Tests asks for a Vitest spec on, and the kind an E2E run
 // would only ever check one path of.
+/**
+ * Issue #234: both draft caches are functional storage, and AGENTS.md's
+ * rule is that nothing non-essential is written before the visitor has
+ * agreed. They wrote unconditionally, while the camps map — the same kind
+ * of convenience — already asked. Refusing must cost the recovery of an
+ * interrupted draft and nothing else: writing and publishing are
+ * untouched.
+ */
+describe('groups.js draft caches and functional consent', () => {
+    beforeEach(() => {
+        localStorage.clear();
+        document.body.innerHTML = `
+            <form id="groups-post-form" action="/groups/1/posts" data-max-media="4" data-group-id="1"
+                  data-draft-ttl-minutes="60">
+                <textarea id="post-body" name="body"></textarea>
+                <div id="groups-media-previews"></div>
+                <input type="file" name="media[]" id="groups-media-hidden" class="d-none" multiple>
+                <button type="submit">Publier</button>
+            </form>
+            <div id="groups-feed">
+                <article id="post-9">
+                    <details class="groups-thread" id="post-thread-9">
+                        <summary><span class="groups-thread-count" data-count="0">Commenter</span></summary>
+                        <div class="groups-replies"></div>
+                        <form class="groups-reply-form" action="/groups/1/posts/9/replies"
+                              method="post" data-group-id="1" data-post-id="9">
+                            <input type="text" name="body">
+                            <button type="submit">Envoyer</button>
+                        </form>
+                    </details>
+                </article>
+            </div>
+        `;
+        Object.defineProperty(document.getElementById('groups-media-hidden'), 'files', {
+            writable: true, configurable: true, value: [],
+        });
+        global.DataTransfer = FakeDataTransfer;
+        setFunctionalConsent(false);
+    });
+
+    function type(element, value) {
+        element.value = value;
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    it('stores no message draft without functional consent', async () => {
+        vi.useFakeTimers();
+        try {
+            await loadGroups();
+            type(document.getElementById('post-body'), 'Message en cours de frappe');
+            await vi.advanceTimersByTimeAsync(600);
+
+            expect(localStorage.getItem('groups-draft-1')).toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('stores no reply draft without functional consent', async () => {
+        vi.useFakeTimers();
+        try {
+            await loadGroups();
+            type(document.querySelector('.groups-reply-form input[name="body"]'), 'Je serai là');
+            await vi.advanceTimersByTimeAsync(600);
+
+            expect(localStorage.getItem('groups-reply-draft-1-9')).toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('leaves the writer their text — the composer works, only the memory is gone', async () => {
+        vi.useFakeTimers();
+        try {
+            await loadGroups();
+            type(document.getElementById('post-body'), 'Toujours là');
+            await vi.advanceTimersByTimeAsync(600);
+
+            expect(document.getElementById('post-body').value).toBe('Toujours là');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    /**
+     * Consent gates the READ as well, and the read clears what it may not
+     * use: somebody who agreed, typed, then withdrew must stop being
+     * remembered — and nothing else here would come back to remove it.
+     */
+    it('does not restore a draft stored before consent was withdrawn, and forgets it', async () => {
+        localStorage.setItem('groups-draft-1', JSON.stringify({ body: 'Écrit avant', savedAt: Date.now() }));
+
+        await loadGroups();
+
+        expect(document.getElementById('post-body').value).toBe('');
+        expect(localStorage.getItem('groups-draft-1')).toBeNull();
+    });
+
+    it('does not restore a reply draft stored before consent was withdrawn, and forgets it', async () => {
+        localStorage.setItem('groups-reply-draft-1-9', JSON.stringify({ body: 'Écrit avant', savedAt: Date.now() }));
+
+        await loadGroups();
+
+        expect(document.querySelector('.groups-reply-form input[name="body"]').value).toBe('');
+        expect(localStorage.getItem('groups-reply-draft-1-9')).toBeNull();
+    });
+
+    it('a malformed consent cookie is not consent', async () => {
+        document.cookie = 'cookie_consent=pas-du-json; path=/';
+        localStorage.setItem('groups-draft-1', JSON.stringify({ body: 'Écrit avant', savedAt: Date.now() }));
+
+        await loadGroups();
+
+        expect(localStorage.getItem('groups-draft-1')).toBeNull();
+    });
+});
+
 describe('groups.js poll option boxes', () => {
     beforeEach(() => {
         localStorage.clear();

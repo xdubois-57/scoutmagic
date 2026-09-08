@@ -278,9 +278,30 @@ class ServiceWorkerPrecacheTest extends TestCase
         $this->assertNotEmpty($m, 'Could not locate networkFirstWithCacheFallback() in public/sw.js');
 
         $this->assertMatchesRegularExpression(
-            '/if \(response\?\.ok && !response\.redirected && config\.standalone\) \{/',
+            '/if \(response\?\.ok && !response\.redirected && config\.standalone && scopeMatches\) \{/',
             $m[1]
         );
+    }
+
+    /**
+     * The fourth term of that gate, and the one that is not about this
+     * response at all: `scopeMatches` compares the scope the SESSION
+     * served under (the X-Offline-Scope header) with the one the worker
+     * holds, which came from the previous page's postMessage. After a
+     * silent expiry the two disagree, and writing then puts one reader's
+     * page into another's cache (issue #252).
+     */
+    public function testTheWriteIsAlsoGatedOnTheScopeTheResponseWasServedUnder(): void
+    {
+        preg_match(
+            '/function networkFirstWithCacheFallback\(request, url, config, network, event\) \{(.*?)\n\}/s',
+            $this->swJs,
+            $m
+        );
+        $this->assertNotEmpty($m, 'Could not locate networkFirstWithCacheFallback() in public/sw.js');
+
+        $this->assertStringContainsString("headers.get('X-Offline-Scope')", $m[1]);
+        $this->assertStringContainsString('purgeContentCachesExcept(servedScope)', $m[1]);
     }
 
     /**
