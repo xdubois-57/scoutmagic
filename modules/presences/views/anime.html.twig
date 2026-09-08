@@ -50,13 +50,13 @@
        rien ne les recalcule sous les doigts : le dire vaut mieux que laisser
        lire un taux périmé. Masqué tant que rien n'a bougé, et juste sous les
        chiffres dont il parle. #}
-    <div class="alert alert-info d-none d-flex align-items-start gap-2" role="status" id="presences-stale">
+    <output class="alert alert-info d-none d-flex align-items-start gap-2" id="presences-stale">
         <i class="bi bi-arrow-clockwise flex-shrink-0 mt-1" aria-hidden="true"></i>
-        <div>
+        <span>
             Les taux et le graphique ci-dessus datent de l'ouverture de la page.
             <a href="/chefs/presences/anime/{{ profile.memberId }}">Recharger la page</a> pour les recalculer.
-        </div>
-    </div>
+        </span>
+    </output>
 
     {# Le détail date par date, avec les commentaires : c'est ce qu'on relit
        avant d'appeler une famille — et c'est aussi là qu'on corrige, sans

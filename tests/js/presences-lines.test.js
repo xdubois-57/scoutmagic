@@ -68,7 +68,7 @@ const SHEET = `
 
 // One animé, three dates: the member id repeats and the endpoint does not.
 const ANIME = `
-    <div class="alert d-none" id="presences-stale"></div>
+    <output class="alert d-none" id="presences-stale"></output>
     <div id="presences-lines">
         ${line({ rowId: '31', memberId: '12', endpoint: '/chefs/presences/feuille/31/enregistrer', status: 'present' })}
         ${line({ rowId: '32', memberId: '12', endpoint: '/chefs/presences/feuille/32/enregistrer', status: 'unset' })}
