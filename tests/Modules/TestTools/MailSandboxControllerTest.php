@@ -65,6 +65,18 @@ class MailSandboxControllerTest extends TestCase
             false
         );
 
+        $settingService->register(
+            MailSandboxService::SETTING_DELIVER_MAGIC_LINKS,
+            '0',
+            'boolean',
+            'Laisser partir les liens de connexion',
+            'Réglage de test.',
+            MailSandboxService::MODULE_ID,
+            null,
+            null,
+            false
+        );
+
         $this->sandboxService = new MailSandboxService(
             $this->repository,
             $settingService,
@@ -214,6 +226,104 @@ class MailSandboxControllerTest extends TestCase
 
         $this->assertSame('mail_capture_armed', $entries[0]['event_type']);
         $this->assertSame('mail_capture_disarmed', $entries[1]['event_type']);
+    }
+
+    /**
+     * The exemption is `superadmin`, like every other route of this module
+     * — it decides whether a live sign-in link reaches a real inbox.
+     */
+    public function testAdminIsRejectedFromTheMagicLinkExemption(): void
+    {
+        AuthSession::login(1, 'admin@test.com', 'admin');
+
+        $response = $this->frontController(
+            '/test-tools/mail-sandbox/magic-links',
+            MailSandboxController::class,
+            'toggleMagicLinks',
+            'POST'
+        )->handle(new Request(
+            'POST',
+            '/test-tools/mail-sandbox/magic-links',
+            [],
+            ['deliver_magic_links' => '1'],
+            [],
+            []
+        ));
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertFalse($this->sandboxService->magicLinksDelivered());
+    }
+
+    public function testTheMagicLinkExemptionRefusesAMissingCsrfToken(): void
+    {
+        AuthSession::login(1, 'superadmin@test.com', 'superadmin');
+
+        $response = $this->frontController(
+            '/test-tools/mail-sandbox/magic-links',
+            MailSandboxController::class,
+            'toggleMagicLinks',
+            'POST'
+        )->handle(new Request(
+            'POST',
+            '/test-tools/mail-sandbox/magic-links',
+            [],
+            ['deliver_magic_links' => '1'],
+            [],
+            []
+        ));
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertFalse($this->sandboxService->magicLinksDelivered());
+    }
+
+    /**
+     * An unticked checkbox submits nothing at all, so the absent field has
+     * to read as "off" — otherwise the box could be ticked and never
+     * unticked again.
+     */
+    public function testTheMagicLinkExemptionIsSetAndUnsetThroughTheRoute(): void
+    {
+        AuthSession::login(1, 'superadmin@test.com', 'superadmin');
+
+        $post = function (array $body): int {
+            return $this->frontController(
+                '/test-tools/mail-sandbox/magic-links',
+                MailSandboxController::class,
+                'toggleMagicLinks',
+                'POST'
+            )->handle(new Request(
+                'POST',
+                '/test-tools/mail-sandbox/magic-links',
+                [],
+                $body + ['_csrf_token' => CsrfGuard::generateToken()],
+                [],
+                []
+            ))->getStatusCode();
+        };
+
+        $this->assertSame(302, $post(['deliver_magic_links' => '1']));
+        $this->assertTrue($this->sandboxService->magicLinksDelivered());
+
+        $this->assertSame(302, $post([]));
+        $this->assertFalse($this->sandboxService->magicLinksDelivered());
+    }
+
+    public function testTheMagicLinkExemptionIsJournaledAtSecurityWithNoAddress(): void
+    {
+        $this->sandboxService->setMagicLinksDelivered(true, 1);
+        $this->sandboxService->setMagicLinksDelivered(false, 1);
+
+        $entries = $this->pdo->query('SELECT * FROM event_log ORDER BY id ASC')->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertCount(2, $entries);
+
+        foreach ($entries as $entry) {
+            $this->assertSame('security', $entry['level']);
+            $this->assertSame('test_tools', $entry['category']);
+            $this->assertStringNotContainsString('@', (string) $entry['description']);
+        }
+
+        $this->assertSame('mail_capture_magic_links_delivered', $entries[0]['event_type']);
+        $this->assertSame('mail_capture_magic_links_captured', $entries[1]['event_type']);
     }
 
     public function testTheSwitchIsHonouredThroughTheRoute(): void

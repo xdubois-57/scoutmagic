@@ -12,6 +12,12 @@
 CREATE TABLE captured_emails (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     captured_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- Whether this message ALSO left the server. False for every capture,
+    -- true only for a sign-in link the operator chose to let through
+    -- (`mail_capture_deliver_magic_links`). The sandbox stays a complete
+    -- record either way: a message that was delivered is still filed here,
+    -- flagged, rather than becoming invisible.
+    delivered BOOLEAN NOT NULL DEFAULT 0,
     -- In clear, and a deliberate exception to SECURITY.md §5: the sandbox
     -- list is unusable without a searchable subject, and the exception is
     -- admissible only *because* this module cannot load on a deploying

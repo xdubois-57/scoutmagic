@@ -47,19 +47,21 @@ class CapturedEmailRepository
         ?int $bodyHtmlFileId,
         ?int $bodyTextFileId,
         ?string $errorMessage,
-        array $attachments
+        array $attachments,
+        bool $delivered = false
     ): int {
         $normalizedRecipient = EncryptionService::normalizeEmailForIndex($recipient);
 
         $stmt = $this->pdo->prepare(
             'INSERT INTO captured_emails
-                (captured_at, subject, recipient, recipient_blind_index, from_address, reply_to,
+                (captured_at, delivered, subject, recipient, recipient_blind_index, from_address, reply_to,
                  size_bytes, has_dkim, attachment_count, mime_file_id,
                  body_html_file_id, body_text_file_id, error_message)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $capturedAt->format('Y-m-d H:i:s'),
+            $delivered ? 1 : 0,
             mb_substr($subject, 0, 255),
             $this->encryption->encrypt($normalizedRecipient, self::ENCRYPTION_PURPOSE),
             $this->encryption->blindIndex($normalizedRecipient, self::BLIND_INDEX_PURPOSE),
@@ -373,6 +375,7 @@ class CapturedEmailRepository
         return new CapturedEmail(
             id: (int) $row['id'],
             capturedAt: DateInput::requireFromStorage((string) $row['captured_at'], 'captured_at'),
+            delivered: (bool) $row['delivered'],
             subject: (string) $row['subject'],
             recipient: $this->encryption->decrypt((string) $row['recipient'], self::ENCRYPTION_PURPOSE),
             fromAddress: (string) $row['from_address'],

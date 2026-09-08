@@ -65,7 +65,7 @@ class MemberSearchControllerTest extends TestCase
             public array $delivered = [];
             public bool $refuse = false;
 
-            public function deliver(\PHPMailer\PHPMailer\PHPMailer $mail): void
+            public function deliver(\PHPMailer\PHPMailer\PHPMailer $mail, \Core\Mail\MailPurpose $purpose): void
             {
                 if ($this->refuse) {
                     throw new \RuntimeException('SMTP said no.');

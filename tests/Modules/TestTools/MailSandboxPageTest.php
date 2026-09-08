@@ -72,6 +72,18 @@ class MailSandboxPageTest extends TestCase
             false
         );
 
+        $settingService->register(
+            MailSandboxService::SETTING_DELIVER_MAGIC_LINKS,
+            '0',
+            'boolean',
+            'Laisser partir les liens de connexion',
+            'Réglage de test.',
+            MailSandboxService::MODULE_ID,
+            null,
+            null,
+            false
+        );
+
         $this->sandboxService = new MailSandboxService(
             $this->repository,
             $settingService,
@@ -113,7 +125,8 @@ class MailSandboxPageTest extends TestCase
         ?string $html = null,
         ?string $text = null,
         bool $hasDkim = false,
-        string $rawMessage = "Subject: brut\r\nTo: qui@example.be\r\n\r\ncorps brut"
+        string $rawMessage = "Subject: brut\r\nTo: qui@example.be\r\n\r\ncorps brut",
+        bool $delivered = false
     ): int {
         $store = fn(?string $content, string $mime, string $name): ?int => $content === null
             ? null
@@ -131,7 +144,8 @@ class MailSandboxPageTest extends TestCase
             $store($html, 'text/html', 'corps.html'),
             $store($text, 'text/plain', 'corps.txt'),
             null,
-            []
+            [],
+            $delivered
         );
     }
 
@@ -299,7 +313,7 @@ class MailSandboxPageTest extends TestCase
 
         $body = $this->list();
 
-        $this->assertStringContainsString('liens magiques', $body);
+        $this->assertStringContainsString('Les liens de connexion arrivent désormais sur cette page', $body);
         $this->assertStringContainsString('passkey', $body);
     }
 
@@ -307,7 +321,67 @@ class MailSandboxPageTest extends TestCase
     {
         $body = $this->list();
 
-        $this->assertStringNotContainsString('liens magiques', $body);
+        $this->assertStringNotContainsString('Les liens de connexion arrivent désormais sur cette page', $body);
+    }
+
+    /**
+     * The exemption only means anything once the capture is armed, so the
+     * checkbox exists only then — a control that changes nothing is worse
+     * than no control at all.
+     */
+    public function testTheExemptionCheckboxAppearsOnlyWhenArmed(): void
+    {
+        $this->assertStringNotContainsString('deliver_magic_links', $this->list());
+
+        $this->sandboxService->setArmed(true, 1);
+
+        $armed = $this->list();
+        $this->assertStringContainsString('name="deliver_magic_links"', $armed);
+        $this->assertStringContainsString('/test-tools/mail-sandbox/magic-links', $armed);
+        $this->assertStringContainsString('Laisser partir les liens de connexion', $armed);
+    }
+
+    public function testTheCheckboxIsTickedAndTheWarningReversedWhenSignInLinksGoOut(): void
+    {
+        $this->sandboxService->setArmed(true, 1);
+        $this->sandboxService->setMagicLinksDelivered(true, 1);
+
+        $body = $this->list();
+
+        $this->assertStringContainsString('checked', $body);
+        $this->assertStringContainsString('Les liens de connexion continuent de partir', $body);
+        // The lock-yourself-out warning is the OTHER state's, and showing
+        // both at once would be worse than showing neither.
+        $this->assertStringNotContainsString('Les liens de connexion arrivent désormais sur cette page', $body);
+    }
+
+    /**
+     * A message that was let out is still filed, and the list says which
+     * ones actually left — that is what keeps "what did this feature send?"
+     * answerable with the exemption on.
+     */
+    public function testADeliveredMessageIsBadgedInTheListAndOnItsDetailPage(): void
+    {
+        $id = $this->capture(
+            '[25SV] Votre lien de connexion',
+            'chef@example.be',
+            '2026-03-01 09:30:00',
+            delivered: true
+        );
+        $this->capture('[25SV] Convocation', 'chef@example.be', '2026-03-01 09:00:00');
+
+        $list = $this->list();
+        $this->assertSame(1, substr_count($list, 'Remis au destinataire'));
+
+        $detail = $this->detail($id);
+        $this->assertStringContainsString('Remis au destinataire', $detail);
+    }
+
+    public function testACapturedMessageSaysSoOnItsDetailPage(): void
+    {
+        $id = $this->capture('[25SV] Convocation', 'chef@example.be', '2026-03-01 09:00:00');
+
+        $this->assertStringContainsString('Capturé, non remis', $this->detail($id));
     }
 
     public function testTheDetailPageShowsTheFiveTabs(): void

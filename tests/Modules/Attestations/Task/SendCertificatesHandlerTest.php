@@ -78,7 +78,7 @@ class SendCertificatesHandlerTest extends TestCase
             /** @var list<PHPMailer> */
             public array $delivered = [];
 
-            public function deliver(PHPMailer $mail): void
+            public function deliver(PHPMailer $mail, \Core\Mail\MailPurpose $purpose): void
             {
                 $this->delivered[] = $mail;
             }

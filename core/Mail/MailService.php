@@ -90,6 +90,9 @@ class MailService
      * @param array<string, string> $extraHeaders Raw header name => value pairs added as-is (e.g. mass_mail's
      *                                             List-Unsubscribe / List-Unsubscribe-Post, RFC 8058) — the caller is
      *                                             responsible for values being header-safe (no newlines).
+     * @param MailPurpose $purpose What this message is, for DELIVERY purposes only, and nothing else: the
+     *                             transport is the only thing that reads it, and the default transport ignores
+     *                             it. Left at `Ordinary` by all but one call site — see MailPurpose.
      * @throws MailException on failure
      */
     public function send(
@@ -101,7 +104,8 @@ class MailService
         array $attachments = [],
         ?string $fromAddressOverride = null,
         ?string $fromNameOverride = null,
-        array $extraHeaders = []
+        array $extraHeaders = [],
+        MailPurpose $purpose = MailPurpose::Ordinary
     ): void {
         $mail = new PHPMailer(true);
 
@@ -169,7 +173,7 @@ class MailService
             // The delivery step, and only the delivery step: everything
             // above stays here so a captured message is byte-for-byte the
             // message that would have gone out.
-            $this->transport->deliver($mail);
+            $this->transport->deliver($mail, $purpose);
         } catch (\Exception $e) {
             $reason = $mail->ErrorInfo ?: $e->getMessage();
             $this->journalFailure($reason);

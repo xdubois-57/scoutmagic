@@ -6,6 +6,7 @@ namespace Tests\Core\Mail;
 
 use Core\Mail\DkimManager;
 use Core\Mail\MailException;
+use Core\Mail\MailPurpose;
 use Core\Mail\MailService;
 use Core\Mail\MailServiceFactory;
 use Core\Mail\MailTransportInterface;
@@ -36,11 +37,13 @@ class MailTransportSeamTest extends TestCase
     {
         return new class implements MailTransportInterface {
             public ?PHPMailer $received = null;
+            public ?MailPurpose $purpose = null;
             public int $calls = 0;
 
-            public function deliver(PHPMailer $mail): void
+            public function deliver(PHPMailer $mail, MailPurpose $purpose): void
             {
                 $this->received = $mail;
+                $this->purpose = $purpose;
                 $this->calls++;
             }
         };
@@ -153,7 +156,7 @@ class MailTransportSeamTest extends TestCase
     public function testATransportThatThrowsIsStillSurfacedAsAMailException(): void
     {
         $transport = new class implements MailTransportInterface {
-            public function deliver(PHPMailer $mail): void
+            public function deliver(PHPMailer $mail, MailPurpose $purpose): void
             {
                 throw new \RuntimeException('transport en panne');
             }
@@ -192,6 +195,39 @@ class MailTransportSeamTest extends TestCase
         );
 
         $this->assertSame(1, $transport->calls);
+    }
+
+    /**
+     * The purpose is a DELIVERY category, and its default is what keeps
+     * the ~95 call sites of send() from ever naming it (MailPurpose).
+     */
+    public function testEveryOrdinaryCallSiteDeliversWithTheDefaultPurpose(): void
+    {
+        $transport = $this->recordingTransport();
+
+        $this->serviceWith($transport)->send(
+            to: 'destinataire@example.be',
+            subject: 'Bonjour',
+            bodyHtml: '<p>Bonjour</p>',
+            bodyText: 'Bonjour'
+        );
+
+        $this->assertSame(MailPurpose::Ordinary, $transport->purpose);
+    }
+
+    public function testAStatedPurposeReachesTheTransportUnchanged(): void
+    {
+        $transport = $this->recordingTransport();
+
+        $this->serviceWith($transport)->send(
+            to: 'destinataire@example.be',
+            subject: 'Votre lien de connexion',
+            bodyHtml: '<p>Bonjour</p>',
+            bodyText: 'Bonjour',
+            purpose: MailPurpose::MagicLink
+        );
+
+        $this->assertSame(MailPurpose::MagicLink, $transport->purpose);
     }
 
     private function removeDir(string $dir): void

@@ -24,6 +24,15 @@
     <dt class="col-4 col-lg-2">Taille</dt>
     <dd class="col-8 col-lg-10">{{ (email.sizeBytes / 1024)|round(1) }} Ko</dd>
 
+    <dt class="col-4 col-lg-2">Remise</dt>
+    <dd class="col-8 col-lg-10">
+        {% if email.delivered %}
+            <span class="badge text-bg-info">Remis au destinataire</span>
+        {% else %}
+            <span class="badge text-bg-secondary">Capturé, non remis</span>
+        {% endif %}
+    </dd>
+
     <dt class="col-4 col-lg-2">Signature</dt>
     <dd class="col-8 col-lg-10">
         {% if email.hasDkim %}

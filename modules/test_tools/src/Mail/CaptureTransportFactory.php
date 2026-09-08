@@ -11,6 +11,7 @@ namespace Modules\TestTools\Mail;
 use Core\Config\SettingService;
 use Core\File\EncryptedFileStorageService;
 use Core\File\FileRepository;
+use Core\Mail\PhpMailerTransport;
 use Core\Module\InstallationProfile;
 use Core\Module\ModuleRegistryRepository;
 use Core\Security\EncryptionService;
@@ -37,6 +38,13 @@ use Modules\TestTools\Service\MailSandboxService;
  * A forged `module_registry` row alone therefore captures nothing. Living
  * in a factory rather than inline in public/index.php is what makes the
  * three conditions testable at all — nothing in the composition root is.
+ *
+ * A fourth setting rides along but is **not** a fourth condition: whether
+ * the sign-in link is exempted from the capture
+ * (`mail_capture_deliver_magic_links`). It never decides whether capture
+ * happens, only what one category of message does once it has — so it is
+ * read here and handed to the transport, and it is deliberately absent
+ * from shouldCapture().
  */
 final class CaptureTransportFactory
 {
@@ -86,7 +94,13 @@ final class CaptureTransportFactory
 
         return new CaptureTransport(
             new CapturedEmailRepository($pdo, $encryption),
-            new EncryptedFileStorageService(new FileRepository($pdo), $encryption, $storagePath)
+            new EncryptedFileStorageService(new FileRepository($pdo), $encryption, $storagePath),
+            // The transport MailService would have used had none of this
+            // been wired: the one exempted category goes out through
+            // exactly that path, not through a second delivery mechanism
+            // that could drift from it.
+            new PhpMailerTransport(),
+            MailSandboxService::deliversMagicLinks($settingService)
         );
     }
 }

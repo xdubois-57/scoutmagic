@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\TestTools\Mail;
 
 use Core\File\EncryptedFileStorageService;
+use Core\Mail\MailPurpose;
 use Core\Mail\MailTransportInterface;
 use Modules\TestTools\Repository\CapturedEmailRepository;
 use PHPMailer\PHPMailer\PHPMailer;
@@ -18,11 +19,23 @@ use PHPMailer\PHPMailer\PHPMailer;
  * message exactly as it would have been sent, then store it instead of
  * putting it on the wire.
  *
- * Capture is **all-or-nothing** by design. There is no "capture and also
- * send", no whitelist of addresses that really go out and no per-recipient
- * exception: an operator who has to reason about which half of the mail
- * left the server has a tool that cannot be trusted to answer "what did
- * this feature actually send?".
+ * Capture has **exactly one exception, and it is a category, never an
+ * address**: the sign-in link (`MailPurpose::MagicLink`). Without it the
+ * sandbox deadlocks the installation it is meant to make testable — with
+ * capture armed the sign-in e-mail lands on the sandbox page instead of in
+ * an inbox, so nobody can sign in to the site being tested, and nobody who
+ * signed in that way can get back to disarm the capture. The exception is
+ * off by default and the operator turns it on knowingly
+ * (`mail_capture_deliver_magic_links`).
+ *
+ * There is still no whitelist of addresses that really go out and no
+ * per-recipient exception, and there never will be: an operator who has to
+ * reason about which half of the mail left the server has a tool that
+ * cannot answer "what did this feature actually send?". The one exception
+ * survives that test because it stays answerable — a sign-in link that
+ * went out is **still filed in the sandbox**, flagged `delivered`, rather
+ * than becoming invisible. Nothing leaves the server without leaving a row
+ * behind.
  */
 final class CaptureTransport implements MailTransportInterface
 {
@@ -37,13 +50,61 @@ final class CaptureTransport implements MailTransportInterface
 
     private const STORAGE_SUBDIRECTORY = 'modules/test_tools/mail';
 
+    /**
+     * @param MailTransportInterface $passThrough How an exempted message is
+     *   actually delivered — the ordinary transport, built by the factory,
+     *   so an exempted mail goes out through exactly the code path it
+     *   would have used had the sandbox not been armed at all.
+     * @param bool $deliversMagicLinks Whether the sign-in link is exempted
+     *   right now. Read once, at the moment the composition root built this
+     *   transport, exactly like the arm switch itself.
+     */
     public function __construct(
         private CapturedEmailRepository $repository,
-        private EncryptedFileStorageService $fileStorage
+        private EncryptedFileStorageService $fileStorage,
+        private MailTransportInterface $passThrough,
+        private bool $deliversMagicLinks = false
     ) {
     }
 
-    public function deliver(PHPMailer $mail): void
+    /**
+     * Whether this transport lets sign-in links out.
+     *
+     * Exposed so the wiring that reads the setting
+     * (`CaptureTransportFactory`) can be asserted end to end. The only
+     * other way to observe it is to actually deliver a message, which is
+     * the one thing a test must never do.
+     */
+    public function deliversMagicLinks(): bool
+    {
+        return $this->deliversMagicLinks;
+    }
+
+    public function deliver(PHPMailer $mail, MailPurpose $purpose): void
+    {
+        // Read off the instance BEFORE anything assembles or sends: the
+        // source paths are frequently temporary files that will not exist
+        // by the time the sandbox is opened, so each attachment is copied
+        // into encrypted storage now. This also means the sandbox never
+        // has to parse MIME to offer a download.
+        $attachments = $this->storeAttachments($mail);
+
+        if ($purpose === MailPurpose::MagicLink && $this->deliversMagicLinks) {
+            $this->sendThenCapture($mail, $attachments);
+
+            return;
+        }
+
+        $this->captureWithoutSending($mail, $attachments);
+    }
+
+    /**
+     * The ordinary path: assemble the message and file it, and nothing
+     * reaches the network.
+     *
+     * @param array<int, array{file_name: string, mime_type: string, size_bytes: int, file_id: int|null}> $attachments
+     */
+    private function captureWithoutSending(PHPMailer $mail, array $attachments): void
     {
         // Force SMTP semantics before assembling. In `mail` mode PHPMailer
         // moves To and Subject out of MIMEHeader into mailHeader (they
@@ -54,55 +115,74 @@ final class CaptureTransport implements MailTransportInterface
         // and the shape a real mail client expects from a .eml file.
         //
         // Nothing is actually connected to: preSend() never opens a socket.
+        // This is also why it is done HERE and not in deliver(): a message
+        // the sandbox lets through must be delivered in the mode the
+        // installation is actually configured for, and `local` mode hands
+        // off to mail() rather than to an SMTP server that may not exist.
         $mail->isSMTP();
-
-        $recipients = $mail->getToAddresses();
-        $recipient = $recipients[0][0] ?? '';
-        $replyToAddresses = array_values($mail->getReplyToAddresses());
-        $replyTo = $replyToAddresses[0][0] ?? null;
-
-        // Read off the instance BEFORE preSend(): the source paths are
-        // frequently temporary files that will not exist by the time the
-        // sandbox is opened, so each attachment is copied into encrypted
-        // storage now. This also means the sandbox never has to parse MIME
-        // to offer a download.
-        $attachments = $this->storeAttachments($mail);
 
         try {
             // preSend() is the entire library minus the network hop:
             // recipient validation, MIME assembly, attachment encoding,
             // header construction and the DKIM signature. postSend() — the
             // half that talks SMTP or hands off to mail() — is never
-            // called, here or anywhere else in this module.
+            // called from this method, here or anywhere else in this
+            // module; the one path that does send delegates to the
+            // ordinary transport instead.
             $mail->preSend();
         } catch (\Exception $e) {
             // A failure during assembly is captured too, then rethrown so
             // the caller sees the same MailException it would have seen. A
             // test tool that silently swallows a broken mail is worse than
             // useless.
-            $this->repository->create(
-                capturedAt: new \DateTimeImmutable(),
-                subject: $mail->Subject,
-                recipient: $recipient,
-                fromAddress: $mail->From,
-                replyTo: $replyTo,
-                sizeBytes: 0,
-                hasDkim: false,
-                mimeFileId: null,
-                bodyHtmlFileId: null,
-                bodyTextFileId: null,
-                errorMessage: $mail->ErrorInfo !== '' ? $mail->ErrorInfo : $e->getMessage(),
-                attachments: $attachments
-            );
+            $this->recordFailure($mail, $attachments, $e);
 
             throw $e;
         }
 
-        $message = $mail->getSentMIMEMessage();
+        $this->record($mail, $mail->getSentMIMEMessage(), $attachments, delivered: false);
+    }
 
+    /**
+     * The exempted path: hand the message to the ordinary transport, then
+     * file what it actually sent.
+     *
+     * Sending FIRST is what makes the stored copy honest. `send()` leaves
+     * the assembled message on the instance, so `getSentMIMEMessage()`
+     * afterwards returns the very bytes that went out — nothing is
+     * re-assembled, and no boundary, Message-ID or DKIM signature can
+     * differ between what the recipient received and what the sandbox
+     * shows. Assembling first and sending afterwards would have produced
+     * two different messages and no way to tell which one was which.
+     *
+     * @param array<int, array{file_name: string, mime_type: string, size_bytes: int, file_id: int|null}> $attachments
+     */
+    private function sendThenCapture(PHPMailer $mail, array $attachments): void
+    {
+        try {
+            $this->passThrough->deliver($mail, MailPurpose::MagicLink);
+        } catch (\Exception $e) {
+            // Same contract as a failed assembly: the row is written, the
+            // exception continues to the caller. `delivered` stays false,
+            // because it did not.
+            $this->recordFailure($mail, $attachments, $e);
+
+            throw $e;
+        }
+
+        $this->record($mail, $mail->getSentMIMEMessage(), $attachments, delivered: true);
+    }
+
+    /**
+     * Files one message and the three encrypted files behind it.
+     *
+     * @param array<int, array{file_name: string, mime_type: string, size_bytes: int, file_id: int|null}> $attachments
+     */
+    private function record(PHPMailer $mail, string $message, array $attachments, bool $delivered): void
+    {
         // The two body parts, taken from the library rather than carved
         // back out of the message it just assembled. Same reasoning as the
-        // attachments above: PHPMailer already knows what it built, so the
+        // attachments: PHPMailer already knows what it built, so the
         // sandbox never has to walk MIME boundaries to show a preview.
         $bodyHtmlFileId = $this->storeBodyPart($mail->Body, 'text/html', 'corps.html');
         $bodyTextFileId = $this->storeBodyPart($mail->AltBody, 'text/plain', 'corps.txt');
@@ -119,9 +199,9 @@ final class CaptureTransport implements MailTransportInterface
         $this->repository->create(
             capturedAt: new \DateTimeImmutable(),
             subject: $mail->Subject,
-            recipient: $recipient,
+            recipient: self::recipientOf($mail),
             fromAddress: $mail->From,
-            replyTo: $replyTo,
+            replyTo: self::replyToOf($mail),
             sizeBytes: strlen($message),
             // The header, not the configured key: a key can be present and
             // the signature still absent (an unreadable key file, an empty
@@ -132,8 +212,49 @@ final class CaptureTransport implements MailTransportInterface
             bodyHtmlFileId: $bodyHtmlFileId,
             bodyTextFileId: $bodyTextFileId,
             errorMessage: null,
-            attachments: $attachments
+            attachments: $attachments,
+            delivered: $delivered
         );
+    }
+
+    /**
+     * Files a message that never made it — a broken assembly, or a
+     * delivery the mail server refused. There is no raw message to store
+     * in either case, only the library's own error.
+     *
+     * @param array<int, array{file_name: string, mime_type: string, size_bytes: int, file_id: int|null}> $attachments
+     */
+    private function recordFailure(PHPMailer $mail, array $attachments, \Exception $e): void
+    {
+        $this->repository->create(
+            capturedAt: new \DateTimeImmutable(),
+            subject: $mail->Subject,
+            recipient: self::recipientOf($mail),
+            fromAddress: $mail->From,
+            replyTo: self::replyToOf($mail),
+            sizeBytes: 0,
+            hasDkim: false,
+            mimeFileId: null,
+            bodyHtmlFileId: null,
+            bodyTextFileId: null,
+            errorMessage: $mail->ErrorInfo !== '' ? $mail->ErrorInfo : $e->getMessage(),
+            attachments: $attachments,
+            delivered: false
+        );
+    }
+
+    private static function recipientOf(PHPMailer $mail): string
+    {
+        $recipients = $mail->getToAddresses();
+
+        return $recipients[0][0] ?? '';
+    }
+
+    private static function replyToOf(PHPMailer $mail): ?string
+    {
+        $replyToAddresses = array_values($mail->getReplyToAddresses());
+
+        return $replyToAddresses[0][0] ?? null;
     }
 
     /**
