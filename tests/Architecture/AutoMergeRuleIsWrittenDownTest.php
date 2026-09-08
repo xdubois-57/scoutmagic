@@ -76,6 +76,43 @@ final class AutoMergeRuleIsWrittenDownTest extends TestCase
     }
 
     /**
+     * THE ONE STANDING EXCEPTION THAT IS ABOUT THIS FILE ITSELF.
+     *
+     * A rule agreed in a conversation and left unmerged is a rule the next
+     * session never sees — the gap between "we decided this" and "it is on
+     * `main`" is where an instruction dies, and asking a second time to
+     * close a gap the maintainer just asked you to close is how a decided
+     * rule stays undecided. So a change to the instruction files, when the
+     * maintainer asked for it, carries its own authorization to merge.
+     *
+     * Both halves are pinned, and the second is the one that matters. The
+     * grant is narrow on purpose: it authorises landing a change the
+     * maintainer asked for, never writing one you thought of yourself.
+     * Drop that sentence and what remains reads as a licence to rewrite
+     * the rules an agent is bound by and merge it unasked, which is the
+     * one shape this repository must never let a convenience take.
+     */
+    public function testAnInstructionChangeMayBeMergedWithoutAskingTwice(): void
+    {
+        $rules = self::agentRules();
+
+        $this->assertStringContainsString(
+            'A change to these instructions themselves carries the same standing',
+            $rules,
+            'AGENTS.md no longer says that a maintainer-requested change to the instruction files may '
+            . 'be merged without a second confirmation, so the next agent stops at green and waits — '
+            . 'and the rule that was agreed stays off `main`, where nothing reads it.'
+        );
+
+        $this->assertStringContainsString(
+            'It authorises the *merge*, nothing else.',
+            $rules,
+            'the sentence bounding that authorization is gone. Without it, a grant meant to let a '
+            . 'decided rule land reads as permission to rewrite the rules unasked and merge the result.'
+        );
+    }
+
+    /**
      * The command itself. "Enable auto-merge" without it sends the next
      * agent to the web UI, which is where the polling started.
      */

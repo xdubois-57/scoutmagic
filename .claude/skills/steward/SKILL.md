@@ -146,7 +146,13 @@ exits non-zero when it could not say so — a comment the API refused, a
 state it could not read back. That red run is on the merge commit rather
 than on the pull request, and it means an issue is fixed and does not say
 so. Finish that one by hand: comment, then close as `completed`, per
-AGENTS.md § Fix the backlog, step 6.
+AGENTS.md § Fix the backlog, its closing step — named rather than
+numbered, because the numbering has already drifted once under it.
+
+Watch it after **each** block's merge rather than only after the last. The
+backlog is fixed one block of issues per pull request now (same section,
+§ Fix the backlog, step 4), so there is no single merge at which every
+issue is meant to close.
 
 The flags are not decoration — each is a failure the shorter command
 cannot show you:
