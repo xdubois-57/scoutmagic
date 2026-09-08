@@ -215,7 +215,16 @@
         return api.postJson(endpoint, { member_id: Number(line.dataset.memberId || 0), ...payload })
             .then(function (res) {
                 if (res.data?.success) {
-                    markStale();
+                    // Only a STATE can move the figures the page drew: the
+                    // rate and the monthly graph are computed from statuses
+                    // alone (PresenceAnimeService::months(), and
+                    // PresenceStatus::countsAsAttending() under it), so a
+                    // comment saved on its own leaves them true. Saying
+                    // otherwise would be a false statement, in a live
+                    // region, about the one thing the notice exists to say.
+                    if (payload.status !== undefined) {
+                        markStale();
+                    }
                     return true;
                 }
 

@@ -457,6 +457,21 @@ describe('presences-lines.js', () => {
             expect(notice.classList.contains('d-none')).toBe(false);
         });
 
+        it('leaves the notice alone when only a comment was saved', async () => {
+            // The rate and the monthly graph are computed from states
+            // alone, so a comment changes nothing about them — and the
+            // notice is a live region, where a false claim is announced.
+            await boot();
+
+            const field = row('33').querySelector('.presence-comment');
+            field.value = 'Prévenu jeudi.';
+            field.dispatchEvent(new Event('focusout', { bubbles: true }));
+            await flush();
+
+            expect(lastRequest().body.comment).toBe('Prévenu jeudi.');
+            expect(document.getElementById('presences-stale').classList.contains('d-none')).toBe(true);
+        });
+
         it('leaves the notice alone when the server refused the change', async () => {
             global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Pas la vôtre.' }, 403));
             await boot();
