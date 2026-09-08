@@ -22,7 +22,8 @@ class CalendarEventService
         private CalendarService $calendarService,
         private CalendarNotificationService $notificationService,
         private ?CalendarRetroAutoCreateService $retroAutoCreateService = null,
-        private ?PresenceEventCleanupInterface $presenceEventCleanup = null
+        private ?PresenceEventCleanupInterface $presenceEventCleanup = null,
+        private ?\PDO $pdo = null
     ) {
     }
 
@@ -211,16 +212,42 @@ class CalendarEventService
             throw new CalendarException('Évènement introuvable.');
         }
         $this->assertCalendarEditable($event->calendarId, $viewerRole, $staffedSectionIds);
-        $this->notificationService->cancelReminderForEvent($id);
-        $this->notificationService->cancelActivityReminderForEvent($id);
-        $this->retroAutoCreateService?->cancelAutoCreateForEvent($id);
-        // The sheet of an evening that no longer exists: states, encrypted
-        // comments and the short code it was reached by. No foreign key
-        // does this — a module never constrains another module's table —
-        // so it is erased here or never (Modules\Presences\Api\
-        // PresenceEventCleanupInterface).
-        $this->presenceEventCleanup?->forgetEvent($id);
-        $this->eventRepository->delete($id);
+
+        // ALL OF IT OR NONE OF IT. Deleting an event is several DELETEs
+        // across two modules' tables, and the order matters: the sheet
+        // goes first, the event last. Without a transaction, a failure in
+        // between leaves an evening still on the calendar whose attendance
+        // — states and encrypted comments — has already been destroyed,
+        // and nothing can bring that back.
+        //
+        // `inTransaction()` guarded because PDO has no nested
+        // transactions, same shape as
+        // `Modules\Rental\Repository\RentalBookingRepository`. Null $pdo
+        // keeps every existing call site and test working; it then behaves
+        // exactly as before.
+        // Non-null exactly when this call owns the transaction, so the
+        // three `?->` below can neither begin one twice nor roll back
+        // somebody else's.
+        $pdo = $this->pdo !== null && !$this->pdo->inTransaction() ? $this->pdo : null;
+        $pdo?->beginTransaction();
+
+        try {
+            $this->notificationService->cancelReminderForEvent($id);
+            $this->notificationService->cancelActivityReminderForEvent($id);
+            $this->retroAutoCreateService?->cancelAutoCreateForEvent($id);
+            // The sheet of an evening that no longer exists: states,
+            // encrypted comments and the short code it was reached by. No
+            // foreign key does this — a module never constrains another
+            // module's table — so it is erased here or never
+            // (Modules\Presences\Api\PresenceEventCleanupInterface).
+            $this->presenceEventCleanup?->forgetEvent($id);
+            $this->eventRepository->delete($id);
+        } catch (\Throwable $e) {
+            $pdo?->rollBack();
+            throw $e;
+        }
+
+        $pdo?->commit();
     }
 
     /**

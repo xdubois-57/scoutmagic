@@ -6,7 +6,6 @@ category: Espace animateurs
 role_min: chief
 question: Comment voir si un animé vient moins souvent qu'avant ?
 question: Où retrouver ce qui a été noté sur un animé cette année ?
-question: Comment exporter les présences de toute la section ?
 paths: /chefs/presences/anime/*
 related: presences-registre
 ---
@@ -44,14 +43,3 @@ Chaque ligne mène à la feuille de sa date, pour corriger sur place.
 > Cette page n'est jamais visible par la famille, pas plus que les
 > commentaires qu'elle porte. Elle sert à préparer une conversation, pas à
 > la remplacer.
-
-## L'export
-
-Le bouton « Exporter en Excel », sur la page de la section, produit un
-fichier qui reprend **toute** la section et **l'année entière** : chaque
-animé, chaque évènement, l'état et le commentaire, une ligne par
-croisement. C'est là qu'on va chercher le détail que les écrans résument.
-
-Une fois téléchargé, le fichier n'est plus protégé par le site : il
-contient des noms et des commentaires sur des mineurs. Rangez-le comme
-tel, et ne le faites pas circuler hors du staff.

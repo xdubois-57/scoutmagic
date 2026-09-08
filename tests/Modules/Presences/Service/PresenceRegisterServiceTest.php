@@ -335,4 +335,34 @@ class PresenceRegisterServiceTest extends TestCase
             $this->pdo, $this->encryption, $this->scoutYearId, $firstName, $lastName, 'animated', $this->sectionId
         )['memberId'];
     }
+
+    /**
+     * The rate's denominator is the roll the evening concerned, not the
+     * section as it stands today.
+     *
+     * `getSectionAnimes()` filters `member_years.is_active = 1`, so a Desk
+     * import that deactivates somebody shrinks it — while the records keep
+     * everyone who was pointed. Divide by the smaller number and a night
+     * where everyone was present reads above 100 %, and « non renseigné »
+     * goes negative behind a max(0, …).
+     */
+    public function testAnAnimeWhoLeftAfterwardsDoesNotPushTheRateAbove100(): void
+    {
+        $event = $this->event($this->sectionA ?? $this->sectionId, '09-13');
+        $this->anime('Basile', 'Hargot');
+        $this->anime('Dounia', 'Ayoute');
+        $this->repository->saveStatus($event, $this->animes['Hargot'], PresenceStatus::PRESENT, null);
+        $this->repository->saveStatus($event, $this->animes['Ayoute'], PresenceStatus::PRESENT, null);
+
+        // Dounia leaves; the next import deactivates her year.
+        $this->pdo->prepare('UPDATE member_years SET is_active = 0 WHERE member_id = ?')
+            ->execute([$this->animes['Ayoute']]);
+
+        $register = $this->service->buildRegister($this->sectionId, $this->scoutYearId);
+        $evening = $register->events[0];
+
+        $this->assertSame(2, $evening->present);
+        $this->assertSame(100, $evening->rate);
+        $this->assertSame(0, $evening->notRecorded);
+    }
 }

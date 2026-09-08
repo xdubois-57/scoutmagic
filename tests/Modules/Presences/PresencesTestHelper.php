@@ -30,6 +30,16 @@ use Tests\Modules\Calendar\CalendarTestHelper;
 class PresencesTestHelper
 {
     /** Mirrors modules/presences/schema.sql on SQLite. */
+    /**
+     * The SQLite mirror of `modules/presences/schema.sql`, translated only
+     * where SQLite requires it: `INTEGER PRIMARY KEY AUTOINCREMENT` for
+     * the identity column, `TEXT` where MySQL has `ENUM` — the same four
+     * values held by a CHECK, so a test cannot store a state production
+     * would refuse — and `TEXT` for the timestamps. The unique indexes,
+     * `idx_presences_member` and the foreign-key actions are production's
+     * own: a suite passing against a laxer schema than the server proves
+     * less than it looks.
+     */
     public static function createTables(\PDO $pdo): void
     {
         CalendarTestHelper::createTables($pdo);
@@ -38,20 +48,22 @@ class PresencesTestHelper
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             calendar_event_id INTEGER NOT NULL,
             member_id INTEGER NOT NULL,
-            status TEXT NOT NULL DEFAULT \'unset\',
+            status TEXT NOT NULL DEFAULT \'unset\'
+                CHECK (status IN (\'present\', \'excused\', \'absent\', \'unset\')),
             comment_encrypted BLOB,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_by INTEGER,
             UNIQUE(calendar_event_id, member_id),
-            FOREIGN KEY (member_id) REFERENCES members(id),
-            FOREIGN KEY (updated_by) REFERENCES user_accounts(id)
+            FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE,
+            FOREIGN KEY (updated_by) REFERENCES user_accounts(id) ON DELETE SET NULL
         )');
+        $pdo->exec('CREATE INDEX idx_presences_member ON presences_records (member_id)');
 
         $pdo->exec('CREATE TABLE presences_event_links (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             calendar_event_id INTEGER NOT NULL UNIQUE,
-            short_code TEXT NOT NULL UNIQUE,
+            short_code VARCHAR(16) NOT NULL UNIQUE,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )');
     }

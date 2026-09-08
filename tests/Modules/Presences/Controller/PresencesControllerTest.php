@@ -44,6 +44,7 @@ class PresencesControllerTest extends TestCase
     private EncryptionService $encryption;
     private Environment $twig;
     private AppConfig $config;
+    private string $configFile = '';
     private int $scoutYearId;
     private int $sectionA;
     private int $sectionB;
@@ -87,6 +88,7 @@ class PresencesControllerTest extends TestCase
         $this->twig->addGlobal('csp_nonce', 'n');
 
         $configFile = sys_get_temp_dir() . '/test_presences_config_' . uniqid() . '.php';
+        $this->configFile = $configFile;
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
         $this->config = new AppConfig($configFile);
 
@@ -132,6 +134,11 @@ class PresencesControllerTest extends TestCase
     protected function tearDown(): void
     {
         $_SESSION = [];
+        // One file per test method, 24 of them per run, in the system
+        // temp directory — left behind until somebody noticed.
+        if (is_file($this->configFile)) {
+            unlink($this->configFile);
+        }
     }
 
     public function testAnAnimateurSeesTheirOwnSectionsSheet(): void
@@ -183,6 +190,47 @@ class PresencesControllerTest extends TestCase
 
         $this->assertSame(403, $this->handle(
             new Request('GET', '/chefs/presences', [], [], [], [])
+        )->getStatusCode());
+    }
+
+    /**
+     * The register's own page was the only route with this assertion, and
+     * `role_min` is declared route by route in `module.json` — so it is
+     * route by route that a missing one has to be caught. The JSON search,
+     * the export and the write endpoint are the ones that would hurt: they
+     * answer with data or take it, without a page to look wrong first.
+     *
+     * @return list<array{0: string, 1: string}>
+     */
+    public static function chiefOnlyRoutes(): array
+    {
+        return [
+            'le registre' => ['GET', '/chefs/presences'],
+            'la recherche' => ['GET', '/chefs/presences/recherche'],
+            'l\'export' => ['GET', '/chefs/presences/export'],
+            'la page d\'un animé' => ['GET', '/chefs/presences/anime/1'],
+            'une feuille' => ['GET', '/chefs/presences/feuille/1'],
+            'une écriture' => ['POST', '/chefs/presences/feuille/1/enregistrer'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('chiefOnlyRoutes')]
+    public function testEveryRouteRefusesAnIntendant(string $method, string $path): void
+    {
+        $this->signIn('intendant@test.be', 'intendant');
+
+        $this->assertSame(403, $this->handle(
+            new Request($method, $path, [], [], [], [])
+        )->getStatusCode());
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('chiefOnlyRoutes')]
+    public function testEveryRouteRefusesAnIdentifiedVisitor(string $method, string $path): void
+    {
+        $this->signIn('parent@test.be', 'identified');
+
+        $this->assertSame(403, $this->handle(
+            new Request($method, $path, [], [], [], [])
         )->getStatusCode());
     }
 

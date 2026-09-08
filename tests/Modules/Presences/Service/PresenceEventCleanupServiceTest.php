@@ -55,6 +55,19 @@ class PresenceEventCleanupServiceTest extends TestCase
         )['memberId'];
     }
 
+    /**
+     * The SQL audit skips `tests/`, so a constant `query()` here is not
+     * flagged — and a value added to it later would not be either. Every
+     * statement goes through the binding path, without exception.
+     */
+    private function prepared(string $sql): string
+    {
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute();
+
+        return (string) $stmt->fetchColumn();
+    }
+
     public function testForgettingAnEventErasesItsStatesAndItsComments(): void
     {
         $this->repository->saveStatus(10, $this->memberA, PresenceStatus::EXCUSED, null);
@@ -66,7 +79,7 @@ class PresenceEventCleanupServiceTest extends TestCase
         $this->assertSame([], $this->repository->findByEvent(10));
         $this->assertSame(
             0,
-            (int) $this->pdo->query('SELECT COUNT(*) FROM presences_records')->fetchColumn()
+            (int) $this->prepared('SELECT COUNT(*) FROM presences_records')
         );
     }
 

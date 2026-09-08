@@ -108,8 +108,21 @@ class PresenceRegisterService
                 + $counts[PresenceStatus::EXCUSED->value]
                 + $counts[PresenceStatus::ABSENT->value];
             $pointed = $decided > 0;
-            $rate = $pointed && $animeCount > 0
-                ? (int) round($counts[PresenceStatus::PRESENT->value] * 100 / $animeCount)
+
+            // The denominator is the roll this evening actually concerned,
+            // never « who is in the section today ». getSectionAnimes()
+            // answers the second — it filters `member_years.is_active = 1`
+            // — while the records are everyone who was pointed, including
+            // animés a later Desk import deactivated. Divide by the second
+            // and an evening where twenty-five were present, five of whom
+            // have since left, reads 125 %.
+            //
+            // Taking whichever is larger costs no storage and cannot
+            // exceed 100 %: it is the section's size while nobody has
+            // left, and the evening's own roll once somebody has.
+            $roll = max($animeCount, $decided);
+            $rate = $pointed && $roll > 0
+                ? (int) round($counts[PresenceStatus::PRESENT->value] * 100 / $roll)
                 : 0;
 
             if ($pointed) {
@@ -125,7 +138,10 @@ class PresenceRegisterService
                 present: $counts[PresenceStatus::PRESENT->value],
                 excused: $counts[PresenceStatus::EXCUSED->value],
                 absent: $counts[PresenceStatus::ABSENT->value],
-                notRecorded: max(0, $animeCount - $decided),
+                // Non-negative by construction now, rather than by a
+                // max(0, …) that hid the surplus the wrong denominator
+                // produced.
+                notRecorded: $roll - $decided,
                 rate: $rate
             );
         }

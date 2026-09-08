@@ -3396,7 +3396,8 @@ if ($isEnabled('calendar')) {
         $calendarService,
         $calendarNotificationService,
         $calendarRetroAutoCreateService,
-        $calendarPresenceEventCleanup
+        $calendarPresenceEventCleanup,
+        $pdo
     );
     $calendarPersonalFeedService = new \Modules\Calendar\Service\PersonalFeedService(
         $calendarPersonalTokenRepo,

@@ -7,6 +7,7 @@ role_min: chief
 question: Comment savoir qui vient aux réunions de ma section ?
 question: Comment repérer un animé qui ne vient plus ?
 question: Pourquoi je ne vois que ma section dans les présences ?
+question: Comment exporter les présences de toute la section ?
 paths: /chefs/presences
 related: presences-feuille
 ---
@@ -63,3 +64,14 @@ section perd l'accès à l'ancienne dès l'import suivant.
 
 > Les familles ne voient jamais ces pages, ni les commentaires qu'elles
 > portent. C'est un regard de staff, il reste au staff.
+
+## L'export
+
+Le bouton « Exporter en Excel », sur la page de la section, produit un
+fichier qui reprend **toute** la section et **l'année entière** : chaque
+animé, chaque évènement, l'état et le commentaire, une ligne par
+croisement. C'est là qu'on va chercher le détail que les écrans résument.
+
+Une fois téléchargé, le fichier n'est plus protégé par le site : il
+contient des noms et des commentaires sur des mineurs. Rangez-le comme
+tel, et ne le faites pas circuler hors du staff.
