@@ -280,4 +280,29 @@ class PresenceRepositoryTest extends TestCase
         $this->assertSame([], $this->repository->findByEvent(10));
         $this->assertCount(1, $this->repository->findByEvent(11));
     }
+
+    /**
+     * The textarea's `maxlength` is a convenience; the write endpoint is
+     * JSON and takes whatever is posted to it. Past the BLOB's capacity
+     * the ciphertext no longer fits, and a truncated ciphertext makes
+     * decrypt() throw on every later read — taking the sheet, the
+     * register, the animé's page and the export down for the section.
+     */
+    public function testACommentPostedPastTheEndpointIsBoundedServerSide(): void
+    {
+        $this->repository->saveComment(10, $this->memberA, str_repeat('a', 5000), null);
+
+        $stored = $this->repository->find(10, $this->memberA)?->comment;
+        $this->assertSame(PresenceRepository::MAX_COMMENT_LENGTH, mb_strlen((string) $stored));
+    }
+
+    public function testAnOrdinaryCommentIsLeftExactlyAsWritten(): void
+    {
+        $this->repository->saveComment(10, $this->memberA, 'Rendez-vous médical, prévenu jeudi.', null);
+
+        $this->assertSame(
+            'Rendez-vous médical, prévenu jeudi.',
+            $this->repository->find(10, $this->memberA)?->comment
+        );
+    }
 }

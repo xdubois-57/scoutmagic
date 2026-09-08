@@ -33,6 +33,23 @@ class PresenceRepository
      */
     private const COMMENT_CONTEXT = 'presences_records.comment';
 
+    /**
+     * Bounded server-side, because the textarea's `maxlength` is a
+     * convenience and never the limit: the write endpoint takes JSON, and
+     * anything posted to it straight past the page is unbounded.
+     *
+     * The consequence of not doing it is worse than a long row. Past
+     * ~65 508 plaintext bytes the ciphertext no longer fits
+     * `comment_encrypted BLOB`, and the column then either refuses the
+     * write or — under a non-strict server — truncates it silently, after
+     * which `decrypt()` throws on EVERY later read of that row and takes
+     * the sheet, the register, the animé's page and the export down with
+     * it for the whole section.
+     *
+     * Same shape as `Modules\Groups\Service\PostService::MAX_BODY_LENGTH`.
+     */
+    public const MAX_COMMENT_LENGTH = 500;
+
     public function __construct(
         private \PDO $pdo,
         private EncryptionService $encryption
@@ -165,7 +182,9 @@ class PresenceRepository
      */
     public function saveComment(int $eventId, int $memberId, ?string $comment, ?int $updatedBy): void
     {
-        $comment = $comment !== null && trim($comment) !== '' ? trim($comment) : null;
+        $comment = $comment !== null && trim($comment) !== ''
+            ? mb_substr(trim($comment), 0, self::MAX_COMMENT_LENGTH)
+            : null;
         $encrypted = $comment !== null ? $this->encryption->encrypt($comment, self::COMMENT_CONTEXT) : null;
 
         $this->upsert(
@@ -303,6 +322,18 @@ class PresenceRepository
      * person; it does not take away that the person was there, which is
      * neither personal narrative nor the staff's opinion. Same distinction
      * `Core\Audit\AuditService::anonymiseValues()` draws.
+     *
+     * **No screen calls this yet, and the RGPD page no longer claims one
+     * does.** Two erasures ARE wired and cover the ordinary cases: the
+     * member's record going takes the rows with it
+     * (`fk_presences_member ... ON DELETE CASCADE`), and the evening being
+     * deleted takes its sheet (`Api\PresenceEventCleanupInterface`). What
+     * is missing is the PARTIAL one — the comments alone, states kept —
+     * which is why this method exists and is tested: the erasure requests
+     * §7 of the RGPD page describes are handled by the unit within a
+     * month, and this is what that handling would call. Giving it a button
+     * is worth its own change, not a corner of the module that introduced
+     * it.
      *
      * @param list<int> $memberIds
      */

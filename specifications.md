@@ -2401,6 +2401,16 @@ repris dans un message d'erreur. La conservation suit l'année scoute et est dé
 
 Une demande d'effacement retire les commentaires et laisse les états : qu'un animé ait été là un
 samedi n'est ni un récit ni un jugement — c'est ce qui était écrit à côté qui l'était.
+`PresenceRepository::eraseComments()` fait exactement cela, **et aucun écran ne l'appelle encore** :
+les deux effacements câblés sont ceux qui suffisent au cas ordinaire — la fiche du membre qui part
+emporte les lignes (`ON DELETE CASCADE`), l'évènement supprimé emporte sa feuille. L'effacement
+partiel, lui, relève des demandes traitées par l'unité (page RGPD §7) ; lui donner un bouton est un
+chantier à soi, pas un coin du module qui l'a introduit.
+
+**Le commentaire est borné côté serveur** à 500 caractères (`MAX_COMMENT_LENGTH`), le `maxlength` du
+textarea n'étant qu'un confort : l'endpoint est du JSON, et au-delà de ~65 508 octets le chiffré ne
+tient plus dans le `BLOB` — après quoi le déchiffrement échoue à *chaque* lecture ultérieure et
+emporte la feuille, le registre, la page de l'animé et l'export de toute la section.
 
 **Supprimer un évènement supprime sa feuille.** Aucune clé étrangère ne le fait — une table de module
 ne contraint pas celle d'un autre (ARCHITECTURE.md §7.6) — donc le calendrier appelle
