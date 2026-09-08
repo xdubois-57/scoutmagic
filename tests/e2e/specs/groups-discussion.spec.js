@@ -70,6 +70,7 @@ import { autoConfirm } from '../support/confirm-dialog.js';
 import { loginAsAdmin, loginAsMember } from '../support/admin-login.js';
 // Shared with specs/groups-management.spec.js — see support/groups.js.
 import { closeDetailDialog, openComposer, openCreateGroupForm, waitForGroupsJsReady } from '../support/groups.js';
+import { grantFunctionalConsent } from '../support/cookie-banner.js';
 
 // Unique per run so a re-run against a database that somehow survived
 // (E2E_DB_NAME pointed elsewhere, a killed teardown) still starts from an
@@ -176,15 +177,41 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
     // form back away under them.
     await expect(composerBar).toBeHidden();
 
-    // --- 1b. A message typed and not published brings the composer back
-    // OPEN on the next load.
+    // --- 1a. Nothing is cached before the writer has agreed to it.
+    //
+    // The draft cache is FUNCTIONAL storage (issue #234,
+    // modules/groups/module.json's `cookies`), so groups.js writes
+    // nothing until the visitor has said yes — the same rule the camps
+    // map's fold follows. This scenario has answered no consent question
+    // yet, so this is the refusal half, and the reload is what settles
+    // the debounce: anything that was going to be written would have been
+    // written before the page went away.
+    const draftKey = `groups-draft-${groupUrl.split('/').pop()}`;
+    await page.getByLabel('Écrire un message').fill(UNSENT_DRAFT);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await waitForGroupsJsReady(page);
+
+    expect(
+        await page.evaluate((key) => localStorage.getItem(key), draftKey),
+        'nothing may be cached without functional consent',
+    ).toBeNull();
+    // And the consequence the writer actually sees: no draft to give
+    // back, so the composer is folded away as on any empty visit.
+    await expect(composer, 'a draft that was never cached cannot unfold the composer').toBeHidden();
+
+    // --- 1b. Once consent covers it, a message typed and not published
+    // brings the composer back OPEN on the next load.
     //
     // groups.js caches it in this browser and nowhere else (module
     // setting groups_draft_ttl_minutes), and folding the composer away
     // would hide the one thing that cache exists to give back. Waiting on
     // the cache key rather than on a duration: the save is debounced, and
     // a fixed wait would either be flaky or slow.
-    const draftKey = `groups-draft-${groupUrl.split('/').pop()}`;
+    await grantFunctionalConsent(page);
+    await page.goto(groupUrl, { waitUntil: 'domcontentloaded' });
+    await waitForGroupsJsReady(page);
+    await openComposer(page);
+
     await page.getByLabel('Écrire un message').fill(UNSENT_DRAFT);
     await page.waitForFunction((key) => localStorage.getItem(key) !== null, draftKey);
     await page.reload({ waitUntil: 'domcontentloaded' });
@@ -523,13 +550,29 @@ test('a message notifies the group but never its own author, and a comment from 
     await theirThread.locator('summary').click();
     await theirThread.getByPlaceholder('Répondre…').fill(COMMENT);
 
-    // Typed but not sent — and it survives losing the page, in this
-    // browser and nowhere else. Waiting on the cache key rather than on a
-    // duration: the save is debounced, and a fixed wait would either be
-    // flaky or slow.
     const draftKey = await theirThread.locator('.groups-reply-form').evaluate(
         (form) => `groups-reply-draft-${form.dataset.groupId}-${form.dataset.postId}`,
     );
+
+    // A reply draft is FUNCTIONAL storage like the composer's own (issue
+    // #234), so nothing is cached until this reader has agreed to it. The
+    // reload settles the debounce: whatever was going to be written would
+    // have been written before the page went away.
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    expect(
+        await page.evaluate((key) => localStorage.getItem(key), draftKey),
+        'no reply may be cached without functional consent',
+    ).toBeNull();
+
+    // Typed but not sent — and, once consent covers it, it survives
+    // losing the page, in this browser and nowhere else. Waiting on the
+    // cache key rather than on a duration: the save is debounced, and a
+    // fixed wait would either be flaky or slow.
+    await grantFunctionalConsent(page);
+    await page.goto(groupUrl, { waitUntil: 'domcontentloaded' });
+    const retypedThread = page.locator('details.groups-thread');
+    await retypedThread.locator('summary').click();
+    await retypedThread.getByPlaceholder('Répondre…').fill(COMMENT);
     await page.waitForFunction((key) => localStorage.getItem(key) !== null, draftKey);
     await page.reload({ waitUntil: 'domcontentloaded' });
 

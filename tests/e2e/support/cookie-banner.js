@@ -47,3 +47,21 @@ export async function answerCookieBanner(page, options = {}) {
     // "the banner is slow".
     await expect(banner).toBeHidden();
 }
+
+/**
+ * Grant FUNCTIONAL consent through the real preferences page.
+ *
+ * For a scenario about something functional consent unlocks — a
+ * remembered fold, a cached draft — rather than about the banner. Going
+ * through `/cookies` rather than writing the cookie by hand is the point:
+ * the client-side gates read what the SERVER wrote, so a hand-made cookie
+ * would prove the gate reads a string, not that the page can grant it.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+export async function grantFunctionalConsent(page) {
+    await page.goto('/cookies', { waitUntil: 'domcontentloaded' });
+    await page.locator('#cookie-functional').check();
+    await page.getByRole('button', { name: 'Enregistrer mes choix' }).click();
+    await expect(page.getByText('Vos préférences cookies ont été enregistrées.')).toBeVisible();
+}

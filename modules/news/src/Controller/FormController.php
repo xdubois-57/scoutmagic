@@ -17,6 +17,7 @@ use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\HumanCheck\HumanCheckService;
 use Core\Security\Role;
+use Core\Security\SessionStore;
 use Core\Http\FlashMessage;
 use Core\Service\IntegerInput;
 use Modules\Finance\Api\ExpectedReceivableInterface;
@@ -261,18 +262,37 @@ class FormController extends AbstractController
     /**
      * The response a just-made submission left for its confirmation page,
      * kept in the session for the length of one redirect.
+     *
+     * **Through SessionStore, never `$_SESSION` directly**, and the
+     * distinction is not style: `public/index.php` calls
+     * `session_write_close()` early, before the database connection, so
+     * that a slow request does not hold the session file's lock for its
+     * whole duration (ARCHITECTURE.md §8.20). From then on
+     * `session_status()` is `PHP_SESSION_NONE` for the rest of the
+     * request while `$_SESSION` stays readable in memory — so a write
+     * guarded on `PHP_SESSION_ACTIVE` never runs, and an unguarded one is
+     * never persisted. Either way the confirmation page found nothing and
+     * bounced the family back to the article, having taken their answer.
+     *
+     * The unit tests could not see it: they call this controller
+     * directly, with a session nobody closed. The browser tier did, on
+     * the first run — which is the division of labour docs/quality
+     * -pipeline.md describes.
      */
     private function rememberConfirmation(int $articleId, int $responseId): void
     {
-        if (session_status() === PHP_SESSION_ACTIVE) {
-            $_SESSION[self::CONFIRMATION_SESSION_KEY][$articleId] = $responseId;
-        }
+        $remembered = SessionStore::get(self::CONFIRMATION_SESSION_KEY, []);
+        $remembered = is_array($remembered) ? $remembered : [];
+        $remembered[$articleId] = $responseId;
+
+        SessionStore::set(self::CONFIRMATION_SESSION_KEY, $remembered);
     }
 
     /** @see self::rememberConfirmation() */
     private function rememberedConfirmation(int $articleId): ?int
     {
-        $responseId = $_SESSION[self::CONFIRMATION_SESSION_KEY][$articleId] ?? null;
+        $remembered = SessionStore::get(self::CONFIRMATION_SESSION_KEY, []);
+        $responseId = is_array($remembered) ? ($remembered[$articleId] ?? null) : null;
 
         return is_int($responseId) ? $responseId : null;
     }
