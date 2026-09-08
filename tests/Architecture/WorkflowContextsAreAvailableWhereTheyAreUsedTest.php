@@ -119,8 +119,21 @@ final class WorkflowContextsAreAvailableWhereTheyAreUsedTest extends TestCase
         $inJobs = false;
         $inSteps = false;
         $inOutputs = false;
-        $jobHeaders = 0;
-        $stepBlocks = 0;
+
+        // THE ANTI-VACUITY MEASURE, and it has to come from somewhere
+        // other than this loop's own triggers. Every GitHub job carries
+        // either `steps:` or a `uses:` calling a reusable workflow —
+        // that is a property of the FILE, not of the reading, so a
+        // reading that has drifted disagrees with it: a job header this
+        // loop invents has neither, and a `steps:` it fails to see
+        // leaves a real job with neither.
+        //
+        // Counting `steps:` lines and comparing that to the number of
+        // `steps:` lines is what this used to do, and it could not fail
+        // for the reason its message gave.
+        /** @var array<string, bool> $jobHasABody */
+        $jobHasABody = [];
+        $currentJob = null;
 
         foreach ($lines as $number => $line) {
             if (preg_match('/^jobs:\s*$/', $line) === 1) {
@@ -140,8 +153,9 @@ final class WorkflowContextsAreAvailableWhereTheyAreUsedTest extends TestCase
             // A job header — two spaces, a name, a colon, nothing after
             // it. This is where the next job's configuration begins, so
             // it is where the previous job's `steps:` stops counting.
-            if ($inJobs && preg_match('/^ {2}[A-Za-z0-9_-]+:\s*$/', $line) === 1) {
-                $jobHeaders++;
+            if ($inJobs && preg_match('/^ {2}([A-Za-z0-9_-]+):\s*$/', $line, $job) === 1) {
+                $currentJob = $job[1];
+                $jobHasABody[$currentJob] = false;
                 $inSteps = false;
                 $inOutputs = false;
                 continue;
@@ -149,8 +163,18 @@ final class WorkflowContextsAreAvailableWhereTheyAreUsedTest extends TestCase
 
             if (preg_match('/^ {4}steps:\s*$/', $line) === 1) {
                 $inSteps = true;
-                $stepBlocks++;
+                if ($currentJob !== null) {
+                    $jobHasABody[$currentJob] = true;
+                }
                 continue;
+            }
+
+            // The other shape a job takes: calling a reusable workflow
+            // instead of listing steps. At four spaces it can only be a
+            // job key — a step's own `uses:` is six spaces in, behind a
+            // `- `, and is not reached here anyway.
+            if (!$inSteps && preg_match('/^ {4}uses:\s/', $line) === 1 && $currentJob !== null) {
+                $jobHasABody[$currentJob] = true;
             }
 
             if ($inSteps) {
@@ -193,23 +217,24 @@ final class WorkflowContextsAreAvailableWhereTheyAreUsedTest extends TestCase
             );
         }
 
-        // ANTI-VACUITY, and both halves are needed. A file whose jobs
-        // this loop never recognised reads as one long block of
-        // something, and whichever way that block falls the assertion
-        // above stops meaning what it says.
-        $this->assertGreaterThan(
-            0,
-            $jobHeaders,
+        // ANTI-VACUITY. A file whose jobs this loop never recognised
+        // reads as one long block of something, and whichever way that
+        // block falls the assertion above stops meaning what it says.
+        $this->assertNotEmpty(
+            $jobHasABody,
             $name . ' has no job header at the indentation this test reads, so the loop above never told '
             . 'one job from the next — and the reading it claims to make is not the one it made.',
         );
 
-        $this->assertSame(
-            substr_count($contents, "\n    steps:\n"),
-            $stepBlocks,
-            $name . ' has `steps:` blocks the loop above never reached, so part of the file was read as '
-            . 'job configuration when it is a step, or the other way round.',
-        );
+        foreach ($jobHasABody as $job => $hasABody) {
+            $this->assertTrue(
+                $hasABody,
+                $name . ': the loop above read `' . $job . '` as a job and then found neither `steps:` nor '
+                . 'a `uses:` in it. Every GitHub job has one or the other, so the reading has drifted from '
+                . 'the file — either that is not a job, or its steps were read as job configuration. Both '
+                . 'silently narrow what the assertion above examines.',
+            );
+        }
     }
 
     /**
