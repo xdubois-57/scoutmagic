@@ -4,7 +4,7 @@
 // reimplemented here). That file is a plain IIFE that reads the DOM at
 // import time, so every test builds its DOM first and then imports the
 // module through a reset registry — same pattern as gallery.test.js.
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 async function loadGroups() {
     vi.resetModules();
@@ -40,8 +40,38 @@ function setFunctionalConsent(granted) {
         + '; path=/';
 }
 
+/**
+ * THE DRAFT CACHE DEBOUNCES ITS WRITE BY 500 MS, and a test that types
+ * into the composer and then ends leaves that timer live. It fires after
+ * Vitest has torn the jsdom environment down, where `document` no longer
+ * exists — `saveDraft()` reads the consent cookie first (issue #234), so
+ * what used to be a stray write to a detached node is now a
+ * `ReferenceError`. Vitest counts it as an unhandled error and fails the
+ * whole run with all 2 047 tests green, which is a failure nobody can
+ * read from the summary.
+ *
+ * So every timer a test starts is cancelled with it. Recording ids rather
+ * than switching the file to fake timers on purpose: most tests here wait
+ * on real promises through `vi.waitFor`, and fake timers would mean
+ * rewriting each of them to pump the clock by hand.
+ */
+const pendingTimers = new Set();
+const realSetTimeout = globalThis.setTimeout;
+
 beforeEach(() => {
     setFunctionalConsent(true);
+    pendingTimers.clear();
+    vi.stubGlobal('setTimeout', (handler, delay, ...args) => {
+        const id = realSetTimeout(handler, delay, ...args);
+        pendingTimers.add(id);
+        return id;
+    });
+});
+
+afterEach(() => {
+    for (const id of pendingTimers) clearTimeout(id);
+    pendingTimers.clear();
+    vi.unstubAllGlobals();
 });
 
 describe('groups.js composer media picker', () => {
