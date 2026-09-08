@@ -84,16 +84,20 @@
     function updateDesiredSections(branchId) {
         if (!desiredSection) return;
 
-        var options = desiredSection.options;
+        // Copied into an array rather than iterated in place: `options`
+        // is a live HTMLOptionsCollection, and this loop writes to the
+        // very properties it reads.
+        var options = /** @type {HTMLOptionElement[]} */ (
+            Array.prototype.slice.call(desiredSection.options)
+        );
 
-        for (var i = 0; i < options.length; i++) {
-            var option = options[i];
-            var optionBranch = option.getAttribute('data-branch-id');
+        options.forEach(function (option) {
+            var optionBranch = option.dataset.branchId;
 
             // « Aucune préférence » carries no branch and is always on
             // offer: not choosing is a valid answer at every age.
             var offered = branchId === null
-                || optionBranch === null
+                || optionBranch === undefined
                 || Number(optionBranch) === branchId;
 
             option.hidden = !offered;
@@ -102,7 +106,7 @@
             if (!offered && option.selected) {
                 desiredSection.value = '';
             }
-        }
+        });
     }
 
     /**
