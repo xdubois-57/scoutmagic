@@ -546,6 +546,25 @@ next to "grant it", and it is why the verdict counts refusals outside
 `Bash` rather than all of them: a check that cries wolf over its first real
 review is a check people learn to skip.
 
+**Then a working reviewer found the ceiling.** #217 took 10 min 47 s
+against a `timeout-minutes: 20` written when a review took a few minutes
+and the number was a formality. Pull request #257 — 185 files, the whole
+accepted backlog in one change — was cancelled at 20m20s and again at
+20m21s on an independent run. Nothing was wrong with either run: the
+reviewer was working when the clock stopped it. But `Claude review` is
+one of the two required contexts on `main`, GitHub reports a cancelled
+required check as unmergeable, and no re-run can help, because the second
+attempt is as long as the first. **A ceiling written to bound a runaway
+had become an undeclared size limit on pull requests**, and it announced
+itself as a merge refusal rather than as anything about the reviewer. The
+ceiling is 60 minutes now, chosen against what a review of that size
+costs rather than against what a normal one does; issue #262 collects the
+reviewer's defects, and this is the first that blocked a merge outright.
+
+The mirror of § Reading a green result applies here: a **red** result can
+prove nothing too. Cancelled is not failed, and neither is a verdict on
+the diff — the run has to be read before either is treated as one.
+
 **SonarQube Cloud** — posts a Quality Gate on each pull request. It is
 skipped entirely on pull requests from forks, because `SONAR_TOKEN` is not
 exposed to those runs. Absence of the comment there is not a failure.

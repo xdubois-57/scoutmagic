@@ -58,9 +58,27 @@ jobs:
       (github.event.action != 'labeled' || github.event.label.name == 'claude-review')
     runs-on: ubuntu-latest
 
-    # A runaway run costs subscription usage for nothing. The review itself
-    # takes a few minutes; this is a ceiling, not a target.
-    timeout-minutes: 20
+    # A runaway run costs subscription usage for nothing. This is a ceiling,
+    # not a target: an ordinary pull request here is reviewed in a few
+    # minutes and comes nowhere near it.
+    #
+    # It was 20 minutes, and on a large diff 20 minutes turned out to be a
+    # target after all. Pull request #257 — 185 files, the whole accepted
+    # backlog in one change — hit it twice, at 20m20s and 20m21s, on two
+    # independent runs. A timeout cancels the job, `Claude review` is
+    # REQUIRED on main, and a cancelled required check is unmergeable: the
+    # ceiling meant to bound a runaway had quietly become a size limit on
+    # pull requests. Issue #262 collects this reviewer's defects; this is
+    # the first one that actually blocked a merge.
+    #
+    # 60 minutes is chosen against what a review of that size costs, not
+    # against what a normal one does. What this guards against is a review
+    # that never converges, and an hour still catches that while leaving
+    # the largest diff this repository has produced room to finish. Raise
+    # it again the day a review needs the hour and is cancelled
+    # mid-sentence — but read the run first: an agent looping is not an
+    # agent working, and only the transcript tells them apart.
+    timeout-minutes: 60
 
     # WHAT THE STATUS JOB BELOW READS, and every value here comes from the
     # run itself rather than from a guess about it.
