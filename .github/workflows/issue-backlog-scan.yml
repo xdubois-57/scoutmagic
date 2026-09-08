@@ -536,8 +536,12 @@ jobs:
           allowed_non_write_users: "*"
           github_token: ${{ github.token }}
 
-          # Defined once under the job's `env:` above, because the retry
-          # step must be given the identical string.
+          # Resolved once by the `before` step into `GITHUB_ENV`, because
+          # the retry step must be given the identical string — and
+          # because the job's `env:` cannot hold it: the text names the
+          # selected issues, and a job-level `env:` may not read `steps`.
+          # It held it once, and that made the whole file invalid (#256;
+          # see SCAN_PROMPT above).
           prompt: ${{ env.RESOLVED_SCAN_PROMPT }}
 
           # See the job-level SCAN_ARGS and SCAN_SCHEMA above for what
@@ -602,8 +606,10 @@ jobs:
           allowed_non_write_users: "*"
           github_token: ${{ github.token }}
 
-          # The identical prompt and arguments, from the same `env:`
-          # entries. Running it twice is safe by construction now rather
+          # The identical prompt and arguments: the same `env:` entries
+          # for the arguments, and for the prompt the one string the
+          # `before` step resolved into `GITHUB_ENV` (see the first
+          # attempt above). Running it twice is safe by construction rather
           # than by instruction: an attempt RETURNS verdicts, it does not
           # post them, and the apply step below takes ONE set — whichever
           # attempt returned more usable entries — and de-duplicates it by
