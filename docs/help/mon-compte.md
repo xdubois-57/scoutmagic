@@ -1,12 +1,13 @@
 ---
 id: mon-compte
 title: Gérer « Mon compte »
-summary: Votre photo, votre nom, votre mot de passe, vos clés numériques et les notifications de cet appareil.
+summary: Votre photo, votre nom, votre mot de passe, vos clés numériques, les astuces et les notifications de cet appareil.
 category: Espace membres
 role_min: identified
 question: Comment changer ma photo de profil ?
 question: Comment définir un mot de passe pour me connecter ?
 question: Comment se connecter avec l'empreinte ou le visage ?
+question: Comment revoir les astuces du site ?
 paths: /account
 related: se-connecter, envoyer-une-photo, notifications-preferences, cookies
 ---
@@ -45,6 +46,18 @@ une clé de sécurité, sans rien taper. « Ajouter une clé » : donnez-lui
 un nom (« Téléphone de Marie »), puis suivez la demande de votre
 appareil. Chaque appareil enregistre la sienne. Supprimer une clé
 empêche définitivement de se connecter avec.
+
+## Les astuces
+
+De temps en temps, une petite fenêtre « Le saviez-vous ? » vous propose
+un sujet d'aide que vous n'avez encore jamais vu — pour vous faire
+découvrir ce que le site sait faire, sans que vous ayez rien demandé.
+« Pas avant une semaine » la met en pause, « Ne plus me proposer » vide
+ce qui reste à vous montrer.
+
+Le bouton « Revoir les astuces » de cette page repart de zéro : tout
+vous sera reproposé. Il n'apparaît que si vous avez déjà vu au moins une
+astuce.
 
 ## Notifications et cookies
 

@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Http\Controller;
 
+use Core\Help\Discovery\SeenTopicRepository;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
@@ -30,7 +31,12 @@ class AccountController extends AbstractController
         // Trailing and optional, like every other late collaborator in
         // this codebase: with none, the page simply never offers to
         // remove a photo and the avatar draws initials.
-        private ?AccountPhotoService $accountPhotoService = null
+        private ?AccountPhotoService $accountPhotoService = null,
+        // Same rule: with none, « Revoir les astuces » is simply not
+        // offered. The reset itself lives on
+        // Core\Http\Controller\HelpDiscoveryController — this page only
+        // needs to know whether there is anything to reset.
+        private ?SeenTopicRepository $seenHelpTopics = null
     ) {
     }
 
@@ -63,6 +69,10 @@ class AccountController extends AbstractController
             // avatar itself resolves the photo on its own
             // (person_avatar(), Core\View\TwigFactory).
             'has_account_photo' => $this->accountPhotoService?->resolveFileId($userId) !== null,
+            // Only to decide whether « Revoir les astuces » is offered
+            // at all (ARCHITECTURE.md §8.95) — a button proposing to undo
+            // nothing is a button that reads as broken.
+            'discovery_tips_seen' => $this->seenHelpTopics?->countSeen($userId) ?? 0,
         ]);
     }
 

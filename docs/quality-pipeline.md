@@ -1202,6 +1202,18 @@ nothing**:
 - **Auto-merge is disarmed in silence** by a push from someone without write
   access or by a change of base branch. The pull request simply stops being
   on its way to `main`, looking exactly like one nobody has merged yet.
+- **A feature switched off in the end-to-end fixture is a feature the
+  browser suite stops proving anything about.** `scripts/e2e-support.php`
+  sets `help_discovery_enabled` to 0 when it provisions the instance, and
+  it had to: « Le saviez-vous ? » opens on every page load of a signed-in
+  account until it is closed once, a modal's backdrop intercepts pointer
+  events, and forty-four scenarios that have nothing to do with the help
+  could no longer click anything. Nothing about that setting reports
+  itself — the suite simply goes green over a dialog nobody exercised.
+  What holds it is `specs/help-discovery.spec.js`, which turns the
+  setting back on for itself and drives the whole chain; delete that spec
+  and the fixture's switch silently becomes a hole. Any other fixture
+  that turns a shipped behaviour off owes the same pairing.
 - **An issue form's label is dropped in silence when the label does not
   exist.** GitHub creates the issue anyway — no error on it, nothing in any
   log — so a report arrives with no triage state and looks exactly like one

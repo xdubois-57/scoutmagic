@@ -201,6 +201,26 @@
         </div>
     </div>
 
+    {# « Revoir les astuces » (ARCHITECTURE.md §8.95). Offered only to an
+       account that has actually been shown something, so the button never
+       stands there proposing to undo nothing. #}
+    {% if discovery_tips_seen is defined and discovery_tips_seen > 0 %}
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5 mb-3">Astuces</h2>
+            <p class="text-body-secondary small mb-3">
+                Le site vous propose de temps en temps une astuce dans une petite fenêtre. Vous en avez déjà vu
+                {{ discovery_tips_seen }} — vous pouvez repartir de zéro et les revoir toutes.
+            </p>
+            <form method="post" action="/account/discovery/reset"
+                  data-confirm="Vous reverrez toutes les astuces depuis le début. Continuer ?">
+                {{ csrf_field()|raw }}
+                <button type="submit" class="btn btn-outline-secondary">Revoir les astuces</button>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
     {# Cookie preferences link #}
     <div class="card mb-3">
         <div class="card-body">

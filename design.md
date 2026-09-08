@@ -583,6 +583,38 @@ reason it cannot: **Premiers pas**, **Espace membres**, **Espace
 animateurs**, **Espace chefs d'U**, **Configuration**. They follow the
 §7.1 lexicon and the menu labels; `/aide` presents them in that order.
 
+**« Le saviez-vous ? » — la fenêtre d'astuces** (ARCHITECTURE.md §8.95).
+Une modale Bootstrap (`partials/help_discovery_dialog.html.twig`), et non
+le panneau d'aide : celui-ci est ouvert **par** la personne et cohabite
+avec la lecture de la page, alors qu'une astuce doit se remarquer. Deux
+comportements dans un même composant seraient une source de régression
+permanente.
+
+Une carte à la fois, et l'ordre à l'intérieur d'une carte est la décision :
+**la question d'abord** (« Comment mettre le prénom de chacun dans un
+e-mail groupé ? »), le titre du sujet ensuite, son résumé, puis « En savoir
+plus ». C'est ce qui distingue une astuce d'une table des matières — le
+titre « Publipostage » ne dit rien à qui ne connaît pas déjà le mot.
+
+L'en-tête porte « Le saviez-vous ? » et le corps s'ouvre sur un indicateur
+de position discret (« 2 / 5 »), en haut à droite : le squelette partagé
+`partials/modal.html.twig` possède l'en-tête, et y toucher rouvrirait la
+dérive que ce partiel existe pour empêcher.
+
+Le pied enchaîne **« Suivant »** en bouton primaire — qui devient
+**« Terminé »** sur la dernière carte, avec au-dessous « Voir d'autres
+astuces » s'il reste des sujets éligibles — puis deux liens discrets,
+**« Pas avant une semaine »** et **« Ne plus me proposer »**. Refuser doit
+rester aussi simple que continuer, mais une astuce n'est pas un
+consentement : ces deux-là sont des liens, pas des boutons de même poids
+que « Suivant » (§1.7 ne s'applique qu'au bandeau cookies).
+
+Rien n'est enveloppé dans un `<form>`, et cela se dit : une
+`.modal-dialog-scrollable` dont le corps et le pied partagent un
+formulaire pousse son pied hors de l'écran sur mobile, parce qu'un
+`<form>` sans `overflow` ne rétrécit jamais. Ici il n'y a rien à
+soumettre — la persistance est un `fetch`.
+
 **Charte rédactionnelle** — enforced mechanically where possible by
 `tests/Core/Help/HelpInvariantsTest.php`, by review otherwise:
 

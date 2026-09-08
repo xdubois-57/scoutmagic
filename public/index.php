@@ -969,26 +969,55 @@ $settingService->register('support_last_mail_probe_key', '', 'text', "Clé de la
 // Discovery tips — « Le saviez-vous ? » (ARCHITECTURE.md §8.95). Four
 // knobs and no content: the corpus served is the contextual help's own
 // (§8.64), so a unit that writes a help topic has written a tip.
-$settingService->register(\Core\Help\Discovery\DiscoveryService::SETTING_ENABLED, '1', 'boolean',
+$settingService->register(
+    \Core\Help\Discovery\DiscoveryService::SETTING_ENABLED,
+    '1',
+    'boolean',
     'Astuces de découverte',
     'Propose de temps en temps, dans une petite fenêtre, un sujet d\'aide que la personne connectée n\'a jamais '
         . 'vu — pour faire découvrir ce que le site sait faire. Décochez pour ne jamais rien proposer.',
-    null, null, null, true, 297);
-$settingService->register(\Core\Help\Discovery\DiscoveryService::SETTING_INTERVAL_HOURS,
-    (string) \Core\Help\Discovery\DiscoveryService::DEFAULT_INTERVAL_HOURS, 'number',
+    null,
+    null,
+    null,
+    true,
+    297
+);
+$settingService->register(
+    \Core\Help\Discovery\DiscoveryService::SETTING_INTERVAL_HOURS,
+    (string) \Core\Help\Discovery\DiscoveryService::DEFAULT_INTERVAL_HOURS,
+    'number',
     'Astuces — délai entre deux passages (heures)',
     'Nombre d\'heures pendant lesquelles plus aucune astuce n\'est proposée après la fermeture de la fenêtre.',
-    null, null, null, true, 298);
-$settingService->register(\Core\Help\Discovery\DiscoveryService::SETTING_SNOOZE_DAYS,
-    (string) \Core\Help\Discovery\DiscoveryService::DEFAULT_SNOOZE_DAYS, 'number',
+    null,
+    null,
+    null,
+    true,
+    298
+);
+$settingService->register(
+    \Core\Help\Discovery\DiscoveryService::SETTING_SNOOZE_DAYS,
+    (string) \Core\Help\Discovery\DiscoveryService::DEFAULT_SNOOZE_DAYS,
+    'number',
     'Astuces — délai du report explicite (jours)',
     'Nombre de jours d\'attente lorsque la personne choisit « Pas avant une semaine ».',
-    null, null, null, true, 299);
-$settingService->register(\Core\Help\Discovery\DiscoveryService::SETTING_BATCH_SIZE,
-    (string) \Core\Help\Discovery\DiscoveryService::DEFAULT_BATCH_SIZE, 'number',
+    null,
+    null,
+    null,
+    true,
+    299
+);
+$settingService->register(
+    \Core\Help\Discovery\DiscoveryService::SETTING_BATCH_SIZE,
+    (string) \Core\Help\Discovery\DiscoveryService::DEFAULT_BATCH_SIZE,
+    'number',
     'Astuces — nombre par passage',
     'Nombre d\'astuces enchaînées dans une même fenêtre avant qu\'elle ne se referme.',
-    null, null, null, true, 300);
+    null,
+    null,
+    null,
+    true,
+    300
+);
 
 // `installed_at` declares itself (Core\Statistics\InstallationDateService::
 // register()) because SetupController writes it before this file has ever
@@ -1868,6 +1897,11 @@ $helpRegistry = new \Core\Help\HelpRegistry(
     \Core\Maintenance\VersionFile::read(dirname(__DIR__))
 );
 $helpService = new \Core\Help\HelpService($helpRegistry);
+// The discovery feature's only PDO layer (§8.95): what an account has
+// already been shown, and until when nothing more may be offered to it.
+// Built here so both the Twig global below and
+// Core\Http\Controller\HelpDiscoveryController share one instance.
+$seenHelpTopicRepository = new \Core\Help\Discovery\SeenTopicRepository($pdo);
 // The « aller sur la page » link a topic carries (Core\Help\
 // HelpPageLinkResolver): it reads the router's own table for the label
 // and the role floor of the page a topic documents, so the link never
@@ -2096,6 +2130,13 @@ $router->addRoute(
 $router->addRoute('POST', '/account/passkey/register', AccountController::class, 'passkeyRegister', 'identified');
 $router->addRoute('POST', '/account/passkey/delete', AccountController::class, 'passkeyDelete', 'identified');
 $router->addRoute('POST', '/account/photo/delete', AccountController::class, 'deletePhoto', 'identified');
+// « Revoir les astuces » — forgets every discovery tip this account was
+// shown and releases any delay (§8.95). On HelpDiscoveryController rather
+// than AccountController because it is the discovery feature's own state:
+// the route lives under /account, the concern does not.
+$router->addRoute(
+    'POST', '/account/discovery/reset', \Core\Http\Controller\HelpDiscoveryController::class, 'reset', 'identified'
+);
 $router->addRoute('POST', '/api/push-subscription', PushSubscriptionController::class, 'subscribe', 'identified');
 $router->addRoute('DELETE', '/api/push-subscription', PushSubscriptionController::class, 'unsubscribe', 'identified');
 
@@ -2266,6 +2307,15 @@ $router->addRoute(
 // the local search stays public, the assistant does not (locked
 // decision D4).
 $router->addRoute('POST', '/api/aide/assistant', \Core\Http\Controller\HelpAssistantController::class, 'ask', 'chief');
+
+// « Le saviez-vous ? » (ARCHITECTURE.md §8.95). role_min: identified —
+// the dialog is only ever offered to somebody signed in, and the account
+// it records against is the session's, never a value in the payload. A
+// CSRF token is mandatory like on every other POST of this site
+// (SECURITY.md §4; the GitHub webhook is the single exception).
+$router->addRoute(
+    'POST', '/api/aide/decouverte', \Core\Http\Controller\HelpDiscoveryController::class, 'record', 'identified'
+);
 
 // Cookie consent
 $router->addRoute(
@@ -2708,6 +2758,38 @@ $twig->addGlobal(
     ))->forRole(Role::fromString($currentRole))
 );
 
+// « Le saviez-vous ? » (Core\Help\Discovery, ARCHITECTURE.md §8.95) —
+// built here, next to the search index above, and for the same reason:
+// only now has every enabled module registered its own topics, so only
+// now is "a subject this account has never been offered" a question with
+// a complete answer.
+//
+// The whole decision is dialogForRequest()'s, not this file's: the
+// account, the request method, the page, the unit's switch, the account's
+// own delay and what it has already seen. It answers null far more often
+// than not, and the global is then never set at all — base.html.twig
+// includes the partial only when it is there, the same server-side
+// decision as the cookie banner rather than a class on markup that
+// shipped anyway.
+$helpDiscoveryService = new \Core\Help\Discovery\DiscoveryService(
+    $helpService,
+    $seenHelpTopicRepository,
+    $settingService
+);
+$helpDiscovery = $helpDiscoveryService->dialogForRequest(
+    Role::fromString($currentRole),
+    AuthSession::getUserAccountId(),
+    $request->getMethod(),
+    $request->getPath(),
+    // Whether the cookie banner has been ANSWERED, either way — not
+    // whether it was accepted. A tip must never stack on top of a
+    // decision the site is asking for: see dialogForRequest().
+    $cookieConsentService->hasConsented()
+);
+if ($helpDiscovery !== null) {
+    $twig->addGlobal('help_discovery', $helpDiscovery);
+}
+
 // Determine the active menu section AND which specific page button should
 // be highlighted from the current path. A page's own sub-routes (e.g.
 // finance's /finance/movements, /finance/receipts — registered with an
@@ -2802,6 +2884,20 @@ $frontController->registerController(
 $frontController->registerController(
     \Core\Http\Controller\HelpController::class,
     new \Core\Http\Controller\HelpController($twig, $helpService, $helpPageLinkResolver)
+);
+
+// « Le saviez-vous ? » — what the dialog writes back, and « Revoir les
+// astuces » on /account (§8.95). Same timing as the help pages above: the
+// endpoint recomputes the account's eligible set to revalidate the ids a
+// browser claims to have read, which needs every module's topics
+// registered.
+$frontController->registerController(
+    \Core\Http\Controller\HelpDiscoveryController::class,
+    new \Core\Http\Controller\HelpDiscoveryController(
+        $twig,
+        $helpDiscoveryService,
+        $seenHelpTopicRepository
+    )
 );
 
 // Fréquentation du site (ARCHITECTURE.md §8.93). This block sits here,
@@ -3046,7 +3142,8 @@ $authController->setWebAuthnService($webAuthnService);
 $authController->setHumanCheck($humanCheckService);
 $frontController->registerController(AuthController::class, $authController);
 $frontController->registerController(AccountController::class,
-    new AccountController($twig, $userAccountRepo, $webAuthnCredentialRepo, $webAuthnService, $accountPhotoService));
+    new AccountController($twig, $userAccountRepo, $webAuthnCredentialRepo, $webAuthnService, $accountPhotoService,
+        $seenHelpTopicRepository));
 $frontController->registerController(PushSubscriptionController::class,
     new PushSubscriptionController($twig, $notificationService, $journalService));
 
