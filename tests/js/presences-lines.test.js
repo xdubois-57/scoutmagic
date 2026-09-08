@@ -496,11 +496,18 @@ describe('presences-lines.js', () => {
     });
 
     describe('the endpoint a row carries', () => {
-        it('is never posted to when it is not a path of this site', async () => {
-            // Read off the DOM, so it is validated at the sink rather than
-            // trusted for having been rendered by our own template.
+        // Read off the DOM, so it is validated at the sink rather than
+        // trusted for having been rendered by our own template. The
+        // backslash form is the one a leading-`//` test alone lets
+        // through: WHATWG's URL parser reads `/\\hôte/x` as the same
+        // cross-origin destination as `//hôte/x`.
+        it.each([
+            ['a protocol-relative URL', '//ailleurs.example/vol'],
+            ['a backslash the URL parser reads as a second slash', '/\\ailleurs.example/vol'],
+            ['an absolute URL', 'https://ailleurs.example/vol'],
+        ])('is never posted to when it is %s', async (_label, endpoint) => {
             document.body.innerHTML = `<div id="presences-lines">${line({
-                rowId: '41', memberId: '12', endpoint: '//ailleurs.example/vol', status: 'unset',
+                rowId: '41', memberId: '12', endpoint, status: 'unset',
             })}</div>`;
             await boot();
 
