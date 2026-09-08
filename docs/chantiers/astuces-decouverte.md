@@ -229,14 +229,20 @@ avec IT-02, qui est ce qui le consomme.
   le plafond d'une vingtaine de `1` et le plancher de trois par rôle) et
   la section Aide de `docs/module-development.md` (la puce `discovery`, à
   côté de `paths`, `question` et des citations de libellés).
-- **`tests/Core/Help/HelpDiscoveryInvariantsTest`** — quatre invariants
+- **`tests/Core/Help/HelpDiscoveryInvariantsTest`** — six invariants
   sur le corpus livré : toute valeur `discovery` déclarée est valide ;
   **aucun sujet n'écrit `discovery: 2`** en toutes lettres ; **chaque
-  plancher de rôle porte au moins trois sujets en priorité 1** ; et les
+  plancher de rôle porte au moins trois sujets en priorité 1** ; les
   huit sujets que le chantier nomme (`cookies`, `donnees-personnelles`,
   `se-connecter`, `mon-compte`, `reinitialisation`,
   `installation-serveur`, `sauvegardes`, `mises-a-jour`) sont bien en
-  `off`.
+  `off` ; **la priorité 1 reste un petit ensemble** (trente au plus —
+  voir la décision 2) ; et **le corpus couvre exactement les six
+  planchers de rôle pour lesquels il est écrit**. Ce dernier existe pour
+  une cécité du précédent : le compte par plancher tire ses planchers du
+  corpus lui-même, donc un plancher qui disparaît entièrement — le
+  dernier sujet `intendant` supprimé, disons — cesse simplement d'être
+  vérifié, et la suite reste verte sur un rôle dont l'aide a disparu.
 
 **Les 24 sujets de priorité 1, par plancher de rôle** — quatre chacun,
 ce qui est la rencontre entre les deux moitiés de la règle (voir la
@@ -276,7 +282,7 @@ décision 1) :
    tombe exactement dans une des trois catégories que le document énumère.
 5. **Les variantes d'un sujet déjà en `1` passent en `3`, systématiquement** :
    `presences-anime` et `presences-registre` derrière `presences-feuille`,
-   les huit sujets `camps-*` derrière `camps-encoder`,
+   les neuf sujets `camps-*` derrière `camps-encoder`,
    `attestations-distribuer` et `attestations-verifier` derrière
    `attestations-couverture`, `recus-compte` et `rapprochement` derrière
    les outils de finance. C'est la règle du document appliquée à la
