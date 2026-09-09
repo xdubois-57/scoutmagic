@@ -56,11 +56,31 @@ final class CommitLanguageRuleIsWrittenDownTest extends TestCase
         return self::read('AGENTS.md');
     }
 
+    /**
+     * § Language alone, and the scoping is the point rather than tidiness.
+     *
+     * Asserting a carrier against the whole file proves nothing about this
+     * section: "release notes" also appears in the release-gate fallback
+     * section, so an edit that dropped it from the rule here would have
+     * left the assertion green. A test that passes while the thing it
+     * guards is gone is worse than no test.
+     */
+    private static function languageSection(): string
+    {
+        $rules = self::agentRules();
+        $start = strpos($rules, '## Language');
+        self::assertIsInt($start, 'AGENTS.md no longer has a § Language section at all');
+
+        $end = strpos($rules, "\n## ", $start + 1);
+
+        return $end === false ? substr($rules, $start) : substr($rules, $start, $end - $start);
+    }
+
     public function testEverythingWrittenAboutAChangeIsFrench(): void
     {
         $this->assertStringContainsString(
             'Everything written *about* a change: French.',
-            self::agentRules(),
+            self::languageSection(),
             'AGENTS.md no longer requires French for commit messages, PR text and release notes'
         );
     }
@@ -71,7 +91,7 @@ final class CommitLanguageRuleIsWrittenDownTest extends TestCase
      */
     public function testTheRuleNamesWhatItCovers(): void
     {
-        $rules = self::agentRules();
+        $rules = self::languageSection();
 
         foreach ([
             'Commit messages',
@@ -94,7 +114,7 @@ final class CommitLanguageRuleIsWrittenDownTest extends TestCase
     {
         $this->assertStringContainsString(
             'A reply on a pull request review thread is the one exception',
-            self::agentRules(),
+            self::languageSection(),
             'the review-thread carve-out is gone — AGENTS.md now contradicts the steward skill'
         );
     }
@@ -102,19 +122,26 @@ final class CommitLanguageRuleIsWrittenDownTest extends TestCase
     /**
      * Both files point at each other on purpose. Either pointer going away
      * leaves the next reader with one half of a rule that has two.
+     *
+     * The substrings are the ones this pair of pointers introduced, not the
+     * file names: `AGENTS.md` already mentioned the steward skill elsewhere,
+     * and the skill already mentioned `AGENTS.md` in seven places including
+     * its own front matter. Asserting the bare names would have kept this
+     * test green while both new sentences were deleted — which is exactly
+     * the failure it exists to prevent.
      */
     public function testBothFilesStillCiteEachOther(): void
     {
         $this->assertStringContainsString(
-            '.claude/skills/steward/SKILL.md',
-            self::agentRules(),
-            'AGENTS.md no longer points at the steward skill for thread replies'
+            '§ Reply in the language of',
+            self::languageSection(),
+            'AGENTS.md § Language no longer points at the steward skill rule for thread replies'
         );
 
         $this->assertStringContainsString(
-            'AGENTS.md',
+            '§ Language exempts',
             self::read('.claude/skills/steward/SKILL.md'),
-            'the steward skill no longer points back at AGENTS.md § Language'
+            'the steward skill no longer points back at the AGENTS.md § Language exception'
         );
     }
 
@@ -128,7 +155,7 @@ final class CommitLanguageRuleIsWrittenDownTest extends TestCase
             'the code
 and its comments are English, everything written *about a change* is
 French.',
-            self::agentRules(),
+            self::languageSection(),
             'the one-line summary of the language split is gone or reworded — check it still '
             . 'says comments are English, which its first draft got backwards'
         );
