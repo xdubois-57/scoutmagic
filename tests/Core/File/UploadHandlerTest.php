@@ -12,12 +12,18 @@ use PHPUnit\Framework\TestCase;
 class UploadHandlerTest extends TestCase
 {
     private string $tmpDir;
+    private string $tmpRoot;
     private TestUploadHandler $handler;
     private \PDO $pdo;
 
     protected function setUp(): void
     {
-        $this->tmpDir = sys_get_temp_dir() . '/scoutmagic_upload_test_' . uniqid();
+        // Nested rather than directly under the system temp directory:
+        // `DiskBudget` charges a declared quota for `storage/`'s whole
+        // parent tree, so a flat temp directory would drag in everything
+        // else on the machine.
+        $this->tmpRoot = sys_get_temp_dir() . '/scoutmagic_upload_test_' . uniqid();
+        $this->tmpDir = $this->tmpRoot . '/storage';
         mkdir($this->tmpDir, 0755, true);
 
         $this->pdo = new \PDO('sqlite::memory:');
@@ -44,7 +50,7 @@ class UploadHandlerTest extends TestCase
 
     protected function tearDown(): void
     {
-        $this->recursiveDelete($this->tmpDir);
+        $this->recursiveDelete($this->tmpRoot);
     }
 
     public function testSuccessfulUploadCreatesFileAndRecord(): void

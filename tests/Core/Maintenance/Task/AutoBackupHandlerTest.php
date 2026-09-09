@@ -68,6 +68,11 @@ class AutoBackupHandlerTest extends TestCase
         mkdir($dir, 0755, true);
 
         return new class ($dir) implements BackupServiceInterface {
+            // Nothing to reserve: this fake writes a couple of bytes.
+            public function ensureRoomForDumpAndArchive(bool $includeGallery, int $extraBytes = 0): void
+            {
+            }
+
             public bool $includeGalleryRequested = false;
 
             public function __construct(private string $dir)
@@ -203,6 +208,11 @@ class AutoBackupHandlerTest extends TestCase
     {
         $this->settings->set('backup_auto_frequency', 'daily');
         $failing = new class implements BackupServiceInterface {
+            // Nothing to reserve: this fake writes a couple of bytes.
+            public function ensureRoomForDumpAndArchive(bool $includeGallery, int $extraBytes = 0): void
+            {
+            }
+
             public function createDatabaseDump(): string { throw new \RuntimeException('mysqldump unavailable'); }
             public function createConfigOnlyDump(): string { return $this->createDatabaseDump(); }
             public function createFileBackup(bool $includeGallery = false): string { return ''; }

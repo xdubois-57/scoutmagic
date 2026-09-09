@@ -66,6 +66,11 @@ class FullResetHandlerTest extends TestCase
         mkdir($dbDumpDir, 0755, true);
 
         return new class ($dbDumpDir) implements BackupServiceInterface {
+            // Nothing to reserve: this fake writes a couple of bytes.
+            public function ensureRoomForDumpAndArchive(bool $includeGallery, int $extraBytes = 0): void
+            {
+            }
+
             public function __construct(private string $dir)
             {
             }
@@ -176,6 +181,11 @@ class FullResetHandlerTest extends TestCase
     public function testHandleJournalsFailureWhenTheSafetyBackupFails(): void
     {
         $failingBackupService = new class implements BackupServiceInterface {
+            // Nothing to reserve: this fake writes a couple of bytes.
+            public function ensureRoomForDumpAndArchive(bool $includeGallery, int $extraBytes = 0): void
+            {
+            }
+
             public function createDatabaseDump(): string
             {
                 throw new \RuntimeException('mysqldump unavailable');

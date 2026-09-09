@@ -23,6 +23,8 @@ class DiskBudgetTest extends TestCase
     private \PDO $pdo;
     private SettingService $settings;
     private string $storagePath;
+    /** The installation root — `storage/`'s parent, which a declared quota also pays for. */
+    private string $installPath;
 
     protected function setUp(): void
     {
@@ -30,13 +32,19 @@ class DiskBudgetTest extends TestCase
         $this->settings = new SettingService(new SettingRepository($this->pdo));
         $this->settings->register(DiskBudget::QUOTA_SETTING, '', 'text', 'Quota', 'Quota');
 
-        $this->storagePath = sys_get_temp_dir() . '/disk_budget_test_' . uniqid();
+        // `storage/` nested inside an installation root of its own, never
+        // directly under the system temp directory: `DiskBudget` charges a
+        // declared quota for the whole installation, so a `storage/` whose
+        // parent is `/tmp` would be measured against everything else on the
+        // machine.
+        $this->installPath = sys_get_temp_dir() . '/disk_budget_test_' . uniqid();
+        $this->storagePath = $this->installPath . '/storage';
         mkdir($this->storagePath, 0755, true);
     }
 
     protected function tearDown(): void
     {
-        $this->removeDirectory($this->storagePath);
+        $this->removeDirectory($this->installPath);
     }
 
     // ————— La mesure —————
@@ -285,6 +293,72 @@ class DiskBudgetTest extends TestCase
         $this->assertSame(42, $budget->measure()->storageBytes);
     }
 
+    // ————— Ce que le quota déclaré paie vraiment —————
+
+    /**
+     * A declared quota is the HOSTING ACCOUNT's allowance, « tel qu'il
+     * figure sur votre contrat » — so it pays for `vendor/` and the code
+     * too, not only for `storage/`.
+     *
+     * Charging it for `storage/` alone over-reported the room left by the
+     * whole application footprint — a couple of hundred megabytes in this
+     * project, several times the 50 MiB safety margin — in the one
+     * direction that lets a write truncate.
+     */
+    public function testTheDeclaredQuotaIsChargedForTheWholeInstallationNotOnlyStorage(): void
+    {
+        $this->write('gallery/photo.jpg', 100);
+        $this->writeOutsideStorage('vendor/library.php', 900);
+        $this->settings->set(DiskBudget::QUOTA_SETTING, (string) (10 * self::MIB));
+
+        $usage = $this->budget()->measureNow();
+
+        $this->assertSame(100, $usage->storageBytes);
+        $this->assertSame(1000, $usage->installBytes);
+        $this->assertSame(1000, $usage->usedBytes(), 'Le quota paie aussi le code et vendor/.');
+        $this->assertSame(10 * self::MIB - 1000, $usage->availableBytes());
+    }
+
+    /** The application's share is a line of the breakdown, not a hidden difference. */
+    public function testTheApplicationFootprintIsShownAsItsOwnLine(): void
+    {
+        $this->write('gallery/photo.jpg', 100);
+        $this->writeOutsideStorage('vendor/library.php', 900);
+
+        $usage = $this->budget()->measureNow();
+
+        $this->assertSame(900, $usage->breakdown[StorageUsage::AREA_APPLICATION]);
+        $this->assertContains('application et bibliothèques 900 o', $usage->breakdownLabels());
+    }
+
+    /** And `ensureRoom()` refuses on that figure, not on the `storage/` one. */
+    public function testAWriteIsRefusedOnTheInstallationFigureRatherThanTheStorageOne(): void
+    {
+        $this->writeOutsideStorage('vendor/library.php', 5 * self::MIB);
+        // Room for the margin and a megabyte — but only if vendor/ is free,
+        // which it is not.
+        $this->settings->set(DiskBudget::QUOTA_SETTING, (string) (DiskBudget::SAFETY_MARGIN_BYTES + 4 * self::MIB));
+
+        $this->expectException(InsufficientDiskSpaceException::class);
+        $this->budget()->ensureRoom(self::MIB);
+    }
+
+    /** A reading cached before this field existed falls back on `storage/`. */
+    public function testACachedReadingWithoutAnInstallationFigureFallsBackOnStorage(): void
+    {
+        $usage = new StorageUsage(
+            storageBytes: 500,
+            breakdown: [],
+            declaredQuotaBytes: 1000,
+            volumeFreeBytes: null,
+            volumeTotalBytes: null,
+            measuredAt: '2026-01-01 00:00:00'
+        );
+
+        $this->assertSame(500, $usage->quotaChargedBytes());
+        $this->assertSame(500, $usage->availableBytes());
+    }
+
     private function budget(): DiskBudget
     {
         return new DiskBudget($this->storagePath, $this->settings);
@@ -293,6 +367,14 @@ class DiskBudgetTest extends TestCase
     private function write(string $relativePath, int $bytes): void
     {
         $path = $this->storagePath . '/' . $relativePath;
+        @mkdir(dirname($path), 0755, true);
+        file_put_contents($path, str_repeat('x', $bytes));
+    }
+
+    /** Somewhere in the installation but outside `storage/` — `vendor/`, the code. */
+    private function writeOutsideStorage(string $relativePath, int $bytes): void
+    {
+        $path = $this->installPath . '/' . $relativePath;
         @mkdir(dirname($path), 0755, true);
         file_put_contents($path, str_repeat('x', $bytes));
     }

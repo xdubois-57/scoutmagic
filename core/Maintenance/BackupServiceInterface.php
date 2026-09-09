@@ -26,6 +26,15 @@ interface BackupServiceInterface
     public function createFileBackup(bool $includeGallery = false): string;
 
     /**
+     * Reserves the dump AND the archive together, before either exists —
+     * the pair every handler here takes, and the one every handler here got
+     * wrong for the same reason. See the implementation's docblock.
+     *
+     * @throws \Core\Storage\InsufficientDiskSpaceException
+     */
+    public function ensureRoomForDumpAndArchive(bool $includeGallery, int $extraBytes = 0): void;
+
+    /**
      * @return array{zipPath: string, dbDumpPath: string}
      */
     public function createFullBackup(string $scope, string $password): array;

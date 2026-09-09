@@ -546,6 +546,40 @@ class BackupService implements BackupServiceInterface
     }
 
     /**
+     * Reserves the dump AND the archive together, before either exists.
+     *
+     * The reason is written out in `createFullBackup()` and is the single
+     * most repeated mistake this whole guard invites: checking them one at
+     * a time lets the dump succeed and the archive run out of room
+     * half-written — the exact mid-write truncation the guard exists to
+     * prevent, arrived at through the guard itself. Both writes are sized
+     * against the same reading, so both must be charged to it at once.
+     *
+     * It lives here rather than in each handler because five call sites do
+     * this pair — `Task\AutoBackupHandler`, `Task\FullResetHandler`,
+     * `Task\ResetSettingsHandler`, `Task\RestoreBackupHandler` and
+     * `Task\InstallUpdateHandler` — and four of them had it wrong for the
+     * same reason: the per-write checks inside `createDatabaseDump()` and
+     * `createFileBackup()` each look complete on their own. The per-write
+     * checks stay, since they still guard callers that reach them without
+     * passing here; once this one has passed they cost nothing.
+     *
+     * @param int $extraBytes anything else the caller is about to write in
+     *        the same run — `InstallUpdateHandler` adds its artifact
+     *        workspace, which has to be charged with the backup rather
+     *        than after it
+     * @throws \Core\Storage\InsufficientDiskSpaceException
+     */
+    public function ensureRoomForDumpAndArchive(bool $includeGallery, int $extraBytes = 0): void
+    {
+        $this->diskBudget?->ensureRoom(
+            $extraBytes
+            + $this->estimateDatabaseDumpBytes()
+            + $this->estimateFileBackupBytes($includeGallery)
+        );
+    }
+
+    /**
      * Roughly how many bytes the file archive will occupy: the summed size
      * of everything it is about to read, with the same exclusions
      * `addDirectoryToZip()` applies.

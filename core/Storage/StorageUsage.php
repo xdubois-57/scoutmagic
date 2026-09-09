@@ -19,12 +19,25 @@ namespace Core\Storage;
  * this account actually gets. A site reading it is not measuring itself;
  * it is measuring somebody else's disk and calling the answer reassuring.
  *
- * So this object carries three separate facts and never folds them into
- * one: the real size of `storage/`, the volume's own free/total as
- * reported (or the absence of that report), and the quota the admin
- * declared from their hosting contract. {@see basis()} says which of them
- * the percentage was computed on, and the screen states it — because
- * « 62 % » means something entirely different depending on the answer.
+ * So this object carries four separate facts and never folds them into
+ * one: the real size of `storage/`, the size of the **whole installation**
+ * that contains it, the volume's own free/total as reported (or the
+ * absence of that report), and the quota the admin declared from their
+ * hosting contract. {@see basis()} says which of them the percentage was
+ * computed on, and the screen states it — because « 62 % » means something
+ * entirely different depending on the answer.
+ *
+ * **Why `storage/` alone is not what a declared quota is measured
+ * against.** The setting asks for the allowance « tel qu'il figure sur
+ * votre contrat », which is the whole hosting account: the application's
+ * own footprint — `core/`, `modules/`, `public/` and above all `vendor/`,
+ * a couple of hundred megabytes of PHP dependencies — is charged to it
+ * too. Subtracting only `storage/` from it would over-report the room left
+ * by several times {@see DiskBudget::SAFETY_MARGIN_BYTES}, in the
+ * direction that lets a write truncate, and would understate occupation on
+ * the screen by the same amount. So the quota basis reads
+ * {@see $installBytes}, and the breakdown carries the application's share
+ * as a line of its own rather than hiding it inside a total.
  */
 final class StorageUsage
 {
@@ -36,6 +49,14 @@ final class StorageUsage
 
     /** Neither: the host would not report its volume and nobody declared a quota. */
     public const BASIS_UNKNOWN = 'unknown';
+
+    /**
+     * The installation outside `storage/` — `vendor/` and the code. Not a
+     * storage area anybody manages, but it is charged to the declared
+     * quota, so leaving it out of the breakdown would make the total look
+     * like a sum that does not add up.
+     */
+    public const AREA_APPLICATION = 'application';
 
     public const AREA_GALLERY = 'gallery';
     public const AREA_BACKUPS = 'backups';
@@ -49,6 +70,14 @@ final class StorageUsage
      *                                      of known folders, so a module
      *                                      that adds a storage directory
      *                                      shows up instead of vanishing
+     * @param int $installBytes the whole installation, `storage/`
+     *                          included — what a declared quota is really
+     *                          measured against. Never smaller than
+     *                          $storageBytes; equal to it when the
+     *                          installation root could not be walked, in
+     *                          which case the quota basis simply falls back
+     *                          on `storage/` alone rather than inventing a
+     *                          figure.
      * @param int|null $volumeFreeBytes  null when the host would not say
      * @param int|null $volumeTotalBytes null when the host would not say
      */
@@ -58,8 +87,19 @@ final class StorageUsage
         public readonly ?int $declaredQuotaBytes,
         public readonly ?int $volumeFreeBytes,
         public readonly ?int $volumeTotalBytes,
-        public readonly string $measuredAt
+        public readonly string $measuredAt,
+        public readonly int $installBytes = 0
     ) {
+    }
+
+    /**
+     * What the declared quota is charged for: the whole installation, or
+     * `storage/` alone when the installation root could not be walked.
+     * Never less than `storage/`, which is inside it.
+     */
+    public function quotaChargedBytes(): int
+    {
+        return max($this->storageBytes, $this->installBytes);
     }
 
     public function basis(): string
@@ -85,14 +125,15 @@ final class StorageUsage
     }
 
     /**
-     * On the quota basis this is the site's own footprint; on the volume
-     * basis it is everything on the volume, this site included, because
-     * that is the only thing the host reported.
+     * On the quota basis this is the whole installation's footprint, since
+     * the quota pays for `vendor/` too; on the volume basis it is
+     * everything on the volume, this site included, because that is the
+     * only thing the host reported.
      */
     public function usedBytes(): ?int
     {
         return match ($this->basis()) {
-            self::BASIS_QUOTA => $this->storageBytes,
+            self::BASIS_QUOTA => $this->quotaChargedBytes(),
             self::BASIS_VOLUME => max(0, ($this->volumeTotalBytes ?? 0) - ($this->volumeFreeBytes ?? 0)),
             default => null,
         };
@@ -128,7 +169,7 @@ final class StorageUsage
         $candidates = [];
 
         if ($this->declaredQuotaBytes !== null && $this->declaredQuotaBytes > 0) {
-            $candidates[] = max(0, $this->declaredQuotaBytes - $this->storageBytes);
+            $candidates[] = max(0, $this->declaredQuotaBytes - $this->quotaChargedBytes());
         }
         if ($this->volumeFreeBytes !== null) {
             $candidates[] = max(0, $this->volumeFreeBytes);
@@ -161,6 +202,7 @@ final class StorageUsage
     public function breakdownLabels(): array
     {
         $names = [
+            self::AREA_APPLICATION => 'application et bibliothèques',
             self::AREA_GALLERY => 'galerie',
             self::AREA_BACKUPS => 'sauvegardes',
             self::AREA_TEMP => 'fichiers temporaires',

@@ -39,9 +39,15 @@ enum DirectoryWalk
     /**
      * Collecting the files that will go into an archive.
      *
-     * Symbolic links **are** followed, which is what `BackupService` has
-     * always done: a backup is not the place to start silently leaving out
-     * a file somebody's host symlinked elsewhere.
+     * Symbolic links **are** followed — links to directories included,
+     * which is the case that matters and the one this promise silently
+     * failed at first. A backup is not the place to start leaving out
+     * what somebody's host symlinked elsewhere, and on shared hosting the
+     * thing symlinked onto another volume is a whole directory
+     * (`storage/gallery`), not a file. Making that true needs
+     * `FilesystemIterator::FOLLOW_SYMLINKS` on the iterator itself, and
+     * makes cycles reachable, so {@see DirectorySize} enters each
+     * directory once by resolved path.
      *
      * An unreadable subdirectory is **fatal**, which is also what it has
      * always been. A backup that skips what it cannot read is worse than

@@ -321,6 +321,53 @@ fragment en main : plus faible, jamais faux, et jamais un double
 comptage. Le test de non-régression a été vérifié dans les deux sens :
 il échoue sur l'ancien comportement, il passe sur le nouveau.
 
+**Trois autres, du même tour de revue, et le premier est le plus
+gênant.**
+
+7. **Le quota déclaré ne payait que `storage/`.** Le réglage demande
+   l'allocation « telle qu'elle figure sur votre contrat » — c'est le
+   compte d'hébergement entier, `vendor/` et le code compris, soit deux
+   cents mégaoctets et quelques dans ce projet, plusieurs fois la marge de
+   sécurité de 50 Mio. N'en soustraire que `storage/` sur-estimait donc la
+   place restante de tout le poids de l'application, dans la seule
+   direction qui laisse une écriture se tronquer, et sous-estimait
+   l'occupation affichée d'autant. `StorageUsage::quotaChargedBytes()`
+   lit désormais l'installation entière — le dossier parent de
+   `storage/`, la convention que `BackupService` utilise déjà pour son
+   `$basePath` — et la ventilation porte la part de l'application comme
+   une ligne à elle plutôt que comme une différence invisible.
+
+8. **`DirectoryWalk::Archive` promettait de suivre les liens et ne le
+   faisait pas pour les dossiers.** `RecursiveDirectoryIterator` refuse
+   de descendre dans un dossier lié sans
+   `FilesystemIterator::FOLLOW_SYMLINKS`, quoi que renvoie le filtre :
+   l'entrée remontait en feuille, échouait au test `isFile()` et
+   disparaissait. La promesse tenait donc pour les fichiers liés — d'où
+   un test qui passait — et échouait en silence pour le cas qui la
+   justifie : un hébergement où `storage/gallery` pointe sur un autre
+   volume, dont l'archive ne contenait rien et dont l'estimation de
+   taille était d'accord avec le mauvais chiffre. Suivre les liens rend
+   les cycles atteignables et l'itérateur de PHP n'en détecte aucun :
+   chaque dossier est donc entré une seule fois, par chemin résolu.
+
+9. **Quatre gestionnaires prenaient la paire dump + archive sans la
+   réserver.** `createFullBackup()` documente le piège depuis toujours —
+   « les contrôler un par un laisserait le dump réussir et l'archive
+   manquer de place à mi-chemin » — et `AutoBackupHandler`,
+   `FullResetHandler`, `ResetSettingsHandler` et `RestoreBackupHandler`
+   y sont tombés pour la même raison : le contrôle interne de chaque
+   écriture a l'air complet tout seul, et les deux lisent la même mesure
+   mise en cache. `BackupService::ensureRoomForDumpAndArchive()` est
+   cette réservation, en un seul endroit, déclarée sur l'interface pour
+   qu'un remplaçant ne puisse pas l'omettre, et prenant l'écriture
+   supplémentaire de l'appelant là où il y en a une. Le cas le plus dur
+   est `FullResetHandler` : l'étape 4 efface `storage/` et l'étape 2 vide
+   toutes les tables, donc une sauvegarde tronquée est la seule copie
+   d'un site qui n'existe plus. `BackupPairReservationTest` vérifie sur
+   le source qu'aucun fichier ne prend la paire sans la réserver — c'est
+   le genre d'erreur qu'une revue attrape une fois et qu'un cinquième
+   gestionnaire refait l'année suivante.
+
 **Reporté.** La saisie du quota se fait sur la page générique
 Configuration > Réglages, pas sur la page Maintenance : le document de
 chantier borne l'interface de cette itération au seul encart de lecture.

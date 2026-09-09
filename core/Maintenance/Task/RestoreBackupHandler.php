@@ -103,6 +103,12 @@ class RestoreBackupHandler implements TaskHandlerInterface
 
         try {
             // Step 1: safety backup of the CURRENT state.
+            // Both writes reserved at once, against the reading they are
+            // both sized on. This safety backup is the only thing the
+            // automatic rollback below can restore from, so a truncated
+            // one is unrecoverable.
+            $backupService->ensureRoomForDumpAndArchive(true);
+
             $safetyDbDump = $backupService->createDatabaseDump();
             $safetyZip = $backupService->createFileBackup(true);
 

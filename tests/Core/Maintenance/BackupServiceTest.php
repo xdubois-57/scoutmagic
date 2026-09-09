@@ -18,6 +18,7 @@ class BackupServiceTest extends TestCase
     private string $basePath;
     private string $storagePath;
     private BackupService $service;
+    private Connection $connection;
 
     protected function setUp(): void
     {
@@ -47,8 +48,8 @@ class BackupServiceTest extends TestCase
         // Fake credentials — fine for tests that never actually shell out
         // to mysqldump (scope/password validation, file backup, encryption
         // support check all fail/succeed before touching the database).
-        $connection = new Connection('127.0.0.1', 3306, 'nonexistent_db', 'nobody', '');
-        $this->service = new BackupService($connection, $this->storagePath, $this->basePath);
+        $this->connection = new Connection('127.0.0.1', 3306, 'nonexistent_db', 'nobody', '');
+        $this->service = new BackupService($this->connection, $this->storagePath, $this->basePath);
     }
 
     protected function tearDown(): void
@@ -186,6 +187,82 @@ class BackupServiceTest extends TestCase
     public function testADatabaseSizeThatCannotBeReadFallsBackToAFloor(): void
     {
         $this->assertGreaterThan(0, $this->service->estimateDatabaseDumpBytes());
+    }
+
+    /**
+     * The dump and the archive are reserved TOGETHER, or each passes on a
+     * reading the other is about to spend.
+     *
+     * `createFullBackup()` documents this trap for its own two halves —
+     * « checking them one at a time would let the dump succeed and the
+     * archive run out of room half-written ». Four task handlers took the
+     * same pair through `createDatabaseDump()` then `createFileBackup()`
+     * and reserved neither: each per-write check looked complete on its
+     * own, and both were measured against the same pre-dump reading.
+     */
+    public function testTheDumpAndTheArchiveAreReservedTogether(): void
+    {
+        $dump = $this->service->estimateDatabaseDumpBytes();
+        $archive = $this->service->estimateFileBackupBytes(true);
+        $margin = \Core\Storage\DiskBudget::SAFETY_MARGIN_BYTES;
+
+        // A quota that covers the larger of the two writes with its margin,
+        // but not their sum: one at a time, both would pass.
+        $quota = $margin + max($dump, $archive) + intdiv(min($dump, $archive), 2);
+        $service = new BackupService(
+            $this->connection,
+            $this->storagePath,
+            $this->basePath,
+            $this->budgetWithQuota($quota)
+        );
+
+        $this->expectException(\Core\Storage\InsufficientDiskSpaceException::class);
+        $service->ensureRoomForDumpAndArchive(true);
+    }
+
+    public function testARoomyBudgetReservesThePairSilently(): void
+    {
+        $this->service->ensureRoomForDumpAndArchive(true);
+
+        $this->addToAssertionCount(1);
+    }
+
+    /**
+     * The caller's own extra write is charged with the pair, never after
+     * it — `Task\InstallUpdateHandler` has a third write (the artifact
+     * workspace) and it is the one that lands on a disk the safety backup
+     * has just filled.
+     */
+    public function testAnExtraWriteIsChargedWithThePairRatherThanAfterIt(): void
+    {
+        $dump = $this->service->estimateDatabaseDumpBytes();
+        $archive = $this->service->estimateFileBackupBytes(true);
+        $margin = \Core\Storage\DiskBudget::SAFETY_MARGIN_BYTES;
+        $extra = 8 * 1024 * 1024;
+
+        // Enough for the pair, not for the pair plus the extra.
+        $quota = $margin + $dump + $archive + intdiv($extra, 2);
+        $service = new BackupService(
+            $this->connection,
+            $this->storagePath,
+            $this->basePath,
+            $this->budgetWithQuota($quota)
+        );
+
+        $service->ensureRoomForDumpAndArchive(true);
+
+        $this->expectException(\Core\Storage\InsufficientDiskSpaceException::class);
+        $service->ensureRoomForDumpAndArchive(true, $extra);
+    }
+
+    private function budgetWithQuota(int $bytes): \Core\Storage\DiskBudget
+    {
+        $pdo = \Tests\DatabaseTestHelper::createTestDatabase();
+        $settings = new \Core\Config\SettingService(new \Core\Config\SettingRepository($pdo));
+        $settings->register(\Core\Storage\DiskBudget::QUOTA_SETTING, '', 'text', 'Quota', 'Quota');
+        $settings->set(\Core\Storage\DiskBudget::QUOTA_SETTING, (string) $bytes);
+
+        return new \Core\Storage\DiskBudget($this->storagePath, $settings);
     }
 
     /** A disk budget whose declared quota is far smaller than this fake site. */

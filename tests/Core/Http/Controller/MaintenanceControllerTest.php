@@ -87,7 +87,11 @@ class MaintenanceControllerTest extends TestCase
         $this->settingService->register('base_url', 'https://example.test', 'url', 'L', 'D');
 
         $connection = new Connection('127.0.0.1', 3306, 'nonexistent_db', 'nobody', '');
-        $storagePath = sys_get_temp_dir() . '/maintenance_controller_test_' . uniqid();
+        // Nested rather than directly under the system temp directory:
+        // `DiskBudget` charges a declared quota for `storage/`'s whole
+        // parent tree, so a flat temp directory would drag in everything
+        // else on the machine.
+        $storagePath = sys_get_temp_dir() . '/maintenance_controller_test_' . uniqid() . '/storage';
         mkdir($storagePath, 0755, true);
         $this->storagePath = $storagePath;
         $backupService = new BackupService($connection, $storagePath, dirname($storagePath));
@@ -673,7 +677,7 @@ class MaintenanceControllerTest extends TestCase
      */
     public function testIndexShowsTheInstalledCommitInParenthesesForADevBuild(): void
     {
-        $versionFile = sys_get_temp_dir() . '/VERSION';
+        $versionFile = dirname($this->storagePath) . '/VERSION';
         $original = is_file($versionFile) ? file_get_contents($versionFile) : null;
         file_put_contents($versionFile, "dev-a1b2c3d\n");
 
@@ -716,7 +720,7 @@ class MaintenanceControllerTest extends TestCase
 
     public function testIndexShowsTheInstalledCommitMessageForADevBuild(): void
     {
-        $versionFile = sys_get_temp_dir() . '/VERSION';
+        $versionFile = dirname($this->storagePath) . '/VERSION';
         $original = is_file($versionFile) ? file_get_contents($versionFile) : null;
         file_put_contents($versionFile, "dev-a1b2c3d\n");
         $this->fakeReleaseClient->commitBySha = new CommitInfo(
@@ -768,7 +772,7 @@ class MaintenanceControllerTest extends TestCase
      */
     public function testIndexDoesNotShowUpdateAvailableWhenADevBuildIsInstalledAndChannelStaysDev(): void
     {
-        $versionFile = sys_get_temp_dir() . '/VERSION';
+        $versionFile = dirname($this->storagePath) . '/VERSION';
         $original = is_file($versionFile) ? file_get_contents($versionFile) : null;
         file_put_contents($versionFile, "dev-a1b2c3d\n");
         $this->settingService->setInternal('update_latest_version', '1.0.22');
@@ -799,7 +803,7 @@ class MaintenanceControllerTest extends TestCase
      */
     public function testIndexShowsUpdateAvailableWhenADevBuildIsInstalledButChannelIsNoLongerDev(): void
     {
-        $versionFile = sys_get_temp_dir() . '/VERSION';
+        $versionFile = dirname($this->storagePath) . '/VERSION';
         $original = is_file($versionFile) ? file_get_contents($versionFile) : null;
         file_put_contents($versionFile, "dev-a1b2c3d\n");
         $this->settingService->setInternal('update_latest_version', '1.0.22');
@@ -1497,7 +1501,7 @@ class MaintenanceControllerTest extends TestCase
      */
     public function testCheckForUpdatesNowReportsAReleaseAsAvailableOverAnInstalledDevBuildWhenChannelIsStable(): void
     {
-        $versionFile = sys_get_temp_dir() . '/VERSION';
+        $versionFile = dirname($this->storagePath) . '/VERSION';
         $original = is_file($versionFile) ? file_get_contents($versionFile) : null;
         file_put_contents($versionFile, "dev-a1b2c3d\n");
         $this->fakeReleaseClient->release = new ReleaseInfo('v1.0.22', 'Notes', 'https://github.com/x/y/releases/tag/v1.0.22', 'https://example.test/artifact.zip');
@@ -1528,7 +1532,7 @@ class MaintenanceControllerTest extends TestCase
      */
     public function testCheckForUpdatesNowProposesTheLatestReleaseWhateverTheConfiguredLevel(): void
     {
-        $versionFile = sys_get_temp_dir() . '/VERSION';
+        $versionFile = dirname($this->storagePath) . '/VERSION';
         $original = is_file($versionFile) ? file_get_contents($versionFile) : null;
         file_put_contents($versionFile, "1.0.36\n");
         $this->fakeReleaseClient->releases = [
@@ -1567,7 +1571,7 @@ class MaintenanceControllerTest extends TestCase
      */
     public function testCheckForUpdatesNowProposesTheNextMajorReleaseRatherThanTheLatest(): void
     {
-        $versionFile = sys_get_temp_dir() . '/VERSION';
+        $versionFile = dirname($this->storagePath) . '/VERSION';
         $original = is_file($versionFile) ? file_get_contents($versionFile) : null;
         file_put_contents($versionFile, "1.4.2\n");
         $this->settingService->set('auto_update_level', 'major');

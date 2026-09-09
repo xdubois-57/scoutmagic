@@ -57,6 +57,13 @@ class FullResetHandler implements TaskHandlerInterface
             // storage/maintenance/, retrievable only via FTP. That is the
             // literal, accepted trade-off of "keep the file, not the
             // bookkeeping" for a reset whose whole point is an empty DB.
+            // Both writes reserved at once, against the reading they are
+            // both sized on. This is the sharpest of the five sites that
+            // take this pair: step 4 wipes `storage/` and step 2 empties
+            // every table, so a safety backup truncated half-way through
+            // is the only copy of a site that no longer exists.
+            $backupService->ensureRoomForDumpAndArchive(true);
+
             $dbDumpPath = $backupService->createDatabaseDump();
             $filesZipPath = $backupService->createFileBackup(true);
 

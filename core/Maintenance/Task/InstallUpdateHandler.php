@@ -211,11 +211,7 @@ class InstallUpdateHandler implements TaskHandlerInterface
             // cleanly: it leaves a half-copied install over a running
             // site, which is the failure a rollback is least able to
             // recover from.
-            $diskBudget->ensureRoom(
-                self::UPDATE_WORKSPACE_ESTIMATE_BYTES
-                + $backupService->estimateDatabaseDumpBytes()
-                + $backupService->estimateFileBackupBytes(true)
-            );
+            $backupService->ensureRoomForDumpAndArchive(true, self::UPDATE_WORKSPACE_ESTIMATE_BYTES);
 
             // Step 1: mandatory safety backup — the only thing an automatic
             // rollback can restore from, so it must be a genuine, restorable

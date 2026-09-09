@@ -17,6 +17,14 @@ namespace Core\Storage;
  * parameters once, which let an archive silently inherit a measurement's
  * leniency: the parameter names an intent now so that cannot happen by
  * forgetting an argument.
+ *
+ * « Follows links » covers symlinked **directories**, not only symlinked
+ * files, and that took a second reading to get right: without
+ * `FilesystemIterator::FOLLOW_SYMLINKS` the iterator will not descend into
+ * a linked directory no matter what the filter says, so the promise held
+ * for files and quietly failed for the case that matters — a host that
+ * symlinks `storage/gallery` onto another volume. Following links makes
+ * cycles reachable, so each directory is entered once by resolved path.
  */
 final class DirectorySize
 {
@@ -65,14 +73,37 @@ final class DirectorySize
 
         $followLinks = $intent->followsLinks();
 
-        $directoryIterator = new \RecursiveDirectoryIterator(
-            $directory,
-            \FilesystemIterator::SKIP_DOTS | \FilesystemIterator::CURRENT_AS_FILEINFO
-        );
+        // FOLLOW_SYMLINKS is what makes a symlinked DIRECTORY reachable at
+        // all: `RecursiveDirectoryIterator::hasChildren()` refuses to
+        // descend into one without it, whatever the filter below returns,
+        // so the entry surfaces as a leaf, fails `isFile()` (it stats
+        // through to a directory) and is dropped in silence. Symlinked
+        // *files* never go through `hasChildren()`, which is why the flag
+        // looks unnecessary until a host symlinks `storage/gallery`
+        // elsewhere and the archive quietly contains none of it.
+        $flags = \FilesystemIterator::SKIP_DOTS | \FilesystemIterator::CURRENT_AS_FILEINFO;
+        if ($followLinks) {
+            $flags |= \FilesystemIterator::FOLLOW_SYMLINKS;
+        }
+
+        $directoryIterator = new \RecursiveDirectoryIterator($directory, $flags);
+
+        // Following links means cycles are now possible — `ln -s .. up` is
+        // one, and two directories pointing at each other are another —
+        // and PHP's recursive iterator has no cycle detection of its own:
+        // it would walk until the pathname limit, producing an archive
+        // that never closes. Each directory is therefore entered once, by
+        // resolved path, which also stops a tree symlinked twice from
+        // being counted twice.
+        $enteredDirectories = [];
 
         $filtered = new \RecursiveCallbackFilterIterator(
             $directoryIterator,
-            static function (\SplFileInfo $current) use ($excludedPrefixes, $followLinks): bool {
+            static function (\SplFileInfo $current) use (
+                $excludedPrefixes,
+                $followLinks,
+                &$enteredDirectories
+            ): bool {
                 if (!$followLinks && $current->isLink()) {
                     return false;
                 }
@@ -81,6 +112,18 @@ final class DirectorySize
                     if ($path === $prefix || str_starts_with($path, rtrim($prefix, '/') . '/')) {
                         return false;
                     }
+                }
+                if ($followLinks && $current->isDir()) {
+                    $resolved = realpath($path);
+                    if ($resolved === false) {
+                        // A link pointing nowhere. Nothing to walk, and
+                        // nothing that belongs in an archive either.
+                        return false;
+                    }
+                    if (isset($enteredDirectories[$resolved])) {
+                        return false;
+                    }
+                    $enteredDirectories[$resolved] = true;
                 }
                 return true;
             }

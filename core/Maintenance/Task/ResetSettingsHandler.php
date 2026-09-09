@@ -54,6 +54,10 @@ class ResetSettingsHandler implements TaskHandlerInterface
         $fileRepository = new FileRepository($pdo);
 
         try {
+            // Both writes reserved at once, against the reading they are
+            // both sized on — see the method's docblock.
+            $backupService->ensureRoomForDumpAndArchive(true);
+
             $dbDumpPath = $backupService->createDatabaseDump();
             $filesZipPath = $backupService->createFileBackup(true);
 

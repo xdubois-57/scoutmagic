@@ -109,6 +109,86 @@ class DirectorySizeTest extends TestCase
     }
 
     /**
+     * ...and a symlinked **directory** too, which is the case that matters
+     * and the one the first version of this enum silently failed.
+     *
+     * `RecursiveDirectoryIterator::hasChildren()` refuses to descend into a
+     * linked directory without `FilesystemIterator::FOLLOW_SYMLINKS`,
+     * whatever the filter returns — so the entry surfaced as a leaf, failed
+     * `isFile()` and vanished. Symlinked files went through none of that,
+     * which is exactly why the test above passed while the promise was
+     * broken for the scenario the docblock names: a host with
+     * `storage/gallery` symlinked onto another volume, whose archive
+     * contained none of it and whose size estimate agreed with the wrong
+     * number, so nothing looked inconsistent before a restore needed it.
+     */
+    public function testASymlinkedDirectoryIsFollowedIntoForAnArchive(): void
+    {
+        $this->write('real/a.txt', str_repeat('x', 64));
+
+        $outside = sys_get_temp_dir() . '/directory_size_outside_dir_' . uniqid();
+        mkdir($outside . '/nested', 0755, true);
+        file_put_contents($outside . '/nested/big.bin', str_repeat('x', 5000));
+
+        if (!@symlink($outside, $this->root . '/linked_dir')) {
+            $this->markTestSkipped('This filesystem does not support symbolic links.');
+        }
+
+        try {
+            $this->assertSame(
+                5064,
+                DirectorySize::measure($this->root, [], DirectoryWalk::Archive),
+                'An archive must contain a symlinked directory, not only a symlinked file.'
+            );
+            $this->assertSame(
+                64,
+                DirectorySize::measure($this->root, [], DirectoryWalk::Measurement),
+                'A measurement still must not, or bytes outside this account are counted as its own.'
+            );
+        } finally {
+            @unlink($this->root . '/linked_dir');
+            $this->removeDirectory($outside);
+        }
+    }
+
+    /**
+     * Following links makes cycles reachable, and PHP's recursive iterator
+     * has none of its own detection: it would walk until the pathname
+     * limit, producing an archive that never closes. Each directory is
+     * entered once, by resolved path.
+     */
+    public function testASymlinkCycleIsWalkedOnceRatherThanForever(): void
+    {
+        $this->write('branch/leaf.txt', str_repeat('x', 12));
+
+        if (!@symlink($this->root, $this->root . '/branch/up')) {
+            $this->markTestSkipped('This filesystem does not support symbolic links.');
+        }
+
+        try {
+            $this->assertSame(12, DirectorySize::measure($this->root, [], DirectoryWalk::Archive));
+        } finally {
+            @unlink($this->root . '/branch/up');
+        }
+    }
+
+    /** A link pointing nowhere is not a directory to walk and not bytes to archive. */
+    public function testABrokenSymlinkIsSkippedRatherThanFatal(): void
+    {
+        $this->write('kept.txt', str_repeat('x', 7));
+
+        if (!@symlink($this->root . '/does-not-exist', $this->root . '/dangling')) {
+            $this->markTestSkipped('This filesystem does not support symbolic links.');
+        }
+
+        try {
+            $this->assertSame(7, DirectorySize::measure($this->root, [], DirectoryWalk::Archive));
+        } finally {
+            @unlink($this->root . '/dangling');
+        }
+    }
+
+    /**
      * An archive that skips what it cannot read is worse than one that
      * fails: only the failure is visible before the restore. A
      * measurement, feeding a warning and a refusal-to-write, is the

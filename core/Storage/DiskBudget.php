@@ -123,6 +123,7 @@ final class DiskBudget
         // would make every measurement depend on the previous one's size —
         // a reading that never settles, over a couple of hundred bytes.
         $total = DirectorySize::measure($this->storagePath, [$this->cachePath()]);
+        $install = $this->measureInstallation($total);
 
         $usage = new StorageUsage(
             storageBytes: $total,
@@ -134,11 +135,13 @@ final class DiskBudget
                 // that adds a storage directory tomorrow shows up here
                 // instead of quietly falling out of the total.
                 StorageUsage::AREA_OTHER => max(0, $total - $gallery - $backups - $temp),
+                StorageUsage::AREA_APPLICATION => max(0, $install - $total),
             ],
             declaredQuotaBytes: $this->declaredQuotaBytes(),
             volumeFreeBytes: self::volumeFreeBytes($this->storagePath),
             volumeTotalBytes: self::volumeTotalBytes($this->storagePath),
-            measuredAt: (new \DateTimeImmutable())->format('Y-m-d H:i:s')
+            measuredAt: (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+            installBytes: $install
         );
 
         $this->writeCache($usage);
@@ -206,9 +209,13 @@ final class DiskBudget
     }
 
     /**
-     * What is still writable, or null when nothing says. Walks `storage/`
-     * only when a quota is declared — without one the volume's own free
-     * space is the whole answer, and it costs one syscall.
+     * What is still writable, or null when nothing says. Walks the
+     * installation only when a quota is declared — without one the volume's
+     * own free space is the whole answer, and it costs one syscall.
+     *
+     * The quota is charged for the whole installation rather than for
+     * `storage/` alone: it is the hosting account's allowance, and
+     * `vendor/` sits on it too. {@see StorageUsage::quotaChargedBytes()}.
      */
     public function availableBytes(): ?int
     {
@@ -219,7 +226,7 @@ final class DiskBudget
             return $volumeFree;
         }
 
-        $quotaLeft = max(0, $quota - $this->measure()->storageBytes);
+        $quotaLeft = max(0, $quota - $this->measure()->quotaChargedBytes());
 
         return $volumeFree === null ? $quotaLeft : min($quotaLeft, $volumeFree);
     }
@@ -238,6 +245,34 @@ final class DiskBudget
         $total = @disk_total_space($path);
 
         return is_float($total) && $total > 0 ? (int) $total : null;
+    }
+
+    /**
+     * The whole installation, `storage/` included — what a declared quota
+     * is actually charged for.
+     *
+     * The setting asks for the allowance « tel qu'il figure sur votre
+     * contrat », which covers the account, not one folder in it: `vendor/`
+     * alone is a couple of hundred megabytes of PHP dependencies, several
+     * times {@see SAFETY_MARGIN_BYTES}. Leaving it out over-reported the
+     * room left by that much, in the direction that lets a write truncate.
+     *
+     * The installation root is the parent of `storage/` — the same
+     * convention `Core\Maintenance\BackupService` uses for its `$basePath`.
+     * Falls back on the `storage/` figure when that walk yields less than
+     * `storage/` itself, which means it could not be made: a smaller
+     * "whole" than its own part is not a number to act on.
+     */
+    private function measureInstallation(int $storageBytes): int
+    {
+        $root = dirname($this->storagePath);
+        if ($root === '' || $root === $this->storagePath || !is_dir($root)) {
+            return $storageBytes;
+        }
+
+        $install = DirectorySize::measure($root, [$this->cachePath()]);
+
+        return max($storageBytes, $install);
     }
 
     private function cachePath(): string
@@ -286,7 +321,11 @@ final class DiskBudget
             declaredQuotaBytes: $quota,
             volumeFreeBytes: self::volumeFreeBytes($this->storagePath),
             volumeTotalBytes: self::volumeTotalBytes($this->storagePath),
-            measuredAt: (string) ($data['measured_at'] ?? '')
+            measuredAt: (string) ($data['measured_at'] ?? ''),
+            // A reading written before this field existed carries none, and
+            // `StorageUsage` falls back on `storage/` rather than treating
+            // the installation as empty.
+            installBytes: (int) ($data['install_bytes'] ?? 0)
         );
     }
 
@@ -305,6 +344,7 @@ final class DiskBudget
 
         $payload = json_encode([
             'storage_bytes' => $usage->storageBytes,
+            'install_bytes' => $usage->installBytes,
             'breakdown' => $usage->breakdown,
             'declared_quota_bytes' => $usage->declaredQuotaBytes,
             'measured_at' => $usage->measuredAt,

@@ -16,11 +16,17 @@ use PHPUnit\Framework\TestCase;
 class ChunkedUploadStoreTest extends TestCase
 {
     private string $storagePath;
+    private string $installPath;
     private ChunkedUploadStore $store;
 
     protected function setUp(): void
     {
-        $this->storagePath = sys_get_temp_dir() . '/chunked_upload_store_test_' . uniqid();
+        // Nested rather than directly under the system temp directory:
+        // `DiskBudget` charges a declared quota for `storage/`'s whole
+        // parent tree, so a flat temp directory would drag in everything
+        // else on the machine.
+        $this->installPath = sys_get_temp_dir() . '/chunked_upload_store_test_' . uniqid();
+        $this->storagePath = $this->installPath . '/storage';
         mkdir($this->storagePath, 0755, true);
         $this->store = new ChunkedUploadStore($this->storagePath);
     }
@@ -33,7 +39,9 @@ class ChunkedUploadStoreTest extends TestCase
         }
         @rmdir($dir);
         @rmdir($this->storagePath . '/temp');
+        @rmdir($this->storagePath . '/core');
         @rmdir($this->storagePath);
+        @rmdir($this->installPath);
     }
 
     private function chunkFile(string $content): string
