@@ -144,7 +144,9 @@ final class DiskBudget
             installBytes: $install
         );
 
-        $this->writeCache($usage);
+        // A fresh walk sees every byte written since the last one, so the
+        // approvals counted against the previous reading are spent.
+        $this->writeCache($usage, 0, null);
 
         return $usage;
     }
@@ -169,6 +171,58 @@ final class DiskBudget
     public function ensureRoom(int $estimatedBytes): void
     {
         $this->ensureRoomAgainst($estimatedBytes, $this->availableBytes());
+
+        // Approved, so those bytes are about to exist and the cached walk
+        // no longer describes the disk. See {@see notePendingWrite()}.
+        $this->notePendingWrite($estimatedBytes);
+    }
+
+    /**
+     * Records that a write of this size has been approved, so a LATER,
+     * SEPARATE write is not approved against the same stale figure.
+     *
+     * The cached walk (15 minutes) is what makes `ensureRoom()` cheap, and
+     * nothing invalidates it when bytes land — so two independent
+     * operations inside one window, two gallery uploads or a backup
+     * followed by another, both read the occupancy from before the first
+     * of them. The fixed {@see SAFETY_MARGIN_BYTES} covers one such gap,
+     * not a number of them that grows with the traffic.
+     *
+     * Rather than accounting for the bytes — which would need every write
+     * site to report back, and would double-count the moment two of them
+     * size the same write, as `ensureRoomForDumpAndArchive()` and the
+     * per-write checks under it do — this only counts far enough to decide
+     * **when the cached walk has to be redone**. Once the approvals since
+     * the last measurement reach the safety margin, the cache is dropped
+     * and the next question walks `storage/` for a real answer. Counting
+     * the same bytes twice therefore costs one early walk and can never
+     * cost a refusal, which is the direction to be wrong in.
+     *
+     * Only meaningful with a declared quota: without one
+     * {@see availableBytes()} reads `disk_free_space()` live on every call,
+     * which already reflects every byte written, and helping it would be
+     * the double-count this avoids.
+     */
+    public function notePendingWrite(int $estimatedBytes): void
+    {
+        if ($estimatedBytes <= 0 || $this->declaredQuotaBytes() === null) {
+            return;
+        }
+
+        $cached = $this->readCache();
+        if ($cached === null) {
+            // Nothing cached to go stale: the next reading walks anyway.
+            return;
+        }
+
+        $pending = $this->readPendingBytes() + $estimatedBytes;
+        if ($pending >= self::SAFETY_MARGIN_BYTES) {
+            @unlink($this->cachePath());
+
+            return;
+        }
+
+        $this->writeCache($cached, $pending, $this->readMeasuredAtUnix());
     }
 
     /**
@@ -275,6 +329,33 @@ final class DiskBudget
         return max($storageBytes, $install);
     }
 
+    /** Approvals granted against the cached reading, 0 when there is none. */
+    private function readPendingBytes(): int
+    {
+        return max(0, (int) ($this->rawCache()['pending_bytes'] ?? 0));
+    }
+
+    /** When the cached walk was made, or null when there is no cache. */
+    private function readMeasuredAtUnix(): ?int
+    {
+        $raw = $this->rawCache();
+
+        return isset($raw['measured_at_unix']) ? (int) $raw['measured_at_unix'] : null;
+    }
+
+    /** @return array<string, mixed> the cache file decoded, or [] */
+    private function rawCache(): array
+    {
+        $raw = @file_get_contents($this->cachePath());
+        if (!is_string($raw) || $raw === '') {
+            return [];
+        }
+
+        $data = json_decode($raw, true);
+
+        return is_array($data) ? $data : [];
+    }
+
     private function cachePath(): string
     {
         return $this->storagePath . '/' . self::CACHE_RELATIVE_PATH;
@@ -334,7 +415,13 @@ final class DiskBudget
      * `storage/core/` must degrade to "measure every time", never to a
      * fatal on a page that was only reporting a number.
      */
-    private function writeCache(StorageUsage $usage): void
+    /**
+     * @param int|null $measuredAtUnix when the walk behind $usage was made;
+     *        null means "now". Rewriting only the pending counter passes
+     *        the existing stamp, so a busy site cannot keep an ageing walk
+     *        alive for ever by writing to it.
+     */
+    private function writeCache(StorageUsage $usage, int $pendingBytes, ?int $measuredAtUnix): void
     {
         $path = $this->cachePath();
         $directory = dirname($path);
@@ -348,7 +435,9 @@ final class DiskBudget
             'breakdown' => $usage->breakdown,
             'declared_quota_bytes' => $usage->declaredQuotaBytes,
             'measured_at' => $usage->measuredAt,
-            'measured_at_unix' => time(),
+            'measured_at_unix' => $measuredAtUnix ?? time(),
+            // Approvals granted against this reading, see notePendingWrite().
+            'pending_bytes' => max(0, $pendingBytes),
         ]);
         if ($payload === false) {
             return;

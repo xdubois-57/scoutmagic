@@ -481,9 +481,9 @@
                     Le site occupe <strong>{{ storage_usage.storageLabel }}</strong>.
                 </p>
             {% endif %}
-            <p class="small text-body-secondary mb-1">
-                {{ storage_usage.breakdownLabels|join(' · ')|capitalize }}.
-            </p>
+            {% if storage_usage.breakdownSentence %}
+                <p class="small text-body-secondary mb-1">{{ storage_usage.breakdownSentence }}</p>
+            {% endif %}
             <p class="small text-body-secondary mb-3">{{ storage_usage.basisSentence }}</p>
 
             <hr class="my-4">

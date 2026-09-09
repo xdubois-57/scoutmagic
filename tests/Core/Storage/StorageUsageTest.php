@@ -104,6 +104,44 @@ class StorageUsageTest extends TestCase
         );
     }
 
+    /**
+     * The sentence raises its FIRST letter and nothing else.
+     *
+     * The template used to build it with `|join(' · ')|capitalize`, and
+     * Twig's `capitalize` lower-cases everything after the first
+     * character: « Galerie 600 o · sauvegardes 300 o » came out with every
+     * unit destroyed — « 600 o » survives by luck, « 1,9 Go » does not.
+     * Three lines above it, `storageLabel` printed the same unit
+     * correctly, in the one class whose stated purpose is that the two
+     * configuration screens must not drift into two spellings of « 1,5 Go ».
+     */
+    public function testTheBreakdownSentenceRaisesOnlyItsFirstLetter(): void
+    {
+        $usage = new StorageUsage(
+            storageBytes: 3 * 1024 * 1024 * 1024,
+            breakdown: [
+                StorageUsage::AREA_GALLERY => 2040109466,
+                StorageUsage::AREA_BACKUPS => 314572800,
+            ],
+            declaredQuotaBytes: null,
+            volumeFreeBytes: null,
+            volumeTotalBytes: null,
+            measuredAt: '2026-09-09 10:00:00'
+        );
+
+        $sentence = $usage->breakdownSentence();
+
+        $this->assertSame('Galerie 1,9 Go · sauvegardes 300 Mo.', $sentence);
+        $this->assertStringNotContainsString(' go', $sentence);
+        $this->assertStringNotContainsString(' mo', $sentence);
+    }
+
+    /** Nothing to break down renders nothing — never a bare full stop. */
+    public function testAnEmptyBreakdownHasNoSentence(): void
+    {
+        $this->assertSame('', $this->usage(0, null, null, null)->breakdownSentence());
+    }
+
     private function usage(int $storageBytes, ?int $quota, ?int $free, ?int $total): StorageUsage
     {
         return new StorageUsage(

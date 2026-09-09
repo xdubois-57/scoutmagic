@@ -368,6 +368,37 @@ gênant.**
    le genre d'erreur qu'une revue attrape une fois et qu'un cinquième
    gestionnaire refait l'année suivante.
 
+**Quatre de plus, dont deux d'écriture et deux de fond.**
+
+10. **Sept commentaires de section en français dans les tests.** La règle
+    d'`AGENTS.md` est sans exception — code et commentaires en anglais, le
+    français pour l'interface — et c'est la première des trois que
+    `CLAUDE.md` signale comme piégeuses. Traduits.
+
+11. **`|capitalize` détruisait toutes les unités.** Le gabarit assemblait
+    la ventilation avec `join(' · ')|capitalize`, et le filtre de Twig
+    signifie « majuscule initiale **et minuscules ensuite** » : la ligne
+    sortait « Galerie 1,9 go · sauvegardes 300 mo », trois lignes sous un
+    `storageLabel` qui écrit « 1,9 Go » correctement, et dans la classe
+    même dont le propos est que les deux écrans de configuration « ne
+    dérivent pas vers deux orthographes de 1,5 Go ».
+    `StorageUsage::breakdownSentence()` assemble désormais la phrase là où
+    elle est testable, ne lève que la première lettre, et ne rend rien
+    plutôt qu'un point isolé quand il n'y a rien à ventiler.
+
+12. **Deux écritures distinctes dans la même fenêtre de cache étaient
+    approuvées sur la même mesure.** Troisième visage du même défaut : rien
+    ne rafraîchit `disk-usage.json` quand des octets atterrissent, donc
+    deux envois galerie ou deux sauvegardes à quelques minutes lisent
+    l'occupation d'avant la première. `notePendingWrite()` ne compte pas
+    les octets — il faudrait que chaque point d'écriture les rapporte, et
+    deux contrôles qui dimensionnent la même écriture les compteraient deux
+    fois — mais compte juste assez pour décider **quand refaire la
+    marche** : dès que les approbations atteignent la marge de sécurité, le
+    cache est jeté. Compter deux fois coûte donc une marche anticipée et
+    jamais un refus. Quota déclaré seulement : sans lui la lecture est
+    vivante et se corrige d'elle-même.
+
 **Reporté.** La saisie du quota se fait sur la page générique
 Configuration > Réglages, pas sur la page Maintenance : le document de
 chantier borne l'interface de cette itération au seul encart de lecture.

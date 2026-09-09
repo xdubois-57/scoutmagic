@@ -130,6 +130,10 @@ final class ChunkedUploadStore
         try {
             if ($pinnedAvailable !== null) {
                 $this->diskBudget?->ensureRoomAgainst($offset + $chunkBytes, $pinnedAvailable);
+                // Judged against the pin, but the fragment's own bytes are
+                // about to land like any other write — so the cached walk
+                // that OTHER operations read has to know about them.
+                $this->diskBudget?->notePendingWrite($chunkBytes);
             } else {
                 $this->diskBudget?->ensureRoom($chunkBytes);
             }

@@ -47,7 +47,7 @@ class DiskBudgetTest extends TestCase
         $this->removeDirectory($this->installPath);
     }
 
-    // ————— La mesure —————
+    // ————— The measurement —————
 
     public function testTheBreakdownSplitsGalleryBackupsAndTempOutOfTheRest(): void
     {
@@ -100,7 +100,7 @@ class DiskBudgetTest extends TestCase
         }
     }
 
-    // ————— Le quota déclaré —————
+    // ————— The declared quota —————
 
     public function testTheDeclaredQuotaIsReadInWhicheverUnitTheAdminWroteIt(): void
     {
@@ -151,7 +151,7 @@ class DiskBudgetTest extends TestCase
         $this->assertNull($usage->declaredQuotaBytes);
     }
 
-    // ————— Le refus avant écriture —————
+    // ————— The refusal, before the write —————
 
     public function testAWriteThatWouldNotFitIsRefusedBeforeItStarts(): void
     {
@@ -214,7 +214,7 @@ class DiskBudgetTest extends TestCase
         $this->assertNull($budget->availableBytes());
     }
 
-    // ————— Une lecture épinglée par l'appelant —————
+    // ————— A reading pinned by the caller —————
 
     /**
      * `ensureRoomAgainst()` judges against the reading it is handed and
@@ -251,7 +251,7 @@ class DiskBudgetTest extends TestCase
         $this->addToAssertionCount(1);
     }
 
-    // ————— Le cache de la mesure —————
+    // ————— The cached measurement —————
 
     public function testTheMeasurementIsReusedWithinItsLifetime(): void
     {
@@ -293,7 +293,87 @@ class DiskBudgetTest extends TestCase
         $this->assertSame(42, $budget->measure()->storageBytes);
     }
 
-    // ————— Ce que le quota déclaré paie vraiment —————
+    // ————— Approvals granted against a cached reading —————
+
+    /**
+     * Two SEPARATE writes inside one cache window must not both be
+     * approved against the occupancy from before the first of them.
+     *
+     * The cached walk is what makes `ensureRoom()` cheap, and nothing
+     * invalidates it when bytes land — so a backup followed by another a
+     * few minutes later, or two gallery uploads, read the same figure. The
+     * fixed safety margin covers one such gap, not a number of them that
+     * grows with the traffic.
+     */
+    public function testApprovalsWorthTheSafetyMarginForceTheNextReadingToWalkAgain(): void
+    {
+        $this->settings->set(DiskBudget::QUOTA_SETTING, (string) (2048 * self::MIB));
+        $budget = $this->budget();
+
+        $budget->measureNow();
+        $this->assertFileExists($this->cacheFile(), 'La mesure doit être en cache pour que le test ait un sujet.');
+
+        // Well under the margin: the reading still stands.
+        $budget->ensureRoom(DiskBudget::SAFETY_MARGIN_BYTES - 2 * self::MIB);
+        $this->assertFileExists($this->cacheFile());
+
+        // Crossing it drops the reading, so the next question walks.
+        $budget->ensureRoom(4 * self::MIB);
+        $this->assertFileDoesNotExist($this->cacheFile());
+    }
+
+    /** Counting the same bytes twice costs a walk, never a refusal. */
+    public function testTheCountOnlyEverDecidesWhenToWalkAgain(): void
+    {
+        $this->write('gallery/photo.jpg', 100);
+        $this->settings->set(DiskBudget::QUOTA_SETTING, (string) (2048 * self::MIB));
+        $budget = $this->budget();
+
+        $budget->measureNow();
+        $budget->ensureRoom(DiskBudget::SAFETY_MARGIN_BYTES);
+
+        // The cache is gone, but the answer is unchanged: the count is not
+        // subtracted from anything.
+        $this->assertFileDoesNotExist($this->cacheFile());
+        $this->assertSame(2048 * self::MIB - 100, $budget->availableBytes());
+    }
+
+    /** Rewriting the counter must not restart the reading's own lifetime. */
+    public function testNotingAWriteDoesNotRejuvenateTheCachedReading(): void
+    {
+        $this->settings->set(DiskBudget::QUOTA_SETTING, (string) (2048 * self::MIB));
+        $budget = $this->budget();
+        $budget->measureNow();
+
+        $before = json_decode((string) file_get_contents($this->cacheFile()), true);
+        $budget->notePendingWrite(self::MIB);
+        $after = json_decode((string) file_get_contents($this->cacheFile()), true);
+
+        $this->assertSame($before['measured_at_unix'], $after['measured_at_unix']);
+        $this->assertSame(self::MIB, $after['pending_bytes']);
+    }
+
+    /**
+     * Without a declared quota the figure is `disk_free_space()`, read live
+     * on every call — it already reflects every byte written, and counting
+     * approvals on top would be the double-count this avoids.
+     */
+    public function testWithoutADeclaredQuotaNothingIsCounted(): void
+    {
+        $budget = $this->budget();
+        $budget->measureNow();
+
+        $budget->ensureRoom(10 * DiskBudget::SAFETY_MARGIN_BYTES);
+
+        $this->assertFileExists($this->cacheFile());
+    }
+
+    private function cacheFile(): string
+    {
+        return $this->storagePath . '/core/disk-usage.json';
+    }
+
+    // ————— What the declared quota really pays for —————
 
     /**
      * A declared quota is the HOSTING ACCOUNT's allowance, « tel qu'il

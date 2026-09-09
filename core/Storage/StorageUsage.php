@@ -217,6 +217,33 @@ final class StorageUsage
         return $labels;
     }
 
+    /**
+     * The breakdown as one finished sentence: « Galerie 1,9 Go ·
+     * sauvegardes 300 Mo. », empty when there is nothing to break down.
+     *
+     * Assembled here rather than as `|join(' · ')|capitalize` in the
+     * template, and the reason is a bug that shipped in the first draft:
+     * Twig's `capitalize` is « upper-case the first character, **lower-case
+     * everything after it** », so the sentence came out « Galerie 1,9 go ·
+     * sauvegardes 300 mo » — every unit destroyed, three lines under a
+     * `storageLabel` printing « 1,9 Go » correctly, and in the one class
+     * whose whole purpose is that the two configuration screens « must not
+     * drift into two spellings of 1,5 Go ». Only the first letter is
+     * raised here. It also means an empty breakdown renders nothing rather
+     * than a bare full stop.
+     */
+    public function breakdownSentence(): string
+    {
+        $labels = $this->breakdownLabels();
+        if ($labels === []) {
+            return '';
+        }
+
+        $labels[0] = mb_strtoupper(mb_substr($labels[0], 0, 1)) . mb_substr($labels[0], 1);
+
+        return implode(' · ', $labels) . '.';
+    }
+
     public function storageLabel(): string
     {
         return ByteFormatter::format($this->storageBytes);

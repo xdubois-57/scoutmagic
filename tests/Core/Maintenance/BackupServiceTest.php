@@ -79,7 +79,7 @@ class BackupServiceTest extends TestCase
         rmdir($dir);
     }
 
-    // ————— Le budget disque (Core\Storage\DiskBudget) —————
+    // ————— The disk budget (Core\Storage\DiskBudget) —————
 
     /**
      * The estimate must cover everything the archive will actually read.
