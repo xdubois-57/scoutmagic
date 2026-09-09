@@ -26,7 +26,7 @@
         // prevented keeps the confirmation in front of the action.
         if (event.defaultPrevented) return;
 
-        var form = /** @type {HTMLFormElement|null} */ (event.target);
+        const form = /** @type {HTMLFormElement|null} */ (event.target);
         if (form === null || typeof form.matches !== 'function' || !form.matches('form[data-submit-once]')) {
             return;
         }
@@ -35,7 +35,7 @@
         // (a form failing its own validation never gets here), so the
         // controls can go now.
         form.querySelectorAll('button[type="submit"], input[type="submit"]').forEach(function (control) {
-            var button = /** @type {HTMLButtonElement|HTMLInputElement} */ (control);
+            const button = /** @type {HTMLButtonElement|HTMLInputElement} */ (control);
             // `disabled` on a submit button is not submitted, and this
             // form's action does not read it — but a `name`d one would
             // be lost, so it is only ever disabled AFTER the browser has
