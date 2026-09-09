@@ -249,9 +249,6 @@ class MemberResolutionRepository
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
             $lastActive[(int) $row['member_id']] = $row;
         }
-        if ($lastActive === []) {
-            return [];
-        }
 
         // Consent is read from THAT row, and only once it has won.
         // Filtering on it in the WHERE above would have made the winner
@@ -266,6 +263,16 @@ class MemberResolutionRepository
             $lastActive,
             static fn(array $row): bool => (int) $row['unit_mail_consent'] === 1
         );
+        // After the filter, never before it: the consent column is
+        // unreliable and often unset, so « candidates found, none of them
+        // consenting » is the ordinary case, not the edge one — and it is
+        // the one that would otherwise reach countDistinctScoutYears()
+        // with no ids and build `IN ()`, which MySQL and MariaDB reject
+        // outright. SQLite tolerates it, so the tests here would never
+        // have said so.
+        if ($lastActive === []) {
+            return [];
+        }
 
         $yearCounts = $this->countDistinctScoutYears(array_keys($lastActive));
         $cutoff = $maxYearsSinceDeparture > 0
@@ -303,6 +310,10 @@ class MemberResolutionRepository
      */
     private function countDistinctScoutYears(array $memberIds): array
     {
+        if ($memberIds === []) {
+            return [];
+        }
+
         $stmt = $this->pdo->prepare(
             'SELECT member_id, COUNT(DISTINCT scout_year_id) AS years
              FROM member_years

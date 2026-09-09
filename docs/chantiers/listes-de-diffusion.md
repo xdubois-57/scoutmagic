@@ -686,6 +686,18 @@ change rien à ce que la liste contient.
   choisie. Le compteur et le gel continuent de s'accorder, tous deux
   passant par la même méthode.
 
+- **Et le garde de vacuité s'est retrouvé du mauvais côté du filtre**
+  que la correction précédente venait d'ajouter. « Des candidats, mais
+  aucun qui consente » est le cas **ordinaire** — la colonne est peu
+  fiable et souvent vide — et il atteignait `countDistinctScoutYears()`
+  sans aucun identifiant, donc `IN ()`, que MySQL et MariaDB refusent.
+  SQLite le tolère, et `DatabaseTestHelper` construit une base SQLite :
+  les tests ne pouvaient pas le dire. Le garde est passé après le
+  filtre, l'aide se garde elle-même comme les trois autres appels à
+  `placeholders()` de ce fichier, et le test de non-régression **compte
+  les requêtes** (`InstrumentedPdo`) plutôt que d'observer un résultat —
+  il dit donc la même chose quel que soit le moteur qui l'exécute.
+
 **Reporté.** Rien de cette itération. Restent hors périmètre, comme le
 document le prévoit : la portée en années comme propriété d'une liste
 personnalisée, l'inscription publique, et la sélection multiple, les

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Modules\MassMail\Repository;
 
+use Core\Database\InstrumentedPdo;
+use Core\Database\QueryCounter;
 use Core\Security\EncryptionService;
 use Modules\MassMail\Repository\MemberResolutionRepository;
 use PHPUnit\Framework\TestCase;
@@ -558,6 +560,54 @@ class MemberResolutionRepositoryTest extends TestCase
         $this->assertSame([$joined], array_column($resolved, 'member_id'));
         $this->assertSame('yes@test.be', $resolved[0]['email']);
         $this->assertSame($this->previousYearId, $resolved[0]['scout_year_id']);
+    }
+
+    /**
+     * The consent filter can empty the candidate set, and that is the
+     * ORDINARY case — the column is unreliable and often unset. The
+     * emptiness guard therefore has to sit after the filter, not before
+     * it: before, `countDistinctScoutYears()` would be handed no ids and
+     * build `member_id IN ()`, which MySQL and MariaDB reject outright.
+     *
+     * SQLite tolerates `IN ()`, so no assertion on the RESULT can catch
+     * this here — what pins it is that the second query is never issued
+     * at all. Counted rather than asserted on the engine, so the test
+     * says the same thing whichever one runs it.
+     */
+    public function testNobodyConsentingStopsBeforeTheSecondQuery(): void
+    {
+        $pdo = DatabaseTestHelper::createTestDatabase(new InstrumentedPdo('sqlite::memory:'));
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $repository = new MemberResolutionRepository($pdo, $encryption);
+
+        $pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
+        $currentYearId = (int) $pdo->lastInsertId();
+        $pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2024-2025', '2024-09-01', '2025-08-31', 0)");
+        $pastYearId = (int) $pdo->lastInsertId();
+
+        $pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK_NOCONSENT')");
+        $memberId = (int) $pdo->lastInsertId();
+        $stmt = $pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted,
+                                       email_encrypted, email_blind_index, is_active, unit_mail_consent)
+             VALUES (?, ?, ?, ?, ?, ?, 1, 0)'
+        );
+        $stmt->execute([
+            $memberId,
+            $pastYearId,
+            $encryption->encrypt('John', 'member_years.first_name'),
+            $encryption->encrypt('Doe', 'member_years.last_name'),
+            $encryption->encrypt('no@test.be', 'member_years.email'),
+            $encryption->blindIndex('no@test.be', 'email'),
+        ]);
+
+        QueryCounter::reset();
+        $this->assertSame([], $repository->resolveFormerMembers($currentYearId, 2, 0));
+        $this->assertSame(
+            1,
+            QueryCounter::count(),
+            'the candidate query, and nothing after it — a second one would carry an empty IN list'
+        );
     }
 
     public function testAnInactivePastRowIsNotAPastMembership(): void
