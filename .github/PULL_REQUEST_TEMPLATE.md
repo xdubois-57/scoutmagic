@@ -7,6 +7,7 @@
 - [ ] I have read `SECURITY.md` and applied the security checklist
 - [ ] All code and comments are in English
 - [ ] All UI-facing text is in French
+- [ ] This PR's title and description, and every commit message in it, are in French (`AGENTS.md` § Language)
 - [ ] Automated tests are written/updated for this change
 - [ ] Tests pass locally (`vendor/bin/phpunit`)
 - [ ] PHPStan passes (`vendor/bin/phpstan analyse` — covers `core/`, `modules/`, and `public/`)
