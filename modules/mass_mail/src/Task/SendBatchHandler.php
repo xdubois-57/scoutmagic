@@ -187,7 +187,10 @@ class SendBatchHandler implements TaskHandlerInterface
                 // lot?") and answers nothing about any one recipient.
                 $massMailService->journalRecipientSent($email->id, $recipient->id, $recipient->memberId);
                 $sentCount++;
-                $this->dispatchEmailReceivedNotification($context, $recipient, $email);
+                // $subject and not $email->subject: for a publipostage the
+                // stored one is the template, and the notification is the
+                // first thing the member reads about this mail (#287).
+                $this->dispatchEmailReceivedNotification($context, $recipient, $email, $subject);
             } catch (MailException $e) {
                 // $e->getMessage() is a transport-level error (SMTP
                 // response, connection failure) built from PHPMailer's
@@ -242,9 +245,19 @@ class SendBatchHandler implements TaskHandlerInterface
      * resolution). The deep link resolves the member_year row for this
      * recipient's own snapshot scout year, matching MemberEmailController's
      * `/members/{member_year_id}/emails/{recipient_id}` route.
+     *
+     * $sentSubject is the subject this recipient was actually sent — the
+     * template rendered with their own audience row for a publipostage,
+     * and `$email->subject` unchanged for everything else. It is passed in
+     * rather than re-read, because the only place that knows it is the
+     * send that just happened (#287).
      */
-    private function dispatchEmailReceivedNotification(TaskContext $context, Recipient $recipient, Email $email): void
-    {
+    private function dispatchEmailReceivedNotification(
+        TaskContext $context,
+        Recipient $recipient,
+        Email $email,
+        string $sentSubject
+    ): void {
         if ($context->notifications === null || $recipient->emailAddress === null) {
             return;
         }
@@ -268,7 +281,7 @@ class SendBatchHandler implements TaskHandlerInterface
             ['userAccountId' => $account->id, 'memberId' => $recipient->memberId],
         ], [
             'title' => 'Nouvel email',
-            'body' => $email->subject,
+            'body' => $sentSubject,
             'url' => $url,
         ], $email->createdBy);
     }

@@ -393,6 +393,55 @@ class SendBatchHandlerTest extends TestCase
         $this->assertSame('/members/' . $memberYearId . '/emails/' . $recipient->id, $notifications[0]->url);
     }
 
+    /**
+     * Issue #287. The notification is the first thing a member reads about
+     * a mail they have just been sent, and for a publipostage it was
+     * reading the stored TEMPLATE — « Camp de {{Prenom}} » — because it
+     * took `$email->subject` while the substitution lived in a local
+     * variable one scope away. It now carries the subject that was
+     * actually sent.
+     */
+    public function testTheNotificationCarriesTheSubjectThisRecipientWasSent(): void
+    {
+        $this->pdo->exec("DELETE FROM mass_mail_recipients WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_recipients)");
+        $recipient = $this->recipientRepository->findByEmailId($this->emailId)[0];
+        $account = $this->userAccountRepository->create($recipient->emailAddress);
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted) VALUES (?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            $this->memberId,
+            $this->scoutYearId,
+            $this->encryption->encrypt('Jean', 'member_years.first_name'),
+            $this->encryption->encrypt('Dupont', 'member_years.last_name'),
+        ]);
+
+        // Turn the fixture's ordinary email into a publipostage whose
+        // subject carries a variable, and give this recipient a row.
+        $audienceRepository = new \Modules\MassMail\Repository\AudienceRepository($this->pdo, $this->encryption);
+        $audienceId = $audienceRepository->createAudience('camp.xlsx', 'Camp', ['Prenom'], 1, null);
+        $rowId = $audienceRepository->createRow($audienceId, 2, $this->memberId, null, ['Prenom' => 'Kaa']);
+        $update = $this->pdo->prepare(
+            "UPDATE mass_mail_emails SET subject = 'Camp de {{Prenom}}', list_type = 'mail_merge', audience_id = ?
+             WHERE id = ?"
+        );
+        $update->execute([$audienceId, $this->emailId]);
+        $this->pdo->prepare('UPDATE mass_mail_recipients SET audience_row_id = ? WHERE id = ?')
+            ->execute([$rowId, $recipient->id]);
+
+        $handler = new SendBatchHandler();
+        $handler->handle([], $this->buildContextWithNotifications(
+            $this->createMock(MailService::class),
+            $this->buildNotificationService()
+        ));
+
+        $notifications = (new NotificationRepository($this->pdo, $this->encryption))->findByUserAccountId($account->id);
+        $this->assertCount(1, $notifications);
+        $this->assertSame('Camp de Kaa', $notifications[0]->body);
+        $this->assertStringNotContainsString('{{', $notifications[0]->body);
+    }
+
     public function testDoesNotDispatchWhenRecipientHasNoLoginAccount(): void
     {
         $this->pdo->exec("DELETE FROM mass_mail_recipients WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_recipients)");

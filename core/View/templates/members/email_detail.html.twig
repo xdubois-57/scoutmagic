@@ -7,6 +7,19 @@
         title: email.subject,
         subtitle: 'Envoyé le ' ~ email.sent_at|french_date ~ ' · ' ~ email.section_name,
     } only %}
+    {# A publipostage past its retention: the values that made this mail
+       personal were erased on purpose (18 months — modules/mass_mail), and
+       what is left is the template every recipient shared. Saying so is
+       the only honest option — a reader shown a body still carrying its
+       merge variables, with no explanation, reads it as a fault of the
+       site rather than as a retention rule doing its job. #}
+    {% if email.merge_purged %}
+        <div class="alert alert-secondary" role="alert">
+            Cet e-mail était personnalisé. Les valeurs qui vous concernaient ont été effacées depuis, comme le
+            prévoit la durée de conservation : le texte ci-dessous est celui qui a servi de modèle, variables
+            comprises.
+        </div>
+    {% endif %}
     <div class="card">
         <div class="card-body">
             {{ email.body_html|raw }}

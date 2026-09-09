@@ -109,6 +109,37 @@ class AudienceRepository
     }
 
     /**
+     * Several rows at once, keyed by id — one query for a whole page of
+     * received e-mails rather than one per line.
+     *
+     * A row a caller asked for and that is simply not in the answer has
+     * been purged (Task\PurgeMergeAudiencesHandler): the caller decides
+     * what to say about it, and the absence is the only signal there is.
+     *
+     * @param int[] $ids
+     * @return array<int, AudienceRow> id => row, rows that still exist only
+     */
+    public function findRowsByIds(array $ids): array
+    {
+        $ids = array_values(array_unique(array_filter($ids, static fn(int $id) => $id > 0)));
+        if ($ids === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->pdo->prepare('SELECT * FROM mass_mail_audience_rows WHERE id IN (' . $placeholders . ')');
+        $stmt->execute($ids);
+
+        $rows = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $hydrated = $this->hydrateRow($row);
+            $rows[$hydrated->id] = $hydrated;
+        }
+
+        return $rows;
+    }
+
+    /**
      * Audiences whose merge data is past retention (Task\
      * PurgeMergeAudiencesHandler): every referencing email is 'sent' and
      * the most recent send is older than $sentCutoff. An audience still

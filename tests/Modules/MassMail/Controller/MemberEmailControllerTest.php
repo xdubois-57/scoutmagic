@@ -109,7 +109,7 @@ class MemberEmailControllerTest extends TestCase
         $massMailQuery = $this->createMock(MassMailQueryInterface::class);
         $massMailQuery->method('findEmailDetailForMember')
             ->with($this->memberId, 5)
-            ->willReturn(['subject' => 'Sujet', 'body_html' => '<p>Corps</p>', 'sent_at' => '2026-01-01 10:00:00', 'section_name' => 'Meute A']);
+            ->willReturn(['subject' => 'Sujet', 'body_html' => '<p>Corps</p>', 'sent_at' => '2026-01-01 10:00:00', 'section_name' => 'Meute A', 'merge_purged' => false]);
 
         $controller = $this->buildController($massMailQuery);
         $response = $controller->show(
@@ -126,7 +126,7 @@ class MemberEmailControllerTest extends TestCase
         AuthSession::login(1, 'chief@test.example', 'chief');
         $massMailQuery = $this->createMock(MassMailQueryInterface::class);
         $massMailQuery->method('findEmailDetailForMember')
-            ->willReturn(['subject' => 'Sujet', 'body_html' => '<p>Corps</p>', 'sent_at' => '2026-01-01 10:00:00', 'section_name' => 'Meute A']);
+            ->willReturn(['subject' => 'Sujet', 'body_html' => '<p>Corps</p>', 'sent_at' => '2026-01-01 10:00:00', 'section_name' => 'Meute A', 'merge_purged' => false]);
 
         $controller = $this->buildController($massMailQuery);
         $response = $controller->show(
@@ -135,6 +135,62 @@ class MemberEmailControllerTest extends TestCase
         );
 
         $this->assertSame(200, $response->getStatusCode());
+    }
+
+    /**
+     * Issue #287, the one case the substitution cannot answer: a
+     * publipostage whose audience has passed its 18-month retention has
+     * no values left to put back, so the body still carries its
+     * `{{tokens}}`. The page says so — a reader handed a template with no
+     * explanation reads it as a fault of the site rather than as the
+     * retention rule doing exactly its job.
+     */
+    public function testAPurgedPublipostageSaysWhyItStillShowsItsVariables(): void
+    {
+        AuthSession::login(1, 'member@test.example', 'identified');
+        $massMailQuery = $this->createMock(MassMailQueryInterface::class);
+        $massMailQuery->method('findEmailDetailForMember')->willReturn([
+            'subject' => 'Camp de {{Prenom}}',
+            'body_html' => '<p>Cher {{Prenom}}</p>',
+            'sent_at' => '2024-01-01 10:00:00',
+            'section_name' => 'Meute A',
+            'merge_purged' => true,
+        ]);
+
+        $controller = $this->buildController($massMailQuery);
+        $response = $controller->show(
+            new Request('GET', "/members/{$this->memberYearId}/emails/5", [], [], [], []),
+            ['id' => (string) $this->memberYearId, 'recipient_id' => '5']
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('durée de conservation', $response->getBody());
+    }
+
+    /**
+     * And it stays quiet the rest of the time: an ordinary e-mail carries
+     * no such notice, or the notice would read as « this is an old
+     * e-mail » on every message the site ever sent.
+     */
+    public function testAnOrdinaryEmailCarriesNoRetentionNotice(): void
+    {
+        AuthSession::login(1, 'member@test.example', 'identified');
+        $massMailQuery = $this->createMock(MassMailQueryInterface::class);
+        $massMailQuery->method('findEmailDetailForMember')->willReturn([
+            'subject' => 'Sujet',
+            'body_html' => '<p>Corps</p>',
+            'sent_at' => '2026-01-01 10:00:00',
+            'section_name' => 'Meute A',
+            'merge_purged' => false,
+        ]);
+
+        $controller = $this->buildController($massMailQuery);
+        $response = $controller->show(
+            new Request('GET', "/members/{$this->memberYearId}/emails/5", [], [], [], []),
+            ['id' => (string) $this->memberYearId, 'recipient_id' => '5']
+        );
+
+        $this->assertStringNotContainsString('durée de conservation', $response->getBody());
     }
 
     public function testReturns404WhenRecipientDoesNotBelongToThisMember(): void

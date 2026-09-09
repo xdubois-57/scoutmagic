@@ -4751,7 +4751,11 @@ if ($isEnabled('mass_mail')) {
     $frontController->registerController(
         \Modules\MassMail\Controller\MemberEmailController::class,
         new \Modules\MassMail\Controller\MemberEmailController(
-            $twig, $memberService, new \Modules\MassMail\Service\MassMailQueryService($massMailRecipientRepo)
+            $twig, $memberService, new \Modules\MassMail\Service\MassMailQueryService(
+                $massMailRecipientRepo,
+                $massMailAudienceRepo,
+                new \Modules\MassMail\Service\MergeRenderer()
+            )
         )
     );
 
@@ -7169,7 +7173,11 @@ if (
     || $isEnabled('finance')
 ) {
     $massMailQueryForMember = $isEnabled('mass_mail')
-        ? new \Modules\MassMail\Service\MassMailQueryService($massMailRecipientRepo)
+        ? new \Modules\MassMail\Service\MassMailQueryService(
+                $massMailRecipientRepo,
+                $massMailAudienceRepo,
+                new \Modules\MassMail\Service\MergeRenderer()
+            )
         : null;
     $galleryAlbumProviderForMember = $isEnabled('gallery')
         ? new \Modules\Gallery\Service\GalleryMemberQueryService(
