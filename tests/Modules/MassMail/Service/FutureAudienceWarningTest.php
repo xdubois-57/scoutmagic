@@ -237,6 +237,7 @@ class FutureAudienceWarningTest extends TestCase
             new FunctionRepository($this->pdo),
             null,
             null,
+            null,
             $projection,
             new ScoutYearResolver(
                 $scoutYearService,

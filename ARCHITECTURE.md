@@ -2825,6 +2825,26 @@ Where the unit has camped, and every stay it made there. The product answers one
 
 **The JSON endpoints the dialog owned are deleted, not orphaned**: `GET /mass-mail/{id}/data`, `PATCH /mass-mail/{id}` and `DELETE /mass-mail/attachments/{id}`. `POST /mass-mail/recipients/{id}/resend` is the one JSON write left in the controller, and its caller is the tracking table's own fetch.
 
+### 8.71octies A list writes to people who are nobody in the members table (`mass_mail_list_addresses`)
+
+A mailing list could only ever contain members of the site. The commune, the paroisse, the owner of a camp ground, a former member Desk never knew — none of them were reachable, and a chief who needed to write to them left the site to do it. A custom list now carries **its own addresses**, and resolving it is the **union** of what its criteria resolve and those addresses.
+
+**The addresses belong to the list.** `mass_mail_list_addresses (list_id, …)`, `ON DELETE CASCADE`; no global address book, no join table, no contact entity shared between lists. Editing an address changes it here and nowhere else. A shared book would have bought inter-list deduplication for a rare case, at the price of orphan rules and side effects invisible on screen.
+
+**The unsubscribe, by contrast, is global**, and it is what the second index on `email_blind_index` exists for: `UPDATE … WHERE email_blind_index = ?`, no filter on the list. Somebody asking that the unit stop writing to them is addressing the unit rather than a list — and it creates no shared entity, being a WHERE clause and not a table. `Controller\UnsubscribeController` now flags those rows **on every branch**, including a member's and a mail-merge recipient's, and a recipient who is nobody in the members table also lands on `mass_mail_suppressed_addresses`: one request, answered on every table that could write to that address again. A list address suppressed elsewhere is frozen as an explicit `error` row rather than silently dropped, so the tracking page says why somebody was not written to.
+
+**An unsubscribed row survives everything.** It is not editable, not deletable, and stays visible and greyed on the screen with its mention. Without that, « 312 adresses » followed by « 304 envoyés » reads as a breakdown — and an unsubscribe a chief can undo with two clicks is not an unsubscribe.
+
+**Name and address are `BLOB`s, encrypted and decrypted only in `Repository\ListAddressRepository`** (SECURITY.md §5), with a blind index of its own purpose beside them. One name field, deliberately: these people are not members, there is no first name and no totem to tell apart.
+
+**The screen's shape follows from the ciphertext, not from taste.** The section is collapsed and its summary is a `COUNT(*)`, so a list that is nothing but criteria never pays a decryption it does not use. Opening it fetches the **whole** decrypted set in one call, sorted in PHP — there is no `ORDER BY` and no `LIKE` on ciphertext, so paging or filtering in SQL would mean decrypting everything and discarding most of it, which is the reasoning `Core\Member\Service\MemberSearchService` sets out at length. Everything after that is the browser's: an accent-insensitive search (the same folding as `Core\Service\TextNormalizerService::fold()`, reimplemented as an *algorithm* the way `OfflineWhitelist`'s matcher is), the « désinscrites seulement » filter, rendering in slices of fifty, and in-place add/edit/delete through `fetch` with a CSRF token. No library, no virtualisation — this project has no build step and the set is bounded.
+
+**What bounds it is `mass_mail_list_addresses_max` (2000)**, and its mandatory description states both reasons: decrypting in PHP on shared hosting, and the fact that a list of ten thousand bought addresses would ruin the domain's sending reputation — every mail the unit sends, families included — faster than the site could recover. The cap is asked **before** anything is written.
+
+**The recipient row's shape is the unsubscribe's routing table.** `member_id` NULL now covers two recipients, and `audience_row_id` tells them apart: set for a mail-merge row addressed by its own « Email » column, NULL for a list address. The schema comment says so, because that pair is what the unsubscribe controller branches on.
+
+**The RGPD content and its generation prompt were updated in the same change** — a new table of personal data and a new processing (AGENTS.md § RGPD page maintenance).
+
 ### 8.71septies A third criteria axis, and what the form says about their conjunction (`mass_mail_list_badges`)
 
 A custom list crossed **functions** and **sections**. It now crosses **badges** too — `mass_mail_list_badges (list_id, badge_id)`, on the exact model of the two junctions beside it. `badges` is a core table, so this foreign key crosses no module boundary (AGENTS.md § Database), and badges are already historised per scout year (`member_badges.member_year_id`, §8.11): the axis is a join on the member_year of the year being resolved, so a badge worn two years ago never counts for this one. There was nothing to invent.

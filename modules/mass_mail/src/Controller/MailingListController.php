@@ -16,7 +16,9 @@ use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\Role;
+use Modules\MassMail\Repository\ListAddress;
 use Modules\MassMail\Repository\MailingList;
+use Modules\MassMail\Service\ListAddressService;
 use Modules\MassMail\Service\MailingListException;
 use Modules\MassMail\Service\MailingListService;
 use Twig\Environment;
@@ -45,7 +47,8 @@ class MailingListController extends AbstractController
     public function __construct(
         protected Environment $twig,
         private MailingListService $mailingListService,
-        private ScoutYearResolver $scoutYearResolver
+        private ScoutYearResolver $scoutYearResolver,
+        private ListAddressService $listAddressService
     ) {
     }
 
@@ -67,6 +70,10 @@ class MailingListController extends AbstractController
                     'function_ids' => $this->mailingListService->getCustomListFunctionIds($l->id),
                     'section_ids' => $this->mailingListService->getCustomListSectionIds($l->id),
                     'badge_ids' => $this->mailingListService->getCustomListBadgeIds($l->id),
+                    // A COUNT, never the addresses themselves: a list that
+                    // is nothing but criteria must not pay the cost of
+                    // decrypting a section nobody opened.
+                    'address_counts' => $this->listAddressService->countForList($l->id),
                 ]],
                 []
             ),
@@ -78,6 +85,7 @@ class MailingListController extends AbstractController
             // what stops « 12 destinataires » being read as a promise
             // about whichever year the email will later target.
             'effective_year_label' => $this->effectiveYear()->label,
+            'max_addresses' => $this->listAddressService->maxAddresses(),
             // A list has no year of its own, so there is no per-list
             // warning to show here — but the page is where somebody decides
             // WHO a list holds, and next year's answer is a projection or
@@ -229,6 +237,141 @@ class MailingListController extends AbstractController
             ),
             'scout_year_label' => $year->label,
         ]);
+    }
+
+    /**
+     * GET /admin/listes-de-diffusion/lists/{id}/addresses — the whole
+     * decrypted set, in ONE call.
+     *
+     * There is no paging and no server-side search here, and that is the
+     * documented consequence of the data being encrypted: there is no
+     * `ORDER BY` and no `LIKE` to page or filter with, so filtering in SQL
+     * would mean decrypting everything anyway and throwing most of it away
+     * — the reasoning `Core\Member\Service\MemberSearchService` sets out
+     * at length. The set is bounded instead, by
+     * `mass_mail_list_addresses_max`, and everything the screen does
+     * afterwards happens in the browser without another round trip.
+     *
+     * @param array<string, string> $params
+     */
+    public function addresses(Request $request, array $params): Response
+    {
+        $listId = (int) $params['id'];
+        if ($this->mailingListService->getCustomListById($listId) === null) {
+            return $this->json(['success' => false, 'error' => 'Liste introuvable.'], 404);
+        }
+
+        return $this->json([
+            'success' => true,
+            'addresses' => array_map(
+                fn(ListAddress $a) => $this->presentAddress($a),
+                $this->listAddressService->findForList($listId)
+            ),
+        ]);
+    }
+
+    /**
+     * POST /admin/listes-de-diffusion/lists/{id}/addresses
+     *
+     * @param array<string, string> $params
+     */
+    public function addAddress(Request $request, array $params): Response
+    {
+        $data = $this->decodeJsonBody($request);
+        if ($data === null || !$this->checkCsrf($data)) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+
+        try {
+            $address = $this->listAddressService->add(
+                (int) $params['id'],
+                $this->optionalString($data['name'] ?? null),
+                (string) ($data['email'] ?? '')
+            );
+        } catch (MailingListException $e) {
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
+        }
+
+        return $this->json([
+            'success' => true,
+            'address' => $this->presentAddress($address),
+            'counts' => $this->listAddressService->countForList((int) $params['id']),
+        ]);
+    }
+
+    /**
+     * PATCH /admin/listes-de-diffusion/addresses/{id}
+     *
+     * @param array<string, string> $params
+     */
+    public function updateAddress(Request $request, array $params): Response
+    {
+        $data = $this->decodeJsonBody($request);
+        if ($data === null || !$this->checkCsrf($data)) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+
+        try {
+            $address = $this->listAddressService->edit(
+                (int) $params['id'],
+                $this->optionalString($data['name'] ?? null),
+                (string) ($data['email'] ?? '')
+            );
+        } catch (MailingListException $e) {
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
+        }
+
+        return $this->json(['success' => true, 'address' => $this->presentAddress($address)]);
+    }
+
+    /**
+     * DELETE /admin/listes-de-diffusion/addresses/{id}
+     *
+     * @param array<string, string> $params
+     */
+    public function deleteAddress(Request $request, array $params): Response
+    {
+        $data = $this->decodeJsonBody($request);
+        if ($data === null || !$this->checkCsrf($data)) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+
+        // Read the row BEFORE deleting it: the answer carries the
+        // list's new counts, and after the delete there is nothing left to
+        // ask which list it belonged to.
+        $address = $this->listAddressService->findById((int) $params['id']);
+        if ($address === null) {
+            return $this->json(['success' => false, 'error' => 'Adresse introuvable.'], 422);
+        }
+
+        try {
+            $this->listAddressService->remove($address->id);
+        } catch (MailingListException $e) {
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
+        }
+
+        return $this->json([
+            'success' => true,
+            'counts' => $this->listAddressService->countForList($address->listId),
+        ]);
+    }
+
+    /**
+     * @return array{id: int, name: ?string, email: string, unsubscribed_at: ?string}
+     */
+    private function presentAddress(ListAddress $address): array
+    {
+        return [
+            'id' => $address->id,
+            'name' => $address->name,
+            'email' => $address->email,
+            'unsubscribed_at' => $address->unsubscribedAt,
+        ];
+    }
+
+    private function optionalString(mixed $value): ?string
+    {
+        return is_string($value) && trim($value) !== '' ? $value : null;
     }
 
     private function effectiveYear(): \Core\ScoutYear\EffectiveScoutYear

@@ -4685,9 +4685,13 @@ if ($isEnabled('mass_mail')) {
     // says so. The two year services are core's and are always available —
     // they are what decides whether a year is in the future at all, which
     // has to work with registration disabled too.
+    $massMailListAddressRepo = new \Modules\MassMail\Repository\ListAddressRepository($pdo, $encryptionService);
+    $massMailListAddressService = new \Modules\MassMail\Service\ListAddressService(
+        $massMailListAddressRepo, $massMailListRepo, $settingService, $journalService
+    );
     $massMailListService = new \Modules\MassMail\Service\MailingListService(
         $massMailListRepo, $massMailResolutionRepo, $sectionService, $massMailFunctionRepo, $badgeService,
-        null, null, $scoutYearResolver, $scoutYearService
+        $massMailListAddressRepo, null, null, $scoutYearResolver, $scoutYearService
     );
     // « This module points at badges by id, so do not let one be deleted
     //   from under a list » — Core\Module\BadgeUsageProvider. Registered
@@ -4731,7 +4735,9 @@ if ($isEnabled('mass_mail')) {
     $schedulerService->rearm('mass_mail', 'purge_merge_audiences', 'daily', new DateTimeImmutable());
     $frontController->registerController(
         \Modules\MassMail\Controller\MailingListController::class,
-        new \Modules\MassMail\Controller\MailingListController($twig, $massMailListService, $scoutYearResolver)
+        new \Modules\MassMail\Controller\MailingListController(
+            $twig, $massMailListService, $scoutYearResolver, $massMailListAddressService
+        )
     );
 
     // The member page's "view as sent" email detail route
@@ -4750,7 +4756,7 @@ if ($isEnabled('mass_mail')) {
     $frontController->registerController(
         \Modules\MassMail\Controller\UnsubscribeController::class,
         new \Modules\MassMail\Controller\UnsubscribeController($twig, $massMailRecipientRepo, $memberEmailService,
-            $massMailSuppressedRepo)
+            $massMailSuppressedRepo, $massMailListAddressService)
     );
 
     // MemberController is re-registered once, with every optional
@@ -6424,6 +6430,7 @@ if ($isEnabled('registration')) {
         // dependency. Both are rebuilt together here.
         $massMailListService = new \Modules\MassMail\Service\MailingListService(
             $massMailListRepo, $massMailResolutionRepo, $sectionService, $massMailFunctionRepo, $badgeService,
+            $massMailListAddressRepo,
             $registrationExternalMailingListService,
             // IT-11 — with registration enabled, a list aimed at a year the
             // unit has not reached yet resolves through the projection
@@ -6462,7 +6469,7 @@ if ($isEnabled('registration')) {
         $frontController->registerController(
             \Modules\MassMail\Controller\MailingListController::class,
             new \Modules\MassMail\Controller\MailingListController(
-                $twig, $massMailListService, $scoutYearResolver
+                $twig, $massMailListService, $scoutYearResolver, $massMailListAddressService
             )
         );
     }

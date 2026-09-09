@@ -14,6 +14,7 @@ use Core\Http\Response;
 use Core\Member\MemberEmailService;
 use Modules\MassMail\Repository\RecipientRepository;
 use Modules\MassMail\Repository\SuppressedAddressRepository;
+use Modules\MassMail\Service\ListAddressService;
 use Twig\Environment;
 
 /**
@@ -41,7 +42,12 @@ class UnsubscribeController extends AbstractController
         protected Environment $twig,
         private RecipientRepository $recipientRepository,
         private MemberEmailService $memberEmailService,
-        private SuppressedAddressRepository $suppressedAddressRepository
+        private SuppressedAddressRepository $suppressedAddressRepository,
+        /**
+         * Nullable so the tests that predate a list's own addresses keep
+         * their constructor call; the composition roots always pass it.
+         */
+        private ?ListAddressService $listAddressService = null
     ) {
     }
 
@@ -88,12 +94,25 @@ class UnsubscribeController extends AbstractController
             return $this->render('@mass_mail/unsubscribe.html.twig', ['state' => 'invalid']);
         }
 
+        // Whatever kind of recipient asked, the request is the same one:
+        // « stop writing to me ». It is answered on every table that could
+        // write to this address again, never only on the one the link
+        // happened to come from — a person who unsubscribes from a list
+        // address and then receives a publipostage has not been heard.
+        if ($recipient->emailAddress !== null) {
+            $this->listAddressService?->unsubscribeEverywhere($recipient->emailAddress);
+        }
+
         if ($recipient->memberEmailId !== null) {
             $this->memberEmailService->unsubscribe($recipient->memberEmailId);
         } elseif ($recipient->memberId === null && $recipient->emailAddress !== null) {
-            // External mail-merge recipient — no member_emails row to flip,
-            // so the address lands on the module's own suppression list,
-            // honored by every future mail-merge freeze.
+            // Nobody in the members table: an external mail-merge row
+            // (audience_row_id set) or an address of a custom list
+            // (audience_row_id null). Both land on the module's own
+            // suppression list, honoured by every future freeze of either
+            // kind; the list's own rows were flagged just above, which is
+            // what keeps them visible and greyed on the screen rather than
+            // silently skipped.
             $this->suppressedAddressRepository->suppress($recipient->emailAddress);
         } else {
             // A member recipient frozen without a member_email_id (the

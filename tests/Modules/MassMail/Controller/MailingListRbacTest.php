@@ -21,8 +21,10 @@ use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
 use Modules\MassMail\Controller\MailingListController;
+use Modules\MassMail\Repository\ListAddressRepository;
 use Modules\MassMail\Repository\MailingListRepository;
 use Modules\MassMail\Repository\MemberResolutionRepository;
+use Modules\MassMail\Service\ListAddressService;
 use Modules\MassMail\Service\MailingListService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -81,6 +83,12 @@ class MailingListRbacTest extends TestCase
                 new ScoutYearService($this->pdo),
                 new SettingService(new SettingRepository($this->pdo)),
                 new MemberYearRepository($this->pdo)
+            ),
+            new ListAddressService(
+                new ListAddressRepository($this->pdo, $encryption),
+                new MailingListRepository($this->pdo),
+                new SettingService(new SettingRepository($this->pdo)),
+                $this->createMock(\Core\Journal\JournalService::class)
             )
         );
 

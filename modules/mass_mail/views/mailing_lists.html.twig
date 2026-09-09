@@ -55,6 +55,54 @@
                             </span>
                         </div>
                         <p class="text-body-secondary small mb-0 mt-1">{{ list.description }}</p>
+
+                        {# Collapsed by default, and its summary is the only
+                           thing rendered server-side: the count is a COUNT(*),
+                           so a list that is nothing but criteria never pays
+                           the cost of decrypting addresses nobody asked to
+                           see. Opening it fetches them, once. #}
+                        <details class="mt-2 mml-addresses" data-list-id="{{ list.id }}">
+                            <summary class="tap-target small text-body-secondary">
+                                Adresses de cette liste —
+                                <span data-address-count>
+                                    {% set counts = custom_list_criteria[list.id].address_counts %}
+                                    {{ counts.total }} adresse{{ counts.total > 1 ? 's' : '' }}{% if counts.unsubscribed > 0 %}, dont {{ counts.unsubscribed }} désinscrite{{ counts.unsubscribed > 1 ? 's' : '' }}{% endif %}
+                                </span>
+                            </summary>
+
+                            <div class="border rounded p-2 mt-2">
+                                <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+                                    <input type="search" class="form-control form-control-sm" style="max-width:16rem;"
+                                           data-address-search placeholder="Rechercher un nom ou une adresse"
+                                           aria-label="Rechercher dans les adresses de cette liste">
+                                    <div class="form-check form-switch mb-0">
+                                        <input class="form-check-input" type="checkbox"
+                                               id="cfg-unsub-only-{{ list.id }}" data-address-unsubscribed-only>
+                                        <label class="form-check-label small" for="cfg-unsub-only-{{ list.id }}">
+                                            Désinscrites seulement
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="alert alert-danger d-none small py-1 px-2" data-address-error></div>
+
+                                <ul class="list-group list-group-flush mb-2" data-address-rows></ul>
+                                <p class="text-body-secondary small mb-2 d-none" data-address-empty>
+                                    Aucune adresse ne correspond.
+                                </p>
+                                <button type="button" class="btn btn-sm btn-outline-secondary d-none mb-2"
+                                        data-address-more>Afficher plus</button>
+
+                                <form class="d-flex flex-wrap gap-2 align-items-start" data-address-add-form>
+                                    <input type="text" class="form-control form-control-sm" style="max-width:12rem;"
+                                           data-address-new-name placeholder="Nom" aria-label="Nom" maxlength="150">
+                                    <input type="email" class="form-control form-control-sm" style="max-width:16rem;"
+                                           data-address-new-email placeholder="adresse@exemple.be" required
+                                           aria-label="Adresse email">
+                                    <button type="submit" class="btn btn-sm btn-primary">Ajouter</button>
+                                </form>
+                            </div>
+                        </details>
                     </li>
                 {% else %}
                     <li class="list-group-item">
@@ -152,4 +200,5 @@
    the same `defer`, so it has already run and window.SelectBar exists by
    the time this file drives the three pickers. #}
 <script src="{{ asset('/assets/js/mass-mail-lists.js') }}" defer></script>
+<script src="{{ asset('/assets/js/mass-mail-list-addresses.js') }}" defer></script>
 {% endblock %}

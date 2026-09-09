@@ -150,6 +150,47 @@ CREATE TABLE IF NOT EXISTS mass_mail_list_badges (
     CONSTRAINT fk_mmlb_badge FOREIGN KEY (badge_id) REFERENCES badges(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- mass_mail_list_addresses: the people a list writes to who are NOT
+-- members of the site — the commune, the curé, the owner of the camp
+-- ground, a former member Desk never knew. Resolving a custom list is the
+-- UNION of what its criteria resolve and its own active addresses here.
+--
+-- The addresses belong to the LIST (list_id, ON DELETE CASCADE). No
+-- global address book, no join table, no contact entity shared between
+-- lists: editing an address changes it here and nowhere else. A shared
+-- book would have bought inter-list deduplication for a rare case, at
+-- the price of orphan rules and side effects nobody can see on screen.
+--
+-- **The unsubscribe, by contrast, is global** and that is the reason for
+-- the second index: it is an UPDATE on every row carrying the same blind
+-- index, in every list. Somebody asking not to be written to is
+-- addressing the unit, not a list — and it creates no shared entity,
+-- being a WHERE clause rather than a table.
+--
+-- An unsubscribed row survives everything: it stays visible (greyed) on
+-- the screen, it survives a wholesale Excel replacement, and no import
+-- can ever re-subscribe it. Without that the unsubscribe link is worth
+-- nothing.
+--
+-- One name field, deliberately: these people are not members, there is
+-- no first name and no totem to tell apart. Name and address are
+-- personal data → BLOB encrypted through Core\Security\EncryptionService,
+-- encrypted and decrypted ONLY in Repository\ListAddressRepository
+-- (SECURITY.md §5).
+CREATE TABLE IF NOT EXISTS mass_mail_list_addresses (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    list_id INT UNSIGNED NOT NULL,
+    name_encrypted BLOB,
+    email_encrypted BLOB NOT NULL,
+    email_blind_index CHAR(64) NOT NULL,
+    unsubscribed_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE INDEX idx_mmla_list_email (list_id, email_blind_index),
+    INDEX idx_mmla_blind (email_blind_index),
+    CONSTRAINT fk_mmla_list FOREIGN KEY (list_id)
+        REFERENCES mass_mail_lists(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- mass_mail_emails: one mass email, draft → test → sending → sent (see
 -- Service\MassMailService — no step is ever skipped or reversed except
 -- test → draft). subject/body_html hold no personal data (admin-authored
@@ -229,9 +270,14 @@ CREATE TABLE IF NOT EXISTS mass_mail_email_scout_years (
 CREATE TABLE IF NOT EXISTS mass_mail_recipients (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     email_id INT UNSIGNED NOT NULL,
-    -- NULL only for a mail-merge row addressed by its "Email" column
-    -- rather than a "Tiers" — an external recipient who is nobody in the
-    -- members table. Every list-resolved recipient still always has one.
+    -- NULL for the two recipients who are nobody in the members table,
+    -- and audience_row_id is what tells them apart: a mail-merge row
+    -- addressed by its "Email" column rather than a "Tiers" (audience_row_id
+    -- SET), and a mass_mail_list_addresses row of a custom list
+    -- (audience_row_id NULL). That pair is what
+    -- Controller\UnsubscribeController branches on, so a « stop writing to
+    -- me » lands on the right table. Every criteria-resolved recipient
+    -- still always has a member_id.
     member_id INT UNSIGNED NULL,
     -- Which of the email's (possibly several) selected scout years this
     -- particular recipient was actually resolved from — needed to look up

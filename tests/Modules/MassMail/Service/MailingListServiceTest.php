@@ -361,7 +361,7 @@ class MailingListServiceTest extends TestCase
         $service = new MailingListService(
             new MailingListRepository($this->pdo), new MemberResolutionRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))),
             new SectionService(Connection::withPdo($this->pdo), new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), new MemberBadgeRepository($this->pdo)),
-            new FunctionRepository($this->pdo), null, $provider
+            new FunctionRepository($this->pdo), null, null, $provider
         );
 
         $lists = $service->getDefaultLists();
@@ -382,7 +382,7 @@ class MailingListServiceTest extends TestCase
         $service = new MailingListService(
             new MailingListRepository($this->pdo), new MemberResolutionRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))),
             new SectionService(Connection::withPdo($this->pdo), new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), new MemberBadgeRepository($this->pdo)),
-            new FunctionRepository($this->pdo), null, $provider
+            new FunctionRepository($this->pdo), null, null, $provider
         );
 
         // The compose dialog's own year checkboxes (current year here) must

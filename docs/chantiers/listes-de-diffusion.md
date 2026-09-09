@@ -271,3 +271,100 @@ tout en gardant celui qui n'en a pas ; et le zéro sans badge qui ne parle
 pas de badge.
 
 **Reporté.** Rien.
+
+---
+
+## IT-03 — Les adresses propres à la liste
+
+**Livré.** La table, la résolution en union, la désinscription globale,
+l'écran, le plafond, la RGPD et l'aide.
+
+- `mass_mail_list_addresses` telle que le document la décrit, au commentaire
+  près. `Repository\ListAddressRepository` est le seul endroit qui chiffre
+  et déchiffre (SECURITY §5), `Repository\ListAddress` est l'objet valeur,
+  `Service\ListAddressService` porte les règles. Version du module montée à
+  1.12.0.
+- `MailingListService::resolveMembersForYears()` renvoie désormais des
+  entrées à `member_id` et `scout_year_id` **nullables** : c'est la forme
+  qu'avait déjà un destinataire externe de publipostage. Les adresses
+  passent par le `$seenAddresses` existant, donc le dédoublonnage se fait
+  sur l'adresse normalisée — vérifié, c'était bien le cas, et c'est la
+  seule chose qui puisse marcher : les deux moitiés de l'union ne
+  partagent aucun identifiant.
+- `MassMailService::freezeListRecipients()` gèle une adresse comme un
+  destinataire à part entière : `member_id`, `scout_year_id`,
+  `member_email_id` et `audience_row_id` tous nuls.
+- Quatre routes JSON (`GET`/`POST .../lists/{id}/addresses`,
+  `PATCH`/`DELETE .../addresses/{id}`), réglage
+  `mass_mail_list_addresses_max` à 2000 avec sa description obligatoire,
+  section repliée dans le gabarit,
+  `public/assets/js/mass-mail-list-addresses.js`.
+
+**Décisions prises en autonomie.**
+
+- **La désinscription est appliquée sur toutes les branches, et elle
+  atteint aussi la liste de suppression du publipostage.** Le document ne
+  demandait que le `UPDATE … WHERE email_blind_index = ?`. Pris à la
+  lettre, quelqu'un qui se désinscrit depuis une adresse de liste
+  continuait de recevoir les publipostages, et réciproquement une adresse
+  supprimée par un publipostage restait « active » à l'écran tout en
+  n'étant jamais écrite. D2 dit exactement le contraire : « Quelqu'un qui
+  demande qu'on cesse de lui écrire s'adresse à l'unité, pas à une liste. »
+  Donc : toute désinscription marque les lignes `mass_mail_list_addresses`
+  portant le même index aveugle, **et** un destinataire sans membre est
+  aussi ajouté à `mass_mail_suppressed_addresses`. Au gel, une adresse
+  supprimée devient une ligne `error` explicite plutôt qu'une omission
+  silencieuse — sans quoi le suivi ne dirait pas pourquoi la personne n'a
+  rien reçu.
+- **Le distinguo dans `mass_mail_recipients` est le couple
+  (`member_id` NULL, `audience_row_id`).** Le commentaire du schéma disait
+  « NULL only for a mail-merge row » ; il en existe désormais deux sortes,
+  et c'est `audience_row_id` qui les sépare. Le commentaire est corrigé
+  dans la même PR, puisque c'est sur lui que le contrôleur de
+  désinscription s'appuie.
+- **La validation d'IT-02 n'a pas été assouplie.** D5 dit qu'une liste
+  peut légitimement n'être qu'un carnet d'adresses, mais une liste se crée
+  avant de recevoir ses adresses : autoriser zéro critère à la création
+  aurait laissé créer des listes vides sans rien pour s'en apercevoir. Le
+  plancher reste « au moins un critère », et une liste purement carnet
+  s'obtient en croisant un critère qui ne désigne personne. **C'est une
+  limitation réelle, notée ici plutôt que passée sous silence** ; la lever
+  proprement demanderait de distinguer « liste vide par erreur » de
+  « liste volontairement sans membres », ce qui est une question d'écran
+  et non de schéma.
+- **`ListAddressService` est un service à part**, pas une extension de
+  `MailingListService` : un service par sujet (AGENTS, « Single file per
+  concern »), et celui-ci porte le plafond, le journal et la validation.
+- **Le nom est borné à 150 caractères** côté service. La colonne est un
+  BLOB chiffré, donc rien ne borne à sa place, et un nom de dix kilo-octets
+  est un coût de déchiffrement que personne n'a demandé.
+- **`ListAddressRepository::findForList()` trie en PHP**, par nom puis
+  adresse. Il n'y a pas d'`ORDER BY` possible sur du chiffré, et c'est la
+  raison pour laquelle l'écran charge tout en une fois.
+
+**Divergence — le rendu par tranches et la recherche.** Le document décrit
+« rendu par tranches de 50 avec un afficher plus » et une recherche
+« même normalisation que `TextNormalizerService` ». Les deux sont livrés
+tels quels ; la normalisation est une **seconde implémentation de
+l'algorithme** en JavaScript, ce que le dépôt admet explicitement pour
+`OfflineWhitelist::matches()` — il n'y a pas d'exécution partagée entre PHP
+et le navigateur. Ce n'est pas une seconde copie de la *donnée*.
+
+**Tests.** `ListAddressRepositoryTest` (chiffrement vérifié sur les octets
+bruts, index aveugle insensible à la casse, unicité par liste, même adresse
+dans deux listes, comptage sans déchiffrement, tri, désinscription
+atteignant toutes les listes et idempotente). `ListAddressServiceTest`
+(normalisation, adresse invalide, doublon, liste inconnue, ligne
+désinscrite ni modifiable ni supprimable, plafond refusé avant écriture,
+défaut du réglage). `ListAddressFlowTest` (adresses seules, critères seuls,
+les deux, dédoublonnage membre ↔ adresse, exclusion des désinscrites, forme
+du destinataire gelé, adresse supprimée ailleurs, désinscription propagée à
+deux listes). `MailingListControllerTest` gagne les quatre routes.
+`MailingListRbacTest` les couvre automatiquement — ses cas viennent de
+`module.json`. Vitest : chargement unique, recherche insensible aux
+accents, filtre, tranches de 50, ligne désinscrite sans boutons, ajout,
+édition en place, annulation, suppression confirmée, et un nom porteur de
+balises rendu en texte.
+
+**Reporté.** L'aller-retour Excel, qui est IT-04 : le dépôt ne contient de
+cette itération ni export, ni import, ni `replaceForList()`.
