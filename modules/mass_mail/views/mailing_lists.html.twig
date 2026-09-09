@@ -93,7 +93,7 @@
                                 <button type="button" class="btn btn-sm btn-outline-secondary d-none mb-2"
                                         data-address-more>Afficher plus</button>
 
-                                <form class="d-flex flex-wrap gap-2 align-items-start" data-address-add-form>
+                                <form class="d-flex flex-wrap gap-2 align-items-start mb-3" data-address-add-form>
                                     <input type="text" class="form-control form-control-sm" style="max-width:12rem;"
                                            data-address-new-name placeholder="Nom" aria-label="Nom" maxlength="150">
                                     <input type="email" class="form-control form-control-sm" style="max-width:16rem;"
@@ -101,6 +101,36 @@
                                            aria-label="Adresse email">
                                     <button type="submit" class="btn btn-sm btn-primary">Ajouter</button>
                                 </form>
+
+                                {# The Excel round trip: the working tool for
+                                   anything at scale, and the only operation
+                                   here with no way back — hence the preview
+                                   between the file and the replacement. #}
+                                <div class="border-top pt-2">
+                                    <div class="d-flex flex-wrap gap-2 align-items-center">
+                                        <a class="btn btn-sm btn-outline-secondary"
+                                           href="/admin/listes-de-diffusion/lists/{{ list.id }}/addresses/export">
+                                            Exporter en Excel
+                                        </a>
+                                        <label class="btn btn-sm btn-outline-secondary mb-0">
+                                            Remplacer depuis Excel
+                                            <input type="file" accept=".xlsx" class="d-none" data-address-import-input>
+                                        </label>
+                                    </div>
+                                    <p class="form-text mb-0">
+                                        Le fichier remplace toutes les adresses de cette liste. Les adresses
+                                        désinscrites sont conservées et restent exclues des envois.
+                                    </p>
+
+                                    <div class="alert alert-warning mt-2 d-none" data-address-import-preview>
+                                        <p class="mb-1 fw-semibold" data-address-import-summary></p>
+                                        <ul class="small mb-2 d-none" data-address-import-errors></ul>
+                                        <button type="button" class="btn btn-sm btn-danger"
+                                                data-address-import-confirm>Remplacer les adresses</button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                                data-address-import-cancel>Annuler</button>
+                                    </div>
+                                </div>
                             </div>
                         </details>
                     </li>

@@ -335,6 +335,9 @@ final class UxConventionsTest extends TestCase
         // when the collapsed section on « Listes de diffusion » is opened.
         // Never a page — the list page is the page.
         '/admin/listes-de-diffusion/lists/{id}/addresses',
+        // XLSX download of a list's own addresses — the file a chief edits
+        // and sends back, never a page.
+        '/admin/listes-de-diffusion/lists/{id}/addresses/export',
         '/admin/locations/gestionnaire-recherche',
         '/admin/sos/transitions',
         '/calendar/feed/personal/{token}.ics',

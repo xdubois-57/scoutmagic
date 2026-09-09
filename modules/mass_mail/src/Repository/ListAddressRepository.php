@@ -190,6 +190,73 @@ class ListAddressRepository
         return $stmt->rowCount();
     }
 
+    /**
+     * Replaces a list's addresses wholesale — what the Excel round trip
+     * needs, and the one operation of this module with no way back.
+     *
+     * **An unsubscribed row is never touched.** It is neither deleted for
+     * being absent from the file nor re-subscribed for being present in
+     * it: an unsubscribe a spreadsheet can undo is not an unsubscribe.
+     * Everything else in the list that the file does not name is deleted.
+     *
+     * @param array<int, array{name: ?string, email: string}> $addresses
+     * @return array{added: int, unchanged: int, removed: int, kept_unsubscribed: int}
+     */
+    public function replaceForList(int $listId, array $addresses): array
+    {
+        $existing = [];
+        foreach ($this->findForList($listId) as $address) {
+            $existing[$this->blindIndex($address->email)] = $address;
+        }
+
+        $seen = [];
+        $added = 0;
+        $unchanged = 0;
+
+        foreach ($addresses as $address) {
+            $index = $this->blindIndex($address['email']);
+            if (isset($seen[$index])) {
+                continue;
+            }
+            $seen[$index] = true;
+
+            $current = $existing[$index] ?? null;
+            if ($current === null) {
+                $this->create($listId, $address['name'], $address['email']);
+                $added++;
+                continue;
+            }
+
+            $unchanged++;
+            // A name may be corrected in the file; an unsubscribed row's
+            // may not, since nothing about it is editable any more.
+            if (!$current->isUnsubscribed() && ($current->name ?? '') !== ($address['name'] ?? '')) {
+                $this->update($current->id, $address['name'], $address['email']);
+            }
+        }
+
+        $removed = 0;
+        $keptUnsubscribed = 0;
+        foreach ($existing as $index => $address) {
+            if (isset($seen[$index])) {
+                continue;
+            }
+            if ($address->isUnsubscribed()) {
+                $keptUnsubscribed++;
+                continue;
+            }
+            $this->delete($address->id);
+            $removed++;
+        }
+
+        return [
+            'added' => $added,
+            'unchanged' => $unchanged,
+            'removed' => $removed,
+            'kept_unsubscribed' => $keptUnsubscribed,
+        ];
+    }
+
     private function blindIndex(string $email): string
     {
         return $this->encryption->blindIndex(mb_strtolower(trim($email)), self::BLIND_INDEX_PURPOSE);

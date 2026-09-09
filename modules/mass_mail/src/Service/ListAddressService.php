@@ -235,6 +235,30 @@ class ListAddressService
     }
 
     /**
+     * The cap, asked of a wholesale REPLACEMENT rather than of an
+     * addition: what the file brings is what the list will hold, plus the
+     * unsubscribed rows a replacement never removes. Asked before
+     * anything is written, twice — once on the analysis so the refusal
+     * arrives before the confirmation is offered, and once on the
+     * confirmation, which arrives in a request of its own and cannot
+     * trust what an earlier one checked.
+     *
+     * @throws MailingListException
+     */
+    public function assertRoomForReplacement(int $listId, int $incoming): void
+    {
+        $max = $this->maxAddresses();
+        $surviving = $this->addressRepository->countForList($listId)['unsubscribed'];
+
+        if ($incoming + $surviving > $max) {
+            throw new MailingListException(
+                "Ce fichier porterait la liste à " . ($incoming + $surviving) . " adresses, au-delà du maximum de "
+                . "{$max} (réglage « Adresses par liste de diffusion (maximum) »). Rien n'a été modifié."
+            );
+        }
+    }
+
+    /**
      * @throws MailingListException
      */
     private function requireList(int $listId): void

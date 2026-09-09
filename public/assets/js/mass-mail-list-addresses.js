@@ -20,6 +20,14 @@
 //
 // No library and no virtualisation: this project has no build step, and a
 // bounded list rendered fifty rows at a time needs neither.
+//
+// The Excel round trip lives here too, and takes two steps on purpose:
+// replacing a list wholesale is the only operation of this screen with no
+// way back, so the upload only ever ANALYSES — the server writes nothing
+// and answers with the counts — and a second, explicit click applies them.
+// The uploaded file is deleted server-side the moment the analysis
+// returns, which is also why the confirmation carries the rows back: there
+// is no file left to re-read.
 (function () {
     var panels = document.querySelectorAll('.mml-addresses');
     if (panels.length === 0) {
@@ -98,6 +106,15 @@
         var addForm = /** @type {HTMLFormElement} */ (part(panel, 'add-form'));
         var newNameEl = /** @type {HTMLInputElement} */ (part(panel, 'new-name'));
         var newEmailEl = /** @type {HTMLInputElement} */ (part(panel, 'new-email'));
+        var importInput = /** @type {HTMLInputElement} */ (part(panel, 'import-input'));
+        var importPreview = part(panel, 'import-preview');
+        var importSummary = part(panel, 'import-summary');
+        var importErrors = part(panel, 'import-errors');
+        var importConfirm = part(panel, 'import-confirm');
+        var importCancel = part(panel, 'import-cancel');
+
+        /** @type {{name: string|null, email: string}[]|null} */
+        var pendingImport = null;
 
         /** @param {string|null} message */
         function showError(message) {
@@ -297,6 +314,121 @@
             renderCount(res.data.counts);
             render();
         }
+
+        /**
+         * The sentence the chief confirms — the four counts, in the order
+         * that matters to somebody about to lose rows: what arrives, what
+         * stays, what goes, and what is kept because it asked to be left
+         * alone.
+         *
+         * @param {{added: number, unchanged: number, removed: number, kept_unsubscribed: number}} summary
+         * @returns {string}
+         */
+        function summarySentence(summary) {
+            var parts = [
+                summary.added + ' adresse' + (summary.added > 1 ? 's' : '') + ' ajoutée'
+                    + (summary.added > 1 ? 's' : ''),
+                summary.unchanged + ' inchangée' + (summary.unchanged > 1 ? 's' : ''),
+                summary.removed + ' supprimée' + (summary.removed > 1 ? 's' : '')
+            ];
+            if (summary.kept_unsubscribed > 0) {
+                parts.push(
+                    summary.kept_unsubscribed + ' désinscrite' + (summary.kept_unsubscribed > 1 ? 's' : '')
+                        + ' — conservée' + (summary.kept_unsubscribed > 1 ? 's' : '')
+                        + ', toujours exclue' + (summary.kept_unsubscribed > 1 ? 's' : '') + ' des envois'
+                );
+            }
+
+            return parts.join(' · ');
+        }
+
+        function hideImportPreview() {
+            pendingImport = null;
+            importPreview.classList.add('d-none');
+            importErrors.textContent = '';
+            importErrors.classList.add('d-none');
+            importInput.value = '';
+        }
+
+        /** @param {string[]} messages */
+        function renderImportErrors(messages) {
+            importErrors.textContent = '';
+            if (messages.length === 0) {
+                importErrors.classList.add('d-none');
+                return;
+            }
+            messages.forEach(function (message) {
+                var item = document.createElement('li');
+                // Server text, and it quotes the chief's own spreadsheet:
+                // textContent, never innerHTML.
+                item.textContent = message;
+                importErrors.appendChild(item);
+            });
+            importErrors.classList.remove('d-none');
+        }
+
+        importInput.addEventListener('change', async function () {
+            var file = importInput.files && importInput.files[0];
+            if (!file) {
+                return;
+            }
+
+            // The one raw fetch() here: a multipart body is outside the
+            // JSON toolbox's remit, so the CSRF token rides the form data
+            // by hand — the finance-movements.js precedent.
+            var formData = new FormData();
+            formData.append('file', file);
+            formData.append('_csrf_token', api.csrfToken());
+
+            var response = await fetch(
+                '/admin/listes-de-diffusion/lists/' + listId + '/addresses/import',
+                { method: 'POST', body: formData }
+            );
+            var data = await response.json().catch(function () { return null; });
+
+            if (!data || !data.success) {
+                hideImportPreview();
+                showError((data && data.errors ? data.errors.join(' ') : null)
+                    || 'Erreur : réponse serveur invalide.');
+                return;
+            }
+
+            showError(null);
+            pendingImport = data.addresses;
+            importSummary.textContent = summarySentence(data.summary);
+            renderImportErrors(data.errors || []);
+            importPreview.classList.remove('d-none');
+            importInput.value = '';
+        });
+
+        importCancel.addEventListener('click', function () {
+            hideImportPreview();
+        });
+
+        importConfirm.addEventListener('click', async function () {
+            if (pendingImport === null) {
+                return;
+            }
+
+            var res = await api.postJson(
+                '/admin/listes-de-diffusion/lists/' + listId + '/addresses/import/confirm',
+                { addresses: pendingImport }
+            );
+            if (!isSuccess(res) || !res.data.counts) {
+                showError(errorMessage(res));
+                return;
+            }
+
+            showError(null);
+            hideImportPreview();
+            renderCount(res.data.counts);
+            // The set on screen is no longer the set in the database —
+            // fetch it again rather than guess what the replacement did.
+            loaded = false;
+            addresses = [];
+            shown = SLICE;
+            await load();
+        });
 
         panel.addEventListener('toggle', function () {
             if (panel.hasAttribute('open')) {

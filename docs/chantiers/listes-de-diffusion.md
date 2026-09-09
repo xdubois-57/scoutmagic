@@ -405,3 +405,77 @@ la ligne qu'un chef ajoute ensuite naissant désinscrite.
 
 **Reporté.** L'aller-retour Excel, qui est IT-04 : le dépôt ne contient de
 cette itération ni export, ni import, ni `replaceForList()`.
+
+---
+
+## IT-04 — L'aller-retour Excel
+
+**Livré.** L'export en flux, l'import en deux temps, et rien d'autre.
+
+- `Service\ListAddressImportService` porte les trois moitiés : `export()`,
+  `analyse()` (n'écrit rien) et `apply()` (la seule qui écrit).
+  `Service\ListAddressImportPreview` est ce que l'analyse renvoie,
+  `Service\ListAddressImportException` ce qu'elle lève sur un problème de
+  structure. `Repository\ListAddressRepository::replaceForList()` fait le
+  remplacement. Version du module montée à 1.13.0.
+- Trois routes : `GET .../addresses/export`, `POST .../addresses/import`
+  (analyse), `POST .../addresses/import/confirm` (application).
+- L'export passe par `Core\Http\SpreadsheetResponse`, comme l'export des
+  réponses de formulaire du module `news` : généré dans la requête,
+  diffusé, jamais écrit là où quelque chose pourrait le resservir. Rien
+  n'étant stocké, il n'y a rien à faire passer par `FileAccessGuard`.
+  `phpoffice/phpspreadsheet` était déjà une dépendance ; aucune n'a été
+  ajoutée.
+
+**Décisions prises en autonomie.**
+
+- **Les deux temps sont deux requêtes, et la confirmation reporte les
+  lignes.** Le document demande « téléversement → analyse → aperçu chiffré
+  → confirmation explicite » et, séparément, que le fichier soit supprimé
+  dès l'analyse. Les deux ensemble impliquent que la confirmation ne peut
+  pas relire le fichier : elle porte donc les lignes que l'analyse lui a
+  renvoyées. Conséquence assumée et traitée : ce que la confirmation porte
+  est **revalidé et redédoublonné**, et le plafond est **redemandé**, dans
+  une requête qui ne peut rien tenir pour acquis d'une précédente. Rien
+  n'y est escaladé — un chef d'unité peut de toute façon ajouter
+  l'adresse de son choix par la route d'ajout.
+- **Le plafond est demandé à l'analyse *et* à la confirmation.** À
+  l'analyse pour que le refus arrive avant qu'on propose de confirmer un
+  remplacement inapplicable ; à la confirmation parce que c'est là qu'on
+  écrit. Il compte les désinscrites comme survivantes, un remplacement ne
+  les retirant jamais.
+- **Les alias d'en-têtes sont tolérants dans un seul sens.** `Adresse`,
+  `Adresse email`, `Email`, `Courriel`, `Mail` pour la colonne d'adresses ;
+  `Nom`, `Nom complet`, `Contact` pour celle des noms. C'est ce que
+  l'import Desk et l'import de publipostage font déjà, et cela n'affaiblit
+  rien : un en-tête inconnu refuse toujours le fichier entier.
+- **Un problème de structure refuse tout ; une mauvaise ligne, non.** Le
+  document demande les deux comportements (« En-tête manquant ou mal
+  orthographié → refus explicite, rien d'écrit. Adresse invalide →
+  signalée, les autres passent »), qui sont deux mécanismes distincts :
+  `ListAddressImportException` d'un côté, la liste `errors` de l'aperçu de
+  l'autre.
+- **Une ligne entièrement vide n'est pas une erreur.** Un bloc séparé d'un
+  autre par une ligne blanche est une habitude de tableur, pas une faute.
+
+**Tests.** `ListAddressImportServiceTest` écrit de **vrais fichiers
+`.xlsx`** avec la bibliothèque que l'importeur relit — la seule façon de
+savoir que les deux sont d'accord : en-tête mal orthographié refusé, aucune
+colonne d'adresses refusée, fichier vide refusé, fichier qui n'est pas un
+classeur refusé, colonnes trouvées dans le désordre et sous d'autres
+orthographes, adresse invalide signalée sans bloquer les autres, doublon
+réduit à une ligne, ligne blanche tolérée, compteurs justes sans rien
+écrire, plafond refusé à l'analyse, remplacement appliqué, désinscrite
+survivant dans les deux sens, nom corrigé sans doublon, confirmation
+revalidée et redédoublonnée, plafond redemandé.
+`ListAddressImportRoutesTest` couvre le `finally` — **le fichier est
+supprimé après une analyse réussie, après un refus de structure et après
+un fichier qui n'est pas un classeur du tout** — plus l'export, le refus
+CSRF, l'extension refusée, et la confirmation. Vitest : l'export est un
+lien, l'analyse envoie du `FormData` avec le jeton, la phrase de
+compteurs, la clause « désinscrite » absente quand il n'y en a pas, les
+erreurs de ligne rendues en texte, le refus structurel sans rien à
+confirmer, « Annuler » qui n'envoie rien, la confirmation qui recharge
+l'ensemble depuis le serveur, et l'échec qui laisse l'écran intact.
+
+**Reporté.** Rien.

@@ -166,6 +166,16 @@ class CsrfTest extends TestCase
                 new MailingListRepository($this->pdo),
                 new SettingService(new \Core\Config\SettingRepository($this->pdo)),
                 $this->createMock(\Core\Journal\JournalService::class)
+            ),
+            new \Modules\MassMail\Service\ListAddressImportService(
+                new \Modules\MassMail\Repository\ListAddressRepository($this->pdo, $encryption),
+                new \Modules\MassMail\Service\ListAddressService(
+                    new \Modules\MassMail\Repository\ListAddressRepository($this->pdo, $encryption),
+                    new MailingListRepository($this->pdo),
+                    new SettingService(new \Core\Config\SettingRepository($this->pdo)),
+                    $this->createMock(\Core\Journal\JournalService::class)
+                ),
+                $this->createMock(\Core\Journal\JournalService::class)
             )
         );
 

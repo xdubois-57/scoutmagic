@@ -2825,6 +2825,22 @@ Where the unit has camped, and every stay it made there. The product answers one
 
 **The JSON endpoints the dialog owned are deleted, not orphaned**: `GET /mass-mail/{id}/data`, `PATCH /mass-mail/{id}` and `DELETE /mass-mail/attachments/{id}`. `POST /mass-mail/recipients/{id}/resend` is the one JSON write left in the controller, and its caller is the tracking table's own fetch.
 
+### 8.71nonies The Excel round trip of a list's addresses, and why it takes two steps
+
+Editing three hundred addresses one row at a time is not a feature, it is a punishment — so a list's own addresses go out as an `.xlsx` and come back as one. `Modules\MassMail\Service\ListAddressImportService` owns all three halves of it: `export()`, `analyse()` and `apply()`.
+
+**The export is generated in the request and streamed** (`Core\Http\SpreadsheetResponse`, the precedent `Modules\News\Controller\FormController` already set), never written anywhere something could later serve it. Nothing is stored, so there is nothing for `FileAccessGuard` to guard. Three columns — `Nom`, `Adresse`, `Désinscrit` — and every cell is written as **explicit text** (SECURITY.md §23): a name is whatever somebody typed, and a leading `=` in a general-typed cell is a live formula the moment the chief opens the file.
+
+**Columns are found by their header, never by their position** — the Desk import's own rule. Read by position, a file whose address column is misspelled would replace every address with a column of names, silently; read by header, it is refused whole, naming what was expected. `Désinscrit` is read and then deliberately ignored: no import re-subscribes anybody, and none unsubscribes anybody either.
+
+**Replacing a list wholesale is the one operation of this module with no way back**, so it takes two steps. The upload only ever ANALYSES — nothing is written — and answers with the counts a confirmation would produce: *« 12 adresses ajoutées · 284 inchangées · 5 supprimées · 1 désinscrite — conservée, toujours exclue des envois »*. A second, explicit click applies them. That is the house habit: the Desk import has its mappings confirmed, an update restores itself.
+
+**The uploaded file is deleted the moment the analysis returns, success or failure** — the controller's `finally` (SECURITY.md §5, the same rule as the Desk CSV and the mail-merge audience), and the reason the confirmation carries the rows back rather than re-reading a file: there is no file left. What it carries is therefore treated as input like any other — re-validated, re-deduplicated, and re-checked against the cap, in a request that cannot trust what an earlier one checked.
+
+**A structural problem refuses the whole file; a bad line does not.** A missing address column, a duplicate header, something that is not a spreadsheet: `ListAddressImportException`, every problem listed at once, nothing written. An invalid address on line 3: reported beside the preview, the other lines still importable. Two lines naming the same address: one row, and a count of the duplicates.
+
+**An unsubscribed row survives the replacement in both directions**: it is not deleted for being absent from the file, and not re-subscribed for being present in it. `ListAddressRepository::replaceForList()` skips them on both passes, and the cap counts them as surviving, since a replacement never removes them.
+
 ### 8.71octies A list writes to people who are nobody in the members table (`mass_mail_list_addresses`)
 
 A mailing list could only ever contain members of the site. The commune, the paroisse, the owner of a camp ground, a former member Desk never knew — none of them were reachable, and a chief who needed to write to them left the site to do it. A custom list now carries **its own addresses**, and resolving it is the **union** of what its criteria resolve and those addresses.

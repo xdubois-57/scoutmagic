@@ -2,7 +2,7 @@
   "id": "mass_mail",
   "name": "Envoi de mails",
   "description": "Envoi de mails groupés aux membres de l'unité : listes de diffusion par défaut ou personnalisées, publipostage depuis un fichier Excel avec variables personnalisées, mode test, envoi en arrière-plan par lots, suivi détaillé des envois. Accueille aussi, lorsque le module inscriptions est actif, une liste prédéfinie non modifiable pour l'année scoute cible.",
-  "version": "1.12.0",
+  "version": "1.13.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -238,6 +238,33 @@
       "method": "POST",
       "controller": "Modules\\MassMail\\Controller\\MailingListController",
       "action": "addAddress",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/listes-de-diffusion/lists/{id}/addresses/export",
+      "method": "GET",
+      "controller": "Modules\\MassMail\\Controller\\MailingListController",
+      "action": "exportAddresses",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/listes-de-diffusion/lists/{id}/addresses/import",
+      "method": "POST",
+      "controller": "Modules\\MassMail\\Controller\\MailingListController",
+      "action": "importAddresses",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/listes-de-diffusion/lists/{id}/addresses/import/confirm",
+      "method": "POST",
+      "controller": "Modules\\MassMail\\Controller\\MailingListController",
+      "action": "confirmAddressImport",
       "menu": "espace_admin",
       "role_min": "admin",
       "label": ""
