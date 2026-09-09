@@ -524,6 +524,16 @@ class MassMailService
      * The classic list freeze — every member the list resolves to right
      * now, expanded into all their currently-valid addresses.
      *
+     * A custom list also resolves to **its own addresses**
+     * (`mass_mail_list_addresses`), which arrive here with `member_id`
+     * null, already deduplicated against the members by
+     * `MailingListService::resolveMembersForYears()`. Such a recipient is
+     * written with `member_id`, `scout_year_id` and `member_email_id` all
+     * null and no `audience_row_id` — the shape that tells it apart from
+     * an external mail-merge recipient, which is exactly the distinction
+     * `Controller\UnsubscribeController` needs to send an unsubscribe to
+     * the right table.
+     *
      * @return array{0: int, 1: int} [valid recipient rows, invalid-address rows]
      */
     private function freezeListRecipients(Email $email): array
@@ -536,7 +546,29 @@ class MassMailService
 
         $validCount = 0;
         $invalidCount = 0;
+
+        // Members first, in a pass of their own, and the list's own
+        // addresses second — because only the first pass knows the whole
+        // set of addresses a member is actually written to.
+        //
+        // Service\MailingListService already dropped a list address equal
+        // to a member's DESK address, which is the only one it can see. A
+        // member is frozen here at every valid address they have
+        // (member_emails included), so a list address matching a member's
+        // SECOND address would otherwise be a second mail to the same
+        // person — which is exactly what « le site compare les adresses,
+        // pas les fiches » promises does not happen. The set below is
+        // what makes that promise true, and it can only be built once the
+        // member rows are written.
+        $writtenAddresses = [];
+        $listAddresses = [];
+
         foreach ($members as $member) {
+            if ($member['member_id'] === null) {
+                $listAddresses[] = (string) $member['email'];
+                continue;
+            }
+
             $deskEmail = $member['email'] !== null && filter_var($member['email'], FILTER_VALIDATE_EMAIL) !== false
                 ? $member['email']
                 : null;
@@ -554,11 +586,70 @@ class MassMailService
                     $email->id, $member['member_id'], $member['scout_year_id'], $memberEmail->email,
                     Recipient::STATUS_PENDING, null, $memberEmail->id
                 );
+                $writtenAddresses[mb_strtolower(trim($memberEmail->email))] = true;
                 $validCount++;
             }
         }
 
+        foreach ($listAddresses as $listAddress) {
+            $key = mb_strtolower(trim($listAddress));
+            if (isset($writtenAddresses[$key])) {
+                // Already written to as a member, at this very address.
+                // No row at all rather than an error row: nothing went
+                // wrong and nobody was left out — the person IS a
+                // recipient, once, which is what the count must say.
+                continue;
+            }
+            $writtenAddresses[$key] = true;
+
+            [$validCount, $invalidCount] = $this->freezeListAddressRecipient(
+                $email,
+                $listAddress,
+                $validCount,
+                $invalidCount
+            );
+        }
+
         return [$validCount, $invalidCount];
+    }
+
+    /**
+     * One address of a custom list, frozen as its own recipient row.
+     *
+     * The module's external suppression list is honoured here too: a
+     * mail-merge unsubscribe and a list-address unsubscribe are the same
+     * request from the same person, and an address that asked not to be
+     * written to through one path must not be written to through the
+     * other. The row is written all the same, as an explicit error rather
+     * than a silent omission — the tracking page then says why somebody
+     * was not written to, which « 312 contacts, 304 envoyés » never did.
+     *
+     * @return array{0: int, 1: int} [valid recipient rows, invalid-address rows]
+     */
+    private function freezeListAddressRecipient(
+        Email $email,
+        string $address,
+        int $validCount,
+        int $invalidCount
+    ): array {
+        if (filter_var($address, FILTER_VALIDATE_EMAIL) === false) {
+            $this->recipientRepository->create(
+                $email->id, null, null, $address, Recipient::STATUS_ERROR, 'Adresse invalide'
+            );
+            return [$validCount, $invalidCount + 1];
+        }
+
+        if ($this->suppressedAddressRepository->isSuppressed($address)) {
+            $this->recipientRepository->create(
+                $email->id, null, null, $address,
+                Recipient::STATUS_ERROR, 'Adresse désinscrite des emails groupés'
+            );
+            return [$validCount, $invalidCount + 1];
+        }
+
+        $this->recipientRepository->create($email->id, null, null, $address, Recipient::STATUS_PENDING, null);
+
+        return [$validCount + 1, $invalidCount];
     }
 
     /**

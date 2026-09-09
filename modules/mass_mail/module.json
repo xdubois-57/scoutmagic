@@ -2,7 +2,7 @@
   "id": "mass_mail",
   "name": "Envoi de mails",
   "description": "Envoi de mails groupés aux membres de l'unité : listes de diffusion par défaut ou personnalisées, publipostage depuis un fichier Excel avec variables personnalisées, mode test, envoi en arrière-plan par lots, suivi détaillé des envois. Accueille aussi, lorsque le module inscriptions est actif, une liste prédéfinie non modifiable pour l'année scoute cible.",
-  "version": "1.11.0",
+  "version": "1.12.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -225,6 +225,42 @@
       "label": ""
     },
     {
+      "path": "/admin/listes-de-diffusion/lists/{id}/addresses",
+      "method": "GET",
+      "controller": "Modules\\MassMail\\Controller\\MailingListController",
+      "action": "addresses",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/listes-de-diffusion/lists/{id}/addresses",
+      "method": "POST",
+      "controller": "Modules\\MassMail\\Controller\\MailingListController",
+      "action": "addAddress",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/listes-de-diffusion/addresses/{id}",
+      "method": "PATCH",
+      "controller": "Modules\\MassMail\\Controller\\MailingListController",
+      "action": "updateAddress",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/listes-de-diffusion/addresses/{id}",
+      "method": "DELETE",
+      "controller": "Modules\\MassMail\\Controller\\MailingListController",
+      "action": "deleteAddress",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
       "path": "/admin/listes-de-diffusion/lists/{id}/toggle",
       "method": "POST",
       "controller": "Modules\\MassMail\\Controller\\MailingListController",
@@ -265,6 +301,13 @@
       "editable": false,
       "label": "Rétention des audiences de publipostage (mois)",
       "description": "Durée de conservation des données importées d'un fichier Excel de publipostage après l'envoi de l'email, avant leur suppression définitive. Paramètre en lecture seule."
+    },
+    {
+      "key": "mass_mail_list_addresses_max",
+      "default_value": "2000",
+      "type": "number",
+      "label": "Adresses par liste de diffusion (maximum)",
+      "description": "Nombre maximum d'adresses propres qu'une liste de diffusion peut contenir. Deux raisons, et elles sont indépendantes. Techniquement, ces adresses sont chiffrées : ouvrir l'écran des adresses les déchiffre toutes en PHP, ce qu'un hébergement mutualisé fait mal passé quelques milliers. Et pratiquement, une liste de dix mille adresses achetées abîmerait la réputation d'envoi du domaine — donc de tous les emails de l'unité, y compris ceux qui partent aux familles — bien plus vite que le site ne s'en remettrait."
     },
     {
       "key": "previous_year_active_cutoff",

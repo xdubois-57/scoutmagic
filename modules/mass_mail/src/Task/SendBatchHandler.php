@@ -329,12 +329,15 @@ class SendBatchHandler implements TaskHandlerInterface
                 new \Modules\MassMail\Repository\MailingListRepository($pdo),
                 new \Modules\MassMail\Repository\MemberResolutionRepository($pdo, $context->encryption),
                 $sectionService,
-                new \Core\Import\FunctionRepository($pdo)
+                new \Core\Import\FunctionRepository($pdo),
                 // No BadgeService here: this instance only ever RESOLVES a
-                // list at send time, which reads mass_mail_list_badges
-                // straight through the repository. The service needs one
-                // solely to offer the badge vocabulary to the criteria
-                // form, and there is no form in a scheduled task.
+                // list, which reads mass_mail_list_badges straight through
+                // the repository. The service needs one solely to offer
+                // the badge vocabulary to the criteria form, and there is
+                // no form in a scheduled task. The address repository IS
+                // passed: it is half of what a custom list resolves to.
+                null,
+                new \Modules\MassMail\Repository\ListAddressRepository($pdo, $context->encryption)
             ),
             $memberService,
             $memberEmailService,

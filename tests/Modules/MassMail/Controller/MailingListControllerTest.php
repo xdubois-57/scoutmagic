@@ -21,7 +21,9 @@ use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
 use Modules\MassMail\Controller\MailingListController;
 use Modules\MassMail\Repository\MailingListRepository;
+use Modules\MassMail\Repository\ListAddressRepository;
 use Modules\MassMail\Repository\MemberResolutionRepository;
+use Modules\MassMail\Service\ListAddressService;
 use Modules\MassMail\Service\MailingListService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -51,6 +53,7 @@ class MailingListControllerTest extends TestCase
     private int $functionId;
     private int $badgeId;
     private ScoutYearResolver $scoutYearResolver;
+    private ListAddressService $listAddressService;
 
     protected function setUp(): void
     {
@@ -91,6 +94,12 @@ class MailingListControllerTest extends TestCase
             new BadgeService(new BadgeRepository($this->pdo), new MemberBadgeRepository($this->pdo), $sectionService)
         );
 
+        $this->listAddressService = new ListAddressService(
+            new ListAddressRepository($this->pdo, $encryption),
+            new MailingListRepository($this->pdo),
+            new SettingService(new SettingRepository($this->pdo)),
+            $this->createMock(\Core\Journal\JournalService::class)
+        );
         $this->scoutYearResolver = new ScoutYearResolver(
             new ScoutYearService($this->pdo),
             new SettingService(new SettingRepository($this->pdo)),
@@ -99,7 +108,8 @@ class MailingListControllerTest extends TestCase
         $this->controller = new MailingListController(
             $this->createMock(Environment::class),
             $this->listService,
-            $this->scoutYearResolver
+            $this->scoutYearResolver,
+            $this->listAddressService
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -139,7 +149,12 @@ class MailingListControllerTest extends TestCase
             }
         );
 
-        $response = (new MailingListController($twig, $this->listService, $this->scoutYearResolver))
+        $response = (new MailingListController(
+            $twig,
+            $this->listService,
+            $this->scoutYearResolver,
+            $this->listAddressService
+        ))
             ->index(new Request('GET', '/admin/listes-de-diffusion', [], [], [], []), []);
 
         $this->assertSame(200, $response->getStatusCode());
@@ -150,6 +165,7 @@ class MailingListControllerTest extends TestCase
                 'function_ids' => [$this->functionId],
                 'section_ids' => [$this->sectionId],
                 'badge_ids' => [$this->badgeId],
+                'address_counts' => ['total' => 0, 'unsubscribed' => 0],
             ],
             $captured['custom_list_criteria'][$list->id]
         );
@@ -311,10 +327,109 @@ class MailingListControllerTest extends TestCase
         $this->assertNotNull($this->listService->getCustomListById($list->id));
     }
 
+    public function testAddressesAnswersTheWholeDecryptedSetOfOneList(): void
+    {
+        $list = $this->list('Avec des adresses');
+        $this->listAddressService->add($list->id, 'Commune de Wavre', 'jeunesse@wavre.be');
+        $this->listAddressService->add($list->id, null, 'cure@paroisse.be');
+
+        $response = $this->controller->addresses(
+            new Request('GET', '/admin/listes-de-diffusion/lists/' . $list->id . '/addresses', [], [], [], []),
+            ['id' => (string) $list->id]
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $payload = json_decode($response->getBody(), true);
+        $this->assertIsArray($payload);
+        $this->assertTrue($payload['success']);
+        // Sorted by name then address: the nameless one comes first.
+        $this->assertSame(
+            ['cure@paroisse.be', 'jeunesse@wavre.be'],
+            array_column($payload['addresses'], 'email')
+        );
+        $this->assertNull($payload['addresses'][0]['name']);
+        $this->assertNull($payload['addresses'][0]['unsubscribed_at']);
+    }
+
+    public function testAddressesOfAnUnknownListIsA404RatherThanAnEmptySet(): void
+    {
+        $response = $this->controller->addresses(
+            new Request('GET', '/admin/listes-de-diffusion/lists/9999/addresses', [], [], [], []),
+            ['id' => '9999']
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testAddAddressStoresItAndAnswersWithTheListsNewCounts(): void
+    {
+        $list = $this->list('Avec des adresses');
+
+        $payload = $this->call('addAddress', ['id' => (string) $list->id], [
+            'name' => 'Commune de Wavre',
+            'email' => 'Jeunesse@Wavre.BE',
+        ]);
+
+        $this->assertTrue($payload['success']);
+        $this->assertSame('jeunesse@wavre.be', $payload['address']['email']);
+        $this->assertSame(['total' => 1, 'unsubscribed' => 0], $payload['counts']);
+    }
+
+    public function testAddAddressRefusesAnInvalidOneWithTheServicesOwnSentence(): void
+    {
+        $list = $this->list('Avec des adresses');
+
+        $response = $this->controller->addAddress(
+            $this->jsonRequest(['email' => 'pas-une-adresse', '_csrf_token' => CsrfGuard::generateToken()]),
+            ['id' => (string) $list->id]
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $payload = json_decode($response->getBody(), true);
+        $this->assertIsArray($payload);
+        $this->assertSame('Adresse email invalide.', $payload['error']);
+        $this->assertSame(0, $this->listAddressService->countForList($list->id)['total']);
+    }
+
+    public function testUpdateAddressRewritesTheRow(): void
+    {
+        $list = $this->list('Avec des adresses');
+        $address = $this->listAddressService->add($list->id, 'Commune', 'ancienne@wavre.be');
+
+        $payload = $this->call('updateAddress', ['id' => (string) $address->id], [
+            'name' => 'Commune de Wavre',
+            'email' => 'nouvelle@wavre.be',
+        ]);
+
+        $this->assertSame('Commune de Wavre', $payload['address']['name']);
+        $this->assertSame('nouvelle@wavre.be', $payload['address']['email']);
+    }
+
+    public function testDeleteAddressRemovesItAndAnswersWithTheListsNewCounts(): void
+    {
+        $list = $this->list('Avec des adresses');
+        $address = $this->listAddressService->add($list->id, null, 'cure@paroisse.be');
+
+        $payload = $this->call('deleteAddress', ['id' => (string) $address->id], []);
+
+        $this->assertSame(['total' => 0, 'unsubscribed' => 0], $payload['counts']);
+        $this->assertNull($this->listAddressService->findById($address->id));
+    }
+
+    public function testDeletingAnAddressThatIsNotThereIsRefused(): void
+    {
+        $response = $this->controller->deleteAddress(
+            $this->jsonRequest(['_csrf_token' => CsrfGuard::generateToken()]),
+            ['id' => '9999']
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+    }
+
     /**
-     * Every one of the four endpoints reads its JSON body, and a body that
-     * is not JSON at all is a refusal before anything else happens — not a
-     * PHP notice on `$data['name']`.
+     * Every one of the endpoints that WRITES reads its JSON body, and a
+     * body that is not JSON at all is a refusal before anything else
+     * happens — not a PHP notice on `$data['name']`.
      */
     #[\PHPUnit\Framework\Attributes\DataProvider('writingActionProvider')]
     public function testEveryWriteRefusesABodyThatIsNotJson(string $action): void
@@ -342,7 +457,22 @@ class MailingListControllerTest extends TestCase
             'updateList' => ['updateList'],
             'toggleList' => ['toggleList'],
             'deleteList' => ['deleteList'],
+            'addAddress' => ['addAddress'],
+            'updateAddress' => ['updateAddress'],
+            'deleteAddress' => ['deleteAddress'],
         ];
+    }
+
+    private function list(string $name): \Modules\MassMail\Repository\MailingList
+    {
+        return $this->listService->createCustomList(
+            $name,
+            'Description.',
+            [$this->functionId],
+            [$this->sectionId],
+            [],
+            $this->accountId
+        );
     }
 
     /**

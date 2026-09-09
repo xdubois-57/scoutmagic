@@ -62,6 +62,10 @@ class ModuleManifestTest extends TestCase
                 '/admin/listes-de-diffusion/preview-count',
                 '/admin/listes-de-diffusion/lists',
                 '/admin/listes-de-diffusion/lists/{id}',
+                '/admin/listes-de-diffusion/lists/{id}/addresses',
+                '/admin/listes-de-diffusion/lists/{id}/addresses',
+                '/admin/listes-de-diffusion/addresses/{id}',
+                '/admin/listes-de-diffusion/addresses/{id}',
                 '/admin/listes-de-diffusion/lists/{id}/toggle',
                 '/admin/listes-de-diffusion/lists/{id}',
             ],
@@ -91,7 +95,13 @@ class ModuleManifestTest extends TestCase
         $keys = array_map(fn(array $s) => $s['key'], $this->manifest->settings);
 
         $this->assertSame(
-            ['batch_size', 'batch_interval_minutes', 'merge_retention_months', 'previous_year_active_cutoff'],
+            [
+                'batch_size',
+                'batch_interval_minutes',
+                'merge_retention_months',
+                'mass_mail_list_addresses_max',
+                'previous_year_active_cutoff',
+            ],
             $keys
         );
         $this->assertSame(

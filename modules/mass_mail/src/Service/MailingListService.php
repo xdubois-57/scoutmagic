@@ -15,6 +15,8 @@ use Core\Import\FunctionRepository;
 use Core\Member\SectionService;
 use Core\ScoutYear\ScoutYearResolver;
 use Modules\MassMail\Repository\Email;
+use Modules\MassMail\Repository\ListAddress;
+use Modules\MassMail\Repository\ListAddressRepository;
 use Modules\MassMail\Repository\MailingList;
 use Modules\MassMail\Repository\MailingListRepository;
 use Modules\MassMail\Repository\MemberResolutionRepository;
@@ -51,6 +53,14 @@ class MailingListService
          * and a null one simply offers no badge to choose from.
          */
         private ?BadgeService $badgeService = null,
+        /**
+         * A custom list's own addresses — the second half of what it
+         * resolves to. Nullable and defaulted for the same reason as
+         * $badgeService: the many tests that predate it keep their
+         * constructor call, and a null one simply means the criteria are
+         * all a list resolves to.
+         */
+        private ?ListAddressRepository $addressRepository = null,
         private ?ExternalMailingListProvider $externalListProvider = null,
         /**
          * The projection (ARCHITECTURE.md §7.5, `registration`'s
@@ -432,6 +442,17 @@ class MailingListService
     }
 
     /**
+     * A custom list's own addresses that may be written to — the
+     * unsubscribed ones never leave the repository.
+     *
+     * @return ListAddress[]
+     */
+    public function resolveListAddresses(int $listId): array
+    {
+        return $this->addressRepository?->findActiveForList($listId) ?? [];
+    }
+
+    /**
      * Multi-year variant (module addendum: an email can target several
      * scout years at once, e.g. a "Montages dias" retrospective spanning
      * two promotions) — resolves the same list against each selected
@@ -446,8 +467,17 @@ class MailingListService
      * reliable, since a "previous" year's row can be created, and so get
      * its id, after "current"'s).
      *
+     * **A custom list is the UNION of its criteria and its own
+     * addresses** (`mass_mail_list_addresses`), and both halves go through
+     * the same deduplication: an external address that happens to be a
+     * resolved member's too is one recipient, not two. The comparison is
+     * on the NORMALISED address rather than on a member id, which is what
+     * makes that case work at all — the two halves share no identifier.
+     * An address entry carries `member_id` and `scout_year_id` null, the
+     * same shape an external mail-merge recipient already had.
+     *
      * @param int[] $scoutYearIds Most-recent-first.
-     * @return array<int, array{member_id: int, email: ?string, scout_year_id: int}>
+     * @return array<int, array{member_id: ?int, email: ?string, scout_year_id: ?int}>
      * @throws MailingListException on an unknown custom list id, or when the external list is unavailable
      */
     public function resolveMembersForYears(
@@ -498,6 +528,24 @@ class MailingListService
                     'member_id' => $member['member_id'],
                     'email' => $member['email'],
                     'scout_year_id' => $scoutYearId
+                ];
+            }
+        }
+
+        // The second half of a custom list, resolved once rather than per
+        // year: an address belongs to the list, not to a scout year.
+        if ($listType === 'custom' && $listId !== null) {
+            foreach ($this->resolveListAddresses($listId) as $address) {
+                $addressKey = mb_strtolower(trim($address->email));
+                if (isset($seenAddresses[$addressKey])) {
+                    continue;
+                }
+                $seenAddresses[$addressKey] = true;
+
+                $merged[] = [
+                    'member_id' => null,
+                    'email' => $address->email,
+                    'scout_year_id' => null,
                 ];
             }
         }

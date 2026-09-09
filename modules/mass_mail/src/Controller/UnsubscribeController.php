@@ -14,6 +14,7 @@ use Core\Http\Response;
 use Core\Member\MemberEmailService;
 use Modules\MassMail\Repository\RecipientRepository;
 use Modules\MassMail\Repository\SuppressedAddressRepository;
+use Modules\MassMail\Service\ListAddressService;
 use Twig\Environment;
 
 /**
@@ -41,7 +42,12 @@ class UnsubscribeController extends AbstractController
         protected Environment $twig,
         private RecipientRepository $recipientRepository,
         private MemberEmailService $memberEmailService,
-        private SuppressedAddressRepository $suppressedAddressRepository
+        private SuppressedAddressRepository $suppressedAddressRepository,
+        /**
+         * Nullable so the tests that predate a list's own addresses keep
+         * their constructor call; the composition roots always pass it.
+         */
+        private ?ListAddressService $listAddressService = null
     ) {
     }
 
@@ -88,18 +94,46 @@ class UnsubscribeController extends AbstractController
             return $this->render('@mass_mail/unsubscribe.html.twig', ['state' => 'invalid']);
         }
 
+        // A member recipient frozen without a member_email_id (the
+        // defensive "no usable address" error row) never got a token, so
+        // this is unreachable in practice — fail gracefully anyway.
+        if ($recipient->memberEmailId === null && $recipient->memberId !== null) {
+            return $this->render('@mass_mail/unsubscribe.html.twig', ['state' => 'invalid']);
+        }
+
+        // Whatever kind of recipient asked, the request is the same one:
+        // « stop writing to me ». It is answered on every table that could
+        // write to this address again, never only on the one the link
+        // happened to come from — a person who unsubscribes from a list
+        // address and then receives a publipostage has not been heard.
+        if ($recipient->emailAddress !== null) {
+            // Every list's own rows holding this address, flagged in one
+            // statement — which is what keeps them visible and greyed on
+            // the screen rather than silently skipped.
+            $this->listAddressService?->unsubscribeEverywhere($recipient->emailAddress);
+
+            // And the module's own suppression list, WHOEVER asked — a
+            // member included. A member's own unsubscribe deactivates
+            // their member_emails row, which stops member mail and
+            // nothing else: a chief could add that same address to a list
+            // tomorrow, or an Excel import could carry it, and neither
+            // path consults member_emails. What the person asked us to
+            // stop writing to is the ADDRESS, so the record of the
+            // request has to live somewhere that is not attached to their
+            // membership.
+            //
+            // It never narrows member mail in return: the member freeze
+            // path is governed by member_emails.is_active and does not
+            // read this table, so somebody who re-adds their address in
+            // their account is written to again as a member. Only the two
+            // address-keyed paths stay closed — a list's own addresses
+            // and a publipostage — and those are exactly the two nobody
+            // but a chief can reopen.
+            $this->suppressedAddressRepository->suppress($recipient->emailAddress);
+        }
+
         if ($recipient->memberEmailId !== null) {
             $this->memberEmailService->unsubscribe($recipient->memberEmailId);
-        } elseif ($recipient->memberId === null && $recipient->emailAddress !== null) {
-            // External mail-merge recipient — no member_emails row to flip,
-            // so the address lands on the module's own suppression list,
-            // honored by every future mail-merge freeze.
-            $this->suppressedAddressRepository->suppress($recipient->emailAddress);
-        } else {
-            // A member recipient frozen without a member_email_id (the
-            // defensive "no usable address" error row) never got a token,
-            // so this is unreachable in practice — fail gracefully anyway.
-            return $this->render('@mass_mail/unsubscribe.html.twig', ['state' => 'invalid']);
         }
 
         return $this->render('@mass_mail/unsubscribe.html.twig', ['state' => 'done']);

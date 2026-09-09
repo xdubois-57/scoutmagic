@@ -160,6 +160,12 @@ class CsrfTest extends TestCase
                 new \Core\Config\ScoutYearService($this->pdo),
                 new SettingService(new \Core\Config\SettingRepository($this->pdo)),
                 new \Core\Import\MemberYearRepository($this->pdo)
+            ),
+            new \Modules\MassMail\Service\ListAddressService(
+                new \Modules\MassMail\Repository\ListAddressRepository($this->pdo, $encryption),
+                new MailingListRepository($this->pdo),
+                new SettingService(new \Core\Config\SettingRepository($this->pdo)),
+                $this->createMock(\Core\Journal\JournalService::class)
             )
         );
 
