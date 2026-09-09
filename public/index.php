@@ -4751,7 +4751,9 @@ if ($isEnabled('mass_mail')) {
     $frontController->registerController(
         \Modules\MassMail\Controller\MemberEmailController::class,
         new \Modules\MassMail\Controller\MemberEmailController(
-            $twig, $memberService, new \Modules\MassMail\Service\MassMailQueryService(
+            $twig,
+            $memberService,
+            new \Modules\MassMail\Service\MassMailQueryService(
                 $massMailRecipientRepo,
                 $massMailAudienceRepo,
                 new \Modules\MassMail\Service\MergeRenderer()
@@ -6255,8 +6257,10 @@ if ($isEnabled('registration')) {
         $encryptionService);
     // IT-17 — the staff's own entry on the Passage page, kept apart from
     // the family's answer so a chief typing a note never fabricates one.
-    $registrationPassageNoteRepository = new \Modules\Registration\Repository\PassageNoteRepository($pdo,
-        $encryptionService);
+    $registrationPassageNoteRepository = new \Modules\Registration\Repository\PassageNoteRepository(
+        $pdo,
+        $encryptionService
+    );
     // IT-16 — the link between an answer and the « Départs » box. Built
     // BEFORE the service that records answers, because recording one and
     // moving the box is a single gesture: nothing may hold a
@@ -7174,10 +7178,10 @@ if (
 ) {
     $massMailQueryForMember = $isEnabled('mass_mail')
         ? new \Modules\MassMail\Service\MassMailQueryService(
-                $massMailRecipientRepo,
-                $massMailAudienceRepo,
-                new \Modules\MassMail\Service\MergeRenderer()
-            )
+            $massMailRecipientRepo,
+            $massMailAudienceRepo,
+            new \Modules\MassMail\Service\MergeRenderer()
+        )
         : null;
     $galleryAlbumProviderForMember = $isEnabled('gallery')
         ? new \Modules\Gallery\Service\GalleryMemberQueryService(
@@ -7312,9 +7316,17 @@ if (isset(
     $frontController->registerController(
         \Modules\Gallery\Controller\GalleryController::class,
         new \Modules\Gallery\Controller\GalleryController(
-            $twig, $galleryAlbumService, $galleryMediaService, $galleryMediaRepo, $memberService,
-            $sectionService, $scoutYearService, $galleryStorageBackendFactory, $galleryStorageLocationService,
-            $galleryDelegatedAlbumAccessRegistry, $linkedMemberIds
+            $twig,
+            $galleryAlbumService,
+            $galleryMediaService,
+            $galleryMediaRepo,
+            $memberService,
+            $sectionService,
+            $scoutYearService,
+            $galleryStorageBackendFactory,
+            $galleryStorageLocationService,
+            $galleryDelegatedAlbumAccessRegistry,
+            $linkedMemberIds
         )
     );
 }
