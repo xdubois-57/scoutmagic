@@ -9,12 +9,15 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * Locks in module.json's RBAC-relevant declarations — module spec:
- * "Envoi de mails" (espace_chefs) is role_min chief; "Configuration envoi
- * de mails" (configuration menu) must be role_min superadmin since
- * Core\Module\ModuleManifest hard-enforces that the 'configuration' menu's
- * own floor is superadmin (see ARCHITECTURE.md §7 and
- * ModuleManifest::MENU_MIN_ROLES) — 'admin' would fail manifest
- * validation entirely, which this test also guards against regressing to.
+ * "Envoi de mails" (espace_chefs) is role_min chief; « Listes de
+ * diffusion » (espace_admin menu) is role_min admin.
+ *
+ * That second floor is the reason the page left Configuration.
+ * Core\Module\ModuleManifest hard-enforces each menu's own floor
+ * (MENU_MIN_ROLES) and refuses at load time any route more permissive than
+ * its menu: `configuration` imposes `superadmin`, so `admin` was not
+ * declarable there at all, while `espace_admin`'s floor IS `admin`. The
+ * tests below are what stops the page drifting back.
  */
 class ModuleManifestTest extends TestCase
 {
@@ -34,13 +37,66 @@ class ModuleManifestTest extends TestCase
         }
     }
 
-    public function testConfigurationRoutesRequireSuperadminRole(): void
+    public function testTheModuleDeclaresNoConfigurationRouteAnyMore(): void
     {
+        $configurationRoutes = array_filter($this->manifest->routes, fn(array $r) => $r['menu'] === 'configuration');
+
+        $this->assertSame([], array_values($configurationRoutes));
+    }
+
+    public function testMailingListRoutesLiveInEspaceAdminAtAdminFloor(): void
+    {
+        $paths = [];
         foreach ($this->manifest->routes as $route) {
-            if ($route['menu'] === 'configuration') {
-                $this->assertSame('superadmin', $route['role_min'], "Route {$route['path']} should be role_min superadmin");
+            if (!str_starts_with($route['path'], '/admin/listes-de-diffusion')) {
+                continue;
             }
+            $paths[] = $route['path'];
+            $this->assertSame('espace_admin', $route['menu'], "Route {$route['path']} should be in espace_admin");
+            $this->assertSame('admin', $route['role_min'], "Route {$route['path']} should be role_min admin");
         }
+
+        $this->assertSame(
+            [
+                '/admin/listes-de-diffusion',
+                '/admin/listes-de-diffusion/lists',
+                '/admin/listes-de-diffusion/lists/{id}',
+                '/admin/listes-de-diffusion/lists/{id}/toggle',
+                '/admin/listes-de-diffusion/lists/{id}',
+            ],
+            $paths
+        );
+    }
+
+    public function testTheMailingListPageIsLabelledForWhatItDecides(): void
+    {
+        $index = array_values(array_filter(
+            $this->manifest->routes,
+            fn(array $r) => $r['path'] === '/admin/listes-de-diffusion' && $r['method'] === 'GET'
+        ))[0] ?? null;
+
+        $this->assertNotNull($index);
+        $this->assertSame('Listes de diffusion', $index['label']);
+    }
+
+    /**
+     * The four sending settings are ordinary SettingService rows and
+     * Configuration > Réglages already edits them — the module's own
+     * duplicate editor (POST /config/mass-mail/settings) is gone, and the
+     * settings themselves must survive that removal.
+     */
+    public function testTheSendingSettingsSurviveTheRemovalOfTheirOwnForm(): void
+    {
+        $keys = array_map(fn(array $s) => $s['key'], $this->manifest->settings);
+
+        $this->assertSame(
+            ['batch_size', 'batch_interval_minutes', 'merge_retention_months', 'previous_year_active_cutoff'],
+            $keys
+        );
+        $this->assertSame(
+            [],
+            array_values(array_filter($this->manifest->routes, fn(array $r) => str_ends_with($r['path'], '/settings')))
+        );
     }
 
     public function testTrackingRouteHasNoMenuLabel(): void

@@ -82,7 +82,7 @@
 /config/llm
 /mass-mail
 /mass-mail/new
-/config/mass-mail
+/admin/listes-de-diffusion
 /chiefs/stats
 /news
 /news/manage

@@ -4715,8 +4715,8 @@ if ($isEnabled('mass_mail')) {
     // pattern as registration's purge_registration_requests below).
     $schedulerService->rearm('mass_mail', 'purge_merge_audiences', 'daily', new DateTimeImmutable());
     $frontController->registerController(
-        \Modules\MassMail\Controller\ConfigController::class,
-        new \Modules\MassMail\Controller\ConfigController($twig, $massMailListService, $settingService)
+        \Modules\MassMail\Controller\MailingListController::class,
+        new \Modules\MassMail\Controller\MailingListController($twig, $massMailListService)
     );
 
     // The member page's "view as sent" email detail route
@@ -6394,7 +6394,7 @@ if ($isEnabled('registration')) {
 
     // Iteration 6's mailing list — Api\ExternalMailingListProvider,
     // consumed optionally by mass_mail (ARCHITECTURE.md §7.5). mass_mail's
-    // own MailingListService/MassMailController/ConfigController were
+    // own MailingListService/MassMailController/MailingListController were
     // already registered earlier (before this module's services existed,
     // same ordering constraint as ImportController above) — re-registered
     // here with the real provider only when mass_mail is also enabled.
@@ -6445,8 +6445,8 @@ if ($isEnabled('registration')) {
             )
         );
         $frontController->registerController(
-            \Modules\MassMail\Controller\ConfigController::class,
-            new \Modules\MassMail\Controller\ConfigController($twig, $massMailListService, $settingService)
+            \Modules\MassMail\Controller\MailingListController::class,
+            new \Modules\MassMail\Controller\MailingListController($twig, $massMailListService)
         );
     }
 

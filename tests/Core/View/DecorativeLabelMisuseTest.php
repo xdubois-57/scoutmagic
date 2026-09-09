@@ -112,14 +112,13 @@ class DecorativeLabelMisuseTest extends TestCase
         $this->assertTextIsNotInsideALabel($html, 'Fichier de publipostage');
     }
 
-    public function testMassMailConfigGroupHeadingsAreNotLabelElements(): void
+    public function testMassMailMailingListsGroupHeadingsAreNotLabelElements(): void
     {
         $twig = $this->createTwig(['mass_mail' => dirname(__DIR__, 3) . '/modules/mass_mail/views']);
-        $html = $twig->render('@mass_mail/config.html.twig', [
+        $html = $twig->render('@mass_mail/mailing_lists.html.twig', [
             'default_lists' => [],
             'custom_lists' => [],
             'custom_list_criteria' => [],
-            'batch_size' => 50,
             'all_functions' => [],
             'all_sections' => [],
         ]);

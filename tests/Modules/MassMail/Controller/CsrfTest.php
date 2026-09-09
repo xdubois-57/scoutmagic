@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Tests\Modules\MassMail\Controller;
 
 use Core\Badge\MemberBadgeRepository;
-use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Config\ScoutYearService;
 use Core\Database\Connection;
@@ -17,7 +16,7 @@ use Core\Import\ImportJournalRepository;
 use Core\Member\MemberService;
 use Core\Member\SectionService;
 use Core\Security\EncryptionService;
-use Modules\MassMail\Controller\ConfigController;
+use Modules\MassMail\Controller\MailingListController;
 use Modules\MassMail\Controller\MassMailController;
 use Modules\MassMail\Repository\MailingListRepository;
 use Modules\MassMail\Repository\MemberResolutionRepository;
@@ -29,7 +28,7 @@ use Twig\Environment;
 
 /**
  * Every mutating action in Controller\MassMailController and
- * Controller\ConfigController funnels through the same private
+ * Controller\MailingListController funnels through the same private
  * checkCsrf()/CsrfGuard::validateToken() helper — these two representative
  * endpoints (one per controller) spot-check that a missing/invalid token
  * is rejected before any repository write happens (module spec: "CSRF sur
@@ -142,7 +141,7 @@ class CsrfTest extends TestCase
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM mass_mail_audiences')->fetchColumn());
     }
 
-    public function testConfigControllerCreateListRejectsInvalidCsrfToken(): void
+    public function testMailingListControllerCreateListRejectsInvalidCsrfToken(): void
     {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $connection = Connection::withPdo($this->pdo);
@@ -154,11 +153,7 @@ class CsrfTest extends TestCase
             new FunctionRepository($this->pdo)
         );
 
-        $controller = new ConfigController(
-            $this->createMock(Environment::class),
-            $listService,
-            new SettingService(new SettingRepository($this->pdo))
-        );
+        $controller = new MailingListController($this->createMock(Environment::class), $listService);
 
         $response = $controller->createList($this->jsonRequest(['name' => 'x', '_csrf_token' => 'invalid']), []);
 

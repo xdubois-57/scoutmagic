@@ -3,11 +3,11 @@
  * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
  */
 
-// Mass-mail configuration page (modules/mass_mail/views/config.html.twig):
-// the custom mailing lists (create / edit / activate / delete through the
-// shared modal) and the site-wide sending speed form.
+// The mailing lists page (modules/mass_mail/views/mailing_lists.html.twig):
+// the custom mailing lists, created / edited / activated / deleted through
+// the shared modal.
 // Extracted from the template's inline <script> so the Vitest suite can
-// exercise the production code directly (tests/js/mass-mail-config.test.js).
+// exercise the production code directly (tests/js/mass-mail-lists.test.js).
 //
 // Same corrections as config-badges.js and finance-categories.js: the
 // file-local csrf() reader is gone (ScoutMagicApi.postJson carries the
@@ -19,23 +19,19 @@
 // §7.5): a native box gives a permanent delete the same two buttons as a
 // harmless question, in the browser's language rather than French.
 //
-// The current sending interval comes from the server through
-// the `mass-mail-config-data` JSON island the template renders, read
-// through ScoutMagicApi.pageData() — the site-wide server-data-to-a-page
-// pattern.
+// The site-wide sending speed used to be edited here too; it is not any
+// more. `batch_size` and `batch_interval_minutes` are ordinary settings
+// rows, so Configuration > Réglages already edits them, and a second
+// editor for the same two values was a second thing to keep in step.
 (function () {
     var modalEl = document.getElementById('cfg-list-modal');
-    var settingsForm = /** @type {HTMLFormElement|null} */ (document.getElementById('cfg-settings-form'));
 
-    // A no-op on every other page of the site — this file used to
-    // dereference #cfg-batch-interval unconditionally and threw wherever it
-    // was absent.
-    if (!modalEl && !settingsForm) {
+    // A no-op on every other page of the site.
+    if (!modalEl) {
         return;
     }
 
     var api = window.ScoutMagicApi;
-    var pageData = window.ScoutMagicApi.pageData('mass-mail-config-data') || {};
 
     /**
      * @param {string} id
@@ -170,7 +166,7 @@
                 section_ids: checkedIds('.cfg-section-checkbox:checked')
             };
 
-            var url = currentListId ? '/config/mass-mail/lists/' + currentListId : '/config/mass-mail/lists';
+            var url = currentListId ? '/admin/listes-de-diffusion/lists/' + currentListId : '/admin/listes-de-diffusion/lists';
             var method = currentListId ? 'PATCH' : 'POST';
             var res = await api.postJson(url, payload, { method: method });
             if (!isSuccess(res)) {
@@ -194,7 +190,7 @@
             // Deactivating hides the list from the composer; it destroys
             // nothing and is undone by the same button — no confirmation.
             var active = btn.dataset.active === '1';
-            var res = await api.postJson('/config/mass-mail/lists/' + btn.dataset.id + '/toggle', { active: !active });
+            var res = await api.postJson('/admin/listes-de-diffusion/lists/' + btn.dataset.id + '/toggle', { active: !active });
             if (!isSuccess(res)) {
                 toastError(res);
                 return;
@@ -213,7 +209,7 @@
             if (!confirmed) {
                 return;
             }
-            var res = await api.postJson('/config/mass-mail/lists/' + btn.dataset.id, {}, { method: 'DELETE' });
+            var res = await api.postJson('/admin/listes-de-diffusion/lists/' + btn.dataset.id, {}, { method: 'DELETE' });
             if (!isSuccess(res)) {
                 toastError(res);
                 return;
@@ -221,26 +217,4 @@
             window.location.reload();
         });
     });
-
-    // --- Sending speed (global to the whole site) ---
-
-    if (settingsForm) {
-        var intervalInput = inputEl('cfg-batch-interval');
-        if (intervalInput && pageData.batchIntervalMinutes != null) {
-            intervalInput.value = String(pageData.batchIntervalMinutes);
-        }
-
-        settingsForm.addEventListener('submit', async function (e) {
-            e.preventDefault();
-            var res = await api.postJson('/config/mass-mail/settings', {
-                batch_size: Number.parseInt(inputEl('cfg-batch-size').value, 10),
-                batch_interval_minutes: Number.parseInt(inputEl('cfg-batch-interval').value, 10)
-            });
-            if (!isSuccess(res)) {
-                toastError(res);
-                return;
-            }
-            window.ScoutMagicToast.show('Réglages enregistrés.', { variant: 'success' });
-        });
-    }
 })();

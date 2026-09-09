@@ -5,7 +5,7 @@
 // something the test chooses rather than something a real modal has to be
 // clicked for.
 //
-// Exercises the REAL public/assets/js/mass-mail-config.js (imported below,
+// Exercises the REAL public/assets/js/mass-mail-lists.js (imported below,
 // never reimplemented) on top of the real api.js envelope. The file is an
 // IIFE that wires itself against the DOM present at import time, so every
 // test builds its fixture first and imports afterwards — the
@@ -17,23 +17,6 @@
 // refusal ({success:false}) and an HTTP 500 that is not JSON at all must
 // both read as failures, never as success.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-/**
- * Installs a page's server data the way the template does — a
- * `<script type="application/json">` island — rather than an inline
- * assignment to a window global. ScoutMagicApi.pageData() reads it.
- */
-function installIsland(id, data) {
-    document.getElementById(id)?.remove();
-    if (data === undefined) {
-        return;
-    }
-    const el = document.createElement('script');
-    el.type = 'application/json';
-    el.id = id;
-    el.textContent = JSON.stringify(data);
-    document.body.appendChild(el);
-}
 
 function jsonResponse(body, status = 200) {
     return Promise.resolve({ ok: status < 400, status, json: () => Promise.resolve(body) });
@@ -54,9 +37,9 @@ async function settle() {
     await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-// Mirrors what modules/mass_mail/views/config.html.twig renders: two custom
-// lists (one active, one not), the shared modal the create/edit flow drives,
-// and the site-wide sending-speed form.
+// Mirrors what modules/mass_mail/views/mailing_lists.html.twig renders: two
+// custom lists (one active, one not) and the shared modal the create/edit
+// flow drives.
 const PAGE = `
     <button type="button" id="cfg-new-list-btn">Nouvelle liste</button>
     <ul id="cfg-custom-lists">
@@ -72,12 +55,6 @@ const PAGE = `
         </li>
     </ul>
 
-    <form id="cfg-settings-form">
-        <input type="number" id="cfg-batch-size" value="40">
-        <input type="number" id="cfg-batch-interval">
-        <button type="submit">Enregistrer</button>
-    </form>
-
     <div id="cfg-list-modal">
         <h2 id="cfg-list-modal-title">Nouvelle liste</h2>
         <div id="cfg-list-error" class="d-none"></div>
@@ -91,7 +68,7 @@ const PAGE = `
     </div>
 `;
 
-describe('mass-mail-config.js', () => {
+describe('mass-mail-lists.js', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.restoreAllMocks();
@@ -100,20 +77,19 @@ describe('mass-mail-config.js', () => {
         global.fetch = vi.fn(() => jsonResponse({ success: true }));
         window.ScoutMagicToast = { show: vi.fn() };
         window.ScoutMagicConfirm = { ask: vi.fn(() => Promise.resolve(true)), prompt: vi.fn() };
-        installIsland('mass-mail-config-data', { batchIntervalMinutes: 15 });
         delete window.bootstrap;
         Object.defineProperty(window, 'location', {
             configurable: true,
-            value: { href: '/config/mass-mail', reload: vi.fn() },
+            value: { href: '/admin/listes-de-diffusion', reload: vi.fn() },
         });
     });
 
     async function boot() {
-        // The real fetch toolbox — mass-mail-config.js posts through
+        // The real fetch toolbox — mass-mail-lists.js posts through
         // window.ScoutMagicApi (base.html.twig guarantees this load order in
         // production).
         await import('../../public/assets/js/api.js');
-        await import('../../public/assets/js/mass-mail-config.js');
+        await import('../../public/assets/js/mass-mail-lists.js');
     }
 
     function lastRequest() {
@@ -124,33 +100,10 @@ describe('mass-mail-config.js', () => {
     const deleteBtn = () => document.querySelector('.cfg-delete-list-btn[data-id="7"]');
 
     describe('entry guard', () => {
-        it('does nothing at all on a page with neither the modal nor the settings form', async () => {
+        it('does nothing at all on a page without the modal', async () => {
             document.body.innerHTML = '<p>Une autre page</p>';
             await expect(boot()).resolves.not.toThrow();
             expect(fetch).not.toHaveBeenCalled();
-        });
-
-        it('wires the list rows even when the settings form is absent', async () => {
-            document.getElementById('cfg-settings-form').remove();
-            await boot();
-
-            document.querySelector('.cfg-toggle-list-btn').click();
-            await settle();
-
-            expect(lastRequest().url).toBe('/config/mass-mail/lists/7/toggle');
-        });
-    });
-
-    describe('server data', () => {
-        it('pre-fills the interval field from the page data island', async () => {
-            await boot();
-            expect(document.getElementById('cfg-batch-interval').value).toBe('15');
-        });
-
-        it('leaves the field alone when the page shipped no data block', async () => {
-            installIsland('mass-mail-config-data', undefined);
-            await boot();
-            expect(document.getElementById('cfg-batch-interval').value).toBe('');
         });
     });
 
@@ -191,7 +144,7 @@ describe('mass-mail-config.js', () => {
             await settle();
 
             const { url, opts, body } = lastRequest();
-            expect(url).toBe('/config/mass-mail/lists/9');
+            expect(url).toBe('/admin/listes-de-diffusion/lists/9');
             expect(opts.method).toBe('DELETE');
             expect(body).toEqual({ _csrf_token: 'tok-123' });
             expect(opts.headers['X-CSRF-Token']).toBe('tok-123');
@@ -235,7 +188,7 @@ describe('mass-mail-config.js', () => {
             await settle();
 
             const { url, opts, body } = lastRequest();
-            expect(url).toBe('/config/mass-mail/lists/7/toggle');
+            expect(url).toBe('/admin/listes-de-diffusion/lists/7/toggle');
             expect(opts.method).toBe('POST');
             expect(body).toEqual({ active: false, _csrf_token: 'tok-123' });
             expect(window.ScoutMagicConfirm.ask).not.toHaveBeenCalled();
@@ -276,7 +229,7 @@ describe('mass-mail-config.js', () => {
             await settle();
 
             const { url, opts, body } = lastRequest();
-            expect(url).toBe('/config/mass-mail/lists');
+            expect(url).toBe('/admin/listes-de-diffusion/lists');
             expect(opts.method).toBe('POST');
             expect(body).toEqual({
                 name: 'Anciens',
@@ -303,7 +256,7 @@ describe('mass-mail-config.js', () => {
             await settle();
 
             const { url, opts, body } = lastRequest();
-            expect(url).toBe('/config/mass-mail/lists/7');
+            expect(url).toBe('/admin/listes-de-diffusion/lists/7');
             expect(opts.method).toBe('PATCH');
             expect(body.name).toBe('Parents louveteaux');
             expect(body.function_ids).toEqual([2, 3]);
@@ -349,55 +302,8 @@ describe('mass-mail-config.js', () => {
             await settle();
 
             // Back to the collection URL: the edited id must not linger.
-            expect(lastRequest().url).toBe('/config/mass-mail/lists');
+            expect(lastRequest().url).toBe('/admin/listes-de-diffusion/lists');
             expect(lastRequest().opts.method).toBe('POST');
-        });
-    });
-
-    describe('sending speed', () => {
-        it('POSTs both numbers as integers and confirms with a success toast', async () => {
-            await boot();
-            document.getElementById('cfg-batch-size').value = '50';
-            document.getElementById('cfg-batch-interval').value = '20';
-
-            document.getElementById('cfg-settings-form').dispatchEvent(new Event('submit', { cancelable: true }));
-            await settle();
-
-            const { url, body } = lastRequest();
-            expect(url).toBe('/config/mass-mail/settings');
-            expect(body).toEqual({ batch_size: 50, batch_interval_minutes: 20, _csrf_token: 'tok-123' });
-            expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Réglages enregistrés.', { variant: 'success' });
-        });
-
-        it('never lets the form navigate away', async () => {
-            await boot();
-            const submitEvent = new Event('submit', { cancelable: true });
-            document.getElementById('cfg-settings-form').dispatchEvent(submitEvent);
-            expect(submitEvent.defaultPrevented).toBe(true);
-        });
-
-        it('toasts a business failure instead of announcing a save', async () => {
-            global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Intervalle invalide.' }));
-            await boot();
-
-            document.getElementById('cfg-settings-form').dispatchEvent(new Event('submit', { cancelable: true }));
-            await settle();
-
-            expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Intervalle invalide.', { variant: 'error' });
-            expect(window.ScoutMagicToast.show).not.toHaveBeenCalledWith('Réglages enregistrés.', { variant: 'success' });
-        });
-
-        it('toasts a network failure instead of announcing a save', async () => {
-            global.fetch = vi.fn(() => Promise.reject(new TypeError('Failed to fetch')));
-            await boot();
-
-            document.getElementById('cfg-settings-form').dispatchEvent(new Event('submit', { cancelable: true }));
-            await settle();
-
-            expect(window.ScoutMagicToast.show).toHaveBeenCalledWith(
-                'Erreur : réponse serveur invalide.',
-                { variant: 'error' },
-            );
         });
     });
 

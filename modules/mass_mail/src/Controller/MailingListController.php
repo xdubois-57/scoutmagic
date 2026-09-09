@@ -8,9 +8,6 @@ declare(strict_types=1);
 
 namespace Modules\MassMail\Controller;
 
-use Core\Config\SettingException;
-use Core\Config\SettingService;
-use Core\Exception\UserFacingMessage;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
@@ -21,20 +18,35 @@ use Modules\MassMail\Service\MailingListException;
 use Modules\MassMail\Service\MailingListService;
 use Twig\Environment;
 
-class ConfigController extends AbstractController
+/**
+ * The unit's mailing lists — « Espace chefs d'U > Listes de diffusion »,
+ * `role_min: admin`.
+ *
+ * It used to be a Configuration page at `superadmin`
+ * (`/config/mass-mail`, class `ConfigController`), which put the decision
+ * of WHO the unit writes to one role above the people who make it: a chef
+ * d'unité decides that, not whoever installs the site. The `espace_admin`
+ * menu's own floor is `admin` (`Core\Module\ModuleManifest::
+ * MENU_MIN_ROLES`), which is what makes the lower floor declarable at all
+ * — the `configuration` menu imposes `superadmin`, and the manifest
+ * refuses at load time any route more permissive than its menu.
+ *
+ * The sending-speed form moved out rather than moved along: `batch_size`
+ * and `batch_interval_minutes` are ordinary `SettingService` rows, so
+ * Configuration > Réglages already renders and validates them, and a
+ * second editor for the same two values is a second thing to keep in
+ * step.
+ */
+class MailingListController extends AbstractController
 {
-    private const SETTING_BATCH_SIZE = 'batch_size';
-    private const SETTING_BATCH_INTERVAL_MINUTES = 'batch_interval_minutes';
-
     public function __construct(
         protected Environment $twig,
-        private MailingListService $mailingListService,
-        private SettingService $settingService
+        private MailingListService $mailingListService
     ) {
     }
 
     /**
-     * GET /config/mass-mail
+     * GET /admin/listes-de-diffusion
      *
      * @param array<string, string> $params
      */
@@ -42,7 +54,7 @@ class ConfigController extends AbstractController
     {
         $customLists = $this->mailingListService->getAllCustomLists();
 
-        return $this->render('@mass_mail/config.html.twig', [
+        return $this->render('@mass_mail/mailing_lists.html.twig', [
             'default_lists' => $this->mailingListService->getDefaultLists(),
             'custom_lists' => $customLists,
             'custom_list_criteria' => array_reduce(
@@ -61,15 +73,12 @@ class ConfigController extends AbstractController
             // nothing at all depending on one module. Said once, in the
             // module's own words rather than the page's.
             'future_audience_notice' => $this->mailingListService->futureAudienceNotice(),
-            'batch_size' => (string) $this->settingService->get(self::SETTING_BATCH_SIZE, 'mass_mail', '20'),
-            'batch_interval_minutes' => (string) $this->settingService->get(self::SETTING_BATCH_INTERVAL_MINUTES,
-                'mass_mail', '5'),
             'csrf_token' => CsrfGuard::generateToken(),
         ]);
     }
 
     /**
-     * POST /config/mass-mail/lists — create a custom mailing list.
+     * POST /admin/listes-de-diffusion/lists — create a custom mailing list.
      *
      * @param array<string, string> $params
      */
@@ -99,7 +108,7 @@ class ConfigController extends AbstractController
     }
 
     /**
-     * PATCH /config/mass-mail/lists/{id}
+     * PATCH /admin/listes-de-diffusion/lists/{id}
      *
      * @param array<string, string> $params
      */
@@ -129,7 +138,7 @@ class ConfigController extends AbstractController
     }
 
     /**
-     * POST /config/mass-mail/lists/{id}/toggle — activate/deactivate.
+     * POST /admin/listes-de-diffusion/lists/{id}/toggle — activate/deactivate.
      *
      * @param array<string, string> $params
      */
@@ -150,7 +159,7 @@ class ConfigController extends AbstractController
     }
 
     /**
-     * DELETE /config/mass-mail/lists/{id} — blocked (module spec, same
+     * DELETE /admin/listes-de-diffusion/lists/{id} — blocked (module spec, same
      * precedent as badges) when the list is used by at least one email.
      *
      * @param array<string, string> $params
@@ -166,49 +175,6 @@ class ConfigController extends AbstractController
             $this->mailingListService->deleteCustomList((int) $params['id']);
         } catch (MailingListException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
-        }
-
-        return $this->json(['success' => true]);
-    }
-
-    /**
-     * POST /config/mass-mail/settings — the "Envoyer X emails toutes les Y
-     * minutes" sending-speed fields. Backed by the two module.json-declared
-     * settings (also editable from the generic /config/settings page) —
-     * this is just a friendlier, composed-sentence UI for the same values,
-     * both GLOBAL to the whole site (module spec).
-     *
-     * @param array<string, string> $params
-     */
-    public function saveSettings(Request $request, array $params): Response
-    {
-        $data = $this->decodeJsonBody($request);
-        if ($data === null || !$this->checkCsrf($data)) {
-            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
-        }
-
-        $batchSize = (int) ($data['batch_size'] ?? 0);
-        $intervalMinutes = (int) ($data['batch_interval_minutes'] ?? 0);
-        if ($batchSize < 1 || $intervalMinutes < 1) {
-            return $this->json(['success' => false, 'error' => 'Valeurs invalides.'], 422);
-        }
-
-        try {
-            $this->settingService->set(self::SETTING_BATCH_SIZE, (string) $batchSize, 'mass_mail');
-            $this->settingService->set(self::SETTING_BATCH_INTERVAL_MINUTES, (string) $intervalMinutes, 'mass_mail');
-        } catch (SettingException $e) {
-            // Core\Config\SettingException is being made user-facing
-            // separately; routing through the helper means this line is
-            // correct either way — its message if it is marked, this
-            // sentence if it is not.
-            return $this->json([
-                'success' => false,
-                'error' => UserFacingMessage::from(
-                    $e,
-                    "La vitesse d'envoi n'a pas pu être enregistrée — réessayez, ou modifiez ces deux réglages depuis "
-                        . "Configuration > Réglages."
-                ),
-            ], 422);
         }
 
         return $this->json(['success' => true]);

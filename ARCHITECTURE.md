@@ -2825,6 +2825,18 @@ Where the unit has camped, and every stay it made there. The product answers one
 
 **The JSON endpoints the dialog owned are deleted, not orphaned**: `GET /mass-mail/{id}/data`, `PATCH /mass-mail/{id}` and `DELETE /mass-mail/attachments/{id}`. `POST /mass-mail/recipients/{id}/resend` is the one JSON write left in the controller, and its caller is the tracking table's own fetch.
 
+### 8.71sexies The mailing lists are an Espace chefs d'U page (`GET /admin/listes-de-diffusion`)
+
+Deciding **who the unit writes to** was a Configuration page at `superadmin` (`/config/mass-mail`, `Controller\ConfigController`). That is one role above the people who actually make the decision: a chef d'unité knows that the intendants of every section need a mail and whoever installed the site does not. The page is now « Espace chefs d'U > Listes de diffusion », `/admin/listes-de-diffusion`, `role_min: admin`, class `Controller\MailingListController`, view `views/mailing_lists.html.twig`, script `public/assets/js/mass-mail-lists.js`.
+
+**The menu is what made the floor declarable.** `Core\Module\ModuleManifest::MENU_MIN_ROLES` gives `configuration` a floor of `superadmin` and `espace_admin` a floor of `admin`, and the manifest refuses at load time any route more permissive than its own menu (§7). So `role_min: admin` on a `configuration` route is not a thing that could have been written: the move of menu and the lowering of the floor are one change, not two.
+
+**The French path follows `/config/courrier-entrant`'s precedent**, not the module id. URLs a person types or bookmarks are user-facing text; `mass_mail`, `espace_admin` and the `admin` role stay the code identifiers they have always been (design.md §7.1).
+
+**The sending-speed form was deleted rather than moved.** `POST /config/mass-mail/settings` wrote `batch_size` and `batch_interval_minutes` — two ordinary `SettingService` rows, which Configuration > Réglages already lists, validates and journals, and which no exclusion in `Core\Http\Controller\SettingsController::EXCLUDED_FROM_GENERIC_PAGE` hides. A second editor for the same two values is a second thing to keep in step, and its only advantage was a composed sentence. The four settings themselves are untouched, and `ModuleManifestTest` pins that the removal of the form did not take them with it.
+
+**Nothing else changed.** Same criteria, same modal, same "deactivate, never delete" rule for a list an email references. The move landed on its own so the four iterations of this chantier that follow — the badge criterion, the list's own addresses, the Excel round trip and the « Anciens » list — arrive directly on the final paths.
+
 ### 8.71quater One definition of a form's response columns (`Modules\News\Service\ResponseColumns`)
 
 `FormController::responseColumns()` built the merge variables and claimed in its own docblock that the export and the variables *« cannot describe the same form differently »*. That had already stopped being true: the export carried **Montant attendu**, **Montant reçu**, **Communication structurée** and **Statut paiement**, and the variables did not.
