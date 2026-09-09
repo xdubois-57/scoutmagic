@@ -25,7 +25,10 @@ describe('settings.js', () => {
     beforeEach(async () => {
         vi.resetModules();
         modal = { show: vi.fn(), hide: vi.fn() };
-        global.bootstrap = { Modal: vi.fn(() => modal) };   // 3-line stub — that is the whole cost
+        // `function`, not an arrow: the code under test calls `new
+        // bootstrap.Modal(...)`, and since Vitest 4 a mock built from an
+        // arrow implementation is not constructible.
+        global.bootstrap = { Modal: vi.fn(function () { return modal; }) };   // 3-line stub — that is the whole cost
         global.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve({ success: true }) }));
         // A successful save calls window.location.reload(), which jsdom does
         // not implement and reports as "Not implemented: navigation". Stub it

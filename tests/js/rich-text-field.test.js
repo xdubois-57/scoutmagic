@@ -87,7 +87,10 @@ beforeEach(() => {
     global.fetch = vi.fn(() => jsonResponse({ success: true }));
     window.ScoutMagicToast = { show: vi.fn() };
     // rich-text-field.js reads the bare `bootstrap` binding.
-    window.bootstrap = { Modal: vi.fn(() => modalStub) };
+    // `function`, not an arrow: the code under test calls `new
+    // bootstrap.Modal(...)`, and since Vitest 4 a mock built from an
+    // arrow implementation is not constructible.
+    window.bootstrap = { Modal: vi.fn(function () { return modalStub; }) };
 });
 
 describe('rich-text-field.js: opening a field', () => {

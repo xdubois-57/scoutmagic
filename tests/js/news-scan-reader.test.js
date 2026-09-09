@@ -47,7 +47,10 @@ function stubEnvironment({ startRejects = false, libraryMissing = false } = {}) 
         clear: vi.fn(),
     };
     // @ts-ignore — the vendored library's global.
-    window.Html5Qrcode = libraryMissing ? undefined : vi.fn().mockImplementation(() => scannerInstance);
+    // `function`, not an arrow: the code under test calls `new
+    // Html5Qrcode(...)`, and since Vitest 4 a mock built from an
+    // arrow implementation is not constructible.
+    window.Html5Qrcode = libraryMissing ? undefined : vi.fn().mockImplementation(function () { return scannerInstance; });
 
     sentinel = { release: vi.fn().mockResolvedValue(undefined), addEventListener: vi.fn() };
     wakeLock = { request: vi.fn().mockResolvedValue(sentinel) };

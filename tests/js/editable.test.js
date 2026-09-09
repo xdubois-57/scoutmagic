@@ -75,7 +75,10 @@ beforeEach(() => {
     global.fetch = vi.fn(() => jsonResponse({ success: true }));
     window.ScoutMagicToast = { show: vi.fn() };
     // editable.js reads the bare `bootstrap` binding, not window.bootstrap.
-    window.bootstrap = { Modal: vi.fn(() => modalStub) };
+    // `function`, not an arrow: the code under test calls `new
+    // bootstrap.Modal(...)`, and since Vitest 4 a mock built from an
+    // arrow implementation is not constructible.
+    window.bootstrap = { Modal: vi.fn(function () { return modalStub; }) };
     Object.defineProperty(window, 'location', {
         configurable: true,
         value: { href: '/accueil', pathname: '/accueil' },
