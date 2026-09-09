@@ -10,6 +10,10 @@ Thank you for considering contributing to this project.
 4. [docs/quality-pipeline.md](docs/quality-pipeline.md) maps the whole pipeline —
    tests, CI, code review, the release gates, and the GitHub settings none of it
    works without. Read it once; come back to it when a check surprises you.
+5. [docs/exigences-non-fonctionnelles.md](docs/exigences-non-fonctionnelles.md)
+   holds the numbers: sizing target, rendering budget, recovery objectives,
+   operational alert thresholds, technical baseline. It is what turns "is that
+   fast enough?" and "is that too full?" into questions a review can settle.
 
 ## Key rules
 
