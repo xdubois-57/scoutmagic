@@ -716,9 +716,12 @@ class MassMailService
         $this->ensureBatchTaskScheduled(true);
 
         $this->journalService->log(
-            'mass_mail', 'email_sending_started', 'info',
+            'mass_mail',
+            'email_sending_started',
+            'info',
             self::emailPrefix($id) . ' : envoi démarré',
-            ['email_id' => $id, 'recipient_count' => $validCount, 'invalid_address_count' => $invalidCount], $actorId
+            ['email_id' => $id, 'recipient_count' => $validCount, 'invalid_address_count' => $invalidCount],
+            $actorId
         );
 
         return $this->requireEmail($id);
@@ -779,10 +782,20 @@ class MassMailService
             $addresses = $this->memberEmailService->resolveValidAddressesForMassMail($member['member_id'], $deskEmail);
 
             if ($addresses === []) {
-                $recipientId = $this->recipientRepository->create($email->id, $member['member_id'],
-                    $member['scout_year_id'], null, Recipient::STATUS_ERROR, 'Adresse invalide');
-                $this->journalRecipientNotSendable($email->id, $recipientId, $member['member_id'],
-                    'Adresse invalide');
+                $recipientId = $this->recipientRepository->create(
+                    $email->id,
+                    $member['member_id'],
+                    $member['scout_year_id'],
+                    null,
+                    Recipient::STATUS_ERROR,
+                    'Adresse invalide'
+                );
+                $this->journalRecipientNotSendable(
+                    $email->id,
+                    $recipientId,
+                    $member['member_id'],
+                    'Adresse invalide'
+                );
                 $invalidCount++;
                 continue;
             }
@@ -851,8 +864,12 @@ class MassMailService
                 $email->id, null, null, $address,
                 Recipient::STATUS_ERROR, 'Adresse désinscrite des emails groupés'
             );
-            $this->journalRecipientNotSendable($email->id, $recipientId, null,
-                'Adresse désinscrite des emails groupés');
+            $this->journalRecipientNotSendable(
+                $email->id,
+                $recipientId,
+                null,
+                'Adresse désinscrite des emails groupés'
+            );
             return [$validCount, $invalidCount + 1];
         }
 
@@ -906,8 +923,12 @@ class MassMailService
                         $email->id, $row->memberId, $profile['scout_year_id'] ?? null, null,
                         Recipient::STATUS_ERROR, 'Adresse invalide', null, $row->id
                     );
-                    $this->journalRecipientNotSendable($email->id, $recipientId, $row->memberId,
-                        'Adresse invalide');
+                    $this->journalRecipientNotSendable(
+                        $email->id,
+                        $recipientId,
+                        $row->memberId,
+                        'Adresse invalide'
+                    );
                     $invalidCount++;
                     continue;
                 }
@@ -928,8 +949,12 @@ class MassMailService
                         $email->id, null, null, $address,
                         Recipient::STATUS_ERROR, 'Adresse désinscrite des emails groupés', null, $row->id
                     );
-                    $this->journalRecipientNotSendable($email->id, $recipientId, null,
-                        'Adresse désinscrite des emails groupés');
+                    $this->journalRecipientNotSendable(
+                        $email->id,
+                        $recipientId,
+                        null,
+                        'Adresse désinscrite des emails groupés'
+                    );
                     $invalidCount++;
                     continue;
                 }
@@ -973,9 +998,12 @@ class MassMailService
         $this->emailRepository->updateStatus($emailId, Email::STATUS_SENT, true);
 
         $this->journalService->log(
-            'mass_mail', 'email_sent', 'info',
+            'mass_mail',
+            'email_sent',
+            'info',
             self::emailPrefix($emailId) . ' : envoi terminé',
-            ['email_id' => $emailId], $actorId
+            ['email_id' => $emailId],
+            $actorId
         );
     }
 
@@ -1005,10 +1033,16 @@ class MassMailService
         $this->ensureBatchTaskScheduled(true);
 
         $this->journalService->log(
-            'mass_mail', 'recipient_resent', 'info',
+            'mass_mail',
+            'recipient_resent',
+            'info',
             self::emailPrefix($recipient->emailId) . ' : renvoi demandé au destinataire #' . $recipientId,
-            ['email_id' => $recipient->emailId, 'recipient_id' => $recipientId,
-                'member_id' => $recipient->memberId], $actorId
+            [
+                'email_id' => $recipient->emailId,
+                'recipient_id' => $recipientId,
+                'member_id' => $recipient->memberId,
+            ],
+            $actorId
         );
     }
 

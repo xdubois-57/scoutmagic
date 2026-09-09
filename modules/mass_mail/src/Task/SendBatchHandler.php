@@ -79,7 +79,10 @@ class SendBatchHandler implements TaskHandlerInterface
                 // branch is defensive, not an expected path.
                 $recipientRepository->recordSendFailure($recipient->id, 'Adresse invalide');
                 $massMailService->journalRecipientNotSendable(
-                    $recipient->emailId, $recipient->id, $recipient->memberId, 'Adresse invalide'
+                    $recipient->emailId,
+                    $recipient->id,
+                    $recipient->memberId,
+                    'Adresse invalide'
                 );
                 $errorCount++;
                 continue;
@@ -98,7 +101,10 @@ class SendBatchHandler implements TaskHandlerInterface
                 if ($mergeRow === null) {
                     $recipientRepository->recordSendFailure($recipient->id, 'Données de publipostage purgées');
                     $massMailService->journalRecipientNotSendable(
-                        $email->id, $recipient->id, $recipient->memberId, 'Données de publipostage purgées'
+                        $email->id,
+                        $recipient->id,
+                        $recipient->memberId,
+                        'Données de publipostage purgées'
                     );
                     $errorCount++;
                     continue;
