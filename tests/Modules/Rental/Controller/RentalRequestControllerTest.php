@@ -76,6 +76,7 @@ class RentalRequestControllerTest extends TestCase
     private RentalPricingService $pricingService;
     private EditableContentService $editableContentService;
     private EncryptionService $encryption;
+    private SettingService $settingService;
     private int $scoutYearId;
 
     /** @var list<array{to: string, subject: string, html: string, text: string, headers: array<string, string>}> */
@@ -87,7 +88,12 @@ class RentalRequestControllerTest extends TestCase
         RentalTestHelper::createTables($this->pdo);
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
 
-        $settingService = new SettingService(new SettingRepository($this->pdo));
+        // Kept on the instance because one test raises the human-check
+        // threshold for itself (see testABotSubmittingInstantlyIsRefused).
+        // It must be THIS object: SettingService caches per instance and
+        // clears its own cache on write, so a second one would update the
+        // database while the controller went on reading the old value.
+        $this->settingService = $settingService = new SettingService(new SettingRepository($this->pdo));
         // One second: the shortest delay that still makes the "submitted
         // instantly" barrier real, and the test suite pays it once per
         // submission.
@@ -470,6 +476,21 @@ class RentalRequestControllerTest extends TestCase
     public function testABotSubmittingInstantlyIsRefused(): void
     {
         $this->createAsset();
+
+        // A threshold no rounding can reach, and no wait at all.
+        //
+        // HumanCheckService measures `time() - $timestamp` in WHOLE
+        // seconds, so against the suite's ordinary one-second threshold a
+        // render at X.999 and a submission at X+1.001 elapse "one second"
+        // without anybody having waited — and this test then admits the
+        // bot it exists to refuse. Not hypothetical: it failed on CI
+        // exactly that way, on a pull request that touched no PHP at all.
+        //
+        // Ten seconds cannot be crossed by a boundary, and costs nothing
+        // here because this is the one test that deliberately does NOT
+        // wait. The other submissions keep the one-second threshold the
+        // suite pays for on every one of them.
+        $this->settingService->setInternal('human_check_min_delay_seconds', '10');
 
         // Submitted the same instant the challenge was rendered, under the
         // minimum delay.
