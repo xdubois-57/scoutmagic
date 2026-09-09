@@ -552,23 +552,42 @@ class MailingListService
     }
 
     /**
-     * @return array<int, array{id: int, name: string}> active sections, for the "Nouvelle liste" multi-select
+     * The sections offered as a criterion: the active, visible ones —
+     * plus any section a list still names, however it was deactivated or
+     * hidden since. See getAllBadges() for why the second half is not
+     * optional.
+     *
+     * @return array<int, array{id: int, name: string}>
      */
     public function getAllSections(): array
     {
-        return array_map(
+        $sections = array_map(
             fn(array $s) => ['id' => $s['id'], 'name' => $s['name']],
             $this->sectionService->getAllWithBranches()
         );
+
+        return [...$sections, ...$this->stillReferencedSections(array_column($sections, 'id'))];
     }
 
     /**
-     * Active badges only — a deactivated badge is no longer assignable
-     * anywhere (Core\Badge\BadgeService::getActive()), so offering it as
-     * a criterion would only ever build a list that resolves to nobody.
-     * Existing criteria naming a badge that was deactivated afterwards
-     * are left alone: the row survives, exactly as `member_badges`
-     * assignments do.
+     * The badges offered as a criterion: the active ones — plus any badge
+     * a list still names, marked as deactivated.
+     *
+     * The second half is not a courtesy. The three pickers are the only
+     * place a list's criteria round-trip through: the form submits what
+     * the pickers hold, and Repository\MailingListRepository::
+     * replaceCriteria() deletes and reinserts from that submission. An id
+     * with no item to be selected in is therefore an id that saving ANY
+     * edit — even a description — silently drops. On a list whose badge
+     * axis was that one badge, the axis would then stop constraining
+     * anything at all and the list would quietly widen to everybody the
+     * other axes match, which is the opposite of what deactivating a
+     * badge means.
+     *
+     * They are offered greyed rather than merely preserved, because a
+     * criterion nobody can see is a criterion nobody can remove — and the
+     * name says why the list resolves to fewer members than its other
+     * axes suggest.
      *
      * @return array<int, array{id: int, name: string}>
      */
@@ -578,10 +597,47 @@ class MailingListService
             return [];
         }
 
-        return array_map(
+        $active = array_map(
             fn(Badge $b) => ['id' => $b->id, 'name' => $b->name],
             $this->badgeService->getActive()
         );
+        $activeIds = array_column($active, 'id');
+
+        $stillReferenced = [];
+        $referencedIds = $this->listRepository->findReferencedBadgeIds();
+        foreach ($this->badgeService->getAll() as $badge) {
+            if (in_array($badge->id, $activeIds, true) || !in_array($badge->id, $referencedIds, true)) {
+                continue;
+            }
+            $stillReferenced[] = ['id' => $badge->id, 'name' => $badge->name . ' (désactivé)'];
+        }
+
+        return [...$active, ...$stillReferenced];
+    }
+
+    /**
+     * @param int[] $offeredIds
+     * @return array<int, array{id: int, name: string}>
+     */
+    private function stillReferencedSections(array $offeredIds): array
+    {
+        $missingIds = array_values(array_filter(
+            $this->listRepository->findReferencedSectionIds(),
+            static fn(int $id): bool => !in_array($id, $offeredIds, true)
+        ));
+        if ($missingIds === []) {
+            return [];
+        }
+
+        $sections = [];
+        foreach ($this->sectionService->findByIds($missingIds) as $section) {
+            $sections[] = [
+                'id' => $section['id'],
+                'name' => ($section['name'] ?? $section['desk_code']) . ' (retirée)',
+            ];
+        }
+
+        return $sections;
     }
 
     /**

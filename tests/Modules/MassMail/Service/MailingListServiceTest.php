@@ -177,6 +177,39 @@ class MailingListServiceTest extends TestCase
         $this->assertNotContains('Retiré', $offered);
     }
 
+    /**
+     * The pickers are the only place a list's criteria round-trip
+     * through, so an id with no item to be selected in is an id that the
+     * next save silently drops — and under this iteration's own rule (an
+     * empty axis constrains nothing) a list losing its last badge that
+     * way would quietly widen instead of narrowing.
+     */
+    public function testADeactivatedBadgeStillNamedByAListIsStillOfferedGreyed(): void
+    {
+        $this->service->createCustomList('Ma liste', 'Description', [], [], [$this->badgeId], null);
+        $this->pdo->exec("UPDATE badges SET is_active = 0 WHERE id = {$this->badgeId}");
+
+        $offered = $this->service->getAllBadges();
+
+        $this->assertContains($this->badgeId, array_column($offered, 'id'));
+        $this->assertContains('Infirmier (désactivé)', array_column($offered, 'name'));
+    }
+
+    public function testASectionStillNamedByAListIsOfferedEvenOnceItIsGone(): void
+    {
+        $this->service->createCustomList('Ma liste', 'Description', [], [$this->sectionActiveId], [], null);
+        $this->pdo->exec("UPDATE sections SET is_active = 0 WHERE id = {$this->sectionActiveId}");
+
+        $offered = $this->service->getAllSections();
+
+        $this->assertSame(
+            ['Meute A (retirée)'],
+            array_column($offered, 'name'),
+            'Meute B is inactive and named by nothing, so it stays out.'
+        );
+        $this->assertSame([$this->sectionActiveId], array_column($offered, 'id'));
+    }
+
     public function testNoBadgeIsOfferedWhenTheBadgeServiceIsAbsent(): void
     {
         $service = new MailingListService(

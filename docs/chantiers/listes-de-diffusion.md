@@ -199,6 +199,22 @@ supprimer un.
 - **Le compteur est séquencé sur un jeton, pas « debouncé ».** Trois clics
   rapides laissent sinon à l'écran la réponse qui revient en dernier.
 
+**Corrigé après revue (revue Claude sur la PR).** Un sélecteur ne
+proposait que le vocabulaire *actif* — badges actifs, sections actives et
+visibles. Or les trois sélecteurs sont le seul endroit où les critères
+d'une liste font l'aller-retour : le formulaire soumet ce qu'ils
+contiennent, et `replaceCriteria()` efface puis réinsère à partir de cette
+soumission. Un identifiant sans élément où être sélectionné est donc un
+identifiant que **n'importe quelle** modification — même celle de la seule
+description — supprimait en silence. Et sous la sémantique que cette
+itération introduit, une liste perdant ainsi son dernier badge ne se
+serait pas rétrécie : son axe badge aurait cessé de contraindre quoi que
+ce soit et la liste se serait **élargie** à tous les membres que les
+autres axes désignent. `getAllBadges()` et `getAllSections()` ajoutent
+donc au vocabulaire actif tout ce qu'une liste nomme encore, suffixé
+« (désactivé) » / « (retirée) » : un critère que personne ne voit est un
+critère que personne ne peut retirer.
+
 **Tests.** Résolution : ET entre axes, OU dedans, axe vide non contraignant
 dans les deux sens, trois axes vides → ensemble vide, badge d'une année
 passée non compté, liste par badge seul n'exigeant aucune fonction, membre
@@ -207,6 +223,9 @@ compte, le croisement badge × section d'animés à zéro, aucun critère à
 zéro, jeton CSRF invalide, corps non-JSON). Vitest : la phrase (singulier,
 pluriel, axe absent, retour à zéro critère) et le compteur (l'appel, le
 singulier, le rouge à zéro, aucun appel sans critère, la réponse périmée
-ignorée, l'échec annoncé). `npm run typecheck`.
+ignorée, l'échec annoncé). `npm run typecheck`. Plus, après revue : un
+badge désactivé qu'une liste nomme encore reste proposé et grisé, un badge
+désactivé que personne ne nomme reste absent, et la même paire pour les
+sections.
 
 **Reporté.** Rien.

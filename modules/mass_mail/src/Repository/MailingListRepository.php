@@ -127,6 +127,37 @@ class MailingListRepository
     }
 
     /**
+     * Every section id any list still names as a criterion, and every
+     * badge id — across ALL lists, because the criteria form's three
+     * pickers are rendered once for the whole page and reused by every
+     * list's edit dialog.
+     *
+     * Service\MailingListService::getAllSections()/getAllBadges() need
+     * them: a picker offering only what is currently active would have no
+     * item for a section or a badge that was deactivated after being made
+     * a criterion, and an id with no item in the DOM is an id the form
+     * silently drops on the next save — see those two methods.
+     *
+     * @return int[]
+     */
+    public function findReferencedSectionIds(): array
+    {
+        $stmt = $this->pdo->query('SELECT DISTINCT section_id FROM mass_mail_list_sections');
+
+        return $stmt !== false ? array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN)) : [];
+    }
+
+    /**
+     * @return int[]
+     */
+    public function findReferencedBadgeIds(): array
+    {
+        $stmt = $this->pdo->query('SELECT DISTINCT badge_id FROM mass_mail_list_badges');
+
+        return $stmt !== false ? array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN)) : [];
+    }
+
+    /**
      * Whether at least one email (any status) was created against this
      * list — Service\MailingListService::delete()'s "deactivate instead"
      * guard, same Core\Badge precedent as BadgeRepository::
