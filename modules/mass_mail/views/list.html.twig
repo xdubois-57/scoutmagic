@@ -80,15 +80,18 @@
                             {% elseif email.listType == 'default_chiefs' %}Animateurs uniquement
                             {% elseif email.listType == 'default_section' %}Section - {{ sections_by_id[email.listSectionId] ?? '?' }}
                             {% elseif email.listType == 'mail_merge' %}Publipostage
+                            {% elseif email.listType == 'default_former_members' %}Anciens
                             {% else %}{{ custom_lists_by_id[email.listId] ?? 'Liste personnalisée' }}
                             {% endif %}
                         </td>
-                        {# Two list types are not scout-year-scoped, and showing a year for
+                        {# Three list types are not scout-year-scoped, and showing a year for
                            them would name one that was never used: a mail merge takes its
-                           recipients from the uploaded file, and an external list
+                           recipients from the uploaded file, an external list
                            (Email::LIST_TYPE_EXTERNAL) always targets the fixed year of the
-                           module that contributes it. #}
-                        <td>{{ email.listType in ['mail_merge', 'external'] ? '—' : email.scoutYearIds|map(yid => scout_years_by_id[yid] ?? '?')|join(', ') }}</td>
+                           module that contributes it, and « Anciens » reaches every former
+                           member at the address of THEIR OWN last active year — the year it
+                           stores is only the one they had to be absent from. #}
+                        <td>{{ email.listType in ['mail_merge', 'external', 'default_former_members'] ? '—' : email.scoutYearIds|map(yid => scout_years_by_id[yid] ?? '?')|join(', ') }}</td>
                         <td>
                             {% include 'partials/status_badge.html.twig' with {
                                 status: email.status == 'draft' ? 'draft' : (email.status == 'test' ? 'pending' : (email.status == 'sending' ? 'in_progress' : 'done')),

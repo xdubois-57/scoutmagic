@@ -215,6 +215,87 @@ class SendBatchHandlerTest extends TestCase
     }
 
     /**
+     * « Lot d'emails de masse envoyé — 6 envoyés, 1 erreur » is not a
+     * trace of anything: a batch spans several emails at once, so it
+     * names no mailing, no recipient and no reason. Every copy that
+     * leaves now writes its own line, keyed on the same ids the tracking
+     * page uses — and the email id sits in the DESCRIPTION, because that
+     * is the only column /admin/journal's search box looks at.
+     */
+    public function testEveryCopyThatLeavesWritesItsOwnJournalLine(): void
+    {
+        $logged = [];
+        $journal = $this->createMock(JournalService::class);
+        $journal->method('log')->willReturnCallback(
+            function (string $category, string $type, string $level, string $description, array $context = [], ?int $userId = null) use (&$logged): void {
+                $logged[] = ['type' => $type, 'level' => $level, 'description' => $description, 'context' => $context];
+            }
+        );
+
+        $handler = new SendBatchHandler();
+        $handler->handle([], new TaskContext(
+            Connection::withPdo($this->pdo),
+            $this->encryption,
+            $this->createMock(MailService::class),
+            $journal,
+            new SettingService(new SettingRepository($this->pdo)),
+            $this->userAccountRepository,
+            sys_get_temp_dir()
+        ));
+
+        $sent = array_values(array_filter($logged, fn(array $e) => $e['type'] === 'recipient_sent'));
+        // batch_size is 2 in setUp(), and this run sends that lot.
+        $this->assertCount(2, $sent);
+        foreach ($sent as $entry) {
+            $this->assertSame('info', $entry['level']);
+            $this->assertStringContainsString('#' . $this->emailId, $entry['description']);
+            $this->assertSame($this->emailId, $entry['context']['email_id']);
+            $this->assertSame($this->memberId, $entry['context']['member_id']);
+            $this->assertNotNull($entry['context']['recipient_id']);
+            // SECURITY.md §11 — never the address, on the success path
+            // any more than on the failure one.
+            $this->assertStringNotContainsString('@', $entry['description']);
+            $this->assertStringNotContainsString('@', (string) json_encode($entry['context']));
+        }
+    }
+
+    /**
+     * A transport failure is filed as `error`, the same word the
+     * recipient row and the tracking page already use for it. It used to
+     * be `info`, which is invisible to the one reader who arrives at
+     * /admin/journal having filtered on « Erreur » to find exactly this.
+     */
+    public function testASendFailureIsFiledAsAnErrorAndNamesItsMailing(): void
+    {
+        $mailService = $this->createMock(MailService::class);
+        $mailService->method('send')->willThrowException(new MailException('554 5.7.1 Relay access denied'));
+
+        $logged = [];
+        $journal = $this->createMock(JournalService::class);
+        $journal->method('log')->willReturnCallback(
+            function (string $category, string $type, string $level, string $description, array $context = [], ?int $userId = null) use (&$logged): void {
+                $logged[] = ['type' => $type, 'level' => $level, 'description' => $description];
+            }
+        );
+
+        $handler = new SendBatchHandler();
+        $handler->handle([], new TaskContext(
+            Connection::withPdo($this->pdo),
+            $this->encryption,
+            $mailService,
+            $journal,
+            new SettingService(new SettingRepository($this->pdo)),
+            $this->userAccountRepository,
+            sys_get_temp_dir()
+        ));
+
+        $failures = array_values(array_filter($logged, fn(array $e) => $e['type'] === 'recipient_send_failed'));
+        $this->assertNotEmpty($failures);
+        $this->assertSame('error', $failures[0]['level']);
+        $this->assertStringContainsString('#' . $this->emailId, $failures[0]['description']);
+    }
+
+    /**
      * Module addendum (RFC 8058 one-click unsubscribe): every send must
      * carry both headers plus a human-facing footer link, and the
      * recipient row must end up with a verifiable token — never a bare

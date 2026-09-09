@@ -84,9 +84,185 @@ class MassMailService
         ];
     }
 
+    /**
+     * The « De : » a test-mode screen shows — the same address and name
+     * the recipient will read in their mailbox, fallback included.
+     *
+     * `resolveSenderIdentity()` above deliberately returns a null address
+     * when the section has none, because that null is what tells
+     * `Core\Mail\MailService::send()` to use the site's own
+     * configuration. That is right for sending and useless for showing:
+     * a screen cannot print « null ». So the fallback is resolved once,
+     * here, against the same values `send()` would fall back to — never
+     * re-derived by a template, which would be a second answer to the
+     * question of who this e-mail is from.
+     *
+     * @return array{address: string, name: string}
+     */
+    public function resolveDisplayedSender(int $sectionId): array
+    {
+        $sender = $this->resolveSenderIdentity($sectionId);
+        $default = $this->mailService->getDefaultSender();
+
+        return [
+            'address' => $sender['address'] ?? $default['address'],
+            'name' => $sender['name'] ?? $default['name'],
+        ];
+    }
+
     public function findById(int $id): ?Email
     {
         return $this->emailRepository->findById($id);
+    }
+
+    /**
+     * One journal entry for a copy that LEFT.
+     *
+     * The three methods below exist because « Lot d'emails de masse
+     * envoyé — 6 envoyés, 1 erreur » is not a trace of anything: it says
+     * that something went wrong to somebody, and there is no search that
+     * turns it into *which* copy, *why*, or even *when*, since a batch
+     * covers several emails at once. A mailing to seven people now leaves
+     * seven lines in /admin/journal, one per copy, and the one that did
+     * not go is a line of its own.
+     *
+     * **No address, ever** (SECURITY.md §11). What identifies a line is
+     * the email id, the recipient row id and — when the recipient is a
+     * member rather than a bare address — the member id, which is the
+     * only personal reference the journal is allowed to carry. Those are
+     * the same keys the tracking page (`/mass-mail/{id}/tracking`) is
+     * built on, so the two read together: the journal says what happened
+     * and when, the tracking page says to whom.
+     *
+     * The email id also travels in the DESCRIPTION and not only in the
+     * context, and that is the point of the wording rather than a
+     * decoration: `/admin/journal`'s search box matches `description`
+     * alone (`Core\Journal\JournalRepository::buildFilters()`), so
+     * searching « #12 » has to be enough to pull the whole story of email
+     * 12 — start, every copy, end — out of a journal holding everything
+     * else the site did that week.
+     */
+    public function journalRecipientSent(int $emailId, int $recipientId, ?int $memberId): void
+    {
+        $this->logRecipientEvent(
+            'recipient_sent',
+            'info',
+            self::emailPrefix($emailId) . ' : envoi réussi au destinataire #' . $recipientId,
+            $emailId,
+            $recipientId,
+            $memberId
+        );
+    }
+
+    /**
+     * One journal entry for a copy the transport REFUSED — it was
+     * attempted, and it bounced back.
+     *
+     * `error` rather than `info`, unlike the entry this replaces: the
+     * recipient row is written as `Recipient::STATUS_ERROR` and the
+     * tracking page shows it in red, so a journal that files the same
+     * fact under « info » disagrees with the rest of the site — and
+     * disagrees precisely with the reader who came to /admin/journal
+     * having filtered on « Erreur » to find it.
+     *
+     * @param array<string, mixed> $extra technical detail (the transport's own message)
+     */
+    public function journalRecipientSendFailed(
+        int $emailId,
+        int $recipientId,
+        ?int $memberId,
+        array $extra = []
+    ): void {
+        $this->logRecipientEvent(
+            'recipient_send_failed',
+            'error',
+            self::emailPrefix($emailId) . ' : échec d\'envoi au destinataire #' . $recipientId,
+            $emailId,
+            $recipientId,
+            $memberId,
+            $extra
+        );
+    }
+
+    /**
+     * One journal entry for a copy that was never even attempted —
+     * refused when the recipient list was frozen, because the address is
+     * unusable or because its owner asked not to be written to again.
+     *
+     * This is the hole the whole feature was reported through. Such a row
+     * is created straight in `Recipient::STATUS_ERROR` and never reaches
+     * `Task\SendBatchHandler`, so it passed through no code that wrote
+     * anything down: an email to seven people came back « six sent, one
+     * error » with the error existing on exactly one screen, and nothing
+     * in the journal — not even a line saying a copy had been dropped.
+     *
+     * $reason is the site's own French sentence (« Adresse invalide »,
+     * « Adresse désinscrite des emails groupés »), which is what the
+     * recipient row already stores — never anything derived from the
+     * address itself.
+     */
+    public function journalRecipientNotSendable(
+        int $emailId,
+        int $recipientId,
+        ?int $memberId,
+        string $reason
+    ): void {
+        $this->logRecipientEvent(
+            'recipient_not_sendable',
+            'error',
+            self::emailPrefix($emailId) . ' : rien n\'est parti vers le destinataire #' . $recipientId
+                . ' — ' . $reason,
+            $emailId,
+            $recipientId,
+            $memberId,
+            ['reason' => $reason]
+        );
+    }
+
+    /**
+     * The one place these entries are actually written, so the shape of
+     * the context is decided once: the three keys every per-copy entry
+     * carries, plus whatever the caller adds.
+     *
+     * `$userId` is deliberately null on all three. A batch runs in the
+     * scheduler with nobody logged in, and attributing a copy to the
+     * chief who pressed « Lancer l'envoi » minutes or hours earlier would
+     * be a guess dressed up as a record — `email_sending_started` already
+     * carries that person, once, which is where it belongs.
+     *
+     * @param array<string, mixed> $extra
+     */
+    private function logRecipientEvent(
+        string $type,
+        string $level,
+        string $description,
+        int $emailId,
+        int $recipientId,
+        ?int $memberId,
+        array $extra = []
+    ): void {
+        $this->journalService->log(
+            'mass_mail',
+            $type,
+            $level,
+            $description,
+            array_merge([
+                'email_id' => $emailId,
+                'recipient_id' => $recipientId,
+                'member_id' => $memberId,
+            ], $extra),
+            null
+        );
+    }
+
+    /**
+     * « Email groupé #12 » — the searchable half of every description
+     * above, written once so the next event type cannot invent its own
+     * spelling and fall out of the same search.
+     */
+    private static function emailPrefix(int $emailId): string
+    {
+        return 'Email groupé #' . $emailId;
     }
 
     /**
@@ -101,14 +277,25 @@ class MassMailService
         ?array $visibleSectionIds = null,
         ?int $ownAccountId = null
     ): array {
-        $matchesActiveMembers = $search !== '' && mb_stripos(
-            MailingListService::ACTIVE_MEMBERS_LABEL,
-            $search
-        ) !== false;
-        $matchesChiefs = $search !== '' && mb_stripos(MailingListService::CHIEFS_LABEL, $search) !== false;
+        // The default lists have no row anywhere, so their labels are not
+        // a column the search can reach — they are matched here, in PHP,
+        // and handed over as the list types they stand for.
+        $matchedDefaultListTypes = [];
+        if ($search !== '') {
+            $defaultListLabels = [
+                Email::LIST_TYPE_DEFAULT_ACTIVE_MEMBERS => MailingListService::ACTIVE_MEMBERS_LABEL,
+                Email::LIST_TYPE_DEFAULT_CHIEFS => MailingListService::CHIEFS_LABEL,
+                Email::LIST_TYPE_DEFAULT_FORMER_MEMBERS => MailingListService::FORMER_MEMBERS_LABEL,
+            ];
+            foreach ($defaultListLabels as $listType => $label) {
+                if (mb_stripos($label, $search) !== false) {
+                    $matchedDefaultListTypes[] = $listType;
+                }
+            }
+        }
 
-        $result = $this->emailRepository->findFiltered($search, $status, $sectionId, $matchesActiveMembers,
-            $matchesChiefs, $page, $visibleSectionIds, $ownAccountId);
+        $result = $this->emailRepository->findFiltered($search, $status, $sectionId, $matchedDefaultListTypes,
+            $page, $visibleSectionIds, $ownAccountId);
 
         return ['emails' => $result['emails'], 'total' => $result['total'], 'per_page' => EmailRepository::perPage()];
     }
@@ -362,9 +549,11 @@ class MassMailService
      *     unknown_tokens: string[],
      *     missing_values: string[]
      * }
+     * @param int|null $offset which audience row to show, or null for
+     *                          « somebody at random » — see below.
      * @throws MassMailException when the email doesn't exist, isn't a mail-merge, or the offset is out of range
      */
-    public function getMergePreview(int $emailId, int $offset): array
+    public function getMergePreview(int $emailId, ?int $offset): array
     {
         $email = $this->requireEmail($emailId);
         if ($email->listType !== Email::LIST_TYPE_MAIL_MERGE) {
@@ -375,7 +564,21 @@ class MassMailService
             throw new MassMailException('L\'audience de publipostage a été purgée — réimportez le fichier Excel.');
         }
 
-        $offset = max(0, min($offset, $audience->rowCount - 1));
+        // A null offset means « pick somebody ». The first line of the
+        // file is the one line that proves nothing: it is the row whose
+        // values the author already had in front of them while writing,
+        // so it is the row their variables were unconsciously fitted to.
+        // A random one is what turns the preview from a rehearsal of a
+        // known case into a real sample — a missing « Prénom » on line
+        // 148 shows up on opening the page rather than never.
+        //
+        // max(0, …) rather than rowCount - 1 straight: an audience that
+        // has been emptied would otherwise ask random_int() for a range
+        // ending at -1, and the honest error is the one requireMergeRow()
+        // raises just below, naming the file to re-import.
+        $offset = $offset === null
+            ? random_int(0, max(0, $audience->rowCount - 1))
+            : max(0, min($offset, $audience->rowCount - 1));
         $row = $this->requireMergeRow($email, $offset);
 
         return [
@@ -513,7 +716,8 @@ class MassMailService
         $this->ensureBatchTaskScheduled(true);
 
         $this->journalService->log(
-            'mass_mail', 'email_sending_started', 'info', 'Envoi d\'un email de masse démarré',
+            'mass_mail', 'email_sending_started', 'info',
+            self::emailPrefix($id) . ' : envoi démarré',
             ['email_id' => $id, 'recipient_count' => $validCount, 'invalid_address_count' => $invalidCount], $actorId
         );
 
@@ -575,8 +779,10 @@ class MassMailService
             $addresses = $this->memberEmailService->resolveValidAddressesForMassMail($member['member_id'], $deskEmail);
 
             if ($addresses === []) {
-                $this->recipientRepository->create($email->id, $member['member_id'], $member['scout_year_id'], null,
-                    Recipient::STATUS_ERROR, 'Adresse invalide');
+                $recipientId = $this->recipientRepository->create($email->id, $member['member_id'],
+                    $member['scout_year_id'], null, Recipient::STATUS_ERROR, 'Adresse invalide');
+                $this->journalRecipientNotSendable($email->id, $recipientId, $member['member_id'],
+                    'Adresse invalide');
                 $invalidCount++;
                 continue;
             }
@@ -633,17 +839,20 @@ class MassMailService
         int $invalidCount
     ): array {
         if (filter_var($address, FILTER_VALIDATE_EMAIL) === false) {
-            $this->recipientRepository->create(
+            $recipientId = $this->recipientRepository->create(
                 $email->id, null, null, $address, Recipient::STATUS_ERROR, 'Adresse invalide'
             );
+            $this->journalRecipientNotSendable($email->id, $recipientId, null, 'Adresse invalide');
             return [$validCount, $invalidCount + 1];
         }
 
         if ($this->suppressedAddressRepository->isSuppressed($address)) {
-            $this->recipientRepository->create(
+            $recipientId = $this->recipientRepository->create(
                 $email->id, null, null, $address,
                 Recipient::STATUS_ERROR, 'Adresse désinscrite des emails groupés'
             );
+            $this->journalRecipientNotSendable($email->id, $recipientId, null,
+                'Adresse désinscrite des emails groupés');
             return [$validCount, $invalidCount + 1];
         }
 
@@ -693,10 +902,12 @@ class MassMailService
                 $addresses = $this->memberEmailService->resolveValidAddressesForMassMail($row->memberId, $deskEmail);
 
                 if ($addresses === []) {
-                    $this->recipientRepository->create(
+                    $recipientId = $this->recipientRepository->create(
                         $email->id, $row->memberId, $profile['scout_year_id'] ?? null, null,
                         Recipient::STATUS_ERROR, 'Adresse invalide', null, $row->id
                     );
+                    $this->journalRecipientNotSendable($email->id, $recipientId, $row->memberId,
+                        'Adresse invalide');
                     $invalidCount++;
                     continue;
                 }
@@ -713,10 +924,12 @@ class MassMailService
 
             foreach ($this->splitRowAddresses($row) as $address) {
                 if ($this->suppressedAddressRepository->isSuppressed($address)) {
-                    $this->recipientRepository->create(
+                    $recipientId = $this->recipientRepository->create(
                         $email->id, null, null, $address,
                         Recipient::STATUS_ERROR, 'Adresse désinscrite des emails groupés', null, $row->id
                     );
+                    $this->journalRecipientNotSendable($email->id, $recipientId, null,
+                        'Adresse désinscrite des emails groupés');
                     $invalidCount++;
                     continue;
                 }
@@ -760,7 +973,8 @@ class MassMailService
         $this->emailRepository->updateStatus($emailId, Email::STATUS_SENT, true);
 
         $this->journalService->log(
-            'mass_mail', 'email_sent', 'info', 'Envoi d\'un email de masse terminé',
+            'mass_mail', 'email_sent', 'info',
+            self::emailPrefix($emailId) . ' : envoi terminé',
             ['email_id' => $emailId], $actorId
         );
     }
@@ -791,8 +1005,10 @@ class MassMailService
         $this->ensureBatchTaskScheduled(true);
 
         $this->journalService->log(
-            'mass_mail', 'recipient_resent', 'info', 'Renvoi demandé pour un destinataire',
-            ['email_id' => $recipient->emailId, 'recipient_id' => $recipientId], $actorId
+            'mass_mail', 'recipient_resent', 'info',
+            self::emailPrefix($recipient->emailId) . ' : renvoi demandé au destinataire #' . $recipientId,
+            ['email_id' => $recipient->emailId, 'recipient_id' => $recipientId,
+                'member_id' => $recipient->memberId], $actorId
         );
     }
 
@@ -949,7 +1165,7 @@ class MassMailService
         if (!in_array($listType, [
             Email::LIST_TYPE_DEFAULT_SECTION, Email::LIST_TYPE_DEFAULT_ACTIVE_MEMBERS,
             Email::LIST_TYPE_DEFAULT_CHIEFS, Email::LIST_TYPE_CUSTOM, Email::LIST_TYPE_EXTERNAL,
-            Email::LIST_TYPE_MAIL_MERGE,
+            Email::LIST_TYPE_MAIL_MERGE, Email::LIST_TYPE_DEFAULT_FORMER_MEMBERS,
         ], true)) {
             throw new MassMailException('Type de liste invalide.');
         }

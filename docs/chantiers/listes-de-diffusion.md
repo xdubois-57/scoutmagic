@@ -478,8 +478,6 @@ erreurs de ligne rendues en texte, le refus structurel sans rien à
 confirmer, « Annuler » qui n'envoie rien, la confirmation qui recharge
 l'ensemble depuis le serveur, et l'échec qui laisse l'écran intact.
 
-**Reporté.** Rien.
-
 **Corrigé après revue (revue Claude sur la PR).**
 
 - **Un en-tête en double était accepté en silence**, alors que
@@ -531,3 +529,176 @@ seule table qui sache, toute désinscription y écrivant depuis IT-03, quel
 que soit le demandeur. Test : un fichier portant une adresse supprimée
 crée bien sa ligne, mais désinscrite, et elle ne rejoint jamais la liste
 des adresses joignables.
+
+**Reporté.** Rien.
+
+---
+
+## IT-05 — La liste par défaut « Anciens »
+
+**Livré.** Une cinquième liste par défaut, calculée à la volée, et rien
+d'autre.
+
+- `Email::LIST_TYPE_DEFAULT_FORMER_MEMBERS`, l'ENUM `list_type` étendue,
+  version du module montée à 1.14.0. **Ni table, ni jonction, ni tâche
+  planifiée** (D4).
+- `MemberResolutionRepository::resolveFormerMembers()` : actif sur une
+  année scoute *passée*, inactif sur l'année effective, présent dans au
+  moins `former_members_min_scout_years` années scoutes distinctes, parti depuis
+  moins de `former_members_max_years_since_departure` années scoutes.
+- Les deux réglages, avec la description française obligatoire qui
+  explique noir sur blanc pourquoi le seuil est en **années**.
+- La description de la liste, **calculée** : « Anciens connus depuis
+  2019-2020 · au moins 2 années scoutes · partis depuis moins de 10
+  ans. »
+- L'écran de composition masque le choix des années pour cette liste et
+  met une note à sa place.
+
+**Les comparaisons de dates se font sur `start_date`, jamais sur l'id.**
+Une ligne `scout_years` est créée dès que quelque chose en a besoin, donc
+son identifiant ne dit rien de la chronologie. La borne haute se compte
+de la même façon en **années scoutes que l'unité a réellement connues**
+(`scoutYearStartDateOffsetBy()`), pas en arithmétique de calendrier : une
+unité qui a sauté une année n'a pas de ligne pour elle, et soustraire dix
+à une date inclurait silencieusement une année qu'il fallait exclure.
+
+**Le point à trancher : `unit_mail_consent` est appliqué, sur cette liste
+uniquement.** Le reste du repository l'ignore délibérément — la colonne
+Desk « Courrier d'unité » a été jugée peu fiable — et pour des membres
+présents cette année, ça se défend : on leur écrit à propos de ce à quoi
+ils participent. Quelqu'un parti depuis cinq ans est un autre cas : rien
+dans la vie ordinaire de l'unité ne justifie de lui écrire, le seul
+signal positif que quiconque ait jamais enregistré est cette colonne, et
+un rebond ou une plainte venant d'une adresse que personne n'utilise plus
+coûte la réputation d'envoi de tout le domaine — les mails aux familles
+compris. Un oui peu fiable reste le seul oui qui existe. La raison est
+écrite dans le code, comme le commentaire existant le fait pour la
+décision inverse.
+
+**Conclusion demandée : `member_years.leaving` n'est pas lu, et ce n'est
+pas un oubli.** C'est un indicateur *prospectif*, posé sur la ligne de
+l'année en cours — un chef, ou la réponse d'une famille, qui dit « ne
+reviendra pas l'an prochain ». Il ne peut donc pas servir de critère :
+
+- **son absence ne dit rien.** La plupart des départs sont silencieux —
+  personne ne coche quoi que ce soit, la famille ne se réinscrit tout
+  simplement pas. L'exiger réduirait « Anciens » aux départs que
+  quelqu'un a pris la peine de saisir, c'est-à-dire à une minorité.
+- **sa présence n'exclut personne non plus.** Un membre marqué partant
+  puis revenu a une ligne active cette année, et la deuxième condition
+  l'écarte déjà. Le drapeau n'ajoute rien là où il pourrait s'appliquer.
+- **et il voisine avec des données qui n'ont rien à faire ici.**
+  `leaving_comment_encrypted` est un texte libre souvent sensible
+  (conflit, situation familiale, santé), déchiffré uniquement dans
+  `Core\Member\DepartureRepository`. Une liste de diffusion n'a aucune
+  raison de s'en approcher, même pour n'en lire que le drapeau voisin.
+
+Son seul usage honnête serait décoratif — annoter « départ annoncé » à
+côté d'un nom — et cette liste n'affiche pas de noms.
+
+**Conclusion demandée : `previous_year_active_cutoff` ne recoupe pas ce
+besoin.** C'est un repère **MM-JJ** (`07-31` par défaut), de type texte,
+affiché dans la fenêtre d'envoi pour expliquer ce que représente la liste
+de l'année scoute précédente. Sa propre description dit qu'il
+« n'affecte pas la résolution réelle de la liste » : il ne filtre rien,
+ne se compte pas en durée, et répond à une autre question (à quelle date
+l'instantané de l'année précédente correspond à peu près). Les deux
+réglages ajoutés ici sont donc bien deux, pas un troisième par accident.
+
+**Autres décisions prises en autonomie.**
+
+- **Chaque ancien garde son année, et la liste n'en a donc aucune.**
+  `resolveMembersForYears()` traite cette liste à part, comme la liste
+  externe : l'année de chaque destinataire est celle de sa dernière année
+  active, la seule pour laquelle son profil existe et donc la seule que
+  `mass_mail_recipients.scout_year_id` puisse porter. L'année *stockée*
+  de l'e-mail ne sert qu'à une chose — l'année dont il faut être absent —
+  et c'est délibérément celle-là, plutôt qu'une année que le service
+  irait chercher lui-même, pour que le compteur avant l'envoi et le gel
+  répondent à la même question.
+- **La liste est acceptée par `validateAndSanitize()` et nommée dans la
+  page « Envoi de mails ».** Une liste par défaut que le formulaire
+  propose et que l'enregistrement refuse n'aurait pas été une liste ; et
+  la colonne « Année » affiche `—` pour elle, comme pour le publipostage
+  et la liste externe, puisque l'année qu'elle stocke n'est celle de
+  personne.
+- **La recherche par libellé passe d'un booléen par liste par défaut à
+  la liste des types dont le libellé correspond.** Deux booléens qui
+  seraient devenus trois puis quatre ; « Anciens » se cherche comme
+  « Membres actifs » se cherche déjà.
+- **Le plancher reste `admin`.** `MassMailAccessService::canUseList()`
+  renvoie déjà `false` par défaut : un animateur de section ne propose
+  pas cette liste, exactement comme « Membres actifs ».
+
+**Tests.** Résolution : un membre d'une seule année n'est pas un ancien
+au défaut de 2 (et en est un à 1), un membre actif cette année ne l'est
+jamais même avec dix années derrière lui, un ancien revenu disparaît sans
+rien d'autre qu'un import, la borne haute exclut au-delà du seuil et `0`
+la désactive, l'adresse et l'année retenues sont celles de la dernière
+année active, une ligne passée inactive n'est pas une adhésion, le
+consentement est exigé ici et nulle part ailleurs, et la plus ancienne
+année connue est celle où quelqu'un a été importé — pas celle qui existe
+sans personne. Service : la liste figure parmi les listes par défaut, la
+description reflète l'année la plus ancienne et les deux seuils, un
+minimum à `0` retombe sur le défaut, deux anciens partageant une adresse
+sont dédoublonnés, et sans année de référence la liste est vide. Envoi :
+le gel étiquette chaque ancien avec sa propre dernière année active.
+Vitest : les années masquées et la note affichée pour cette liste, et le
+retour à la normale pour une liste qui, elle, vise une année. Plus, après
+revue : le consentement lu sur la dernière année active et non sur une
+plus ancienne (dans les deux sens), et une année soumise en douce qui ne
+change rien à ce que la liste contient.
+
+**Corrigé après revue (revue Claude sur la PR).**
+
+- **Les deux clés de réglage étaient en français** (`anciens_min_...`).
+  `AGENTS.md` ne laisse aucune marge : « All code, comments, variable
+  names, function names, class names, table names, column names… :
+  English. No exceptions. » Une clé de réglage est un identifiant de
+  code — stockée telle quelle dans `settings.key`, reflétée en constantes
+  PHP, écrite en dur dans un test — et c'est le `label` et la
+  `description` à côté qui portent le français. Renommées en
+  `former_members_min_scout_years` et
+  `former_members_max_years_since_departure`. **Divergence avec le
+  document de chantier**, qui nommait explicitement ces deux clés : les
+  documents du dépôt priment sur lui pour toute règle générale, et
+  celle-ci en est une.
+- **`unit_mail_consent` était lu sur la mauvaise ligne.** Il filtrait
+  dans le `WHERE`, donc *avant* la réduction qui élit la dernière année
+  active : le gagnant devenait « la dernière année active qui, en plus,
+  consentait ». Quelqu'un dont l'instantané le plus récent dit non était
+  donc quand même retenu — à l'adresse périmée d'une année plus
+  ancienne, étiqueté avec l'identifiant de cette année-là (celui dont la
+  page de suivi ne trouve pas le profil), et mesuré contre la borne de
+  départ depuis la mauvaise date. Il est désormais **sélectionné** puis
+  lu sur la ligne gagnante : une seule ligne répond aux quatre
+  questions, ou aucune n'est fiable.
+- **Les cases d'années masquées pilotaient encore l'année de
+  référence.** La page les cache par une classe CSS et écrit « il n'y a
+  donc pas d'année scoute à choisir » — mais les `input` restent dans le
+  formulaire, et une case cochée avant de changer de type de liste est
+  toujours envoyée. Cocher « Année suivante » puis passer sur
+  « Anciens » résolvait « tous ceux qui sont absents de l'an prochain »,
+  c'est-à-dire une bonne partie de l'unité. Les années soumises sont
+  maintenant **ignorées**, pas seulement rétrécies : l'année de
+  référence est l'année publique courante, résolue dans le service. Une
+  année que personne ne voit n'est pas une année que quelqu'un a
+  choisie. Le compteur et le gel continuent de s'accorder, tous deux
+  passant par la même méthode.
+
+- **Et le garde de vacuité s'est retrouvé du mauvais côté du filtre**
+  que la correction précédente venait d'ajouter. « Des candidats, mais
+  aucun qui consente » est le cas **ordinaire** — la colonne est peu
+  fiable et souvent vide — et il atteignait `countDistinctScoutYears()`
+  sans aucun identifiant, donc `IN ()`, que MySQL et MariaDB refusent.
+  SQLite le tolère, et `DatabaseTestHelper` construit une base SQLite :
+  les tests ne pouvaient pas le dire. Le garde est passé après le
+  filtre, l'aide se garde elle-même comme les trois autres appels à
+  `placeholders()` de ce fichier, et le test de non-régression **compte
+  les requêtes** (`InstrumentedPdo`) plutôt que d'observer un résultat —
+  il dit donc la même chose quel que soit le moteur qui l'exécute.
+
+**Reporté.** Rien de cette itération. Restent hors périmètre, comme le
+document le prévoit : la portée en années comme propriété d'une liste
+personnalisée, l'inscription publique, et la sélection multiple, les
+étiquettes, les filtres avancés et la suppression en masse (D6).

@@ -4707,7 +4707,7 @@ if ($isEnabled('mass_mail')) {
     );
     $massMailListService = new \Modules\MassMail\Service\MailingListService(
         $massMailListRepo, $massMailResolutionRepo, $sectionService, $massMailFunctionRepo, $badgeService,
-        $massMailListAddressRepo, null, null, $scoutYearResolver, $scoutYearService
+        $massMailListAddressRepo, null, null, $scoutYearResolver, $scoutYearService, $settingService
     );
     // « This module points at badges by id, so do not let one be deleted
     //   from under a list » — Core\Module\BadgeUsageProvider. Registered
@@ -6454,7 +6454,8 @@ if ($isEnabled('registration')) {
             // instead of an empty Desk year (ARCHITECTURE.md §7.5).
             $registrationProjectedPopulation,
             $scoutYearResolver,
-            $scoutYearService
+            $scoutYearService,
+            $settingService
         );
         // Fresh instances rather than reusing the $massMailAudienceRepo/…
         // variables from the mass_mail block above — they're identical

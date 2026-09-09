@@ -88,7 +88,7 @@ class ModuleManifestTest extends TestCase
     }
 
     /**
-     * The four sending settings are ordinary SettingService rows and
+     * The module's settings are ordinary SettingService rows and
      * Configuration > Réglages already edits them — the module's own
      * duplicate editor (POST /config/mass-mail/settings) is gone, and the
      * settings themselves must survive that removal.
@@ -102,6 +102,8 @@ class ModuleManifestTest extends TestCase
                 'batch_size',
                 'batch_interval_minutes',
                 'merge_retention_months',
+                'former_members_min_scout_years',
+                'former_members_max_years_since_departure',
                 'mass_mail_list_addresses_max',
                 'previous_year_active_cutoff',
             ],

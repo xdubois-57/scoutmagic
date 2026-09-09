@@ -115,6 +115,7 @@ final class ComposePageRenderer
             'audience' => null,
             'audience_sample' => [],
             'attachments' => [],
+            'sender' => ['address' => 'meute-a@unite.test', 'name' => 'Meute A'],
             'counts' => ['total' => 0, 'sent' => 0, 'pending' => 0, 'error' => 0],
             'current_user_email' => 'chef@example.org',
             'csrf_token' => 'tok',

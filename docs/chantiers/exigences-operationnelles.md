@@ -142,7 +142,7 @@ d'octets en français), `InsufficientDiskSpaceException`. Le réglage
 `storage_quota_bytes`, vide par défaut. L'encart « Espace disque » en
 tête de la section Sauvegardes de Configuration > Maintenance — la
 seule modification d'interface de cette itération, comme le document de
-chantier le demande. `ARCHITECTURE.md` §8.96, le sujet d'aide
+chantier le demande. `ARCHITECTURE.md` §8.98, le sujet d'aide
 `docs/help/sauvegardes.md`, et 55 tests.
 
 **Les points d'appel de `ensureRoom()`** : `BackupService` (dump et

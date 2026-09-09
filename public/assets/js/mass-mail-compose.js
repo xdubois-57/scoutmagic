@@ -22,13 +22,17 @@
 //      the send confirmation, both asked at the moment of the click
 //      because both are live.
 //
+// In test mode a publipostage no longer renders its composition at all
+// (compose.html.twig), so this file runs on a page with no
+// #mm-compose-form in it: every block below already guards on the element
+// it needs, and the entry guard checks the page's data island only.
+//
 // Fetches ride the site-wide ScoutMagicApi envelope ({ok, status, data});
 // the audience upload keeps a raw fetch(FormData) since the JSON toolbox
 // deliberately owns JSON bodies only.
 (function () {
     const DATA = window.ScoutMagicApi ? window.ScoutMagicApi.pageData('mass-mail-compose-data') : null;
-    const form = document.getElementById('mm-compose-form');
-    if (!DATA || !form) return;
+    if (!DATA) return;
 
     const api = window.ScoutMagicApi;
     const escapeHtml = api.escapeHtml;
@@ -57,19 +61,24 @@
     }
 
     /**
-     * Two list types answer the "which year?" question themselves, so the
-     * year checkboxes make no sense for either — and each puts a note in
-     * their place, since a block that comes and goes with nothing said
-     * reads as a bug rather than as a rule.
+     * Three list types answer the "which year?" question themselves, so
+     * the year checkboxes make no sense for any of them — and each puts a
+     * note in their place, since a block that comes and goes with nothing
+     * said reads as a bug rather than as a rule. « Anciens » is the
+     * strongest of the three: every former member is reached at the
+     * address of THEIR OWN last active year, so there is not one year to
+     * pick for the list at all.
      */
     function updateListTypeUi() {
         const listType = currentListType();
         const isMerge = listType === 'mail_merge';
         const isExternal = listType === 'external';
+        const isFormer = listType === 'default_former_members';
         toggle('mm-merge-zone', !isMerge);
         toggle('mm-merge-list-note', !isMerge);
         toggle('mm-external-list-note', !isExternal);
-        toggle('mm-scout-year-zone', isMerge || isExternal);
+        toggle('mm-former-list-note', !isFormer);
+        toggle('mm-scout-year-zone', isMerge || isExternal || isFormer);
     }
 
     /**
@@ -294,22 +303,67 @@
     // ---------------------------------------------------------------
     // 4a. The per-recipient preview (test mode, mail merge).
     // ---------------------------------------------------------------
-    /** @param {number} offset */
+    /**
+     * The three controls that only mean anything once a row is on screen.
+     *
+     * Locked while the FIRST preview is in flight, and the reason is the
+     * random opening row: `#mm-merge-offset` still reads 0 until that
+     * fetch resolves, so a « Envoyer le test » clicked in that window
+     * would send line 1 — the one line this screen deliberately stopped
+     * opening on — while the page promises « les valeurs de la ligne
+     * affichée dans l'aperçu ci-dessus » and no line is affichée yet.
+     * Before the offset was random the two agreed by accident, which is
+     * why this guard was not needed and now is.
+     *
+     * Locked from here and never in the template: that form's guarantee
+     * is that it still works with this file absent (see the header), and
+     * a `disabled` attribute in the markup would take that away for good
+     * rather than for a few hundred milliseconds.
+     *
+     * @param {boolean} disabled
+     */
+    function setPreviewControlsDisabled(disabled) {
+        ['mm-test-send-btn', 'mm-merge-prev-btn', 'mm-merge-next-btn'].forEach(function (id) {
+            const node = /** @type {HTMLButtonElement|null} */ (el(id));
+            if (node) node.disabled = disabled;
+        });
+    }
+
+    /**
+     * @param {number|null} offset the audience row to show, or null for
+     *                             « somebody at random » — the server
+     *                             picks, since only it knows how many
+     *                             rows the file has.
+     */
     async function loadMergePreview(offset) {
-        const res = await api.getJson('/mass-mail/' + DATA.emailId + '/merge-preview?offset=' + offset);
+        const res = await api.getJson('/mass-mail/' + DATA.emailId + '/merge-preview'
+            + (offset === null ? '' : '?offset=' + offset));
         const data = res.data;
-        if (!data?.success) return;
+        if (!data?.success) {
+            // Nothing to show and nothing more to wait for. Give the
+            // controls back rather than leaving the screen inert: the
+            // preview box is visibly empty, so nobody is being told the
+            // test carries a row they can see — and refusing the test
+            // send for good over one failed fetch would be a worse
+            // answer than the one that stood here before.
+            setPreviewControlsDisabled(false);
+            return;
+        }
 
         const preview = data.preview;
         mergeOffset = preview.offset;
         const hidden = /** @type {HTMLInputElement|null} */ (el('mm-merge-offset'));
         if (hidden) hidden.value = String(mergeOffset);
 
-        setText('mm-merge-preview-position', 'Ligne ' + (preview.offset + 1) + ' / ' + preview.total);
         setText(
-            'mm-merge-preview-recipient',
-            'Destinataire : ' + preview.recipient_label + ' (ligne ' + preview.row_index + ' du fichier)'
+            'mm-merge-preview-position',
+            'Ligne ' + preview.row_index + ' du fichier · ' + (preview.offset + 1) + ' / ' + preview.total
         );
+        // Just the recipient: this now fills the « À : » of the message
+        // header, where a sentence about which line of the file it came
+        // from would be somebody else's business. That belongs to the
+        // position indicator above, which is where it went.
+        setText('mm-merge-preview-recipient', preview.recipient_label);
         setText('mm-merge-preview-subject', preview.subject);
         const body = el('mm-merge-preview-body');
         // Server-rendered: the body was sanitized at save time and every
@@ -320,6 +374,10 @@
         const next = /** @type {HTMLButtonElement|null} */ (el('mm-merge-next-btn'));
         if (prev) prev.disabled = preview.offset <= 0;
         if (next) next.disabled = preview.offset >= preview.total - 1;
+        // A row is on screen and #mm-merge-offset now names it: the two
+        // agree, so the test send may go.
+        const testSend = /** @type {HTMLButtonElement|null} */ (el('mm-test-send-btn'));
+        if (testSend) testSend.disabled = false;
 
         const warnings = [];
         if (preview.unknown_tokens.length) {
@@ -397,6 +455,11 @@
     updateListTypeUi();
     updateFutureYearWarning();
     if (DATA.status === 'test' && el('mm-merge-preview-zone')) {
-        loadMergePreview(0);
+        // No offset: the first line of the file is the one the author
+        // already had in front of them while writing, so it is the one
+        // line that proves nothing. The server picks a row at random —
+        // see Service\MassMailService::getMergePreview().
+        setPreviewControlsDisabled(true);
+        loadMergePreview(null);
     }
 })();

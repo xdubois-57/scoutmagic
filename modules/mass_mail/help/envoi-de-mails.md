@@ -58,6 +58,10 @@ son état : envoyé, en attente, ou en erreur avec le motif. Le bouton
 « Renvoyer » relance un destinataire précis. Chaque membre retrouve
 par ailleurs les e-mails reçus au bas de sa page personnelle.
 
+Le « Journal » garde une ligne par exemplaire, parti ou non : un envoi
+à sept personnes y laisse sept lignes, avec le numéro de l'e-mail —
+celui de son adresse de page — et le motif de ce qui a échoué.
+
 ## La désinscription
 
 Chaque e-mail porte un lien de désinscription. Une adresse désinscrite

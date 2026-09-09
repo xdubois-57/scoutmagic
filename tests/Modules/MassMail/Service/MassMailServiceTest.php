@@ -6,6 +6,8 @@ namespace Tests\Modules\MassMail\Service;
 
 use Core\Badge\MemberBadgeRepository;
 use Core\Config\ScoutYearService;
+use Core\Config\SettingRepository;
+use Core\Config\SettingService;
 use Core\Database\Connection;
 use Core\File\FileRepository;
 use Core\Import\FunctionRepository;
@@ -19,6 +21,7 @@ use Core\Member\MemberEmailService;
 use Core\Member\MemberService;
 use Core\Member\SectionService;
 use Core\Scheduler\SchedulerRepository;
+use Core\ScoutYear\ScoutYearResolver;
 use Core\Scheduler\SchedulerService;
 use Core\Security\EncryptionService;
 use Core\Security\HtmlSanitizer;
@@ -57,6 +60,7 @@ class MassMailServiceTest extends TestCase
     private int $sectionId;
     private int $otherSectionId;
     private SenderAuthorization $unrestricted;
+    private ScoutYearResolver $scoutYearResolver;
 
     protected function setUp(): void
     {
@@ -70,11 +74,21 @@ class MassMailServiceTest extends TestCase
         $this->recipientRepository = new RecipientRepository($this->pdo, $encryption);
         $this->importJournalRepository = new ImportJournalRepository($this->pdo);
         $emailRepository = new EmailRepository($this->pdo);
+        $this->scoutYearResolver = new ScoutYearResolver(
+            new ScoutYearService($this->pdo),
+            new SettingService(new SettingRepository($this->pdo)),
+            new MemberYearRepository($this->pdo)
+        );
         $listService = new MailingListService(
             new MailingListRepository($this->pdo),
             new MemberResolutionRepository($this->pdo, $encryption),
             $sectionService,
-            new FunctionRepository($this->pdo)
+            new FunctionRepository($this->pdo),
+            null,
+            null,
+            null,
+            null,
+            $this->scoutYearResolver
         );
 
         $this->audienceRepository = new AudienceRepository($this->pdo, $encryption);
@@ -88,7 +102,7 @@ class MassMailServiceTest extends TestCase
             $memberService,
             $this->buildMemberEmailService($encryption, $sectionService, $memberService),
             $sectionService,
-            $this->createMock(MailService::class),
+            $this->siteMailService(),
             new SchedulerService(new SchedulerRepository($this->pdo)),
             new JournalService(new JournalRepository($this->pdo)),
             new HtmlSanitizer(),
@@ -112,6 +126,17 @@ class MassMailServiceTest extends TestCase
         $this->otherSectionId = (int) $this->pdo->lastInsertId();
 
         $this->unrestricted = new SenderAuthorization(true, [], null);
+
+        // « Anciens » resolves its own reference year rather than reading
+        // the submitted one, so pin the public year instead of letting the
+        // date fallback make these tests depend on the day they run.
+        (new SettingService(new SettingRepository($this->pdo)))->register(
+            ScoutYearResolver::SETTING_PUBLIC_YEAR,
+            (string) $this->scoutYearId,
+            'number',
+            'Année scoute courante',
+            'Description.'
+        );
     }
 
     /**
@@ -128,7 +153,12 @@ class MassMailServiceTest extends TestCase
             new MailingListRepository($this->pdo),
             new MemberResolutionRepository($this->pdo, $encryption),
             $sectionService,
-            new FunctionRepository($this->pdo)
+            new FunctionRepository($this->pdo),
+            null,
+            null,
+            null,
+            null,
+            $this->scoutYearResolver
         );
 
         return new MassMailService(
@@ -152,6 +182,21 @@ class MassMailServiceTest extends TestCase
             new SuppressedAddressRepository($this->pdo),
             new MergeRenderer()
         );
+    }
+
+    /**
+     * A mail service that answers the one question the service asks it
+     * outside of send(): what the site's own From is, for a section that
+     * has none. An unconfigured mock answers [] there, which is not a
+     * shape that method ever returns.
+     */
+    private function siteMailService(): MailService
+    {
+        $mailService = $this->createMock(MailService::class);
+        $mailService->method('getDefaultSender')
+            ->willReturn(['address' => 'unite@test.be', 'name' => 'Test Unité']);
+
+        return $mailService;
     }
 
     private function buildMemberEmailService(EncryptionService $encryption, SectionService $sectionService, MemberService $memberService): MemberEmailService
@@ -269,6 +314,111 @@ class MassMailServiceTest extends TestCase
         $this->assertSame(1, $counts['pending']);
         $this->assertSame(2, $counts['error']);
         $this->assertSame(3, $counts['total']);
+    }
+
+    // ── One journal line per copy ───────────────────────────────────────
+
+    /**
+     * The report this was built for: an email to seven people, one copy
+     * that never left, and « aucune trace nulle part ». The row refused
+     * at freeze time is created straight in `error` and never reaches
+     * Task\SendBatchHandler, so before this it passed through no code
+     * that wrote anything down — the only record of it was one cell of
+     * one column on the tracking page.
+     */
+    public function testACopyRefusedBeforeItIsEvenAttemptedLeavesAJournalLine(): void
+    {
+        $this->createMemberWithEmail('valid@test.be');
+        $this->createMemberWithEmail(null);
+
+        $email = $this->createDraft();
+        $this->service->moveToTest($email->id, null);
+        $this->service->startSending($email->id, null);
+
+        $refused = $this->journalEntries('recipient_not_sendable');
+        $this->assertCount(1, $refused);
+        $this->assertSame('error', $refused[0]['level'], 'The tracking page calls this an error; so must the journal.');
+        $this->assertStringContainsString('Adresse invalide', $refused[0]['description']);
+
+        $context = json_decode((string) $refused[0]['context'], true);
+        $this->assertSame($email->id, $context['email_id']);
+        $this->assertNotNull($context['recipient_id']);
+    }
+
+    public function testAnUnsubscribedAddressIsWrittenDownAsWellAsShown(): void
+    {
+        $this->suppressedAddressRepository->suppress('optout@test.be');
+        $audienceId = $this->createAudience([
+            ['member_id' => null, 'email' => 'optout@test.be', 'data' => ['Email' => 'optout@test.be']],
+        ]);
+
+        $email = $this->createMergeDraft($audienceId);
+        $this->service->moveToTest($email->id, null);
+        $this->service->startSending($email->id, null);
+
+        $refused = $this->journalEntries('recipient_not_sendable');
+        $this->assertCount(1, $refused);
+        $this->assertStringContainsString('Adresse désinscrite des emails groupés', $refused[0]['description']);
+    }
+
+    /**
+     * SECURITY.md §11 — no e-mail address ever appears in a journal
+     * entry. This is the rule the whole feature runs closest to: the
+     * natural way to make a per-copy line searchable is to write the
+     * address into it, and that is precisely what must not happen.
+     * `member_id` is the only personal reference allowed, and the
+     * address-only recipients carry none at all.
+     */
+    public function testNoRecipientAddressEverReachesTheJournal(): void
+    {
+        $this->suppressedAddressRepository->suppress('optout@test.be');
+        $audienceId = $this->createAudience([
+            ['member_id' => null, 'email' => 'optout@test.be', 'data' => ['Email' => 'optout@test.be']],
+        ]);
+
+        $email = $this->createMergeDraft($audienceId);
+        $this->service->moveToTest($email->id, null);
+        $this->service->startSending($email->id, null);
+
+        $stmt = $this->pdo->query('SELECT description, context FROM event_log');
+        $rows = $stmt !== false ? (string) json_encode($stmt->fetchAll(\PDO::FETCH_ASSOC)) : '';
+        $this->assertStringNotContainsString('optout@test.be', $rows);
+        $this->assertStringNotContainsString('optout', $rows);
+    }
+
+    /**
+     * `/admin/journal`'s search box matches `description` and nothing
+     * else (Core\Journal\JournalRepository::buildFilters()), so an id
+     * that lives only in the JSON context is an id nobody can search on.
+     * Searching one mailing has to return its whole story — start, every
+     * copy, end.
+     */
+    public function testOneSearchOnTheEmailIdFindsTheWholeStory(): void
+    {
+        $this->createMemberWithEmail('valid@test.be');
+        $this->createMemberWithEmail(null);
+
+        $email = $this->createDraft();
+        $this->service->moveToTest($email->id, null);
+        $this->service->startSending($email->id, null);
+
+        $stmt = $this->pdo->prepare('SELECT event_type FROM event_log WHERE description LIKE ?');
+        $stmt->execute(['%#' . $email->id . '%']);
+        $found = $stmt->fetchAll(\PDO::FETCH_COLUMN);
+
+        $this->assertContains('email_sending_started', $found);
+        $this->assertContains('recipient_not_sendable', $found);
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function journalEntries(string $type): array
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM event_log WHERE event_type = ? ORDER BY id');
+        $stmt->execute([$type]);
+
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
     }
 
     // ── How many this would reach, asked before it is sent ──────────────
@@ -616,11 +766,69 @@ class MassMailServiceTest extends TestCase
         $this->assertSame(2, $counts['total']);
     }
 
-    private function createPastScoutYear(): int
+    private function createPastScoutYear(int $yearsBack = -1): int
     {
-        [$label, $yearStart, $yearEnd] = DatabaseTestHelper::scoutYear(-1);
+        [$label, $yearStart, $yearEnd] = DatabaseTestHelper::scoutYear($yearsBack);
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('{$label}', '{$yearStart}', '{$yearEnd}', 0)");
         return (int) $this->pdo->lastInsertId();
+    }
+
+    private function addMemberYear(int $memberId, int $scoutYearId, string $email): void
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted,
+                                       email_encrypted, email_blind_index, unit_mail_consent, is_active)
+             VALUES (?, ?, ?, ?, ?, ?, 1, 1)'
+        );
+        $stmt->execute([
+            $memberId,
+            $scoutYearId,
+            $encryption->encrypt('John', 'member_years.first_name'),
+            $encryption->encrypt('Doe', 'member_years.last_name'),
+            $encryption->encrypt($email, 'member_years.email'),
+            $encryption->blindIndex($email, 'email'),
+        ]);
+    }
+
+    /**
+     * The « Anciens » list is the only one whose recipients do not share
+     * one scout year: each former member is reached at the address of
+     * THEIR OWN last active year, and the recipient row must carry that
+     * year — the tracking page looks a profile up by it, and theirs only
+     * exists for that year.
+     */
+    public function testStartSendingTagsEachFormerMemberWithTheirOwnLastActiveYear(): void
+    {
+        $lastYear = $this->createPastScoutYear(-1);
+        $twoYearsAgo = $this->createPastScoutYear(-2);
+        $threeYearsAgo = $this->createPastScoutYear(-3);
+
+        $recent = $this->createMemberWithEmail('recent@test.be', scoutYearId: $twoYearsAgo);
+        $this->addMemberYear($recent, $lastYear, 'recent@test.be');
+
+        $older = $this->createMemberWithEmail('older@test.be', scoutYearId: $threeYearsAgo);
+        $this->addMemberYear($older, $twoYearsAgo, 'older@test.be');
+
+        // Still here: never a former member, whatever their history.
+        $stillHere = $this->createMemberWithEmail('encore@test.be', scoutYearId: $twoYearsAgo);
+        $this->addMemberYear($stillHere, $this->scoutYearId, 'encore@test.be');
+
+        $email = $this->service->createDraft(
+            'Sujet', '<p>Corps</p>', $this->sectionId, Email::LIST_TYPE_DEFAULT_FORMER_MEMBERS, null, null,
+            [$this->scoutYearId], null, $this->unrestricted
+        );
+        $this->service->moveToTest($email->id, null);
+        $this->service->startSending($email->id, null);
+
+        $byMember = [];
+        foreach ($this->recipientRepository->findByEmailId($email->id) as $recipient) {
+            $byMember[(int) $recipient->memberId] = $recipient->scoutYearId;
+        }
+
+        $this->assertSame([$recent, $older], array_keys($byMember));
+        $this->assertSame($lastYear, $byMember[$recent]);
+        $this->assertSame($twoYearsAgo, $byMember[$older]);
     }
 
     // --- Sender/list authorization (plain section chief vs chef d'unité) ---
@@ -792,6 +1000,83 @@ class MassMailServiceTest extends TestCase
 
         $this->assertNull($identity['address']);
         $this->assertSame('Meute A', $identity['name']);
+    }
+
+    /**
+     * `resolveSenderIdentity()`'s null is an INSTRUCTION to send() («
+     * use the site's own configuration »), and a screen cannot print an
+     * instruction. The test-mode preview names the sender the recipient
+     * will actually read, which means resolving that fallback — once,
+     * here, rather than in a template guessing at it.
+     */
+    public function testTheDisplayedSenderFallsBackToTheSiteConfigurationRatherThanToNothing(): void
+    {
+        // $this->sectionId has no email of its own (see setUp).
+        $displayed = $this->service->resolveDisplayedSender($this->sectionId);
+
+        $this->assertSame('unite@test.be', $displayed['address']);
+        // The NAME is still the section's: send() takes it as an
+        // override, and a non-null override wins whatever the address did.
+        $this->assertSame('Meute A', $displayed['name']);
+    }
+
+    public function testTheDisplayedSenderIsTheSectionsOwnAddressWhenItHasOne(): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE sections SET email = ? WHERE id = ?');
+        $stmt->execute(['meute-a@test.be', $this->sectionId]);
+
+        $this->assertSame(
+            ['address' => 'meute-a@test.be', 'name' => 'Meute A'],
+            $this->service->resolveDisplayedSender($this->sectionId)
+        );
+    }
+
+    // ── The preview opens on somebody at random ─────────────────────────
+
+    /**
+     * Line 1 is the row whose values the author already had in front of
+     * them while writing, so it is the one row their variables were
+     * unconsciously fitted to — the one row a preview proves nothing
+     * about. Asked with no offset, the preview picks somebody.
+     *
+     * Twenty draws over ten rows: the odds of them all landing on the
+     * same row are 10 × (1/10)^20, which is not a flaky test.
+     */
+    public function testThePreviewOpensOnARowChosenAtRandom(): void
+    {
+        $rows = [];
+        for ($i = 1; $i <= 10; $i++) {
+            $rows[] = ['member_id' => null, 'email' => "ligne{$i}@test.be",
+                'data' => ['Email' => "ligne{$i}@test.be", 'Prenom' => 'Nom' . $i]];
+        }
+        $email = $this->createMergeDraft($this->createAudience($rows));
+
+        $seen = [];
+        for ($i = 0; $i < 20; $i++) {
+            $preview = $this->service->getMergePreview($email->id, null);
+            $this->assertGreaterThanOrEqual(0, $preview['offset']);
+            $this->assertLessThan(10, $preview['offset']);
+            $seen[$preview['offset']] = true;
+        }
+
+        $this->assertGreaterThan(1, count($seen), 'A preview that always opens on the same row is not a sample.');
+    }
+
+    /**
+     * The other half: the arrows still walk the file in order. Random is
+     * where the reader LANDS, never where they are kept.
+     */
+    public function testAnExplicitOffsetIsStillTheRowThatIsShown(): void
+    {
+        $email = $this->createMergeDraft($this->createAudience([
+            ['member_id' => null, 'email' => 'a@test.be', 'data' => ['Email' => 'a@test.be', 'Prenom' => 'Anne']],
+            ['member_id' => null, 'email' => 'b@test.be', 'data' => ['Email' => 'b@test.be', 'Prenom' => 'Bruno']],
+        ]));
+
+        $this->assertSame(1, $this->service->getMergePreview($email->id, 1)['offset']);
+        $this->assertSame(0, $this->service->getMergePreview($email->id, 0)['offset']);
+        // Out of range is clamped, as it always was.
+        $this->assertSame(1, $this->service->getMergePreview($email->id, 99)['offset']);
     }
 
     public function testSendTestEmailUsesTheSenderSectionsAddressNotTheSiteDefault(): void

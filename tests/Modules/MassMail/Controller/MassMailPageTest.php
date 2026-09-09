@@ -122,6 +122,14 @@ class MassMailPageTest extends TestCase
             'Test Unité'
         );
 
+        // The composition page asks the mail service what the site's own
+        // From is, to fill the « De : » of a test-mode preview when the
+        // sender section has no address of its own. An unconfigured mock
+        // answers [] there, which is not a shape this method ever returns.
+        $mailService = $this->createMock(MailService::class);
+        $mailService->method('getDefaultSender')
+            ->willReturn(['address' => 'unite@test.be', 'name' => 'Test Unité']);
+
         $this->massMailService = new MassMailService(
             new EmailRepository($this->pdo),
             new RecipientRepository($this->pdo, $encryption),
@@ -131,7 +139,7 @@ class MassMailPageTest extends TestCase
             $memberService,
             $memberEmailService,
             $sectionService,
-            $this->createMock(MailService::class),
+            $mailService,
             new SchedulerService(new SchedulerRepository($this->pdo)),
             new JournalService(new JournalRepository($this->pdo)),
             new HtmlSanitizer(),

@@ -171,16 +171,38 @@ test('a mail merge refuses a bad file line by line, previews each row, and deliv
     await page.waitForURL(/\/mass-mail\/\d+$/, { waitUntil: 'load' });
     await expect(page.locator('#mm-status')).toHaveText('Test');
 
+    // In test mode the composition is gone: this page renders the final,
+    // variable-resolved email, and rendering the unresolved one above it
+    // was the same message twice.
+    await expect(page.locator('#mm-compose-form')).toHaveCount(0);
+
     const preview = page.locator('#mm-merge-preview-zone');
     await expect(preview).toBeVisible();
-    await expect(preview.locator('#mm-merge-preview-position')).toHaveText('Ligne 1 / 2');
+
+    // The preview OPENS ON A RANDOM ROW — line 1 is the row the author
+    // already had in front of them while writing, so it is the one row
+    // that proves nothing. Wait for the first load, then walk back to the
+    // top: « Ligne précédente » is disabled there, which is a state to
+    // assert rather than a count to trust. Two rows, so at most one step.
+    await expect(preview.locator('#mm-merge-preview-position')).toHaveText(/\d+ \/ 2$/);
+    const previousRow = preview.locator('#mm-merge-prev-btn');
+    if (!(await previousRow.isDisabled())) {
+        await previousRow.click();
+    }
+    await expect(previousRow).toBeDisabled();
+
+    await expect(preview.locator('#mm-merge-preview-position')).toHaveText(/^Ligne \d+ du fichier · 1 \/ 2$/);
     // Row 1 resolves the Tiers to the seeded member — every known address.
     await expect(preview.locator('#mm-merge-preview-recipient')).toContainText('toutes ses adresses connues');
     await expect(preview.locator('#mm-merge-preview-subject')).toContainText(`Camp Kaa — infos ${RUN_TAG}`);
     await expect(preview.locator('#mm-merge-preview-body')).toContainText('Cher Kaa, tu devras payer 145 € pour le camp.');
+    // The header of a real message: who it is from, and who this copy
+    // goes to.
+    await expect(preview).toContainText('De :');
+    await expect(preview).toContainText('À :');
 
     await preview.locator('#mm-merge-next-btn').click();
-    await expect(preview.locator('#mm-merge-preview-position')).toHaveText('Ligne 2 / 2');
+    await expect(preview.locator('#mm-merge-preview-position')).toHaveText(/^Ligne \d+ du fichier · 2 \/ 2$/);
     await expect(preview.locator('#mm-merge-preview-recipient')).toContainText(EXTERNAL_RECIPIENT);
     await expect(preview.locator('#mm-merge-preview-body')).toContainText('Cher Emma, tu devras payer 80 € pour le camp.');
 

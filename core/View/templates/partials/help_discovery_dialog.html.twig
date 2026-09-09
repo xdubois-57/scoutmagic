@@ -44,8 +44,18 @@
                 {% if card.question %}
                     <p class="fs-5 fw-semibold mb-3">{{ card.question }}</p>
                 {% endif %}
-                <p class="fw-semibold mb-1">{{ card.title }}</p>
-                <p class="text-body-secondary mb-3">{{ card.summary }}</p>
+                {# The answer, framed. The question above is the reader's
+                   own words; the two lines below are the help topic that
+                   answers it, and a light border is what says so at a
+                   glance. Without it the three paragraphs are one wall of
+                   text in which the title stops being a title. The frame
+                   holds the title AND its summary — they are one thing,
+                   and a border around the title alone would separate the
+                   two halves of the same answer. #}
+                <div class="border rounded p-3 mb-3">
+                    <p class="fw-semibold mb-1">{{ card.title }}</p>
+                    <p class="text-body-secondary mb-0">{{ card.summary }}</p>
+                </div>
                 <a href="{{ card.url }}" class="icon-link">
                     <i class="bi bi-book" aria-hidden="true"></i>
                     En savoir plus
