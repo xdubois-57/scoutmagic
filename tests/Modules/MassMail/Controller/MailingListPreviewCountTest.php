@@ -129,6 +129,16 @@ class MailingListPreviewCountTest extends TestCase
                 new MailingListRepository($this->pdo),
                 new SettingService(new SettingRepository($this->pdo)),
                 $this->createMock(\Core\Journal\JournalService::class)
+            ),
+            new \Modules\MassMail\Service\ListAddressImportService(
+                new ListAddressRepository($this->pdo, $this->encryption),
+                new ListAddressService(
+                    new ListAddressRepository($this->pdo, $this->encryption),
+                    new MailingListRepository($this->pdo),
+                    new SettingService(new SettingRepository($this->pdo)),
+                    $this->createMock(\Core\Journal\JournalService::class)
+                ),
+                $this->createMock(\Core\Journal\JournalService::class)
             )
         );
 

@@ -47,6 +47,14 @@ const PAGE = `
                 <input type="email" data-address-new-email>
                 <button type="submit">Ajouter</button>
             </form>
+            <a href="/admin/listes-de-diffusion/lists/7/addresses/export">Exporter en Excel</a>
+            <input type="file" data-address-import-input>
+            <div class="d-none" data-address-import-preview>
+                <p data-address-import-summary></p>
+                <ul class="d-none" data-address-import-errors></ul>
+                <button type="button" data-address-import-confirm>Remplacer les adresses</button>
+                <button type="button" data-address-import-cancel>Annuler</button>
+            </div>
         </div>
     </details>
 `;
@@ -411,6 +419,229 @@ describe('mass-mail-list-addresses.js', () => {
             expect(opts.method).toBe('DELETE');
             expect(rows()).toHaveLength(0);
             expect(countEl().textContent).toBe('0 adresse');
+        });
+    });
+
+    describe('the Excel round trip', () => {
+        const importInput = () => document.querySelector('[data-address-import-input]');
+        const importPreview = () => document.querySelector('[data-address-import-preview]');
+        const importSummary = () => document.querySelector('[data-address-import-summary]');
+        const importErrors = () => document.querySelector('[data-address-import-errors]');
+
+        /**
+         * Presents a chosen file the way a browser does, then fires the
+         * change event the script listens for.
+         */
+        function chooseFile() {
+            Object.defineProperty(importInput(), 'files', {
+                configurable: true,
+                value: [new File(['x'], 'adresses.xlsx')],
+            });
+            importInput().dispatchEvent(new Event('change'));
+        }
+
+        it('offers the export as a plain link, never as a script-driven download', async () => {
+            serve([]);
+            await boot();
+            await open();
+
+            const link = document.querySelector('a[href$="/addresses/export"]');
+            expect(link).not.toBeNull();
+            expect(link.getAttribute('href'))
+                .toBe('/admin/listes-de-diffusion/lists/7/addresses/export');
+        });
+
+        it('uploads for ANALYSIS and shows the counts without replacing anything', async () => {
+            serve([address(1, 'Part', 'part@test.be')]);
+            await boot();
+            await open();
+
+            global.fetch = vi.fn(() => jsonResponse({
+                success: true,
+                summary: { added: 12, unchanged: 284, removed: 5, kept_unsubscribed: 1 },
+                addresses: [{ name: 'Nouvelle', email: 'nouvelle@test.be' }],
+                errors: [],
+                duplicates: 0,
+            }));
+            chooseFile();
+            await settle();
+
+            const [url, opts] = fetch.mock.calls[0];
+            expect(url).toBe('/admin/listes-de-diffusion/lists/7/addresses/import');
+            expect(opts.method).toBe('POST');
+            expect(opts.body).toBeInstanceOf(FormData);
+            expect(opts.body.get('_csrf_token')).toBe('tok-123');
+
+            expect(importPreview().classList.contains('d-none')).toBe(false);
+            expect(importSummary().textContent).toBe(
+                '12 adresses ajoutées · 284 inchangées · 5 supprimées · '
+                + '1 désinscrite — conservée, toujours exclue des envois',
+            );
+            // Nothing has been replaced: the list on screen is untouched.
+            expect(rowTexts()).toEqual(['Part — part@test.be']);
+        });
+
+        it('leaves the unsubscribed clause out when there is none', async () => {
+            serve([]);
+            await boot();
+            await open();
+
+            global.fetch = vi.fn(() => jsonResponse({
+                success: true,
+                summary: { added: 1, unchanged: 0, removed: 0, kept_unsubscribed: 0 },
+                addresses: [{ name: null, email: 'nouvelle@test.be' }],
+                errors: [],
+                duplicates: 0,
+            }));
+            chooseFile();
+            await settle();
+
+            expect(importSummary().textContent).toBe('1 adresse ajoutée · 0 inchangée · 0 supprimée');
+        });
+
+        it('says how many lines of the file collapsed onto one another', async () => {
+            // A file of 300 lines reporting « 280 ajoutées » with nothing
+            // said about the other twenty reads as a loss.
+            serve([]);
+            await boot();
+            await open();
+
+            global.fetch = vi.fn(() => jsonResponse({
+                success: true,
+                summary: { added: 2, unchanged: 0, removed: 0, kept_unsubscribed: 0 },
+                addresses: [{ name: null, email: 'une@test.be' }, { name: null, email: 'deux@test.be' }],
+                errors: [],
+                duplicates: 3,
+            }));
+            chooseFile();
+            await settle();
+
+            expect(importSummary().textContent).toContain('3 lignes en double dans le fichier');
+        });
+
+        it('lists the lines that will not be imported, as text', async () => {
+            serve([]);
+            await boot();
+            await open();
+
+            global.fetch = vi.fn(() => jsonResponse({
+                success: true,
+                summary: { added: 1, unchanged: 0, removed: 0, kept_unsubscribed: 0 },
+                addresses: [{ name: null, email: 'ok@test.be' }],
+                errors: ['Ligne 3 — « <img src=x> » n\'est pas une adresse email valide.'],
+                duplicates: 0,
+            }));
+            chooseFile();
+            await settle();
+
+            expect(importErrors().classList.contains('d-none')).toBe(false);
+            expect(importErrors().querySelector('img')).toBeNull();
+            expect(importErrors().querySelector('li').textContent)
+                .toBe('Ligne 3 — « <img src=x> » n\'est pas une adresse email valide.');
+        });
+
+        it('shows the structural refusal and offers nothing to confirm', async () => {
+            serve([]);
+            await boot();
+            await open();
+
+            global.fetch = vi.fn(() => jsonResponse(
+                { success: false, errors: ['Le fichier doit contenir une colonne « Adresse ».'] },
+                422,
+            ));
+            chooseFile();
+            await settle();
+
+            expect(errorEl().textContent).toBe('Le fichier doit contenir une colonne « Adresse ».');
+            expect(importPreview().classList.contains('d-none')).toBe(true);
+        });
+
+        it('replaces nothing until the second, explicit click', async () => {
+            serve([address(1, 'Part', 'part@test.be')]);
+            await boot();
+            await open();
+
+            global.fetch = vi.fn(() => jsonResponse({
+                success: true,
+                summary: { added: 1, unchanged: 0, removed: 1, kept_unsubscribed: 0 },
+                addresses: [{ name: 'Nouvelle', email: 'nouvelle@test.be' }],
+                errors: [],
+                duplicates: 0,
+            }));
+            chooseFile();
+            await settle();
+            const callsAfterAnalysis = fetch.mock.calls.length;
+
+            document.querySelector('[data-address-import-cancel]').click();
+
+            expect(importPreview().classList.contains('d-none')).toBe(true);
+            expect(fetch.mock.calls).toHaveLength(callsAfterAnalysis);
+            expect(rowTexts()).toEqual(['Part — part@test.be']);
+        });
+
+        it('confirms with the rows the analysis returned, then reloads the set from the server', async () => {
+            serve([address(1, 'Part', 'part@test.be')]);
+            await boot();
+            await open();
+
+            global.fetch = vi.fn(() => jsonResponse({
+                success: true,
+                summary: { added: 1, unchanged: 0, removed: 1, kept_unsubscribed: 0 },
+                addresses: [{ name: 'Nouvelle', email: 'nouvelle@test.be' }],
+                errors: [],
+                duplicates: 0,
+            }));
+            chooseFile();
+            await settle();
+
+            const calls = [];
+            global.fetch = vi.fn((url, opts) => {
+                calls.push([url, opts]);
+                if (String(url).endsWith('/import/confirm')) {
+                    return jsonResponse({
+                        success: true,
+                        summary: { added: 1, unchanged: 0, removed: 1, kept_unsubscribed: 0 },
+                        counts: { total: 1, unsubscribed: 0 },
+                    });
+                }
+                return jsonResponse({ success: true, addresses: [address(2, 'Nouvelle', 'nouvelle@test.be')] });
+            });
+            document.querySelector('[data-address-import-confirm]').click();
+            await settle();
+
+            expect(calls[0][0]).toBe('/admin/listes-de-diffusion/lists/7/addresses/import/confirm');
+            expect(JSON.parse(calls[0][1].body)).toEqual({
+                addresses: [{ name: 'Nouvelle', email: 'nouvelle@test.be' }],
+                _csrf_token: 'tok-123',
+            });
+            // The set on screen came back from the server, not from a guess.
+            expect(calls[1][0]).toBe('/admin/listes-de-diffusion/lists/7/addresses');
+            expect(rowTexts()).toEqual(['Nouvelle — nouvelle@test.be']);
+            expect(countEl().textContent).toBe('1 adresse');
+            expect(importPreview().classList.contains('d-none')).toBe(true);
+        });
+
+        it('keeps what is on screen when the confirmation is refused', async () => {
+            serve([address(1, 'Part', 'part@test.be')]);
+            await boot();
+            await open();
+
+            global.fetch = vi.fn(() => jsonResponse({
+                success: true,
+                summary: { added: 1, unchanged: 0, removed: 1, kept_unsubscribed: 0 },
+                addresses: [{ name: 'Nouvelle', email: 'nouvelle@test.be' }],
+                errors: [],
+                duplicates: 0,
+            }));
+            chooseFile();
+            await settle();
+
+            global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Rien n\'a été modifié.' }, 422));
+            document.querySelector('[data-address-import-confirm]').click();
+            await settle();
+
+            expect(errorEl().textContent).toBe('Rien n\'a été modifié.');
+            expect(rowTexts()).toEqual(['Part — part@test.be']);
         });
     });
 

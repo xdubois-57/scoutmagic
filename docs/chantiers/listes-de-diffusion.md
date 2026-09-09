@@ -405,3 +405,129 @@ la ligne qu'un chef ajoute ensuite naissant désinscrite.
 
 **Reporté.** L'aller-retour Excel, qui est IT-04 : le dépôt ne contient de
 cette itération ni export, ni import, ni `replaceForList()`.
+
+---
+
+## IT-04 — L'aller-retour Excel
+
+**Livré.** L'export en flux, l'import en deux temps, et rien d'autre.
+
+- `Service\ListAddressImportService` porte les trois moitiés : `export()`,
+  `analyse()` (n'écrit rien) et `apply()` (la seule qui écrit).
+  `Service\ListAddressImportPreview` est ce que l'analyse renvoie,
+  `Service\ListAddressImportException` ce qu'elle lève sur un problème de
+  structure. `Repository\ListAddressRepository::replaceForList()` fait le
+  remplacement. Version du module montée à 1.13.0.
+- Trois routes : `GET .../addresses/export`, `POST .../addresses/import`
+  (analyse), `POST .../addresses/import/confirm` (application).
+- L'export passe par `Core\Http\SpreadsheetResponse`, comme l'export des
+  réponses de formulaire du module `news` : généré dans la requête,
+  diffusé, jamais écrit là où quelque chose pourrait le resservir. Rien
+  n'étant stocké, il n'y a rien à faire passer par `FileAccessGuard`.
+  `phpoffice/phpspreadsheet` était déjà une dépendance ; aucune n'a été
+  ajoutée.
+
+**Décisions prises en autonomie.**
+
+- **Les deux temps sont deux requêtes, et la confirmation reporte les
+  lignes.** Le document demande « téléversement → analyse → aperçu chiffré
+  → confirmation explicite » et, séparément, que le fichier soit supprimé
+  dès l'analyse. Les deux ensemble impliquent que la confirmation ne peut
+  pas relire le fichier : elle porte donc les lignes que l'analyse lui a
+  renvoyées. Conséquence assumée et traitée : ce que la confirmation porte
+  est **revalidé et redédoublonné**, et le plafond est **redemandé**, dans
+  une requête qui ne peut rien tenir pour acquis d'une précédente. Rien
+  n'y est escaladé — un chef d'unité peut de toute façon ajouter
+  l'adresse de son choix par la route d'ajout.
+- **Le plafond est demandé à l'analyse *et* à la confirmation.** À
+  l'analyse pour que le refus arrive avant qu'on propose de confirmer un
+  remplacement inapplicable ; à la confirmation parce que c'est là qu'on
+  écrit. Il compte les désinscrites comme survivantes, un remplacement ne
+  les retirant jamais.
+- **Les alias d'en-têtes sont tolérants dans un seul sens.** `Adresse`,
+  `Adresse email`, `Email`, `Courriel`, `Mail` pour la colonne d'adresses ;
+  `Nom`, `Nom complet`, `Contact` pour celle des noms. C'est ce que
+  l'import Desk et l'import de publipostage font déjà, et cela n'affaiblit
+  rien : un en-tête inconnu refuse toujours le fichier entier.
+- **Un problème de structure refuse tout ; une mauvaise ligne, non.** Le
+  document demande les deux comportements (« En-tête manquant ou mal
+  orthographié → refus explicite, rien d'écrit. Adresse invalide →
+  signalée, les autres passent »), qui sont deux mécanismes distincts :
+  `ListAddressImportException` d'un côté, la liste `errors` de l'aperçu de
+  l'autre.
+- **Une ligne entièrement vide n'est pas une erreur.** Un bloc séparé d'un
+  autre par une ligne blanche est une habitude de tableur, pas une faute.
+
+**Tests.** `ListAddressImportServiceTest` écrit de **vrais fichiers
+`.xlsx`** avec la bibliothèque que l'importeur relit — la seule façon de
+savoir que les deux sont d'accord : en-tête mal orthographié refusé, aucune
+colonne d'adresses refusée, fichier vide refusé, fichier qui n'est pas un
+classeur refusé, colonnes trouvées dans le désordre et sous d'autres
+orthographes, adresse invalide signalée sans bloquer les autres, doublon
+réduit à une ligne, ligne blanche tolérée, compteurs justes sans rien
+écrire, plafond refusé à l'analyse, remplacement appliqué, désinscrite
+survivant dans les deux sens, nom corrigé sans doublon, confirmation
+revalidée et redédoublonnée, plafond redemandé.
+`ListAddressImportRoutesTest` couvre le `finally` — **le fichier est
+supprimé après une analyse réussie, après un refus de structure et après
+un fichier qui n'est pas un classeur du tout** — plus l'export, le refus
+CSRF, l'extension refusée, et la confirmation. Vitest : l'export est un
+lien, l'analyse envoie du `FormData` avec le jeton, la phrase de
+compteurs, la clause « désinscrite » absente quand il n'y en a pas, les
+erreurs de ligne rendues en texte, le refus structurel sans rien à
+confirmer, « Annuler » qui n'envoie rien, la confirmation qui recharge
+l'ensemble depuis le serveur, et l'échec qui laisse l'écran intact.
+
+**Reporté.** Rien.
+
+**Corrigé après revue (revue Claude sur la PR).**
+
+- **Un en-tête en double était accepté en silence**, alors que
+  `ARCHITECTURE.md` promettait le contraire dans la même PR. Lire la
+  colonne arrivée en premier *est* exactement le remplacement silencieux
+  par la mauvaise colonne que la reconnaissance par en-tête existe pour
+  éviter. Le fichier est donc refusé, un message par rôle quel que soit
+  le nombre de colonnes en trop, et joint aux autres problèmes
+  structurels — « tous les problèmes listés d'un coup » reste vrai.
+- **Le plafond comptait deux fois les désinscrites que le fichier porte
+  déjà.** `export()` les écrit dans le fichier et `replaceForList()`
+  compte une telle ligne comme *inchangée*, jamais comme un ajout :
+  additionner toutes les désinscrites au compte du fichier refusait
+  l'aller-retour d'une liste proche du plafond — c'est-à-dire exactement
+  la taille de liste pour laquelle cette itération existe.
+  `countUnsubscribedNotIn()` répond sur les index aveugles, sans rien
+  déchiffrer, la question étant un nombre.
+
+- **Le remplacement n'était pas transactionnel.** N insertions puis M
+  suppressions : une panne entre les deux moitiés laissait la liste
+  porter à la fois ce que le fichier apportait et ce qu'il retirait —
+  au-delà du plafond qu'on venait de vérifier, et sans entrée au journal
+  puisque l'appelant ne journalise qu'au retour. Enveloppé, annulé sur
+  `\Throwable`, comme le fait déjà `BatchResetService`.
+- **Le compte de doublons du fichier n'était affiché nulle part.**
+  `analyse()` le calcule et la route le renvoie, mais l'aperçu ne le
+  lisait pas : un fichier de 300 lignes annonçant « 280 ajoutées » sans
+  rien dire des vingt autres se lit comme une perte. La phrase de résumé
+  le nomme désormais.
+
+- **Une confirmation sans champ `addresses` effaçait la liste.** Un
+  corps tronqué, un bug de client ou une requête retouchée à la main
+  arrivaient à `apply()` comme « remplacer par rien » — avec un 200, et
+  sans rien de la confirmation en deux temps autour de laquelle toute
+  l'itération est construite. Un remplacement par **rien** reste
+  légitime (un fichier réduit à son en-tête) : ce qui est refusé, c'est
+  l'absence du tableau, et une entrée qui n'est pas un objet — refusée
+  au lieu d'être écartée, écarter transformant une charge utile abîmée
+  en une liste plus courte, c'est-à-dire en suppressions que personne
+  n'a confirmées.
+
+**Complété dans la foulée de la revue d'IT-03.** `replaceForList()` ne
+protège que les lignes désinscrites **de la liste qu'il remplace** — les
+seules qu'il voie. Une adresse désinscrite sur une *autre* liste arrive
+comme une ligne neuve et aurait été créée active, ce qui contredit D2.
+`apply()` interroge donc la table de suppression sur le fichier entier en
+une requête (`filterSuppressed()`) et marque ce qu'elle nomme : c'est la
+seule table qui sache, toute désinscription y écrivant depuis IT-03, quel
+que soit le demandeur. Test : un fichier portant une adresse supprimée
+crée bien sa ligne, mais désinscrite, et elle ne rejoint jamais la liste
+des adresses joignables.

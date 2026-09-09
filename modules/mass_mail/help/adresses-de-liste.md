@@ -8,7 +8,7 @@ question: Comment écrire à la commune ou au propriétaire du terrain de camp ?
 question: Comment ajouter une adresse à une liste de diffusion ?
 question: Pourquoi une adresse désinscrite reste-t-elle affichée ?
 paths: /admin/listes-de-diffusion
-related: listes-de-diffusion, envoi-de-mails, se-desinscrire
+related: adresses-de-liste-excel, listes-de-diffusion, se-desinscrire
 ---
 
 La commune, la paroisse, le propriétaire d'un terrain de camp, un ancien
@@ -35,7 +35,9 @@ il n'y a ni prénom ni totem à distinguer.
 
 Tout se fait sans quitter la page. La recherche ignore la casse et les
 accents, « Désinscrites seulement » isole celles qui le sont, et les
-adresses s'affichent par tranches, avec « Afficher plus ».
+adresses s'affichent par tranches, avec « Afficher plus ». Pour en traiter
+beaucoup d'un coup, passez par Excel — c'est l'outil prévu pour ça, et il
+a son propre sujet d'aide.
 
 ## Une désinscription vaut pour tout
 

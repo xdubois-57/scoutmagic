@@ -69,6 +69,7 @@ final class UserFacingExceptionInventoryTest extends TestCase
         \Modules\InboundMail\Client\MailboxConnectionException::class,
         \Modules\LlmConnector\Api\LlmException::class,
         \Modules\MassMail\Service\AudienceImportException::class,
+        \Modules\MassMail\Service\ListAddressImportException::class,
         \Modules\MassMail\Service\MailingListException::class,
         \Modules\MassMail\Api\MassMailException::class,
         \Modules\News\Service\NewsException::class,

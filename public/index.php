@@ -4689,6 +4689,9 @@ if ($isEnabled('mass_mail')) {
     $massMailListAddressService = new \Modules\MassMail\Service\ListAddressService(
         $massMailListAddressRepo, $massMailListRepo, $settingService, $journalService, $massMailSuppressedRepo
     );
+    $massMailListAddressImportService = new \Modules\MassMail\Service\ListAddressImportService(
+        $massMailListAddressRepo, $massMailListAddressService, $journalService, $massMailSuppressedRepo
+    );
     $massMailListService = new \Modules\MassMail\Service\MailingListService(
         $massMailListRepo, $massMailResolutionRepo, $sectionService, $massMailFunctionRepo, $badgeService,
         $massMailListAddressRepo, null, null, $scoutYearResolver, $scoutYearService
@@ -4736,7 +4739,8 @@ if ($isEnabled('mass_mail')) {
     $frontController->registerController(
         \Modules\MassMail\Controller\MailingListController::class,
         new \Modules\MassMail\Controller\MailingListController(
-            $twig, $massMailListService, $scoutYearResolver, $massMailListAddressService
+            $twig, $massMailListService, $scoutYearResolver, $massMailListAddressService,
+            $massMailListAddressImportService
         )
     );
 
@@ -6469,7 +6473,8 @@ if ($isEnabled('registration')) {
         $frontController->registerController(
             \Modules\MassMail\Controller\MailingListController::class,
             new \Modules\MassMail\Controller\MailingListController(
-                $twig, $massMailListService, $scoutYearResolver, $massMailListAddressService
+                $twig, $massMailListService, $scoutYearResolver, $massMailListAddressService,
+                $massMailListAddressImportService
             )
         );
     }

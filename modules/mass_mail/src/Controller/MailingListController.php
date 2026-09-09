@@ -11,6 +11,7 @@ namespace Modules\MassMail\Controller;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Http\SpreadsheetResponse;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
@@ -18,6 +19,8 @@ use Core\Security\CsrfGuard;
 use Core\Security\Role;
 use Modules\MassMail\Repository\ListAddress;
 use Modules\MassMail\Repository\MailingList;
+use Modules\MassMail\Service\ListAddressImportException;
+use Modules\MassMail\Service\ListAddressImportService;
 use Modules\MassMail\Service\ListAddressService;
 use Modules\MassMail\Service\MailingListException;
 use Modules\MassMail\Service\MailingListService;
@@ -44,11 +47,19 @@ use Twig\Environment;
  */
 class MailingListController extends AbstractController
 {
+    /**
+     * The same ceiling the mail-merge audience upload carries. Well above
+     * a spreadsheet of two thousand addresses, low enough that nothing
+     * arrives that PhpSpreadsheet would try to hold in memory whole.
+     */
+    private const IMPORT_MAX_SIZE_BYTES = 5 * 1024 * 1024;
+
     public function __construct(
         protected Environment $twig,
         private MailingListService $mailingListService,
         private ScoutYearResolver $scoutYearResolver,
-        private ListAddressService $listAddressService
+        private ListAddressService $listAddressService,
+        private ListAddressImportService $listAddressImportService
     ) {
     }
 
@@ -354,6 +365,173 @@ class MailingListController extends AbstractController
             'success' => true,
             'counts' => $this->listAddressService->countForList($address->listId),
         ]);
+    }
+
+    /**
+     * GET /admin/listes-de-diffusion/lists/{id}/addresses/export — the
+     * file a chief edits and sends back.
+     *
+     * Generated in the request and streamed, never written where anything
+     * could later serve it: nothing is stored, so there is nothing for
+     * `FileAccessGuard` to guard (the same shape as the news module's own
+     * response export).
+     *
+     * @param array<string, string> $params
+     */
+    public function exportAddresses(Request $request, array $params): Response
+    {
+        $listId = (int) $params['id'];
+        $list = $this->mailingListService->getCustomListById($listId);
+        if ($list === null) {
+            return $this->notFound();
+        }
+
+        return SpreadsheetResponse::download(
+            $this->listAddressImportService->export($listId),
+            'adresses-liste-' . $listId . '.xlsx'
+        );
+    }
+
+    /**
+     * POST /admin/listes-de-diffusion/lists/{id}/addresses/import — the
+     * ANALYSIS. Writes nothing.
+     *
+     * Replacing a list wholesale is the only operation of this module
+     * with no way back, so it takes two steps: this one says what would
+     * happen, and `confirmAddressImport()` does it once somebody has read
+     * that. The uploaded file is deleted in the `finally` below whatever
+     * happens, success or failure (SECURITY.md §5).
+     *
+     * @param array<string, string> $params
+     */
+    public function importAddresses(Request $request, array $params): Response
+    {
+        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
+            return $this->json(['success' => false, 'errors' => ['Requête invalide.']], 400);
+        }
+
+        $listId = (int) $params['id'];
+        if ($this->mailingListService->getCustomListById($listId) === null) {
+            return $this->json(['success' => false, 'errors' => ['Liste introuvable.']], 404);
+        }
+
+        $file = $request->getFile('file');
+        if ($file === null || ($file['error'] ?? \UPLOAD_ERR_NO_FILE) !== \UPLOAD_ERR_OK) {
+            return $this->json(['success' => false, 'errors' => ['Aucun fichier reçu.']], 400);
+        }
+        if (!str_ends_with(mb_strtolower((string) ($file['name'] ?? '')), '.xlsx')) {
+            return $this->json(
+                ['success' => false, 'errors' => ['Seuls les fichiers Excel .xlsx sont acceptés.']],
+                422
+            );
+        }
+        if ((int) ($file['size'] ?? 0) > self::IMPORT_MAX_SIZE_BYTES) {
+            return $this->json(
+                ['success' => false, 'errors' => ['Le fichier dépasse la taille maximale de 5 Mo.']],
+                422
+            );
+        }
+
+        try {
+            $preview = $this->listAddressImportService->analyse($listId, (string) $file['tmp_name']);
+        } catch (ListAddressImportException $e) {
+            return $this->json(['success' => false, 'errors' => $e->errors], 422);
+        } catch (MailingListException $e) {
+            return $this->json(['success' => false, 'errors' => [$e->getMessage()]], 422);
+        } finally {
+            @unlink((string) $file['tmp_name']);
+        }
+
+        return $this->json([
+            'success' => true,
+            'summary' => $preview->summary,
+            'addresses' => $preview->addresses,
+            'errors' => $preview->errors,
+            'duplicates' => $preview->duplicates,
+        ]);
+    }
+
+    /**
+     * POST /admin/listes-de-diffusion/lists/{id}/addresses/import/confirm
+     * — the second step, and the only one that writes.
+     *
+     * @param array<string, string> $params
+     */
+    public function confirmAddressImport(Request $request, array $params): Response
+    {
+        $data = $this->decodeJsonBody($request);
+        if ($data === null || !$this->checkCsrf($data)) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+
+        $listId = (int) $params['id'];
+        if ($this->mailingListService->getCustomListById($listId) === null) {
+            return $this->json(['success' => false, 'error' => 'Liste introuvable.'], 404);
+        }
+
+        // A replacement by NOTHING is a real, previewed case — a chief
+        // may re-upload a file with only its header row — so an empty
+        // array is accepted. What is refused is the array not being
+        // there: a truncated body, a client bug or a hand-edited request
+        // would otherwise reach `apply()` as « replace by nothing » and
+        // wipe the list, with a 200 and none of the two-step
+        // confirmation this whole feature is built around.
+        if (!is_array($data['addresses'] ?? null)) {
+            return $this->json([
+                'success' => false,
+                'error' => 'Les adresses à confirmer sont absentes de la requête — reprenez l\'import.',
+            ], 422);
+        }
+
+        try {
+            $summary = $this->listAddressImportService->apply(
+                $listId,
+                $this->toAddressArray($data['addresses']),
+                AuthSession::getUserAccountId()
+            );
+        } catch (MailingListException $e) {
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
+        }
+
+        return $this->json([
+            'success' => true,
+            'summary' => $summary,
+            'counts' => $this->listAddressService->countForList($listId),
+        ]);
+    }
+
+    /**
+     * An entry that is not an object is REFUSED, never dropped: dropping
+     * it turns a garbled payload into a shorter list, and a short list is
+     * a replacement that deletes rows nobody confirmed. The service's own
+     * `sanitise()` already refuses a badly shaped entry — this is the
+     * same rule one nesting level out.
+     *
+     * @return array<int, array{name: ?string, email: string}>
+     * @throws MailingListException
+     */
+    private function toAddressArray(mixed $value): array
+    {
+        if (!is_array($value)) {
+            throw new MailingListException(
+                'Les adresses à confirmer sont illisibles — reprenez l\'import.'
+            );
+        }
+
+        $addresses = [];
+        foreach ($value as $entry) {
+            if (!is_array($entry)) {
+                throw new MailingListException(
+                    'Les adresses à confirmer sont illisibles — reprenez l\'import.'
+                );
+            }
+            $addresses[] = [
+                'name' => $this->optionalString($entry['name'] ?? null),
+                'email' => (string) ($entry['email'] ?? ''),
+            ];
+        }
+
+        return $addresses;
     }
 
     /**

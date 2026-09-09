@@ -23,6 +23,7 @@ use Modules\MassMail\Controller\MailingListController;
 use Modules\MassMail\Repository\MailingListRepository;
 use Modules\MassMail\Repository\ListAddressRepository;
 use Modules\MassMail\Repository\MemberResolutionRepository;
+use Modules\MassMail\Service\ListAddressImportService;
 use Modules\MassMail\Service\ListAddressService;
 use Modules\MassMail\Service\MailingListService;
 use PHPUnit\Framework\TestCase;
@@ -54,6 +55,7 @@ class MailingListControllerTest extends TestCase
     private int $badgeId;
     private ScoutYearResolver $scoutYearResolver;
     private ListAddressService $listAddressService;
+    private ListAddressImportService $listAddressImportService;
 
     protected function setUp(): void
     {
@@ -100,6 +102,11 @@ class MailingListControllerTest extends TestCase
             new SettingService(new SettingRepository($this->pdo)),
             $this->createMock(\Core\Journal\JournalService::class)
         );
+        $this->listAddressImportService = new ListAddressImportService(
+            new ListAddressRepository($this->pdo, $encryption),
+            $this->listAddressService,
+            $this->createMock(\Core\Journal\JournalService::class)
+        );
         $this->scoutYearResolver = new ScoutYearResolver(
             new ScoutYearService($this->pdo),
             new SettingService(new SettingRepository($this->pdo)),
@@ -109,7 +116,8 @@ class MailingListControllerTest extends TestCase
             $this->createMock(Environment::class),
             $this->listService,
             $this->scoutYearResolver,
-            $this->listAddressService
+            $this->listAddressService,
+            $this->listAddressImportService
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -153,7 +161,8 @@ class MailingListControllerTest extends TestCase
             $twig,
             $this->listService,
             $this->scoutYearResolver,
-            $this->listAddressService
+            $this->listAddressService,
+            $this->listAddressImportService
         ))
             ->index(new Request('GET', '/admin/listes-de-diffusion', [], [], [], []), []);
 

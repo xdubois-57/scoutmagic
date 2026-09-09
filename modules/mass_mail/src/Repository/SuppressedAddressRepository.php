@@ -51,6 +51,40 @@ class SuppressedAddressRepository
         }
     }
 
+    /**
+     * Which of these addresses are suppressed, in one query — the Excel
+     * import asks about a whole file at once, and asking per address
+     * would be one round trip per line for an answer that is « no » for
+     * nearly all of them.
+     *
+     * @param string[] $addresses
+     * @return string[] the given addresses that are suppressed, as given
+     */
+    public function filterSuppressed(array $addresses): array
+    {
+        $byHash = [];
+        foreach ($addresses as $address) {
+            $byHash[self::hash($address)] = $address;
+        }
+        if ($byHash === []) {
+            return [];
+        }
+
+        $hashes = array_keys($byHash);
+        $stmt = $this->pdo->prepare(
+            'SELECT email_hash FROM mass_mail_suppressed_addresses
+             WHERE email_hash IN (' . implode(',', array_fill(0, count($hashes), '?')) . ')'
+        );
+        $stmt->execute($hashes);
+
+        $suppressed = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_COLUMN) as $hash) {
+            $suppressed[] = $byHash[(string) $hash];
+        }
+
+        return $suppressed;
+    }
+
     public function isSuppressed(string $address): bool
     {
         $stmt = $this->pdo->prepare('SELECT 1 FROM mass_mail_suppressed_addresses WHERE email_hash = ? LIMIT 1');

@@ -190,6 +190,137 @@ class ListAddressRepository
         return $stmt->rowCount();
     }
 
+    /**
+     * Replaces a list's addresses wholesale — what the Excel round trip
+     * needs, and the one operation of this module with no way back.
+     *
+     * **An unsubscribed row is never touched.** It is neither deleted for
+     * being absent from the file nor re-subscribed for being present in
+     * it: an unsubscribe a spreadsheet can undo is not an unsubscribe.
+     * Everything else in the list that the file does not name is deleted.
+     *
+     * @param array<int, array{name: ?string, email: string}> $addresses
+     * @return array{added: int, unchanged: int, removed: int, kept_unsubscribed: int}
+     */
+    public function replaceForList(int $listId, array $addresses): array
+    {
+        // One transaction, because this is the one operation of this
+        // module with no way back: N inserts followed by M deletes, and a
+        // failure between the two halves would leave the list holding
+        // both what the file brought AND what it removed — over the cap
+        // that was just checked, and with no journal entry, since the
+        // caller only logs once this returns. Same shape as
+        // Modules\Attestations\Service\BatchResetService.
+        $this->pdo->beginTransaction();
+        try {
+            $summary = $this->replaceForListInTransaction($listId, $addresses);
+            $this->pdo->commit();
+        } catch (\Throwable $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+
+            throw $e;
+        }
+
+        return $summary;
+    }
+
+    /**
+     * @param array<int, array{name: ?string, email: string}> $addresses
+     * @return array{added: int, unchanged: int, removed: int, kept_unsubscribed: int}
+     */
+    private function replaceForListInTransaction(int $listId, array $addresses): array
+    {
+        $existing = [];
+        foreach ($this->findForList($listId) as $address) {
+            $existing[$this->blindIndex($address->email)] = $address;
+        }
+
+        $seen = [];
+        $added = 0;
+        $unchanged = 0;
+
+        foreach ($addresses as $address) {
+            $index = $this->blindIndex($address['email']);
+            if (isset($seen[$index])) {
+                continue;
+            }
+            $seen[$index] = true;
+
+            $current = $existing[$index] ?? null;
+            if ($current === null) {
+                $this->create($listId, $address['name'], $address['email']);
+                $added++;
+                continue;
+            }
+
+            $unchanged++;
+            // A name may be corrected in the file; an unsubscribed row's
+            // may not, since nothing about it is editable any more.
+            if (!$current->isUnsubscribed() && ($current->name ?? '') !== ($address['name'] ?? '')) {
+                $this->update($current->id, $address['name'], $address['email']);
+            }
+        }
+
+        $removed = 0;
+        $keptUnsubscribed = 0;
+        foreach ($existing as $index => $address) {
+            if (isset($seen[$index])) {
+                continue;
+            }
+            if ($address->isUnsubscribed()) {
+                $keptUnsubscribed++;
+                continue;
+            }
+            $this->delete($address->id);
+            $removed++;
+        }
+
+        return [
+            'added' => $added,
+            'unchanged' => $unchanged,
+            'removed' => $removed,
+            'kept_unsubscribed' => $keptUnsubscribed,
+        ];
+    }
+
+    /**
+     * How many of this list's unsubscribed rows the given file does NOT
+     * carry — the only ones a wholesale replacement adds to what the file
+     * brings, since a row the file names again is kept in place rather
+     * than duplicated.
+     *
+     * Compared on the blind index and never decrypted: the answer is a
+     * count, and `export()` writes the unsubscribed rows into the file in
+     * the first place, so re-importing an untouched export must not read
+     * as the list growing.
+     *
+     * @param string[] $emails the addresses the file carries
+     */
+    public function countUnsubscribedNotIn(int $listId, array $emails): int
+    {
+        $carried = [];
+        foreach ($emails as $email) {
+            $carried[$this->blindIndex($email)] = true;
+        }
+
+        $stmt = $this->pdo->prepare(
+            'SELECT email_blind_index FROM mass_mail_list_addresses
+             WHERE list_id = ? AND unsubscribed_at IS NOT NULL'
+        );
+        $stmt->execute([$listId]);
+
+        $count = 0;
+        foreach ($stmt->fetchAll(\PDO::FETCH_COLUMN) as $index) {
+            if (!isset($carried[(string) $index])) {
+                $count++;
+            }
+        }
+
+        return $count;
+    }
+
     private function blindIndex(string $email): string
     {
         return $this->encryption->blindIndex(mb_strtolower(trim($email)), self::BLIND_INDEX_PURPOSE);

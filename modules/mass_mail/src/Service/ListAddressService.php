@@ -235,6 +235,45 @@ class ListAddressService
     }
 
     /**
+     * The cap, asked of a wholesale REPLACEMENT rather than of an
+     * addition: what the file brings is what the list will hold, plus the
+     * unsubscribed rows a replacement never removes — **and only those
+     * the file does not carry itself**.
+     *
+     * That last clause is the whole point. `export()` writes the
+     * unsubscribed rows into the file, so an untouched export re-imported
+     * carries them back, and `replaceForList()` counts such a row as
+     * unchanged rather than as an addition. Adding every unsubscribed row
+     * on top of the file's own count would therefore count them twice and
+     * refuse the round trip of a list sitting near the cap — which is
+     * exactly the size of list this feature exists for.
+     *
+     * Asked before anything is written, twice — once on the analysis so
+     * the refusal arrives before the confirmation is offered, and once on
+     * the confirmation, which arrives in a request of its own and cannot
+     * trust what an earlier one checked.
+     *
+     * @param array<int, array{name: ?string, email: string}> $addresses
+     * @throws MailingListException
+     */
+    public function assertRoomForReplacement(int $listId, array $addresses): void
+    {
+        $max = $this->maxAddresses();
+        $incoming = count($addresses);
+        $surviving = $this->addressRepository->countUnsubscribedNotIn(
+            $listId,
+            array_map(static fn(array $a): string => $a['email'], $addresses)
+        );
+
+        if ($incoming + $surviving > $max) {
+            throw new MailingListException(
+                "Ce fichier porterait la liste à " . ($incoming + $surviving) . " adresses, au-delà du maximum de "
+                . "{$max} (réglage « Adresses par liste de diffusion (maximum) »). Rien n'a été modifié."
+            );
+        }
+    }
+
+    /**
      * @throws MailingListException
      */
     private function requireList(int $listId): void
