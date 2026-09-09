@@ -50,9 +50,12 @@ const START_SENDING_MESSAGE =
     'Lancer l\'envoi ? La liste des destinataires sera figée et l\'envoi ne pourra plus être annulé.';
 
 /** The composition page's markup, trimmed to what the script reaches for. */
-function buildDom({ status = 'draft', listType = 'default_section', merge = false } = {}) {
+function buildDom({ status = 'draft', listType = 'default_section', merge = false, composition = true } = {}) {
     document.head.innerHTML = '<meta name="csrf-token" content="tok">';
-    document.body.innerHTML = `
+    // `composition: false` is the test-mode publipostage screen, which
+    // renders no #mm-compose-form at all — the composition would be the
+    // same email a second time. The script has to keep working there.
+    const compositionMarkup = `
         <form id="mm-compose-form">
             <select id="mm-list">
                 <option value="default_section:2" data-list-type="default_section"${listType === 'default_section' ? ' selected' : ''}>Section</option>
@@ -97,7 +100,10 @@ function buildDom({ status = 'draft', listType = 'default_section', merge = fals
                 </div>
                 <div id="mm-body-content" contenteditable="true"></div>
             </div>
-        </form>
+        </form>`;
+
+    document.body.innerHTML = `
+        ${composition ? compositionMarkup : ''}
 
         ${merge ? `
         <div id="mm-merge-preview-zone">
@@ -124,7 +130,7 @@ function buildDom({ status = 'draft', listType = 'default_section', merge = fals
 }
 
 /**
- * @param {{status?: string, listType?: string, merge?: boolean, fetch?: Function}} [options]
+ * @param {{status?: string, listType?: string, merge?: boolean, composition?: boolean, fetch?: Function}} [options]
  */
 async function boot(options = {}) {
     buildDom(options);
@@ -289,13 +295,55 @@ describe('mass-mail-compose.js: the list type reshapes the form', () => {
 });
 
 describe('mass-mail-compose.js: the per-recipient preview', () => {
-    it('loads the first row as soon as a mail merge is in test mode', async () => {
+    /**
+     * NO offset on the opening call, and that is the whole point rather
+     * than a shortened URL: an omitted offset is what asks the server for
+     * a row at random. Row 1 is the line whose values the author already
+     * had in front of them while writing, so it is the one line that
+     * proves nothing about the merge.
+     */
+    it('asks for somebody at random as soon as a mail merge is in test mode', async () => {
         await boot({ status: 'test', listType: 'mail_merge', merge: true, fetch: () => jsonResponse(preview()) });
 
-        expect(fetch.mock.calls[0][0]).toBe('/mass-mail/7/merge-preview?offset=0');
-        expect(document.getElementById('mm-merge-preview-position').textContent).toBe('Ligne 1 / 2');
+        expect(fetch.mock.calls[0][0]).toBe('/mass-mail/7/merge-preview');
+        expect(document.getElementById('mm-merge-preview-position').textContent)
+            .toBe('Ligne 2 du fichier · 1 / 2');
         expect(document.getElementById('mm-merge-preview-subject').textContent).toBe('Camp Kaa');
         expect(document.getElementById('mm-merge-preview-body').innerHTML).toBe('<p>Cher Kaa</p>');
+    });
+
+    /**
+     * The recipient fills the message header's « À : », so it is the
+     * recipient and nothing else — no « Destinataire : » prefix, no
+     * parenthesised file line. Which line of the file this is belongs to
+     * the position indicator, which is where a reader looks for it.
+     */
+    it('puts the recipient alone in the header, and the file line in the indicator', async () => {
+        await boot({ status: 'test', listType: 'mail_merge', merge: true, fetch: () => jsonResponse(preview()) });
+
+        expect(document.getElementById('mm-merge-preview-recipient').textContent)
+            .toBe('kaa@example.test');
+    });
+
+    /**
+     * In test mode the publipostage screen drops the composition form
+     * entirely, so this script now runs on a page with no
+     * #mm-compose-form in it. It used to bail out on exactly that
+     * condition — which would have left the preview, the row navigation
+     * and the send confirmation dead on the one screen that needs them.
+     */
+    it('still previews on a page that has no composition form at all', async () => {
+        await boot({
+            status: 'test',
+            listType: 'mail_merge',
+            merge: true,
+            composition: false,
+            fetch: () => jsonResponse(preview()),
+        });
+
+        expect(document.getElementById('mm-compose-form')).toBeNull();
+        expect(fetch.mock.calls[0][0]).toBe('/mass-mail/7/merge-preview');
+        expect(document.getElementById('mm-merge-preview-subject').textContent).toBe('Camp Kaa');
     });
 
     /**

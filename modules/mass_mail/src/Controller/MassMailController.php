@@ -427,6 +427,13 @@ class MassMailController extends AbstractController
      * preview: the Nth audience row's rendered subject/body plus the
      * unknown-token / missing-value warnings.
      *
+     * **`offset` omitted is not `offset=0`.** No offset means « show me
+     * somebody », and the service picks a row at random; it is what the
+     * page asks for on opening, and the reason it does is written at
+     * Service\MassMailService::getMergePreview(). Both spellings of "no
+     * offset" — absent, and present but empty — mean the same thing,
+     * since a browser sending `?offset=` should not silently get row 1.
+     *
      * @param array<string, string> $params
      */
     public function mergePreview(Request $request, array $params): Response
@@ -435,9 +442,12 @@ class MassMailController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Email introuvable.'], 404);
         }
 
+        $requestedOffset = $request->getQuery('offset');
         try {
-            $preview = $this->massMailService->getMergePreview((int) $params['id'],
-                (int) $request->getQuery('offset', 0));
+            $preview = $this->massMailService->getMergePreview(
+                (int) $params['id'],
+                ($requestedOffset === null || $requestedOffset === '') ? null : (int) $requestedOffset
+            );
         } catch (MassMailException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
         }
@@ -737,6 +747,12 @@ class MassMailController extends AbstractController
             'audience' => $audience,
             'audience_sample' => $audienceSample,
             'attachments' => $attachments,
+            // Who the recipient will see this coming from. Only the test
+            // screen shows it, but resolving it here keeps the one rule
+            // about the fallback in the service that already owns it.
+            'sender' => $email !== null
+                ? $this->massMailService->resolveDisplayedSender($email->sectionId)
+                : ['address' => '', 'name' => ''],
             'counts' => $email !== null
                 ? $this->massMailService->getStatusCounts($email->id)
                 : ['total' => 0, 'sent' => 0, 'pending' => 0, 'error' => 0],

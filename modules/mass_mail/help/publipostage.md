@@ -48,11 +48,17 @@ test la signale.
 
 ## Vérifier ligne par ligne
 
-En mode test, un aperçu fait défiler les lignes du fichier avec les
-vraies valeurs substituées ; l'e-mail de test part avec la ligne
-affichée. C'est le moment de repérer une colonne mal nommée ou une
-cellule vide. L'onglet « Destinataires » montre par ailleurs le
-fichier importé, ligne par ligne, avec toutes ses colonnes.
+En mode test, l'écran ne montre plus que l'e-mail final : expéditeur,
+destinataire, sujet, message et pièces jointes, exactement tels qu'ils
+partiront. L'aperçu s'ouvre sur **une ligne prise au hasard** — la
+première est celle que vous aviez sous les yeux en écrivant, elle ne
+prouve rien — et les flèches font défiler tout le fichier. L'e-mail de
+test part avec la ligne affichée. C'est le moment de repérer une
+colonne mal nommée ou une cellule vide.
+
+Pour modifier le texte, revenez au brouillon avec « Repasser en
+brouillon ». L'onglet « Destinataires » montre par ailleurs le fichier
+importé, ligne par ligne, avec toutes ses colonnes.
 
 À la différence des autres listes, le publipostage envoie **un e-mail
 par ligne** : une personne présente deux fois recevra deux messages.

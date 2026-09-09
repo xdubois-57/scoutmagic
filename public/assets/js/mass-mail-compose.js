@@ -22,13 +22,17 @@
 //      the send confirmation, both asked at the moment of the click
 //      because both are live.
 //
+// In test mode a publipostage no longer renders its composition at all
+// (compose.html.twig), so this file runs on a page with no
+// #mm-compose-form in it: every block below already guards on the element
+// it needs, and the entry guard checks the page's data island only.
+//
 // Fetches ride the site-wide ScoutMagicApi envelope ({ok, status, data});
 // the audience upload keeps a raw fetch(FormData) since the JSON toolbox
 // deliberately owns JSON bodies only.
 (function () {
     const DATA = window.ScoutMagicApi ? window.ScoutMagicApi.pageData('mass-mail-compose-data') : null;
-    const form = document.getElementById('mm-compose-form');
-    if (!DATA || !form) return;
+    if (!DATA) return;
 
     const api = window.ScoutMagicApi;
     const escapeHtml = api.escapeHtml;
@@ -294,9 +298,15 @@
     // ---------------------------------------------------------------
     // 4a. The per-recipient preview (test mode, mail merge).
     // ---------------------------------------------------------------
-    /** @param {number} offset */
+    /**
+     * @param {number|null} offset the audience row to show, or null for
+     *                             « somebody at random » — the server
+     *                             picks, since only it knows how many
+     *                             rows the file has.
+     */
     async function loadMergePreview(offset) {
-        const res = await api.getJson('/mass-mail/' + DATA.emailId + '/merge-preview?offset=' + offset);
+        const res = await api.getJson('/mass-mail/' + DATA.emailId + '/merge-preview'
+            + (offset === null ? '' : '?offset=' + offset));
         const data = res.data;
         if (!data?.success) return;
 
@@ -305,11 +315,15 @@
         const hidden = /** @type {HTMLInputElement|null} */ (el('mm-merge-offset'));
         if (hidden) hidden.value = String(mergeOffset);
 
-        setText('mm-merge-preview-position', 'Ligne ' + (preview.offset + 1) + ' / ' + preview.total);
         setText(
-            'mm-merge-preview-recipient',
-            'Destinataire : ' + preview.recipient_label + ' (ligne ' + preview.row_index + ' du fichier)'
+            'mm-merge-preview-position',
+            'Ligne ' + preview.row_index + ' du fichier · ' + (preview.offset + 1) + ' / ' + preview.total
         );
+        // Just the recipient: this now fills the « À : » of the message
+        // header, where a sentence about which line of the file it came
+        // from would be somebody else's business. That belongs to the
+        // position indicator above, which is where it went.
+        setText('mm-merge-preview-recipient', preview.recipient_label);
         setText('mm-merge-preview-subject', preview.subject);
         const body = el('mm-merge-preview-body');
         // Server-rendered: the body was sanitized at save time and every
@@ -397,6 +411,10 @@
     updateListTypeUi();
     updateFutureYearWarning();
     if (DATA.status === 'test' && el('mm-merge-preview-zone')) {
-        loadMergePreview(0);
+        // No offset: the first line of the file is the one the author
+        // already had in front of them while writing, so it is the one
+        // line that proves nothing. The server picks a row at random —
+        // see Service\MassMailService::getMergePreview().
+        loadMergePreview(null);
     }
 })();

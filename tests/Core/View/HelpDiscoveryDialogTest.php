@@ -126,6 +126,43 @@ final class HelpDiscoveryDialogTest extends TestCase
         );
     }
 
+    /**
+     * The title and the summary are the ANSWER, and the frame is what
+     * says where the answer starts. A card is a question in the reader's
+     * words followed by a help topic in the site's; unframed, the three
+     * paragraphs read as one, and the title stops looking like a title.
+     *
+     * Asserted as "both lines inside one bordered box" rather than on a
+     * class list, because what would break this is somebody framing the
+     * title alone and leaving the summary outside it — which looks
+     * deliberate in a diff and wrong on screen.
+     */
+    public function testTheTitleAndItsSummaryShareOneBorderedFrame(): void
+    {
+        $html = $this->render(['help_discovery' => $this->dialog([
+            $this->card('publipostage', 'Comment fusionner un e-mail ?'),
+        ])]);
+
+        $this->assertSame(
+            1,
+            preg_match(
+                '/<div class="border rounded[^"]*">\s*'
+                    . '<p[^>]*>Titre de publipostage<\/p>\s*'
+                    . '<p[^>]*>Résumé de publipostage<\/p>\s*<\/div>/u',
+                $html
+            ),
+            'The topic title and its summary belong in one light frame, together.'
+        );
+
+        // The question stays OUTSIDE the frame: it is what the reader
+        // recognises, not part of what the site answers.
+        $this->assertLessThan(
+            strpos($html, '<div class="border rounded'),
+            strpos($html, 'Comment fusionner un e-mail'),
+            'The question introduces the frame — it does not live inside it.'
+        );
+    }
+
     public function testACardWithoutAQuestionStillRenders(): void
     {
         $html = $this->render(['help_discovery' => $this->dialog([$this->card('camps-encoder')])]);

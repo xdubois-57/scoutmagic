@@ -78,6 +78,9 @@ class SendBatchHandler implements TaskHandlerInterface
                 // address alongside status 'error' (never 'pending') — this
                 // branch is defensive, not an expected path.
                 $recipientRepository->recordSendFailure($recipient->id, 'Adresse invalide');
+                $massMailService->journalRecipientNotSendable(
+                    $recipient->emailId, $recipient->id, $recipient->memberId, 'Adresse invalide'
+                );
                 $errorCount++;
                 continue;
             }
@@ -94,6 +97,9 @@ class SendBatchHandler implements TaskHandlerInterface
                     : null;
                 if ($mergeRow === null) {
                     $recipientRepository->recordSendFailure($recipient->id, 'Données de publipostage purgées');
+                    $massMailService->journalRecipientNotSendable(
+                        $email->id, $recipient->id, $recipient->memberId, 'Données de publipostage purgées'
+                    );
                     $errorCount++;
                     continue;
                 }
@@ -168,6 +174,12 @@ class SendBatchHandler implements TaskHandlerInterface
                     ]
                 );
                 $recipientRepository->recordSendSuccess($recipient->id);
+                // One line per copy that actually left — see
+                // Service\MassMailService::journalRecipientSent(). The
+                // batch summary below stays, but it answers a different
+                // question ("did the scheduler run, and how big was the
+                // lot?") and answers nothing about any one recipient.
+                $massMailService->journalRecipientSent($email->id, $recipient->id, $recipient->memberId);
                 $sentCount++;
                 $this->dispatchEmailReceivedNotification($context, $recipient, $email);
             } catch (MailException $e) {
@@ -183,18 +195,16 @@ class SendBatchHandler implements TaskHandlerInterface
                     UserFacingMessage::from($e, "Échec de l'envoi — voir le journal pour le détail technique.")
                 );
                 // The real transport error still has to reach someone, and
-                // the journal is where it belongs.
-                $context->journal->log(
-                    'mass_mail',
-                    'recipient_send_failed',
-                    'info',
-                    'Échec d\'envoi à un destinataire d\'email groupé',
-                    [
-                        'recipient_id' => $recipient->id,
-                        'email_id' => $recipient->emailId,
-                        'mail_error' => $e->getMessage()
-                    ],
-                    null
+                // the journal is where it belongs. Written through the
+                // service so this entry carries the same identifying keys
+                // and the same searchable wording as the copies that did
+                // leave — a failure nobody can line up against its own
+                // mailing is most of the way back to no trace at all.
+                $massMailService->journalRecipientSendFailed(
+                    $email->id,
+                    $recipient->id,
+                    $recipient->memberId,
+                    ['mail_error' => $e->getMessage()]
                 );
                 $errorCount++;
             }

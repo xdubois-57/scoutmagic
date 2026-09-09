@@ -56,6 +56,30 @@ class MailService
     }
 
     /**
+     * The site's own configured From — the address and the name a message
+     * carries when its caller passes no override.
+     *
+     * Exposed for one reason: a screen that shows a chief what an e-mail
+     * will look like before it goes out has to name the sender the
+     * recipient will actually see, and `send()`'s rule for that is
+     * `$fromAddressOverride ?? $this->fromAddress`. Without this, the
+     * only way for such a screen to fill in the fallback half of that
+     * expression is to guess at it — and a preview that names a sender
+     * other than the real one is worse than a preview with no sender at
+     * all.
+     *
+     * These are organisational values, in clear by design (design.md
+     * §2.6) — never a credential, and nothing `isDeliveryConfigured()`
+     * above is careful about.
+     *
+     * @return array{address: string, name: string}
+     */
+    public function getDefaultSender(): array
+    {
+        return ['address' => $this->fromAddress, 'name' => $this->fromName];
+    }
+
+    /**
      * Whether outgoing mail can plausibly be delivered: a From address is
      * set and, in SMTP mode, a host and credentials are present.
      *
