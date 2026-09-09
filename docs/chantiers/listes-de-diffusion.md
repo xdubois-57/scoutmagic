@@ -510,6 +510,17 @@ l'ensemble depuis le serveur, et l'échec qui laisse l'écran intact.
   rien dire des vingt autres se lit comme une perte. La phrase de résumé
   le nomme désormais.
 
+- **Une confirmation sans champ `addresses` effaçait la liste.** Un
+  corps tronqué, un bug de client ou une requête retouchée à la main
+  arrivaient à `apply()` comme « remplacer par rien » — avec un 200, et
+  sans rien de la confirmation en deux temps autour de laquelle toute
+  l'itération est construite. Un remplacement par **rien** reste
+  légitime (un fichier réduit à son en-tête) : ce qui est refusé, c'est
+  l'absence du tableau, et une entrée qui n'est pas un objet — refusée
+  au lieu d'être écartée, écarter transformant une charge utile abîmée
+  en une liste plus courte, c'est-à-dire en suppressions que personne
+  n'a confirmées.
+
 **Complété dans la foulée de la revue d'IT-03.** `replaceForList()` ne
 protège que les lignes désinscrites **de la liste qu'il remplace** — les
 seules qu'il voie. Une adresse désinscrite sur une *autre* liste arrive

@@ -322,6 +322,63 @@ class ListAddressImportRoutesTest extends TestCase
         $this->assertSame(1, $this->repository->countForList($this->listId)['total']);
     }
 
+    /**
+     * A replacement by NOTHING is legitimate — a chief may re-upload a
+     * file with only its header row — so the guard cannot simply refuse
+     * an empty list. What it refuses is the array not being THERE: a
+     * truncated body or a hand-edited request would otherwise read as
+     * « replace by nothing » and wipe the list with a 200, past the very
+     * two-step confirmation this feature is built around.
+     */
+    public function testAConfirmationWithNoAddressesFieldAtAllWipesNothing(): void
+    {
+        $this->addressService->add($this->listId, 'Reste', 'reste@test.be');
+
+        $response = $this->controller->confirmAddressImport(
+            $this->jsonRequest(['_csrf_token' => CsrfGuard::generateToken()]),
+            ['id' => (string) $this->listId]
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame(1, $this->repository->countForList($this->listId)['total']);
+    }
+
+    public function testAConfirmationWhoseEntriesAreNotObjectsWipesNothing(): void
+    {
+        $this->addressService->add($this->listId, 'Reste', 'reste@test.be');
+
+        $response = $this->controller->confirmAddressImport(
+            $this->jsonRequest([
+                // The same garbage as the refused case above, one nesting
+                // level flatter — dropped in silence, it became « replace
+                // by nothing ».
+                'addresses' => ['pas-une-adresse'],
+                '_csrf_token' => CsrfGuard::generateToken(),
+            ]),
+            ['id' => (string) $this->listId]
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame(1, $this->repository->countForList($this->listId)['total']);
+    }
+
+    /** And the legitimate empty replacement still goes through. */
+    public function testAConfirmationOfAnEmptyListIsStillAllowed(): void
+    {
+        $this->addressService->add($this->listId, 'Part', 'part@test.be');
+
+        $response = $this->controller->confirmAddressImport(
+            $this->jsonRequest([
+                'addresses' => [],
+                '_csrf_token' => CsrfGuard::generateToken(),
+            ]),
+            ['id' => (string) $this->listId]
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(0, $this->repository->countForList($this->listId)['total']);
+    }
+
     // --- Helpers --------------------------------------------------------
 
     /**

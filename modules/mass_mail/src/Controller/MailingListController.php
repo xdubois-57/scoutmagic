@@ -469,10 +469,24 @@ class MailingListController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Liste introuvable.'], 404);
         }
 
+        // A replacement by NOTHING is a real, previewed case — a chief
+        // may re-upload a file with only its header row — so an empty
+        // array is accepted. What is refused is the array not being
+        // there: a truncated body, a client bug or a hand-edited request
+        // would otherwise reach `apply()` as « replace by nothing » and
+        // wipe the list, with a 200 and none of the two-step
+        // confirmation this whole feature is built around.
+        if (!is_array($data['addresses'] ?? null)) {
+            return $this->json([
+                'success' => false,
+                'error' => 'Les adresses à confirmer sont absentes de la requête — reprenez l\'import.',
+            ], 422);
+        }
+
         try {
             $summary = $this->listAddressImportService->apply(
                 $listId,
-                $this->toAddressArray($data['addresses'] ?? []),
+                $this->toAddressArray($data['addresses']),
                 AuthSession::getUserAccountId()
             );
         } catch (MailingListException $e) {
@@ -487,18 +501,29 @@ class MailingListController extends AbstractController
     }
 
     /**
+     * An entry that is not an object is REFUSED, never dropped: dropping
+     * it turns a garbled payload into a shorter list, and a short list is
+     * a replacement that deletes rows nobody confirmed. The service's own
+     * `sanitise()` already refuses a badly shaped entry — this is the
+     * same rule one nesting level out.
+     *
      * @return array<int, array{name: ?string, email: string}>
+     * @throws MailingListException
      */
     private function toAddressArray(mixed $value): array
     {
         if (!is_array($value)) {
-            return [];
+            throw new MailingListException(
+                'Les adresses à confirmer sont illisibles — reprenez l\'import.'
+            );
         }
 
         $addresses = [];
         foreach ($value as $entry) {
             if (!is_array($entry)) {
-                continue;
+                throw new MailingListException(
+                    'Les adresses à confirmer sont illisibles — reprenez l\'import.'
+                );
             }
             $addresses[] = [
                 'name' => $this->optionalString($entry['name'] ?? null),
