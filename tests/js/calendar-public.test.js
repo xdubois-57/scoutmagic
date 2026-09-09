@@ -61,7 +61,10 @@ describe('calendar-public.js', () => {
         window.ScoutMagicToast = { show: vi.fn() };
         window.ScoutMagicConfirm = { ask: vi.fn(() => Promise.resolve(true)) };
         modalInstance = { show: vi.fn(), hide: vi.fn() };
-        window.bootstrap = { Modal: vi.fn(() => modalInstance) };
+        // `function`, not an arrow: the code under test calls `new
+        // bootstrap.Modal(...)`, and since Vitest 4 a mock built from an
+        // arrow implementation is not constructible.
+        window.bootstrap = { Modal: vi.fn(function () { return modalInstance; }) };
         writeText = vi.fn();
         Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
         Object.defineProperty(window, 'location', {

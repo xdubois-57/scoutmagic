@@ -44,7 +44,10 @@ describe('banner-config.js', () => {
         global.fetch = vi.fn(() => jsonResponse({ success: true, banner_id: 42 }));
         window.ScoutMagicToast = { show: vi.fn() };
         modalInstance = { show: vi.fn(), hide: vi.fn() };
-        window.bootstrap = { Modal: vi.fn(() => modalInstance) };
+        // `function`, not an arrow: the code under test calls `new
+        // bootstrap.Modal(...)`, and since Vitest 4 a mock built from an
+        // arrow implementation is not constructible.
+        window.bootstrap = { Modal: vi.fn(function () { return modalInstance; }) };
         Object.defineProperty(window, 'location', {
             configurable: true,
             value: { href: '/config/banner', reload: vi.fn() },
