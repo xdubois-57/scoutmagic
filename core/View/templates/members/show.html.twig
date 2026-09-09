@@ -131,7 +131,17 @@
                             <ul class="list-unstyled mb-0 small">
                                 {% for item in recent_mass_mail_emails %}
                                     <li class="d-flex justify-content-between border-bottom py-2">
-                                        <a href="/members/{{ member.memberYearId }}/emails/{{ item.id }}" class="text-decoration-none">{{ item.subject }}</a>
+                                        <span>
+                                            <a href="/members/{{ member.memberYearId }}/emails/{{ item.id }}" class="text-decoration-none">{{ item.subject }}</a>
+                                            {# A publipostage past its retention: the values are gone, so
+                                               this subject is the template. Said here too, and not only on
+                                               the page behind it — a line reading « Camp de {{ '{{Prenom}}' }} »
+                                               with nothing beside it is exactly what looks like a fault of
+                                               the site. #}
+                                            {% if item.merge_purged %}
+                                                <span class="text-body-secondary fst-italic">— personnalisation effacée</span>
+                                            {% endif %}
+                                        </span>
                                         <span class="text-body-secondary">{{ item.section_name }} · {{ item.sent_at|french_date }}</span>
                                     </li>
                                 {% endfor %}

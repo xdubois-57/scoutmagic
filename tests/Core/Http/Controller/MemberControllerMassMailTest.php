@@ -171,7 +171,7 @@ class MemberControllerMassMailTest extends TestCase
         $massMailQuery->expects($this->once())
             ->method('getRecentEmailsForMember')
             ->with($this->memberId, 10)
-            ->willReturn([['id' => 1, 'subject' => 'Sujet', 'sent_at' => '2026-01-01 10:00:00', 'section_name' => 'Meute A']]);
+            ->willReturn([['id' => 1, 'subject' => 'Sujet', 'sent_at' => '2026-01-01 10:00:00', 'section_name' => 'Meute A', 'merge_purged' => false]]);
 
         $controller = $this->buildController($this->buildTwigCapturingContext(), $massMailQuery);
 

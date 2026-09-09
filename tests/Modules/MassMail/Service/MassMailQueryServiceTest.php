@@ -84,6 +84,7 @@ class MassMailQueryServiceTest extends TestCase
         $result = $fixture['service']->getRecentEmailsForMember($fixture['member_id'], 10);
         $this->assertCount(1, $result);
         $this->assertSame('Camp de Kaa', $result[0]['subject']);
+        $this->assertFalse($result[0]['merge_purged']);
 
         $detail = $fixture['service']->findEmailDetailForMember($fixture['member_id'], $result[0]['id']);
         $this->assertNotNull($detail);
@@ -134,6 +135,14 @@ class MassMailQueryServiceTest extends TestCase
         $this->assertNotNull($detail);
         $this->assertTrue($detail['merge_purged']);
         $this->assertStringContainsString('{{Prenom}}', $detail['body_html']);
+
+        // And the LIST says it too. It falls back to the same stored
+        // template, so a line reading « Camp de {{Prenom}} » with nothing
+        // beside it would be the very symptom this change removes — the
+        // page behind it explaining itself is not enough.
+        $listed = $fixture['service']->getRecentEmailsForMember($fixture['member_id'], 10);
+        $this->assertTrue($listed[0]['merge_purged']);
+        $this->assertStringContainsString('{{Prenom}}', $listed[0]['subject']);
     }
 
     /**
@@ -174,6 +183,8 @@ class MassMailQueryServiceTest extends TestCase
         $this->assertNotNull($detail);
         $this->assertFalse($detail['merge_purged']);
         $this->assertSame('<p>Bonjour.</p>', $detail['body_html']);
+
+        $this->assertFalse($service->getRecentEmailsForMember($memberId, 10)[0]['merge_purged']);
     }
 
     /**

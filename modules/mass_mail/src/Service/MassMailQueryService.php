@@ -68,6 +68,7 @@ class MassMailQueryService implements MassMailQueryInterface
 
         return array_map(function (array $row) use ($audienceRows): array {
             $data = $this->mergeDataFor($row, $audienceRows);
+            $isMerge = $row['list_type'] === Email::LIST_TYPE_MAIL_MERGE;
 
             return [
                 'id' => $row['id'],
@@ -76,6 +77,13 @@ class MassMailQueryService implements MassMailQueryInterface
                     : $this->mergeRenderer->renderText($row['subject'], $data),
                 'sent_at' => $row['sent_at'],
                 'section_name' => $row['section_name'],
+                // Same flag, same reason, as the detail below: a purged
+                // publipostage falls back to the stored SUBJECT, which is
+                // the template. A line reading « Camp de {{Prenom}} » with
+                // nothing to explain it is the very symptom this change
+                // exists to remove, and it would be odd for the list to
+                // keep it while the page behind it explains itself.
+                'merge_purged' => $isMerge && $data === null,
             ];
         }, $rows);
     }

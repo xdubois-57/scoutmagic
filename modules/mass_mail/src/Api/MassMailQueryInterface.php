@@ -29,9 +29,16 @@ interface MassMailQueryInterface
      * **`subject` is what THIS member received**, not what was composed: a
      * publipostage stores one template and substitutes per recipient at
      * send time, so the two differ whenever the subject carries a
-     * variable (issue #287).
+     * variable (issue #287). The one exception is `merge_purged`, and it
+     * carries the same meaning as on findEmailDetailForMember() below —
+     * a publipostage past its retention has no values left to put back,
+     * so `subject` is then the template, `{{tokens}}` and all, and a view
+     * that renders it must say so.
      *
-     * @return array<int, array{id: int, subject: string, sent_at: string, section_name: string}>
+     * @return array<int, array{
+     *     id: int, subject: string, sent_at: string, section_name: string,
+     *     merge_purged: bool
+     * }>
      */
     public function getRecentEmailsForMember(int $memberId, int $limit): array;
 
