@@ -160,7 +160,7 @@ class ListAddressImportService
         // The cap is asked here, on the analysis, so the refusal arrives
         // before anybody is invited to confirm a replacement that could
         // not be applied.
-        $this->addressService->assertRoomForReplacement($listId, count($addresses));
+        $this->addressService->assertRoomForReplacement($listId, $addresses);
 
         return new ListAddressImportPreview(
             $addresses,
@@ -182,7 +182,7 @@ class ListAddressImportService
     public function apply(int $listId, array $addresses, ?int $actorId): array
     {
         $addresses = $this->sanitise($addresses);
-        $this->addressService->assertRoomForReplacement($listId, count($addresses));
+        $this->addressService->assertRoomForReplacement($listId, $addresses);
 
         $summary = $this->addressRepository->replaceForList($listId, $addresses);
 
@@ -323,35 +323,59 @@ class ListAddressImportService
      */
     private function readHeaders(array $headerRow): array
     {
-        $nameIndex = null;
-        $emailIndex = null;
-        $unsubscribedIndex = null;
+        // Column role => the aliases that name it. `Désinscrit` is
+        // recognised so that a second one is caught like any other
+        // duplicate, and then deliberately never used: no import can
+        // re-subscribe anybody, and none can unsubscribe anybody either —
+        // that is the recipient's own decision.
+        $roles = [
+            self::COLUMN_EMAIL => self::EMAIL_ALIASES,
+            self::COLUMN_NAME => self::NAME_ALIASES,
+            self::COLUMN_UNSUBSCRIBED => self::UNSUBSCRIBED_ALIASES,
+        ];
+
+        /** @var array<string, int> $found column label => index */
+        $found = [];
+        /** @var array<string, true> $duplicated */
+        $duplicated = [];
 
         foreach ($headerRow as $index => $cell) {
             $normalised = self::normalizeHeader((string) ($cell ?? ''));
             if ($normalised === '') {
                 continue;
             }
-            if ($emailIndex === null && in_array($normalised, self::EMAIL_ALIASES, true)) {
-                $emailIndex = $index;
-            } elseif ($nameIndex === null && in_array($normalised, self::NAME_ALIASES, true)) {
-                $nameIndex = $index;
-            } elseif ($unsubscribedIndex === null && in_array($normalised, self::UNSUBSCRIBED_ALIASES, true)) {
-                // Read, and deliberately never used: no import can
-                // re-subscribe anybody, and none can unsubscribe anybody
-                // either — that is the recipient's own decision.
-                $unsubscribedIndex = $index;
+            foreach ($roles as $label => $aliases) {
+                if (!in_array($normalised, $aliases, true)) {
+                    continue;
+                }
+                if (isset($found[$label])) {
+                    // Two columns claiming the same role. Reading from
+                    // whichever came first is the silent wrong-column
+                    // outcome that matching by header exists to prevent,
+                    // so the file is refused instead — once per role,
+                    // however many extra columns there are.
+                    $duplicated[$label] = true;
+                    break;
+                }
+                $found[$label] = $index;
+                break;
             }
         }
 
-        if ($emailIndex === null) {
-            throw new ListAddressImportException([
-                'Le fichier doit contenir une colonne « ' . self::COLUMN_EMAIL . ' » — c\'est celle qui porte les '
-                . 'adresses email. Les colonnes sont reconnues par leur en-tête, jamais par leur position.',
-            ]);
+        $errors = [];
+        foreach (array_keys($duplicated) as $label) {
+            $errors[] = 'Le fichier contient deux colonnes « ' . $label . ' ». Une seule est attendue : le site ne '
+                . 'peut pas deviner laquelle lire, et lire la mauvaise remplacerait la liste en silence.';
+        }
+        if (!isset($found[self::COLUMN_EMAIL])) {
+            $errors[] = 'Le fichier doit contenir une colonne « ' . self::COLUMN_EMAIL . ' » — c\'est celle qui '
+                . 'porte les adresses email. Les colonnes sont reconnues par leur en-tête, jamais par leur position.';
+        }
+        if ($errors !== []) {
+            throw new ListAddressImportException($errors);
         }
 
-        return [$nameIndex, $emailIndex];
+        return [$found[self::COLUMN_NAME] ?? null, $found[self::COLUMN_EMAIL]];
     }
 
     private static function normalizeHeader(string $name): string

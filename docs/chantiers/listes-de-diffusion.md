@@ -480,6 +480,24 @@ l'ensemble depuis le serveur, et l'échec qui laisse l'écran intact.
 
 **Reporté.** Rien.
 
+**Corrigé après revue (revue Claude sur la PR).**
+
+- **Un en-tête en double était accepté en silence**, alors que
+  `ARCHITECTURE.md` promettait le contraire dans la même PR. Lire la
+  colonne arrivée en premier *est* exactement le remplacement silencieux
+  par la mauvaise colonne que la reconnaissance par en-tête existe pour
+  éviter. Le fichier est donc refusé, un message par rôle quel que soit
+  le nombre de colonnes en trop, et joint aux autres problèmes
+  structurels — « tous les problèmes listés d'un coup » reste vrai.
+- **Le plafond comptait deux fois les désinscrites que le fichier porte
+  déjà.** `export()` les écrit dans le fichier et `replaceForList()`
+  compte une telle ligne comme *inchangée*, jamais comme un ajout :
+  additionner toutes les désinscrites au compte du fichier refusait
+  l'aller-retour d'une liste proche du plafond — c'est-à-dire exactement
+  la taille de liste pour laquelle cette itération existe.
+  `countUnsubscribedNotIn()` répond sur les index aveugles, sans rien
+  déchiffrer, la question étant un nombre.
+
 **Complété dans la foulée de la revue d'IT-03.** `replaceForList()` ne
 protège que les lignes désinscrites **de la liste qu'il remplace** — les
 seules qu'il voie. Une adresse désinscrite sur une *autre* liste arrive

@@ -257,6 +257,42 @@ class ListAddressRepository
         ];
     }
 
+    /**
+     * How many of this list's unsubscribed rows the given file does NOT
+     * carry — the only ones a wholesale replacement adds to what the file
+     * brings, since a row the file names again is kept in place rather
+     * than duplicated.
+     *
+     * Compared on the blind index and never decrypted: the answer is a
+     * count, and `export()` writes the unsubscribed rows into the file in
+     * the first place, so re-importing an untouched export must not read
+     * as the list growing.
+     *
+     * @param string[] $emails the addresses the file carries
+     */
+    public function countUnsubscribedNotIn(int $listId, array $emails): int
+    {
+        $carried = [];
+        foreach ($emails as $email) {
+            $carried[$this->blindIndex($email)] = true;
+        }
+
+        $stmt = $this->pdo->prepare(
+            'SELECT email_blind_index FROM mass_mail_list_addresses
+             WHERE list_id = ? AND unsubscribed_at IS NOT NULL'
+        );
+        $stmt->execute([$listId]);
+
+        $count = 0;
+        foreach ($stmt->fetchAll(\PDO::FETCH_COLUMN) as $index) {
+            if (!isset($carried[(string) $index])) {
+                $count++;
+            }
+        }
+
+        return $count;
+    }
+
     private function blindIndex(string $email): string
     {
         return $this->encryption->blindIndex(mb_strtolower(trim($email)), self::BLIND_INDEX_PURPOSE);

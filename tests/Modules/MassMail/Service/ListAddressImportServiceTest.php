@@ -291,6 +291,79 @@ class ListAddressImportServiceTest extends TestCase
         $this->service->analyse($this->listId, $path);
     }
 
+    /**
+     * The round trip of a list sitting AT the cap, which is exactly the
+     * size of list this feature exists for. `export()` writes the
+     * unsubscribed rows into the file, and `replaceForList()` counts such
+     * a row as unchanged rather than as an addition — so counting every
+     * unsubscribed row on top of the file's own count would refuse an
+     * untouched export coming straight back.
+     */
+    public function testAnUntouchedExportComesBackEvenWhenTheListSitsAtTheCap(): void
+    {
+        $this->addressService->add($this->listId, 'Un', 'un@test.be');
+        $this->addressService->add($this->listId, 'Deux', 'deux@test.be');
+        $this->addressService->unsubscribeEverywhere('deux@test.be');
+        $this->registerMax(2);
+
+        // The file the export produces: both rows, the unsubscribed one
+        // included.
+        $path = $this->spreadsheet([
+            ['Nom', 'Adresse', 'Désinscrit'],
+            ['Un', 'un@test.be', 'Non'],
+            ['Deux', 'deux@test.be', 'Oui'],
+        ]);
+
+        $preview = $this->service->analyse($this->listId, $path);
+        $this->assertCount(2, $preview->addresses);
+
+        $summary = $this->service->apply($this->listId, $preview->addresses, null);
+        $this->assertSame(0, $summary['added']);
+        $this->assertSame(2, $summary['unchanged']);
+        $this->assertSame(['total' => 2, 'unsubscribed' => 1], $this->repository->countForList($this->listId));
+    }
+
+    /**
+     * A duplicate header is a structural problem: reading from whichever
+     * column came first is the silent wrong-column outcome that matching
+     * by header exists to prevent.
+     */
+    public function testTwoColumnsClaimingTheSameRoleRefuseTheWholeFile(): void
+    {
+        $path = $this->spreadsheet([
+            ['Nom', 'Adresse', 'E-mail'],
+            ['Commune', 'jeunesse@wavre.be', 'autre@wavre.be'],
+        ]);
+
+        try {
+            $this->service->analyse($this->listId, $path);
+            $this->fail('A duplicate header must refuse the file.');
+        } catch (ListAddressImportException $e) {
+            $this->assertCount(1, $e->errors, 'one message per role, however many extra columns');
+            $this->assertStringContainsString('deux colonnes « Adresse »', $e->errors[0]);
+        }
+
+        $this->assertSame(['total' => 0, 'unsubscribed' => 0], $this->repository->countForList($this->listId));
+    }
+
+    /** Every structural problem at once, as the charter for this import says. */
+    public function testStructuralProblemsAreListedTogether(): void
+    {
+        $path = $this->spreadsheet([
+            ['Nom', 'Contact'],
+            ['Commune', 'Wavre'],
+        ]);
+
+        try {
+            $this->service->analyse($this->listId, $path);
+            $this->fail('A file with no address column must be refused.');
+        } catch (ListAddressImportException $e) {
+            $this->assertCount(2, $e->errors);
+            $this->assertStringContainsString('deux colonnes « Nom »', implode(' ', $e->errors));
+            $this->assertStringContainsString('doit contenir une colonne « Adresse »', implode(' ', $e->errors));
+        }
+    }
+
     // --- Applying -------------------------------------------------------
 
     public function testApplyingReplacesTheListAndReturnsWhatItDid(): void
