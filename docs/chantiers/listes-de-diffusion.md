@@ -215,6 +215,35 @@ donc au vocabulaire actif tout ce qu'une liste nomme encore, suffixé
 « (désactivé) » / « (retirée) » : un critère que personne ne voit est un
 critère que personne ne peut retirer.
 
+**Deux autres corrections après revue, même famille.**
+
+- **Un badge encore croisé par une liste ne peut plus être supprimé.**
+  `mass_mail_list_badges.badge_id` est une clé étrangère en `ON DELETE
+  CASCADE`, et une cascade est silencieuse par construction : sous la
+  sémantique de cette itération, perdre la ligne n'annule pas la liste,
+  elle cesse de contraindre — « la meute ET le badge X » devient « la
+  meute ». `BadgeService::delete()` refusait déjà un badge attribué à un
+  membre ; il interroge désormais `Core\Module\BadgeUsageProvider`
+  (§7.4), que `Service\MailingListBadgeUsageService` implémente. Le hook est
+  **défini par le cœur et implémenté par le module**, jamais l'inverse :
+  la cascade vit dans le schéma de ce module, donc la connaissance aussi.
+  `getUndeletableBadgeReasons()` donne à la page « Configuration >
+  Badges » la phrase même que le serveur lèverait, pour que le bouton
+  désactivé et le refus ne puissent pas se contredire. **Désactiver reste
+  permis** — c'est l'opération qui veut dire « on n'utilise plus ça » —
+  et l'élément grisé du sélecteur est précisément ce qui permet de
+  retirer le critère à la main d'abord.
+- **Le compteur en direct dédoublonne comme l'envoi.** Il comptait les
+  lignes brutes de `resolveCustomList()` alors que l'envoi dédoublonne
+  sur l'adresse en minuscules. Deux frères et sœurs sur une adresse
+  familiale sont deux membres et **un** destinataire : le compteur
+  promettait un nombre que l'envoi contredisait, et précisément dans les
+  unités où l'adresse partagée est la règle. Il passe par
+  `deduplicateByMemberAndAddress()`, la méthode que l'envoi emprunte
+  déjà. Un membre sans adresse continue d'être compté : la question posée
+  est « qui cette liste désigne », et l'exclure ferait diverger le nombre
+  de la liste elle-même.
+
 **Tests.** Résolution : ET entre axes, OU dedans, axe vide non contraignant
 dans les deux sens, trois axes vides → ensemble vide, badge d'une année
 passée non compté, liste par badge seul n'exigeant aucune fonction, membre
@@ -226,6 +255,10 @@ singulier, le rouge à zéro, aucun appel sans critère, la réponse périmée
 ignorée, l'échec annoncé). `npm run typecheck`. Plus, après revue : un
 badge désactivé qu'une liste nomme encore reste proposé et grisé, un badge
 désactivé que personne ne nomme reste absent, et la même paire pour les
-sections.
+sections ; la suppression d'un badge refusée tant qu'une liste le croise
+et permise sinon, la même sans registre de hooks, la phrase de refus
+identique des deux côtés, le fournisseur du module qui nomme les badges
+croisés, et le compteur qui replie deux membres sur une adresse commune
+tout en gardant celui qui n'en a pas.
 
 **Reporté.** Rien.

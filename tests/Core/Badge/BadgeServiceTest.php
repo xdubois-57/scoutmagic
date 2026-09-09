@@ -11,6 +11,8 @@ use Core\Badge\MemberBadgeRepository;
 use Core\Database\Connection;
 use Core\Member\SectionService;
 use Core\Member\UnitStaffSectionService;
+use Core\Module\BadgeUsageProvider;
+use Core\Module\HookRegistry;
 use Core\Security\EncryptionService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -238,6 +240,83 @@ class BadgeServiceTest extends TestCase
         $this->service->delete($badge->id);
 
         $this->assertEmpty($this->service->getAll());
+    }
+
+    /**
+     * A module pointing at a badge by id holds a foreign key with its own
+     * ON DELETE CASCADE, and a cascade is silent — see
+     * Core\Module\BadgeUsageProvider for the mailing list that motivated
+     * the guard.
+     */
+    public function testDeleteIsRefusedWhileAModuleStillPointsAtTheBadge(): void
+    {
+        $hooks = new HookRegistry();
+        $service = new BadgeService(
+            $this->badgeRepository,
+            $this->memberBadgeRepository,
+            $this->sectionService,
+            $hooks
+        );
+        $inUse = $service->create('Communication');
+        $free = $service->create('Boussole');
+
+        $hooks->register(BadgeUsageProvider::class, new class ([$inUse->id]) implements BadgeUsageProvider {
+            /** @param int[] $ids */
+            public function __construct(private array $ids)
+            {
+            }
+
+            /** @return int[] */
+            public function badgeIdsInUse(): array
+            {
+                return $this->ids;
+            }
+
+            public function describeBadgeUsage(): string
+            {
+                return 'utilisé comme critère par une liste de diffusion';
+            }
+        });
+
+        $this->assertSame(
+            ['Ce badge est utilisé comme critère par une liste de diffusion — désactivez-le au lieu de le '
+                . 'supprimer.'],
+            array_values($service->getUndeletableBadgeReasons()),
+            'The page disables the button with the same sentence the server would throw.'
+        );
+
+        // The one nothing points at is still deletable.
+        $service->delete($free->id);
+
+        $this->expectException(BadgeException::class);
+        $service->delete($inUse->id);
+    }
+
+    /**
+     * Without a registry — an installation with no module pointing at
+     * badges — nothing changes: the guard simply does not apply.
+     */
+    public function testDeleteIsUnguardedWhenNoModuleProvidesBadgeUsage(): void
+    {
+        $badge = $this->service->create('Communication');
+
+        $this->assertSame([], $this->service->getUndeletableBadgeReasons());
+
+        $this->service->delete($badge->id);
+
+        $this->assertEmpty($this->service->getAll());
+    }
+
+    public function testAnAssignedBadgeKeepsTheAssignmentReason(): void
+    {
+        $badge = $this->service->create('Communication');
+        $memberYearId = $this->createMemberYear('D1');
+        $this->memberBadgeRepository->assign($memberYearId, $badge->id, null);
+
+        $this->assertSame(
+            ['Ce badge est déjà attribué à un membre — désactivez-le au lieu de le supprimer.'],
+            array_values($this->service->getUndeletableBadgeReasons())
+        );
     }
 
     public function testGetAssignedBadgeIdsReturnsOnlyAssignedBadges(): void

@@ -131,6 +131,17 @@ CREATE TABLE IF NOT EXISTS mass_mail_list_sections (
 -- past year never counts for the current one, with nothing to invent
 -- here. badges(id) is a CORE table, so this foreign key crosses no
 -- module boundary (AGENTS.md § Database).
+-- The badge cascade is guarded ABOVE the database, and has to be. Losing
+-- this row does not narrow the list to nobody — an axis with no rows
+-- stops constraining anything — so « la meute ET le badge X » would
+-- quietly become « la meute » the moment X is deleted. Core\Badge\
+-- BadgeService::delete() therefore refuses a badge a list still crosses,
+-- asking Core\Module\BadgeUsageProvider, which Service\
+-- MailingListBadgeUsageService implements over findReferencedBadgeIds().
+-- Deactivating a badge stays allowed: the criteria picker keeps offering
+-- a deactivated badge a list names, greyed, so the criterion can be
+-- removed by hand first. The FK stays CASCADE for the case the guard
+-- cannot cover — a row deleted outside the application.
 CREATE TABLE IF NOT EXISTS mass_mail_list_badges (
     list_id INT UNSIGNED NOT NULL,
     badge_id INT UNSIGNED NOT NULL,

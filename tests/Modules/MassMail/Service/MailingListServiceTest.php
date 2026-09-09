@@ -231,6 +231,91 @@ class MailingListServiceTest extends TestCase
         );
     }
 
+    /**
+     * Two siblings on one family address are two members and ONE
+     * recipient — `resolveMembersForYears()` collapses them before a send
+     * freezes anything, so a counter that did not would promise a number
+     * the send contradicts, on exactly the units where a shared address
+     * is the norm.
+     */
+    public function testTheLiveCountCollapsesTwoMembersSharingOneAddress(): void
+    {
+        $this->createMemberWithFunction('famille@test.be');
+        $this->createMemberWithFunction('famille@test.be');
+        $this->createMemberWithFunction('seule@test.be');
+
+        $count = $this->service->countMembersForCriteria([$this->functionId], [], [], $this->scoutYearId);
+
+        $this->assertSame(2, $count);
+        $this->assertCount(
+            $count,
+            $this->service->resolveMembersForYears('custom', $this->listOverTheFunction()->id, null, [$this->scoutYearId]),
+            'The counter and the send answer the same question.'
+        );
+    }
+
+    /**
+     * A member the list designates but who has no address at all is still
+     * one of them — the same rule the recipient estimate follows.
+     */
+    public function testTheLiveCountKeepsAMemberWithNoAddress(): void
+    {
+        $this->createMemberWithFunction('une@test.be');
+        $this->createMemberWithFunction(null);
+
+        $this->assertSame(2, $this->service->countMembersForCriteria([$this->functionId], [], [], $this->scoutYearId));
+    }
+
+    private function listOverTheFunction(): \Modules\MassMail\Repository\MailingList
+    {
+        return $this->service->createCustomList('Ma liste', 'Description', [$this->functionId], [], [], null);
+    }
+
+    private function createMemberWithFunction(?string $email): void
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK_" . uniqid('', true) . "')");
+        $memberId = (int) $this->pdo->lastInsertId();
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted,
+                                       email_encrypted, email_blind_index, is_active)
+             VALUES (?, ?, ?, ?, ?, ?, 1)'
+        );
+        $stmt->execute([
+            $memberId,
+            $this->scoutYearId,
+            $encryption->encrypt('John', 'member_years.first_name'),
+            $encryption->encrypt('Doe', 'member_years.last_name'),
+            $email !== null ? $encryption->encrypt($email, 'member_years.email') : null,
+            $email !== null ? $encryption->blindIndex($email, 'email') : null,
+        ]);
+        $memberYearId = (int) $this->pdo->lastInsertId();
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_functions (member_year_id, function_id, section_id, is_main_function)
+             VALUES (?, ?, ?, 1)'
+        );
+        $stmt->execute([$memberYearId, $this->functionId, $this->sectionActiveId]);
+    }
+
+    /**
+     * The module's answer to « may this badge be deleted? » — the badge
+     * axis's foreign key cascades, and under this iteration's semantics a
+     * cascade widens the list instead of emptying it.
+     */
+    public function testTheBadgeUsageProviderNamesEveryBadgeAListStillCrosses(): void
+    {
+        $provider = new \Modules\MassMail\Service\MailingListBadgeUsageService(new MailingListRepository($this->pdo));
+
+        $this->assertSame([], $provider->badgeIdsInUse());
+
+        $this->service->createCustomList('Ma liste', 'Description', [], [], [$this->badgeId], null);
+
+        $this->assertSame([$this->badgeId], $provider->badgeIdsInUse());
+        $this->assertNotSame('', $provider->describeBadgeUsage());
+    }
+
     public function testDeleteCustomListBlockedWhenReferencedByAnEmail(): void
     {
         $list = $this->service->createCustomList('Ma liste', 'Description', [$this->functionId], [$this->sectionActiveId], [], null);

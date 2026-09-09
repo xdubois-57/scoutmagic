@@ -10,6 +10,8 @@ namespace Core\Badge;
 
 use Core\Member\SectionService;
 use Core\Member\UnitStaffSectionService;
+use Core\Module\BadgeUsageProvider;
+use Core\Module\HookRegistry;
 
 /**
  * Badges are transversal roles assignable to chiefs/chief-d'unité (e.g.
@@ -35,10 +37,18 @@ class BadgeService
     private const DEFAULT_BADGES = [self::BADGE_NURSE, self::BADGE_TREASURER];
     private const REFERENT_PREFIX = 'Référent ';
 
+    /**
+     * $hooks is how delete() reaches a module that points at badges by id
+     * (Core\Module\BadgeUsageProvider) — resolved at use time, so this
+     * service can be built before the providing module's block runs.
+     * Null in a test that has no module at all, and the guard then simply
+     * does not apply.
+     */
     public function __construct(
         private BadgeRepository $badgeRepository,
         private MemberBadgeRepository $memberBadgeRepository,
-        private SectionService $sectionService
+        private SectionService $sectionService,
+        private ?HookRegistry $hooks = null
     ) {
     }
 
@@ -169,6 +179,12 @@ class BadgeService
      * least one member (even in a past year) can never be deleted — only
      * deactivated, to preserve historical data.
      *
+     * Nor can one a module still points at by id: those references are
+     * foreign keys with their own `ON DELETE CASCADE`, and a cascade is
+     * silent. See Core\Module\BadgeUsageProvider for the case that
+     * motivated the guard — a mailing list whose badge axis empties does
+     * not narrow to nobody, it stops constraining anything.
+     *
      * @throws BadgeException when the badge doesn't exist or can't be deleted
      */
     public function delete(int $id): void
@@ -180,8 +196,9 @@ class BadgeService
         if ($badge->isDefault) {
             throw new BadgeException('Un badge par défaut ne peut pas être supprimé — désactivez-le.');
         }
-        if ($this->memberBadgeRepository->badgeHasAnyAssignment($id)) {
-            throw new BadgeException('Ce badge est déjà attribué à un membre — désactivez-le au lieu de le supprimer.');
+        $reason = $this->getUndeletableBadgeReasons()[$id] ?? null;
+        if ($reason !== null) {
+            throw new BadgeException($reason);
         }
 
         $this->badgeRepository->delete($id);
@@ -189,14 +206,42 @@ class BadgeService
 
     /**
      * Ids of badges that have ever been assigned to a member (any scout
-     * year) — used by the admin UI to disable the delete button instead of
-     * letting the user hit the server-side guard in delete().
+     * year).
      *
      * @return int[]
      */
     public function getAssignedBadgeIds(): array
     {
         return $this->memberBadgeRepository->assignedBadgeIds();
+    }
+
+    /**
+     * Why each badge cannot be deleted, keyed by id — the same sentences
+     * delete() throws, so the page's disabled button and the server's
+     * refusal can never say different things. It is also what delete()
+     * itself asks, rather than repeating the conditions.
+     *
+     * Default badges are absent on purpose: the page already knows which
+     * ones they are, and marks them so without asking.
+     *
+     * @return array<int, string> badge id => French refusal sentence
+     */
+    public function getUndeletableBadgeReasons(): array
+    {
+        $reasons = [];
+        foreach ($this->getAssignedBadgeIds() as $badgeId) {
+            $reasons[$badgeId] = 'Ce badge est déjà attribué à un membre — désactivez-le au lieu de le supprimer.';
+        }
+
+        $usage = $this->hooks?->getOptional(BadgeUsageProvider::class);
+        foreach ($usage?->badgeIdsInUse() ?? [] as $badgeId) {
+            // An assignment is the older and more concrete reason, so it
+            // keeps the message when a badge is both.
+            $reasons[$badgeId] ??= 'Ce badge est ' . $usage?->describeBadgeUsage()
+                . ' — désactivez-le au lieu de le supprimer.';
+        }
+
+        return $reasons;
     }
 
     /** @return Badge[] */

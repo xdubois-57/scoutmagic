@@ -643,7 +643,21 @@ class MailingListService
     /**
      * How many members the given criteria resolve to right now, for the
      * live counter on the criteria form — the same resolution a send
-     * performs, against the same year, so the two can never disagree.
+     * performs, against the same year, and **through the same
+     * deduplication**, so the two can never disagree.
+     *
+     * The dedup is not a detail here. Two siblings or a parent and child
+     * on one family address are two members and one recipient, and
+     * `resolveMembersForYears()` collapses them before the send freezes
+     * anything. A counter that skipped that step would promise a number
+     * the send then contradicts, on exactly the units — families — where
+     * a shared address is the norm rather than the exception.
+     *
+     * A member with no address at all is still counted: the question this
+     * answers is « who does this list designate », and leaving them out
+     * would make the number disagree with the list itself. That is the
+     * same rule `MassMailService::estimateRecipientCount()` follows, and
+     * `deduplicateByMemberAndAddress()` is where both get it.
      *
      * @param int[] $functionIds
      * @param int[] $sectionIds
@@ -655,10 +669,8 @@ class MailingListService
         array $badgeIds,
         int $scoutYearId
     ): int {
-        return count($this->resolutionRepository->resolveCustomList(
-            $functionIds,
-            $sectionIds,
-            $badgeIds,
+        return count($this->deduplicateByMemberAndAddress(
+            $this->resolutionRepository->resolveCustomList($functionIds, $sectionIds, $badgeIds, $scoutYearId),
             $scoutYearId
         ));
     }

@@ -49,7 +49,7 @@ class ConfigBadgesController extends AbstractController
 
         return $this->render('config/badges.html.twig', [
             'badges' => $this->badgeService->getAll(),
-            'assigned_badge_ids' => $this->badgeService->getAssignedBadgeIds(),
+            'undeletable_badge_reasons' => $this->badgeService->getUndeletableBadgeReasons(),
         ]);
     }
 
