@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Tests\Modules\Banner\Controller;
 
 use Core\Config\AppConfig;
-use Core\Config\ScoutYearService;
+use Core\ScoutYear\ScoutYearResolver;
 use Core\Http\FrontController;
 use Core\Http\Request;
 use Core\Http\Router;
@@ -32,7 +32,7 @@ class BannerConfigControllerTest extends TestCase
     private BannerService $bannerService;
     private Environment $twig;
     private MemberService $memberService;
-    private ScoutYearService $scoutYearService;
+    private ScoutYearResolver $scoutYearResolver;
 
     protected function setUp(): void
     {
@@ -98,10 +98,11 @@ class BannerConfigControllerTest extends TestCase
         // denial tests further down override this per-instance.
         $this->memberService = $this->createMock(MemberService::class);
         $this->memberService->method('isUnitChief')->willReturn(true);
-        $this->scoutYearService = $this->createMock(ScoutYearService::class);
-        $this->scoutYearService->method('getCurrentYear')->willReturn(['id' => 1, 'label' => '2025-2026', 'start_date' => '2025-09-01', 'end_date' => '2026-08-31']);
+        $this->memberService->method('isUnitChiefAcrossYears')->willReturn(true);
+        $this->scoutYearResolver = $this->createMock(ScoutYearResolver::class);
+        $this->scoutYearResolver->method('getAccessYearIds')->willReturn([1]);
 
-        $this->controller = new BannerConfigController($this->twig, $this->bannerService, $journalService, $this->memberService, $this->scoutYearService);
+        $this->controller = new BannerConfigController($this->twig, $this->bannerService, $journalService, $this->memberService, $this->scoutYearResolver);
 
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
@@ -423,9 +424,10 @@ class BannerConfigControllerTest extends TestCase
     {
         $memberService = $this->createMock(MemberService::class);
         $memberService->method('isUnitChief')->willReturn(false);
+        $memberService->method('isUnitChiefAcrossYears')->willReturn(false);
         $controller = new BannerConfigController(
             $this->twig, $this->bannerService, new JournalService(new JournalRepository($this->pdo)),
-            $memberService, $this->scoutYearService
+            $memberService, $this->scoutYearResolver
         );
 
         AuthSession::login(1, 'admin@test.be', 'admin');
@@ -438,9 +440,10 @@ class BannerConfigControllerTest extends TestCase
     {
         $memberService = $this->createMock(MemberService::class);
         $memberService->method('isUnitChief')->willReturn(false);
+        $memberService->method('isUnitChiefAcrossYears')->willReturn(false);
         $controller = new BannerConfigController(
             $this->twig, $this->bannerService, new JournalService(new JournalRepository($this->pdo)),
-            $memberService, $this->scoutYearService
+            $memberService, $this->scoutYearResolver
         );
 
         $token = $this->csrfToken();

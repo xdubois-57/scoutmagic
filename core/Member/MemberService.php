@@ -290,6 +290,32 @@ class MemberService
     }
 
     /**
+     * Staff d'U in ANY of the given years — the question every caller that
+     * gates a page on « chef d'unité » should be asking during the
+     * scout-year transition.
+     *
+     * The years come from Core\ScoutYear\ScoutYearResolver::
+     * getAccessYearIds(), whose docblock carries the reasoning and the
+     * bound: the effective year, plus the date-computed one while the two
+     * are one year apart. Asking either alone locks the real chief out for
+     * the fortnight between the 1st of September and the Desk import —
+     * which is the failure this exists to prevent, reported as issue #238
+     * and only half-fixed by narrowing retro to the effective year.
+     *
+     * @param list<int> $scoutYearIds
+     */
+    public function isUnitChiefAcrossYears(string $email, array $scoutYearIds): bool
+    {
+        foreach ($scoutYearIds as $scoutYearId) {
+            if ($this->isUnitChief($email, $scoutYearId)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Check if a user account (by email) has access to a specific member_year.
      *
      * Access granted if:

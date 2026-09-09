@@ -17,7 +17,10 @@ use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Member\MemberService;
+use Core\ScoutYear\ScoutYearResolver;
+use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
+use Core\Security\Role;
 use Core\Security\CsrfGuard;
 use Core\Service\DateInput;
 use Core\Service\IntegerInput;
@@ -139,6 +142,7 @@ class RentalManagementController extends AbstractController
         Environment $twig,
         private RentalAuthorizationService $authorizationService,
         private ScoutYearService $scoutYearService,
+        private ScoutYearResolver $scoutYearResolver,
         private RentalAssetRepository $assetRepository,
         private RentalBookingRepository $bookingRepository,
         private AuditService $audit,
@@ -256,9 +260,9 @@ class RentalManagementController extends AbstractController
             'payment_account_name' => $this->financeAccountName($paymentSettings->financeAccountId),
             // Whether to offer the link to the page that pins it, rather
             // than a dead end for somebody who cannot reach it.
-            'can_pin_account' => $this->authorizationService->isUnitStaff(
+            'can_pin_account' => $this->authorizationService->isUnitStaffAcrossYears(
                 AuthSession::getEmail(),
-                $this->scoutYearId()
+                $this->accessYearIds()
             ),
             'deposit_modes' => DepositMode::all(),
             'csrf_token' => CsrfGuard::generateToken(),
@@ -528,7 +532,7 @@ class RentalManagementController extends AbstractController
 
         return $this->render('@rental/management/my_rentals.html.twig', [
             'assets' => $assets,
-            'is_unit_staff' => $this->authorizationService->isUnitStaff($email, $scoutYearId),
+            'is_unit_staff' => $this->authorizationService->isUnitStaffAcrossYears($email, $this->accessYearIds()),
             'pending_bookings' => $pending,
             'pending_counts' => $countsByAsset,
             'assets_by_id' => $this->indexById($assets),
@@ -2457,9 +2461,9 @@ class RentalManagementController extends AbstractController
 
     private function mayManage(RentalAsset $asset): bool
     {
-        return $this->authorizationService->canManageAsset(
+        return $this->authorizationService->canManageAssetAcrossYears(
             AuthSession::getEmail(),
-            $this->scoutYearId(),
+            $this->accessYearIds(),
             $asset
         );
     }
@@ -2570,6 +2574,27 @@ class RentalManagementController extends AbstractController
     private function scoutYearId(): int
     {
         return (int) $this->scoutYearService->getCurrentYear()['id'];
+    }
+
+    /**
+     * The years an ACCESS decision may consider — distinct from
+     * scoutYearId() above, which stays the year rows are SCOPED to.
+     *
+     * The two are not interchangeable and the difference is the point: who
+     * may open this area is a question about a person, and gets the
+     * transition allowance (Core\ScoutYear\ScoutYearResolver::
+     * getAccessYearIds()); which bookings and managers are listed is a
+     * question about data, and stays on one year, or a page would show two
+     * years of rows merged into one list.
+     *
+     * @return list<int>
+     */
+    private function accessYearIds(): array
+    {
+        return $this->scoutYearResolver->getAccessYearIds(
+            ScoutYearSession::getPreviewId(),
+            Role::fromString(AuthSession::getRole())
+        );
     }
 
     /**

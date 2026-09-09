@@ -53,13 +53,19 @@ class SessionRevalidator
      * Returns true when the session survived (or there was none to check),
      * false when it was revoked and the caller is now anonymous.
      *
-     * $currentScoutYearId is a callable rather than a value so an anonymous
+     * $accessScoutYearIds is a callable rather than a value so an anonymous
      * visitor — the majority of traffic on a public site — costs nothing
-     * here: there is no session to check, so the year is never resolved.
+     * here: there is no session to check, so the years are never resolved.
      *
-     * @param callable(): int $currentScoutYearId
+     * It yields the YEARS, plural, an access decision may consider — see
+     * Core\ScoutYear\ScoutYearResolver::getAccessYearIds(). Revalidation
+     * runs on every request of every open session, so judging it on one
+     * year while the login gate judged on two would sign people out one
+     * request after letting them in, every September.
+     *
+     * @param callable(): list<int> $accessScoutYearIds
      */
-    public function revalidate(callable $currentScoutYearId): bool
+    public function revalidate(callable $accessScoutYearIds): bool
     {
         if (!AuthSession::isAuthenticated()) {
             return true;
@@ -83,19 +89,19 @@ class SessionRevalidator
             return false;
         }
 
-        $scoutYearId = $currentScoutYearId();
+        $scoutYearIds = $accessScoutYearIds();
 
         // Same gate AuthController applies at login: a user_accounts row is
         // never sufficient on its own, the address must still match a real
         // member of the unit this year (super-admins excepted). Letting an
         // existing session outlive that would just be the login gate with
         // an up-to-30-day grace period.
-        if (!$this->roleResolver->isEmailAuthorizedToLogin($account->email, $scoutYearId)) {
+        if (!$this->roleResolver->isEmailAuthorizedToLoginAcrossYears($account->email, $scoutYearIds)) {
             $this->revoke('no_longer_a_member', $userAccountId);
             return false;
         }
 
-        $freshRole = $this->roleResolver->resolve($account->email, $scoutYearId);
+        $freshRole = $this->roleResolver->resolveAcrossYears($account->email, $scoutYearIds);
         if ($freshRole !== AuthSession::getRole()) {
             $this->journalService?->log(
                 'core', 'session_role_refreshed', 'security',

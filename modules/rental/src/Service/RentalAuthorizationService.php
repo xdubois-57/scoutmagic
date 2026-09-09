@@ -125,6 +125,51 @@ class RentalAuthorizationService
      * Whether $email is a unit chief (Staff d'U), and therefore an implicit
      * manager of every asset.
      */
+    /**
+     * The three questions above, over the years an access decision may
+     * consider — Core\ScoutYear\ScoutYearResolver::getAccessYearIds(),
+     * whose docblock carries the reasoning and the one-year bound.
+     *
+     * Rental is the widest surface this affects: isUnitStaff() makes Staff
+     * d'U an implicit manager of every asset, so on the date-computed year
+     * alone the whole management area empties out for them between the 1st
+     * of September and the import of the new roster.
+     *
+     * @param list<int> $scoutYearIds
+     */
+    public function canManageAssetAcrossYears(?string $email, array $scoutYearIds, RentalAsset $asset): bool
+    {
+        return $this->canManageAssetIdAcrossYears($email, $scoutYearIds, $asset->id);
+    }
+
+    /**
+     * @param list<int> $scoutYearIds
+     */
+    public function canManageAssetIdAcrossYears(?string $email, array $scoutYearIds, int $assetId): bool
+    {
+        foreach ($scoutYearIds as $scoutYearId) {
+            if ($this->canManageAssetId($email, $scoutYearId, $assetId)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param list<int> $scoutYearIds
+     */
+    public function isUnitStaffAcrossYears(?string $email, array $scoutYearIds): bool
+    {
+        foreach ($scoutYearIds as $scoutYearId) {
+            if ($this->isUnitStaff($email, $scoutYearId)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public function isUnitStaff(?string $email, int $scoutYearId): bool
     {
         if ($email === null || $email === '') {

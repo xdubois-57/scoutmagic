@@ -64,6 +64,87 @@ class ScoutYearResolver
     }
 
     /**
+     * The scout years an ACCESS decision may consider — the effective year,
+     * plus the date-computed one while the two are one year apart.
+     *
+     * WHY TWO YEARS. A scout year turns over on the 1st of September; the
+     * roster of the new one arrives with the Desk import, which is days or
+     * weeks later, and the site's own transition workflow (Core\ScoutYear\
+     * ScoutYearTransitionService) deliberately holds the public year back
+     * until its last step. So there is a window — every year, on every
+     * installation — in which "which year is this?" has two defensible
+     * answers, and a membership written in one of them is invisible from
+     * the other. Asking either question alone locks somebody out of pages
+     * they held yesterday and will hold tomorrow: on the date-computed
+     * year, nobody is Staff d'U until the import lands; on the effective
+     * year, nobody is yet whatever the new roster makes them.
+     *
+     * So an access decision takes the HIGHEST answer the two years give,
+     * rather than one year's answer. Deliberately a widening: somebody who
+     * was a unit chief in one of the two years keeps the pages that gate on
+     * it for as long as both years are in play. That is the point — the
+     * alternative is a chief locked out of their own configuration in the
+     * fortnight the site is most in use.
+     *
+     * ADJACENT ONLY, and that bound is what keeps this from being
+     * permanent. The two years disagree from the 1st of September until
+     * somebody runs the workflow's last step, and nothing forces them to:
+     * on an installation where the public year was pinned and forgotten,
+     * an unbounded rule would grant a long-departed chief their access for
+     * ever. One year apart is every real transition and no stale pin.
+     *
+     * SYMMETRIC, because the transition runs in both directions. Step 9
+     * (« Activer l'année cible pour les staffs ») can put the effective
+     * year AHEAD of the calendar in August; the 1st of September puts the
+     * calendar ahead of the public year. Both are the same fortnight seen
+     * from two sides.
+     *
+     * Read-only on purpose: findByLabel() rather than getCurrentYear(),
+     * which calls ensureYear() and would CREATE next year's row as a side
+     * effect of asking an authorization question. A year that does not
+     * exist yet holds no memberships, so there is nothing to union with.
+     *
+     * @return list<int> The effective year first, then the date-computed
+     *                   one when it qualifies. Never empty, never repeats.
+     */
+    public function getAccessYearIds(?int $sessionOverrideId, Role $role): array
+    {
+        $effective = $this->getEffectiveYear($sessionOverrideId, $role);
+        $ids = [$effective->id];
+
+        $dateLabel = ScoutYearService::labelForDate(new \DateTimeImmutable());
+        $dateYear = $this->scoutYearService->findByLabel($dateLabel);
+        if ($dateYear === null || (int) $dateYear['id'] === $effective->id) {
+            return $ids;
+        }
+
+        if (self::areAdjacent($effective->label, (string) $dateYear['label'])) {
+            $ids[] = (int) $dateYear['id'];
+        }
+
+        return $ids;
+    }
+
+    /**
+     * Whether two `YYYY-YYYY` labels name consecutive scout years, in
+     * either order.
+     *
+     * The label is the comparison rather than start_date because the label
+     * is what ScoutYearService::ensureYear() derives every other column
+     * from — a row whose dates were edited by hand still sorts by the year
+     * it is called.
+     */
+    private static function areAdjacent(string $one, string $other): bool
+    {
+        $startOfOne = (int) explode('-', $one)[0];
+        $startOfOther = (int) explode('-', $other)[0];
+
+        return $startOfOne !== 0
+            && $startOfOther !== 0
+            && abs($startOfOne - $startOfOther) === 1;
+    }
+
+    /**
      * Get the public current year: the `current_scout_year_id` setting when set
      * and resolvable, otherwise the date-computed year (auto-created).
      *

@@ -8,14 +8,16 @@ declare(strict_types=1);
 
 namespace Modules\Banner\Controller;
 
-use Core\Config\ScoutYearService;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Member\MemberService;
+use Core\ScoutYear\ScoutYearResolver;
+use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Security\Role;
 use Core\Service\IntegerInput;
 use Modules\Banner\Service\BannerException;
 use Modules\Banner\Service\BannerService;
@@ -44,7 +46,7 @@ class BannerConfigController extends AbstractController
         private BannerService $bannerService,
         private JournalService $journalService,
         private MemberService $memberService,
-        private ScoutYearService $scoutYearService
+        private ScoutYearResolver $scoutYearResolver
     ) {
     }
 
@@ -244,8 +246,17 @@ class BannerConfigController extends AbstractController
     private function requireUnitChief(): ?Response
     {
         $email = AuthSession::getEmail();
-        $scoutYearId = $this->scoutYearService->getCurrentYear()['id'];
-        if ($email === null || !$this->memberService->isUnitChief($email, $scoutYearId)) {
+        // Both years an access decision may consider, never the
+        // date-computed one alone: that one rolls over on the 1st of
+        // September and answers « chef d'unité ? » false for everybody
+        // until the new roster is imported, locking the real chief out of
+        // this page for a fortnight every year. See Core\ScoutYear\
+        // ScoutYearResolver::getAccessYearIds().
+        $scoutYearIds = $this->scoutYearResolver->getAccessYearIds(
+            ScoutYearSession::getPreviewId(),
+            Role::fromString(AuthSession::getRole())
+        );
+        if ($email === null || !$this->memberService->isUnitChiefAcrossYears($email, $scoutYearIds)) {
             return (new Response('', 403))->setBody('Forbidden');
         }
 

@@ -217,6 +217,11 @@ class RentalManagementControllerTest extends TestCase
             $this->twig,
             new RentalAuthorizationService($memberService, $this->assetRepository, $this->managerRepository),
             $scoutYearService,
+            new \Core\ScoutYear\ScoutYearResolver(
+                $scoutYearService,
+                new SettingService(new SettingRepository($this->pdo)),
+                new MemberYearRepository($this->pdo)
+            ),
             $this->assetRepository,
             $this->bookingRepository,
             new \Core\Audit\AuditService(new \Core\Audit\AuditRepository($this->pdo, $this->encryption)),

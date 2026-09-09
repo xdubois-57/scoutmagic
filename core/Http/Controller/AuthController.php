@@ -23,6 +23,7 @@ use Core\Security\LastLoginMethodCookie;
 use Core\Security\LoginThrottler;
 use Core\Security\PasswordAuthMethod;
 use Core\Security\PendingMagicLink;
+use Core\Security\Role;
 use Core\Security\RoleResolver;
 use Core\Security\WebAuthnService;
 use Twig\Environment;
@@ -436,8 +437,7 @@ class AuthController extends AbstractController
     private function resolveRole(string $email, ?int $userAccountId = null): string
     {
         if ($this->roleResolver !== null && $this->scoutYearResolver !== null) {
-            $currentYear = $this->scoutYearResolver->getCurrentPublicYear();
-            return $this->roleResolver->resolve($email, $currentYear['id']);
+            return $this->roleResolver->resolveAcrossYears($email, $this->accessYearIds());
         }
 
         // Fallback for cases without role resolver
@@ -455,10 +455,32 @@ class AuthController extends AbstractController
     private function storeLinkedMembers(string $email): void
     {
         if ($this->roleResolver !== null && $this->scoutYearResolver !== null) {
-            $currentYear = $this->scoutYearResolver->getCurrentPublicYear();
-            $linked = $this->roleResolver->getLinkedMemberYears($email, $currentYear['id']);
+            $linked = $this->roleResolver->getLinkedMemberYearsAcrossYears($email, $this->accessYearIds());
             AuthSession::setLinkedMembers($linked);
         }
+    }
+
+    /**
+     * The years a login may be judged on: the public current year, plus
+     * the date-computed one while the two are one year apart.
+     *
+     * No session preview and no role, deliberately — both arguments to
+     * Core\ScoutYear\ScoutYearResolver::getAccessYearIds() are about a
+     * signed-in request, and this runs before there is one. `Role::PUBLIC`
+     * therefore skips the preview and staff-year branches and lands on the
+     * public current year, which is what a login has always been judged
+     * on; the second year is the transition allowance this method exists
+     * to add (see that method's docblock, and issue #238).
+     *
+     * @return list<int>
+     */
+    private function accessYearIds(): array
+    {
+        if ($this->scoutYearResolver === null) {
+            return [];
+        }
+
+        return $this->scoutYearResolver->getAccessYearIds(null, Role::PUBLIC);
     }
 
     /**
@@ -488,8 +510,7 @@ class AuthController extends AbstractController
             return true;
         }
 
-        $currentYear = $this->scoutYearResolver->getCurrentPublicYear();
-        return $this->roleResolver->isEmailAuthorizedToLogin($email, $currentYear['id']);
+        return $this->roleResolver->isEmailAuthorizedToLoginAcrossYears($email, $this->accessYearIds());
     }
 
     /**

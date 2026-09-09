@@ -180,16 +180,17 @@ class RetroConfigController extends AbstractController
     private function requireUnitChief(): ?Response
     {
         $email = AuthSession::getEmail();
-        // The year this session is actually looking at. On the
-        // date-computed year, « est-ce le chef d'unité ? » is false for
-        // everybody between the 1st of September and the import of the new
-        // roster — a fail-closed that locks the real chief out of the
-        // configuration of a board they are looking at in another year.
-        $scoutYearId = $this->scoutYearService->getEffectiveYear(
+        // Both years this session may be judged on, not one. Asking the
+        // date-computed year alone makes « est-ce le chef d'unité ? » false
+        // for everybody between the 1st of September and the import of the
+        // new roster; asking the effective year alone moves that same
+        // lockout to whoever the new roster has not named yet. See
+        // Core\ScoutYear\ScoutYearResolver::getAccessYearIds().
+        $scoutYearIds = $this->scoutYearService->getAccessYearIds(
             ScoutYearSession::getPreviewId(),
             Role::fromString(AuthSession::getRole())
-        )->id;
-        if ($email === null || !$this->memberService->isUnitChief($email, $scoutYearId)) {
+        );
+        if ($email === null || !$this->memberService->isUnitChiefAcrossYears($email, $scoutYearIds)) {
             return (new Response('', 403))->setBody('Forbidden');
         }
 

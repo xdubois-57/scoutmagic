@@ -55,14 +55,14 @@ class SessionRevalidatorTest extends TestCase
         $account = $this->userRepo->create('member@test.com', true);
         AuthSession::login($account->id, $account->email, 'superadmin');
 
-        $this->assertTrue($this->revalidator->revalidate(fn(): int => $this->scoutYearId));
+        $this->assertTrue($this->revalidator->revalidate(fn(): array => [$this->scoutYearId]));
         $this->assertTrue(AuthSession::isAuthenticated());
         $this->assertSame('superadmin', AuthSession::getRole());
     }
 
     public function testNoSessionIsNothingToRevalidate(): void
     {
-        $this->assertTrue($this->revalidator->revalidate(fn(): int => $this->scoutYearId));
+        $this->assertTrue($this->revalidator->revalidate(fn(): array => [$this->scoutYearId]));
         $this->assertFalse(AuthSession::isAuthenticated());
     }
 
@@ -84,7 +84,7 @@ class SessionRevalidatorTest extends TestCase
         $_SESSION['_auth']['issued_at'] = time() - 60;
         $this->userRepo->updatePasswordHash($account->id, password_hash('BrandNewPassword1!', PASSWORD_DEFAULT));
 
-        $this->assertFalse($this->revalidator->revalidate(fn(): int => $this->scoutYearId));
+        $this->assertFalse($this->revalidator->revalidate(fn(): array => [$this->scoutYearId]));
         $this->assertFalse(AuthSession::isAuthenticated());
         $this->assertNull(AuthSession::getUserAccountId());
     }
@@ -102,7 +102,7 @@ class SessionRevalidatorTest extends TestCase
         $this->userRepo->updatePasswordHash($account->id, password_hash('BrandNewPassword1!', PASSWORD_DEFAULT));
         AuthSession::refreshIssuedAt();
 
-        $this->assertTrue($this->revalidator->revalidate(fn(): int => $this->scoutYearId));
+        $this->assertTrue($this->revalidator->revalidate(fn(): array => [$this->scoutYearId]));
         $this->assertTrue(AuthSession::isAuthenticated());
     }
 
@@ -118,13 +118,13 @@ class SessionRevalidatorTest extends TestCase
         unset($_SESSION['_auth']['issued_at']);
 
         // No password ever set → no stamp → nothing to revoke against.
-        $this->assertTrue($this->revalidator->revalidate(fn(): int => $this->scoutYearId));
+        $this->assertTrue($this->revalidator->revalidate(fn(): array => [$this->scoutYearId]));
         $this->assertTrue(AuthSession::isAuthenticated());
 
         $this->userRepo->updatePasswordHash($account->id, password_hash('BrandNewPassword1!', PASSWORD_DEFAULT));
         unset($_SESSION['_auth']['issued_at']);
 
-        $this->assertFalse($this->revalidator->revalidate(fn(): int => $this->scoutYearId));
+        $this->assertFalse($this->revalidator->revalidate(fn(): array => [$this->scoutYearId]));
         $this->assertFalse(AuthSession::isAuthenticated());
     }
 
@@ -135,7 +135,7 @@ class SessionRevalidatorTest extends TestCase
 
         $this->pdo->prepare('DELETE FROM user_accounts WHERE id = ?')->execute([$account->id]);
 
-        $this->assertFalse($this->revalidator->revalidate(fn(): int => $this->scoutYearId));
+        $this->assertFalse($this->revalidator->revalidate(fn(): array => [$this->scoutYearId]));
         $this->assertFalse(AuthSession::isAuthenticated());
     }
 
@@ -155,7 +155,7 @@ class SessionRevalidatorTest extends TestCase
         // The function is taken away mid-session.
         $this->pdo->exec('DELETE FROM member_functions');
 
-        $this->assertTrue($this->revalidator->revalidate(fn(): int => $this->scoutYearId));
+        $this->assertTrue($this->revalidator->revalidate(fn(): array => [$this->scoutYearId]));
         $this->assertTrue(AuthSession::isAuthenticated());
         $this->assertSame('identified', AuthSession::getRole());
     }
@@ -171,7 +171,7 @@ class SessionRevalidatorTest extends TestCase
 
         $this->pdo->exec("UPDATE functions SET role = 'admin' WHERE desk_code = 'Equipier'");
 
-        $this->assertTrue($this->revalidator->revalidate(fn(): int => $this->scoutYearId));
+        $this->assertTrue($this->revalidator->revalidate(fn(): array => [$this->scoutYearId]));
         $this->assertSame('admin', AuthSession::getRole());
     }
 
@@ -189,7 +189,7 @@ class SessionRevalidatorTest extends TestCase
         $this->pdo->exec('DELETE FROM member_functions');
         $this->pdo->exec('DELETE FROM member_years');
 
-        $this->assertFalse($this->revalidator->revalidate(fn(): int => $this->scoutYearId));
+        $this->assertFalse($this->revalidator->revalidate(fn(): array => [$this->scoutYearId]));
         $this->assertFalse(AuthSession::isAuthenticated());
     }
 
@@ -203,7 +203,7 @@ class SessionRevalidatorTest extends TestCase
         $account = $this->userRepo->create('operator@test.com', true);
         AuthSession::login($account->id, $account->email, 'superadmin');
 
-        $this->assertTrue($this->revalidator->revalidate(fn(): int => $this->scoutYearId));
+        $this->assertTrue($this->revalidator->revalidate(fn(): array => [$this->scoutYearId]));
         $this->assertTrue(AuthSession::isAuthenticated());
         $this->assertSame('superadmin', AuthSession::getRole());
     }
@@ -251,11 +251,11 @@ class SessionRevalidatorTest extends TestCase
     {
         $account = $this->userRepo->create('admin@test.com', true);
         AuthSession::login($account->id, $account->email, 'superadmin');
-        $this->assertTrue($this->revalidator->revalidate(fn(): int => $this->scoutYearId));
+        $this->assertTrue($this->revalidator->revalidate(fn(): array => [$this->scoutYearId]));
 
         $this->userRepo->deactivate($account->id);
 
-        $this->assertFalse($this->revalidator->revalidate(fn(): int => $this->scoutYearId));
+        $this->assertFalse($this->revalidator->revalidate(fn(): array => [$this->scoutYearId]));
         $this->assertFalse(AuthSession::isAuthenticated());
     }
 
@@ -264,8 +264,8 @@ class SessionRevalidatorTest extends TestCase
         $account = $this->userRepo->create('admin@test.com', true);
         AuthSession::login($account->id, $account->email, 'superadmin');
 
-        $this->assertTrue($this->revalidator->revalidate(fn(): int => $this->scoutYearId));
-        $this->assertTrue($this->revalidator->revalidate(fn(): int => $this->scoutYearId));
+        $this->assertTrue($this->revalidator->revalidate(fn(): array => [$this->scoutYearId]));
+        $this->assertTrue($this->revalidator->revalidate(fn(): array => [$this->scoutYearId]));
         $this->assertTrue(AuthSession::isAuthenticated());
     }
 
@@ -282,7 +282,7 @@ class SessionRevalidatorTest extends TestCase
 
         AuthSession::login($account->id, $account->email, 'superadmin');
 
-        $this->assertTrue($this->revalidator->revalidate(fn(): int => $this->scoutYearId));
+        $this->assertTrue($this->revalidator->revalidate(fn(): array => [$this->scoutYearId]));
         $this->assertTrue(AuthSession::isAuthenticated());
     }
 }

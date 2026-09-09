@@ -60,6 +60,86 @@ class MemberServiceTest extends TestCase
         return (int) $this->pdo->lastInsertId();
     }
 
+    /**
+     * A member_year in $scoutYearId whose MAIN function sits in the
+     * "Staff d'U" section — what MemberService::isUnitChief() answers true
+     * for, and the only fixture shape that reaches it.
+     */
+    private function createUnitChief(string $email, int $scoutYearId): void
+    {
+        $encryption = new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $blindIndex = $encryption->blindIndex(strtolower($email), 'email');
+
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('CDU_" . uniqid() . "')");
+        $memberId = (int) $this->pdo->lastInsertId();
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted,'
+            . ' email_encrypted, email_blind_index) VALUES (?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            $memberId,
+            $scoutYearId,
+            $encryption->encrypt('Chef', 'member_years.first_name'),
+            $encryption->encrypt('Unite', 'member_years.last_name'),
+            $encryption->encrypt($email, 'member_years.email'),
+            $blindIndex,
+        ]);
+        $memberYearId = (int) $this->pdo->lastInsertId();
+
+        $this->pdo->exec(
+            "INSERT OR IGNORE INTO age_branches (desk_code, label, sort_order) VALUES ('STAFF', 'Staff', 99)"
+        );
+        $branchId = (int) $this->pdo->query('SELECT id FROM age_branches ORDER BY id DESC LIMIT 1')->fetchColumn();
+        $this->pdo->exec(
+            "INSERT OR IGNORE INTO sections (desk_code, name, age_branch_id, is_active)"
+            . " VALUES ('" . \Core\Member\UnitStaffSectionService::DESK_CODE . "', \"Staff d'U\", {$branchId}, 1)"
+        );
+        $sectionId = (int) $this->pdo->query(
+            "SELECT id FROM sections WHERE desk_code = '" . \Core\Member\UnitStaffSectionService::DESK_CODE . "'"
+        )->fetchColumn();
+
+        $this->pdo->exec(
+            "INSERT OR IGNORE INTO functions (desk_code, label, role, confirmed)"
+            . " VALUES ('CDU', \"Animateur d'unite\", 'admin', 1)"
+        );
+        $functionId = (int) $this->pdo->query("SELECT id FROM functions WHERE desk_code = 'CDU'")->fetchColumn();
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_functions (member_year_id, function_id, section_id, age_branch_id, is_main_function)'
+            . ' VALUES (?, ?, ?, ?, 1)'
+        );
+        $stmt->execute([$memberYearId, $functionId, $sectionId, $branchId]);
+    }
+
+    public function testIsUnitChiefAcrossYearsAnswersForEitherYear(): void
+    {
+        $this->pdo->exec(
+            "INSERT INTO scout_years (label, start_date, end_date, is_current)"
+            . " VALUES ('2026-2027', '2026-09-01', '2027-08-31', 0)"
+        );
+        $nextYear = (int) $this->pdo->lastInsertId();
+
+        // Staff d'U in the year that is ending, absent from the roster of
+        // the one that has begun: the fortnight #238 is about.
+        $this->createUnitChief('cdu@example.com', $this->scoutYearId);
+
+        $this->assertTrue($this->service->isUnitChief('cdu@example.com', $this->scoutYearId));
+        $this->assertFalse($this->service->isUnitChief('cdu@example.com', $nextYear));
+        $this->assertTrue(
+            $this->service->isUnitChiefAcrossYears('cdu@example.com', [$nextYear, $this->scoutYearId])
+        );
+    }
+
+    public function testIsUnitChiefAcrossYearsStaysFalseWhenNeitherYearQualifies(): void
+    {
+        $this->createTestMember('plain@example.com');
+
+        $this->assertFalse(
+            $this->service->isUnitChiefAcrossYears('plain@example.com', [$this->scoutYearId, $this->scoutYearId + 999])
+        );
+    }
+
     public function testGetLinkedMembersReturnsCorrectMembersForAnEmail(): void
     {
         $memberYearId1 = $this->createTestMember($this->testEmail, 'Baloo');

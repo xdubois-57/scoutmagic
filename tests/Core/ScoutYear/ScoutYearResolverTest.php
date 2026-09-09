@@ -172,4 +172,79 @@ class ScoutYearResolverTest extends TestCase
         // The year after the public year is created so it can be previewed/imported.
         $this->assertContains('2026-2027', $labels);
     }
+
+    // ---------------------------------------------------------------
+    // getAccessYearIds() — the transition allowance.
+    //
+    // These tests are written against the CALENDAR, because the method is:
+    // the second year it may return is the one today's date falls in, so a
+    // fixture that hardcoded '2025-2026' would assert something different
+    // every September. calendarLabel() below derives the labels the same
+    // way ScoutYearService::labelForDate() does, offset by whole years, so
+    // each case says "one year before today's", "two after", and stays
+    // true whenever it is run.
+    // ---------------------------------------------------------------
+
+    /**
+     * Today's scout-year label, shifted by $yearOffset whole years.
+     */
+    private function calendarLabel(int $yearOffset = 0): string
+    {
+        $today = ScoutYearService::labelForDate(new \DateTimeImmutable());
+        $start = (int) explode('-', $today)[0] + $yearOffset;
+
+        return sprintf('%d-%d', $start, $start + 1);
+    }
+
+    public function testAccessYearsAreTheEffectiveYearAloneWhenTheCalendarYearHasNoRow(): void
+    {
+        $this->setPublicYear($this->year2023);
+
+        // Nothing has created today's year, and asking must not.
+        $this->assertSame([$this->year2023], $this->resolver->getAccessYearIds(null, Role::PUBLIC));
+        $this->assertNull($this->scoutYearService->findByLabel($this->calendarLabel()));
+    }
+
+    public function testAccessYearsAddTheCalendarYearWhenItFollowsTheEffectiveOne(): void
+    {
+        $calendar = $this->scoutYearService->ensureYear($this->calendarLabel());
+        $previous = $this->scoutYearService->ensureYear($this->calendarLabel(-1));
+        $this->setPublicYear($previous);
+
+        // The 1st-of-September case: the calendar has moved on, the public
+        // year has not, and a membership in either still counts.
+        $this->assertSame([$previous, $calendar], $this->resolver->getAccessYearIds(null, Role::PUBLIC));
+    }
+
+    public function testAccessYearsAddTheCalendarYearWhenItPRECEDESTheEffectiveOne(): void
+    {
+        $calendar = $this->scoutYearService->ensureYear($this->calendarLabel());
+        $next = $this->scoutYearService->ensureYear($this->calendarLabel(1));
+        $this->setStaffYear($next);
+
+        // The other half of the same fortnight: step 9 of the transition
+        // activates next year for the staffs BEFORE the calendar turns
+        // over, so the effective year runs ahead of the date.
+        $this->assertSame([$next, $calendar], $this->resolver->getAccessYearIds(null, Role::CHIEF));
+    }
+
+    public function testAccessYearsRefuseAYearThatIsTwoApart(): void
+    {
+        $this->scoutYearService->ensureYear($this->calendarLabel());
+        $stale = $this->scoutYearService->ensureYear($this->calendarLabel(-2));
+        $this->setPublicYear($stale);
+
+        // A public year nobody has advanced in two seasons is an oversight,
+        // not a transition — and the widening has to stop somewhere or a
+        // long-departed chief keeps their access for ever.
+        $this->assertSame([$stale], $this->resolver->getAccessYearIds(null, Role::PUBLIC));
+    }
+
+    public function testAccessYearsNeverRepeatTheSameYearTwice(): void
+    {
+        $calendar = $this->scoutYearService->ensureYear($this->calendarLabel());
+        $this->setPublicYear($calendar);
+
+        $this->assertSame([$calendar], $this->resolver->getAccessYearIds(null, Role::PUBLIC));
+    }
 }

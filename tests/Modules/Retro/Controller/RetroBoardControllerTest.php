@@ -370,6 +370,7 @@ class RetroBoardControllerTest extends TestCase
     {
         AuthSession::login(3, 'chief@test.be', 'chief');
         $this->boardService->method('isUnitChief')->willReturn(false);
+        $this->boardService->method('isUnitChiefAcrossYears')->willReturn(false);
         [$id, $token] = $this->createBoard();
         $commentId = $this->commentRepository->create($id, 'good', 'Text');
         $csrf = $this->csrfToken();
@@ -386,6 +387,7 @@ class RetroBoardControllerTest extends TestCase
     {
         AuthSession::login(3, 'chief@test.be', 'chief');
         $this->boardService->method('isUnitChief')->willReturn(true);
+        $this->boardService->method('isUnitChiefAcrossYears')->willReturn(true);
         [$id, $token] = $this->createBoard();
         $commentId = $this->commentRepository->create($id, 'good', 'Propos injurieux');
         $this->commentRepository->setHidden($commentId, true);
@@ -399,6 +401,7 @@ class RetroBoardControllerTest extends TestCase
     {
         AuthSession::login(3, 'chief@test.be', 'chief');
         $this->boardService->method('isUnitChief')->willReturn(false);
+        $this->boardService->method('isUnitChiefAcrossYears')->willReturn(false);
         [$id, $token] = $this->createBoard();
         $commentId = $this->commentRepository->create($id, 'good', 'Propos injurieux');
         $this->commentRepository->setHidden($commentId, true);
@@ -412,6 +415,7 @@ class RetroBoardControllerTest extends TestCase
     {
         AuthSession::login(3, 'chief@test.be', 'chief');
         $this->boardService->method('isUnitChief')->willReturn(true);
+        $this->boardService->method('isUnitChiefAcrossYears')->willReturn(true);
         [$id, $token] = $this->createBoard();
         $commentId = $this->commentRepository->create($id, 'good', 'Text');
 
@@ -434,6 +438,7 @@ class RetroBoardControllerTest extends TestCase
     {
         AuthSession::login(3, 'chief@test.be', 'chief');
         $this->boardService->method('isUnitChief')->willReturn(true);
+        $this->boardService->method('isUnitChiefAcrossYears')->willReturn(true);
         [$id, $token] = $this->createBoard();
         $commentId = $this->commentRepository->create($id, 'good', 'Text');
 

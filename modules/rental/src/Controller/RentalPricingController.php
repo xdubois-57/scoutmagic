@@ -8,7 +8,9 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Controller;
 
-use Core\Config\ScoutYearService;
+use Core\ScoutYear\ScoutYearResolver;
+use Core\ScoutYear\ScoutYearSession;
+use Core\Security\Role;
 use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
@@ -55,7 +57,7 @@ class RentalPricingController extends AbstractController
         private RentalAvailabilityService $availabilityService,
         private RentalAuthorizationService $authorizationService,
         private RentalAssetRepository $assetRepository,
-        private ScoutYearService $scoutYearService,
+        private ScoutYearResolver $scoutYearResolver,
         /**
          * Optional (§6.19): null on an installation without the Finance
          * module, where the payments block explains that instead of
@@ -357,9 +359,17 @@ class RentalPricingController extends AbstractController
             return null;
         }
 
-        return $this->authorizationService->canManageAsset(
+        // The years an access decision may consider, not the date-computed
+        // one alone — see Core\ScoutYear\ScoutYearResolver::
+        // getAccessYearIds(). Staff d'U manage every asset implicitly, and
+        // on the calendar year alone nobody is Staff d'U between the 1st of
+        // September and the import of the new roster.
+        return $this->authorizationService->canManageAssetAcrossYears(
             AuthSession::getEmail(),
-            (int) $this->scoutYearService->getCurrentYear()['id'],
+            $this->scoutYearResolver->getAccessYearIds(
+                ScoutYearSession::getPreviewId(),
+                Role::fromString(AuthSession::getRole())
+            ),
             $asset
         ) ? $asset : null;
     }

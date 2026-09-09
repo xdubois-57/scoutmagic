@@ -156,6 +156,72 @@ class RoleResolver
     }
 
     /**
+     * The three questions above, asked of SEVERAL years at once and
+     * answered with the most generous result — which is what every access
+     * decision should ask during the scout-year transition.
+     *
+     * The years come from Core\ScoutYear\ScoutYearResolver::
+     * getAccessYearIds(), whose docblock carries the whole reasoning: the
+     * effective year, plus the date-computed one while the two are one
+     * year apart, and never further. Between the 1st of September and the
+     * Desk import of the new roster the two disagree about every
+     * membership on the site, so a role resolved from one of them alone
+     * demotes people who have gone nowhere.
+     *
+     * Each delegates per year rather than widening the SQL, so the rules
+     * the single-year versions encode — the unsubscribed Desk address, the
+     * deactivated account refused before the super-admin shortcut, the
+     * secondary-address union — hold identically here and cannot drift
+     * from them.
+     *
+     * @param list<int> $scoutYearIds
+     */
+    public function resolveAcrossYears(string $email, array $scoutYearIds): string
+    {
+        $best = Role::PUBLIC;
+        foreach ($scoutYearIds as $scoutYearId) {
+            $role = Role::fromString($this->resolve($email, $scoutYearId));
+            if ($role->level() > $best->level()) {
+                $best = $role;
+            }
+        }
+
+        // No years at all is not a caller this can serve, and silently
+        // answering PUBLIC would be a demotion nothing asked for.
+        return $best === Role::PUBLIC ? Role::IDENTIFIED->value : $best->value;
+    }
+
+    /**
+     * @param list<int> $scoutYearIds
+     */
+    public function isEmailAuthorizedToLoginAcrossYears(string $email, array $scoutYearIds): bool
+    {
+        foreach ($scoutYearIds as $scoutYearId) {
+            if ($this->isEmailAuthorizedToLogin($email, $scoutYearId)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param list<int> $scoutYearIds
+     * @return int[]
+     */
+    public function getLinkedMemberYearsAcrossYears(string $email, array $scoutYearIds): array
+    {
+        $ids = [];
+        foreach ($scoutYearIds as $scoutYearId) {
+            foreach ($this->getLinkedMemberYears($email, $scoutYearId) as $id) {
+                $ids[$id] = $id;
+            }
+        }
+
+        return array_values($ids);
+    }
+
+    /**
      * The Desk-imported match (member_years.email_blind_index, as
      * always — minus any member whose Desk address was itself
      * unsubscribed) unioned with every member reachable only through a

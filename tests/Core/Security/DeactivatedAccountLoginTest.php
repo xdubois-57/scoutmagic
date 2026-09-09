@@ -78,6 +78,12 @@ class DeactivatedAccountLoginTest extends TestCase
             'start_date' => '2025-09-01',
             'end_date' => '2026-08-31',
         ]);
+        // The login gate asks for the YEARS an access decision may consider
+        // (Core\ScoutYear\ScoutYearResolver::getAccessYearIds()), not the
+        // public year alone. One year here: this fixture has no second one,
+        // and the transition allowance is exercised by that resolver's own
+        // tests rather than restated in every login scenario.
+        $this->scoutYearResolver->method('getAccessYearIds')->willReturn([$this->scoutYearId]);
 
         $this->csrfToken = CsrfGuard::generateToken();
     }

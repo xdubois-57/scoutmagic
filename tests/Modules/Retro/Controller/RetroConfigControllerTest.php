@@ -57,9 +57,11 @@ class RetroConfigControllerTest extends TestCase
         // Core\Member\MemberServiceTest.
         $this->memberService = $this->createMock(MemberService::class);
         $this->memberService->method('isUnitChief')->willReturn(true);
+        $this->memberService->method('isUnitChiefAcrossYears')->willReturn(true);
         $this->scoutYearService = $this->createMock(\Core\ScoutYear\ScoutYearResolver::class);
         $this->scoutYearService->method('getEffectiveYear')
             ->willReturn(new \Core\ScoutYear\EffectiveScoutYear(1, '2025-2026', null));
+        $this->scoutYearService->method('getAccessYearIds')->willReturn([1]);
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 4) . '/modules/retro/views';
@@ -125,6 +127,7 @@ class RetroConfigControllerTest extends TestCase
     {
         $memberService = $this->createMock(MemberService::class);
         $memberService->method('isUnitChief')->willReturn(false);
+        $memberService->method('isUnitChiefAcrossYears')->willReturn(false);
         $controller = new RetroConfigController(
             $this->twig, $this->settingService, new JournalService(new JournalRepository($this->pdo)),
             $memberService, $this->scoutYearService
@@ -139,6 +142,7 @@ class RetroConfigControllerTest extends TestCase
     {
         $memberService = $this->createMock(MemberService::class);
         $memberService->method('isUnitChief')->willReturn(false);
+        $memberService->method('isUnitChiefAcrossYears')->willReturn(false);
         $controller = new RetroConfigController(
             $this->twig, $this->settingService, new JournalService(new JournalRepository($this->pdo)),
             $memberService, $this->scoutYearService

@@ -50,6 +50,16 @@ class RoleResolverTest extends TestCase
 
     private function createMemberWithFunction(string $email, string $functionCode, string $role, bool $confirmed): void
     {
+        $this->createMemberWithFunctionInYear($email, $functionCode, $role, $confirmed, $this->scoutYearId);
+    }
+
+    private function createMemberWithFunctionInYear(
+        string $email,
+        string $functionCode,
+        string $role,
+        bool $confirmed,
+        int $scoutYearId
+    ): void {
         $normalizedEmail = strtolower($email);
         $blindIndex = $this->encryption->blindIndex($normalizedEmail, 'email');
 
@@ -72,7 +82,7 @@ class RoleResolverTest extends TestCase
              VALUES (?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
-            $memberId, $this->scoutYearId,
+            $memberId, $scoutYearId,
             $this->encryption->encrypt('Test', 'member_years.first_name'),
             $this->encryption->encrypt('User', 'member_years.last_name'),
             $this->encryption->encrypt($normalizedEmail, 'member_years.email'),
@@ -324,5 +334,80 @@ class RoleResolverTest extends TestCase
         $resolver = $this->resolverWithSecondaryEmailSupport();
 
         $this->assertFalse($resolver->isEmailAuthorizedToLogin('unauthorized-secondary@test.com', $this->scoutYearId));
+    }
+
+    // ---------------------------------------------------------------
+    // The transition allowance: the same three questions asked of both
+    // years at once. Which years those are is Core\ScoutYear\
+    // ScoutYearResolver::getAccessYearIds()' business and is tested there;
+    // what these pin is that asking several returns the most generous
+    // answer rather than the last one, and that one year still behaves
+    // exactly as it always did.
+    // ---------------------------------------------------------------
+
+    private function createSecondYear(): int
+    {
+        $this->pdo->exec(
+            "INSERT INTO scout_years (label, start_date, end_date, is_current)"
+            . " VALUES ('2026-2027', '2026-09-01', '2027-08-31', 0)"
+        );
+
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    public function testResolveAcrossYearsTakesTheHighestRoleOfEitherYear(): void
+    {
+        $secondYear = $this->createSecondYear();
+        // A chief last year, nothing but a member in the new roster: the
+        // fortnight after the 1st of September, read from one year, demotes
+        // somebody who has gone nowhere.
+        $this->createMemberWithFunction('turnover@test.com', 'Chef', 'chief', true);
+        $this->createMemberWithFunctionInYear('turnover@test.com', 'Animé', 'identified', true, $secondYear);
+
+        $this->assertSame('identified', $this->resolver->resolve('turnover@test.com', $secondYear));
+        $this->assertSame('chief', $this->resolver->resolveAcrossYears('turnover@test.com', [$secondYear, $this->scoutYearId]));
+    }
+
+    public function testResolveAcrossYearsIsUnchangedForASingleYear(): void
+    {
+        $this->createMemberWithFunction('single@test.com', 'Chef', 'chief', true);
+
+        $this->assertSame('chief', $this->resolver->resolveAcrossYears('single@test.com', [$this->scoutYearId]));
+    }
+
+    public function testResolveAcrossYearsNeverDemotesBelowIdentified(): void
+    {
+        // No years at all is not a caller this can serve; answering PUBLIC
+        // would be a demotion nothing asked for.
+        $this->assertSame('identified', $this->resolver->resolveAcrossYears('nobody@test.com', []));
+    }
+
+    public function testLoginIsAuthorizedByMembershipInEitherYear(): void
+    {
+        $secondYear = $this->createSecondYear();
+        $this->createUserAccount('lastyear@test.com');
+        $this->createMemberWithFunction('lastyear@test.com', 'Animé', 'identified', true);
+
+        // Not in the new roster yet — and that is exactly who must not be
+        // locked out while the import is still pending.
+        $this->assertFalse($this->resolver->isEmailAuthorizedToLogin('lastyear@test.com', $secondYear));
+        $this->assertTrue(
+            $this->resolver->isEmailAuthorizedToLoginAcrossYears('lastyear@test.com', [$secondYear, $this->scoutYearId])
+        );
+    }
+
+    public function testLinkedMemberYearsAcrossYearsUnionsAndDeduplicates(): void
+    {
+        $secondYear = $this->createSecondYear();
+        $this->createMemberWithFunction('linked-both@test.com', 'Animé', 'identified', true);
+        $this->createMemberWithFunctionInYear('linked-both@test.com', 'Animé', 'identified', true, $secondYear);
+
+        $ids = $this->resolver->getLinkedMemberYearsAcrossYears(
+            'linked-both@test.com',
+            [$this->scoutYearId, $secondYear, $this->scoutYearId]
+        );
+
+        $this->assertCount(2, $ids);
+        $this->assertSame(array_values(array_unique($ids)), $ids);
     }
 }

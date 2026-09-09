@@ -259,7 +259,7 @@ class SecondaryEmailLoginIdentityTest extends TestCase
         $this->pdo->exec("UPDATE member_emails SET status = 'inactive'");
 
         $revalidator = new SessionRevalidator($this->userRepo, $this->roleResolver);
-        $this->assertFalse($revalidator->revalidate(fn(): int => $this->scoutYearId));
+        $this->assertFalse($revalidator->revalidate(fn(): array => [$this->scoutYearId]));
         $this->assertFalse(AuthSession::isAuthenticated());
 
         // And a fresh link never establishes a session again.

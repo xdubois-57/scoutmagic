@@ -108,6 +108,18 @@ class BoardService implements RetroEventLinkLookupInterface
     }
 
     /**
+     * The same question over the years an access decision may consider —
+     * Core\ScoutYear\ScoutYearResolver::getAccessYearIds(), which carries
+     * the reasoning for why there are two of them during the transition.
+     *
+     * @param list<int> $scoutYearIds
+     */
+    public function isUnitChiefAcrossYears(string $email, array $scoutYearIds): bool
+    {
+        return $this->memberService->isUnitChiefAcrossYears($email, $scoutYearIds);
+    }
+
+    /**
      * Events available for the picker: -10/+15 days around today, scoped
      * server-side by role/section (module spec — never just hidden
      * client-side). $sectionId is ignored (every section visible) when

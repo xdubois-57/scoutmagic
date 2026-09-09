@@ -1617,7 +1617,9 @@ $roleLabelMap = [
 // doesn't itself depend on the role we are about to validate.
 $sessionRevalidator = new \Core\Security\SessionRevalidator($userAccountRepo, $roleResolver);
 $sessionRevalidator->setJournalService($journalService);
-$sessionRevalidator->revalidate(static fn(): int => (int) $scoutYearResolver->getCurrentPublicYear()['id']);
+$sessionRevalidator->revalidate(
+    static fn(): array => $scoutYearResolver->getAccessYearIds(null, \Core\Security\Role::PUBLIC)
+);
 
 // Set Twig globals for auth state (after session is started)
 $currentRole = AuthSession::getRole();
@@ -3825,7 +3827,7 @@ if ($isEnabled('banner')) {
     $frontController->registerController(
         \Modules\Banner\Controller\BannerConfigController::class,
         new \Modules\Banner\Controller\BannerConfigController($twig, $bannerService, $journalService, $memberService,
-            $scoutYearService)
+            $scoutYearResolver)
     );
 
     // The home page's banner hook (§7.4) — resolved per request through
@@ -6656,7 +6658,7 @@ if ($isEnabled('rental')) {
             // `role_min: identified` on every one of this controller's
             // routes: the authorization service, not the route guard, is
             // what keeps one asset's tariff out of another manager's reach.
-            $rentalAuthorizationService, $rentalAssetRepository, $scoutYearService,
+            $rentalAuthorizationService, $rentalAssetRepository, $scoutYearResolver,
             $rentalPaymentService
         )
     );
@@ -6832,7 +6834,7 @@ if ($isEnabled('rental')) {
     $frontController->registerController(
         \Modules\Rental\Controller\RentalManagementController::class,
         new \Modules\Rental\Controller\RentalManagementController(
-            $twig, $rentalAuthorizationService, $scoutYearService, $rentalAssetRepository,
+            $twig, $rentalAuthorizationService, $scoutYearService, $scoutYearResolver, $rentalAssetRepository,
             $rentalBookingRepository, $auditService, $rentalCommentRepository,
             $rentalChangeRequestRepository, $rentalOperationsService, $rentalBlockService,
             $rentalAvailabilityService, $rentalPricingService, $memberService,

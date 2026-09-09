@@ -127,6 +127,40 @@ class SectionStaffAuthorizationService
     }
 
     /**
+     * The sections this account staffs in ANY of the given years, merged.
+     *
+     * The « animateur » half of the same transition rule Core\ScoutYear\
+     * ScoutYearResolver::getAccessYearIds() states in full: between the 1st
+     * of September and the Desk import, a section's staff exists in one of
+     * the two years and not the other, so asking one year alone empties the
+     * Espace animateurs of somebody who staffs a section either side of the
+     * turnover.
+     *
+     * Deduplicated by section id — a section staffed in both years is one
+     * section — and re-sorted afterwards, since merging two individually
+     * ordered lists does not give an ordered list and every section picker
+     * on the site shares this order (ARCHITECTURE.md §8.8).
+     *
+     * @param list<int> $scoutYearIds
+     * @return array<int, array<string, mixed>>
+     */
+    public function getStaffedSectionsAcrossYears(string $email, string $accountRole, array $scoutYearIds): array
+    {
+        $byId = [];
+        foreach ($scoutYearIds as $scoutYearId) {
+            foreach ($this->getStaffedSections($email, $accountRole, $scoutYearId) as $section) {
+                $byId[(int) $section['id']] = $section;
+            }
+        }
+
+        $sections = array_values($byId);
+        usort($sections, static fn(array $a, array $b): int
+            => [$a['branch_sort_order'], $a['desk_code']] <=> [$b['branch_sort_order'], $b['desk_code']]);
+
+        return $sections;
+    }
+
+    /**
      * Whether this account staffs the section a given ANIMÉ member-year
      * belongs to — the write-side boundary §8.33 describes, as one
      * predicate rather than a copy per caller.
@@ -160,6 +194,33 @@ class SectionStaffAuthorizationService
                 $this->sectionService->getSectionAnimeMemberYearIds((int) $section['id'], $scoutYearId),
                 true
             )) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The same predicate over several years.
+     *
+     * Delegates PER YEAR rather than pairing the merged section list with
+     * each year's animés in turn, and that is not an implementation
+     * detail: a member-year belongs to exactly one scout year, so crossing
+     * a section staffed in one year with the animés of the other would
+     * grant writes over animés this account staffs in neither. The union
+     * belongs on the answer, never inside the question.
+     *
+     * @param list<int> $scoutYearIds
+     */
+    public function staffsAnimeMemberYearAcrossYears(
+        string $email,
+        string $accountRole,
+        array $scoutYearIds,
+        int $memberYearId
+    ): bool {
+        foreach ($scoutYearIds as $scoutYearId) {
+            if ($this->staffsAnimeMemberYear($email, $accountRole, $scoutYearId, $memberYearId)) {
                 return true;
             }
         }

@@ -164,6 +164,11 @@ class RentalRbacTest extends TestCase
             $this->twig,
             $authorizationService,
             $scoutYearService,
+            new \Core\ScoutYear\ScoutYearResolver(
+                $scoutYearService,
+                new SettingService(new SettingRepository($this->pdo)),
+                new MemberYearRepository($this->pdo)
+            ),
             $this->assetRepository,
             $bookingRepository,
             new \Core\Audit\AuditService(new \Core\Audit\AuditRepository($this->pdo, $encryption)),
@@ -357,7 +362,11 @@ class RentalRbacTest extends TestCase
                     $this->availabilityServiceFor(),
                     $this->authorizationService,
                     $this->assetRepository,
-                    $this->scoutYearService
+                    new \Core\ScoutYear\ScoutYearResolver(
+                        $this->scoutYearService,
+                        new SettingService(new SettingRepository($this->pdo)),
+                        new MemberYearRepository($this->pdo)
+                    )
                 ),
             default => $this->publicController,
         };

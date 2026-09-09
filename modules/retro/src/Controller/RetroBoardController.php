@@ -91,13 +91,14 @@ class RetroBoardController extends AbstractController
             return false;
         }
 
-        // The effective year, never the date-computed one: see
-        // Controller\RetroConfigController for what the latter does to the
-        // real chef d'unité on the 1st of September.
-        return $this->boardService->isUnitChief($email, $this->scoutYearService->getEffectiveYear(
+        // Both years an access decision may consider, never one: see
+        // Core\ScoutYear\ScoutYearResolver::getAccessYearIds() for what
+        // either one alone does to the real chef d'unité around the 1st of
+        // September.
+        return $this->boardService->isUnitChiefAcrossYears($email, $this->scoutYearService->getAccessYearIds(
             ScoutYearSession::getPreviewId(),
             Role::fromString(AuthSession::getRole())
-        )->id);
+        ));
     }
 
     /**
