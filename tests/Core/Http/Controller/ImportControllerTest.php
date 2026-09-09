@@ -35,6 +35,10 @@ use Twig\Loader\FilesystemLoader;
 class ImportControllerTest extends TestCase
 {
     private ImportController $controller;
+    /** @var \Closure(\Core\Storage\DiskBudget|null): ImportController */
+    private \Closure $rebuildController;
+    private string $storagePath;
+    private string $installPath;
     private \PDO $pdo;
     private EncryptionService $encryption;
 
@@ -113,8 +117,14 @@ class ImportControllerTest extends TestCase
             return ($member['totem'] ?? null) ? $member['totem'] . ' (' . $full . ')' : $full;
         }));
 
-        $storagePath = sys_get_temp_dir() . '/scoutmagic_test_' . bin2hex(random_bytes(8));
+        // `storage/` nested inside an installation root of its own: a
+        // declared quota is charged for the parent tree, so a `storage/`
+        // sitting directly under the system temp directory would be
+        // measured against everything else on the machine.
+        $this->installPath = sys_get_temp_dir() . '/scoutmagic_test_' . bin2hex(random_bytes(8));
+        $storagePath = $this->installPath . '/storage';
         mkdir($storagePath, 0755, true);
+        $this->storagePath = $storagePath;
 
         $scoutYearService = new ScoutYearService($this->pdo);
         $functionRepo = new FunctionRepository($this->pdo);
@@ -151,30 +161,51 @@ class ImportControllerTest extends TestCase
         $fileRepository = new \Core\File\FileRepository($this->pdo);
         $rosterSnapshotRepo = new \Core\Import\RosterSnapshotRepository($this->pdo);
 
-        $this->controller = new ImportController(
+        // A closure rather than one instance, so a test can rebuild the
+        // controller with a disk budget attached — the refusal branch is
+        // otherwise structurally unreachable, the production wiring being
+        // the only place that passes one.
+        $this->rebuildController = function (?\Core\Storage\DiskBudget $diskBudget = null) use (
             $twig,
             $importService,
             $scoutYearResolver,
             $importJournalRepo,
             $functionRepo,
-            new \Core\Import\ImportRetentionService(
-                $this->pdo,
-                $importJournalRepo,
-                $rosterSnapshotRepo,
-                $fileRepository,
-                $scoutYearService,
-                $settingService,
-                new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo)),
-                $storagePath
-            ),
             $rosterSnapshotRepo,
             $fileRepository,
             $userAccountRepo,
-            new \Core\Import\ImportReportPresenter(
-                new \Core\Import\ImportReportRepository($this->pdo, $this->encryption)
-            ),
+            $scoutYearService,
+            $settingService,
             $storagePath
-        );
+        ): ImportController {
+            return new ImportController(
+                $twig,
+                $importService,
+                $scoutYearResolver,
+                $importJournalRepo,
+                $functionRepo,
+                new \Core\Import\ImportRetentionService(
+                    $this->pdo,
+                    $importJournalRepo,
+                    $rosterSnapshotRepo,
+                    $fileRepository,
+                    $scoutYearService,
+                    $settingService,
+                    new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo)),
+                    $storagePath
+                ),
+                $rosterSnapshotRepo,
+                $fileRepository,
+                $userAccountRepo,
+                new \Core\Import\ImportReportPresenter(
+                    new \Core\Import\ImportReportRepository($this->pdo, $this->encryption)
+                ),
+                $storagePath,
+                null,
+                $diskBudget
+            );
+        };
+        $this->controller = ($this->rebuildController)();
     }
 
     protected function tearDown(): void
@@ -273,5 +304,104 @@ class ImportControllerTest extends TestCase
             \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
             \Core\Http\FlashMessage::get()['message'] ?? null
         );
+    }
+
+    /**
+     * The deposited CSV is a real write against the quota, and the refusal
+     * has to reach the operator as the sentence that says what to do —
+     * never as a 500, and never as a half-written file under
+     * `storage/temp`.
+     *
+     * `InsufficientDiskSpaceException` is not caught by anything upstream
+     * of this route, so without this branch a full quota would take the
+     * import screen down rather than decline one upload.
+     */
+    public function testImportRefusesWhenTheDepositedCsvWouldNotFit(): void
+    {
+        $controller = ($this->rebuildController)($this->exhaustedBudget());
+
+        $_FILES['csv_file'] = [
+            'name' => 'effectifs.csv',
+            'type' => 'text/csv',
+            'tmp_name' => $this->storagePath . '/never-read.csv',
+            'error' => UPLOAD_ERR_OK,
+            'size' => 4096,
+        ];
+
+        try {
+            $response = $controller->import($this->postWithCsrf(), []);
+        } finally {
+            unset($_FILES['csv_file']);
+        }
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/admin/import', $response->getHeaders()['Location'] ?? null);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertStringContainsString('Espace disque insuffisant', (string) ($flash['message'] ?? ''));
+
+        // And nothing was deposited: the refusal runs before the write.
+        $this->assertSame([], glob($this->storagePath . '/temp/import_*.csv') ?: []);
+    }
+
+    /** The same upload goes through when the budget has room, so the test above pins the refusal and not the wiring. */
+    public function testImportWithRoomToSpareGetsPastTheDiskCheck(): void
+    {
+        $controller = ($this->rebuildController)($this->roomyBudget());
+
+        $_FILES['csv_file'] = [
+            'name' => 'effectifs.csv',
+            'type' => 'text/csv',
+            'tmp_name' => $this->storagePath . '/never-read.csv',
+            'error' => UPLOAD_ERR_OK,
+            'size' => 4096,
+        ];
+
+        try {
+            $response = $controller->import($this->postWithCsrf(), []);
+        } finally {
+            unset($_FILES['csv_file']);
+        }
+
+        $this->assertSame(302, $response->getStatusCode());
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertStringNotContainsString('Espace disque', (string) ($flash['message'] ?? ''));
+    }
+
+    private function postWithCsrf(): Request
+    {
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+        $yearId = (int) $this->pdo->query('SELECT id FROM scout_years LIMIT 1')->fetchColumn();
+
+        return new Request(
+            'POST',
+            '/admin/import',
+            [],
+            ['_csrf_token' => $token, 'scout_year_id' => (string) $yearId],
+            [],
+            []
+        );
+    }
+
+    /** A quota of one byte: whatever the upload weighs, it does not fit. */
+    private function exhaustedBudget(): \Core\Storage\DiskBudget
+    {
+        return $this->budgetWithQuota('1');
+    }
+
+    private function roomyBudget(): \Core\Storage\DiskBudget
+    {
+        return $this->budgetWithQuota((string) (100 * 1024 * 1024 * 1024));
+    }
+
+    private function budgetWithQuota(string $quota): \Core\Storage\DiskBudget
+    {
+        $settings = new SettingService(new SettingRepository($this->pdo));
+        $settings->register(\Core\Storage\DiskBudget::QUOTA_SETTING, '', 'text', 'Quota', 'Quota');
+        $settings->set(\Core\Storage\DiskBudget::QUOTA_SETTING, $quota);
+
+        return new \Core\Storage\DiskBudget($this->storagePath, $settings);
     }
 }
