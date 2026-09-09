@@ -399,6 +399,24 @@ gênant.**
     jamais un refus. Quota déclaré seulement : sans lui la lecture est
     vivante et se corrige d'elle-même.
 
+13. **Le constructeur de l'itérateur échappait à sa propre garde.**
+    `RecursiveDirectoryIterator` ouvre le dossier **dans son
+    constructeur** et y lève `UnexpectedValueException`. Construit
+    au-dessus du `try`, derrière un `is_dir()` qui avait déjà répondu, il
+    échappait au traitement documenté pour lui : sous `Measurement`, un
+    dossier illisible devenait un 500 non rattrapé sur la page
+    Maintenance — et sur toutes les surfaces d'envoi dès qu'un quota est
+    déclaré —, c'est-à-dire exactement ce qu'une mesure clémente existe
+    pour éviter. Le `is_dir()` préalable n'aurait jamais pu fermer cela :
+    entre le contrôle et l'ouverture il y a toujours une fenêtre. Il a donc
+    été **supprimé** plutôt que rétréci, et la construction est passée dans
+    la garde, avec une distinction que le code ne faisait pas :
+    **absent n'est pas illisible**. Un arbre qui n'est pas là ne pèse rien
+    pour les deux intentions — `storage/gallery` sur un site sans galerie
+    est le cas ordinaire ; seul un chemin qui *est* un dossier et n'a
+    quand même pas pu être ouvert est la panne de permissions qu'une
+    archive refuse de dépasser en silence.
+
 **Reporté.** La saisie du quota se fait sur la page générique
 Configuration > Réglages, pas sur la page Maintenance : le document de
 chantier borne l'interface de cette itération au seul encart de lecture.

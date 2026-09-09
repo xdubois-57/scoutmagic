@@ -189,6 +189,47 @@ class DirectorySizeTest extends TestCase
     }
 
     /**
+     * A directory the iterator cannot even OPEN must not escape the
+     * handling written for it.
+     *
+     * `RecursiveDirectoryIterator` opens the directory in its constructor
+     * and throws there. Built above the try/catch, behind an `is_dir()`
+     * that had already returned true, that throw escaped: under
+     * `Measurement` an unreadable root became an uncaught 500 on the
+     * Maintenance page — and on every upload surface once a quota was
+     * declared — which is exactly what a lenient measurement exists to
+     * prevent.
+     *
+     * The `is_dir()` pre-check could never have closed it: between the
+     * check and the open there is always a window, and a directory removed
+     * inside it lands in the constructor anyway. So the check is gone and
+     * the constructor is inside the guard, which is what these two assert:
+     * an absent tree weighs nothing under BOTH intents, rather than
+     * throwing under either.
+     */
+    public function testAnAbsentDirectoryWeighsNothingRatherThanThrowing(): void
+    {
+        $gone = $this->root . '/never-created';
+
+        $this->assertSame(0, DirectorySize::measure($gone, [], DirectoryWalk::Measurement));
+        $this->assertSame(0, DirectorySize::measure($gone, [], DirectoryWalk::Archive));
+    }
+
+    /** And it yields no files either, rather than throwing on the first step. */
+    public function testAnAbsentDirectoryYieldsNoFilesUnderEitherIntent(): void
+    {
+        $gone = $this->root . '/never-created';
+
+        foreach ([DirectoryWalk::Measurement, DirectoryWalk::Archive] as $intent) {
+            $this->assertSame(
+                [],
+                iterator_to_array(DirectorySize::files($gone, [], $intent), false),
+                $intent->name . ' should yield nothing for a directory that is not there.'
+            );
+        }
+    }
+
+    /**
      * An archive that skips what it cannot read is worse than one that
      * fails: only the failure is visible before the restore. A
      * measurement, feeding a warning and a refusal-to-write, is the

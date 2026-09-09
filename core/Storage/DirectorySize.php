@@ -39,10 +39,6 @@ final class DirectorySize
         array $excludedPrefixes = [],
         DirectoryWalk $intent = DirectoryWalk::Measurement
     ): int {
-        if (!is_dir($directory)) {
-            return 0;
-        }
-
         $total = 0;
         foreach (self::files($directory, $excludedPrefixes, $intent) as $file) {
             $total += max(0, (int) $file->getSize());
@@ -60,17 +56,15 @@ final class DirectorySize
      * @param string[] $excludedPrefixes
      * @return iterable<\SplFileInfo>
      * @throws \UnexpectedValueException on an unreadable directory, and only
-     *         under {@see DirectoryWalk::Archive} — a measurement swallows it
+     *         under {@see DirectoryWalk::Archive} — a measurement swallows
+     *         it. A directory that is simply ABSENT is neither: it yields
+     *         nothing, for both intents.
      */
     public static function files(
         string $directory,
         array $excludedPrefixes = [],
         DirectoryWalk $intent = DirectoryWalk::Measurement
     ): iterable {
-        if (!is_dir($directory)) {
-            return;
-        }
-
         $followLinks = $intent->followsLinks();
 
         // FOLLOW_SYMLINKS is what makes a symlinked DIRECTORY reachable at
@@ -86,7 +80,35 @@ final class DirectorySize
             $flags |= \FilesystemIterator::FOLLOW_SYMLINKS;
         }
 
-        $directoryIterator = new \RecursiveDirectoryIterator($directory, $flags);
+        // Constructed inside the guard, and there is no `is_dir()` ahead of
+        // it any more, on purpose.
+        //
+        // `RecursiveDirectoryIterator` opens the directory in its
+        // CONSTRUCTOR and throws `UnexpectedValueException` when it
+        // cannot. Built above the try/catch — behind an `is_dir()` that
+        // had already returned — it escaped the very handling documented
+        // for it: under `Measurement` an unreadable root became an
+        // uncaught 500 on the Maintenance page, and on every upload
+        // surface once a quota was declared, which is precisely what a
+        // lenient measurement exists to prevent. A pre-check could not
+        // close that: between `is_dir()` and the open there is always a
+        // window, and a directory removed inside it lands here anyway.
+        //
+        // **Absent is not unreadable.** A tree that is simply not there
+        // weighs nothing and contributes nothing, for either intent —
+        // `storage/gallery` on a site with no gallery is the ordinary
+        // case. Only a path that IS a directory and still could not be
+        // opened is the permission failure an archive must refuse to walk
+        // past rather than silently omit.
+        try {
+            $directoryIterator = new \RecursiveDirectoryIterator($directory, $flags);
+        } catch (\UnexpectedValueException $e) {
+            if (is_dir($directory) && $intent->failsOnUnreadable()) {
+                throw $e;
+            }
+
+            return;
+        }
 
         // Following links means cycles are now possible — `ln -s .. up` is
         // one, and two directories pointing at each other are another —
