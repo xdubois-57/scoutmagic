@@ -98,6 +98,29 @@ class JournalRepository
         return (int) $stmt->fetchColumn();
     }
 
+    /**
+     * How many times one specific event happened since a moment.
+     *
+     * `search()`'s filters match a description with LIKE, which is the
+     * wrong instrument for this: descriptions are French sentences written
+     * for a reader and they change without anybody thinking of it as a
+     * behaviour change. `event_type` is the stable identifier, and an
+     * alert that counts occurrences has to key off the stable one.
+     *
+     * Read by `Core\Alert\Check\MailDeliveryCheck`.
+     *
+     * @param string $since 'Y-m-d H:i:s'
+     */
+    public function countEventsSince(string $category, string $eventType, string $since): int
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM event_log WHERE category = ? AND event_type = ? AND logged_at >= ?'
+        );
+        $stmt->execute([$category, $eventType, $since]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
     public function deleteOlderThan(int $days): int
     {
         $cutoff = (new \DateTimeImmutable("-{$days} days"))->format('Y-m-d H:i:s');

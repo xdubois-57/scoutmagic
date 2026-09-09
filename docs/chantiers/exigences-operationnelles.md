@@ -471,3 +471,144 @@ chantier borne l'interface de cette itération au seul encart de lecture.
 Un champ de saisie à côté de l'encart serait plus direct ; il n'est pas
 dans le périmètre et n'a rien de bloquant, l'encart nommant le réglage à
 remplir.
+
+---
+
+## IT-03 — Les alertes opérationnelles
+
+**Livré.** `Core\Alert` : la table `operational_alerts` et son dépôt,
+`OperationalAlertService` (la machine à états D1), `AlertReading`,
+`OperationalCheck`, `AlertThresholds` (les nombres d'IT-01 en code),
+`AlertSurfaces`, six contrôles (`DiskUsageCheck`, `BackupAgeCheck`,
+`MailDeliveryCheck`, `DevelopmentModeCheck`, `CronSilenceCheck`,
+`HttpsCheck`), `OperationalAttentionProvider`,
+`Task\RunOperationalChecksHandler` et `RequestBoundChecks`. Deux types de
+notification, le sujet d'aide `alertes-operationnelles`,
+`ARCHITECTURE.md` §8.99, et 38 tests.
+
+**Corrige #286** : `backup_auto_frequency` passe de `monthly` à `weekly`.
+C'est la PR qui allume l'alerte, donc la seule qui pouvait le faire sans
+livrer une alerte fausse.
+
+**Une interaction relevée au rebasage, à consigner parce qu'elle ne se
+voyait dans aucune des deux itérations prises seule.** `DiskUsageCheck`
+délègue à `StorageUsage::usedPercent()` plutôt que de calculer quoi que ce
+soit, et IT-02 a changé — pendant la revue de cette itération — ce que ce
+pourcentage rapporte : le quota déclaré est désormais facturé sur
+l'installation entière, pas sur `storage/` seul. Le contrôle a hérité de la
+correction sans une ligne de plus, ce qui est le dessin qui marche. En
+revanche `ChecksTest` posait son `storage/` directement sous le dossier
+temporaire du système, si bien que « 900 octets sur un quota de 1000 »
+était mesuré contre tout ce que la machine garde dans `/tmp` : 100 % au
+lieu de 90 %. Le test imbrique maintenant son `storage/` dans une racine
+d'installation à lui, comme les tests d'IT-02 l'ont fait au même moment.
+Ni l'itération ni l'autre n'était fautive ; c'est leur rencontre qui l'a
+été, et seule la suite complète rejouée sur l'état fusionné pouvait le
+dire.
+
+**Décisions autonomes.**
+
+1. **Deux types de notification, pas un.** Le document de chantier
+   demande de traiter « explicitement » le corollaire : l'alerte « l'envoi
+   d'e-mails échoue » ne peut pas partir par e-mail.
+   `core.operational_alert_mail` déclare son canal e-mail à `'off'` — une
+   valeur verrouillée qu'aucune préférence ne peut rallumer — là où
+   `core.operational_alert` l'a en `default_on`. Un seul type avec un
+   filtrage à l'appel aurait été invisible sur la page des préférences ;
+   deux types y affichent une ligne sans case e-mail, ce qui est
+   exactement la vérité.
+
+   Le vrai coût de l'alternative n'est pas l'inutilité : l'envoi échoue,
+   cet échec est journalisé en `mail_send_failed`, et l'alerte gonflerait
+   donc le compteur même qu'elle lit.
+
+2. **Un second contrôle hors tâche planifiée.** Le document n'en nomme
+   qu'un — le cron. `HttpsCheck` est dans le même cas pour une raison de
+   même nature : un schéma appartient à une requête, et une passe CLI n'en
+   a pas. Le lire depuis le réglage `base_url` a été écarté : c'est ce
+   qu'un administrateur a tapé un jour, pas ce qu'un visiteur reçoit, et
+   un certificat expiré cette nuit ne modifie aucun réglage.
+
+   `RequestBoundChecks` limite les deux à une évaluation par quart
+   d'heure, décidée par le mtime d'un fichier témoin : une requête
+   ordinaire coûte un `stat()` et aucune écriture en base. Placés après
+   `send()` et `session_write_close()`, comme la Fréquentation (§8.93) et
+   pour la raison qui avait fait retirer le poor man's cron de cet
+   endroit.
+
+3. **Le plancher « jamais sauvegardé » déclenche, le plancher « cron
+   jamais vu » non.** Ce n'est pas une incohérence. N'avoir jamais
+   sauvegardé est la pire lecture possible et la plus utile à dire ; un
+   cron jamais vu est une installation en cours de configuration, où
+   l'assistant refuse déjà de terminer sans crontab et le dit bien mieux
+   qu'une notification — et où il n'existe encore aucun super-admin à
+   prévenir.
+
+4. **Une lecture indécise laisse l'alerte où elle est.**
+   `AlertReading::inconclusive()` n'est ni au-dessus du seuil ni
+   en dessous du réarmement, donc une alerte déclenchée le reste. Traiter
+   « je ne sais pas » comme « tout va bien » effacerait une alerte
+   précisément sur les installations les moins capables de s'en rendre
+   compte.
+
+5. **Un contrôle qui lève une exception est journalisé et sauté**, comme
+   `AttentionService` le fait déjà de ses fournisseurs. Un site dont le
+   contrôle disque est cassé doit quand même apprendre que son cron s'est
+   arrêté.
+
+6. **`alert_key` est une clé primaire naturelle**, la première du schéma —
+   les 49 autres tables portent un identifiant de substitution. Il y a une
+   ligne par contrôle pour la vie de l'installation et la clé ne dit rien
+   de moins que ce qu'un entier dirait de plus. Vérifié sur MariaDB 10.11
+   avant d'être écrit, parce que `SchemaComparator` ignore purement et
+   simplement les changements de clé primaire : ce choix n'est pas
+   révisable sur place.
+
+7. **`AlertSurfaces` sépare les libellés des contrôles.** Le fournisseur
+   de points d'attention rend des *lignes*, pas des contrôles : construire
+   les six contrôles — donc un `DiskBudget` et un `CronHealth` — pour leur
+   demander leur nom à chaque affichage d'une page qui ne veut
+   qu'« Espace disque » serait absurde. Un test épingle que tout contrôle
+   livré figure dans la carte.
+
+**Divergences constatées entre le document de chantier et le dépôt.**
+
+1. **`UserAccountRepository::findAllSuperAdmins()` n'a pas été ajouté.**
+   `NotificationService::recipientsForType()` répond déjà exactement à
+   cette question, en résolvant l'audience depuis le `role_min` du type et
+   en revérifiant le rôle **courant** de chaque destinataire — c'est-à-dire
+   la propriété même sur laquelle le document de chantier s'appuie. Une
+   méthode de dépôt dont l'unique appelant pouvait utiliser l'existante
+   aurait été une seconde manière de demander « qui sont les
+   super-admins », à garder en phase avec le résolveur de rôles.
+
+   (`findSuperAdmins()` existe par ailleurs déjà, pour la page Comptes
+   superadmin.)
+
+2. **Le réglage `dev_update_enabled` n'existe pas.** Le mode développement
+   est `auto_update_enabled` activé **et** `auto_update_level` à `'dev'` —
+   une quatrième valeur du groupe de boutons radio, sous le même
+   interrupteur général, plutôt qu'un basculeur de zone dangereuse propre
+   (ARCHITECTURE.md §8.17). `DevelopmentModeCheck` lit donc les deux, et
+   un test épingle que le niveau seul, sans l'interrupteur, n'est pas le
+   mode développement : il n'installe rien.
+
+3. **Le journal n'avait aucun moyen de compter un type d'évènement.**
+   `JournalRepository::search()` filtre la description par `LIKE`, ce qui
+   est le mauvais instrument : une description est une phrase française
+   écrite pour un lecteur, et elle change sans que personne y voie un
+   changement de comportement. `countEventsSince()` compte sur
+   `event_type`, l'identifiant stable. De même,
+   `BackupRepository::lastSuccessfulCompletedAt()` est nouveau — rien ne
+   savait répondre « quand la dernière sauvegarde a-t-elle abouti ».
+
+4. **Une entrée d'allowlist de `HelpLabelDriftTest` a cessé d'être
+   nécessaire.** « envoi d'e-mails » y figurait pour le sujet
+   `assistant-d-aide` parce que la citation ne correspondait à aucun
+   libellé de l'interface ; elle en a un maintenant. Le cliquet de ce test
+   refuse une entrée qui n'excuse plus rien, donc elle a été retirée — ce
+   qui est le mécanisme fonctionnant comme prévu.
+
+**Reporté.** Aucune interface nouvelle sur la page Maintenance : les
+alertes s'affichent dans la cloche et sur la page Points d'attention, qui
+existent déjà. Le découpage de la section Sauvegardes reste à IT-04.

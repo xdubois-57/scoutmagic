@@ -189,10 +189,11 @@ class SqlParserTest extends TestCase
         $schemaPath = dirname(__DIR__, 3) . '/schema/core.sql';
         $tables = $this->parser->parseFile($schemaPath);
 
-        $this->assertCount(49, $tables);
+        $this->assertCount(50, $tables);
 
         $tableNames = array_map(fn($t) => $t->name, $tables);
         $this->assertContains('sent_email_claims', $tableNames);
+        $this->assertContains('operational_alerts', $tableNames);
         $this->assertContains('scout_years', $tableNames);
         $this->assertContains('members', $tableNames);
         $this->assertContains('user_accounts', $tableNames);

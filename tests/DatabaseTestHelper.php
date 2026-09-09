@@ -593,6 +593,14 @@ class DatabaseTestHelper
             completed_at TEXT
         )');
 
+        $pdo->exec('CREATE TABLE operational_alerts (
+            alert_key TEXT PRIMARY KEY,
+            state TEXT NOT NULL DEFAULT \'armed\',
+            triggered_at TEXT,
+            last_notified_at TEXT,
+            last_value TEXT
+        )');
+
         $pdo->exec('CREATE TABLE update_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             version_from TEXT NOT NULL,

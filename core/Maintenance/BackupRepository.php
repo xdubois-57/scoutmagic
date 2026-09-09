@@ -65,6 +65,29 @@ class BackupRepository
         return array_slice($all, $keep);
     }
 
+    /**
+     * When the last SUCCESSFUL backup completed, or null when there has
+     * never been one.
+     *
+     * `completed`, not merely "the most recent row": a run that failed is
+     * exactly the situation this answer exists to reveal, so counting it
+     * would make the reading say the opposite of the truth. And
+     * `completed_at` rather than `created_at`, because a backup protects
+     * the data as it stood when it finished.
+     *
+     * Read by `Core\Alert\Check\BackupAgeCheck`.
+     */
+    public function lastSuccessfulCompletedAt(): ?string
+    {
+        $stmt = $this->pdo->query(
+            "SELECT completed_at FROM backups WHERE status = 'completed' AND completed_at IS NOT NULL "
+            . 'ORDER BY completed_at DESC LIMIT 1'
+        );
+        $value = $stmt !== false ? $stmt->fetchColumn() : false;
+
+        return is_string($value) && $value !== '' ? $value : null;
+    }
+
     public function markInProgress(int $id): void
     {
         $stmt = $this->pdo->prepare("UPDATE backups SET status = 'in_progress' WHERE id = ?");

@@ -40,6 +40,7 @@ final class CoreTaskHandlers
             'restore_backup' => \Core\Maintenance\Task\RestoreBackupHandler::class,
             'auto_backup' => \Core\Maintenance\Task\AutoBackupHandler::class,
             'check_stable_update' => \Core\Maintenance\Task\CheckStableUpdateHandler::class,
+            'operational_checks' => \Core\Alert\Task\RunOperationalChecksHandler::class,
             'compress_section_document' => \Core\Member\Task\CompressSectionDocumentHandler::class,
             'send_notifications' => \Core\Notification\Task\SendNotificationsHandler::class,
             'send_notification_emails' => \Core\Notification\Task\SendNotificationEmailsHandler::class,
