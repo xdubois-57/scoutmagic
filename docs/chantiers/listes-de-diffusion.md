@@ -739,3 +739,17 @@ l'est pas : le panneau réécrit donc le compte de la page au passage, sinon
 « Annuler » laisserait le résumé annoncer un nombre que la base ne porte
 plus.
 
+**Corrigé après revue.** Un panneau partagé rend possible une course
+qu'un panneau par ligne interdisait structurellement : une liste de trois
+cents adresses répond lentement — le déchiffrement est le coût — donc la
+fermer puis en ouvrir une courte peut faire arriver la première réponse
+en dernier. Elle aurait affiché les adresses de l'autre liste, écrit ses
+compteurs sur une ligne de résumé qui n'est pas la sienne, et laissé la
+corbeille supprimer une ligne de la liste que personne ne regarde. Chaque
+suite porte donc la génération que `reset()` incrémente et abandonne sa
+réponse quand elle a changé — y compris la confirmation, répondue par un
+humain : un « oui » à propos d'une ligne d'une autre liste n'est pas un
+« oui » à propos de celle-ci. Même séquencement que le compteur en direct
+des critères, et pour la même raison : ce qu'une requête répond n'est vrai
+que pour l'état qui l'a posée.
+

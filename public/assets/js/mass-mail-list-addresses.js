@@ -117,6 +117,33 @@
 
     /** @type {string|null} the list the panel currently stands for */
     var listId = null;
+
+    /**
+     * **One panel behind a dialog that can be closed and reopened on
+     * another list, so every answer has to prove it is still wanted
+     * before it writes anything.**
+     *
+     * With one panel per row this was structurally impossible: each row
+     * had its own closure. Shared, it is a real race — open a list with
+     * three hundred addresses (a slow, decryption-heavy response), close
+     * it, open a list with two, and the first answer lands last. It would
+     * then render the wrong list's addresses, mark the panel loaded, and
+     * write the wrong counts onto the summary line of a list they do not
+     * belong to; the trash button would delete a row of the list nobody
+     * is looking at.
+     *
+     * `reset()` bumps this, so a continuation whose token has moved on
+     * drops its answer instead of applying it. Same sequencing as the
+     * live counter in mass-mail-lists.js, and for the same reason: what
+     * a request answers is only true for the state that asked it.
+     */
+    var generation = 0;
+
+    /** @param {number} token @returns {boolean} */
+    function stale(token) {
+        return token !== generation;
+    }
+
     /** @type {{id: number, name: string|null, email: string, unsubscribed_at: string|null}[]} */
     var addresses = [];
     var loaded = false;
@@ -262,7 +289,14 @@
         if (loaded || listId === null) {
             return;
         }
+        var token = generation;
         var res = await api.getJson('/admin/listes-de-diffusion/lists/' + listId + '/addresses');
+        // Before the error line as well as before the rows: a refusal
+        // for a list nobody is looking at any more must not appear over
+        // the one that is.
+        if (stale(token)) {
+            return;
+        }
         if (!isSuccess(res) || !Array.isArray(res.data.addresses)) {
             showError(errorMessage(res));
             return;
@@ -275,19 +309,27 @@
 
     /** @param {{id: number, name: string|null, email: string}} address */
     async function removeAddress(address) {
+        var asked = generation;
         var confirmed = await window.ScoutMagicConfirm.ask({
             message: 'Retirer ' + address.email + ' de cette liste ?',
             confirmLabel: 'Retirer'
         });
-        if (!confirmed) {
+        // The question is answered by a person, so the dialog may well
+        // have moved on while it was open. A « oui » about a row of
+        // another list is not a « oui » about this one.
+        if (!confirmed || stale(asked)) {
             return;
         }
 
+        var token = generation;
         var res = await api.postJson(
             '/admin/listes-de-diffusion/addresses/' + address.id,
             {},
             { method: 'DELETE' }
         );
+        if (stale(token)) {
+            return;
+        }
         if (!isSuccess(res) || !res.data.counts) {
             showError(errorMessage(res));
             return;
@@ -374,12 +416,16 @@
         formData.append('file', file);
         formData.append('_csrf_token', api.csrfToken());
 
+        var token = generation;
         var response = await fetch(
             '/admin/listes-de-diffusion/lists/' + listId + '/addresses/import',
             { method: 'POST', body: formData }
         );
         var data = await response.json().catch(function () { return null; });
 
+        if (stale(token)) {
+            return;
+        }
         if (!data || !data.success) {
             hideImportPreview();
             showError((data && data.errors ? data.errors.join(' ') : null)
@@ -404,10 +450,14 @@
             return;
         }
 
+        var token = generation;
         var res = await api.postJson(
             '/admin/listes-de-diffusion/lists/' + listId + '/addresses/import/confirm',
             { addresses: pendingImport }
         );
+        if (stale(token)) {
+            return;
+        }
         if (!isSuccess(res) || !res.data.counts) {
             showError(errorMessage(res));
             return;
@@ -442,10 +492,14 @@
         if (listId === null) {
             return;
         }
+        var token = generation;
         var res = await api.postJson('/admin/listes-de-diffusion/lists/' + listId + '/addresses', {
             name: newNameEl.value,
             email: newEmailEl.value
         });
+        if (stale(token)) {
+            return;
+        }
         // A success envelope without the row it claims to have created is
         // not a success — reading it as one crashed the panel on the next
         // line rather than saying anything.
@@ -465,8 +519,12 @@
         render();
     });
 
-    /** Everything the panel holds about one list, forgotten. */
+    /**
+     * Everything the panel holds about one list, forgotten — including
+     * whatever request is still in flight for it.
+     */
     function reset() {
+        generation++;
         addresses = [];
         loaded = false;
         shown = SLICE;

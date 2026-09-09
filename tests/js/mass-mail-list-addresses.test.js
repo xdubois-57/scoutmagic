@@ -146,6 +146,64 @@ describe('mass-mail-list-addresses.js', () => {
         });
 
         /**
+         * The race one shared panel makes possible and one panel per row
+         * did not: a list of three hundred addresses answers slowly (the
+         * decryption is the cost), so closing it and opening a short list
+         * can let the first answer land LAST. Applied, it would render the
+         * wrong list's rows, and its trash button would delete a row of
+         * the list nobody is looking at.
+         */
+        it('drops the answer of a list it has already moved on from', async () => {
+            /** @type {((value: any) => void)[]} */
+            const resolvers = [];
+            global.fetch = vi.fn(() => new Promise((resolve) => { resolvers.push(resolve); }));
+            await boot();
+
+            // The slow list, then the short one, before the first answers.
+            window.MassMailListAddresses.attach('7');
+            window.MassMailListAddresses.attach('8');
+
+            // The short list answers first, and is what the panel shows.
+            resolvers[1](await jsonResponse({
+                success: true,
+                addresses: [address(9, 'Paroisse', 'cure@paroisse.be')],
+            }));
+            await settle();
+            expect(rowTexts()).toEqual(['Paroisse — cure@paroisse.be']);
+
+            // The slow one answers afterwards, and must change nothing.
+            resolvers[0](await jsonResponse({
+                success: true,
+                addresses: [address(1, 'Commune', 'jeunesse@wavre.be')],
+            }));
+            await settle();
+
+            expect(rowTexts()).toEqual(['Paroisse — cure@paroisse.be']);
+            expect(panel().dataset.listId).toBe('8');
+        });
+
+        /**
+         * The same, for the refusal: an error about a list nobody is
+         * looking at any more must not appear over the one that is.
+         */
+        it('drops the refusal of a list it has already moved on from', async () => {
+            /** @type {((value: any) => void)[]} */
+            const resolvers = [];
+            global.fetch = vi.fn(() => new Promise((resolve) => { resolvers.push(resolve); }));
+            await boot();
+
+            window.MassMailListAddresses.attach('7');
+            window.MassMailListAddresses.attach('8');
+
+            resolvers[1](await jsonResponse({ success: true, addresses: [] }));
+            await settle();
+            resolvers[0](await htmlErrorResponse());
+            await settle();
+
+            expect(errorEl().classList.contains('d-none')).toBe(true);
+        });
+
+        /**
          * The same panel, a second list: what the first one held must not
          * survive into it, and the set has to be read again.
          */
