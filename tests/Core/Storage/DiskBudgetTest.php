@@ -206,6 +206,43 @@ class DiskBudgetTest extends TestCase
         $this->assertNull($budget->availableBytes());
     }
 
+    // ————— Une lecture épinglée par l'appelant —————
+
+    /**
+     * `ensureRoomAgainst()` judges against the reading it is handed and
+     * takes none of its own — which is the whole point for a caller whose
+     * write spans several requests and shrinks the live figure as it goes.
+     */
+    public function testARefusalCanBeJudgedAgainstAReadingTheCallerPinned(): void
+    {
+        // A budget with room to spare: a fresh reading would accept this.
+        $this->write('gallery/photo.jpg', 100);
+        $this->settings->set(DiskBudget::QUOTA_SETTING, (string) (100 * 1024 * 1024 * 1024));
+        $budget = $this->budget();
+
+        $this->expectException(InsufficientDiskSpaceException::class);
+        $budget->ensureRoomAgainst(1024, DiskBudget::SAFETY_MARGIN_BYTES);
+    }
+
+    public function testAPinnedReadingThatCoversTheEstimateAndTheMarginIsAccepted(): void
+    {
+        $budget = $this->budget();
+
+        $budget->ensureRoomAgainst(1024, DiskBudget::SAFETY_MARGIN_BYTES + 1024);
+
+        $this->addToAssertionCount(1);
+    }
+
+    /** A pinned null is still « nothing known », and still returns. */
+    public function testAPinnedNullDoesNotRefuseTheWrite(): void
+    {
+        $budget = $this->budget();
+
+        $budget->ensureRoomAgainst(PHP_INT_MAX >> 2, null);
+
+        $this->addToAssertionCount(1);
+    }
+
     // ————— Le cache de la mesure —————
 
     public function testTheMeasurementIsReusedWithinItsLifetime(): void

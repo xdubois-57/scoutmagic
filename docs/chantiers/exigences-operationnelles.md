@@ -297,6 +297,30 @@ la même ligne de base — et c'est la revue qui l'a vue avant nous.
    le dump réussir et l'archive manquer de place à mi-chemin » — et une
    mise à jour en a trois. Un seul contrôle, sommé.
 
+**Un sixième, relevé sur la correction du premier.** Le contrôle cumulé
+tenait sur une prémisse fausse : que la ligne de base était gelée pour
+toute la durée de l'envoi. Elle ne l'est pas. `availableBytes()` lit
+`disk_free_space()` **à chaque appel**, et sans quota déclaré — le
+défaut livré — c'est là toute sa réponse ; avec un quota, l'autre moitié
+re-parcourt `storage/` dès que la mesure mise en cache expire, ce qu'un
+envoi d'un demi-gigaoctet dépasse largement. Dans les deux cas la
+lecture a déjà le fichier `.part` déduit d'elle-même, donc lui opposer
+la taille cumulée facturait `$offset` **deux fois** : une fois parce
+qu'il avait déjà réduit la place libre, une fois parce qu'on l'ajoutait
+à la demande. Le refus tombait donc sur des envois qui tenaient, et
+précisément sur les hébergements presque pleins pour lesquels ce
+garde-fou existe.
+
+Corrigé en épinglant **une** lecture avant le premier fragment et en
+lui opposant le fichier assemblé (`DiskBudget::ensureRoomAgainst()`).
+L'épingle vit dans un fichier voisin du `.part`, parce que chaque
+fragment arrive dans une requête distincte et que rien d'autre ne
+survit entre elles. Sans épingle — envoi repris après une purge, dossier
+temporaire en lecture seule — on retombe sur le contrôle vivant du seul
+fragment en main : plus faible, jamais faux, et jamais un double
+comptage. Le test de non-régression a été vérifié dans les deux sens :
+il échoue sur l'ancien comportement, il passe sur le nouveau.
+
 **Reporté.** La saisie du quota se fait sur la page générique
 Configuration > Réglages, pas sur la page Maintenance : le document de
 chantier borne l'interface de cette itération au seul encart de lecture.

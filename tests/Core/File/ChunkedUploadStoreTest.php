@@ -166,12 +166,9 @@ class ChunkedUploadStoreTest extends TestCase
      * The per-chunk check has to hold the CUMULATIVE size against the
      * budget, not this chunk's.
      *
-     * `DiskBudget::measure()` serves a reading cached for fifteen minutes,
-     * and the first chunk is what populates it — so the baseline is frozen
-     * at the pre-upload usage for the whole upload. Checking one chunk at
-     * a time against that frozen figure passes the same small number over
-     * and over while a half-gigabyte archive lands past the quota, which
-     * is precisely the mid-write overshoot the guard exists to refuse.
+     * Checking one fragment at a time passes the same small number over and
+     * over while a half-gigabyte archive lands past the quota, which is
+     * precisely the mid-write overshoot the guard exists to refuse.
      */
     public function testTheQuotaIsCheckedAgainstTheAssembledSizeNotTheChunk(): void
     {
@@ -198,5 +195,128 @@ class ChunkedUploadStoreTest extends TestCase
         // though the chunk itself is a kilobyte.
         $this->expectException(UploadException::class);
         $store->appendChunk($uploadId, 'sess-quota', 400 * 1024 * 1024, $chunk, false, 500 * 1024 * 1024);
+    }
+
+    /**
+     * ...and against the headroom PINNED before the first fragment, never
+     * against a reading taken while the partial file is already on disk.
+     *
+     * This is the other half of the same guard, and it fails in the
+     * opposite direction. `DiskBudget::availableBytes()` reads
+     * `disk_free_space()` live on every call, and with a quota declared its
+     * other leg re-walks `storage/` as soon as the cached measurement
+     * expires — which a large upload outlives. Either way the reading
+     * already has the `.part` file subtracted from it, so charging the
+     * cumulative size against it charges the bytes already written twice:
+     * roughly double the room demanded, and an upload refused that fits.
+     *
+     * The quota here leaves 64 KiB of slack over the assembled megabyte. A
+     * pinned reading passes; charging the first fragment a second time
+     * would not.
+     */
+    public function testTheHeadroomIsPinnedBeforeTheFirstChunkRatherThanRemeasured(): void
+    {
+        $margin = \Core\Storage\DiskBudget::SAFETY_MARGIN_BYTES;
+        $chunkBytes = 512 * 1024;
+        $slack = 64 * 1024;
+
+        $pdo = \Tests\DatabaseTestHelper::createTestDatabase();
+        $settings = new \Core\Config\SettingService(new \Core\Config\SettingRepository($pdo));
+        $settings->register(\Core\Storage\DiskBudget::QUOTA_SETTING, '', 'text', 'Quota', 'Quota');
+
+        // Measured rather than assumed: the quota has to be expressed
+        // relative to whatever this temporary tree already weighs, or the
+        // 64 KiB of slack is the first thing to drift.
+        $before = \Core\Storage\DirectorySize::measure($this->storagePath);
+        $quota = $before + 2 * $chunkBytes + $margin + $slack;
+        $settings->set(\Core\Storage\DiskBudget::QUOTA_SETTING, (string) $quota);
+
+        // The volume's own free space is the other leg of the minimum, and
+        // a nearly-full runner would bind there instead and prove nothing.
+        $volumeFree = @disk_free_space($this->storagePath);
+        if (!is_float($volumeFree) || $volumeFree < $quota) {
+            $this->markTestSkipped('Volume libre insuffisant pour que le quota déclaré soit la contrainte.');
+        }
+
+        $store = new ChunkedUploadStore(
+            $this->storagePath,
+            new \Core\Storage\DiskBudget($this->storagePath, $settings)
+        );
+
+        $uploadId = bin2hex(random_bytes(16));
+        // Outside the measured tree, so the fragment's own bytes are not
+        // part of the figure the quota is set against.
+        $chunk = $this->chunkFile(str_repeat('x', $chunkBytes));
+
+        $store->appendChunk($uploadId, 'sess-pinned', 0, $chunk, false, 10 * 1024 * 1024);
+
+        // Expire the cached `storage/` measurement, so any code that went
+        // back to the budget here would see the 512 KiB already written and
+        // subtract them a second time. Nothing should: the reading pinned
+        // at offset 0 is the one that counts.
+        @unlink($this->storagePath . '/core/disk-usage.json');
+
+        $path = $store->appendChunk($uploadId, 'sess-pinned', $chunkBytes, $chunk, true, 10 * 1024 * 1024);
+
+        $this->assertNotNull($path);
+        $this->assertSame(2 * $chunkBytes, filesize($path));
+    }
+
+    /**
+     * With no pinned reading — a resumed upload whose sidecar was purged, a
+     * temp directory that refused to write it — the store falls back to the
+     * ordinary live check on the fragment in hand rather than refusing.
+     *
+     * Weaker than the pinned check and deliberately so: it can only
+     * under-charge, and an upload that would have gone through before this
+     * guard existed must not start failing because a sidecar went missing.
+     */
+    public function testAMissingPinnedReadingFallsBackToTheLivePerChunkCheck(): void
+    {
+        $pdo = \Tests\DatabaseTestHelper::createTestDatabase();
+        $settings = new \Core\Config\SettingService(new \Core\Config\SettingRepository($pdo));
+        $settings->register(\Core\Storage\DiskBudget::QUOTA_SETTING, '', 'text', 'Quota', 'Quota');
+        $settings->set(\Core\Storage\DiskBudget::QUOTA_SETTING, '');
+
+        $store = new ChunkedUploadStore(
+            $this->storagePath,
+            new \Core\Storage\DiskBudget($this->storagePath, $settings)
+        );
+
+        $uploadId = bin2hex(random_bytes(16));
+        $chunk = $this->chunkFile('hello ');
+        $store->appendChunk($uploadId, 'sess-nopin', 0, $chunk, false, 1024);
+
+        foreach (glob($this->storagePath . '/temp/chunked_uploads/*.budget') ?: [] as $sidecar) {
+            unlink($sidecar);
+        }
+
+        $path = $store->appendChunk($uploadId, 'sess-nopin', 6, $this->chunkFile('world'), true, 1024);
+
+        $this->assertNotNull($path);
+        $this->assertSame('hello world', file_get_contents($path));
+    }
+
+    /** A discarded upload leaves neither its partial nor its pinned reading. */
+    public function testDiscardRemovesThePinnedReadingWithThePartial(): void
+    {
+        $pdo = \Tests\DatabaseTestHelper::createTestDatabase();
+        $settings = new \Core\Config\SettingService(new \Core\Config\SettingRepository($pdo));
+        $settings->register(\Core\Storage\DiskBudget::QUOTA_SETTING, '', 'text', 'Quota', 'Quota');
+        $settings->set(\Core\Storage\DiskBudget::QUOTA_SETTING, (string) (10 * 1024 * 1024 * 1024));
+
+        $store = new ChunkedUploadStore(
+            $this->storagePath,
+            new \Core\Storage\DiskBudget($this->storagePath, $settings)
+        );
+
+        $uploadId = bin2hex(random_bytes(16));
+        $store->appendChunk($uploadId, 'sess-discard', 0, $this->chunkFile('data'), false, 1024);
+        $this->assertNotEmpty(glob($this->storagePath . '/temp/chunked_uploads/*.budget') ?: []);
+
+        $store->discard($uploadId, 'sess-discard');
+
+        $this->assertSame([], glob($this->storagePath . '/temp/chunked_uploads/*.budget') ?: []);
+        $this->assertSame([], glob($this->storagePath . '/temp/chunked_uploads/*.part') ?: []);
     }
 }

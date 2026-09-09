@@ -165,10 +165,34 @@ final class DiskBudget
      */
     public function ensureRoom(int $estimatedBytes): void
     {
-        $needed = max(0, $estimatedBytes) + self::SAFETY_MARGIN_BYTES;
-        $available = $this->availableBytes();
+        $this->ensureRoomAgainst($estimatedBytes, $this->availableBytes());
+    }
 
-        if ($available === null || $available >= $needed) {
+    /**
+     * The same refusal, against a reading the caller supplies instead of the
+     * one this service would take now.
+     *
+     * One caller needs it, and the reason is worth stating because it is not
+     * obvious: `Core\File\ChunkedUploadStore` assembles a file across many
+     * requests, and what it must hold against the headroom is the file's
+     * eventual size, not the fragment in hand. But the headroom *moves while
+     * it writes* — {@see availableBytes()} reads `disk_free_space()` live,
+     * and each fragment that lands has already shrunk it — so measuring
+     * again and charging the cumulative size would charge the bytes already
+     * written twice, and refuse an upload that fits. It therefore pins one
+     * reading before the first fragment and holds the whole assembled file
+     * against that. A null reading is still "nothing known", and still
+     * returns.
+     *
+     * @param int|null $availableBytes what was writable when the reading was
+     *                                 taken, or null when nothing said
+     * @throws InsufficientDiskSpaceException
+     */
+    public function ensureRoomAgainst(int $estimatedBytes, ?int $availableBytes): void
+    {
+        $needed = max(0, $estimatedBytes) + self::SAFETY_MARGIN_BYTES;
+
+        if ($availableBytes === null || $availableBytes >= $needed) {
             return;
         }
 
@@ -176,8 +200,8 @@ final class DiskBudget
             'Espace disque insuffisant : cette opération a besoin d\'environ %s et il ne reste que %s. '
                 . 'Il manque %s. Supprimez des sauvegardes ou des photos, puis réessayez.',
             ByteFormatter::format($needed),
-            ByteFormatter::format($available),
-            ByteFormatter::format($needed - $available)
+            ByteFormatter::format($availableBytes),
+            ByteFormatter::format($needed - $availableBytes)
         ));
     }
 
