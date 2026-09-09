@@ -2,6 +2,8 @@
 
 This document is the architectural reference for the project. Every contribution — human or agent-generated — must conform to it. When in doubt between a "simpler" solution and one that respects this document, this document takes priority.
 
+It says how the system is built; [`docs/exigences-non-fonctionnelles.md`](docs/exigences-non-fonctionnelles.md) says what it must hold to — the sizing target every design here assumes, the rendering budget a page is judged against, the recovery objectives the backup mechanisms (§8.15, §8.18) exist to meet, the operational alert thresholds, and the technical baseline. A design decision that cannot meet one of those numbers changes the number, in the same pull request, or it is the wrong design.
+
 ## 1. Overview
 
 ### Purpose
