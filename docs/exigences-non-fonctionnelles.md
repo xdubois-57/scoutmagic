@@ -83,7 +83,7 @@ bigger budget: it gets split into passes that reschedule themselves.
 
 | Objective | Value | What it means |
 |---|---|---|
-| RPO — maximum data loss accepted | **7 days** | A restore may lose at most one week of the unit's work. This is what fixes the default frequency of scheduled backups at *weekly*. |
+| RPO — maximum data loss accepted | **7 days** | A restore may lose at most one week of the unit's work. This is what fixes the target default frequency of scheduled backups at *weekly* — **`backup_auto_frequency` still ships as `monthly`**, which is issue #286 |
 | RTO — target time to service | **4 hours** | From "the site is gone" to "the site answers again", by a volunteer following the help topic, on a host they may have to sign up with that morning |
 | Off-site copies | **at least 1** | A backup that only exists on the server that died is not a backup |
 | Restorable on a *new* installation | **required** | A backup restorable only onto the installation that made it does not meet the RTO above in the one scenario that matters |
@@ -111,6 +111,14 @@ on every scheduler pass, and the alert is switched off within days.
 Read the backup-age rows together with §3. A 10-day alert only makes sense
 on top of a weekly scheduled backup, which is the RPO's other half — one
 missed run plus the time an upload takes, and no more.
+
+**That half is not shipped yet**, and the gap is worth stating here rather
+than only in a journal, because this page is meant to be cited on its own:
+`backup_auto_frequency` still defaults to `monthly`, so turning this alert
+on before changing that default would leave it *triggered* on a default
+installation two-thirds of the time — which is D1's own extinction
+mechanism, aimed at the alert it was meant to protect. The two land
+together, in the iteration that turns the check on (issue #286).
 
 The **off-site** row carries the same two numbers as the local one on
 purpose, and it is the more important of the two: in the scenario the RPO

@@ -113,6 +113,14 @@ Documentation seule, aucun code, conformément au document de chantier.
    Changer le défaut est du code, donc hors du périmètre d'IT-01. **C'est
    IT-03 qui portera ce changement**, dans la PR qui allume l'alerte —
    c'est la seule qui puisse le faire sans livrer une alerte fausse.
+   Ouvert comme issue #286, ce qu'exige `AGENTS.md`.
+
+   **L'écart est écrit sur la page d'exigences elle-même**, et pas
+   seulement ici. Relevé en revue : la page se lit toute seule et se cite
+   telle quelle, donc une phrase au présent disant que le RPO « fixe » le
+   défaut à hebdomadaire y ferait conclure que le défaut livré correspond
+   déjà. Les deux endroits qui l'affirmaient disent maintenant l'état réel
+   et nomment l'issue.
 
 2. **`ARCHITECTURE.md` ne comportait aucun renvoi vers un document
    d'exigences non fonctionnelles** parce qu'il n'en existait aucun : le
