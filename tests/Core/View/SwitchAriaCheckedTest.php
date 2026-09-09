@@ -76,7 +76,7 @@ class SwitchAriaCheckedTest extends TestCase
             'config_mode' => false,
             'cookie_consent_given' => true,
             'badges' => $badges,
-            'assigned_badge_ids' => [],
+            'undeletable_badge_reasons' => [],
         ]);
 
         $this->assertSwitchAriaChecked($html, 'id="badge-active-1"', true);

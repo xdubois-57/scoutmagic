@@ -10,10 +10,10 @@ namespace Modules\MassMail\Repository;
 
 /**
  * Custom mailing lists (mass_mail_lists) — identity/lifecycle only. The
- * selection criteria (mass_mail_list_functions/mass_mail_list_sections)
- * are managed here too, since they're a 1:1 extension of a list's own
- * row, but resolving a list's actual member set is Repository\
- * MemberResolutionRepository's job, not this one's.
+ * selection criteria (mass_mail_list_functions/mass_mail_list_sections/
+ * mass_mail_list_badges) are managed here too, since they're a 1:1
+ * extension of a list's own row, but resolving a list's actual member set
+ * is Repository\MemberResolutionRepository's job, not this one's.
  */
 class MailingListRepository
 {
@@ -42,12 +42,14 @@ class MailingListRepository
     /**
      * @param int[] $functionIds
      * @param int[] $sectionIds
+     * @param int[] $badgeIds
      */
     public function create(
         string $name,
         string $description,
         array $functionIds,
         array $sectionIds,
+        array $badgeIds,
         ?int $createdBy
     ): int
     {
@@ -55,7 +57,7 @@ class MailingListRepository
         $stmt->execute([$name, $description, $createdBy]);
         $id = (int) $this->pdo->lastInsertId();
 
-        $this->replaceCriteria($id, $functionIds, $sectionIds);
+        $this->replaceCriteria($id, $functionIds, $sectionIds, $badgeIds);
 
         return $id;
     }
@@ -63,13 +65,21 @@ class MailingListRepository
     /**
      * @param int[] $functionIds
      * @param int[] $sectionIds
+     * @param int[] $badgeIds
      */
-    public function update(int $id, string $name, string $description, array $functionIds, array $sectionIds): void
+    public function update(
+        int $id,
+        string $name,
+        string $description,
+        array $functionIds,
+        array $sectionIds,
+        array $badgeIds
+    ): void
     {
         $stmt = $this->pdo->prepare('UPDATE mass_mail_lists SET name = ?, description = ? WHERE id = ?');
         $stmt->execute([$name, $description, $id]);
 
-        $this->replaceCriteria($id, $functionIds, $sectionIds);
+        $this->replaceCriteria($id, $functionIds, $sectionIds, $badgeIds);
     }
 
     public function setActive(int $id, bool $active): void
@@ -82,6 +92,7 @@ class MailingListRepository
     {
         $this->pdo->prepare('DELETE FROM mass_mail_list_functions WHERE list_id = ?')->execute([$id]);
         $this->pdo->prepare('DELETE FROM mass_mail_list_sections WHERE list_id = ?')->execute([$id]);
+        $this->pdo->prepare('DELETE FROM mass_mail_list_badges WHERE list_id = ?')->execute([$id]);
         $this->pdo->prepare('DELETE FROM mass_mail_lists WHERE id = ?')->execute([$id]);
     }
 
@@ -106,6 +117,47 @@ class MailingListRepository
     }
 
     /**
+     * @return int[]
+     */
+    public function getBadgeIds(int $listId): array
+    {
+        $stmt = $this->pdo->prepare('SELECT badge_id FROM mass_mail_list_badges WHERE list_id = ?');
+        $stmt->execute([$listId]);
+        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
+    /**
+     * Every section id any list still names as a criterion, and every
+     * badge id — across ALL lists, because the criteria form's three
+     * pickers are rendered once for the whole page and reused by every
+     * list's edit dialog.
+     *
+     * Service\MailingListService::getAllSections()/getAllBadges() need
+     * them: a picker offering only what is currently active would have no
+     * item for a section or a badge that was deactivated after being made
+     * a criterion, and an id with no item in the DOM is an id the form
+     * silently drops on the next save — see those two methods.
+     *
+     * @return int[]
+     */
+    public function findReferencedSectionIds(): array
+    {
+        $stmt = $this->pdo->query('SELECT DISTINCT section_id FROM mass_mail_list_sections');
+
+        return $stmt !== false ? array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN)) : [];
+    }
+
+    /**
+     * @return int[]
+     */
+    public function findReferencedBadgeIds(): array
+    {
+        $stmt = $this->pdo->query('SELECT DISTINCT badge_id FROM mass_mail_list_badges');
+
+        return $stmt !== false ? array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN)) : [];
+    }
+
+    /**
      * Whether at least one email (any status) was created against this
      * list — Service\MailingListService::delete()'s "deactivate instead"
      * guard, same Core\Badge precedent as BadgeRepository::
@@ -121,11 +173,13 @@ class MailingListRepository
     /**
      * @param int[] $functionIds
      * @param int[] $sectionIds
+     * @param int[] $badgeIds
      */
-    private function replaceCriteria(int $listId, array $functionIds, array $sectionIds): void
+    private function replaceCriteria(int $listId, array $functionIds, array $sectionIds, array $badgeIds): void
     {
         $this->pdo->prepare('DELETE FROM mass_mail_list_functions WHERE list_id = ?')->execute([$listId]);
         $this->pdo->prepare('DELETE FROM mass_mail_list_sections WHERE list_id = ?')->execute([$listId]);
+        $this->pdo->prepare('DELETE FROM mass_mail_list_badges WHERE list_id = ?')->execute([$listId]);
 
         $functionStmt = $this->pdo->prepare('INSERT INTO mass_mail_list_functions (list_id, function_id) VALUES (?, '
             . '?)');
@@ -136,6 +190,11 @@ class MailingListRepository
         $sectionStmt = $this->pdo->prepare('INSERT INTO mass_mail_list_sections (list_id, section_id) VALUES (?, ?)');
         foreach (array_unique($sectionIds) as $sectionId) {
             $sectionStmt->execute([$listId, $sectionId]);
+        }
+
+        $badgeStmt = $this->pdo->prepare('INSERT INTO mass_mail_list_badges (list_id, badge_id) VALUES (?, ?)');
+        foreach (array_unique($badgeIds) as $badgeId) {
+            $badgeStmt->execute([$listId, $badgeId]);
         }
     }
 

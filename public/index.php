@@ -1430,7 +1430,20 @@ $badgeRepository = new BadgeRepository($pdo);
 $memberBadgeRepository = new MemberBadgeRepository($pdo);
 
 $sectionService = new SectionService($connection, $encryptionService, $memberBadgeRepository);
-$badgeService = new BadgeService($badgeRepository, $memberBadgeRepository, $sectionService);
+// Single-implementation CORE hooks (§7.4) all register in this registry —
+// one line in the providing module's block, far below, resolved by
+// consumers at request time (Core\Module\HookRegistry's own docblock says
+// why this is not a DI container). Multi-contributor hooks keep their
+// dedicated registries: menus (DynamicMenuRegistrar), RGPD sub-processors
+// (RgpdContentService), Desk-import listeners (DeskImportListenerRegistry).
+//
+// It is created HERE, this high, because a core CONSUMER can be built
+// long before any module block runs — BadgeService just below is the
+// first. Resolution at use time is what makes that safe; construction
+// order is not.
+$moduleHooks = new \Core\Module\HookRegistry();
+
+$badgeService = new BadgeService($badgeRepository, $memberBadgeRepository, $sectionService, $moduleHooks);
 
 // "Which sections is this account an animateur of" (ARCHITECTURE.md
 // §8.33) — a core service, built once here and shared by every consumer
@@ -2706,13 +2719,6 @@ $isEnabled = static fn (string $moduleId): bool => in_array($moduleId, $moduleMa
 // (`$sectionResponsableProvider`, `$homePaymentDueProvider`, …). The name
 // alone says which side of §7.4/§7.5 a handle lives on.
 
-// Single-implementation CORE hooks (§7.4) all register here — one line in
-// the providing module's block, resolved by consumers at request time
-// (Core\Module\HookRegistry's own docblock says why this is not a DI
-// container). Multi-contributor hooks keep their dedicated registries:
-// menus (DynamicMenuRegistrar), RGPD sub-processors (RgpdContentService),
-// Desk-import listeners (DeskImportListenerRegistry).
-$moduleHooks = new \Core\Module\HookRegistry();
 
 // Register module template namespaces in Twig
 $twigLoader = $twig->getLoader();
@@ -4680,9 +4686,18 @@ if ($isEnabled('mass_mail')) {
     // they are what decides whether a year is in the future at all, which
     // has to work with registration disabled too.
     $massMailListService = new \Modules\MassMail\Service\MailingListService(
-        $massMailListRepo, $massMailResolutionRepo, $sectionService, $massMailFunctionRepo,
+        $massMailListRepo, $massMailResolutionRepo, $sectionService, $massMailFunctionRepo, $badgeService,
         null, null, $scoutYearResolver, $scoutYearService
     );
+    // « This module points at badges by id, so do not let one be deleted
+    //   from under a list » — Core\Module\BadgeUsageProvider. Registered
+    //   here rather than checked in Core\Badge: the cascade lives in this
+    //   module's schema, so the knowledge of it does too.
+    $moduleHooks->register(
+        \Core\Module\BadgeUsageProvider::class,
+        new \Modules\MassMail\Service\MailingListBadgeUsageService($massMailListRepo)
+    );
+
     $massMailAccessService = new \Modules\MassMail\Service\MassMailAccessService($memberService, $sectionService);
     $massMailService = new \Modules\MassMail\Service\MassMailService(
         $massMailEmailRepo, $massMailRecipientRepo, $massMailAttachmentRepo, $fileRepository,
@@ -4716,7 +4731,7 @@ if ($isEnabled('mass_mail')) {
     $schedulerService->rearm('mass_mail', 'purge_merge_audiences', 'daily', new DateTimeImmutable());
     $frontController->registerController(
         \Modules\MassMail\Controller\MailingListController::class,
-        new \Modules\MassMail\Controller\MailingListController($twig, $massMailListService)
+        new \Modules\MassMail\Controller\MailingListController($twig, $massMailListService, $scoutYearResolver)
     );
 
     // The member page's "view as sent" email detail route
@@ -6408,7 +6423,7 @@ if ($isEnabled('registration')) {
         // since PHP doesn't retroactively update an already-injected
         // dependency. Both are rebuilt together here.
         $massMailListService = new \Modules\MassMail\Service\MailingListService(
-            $massMailListRepo, $massMailResolutionRepo, $sectionService, $massMailFunctionRepo,
+            $massMailListRepo, $massMailResolutionRepo, $sectionService, $massMailFunctionRepo, $badgeService,
             $registrationExternalMailingListService,
             // IT-11 — with registration enabled, a list aimed at a year the
             // unit has not reached yet resolves through the projection
@@ -6446,7 +6461,9 @@ if ($isEnabled('registration')) {
         );
         $frontController->registerController(
             \Modules\MassMail\Controller\MailingListController::class,
-            new \Modules\MassMail\Controller\MailingListController($twig, $massMailListService)
+            new \Modules\MassMail\Controller\MailingListController(
+                $twig, $massMailListService, $scoutYearResolver
+            )
         );
     }
 

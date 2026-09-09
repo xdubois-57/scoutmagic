@@ -153,7 +153,15 @@ class CsrfTest extends TestCase
             new FunctionRepository($this->pdo)
         );
 
-        $controller = new MailingListController($this->createMock(Environment::class), $listService);
+        $controller = new MailingListController(
+            $this->createMock(Environment::class),
+            $listService,
+            new \Core\ScoutYear\ScoutYearResolver(
+                new \Core\Config\ScoutYearService($this->pdo),
+                new SettingService(new \Core\Config\SettingRepository($this->pdo)),
+                new \Core\Import\MemberYearRepository($this->pdo)
+            )
+        );
 
         $response = $controller->createList($this->jsonRequest(['name' => 'x', '_csrf_token' => 'invalid']), []);
 

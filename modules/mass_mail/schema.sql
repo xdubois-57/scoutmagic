@@ -100,11 +100,15 @@ CREATE TABLE IF NOT EXISTS mass_mail_lists (
     CONSTRAINT fk_mml_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- mass_mail_list_functions / mass_mail_list_sections: a custom list's
--- selection criteria — AND semantics between the two tables (a member
--- must hold one of the selected functions AND within one of the selected
--- sections), OR semantics within each table. See Service\
--- MailingListService::resolveCustomList().
+-- mass_mail_list_functions / mass_mail_list_sections /
+-- mass_mail_list_badges: a custom list's selection criteria, on three
+-- axes. AND between the tables (a member must hold one of the selected
+-- functions AND be within one of the selected sections AND wear one of
+-- the selected badges), OR within each table. An axis with no rows is
+-- NOT a constraint and drops out of the conjunction entirely; a list
+-- with no rows in any of the three resolves to NO member, never to
+-- every member — a list may legitimately hold nothing but its own
+-- addresses. See Service\MailingListService::resolveCustomList().
 CREATE TABLE IF NOT EXISTS mass_mail_list_functions (
     list_id INT UNSIGNED NOT NULL,
     function_id INT UNSIGNED NOT NULL,
@@ -119,6 +123,31 @@ CREATE TABLE IF NOT EXISTS mass_mail_list_sections (
     PRIMARY KEY (list_id, section_id),
     CONSTRAINT fk_mmls_list FOREIGN KEY (list_id) REFERENCES mass_mail_lists(id) ON DELETE CASCADE,
     CONSTRAINT fk_mmls_section FOREIGN KEY (section_id) REFERENCES sections(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Badges are already historised BY SCOUT YEAR (member_badges.
+-- member_year_id, ARCHITECTURE.md §8.11), so resolving this axis is a
+-- join on the member_year of the year being resolved — a badge worn in a
+-- past year never counts for the current one, with nothing to invent
+-- here. badges(id) is a CORE table, so this foreign key crosses no
+-- module boundary (AGENTS.md § Database).
+-- The badge cascade is guarded ABOVE the database, and has to be. Losing
+-- this row does not narrow the list to nobody — an axis with no rows
+-- stops constraining anything — so « la meute ET le badge X » would
+-- quietly become « la meute » the moment X is deleted. Core\Badge\
+-- BadgeService::delete() therefore refuses a badge a list still crosses,
+-- asking Core\Module\BadgeUsageProvider, which Service\
+-- MailingListBadgeUsageService implements over findReferencedBadgeIds().
+-- Deactivating a badge stays allowed: the criteria picker keeps offering
+-- a deactivated badge a list names, greyed, so the criterion can be
+-- removed by hand first. The FK stays CASCADE for the case the guard
+-- cannot cover — a row deleted outside the application.
+CREATE TABLE IF NOT EXISTS mass_mail_list_badges (
+    list_id INT UNSIGNED NOT NULL,
+    badge_id INT UNSIGNED NOT NULL,
+    PRIMARY KEY (list_id, badge_id),
+    CONSTRAINT fk_mmlb_list FOREIGN KEY (list_id) REFERENCES mass_mail_lists(id) ON DELETE CASCADE,
+    CONSTRAINT fk_mmlb_badge FOREIGN KEY (badge_id) REFERENCES badges(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- mass_mail_emails: one mass email, draft → test → sending → sent (see

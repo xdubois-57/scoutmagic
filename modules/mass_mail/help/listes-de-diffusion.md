@@ -6,6 +6,7 @@ category: Espace chefs d'U
 role_min: admin
 question: Comment créer une liste de diffusion personnalisée ?
 question: Comment écrire aux intendants de toutes les sections ?
+question: Comment écrire aux animateurs qui portent un badge ?
 question: Pourquoi ne puis-je pas supprimer une liste de diffusion ?
 paths: /admin/listes-de-diffusion
 related: envoi-de-mails, publipostage
@@ -24,10 +25,25 @@ qui devient inactive disparaît d'elle-même, sans entretien.
 
 ## Vos propres listes
 
-« Nouvelle liste » croise des fonctions et des sections : par exemple
-« les intendants de toutes les sections », ou « les animateurs des deux
-sections aînées ». Une liste demande un nom, une description, au moins
-une fonction et au moins une section.
+« Nouvelle liste » ouvre trois sélecteurs : « Fonctions », « Sections »
+et « Badges ». Une liste demande un nom, une description, et au moins un
+critère — sur n'importe lequel des trois.
+
+Les trois se combinent en **ET**, et chacun se lit en **OU** à
+l'intérieur. Un intendant *ou* un trésorier, dans la meute *ou* dans la
+troupe : c'est une seule liste.
+
+Un sélecteur que vous laissez vide ne restreint rien — il affiche alors
+« Toutes les sections », et la liste vaut pour toutes. C'est ainsi qu'on
+écrit aux intendants sans distinguer leur section.
+
+Vous n'avez pas à le deviner. Sous les trois sélecteurs, une phrase se
+réécrit à chaque clic et dit exactement qui la liste contient, et le
+nombre de destinataires se recalcule à côté.
+
+> Un badge ne s'attribue qu'au Staff d'Unité et aux animateurs. Le
+> croiser avec une section d'animés donne donc toujours zéro
+> destinataire, et le compteur l'annonce en rouge.
 
 La description est obligatoire, et elle s'affiche à côté de la liste
 partout où on la choisit : c'est ce qui permet à un animateur de savoir
@@ -45,6 +61,6 @@ le bouton refuse et vous propose de la désactiver. Une liste
 désactivée disparaît du choix des nouvelles compositions, mais
 l'historique des envois qui s'en servaient reste lisible.
 
-> La cadence d'envoi — combien d'e-mails toutes les combien de minutes —
-> n'est pas ici : c'est un réglage du site entier, sur
-> « Configuration > Réglages ».
+La cadence d'envoi — combien d'e-mails toutes les combien de minutes —
+n'est pas ici : c'est un réglage du site entier, sur
+« Configuration > Réglages ».

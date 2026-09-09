@@ -11,8 +11,11 @@ namespace Modules\MassMail\Controller;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\ScoutYear\ScoutYearResolver;
+use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Security\Role;
 use Modules\MassMail\Repository\MailingList;
 use Modules\MassMail\Service\MailingListException;
 use Modules\MassMail\Service\MailingListService;
@@ -41,7 +44,8 @@ class MailingListController extends AbstractController
 {
     public function __construct(
         protected Environment $twig,
-        private MailingListService $mailingListService
+        private MailingListService $mailingListService,
+        private ScoutYearResolver $scoutYearResolver
     ) {
     }
 
@@ -62,11 +66,18 @@ class MailingListController extends AbstractController
                 fn(array $carry, MailingList $l) => $carry + [$l->id => [
                     'function_ids' => $this->mailingListService->getCustomListFunctionIds($l->id),
                     'section_ids' => $this->mailingListService->getCustomListSectionIds($l->id),
+                    'badge_ids' => $this->mailingListService->getCustomListBadgeIds($l->id),
                 ]],
                 []
             ),
             'all_functions' => $this->mailingListService->getAllFunctions(),
             'all_sections' => $this->mailingListService->getAllSections(),
+            'all_badges' => $this->mailingListService->getAllBadges(),
+            // The list itself carries no year (the page says so), but the
+            // live count has to be counted against one — and naming it is
+            // what stops « 12 destinataires » being read as a promise
+            // about whichever year the email will later target.
+            'effective_year_label' => $this->effectiveYear()->label,
             // A list has no year of its own, so there is no per-list
             // warning to show here — but the page is where somebody decides
             // WHO a list holds, and next year's answer is a projection or
@@ -95,6 +106,7 @@ class MailingListController extends AbstractController
                 (string) ($data['description'] ?? ''),
                 $this->toIntArray($data['function_ids'] ?? []),
                 $this->toIntArray($data['section_ids'] ?? []),
+                $this->toIntArray($data['badge_ids'] ?? []),
                 AuthSession::getUserAccountId()
             );
         } catch (MailingListException $e) {
@@ -125,7 +137,8 @@ class MailingListController extends AbstractController
                 (string) ($data['name'] ?? ''),
                 (string) ($data['description'] ?? ''),
                 $this->toIntArray($data['function_ids'] ?? []),
-                $this->toIntArray($data['section_ids'] ?? [])
+                $this->toIntArray($data['section_ids'] ?? []),
+                $this->toIntArray($data['badge_ids'] ?? [])
             );
         } catch (MailingListException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
@@ -178,6 +191,52 @@ class MailingListController extends AbstractController
         }
 
         return $this->json(['success' => true]);
+    }
+
+    /**
+     * POST /admin/listes-de-diffusion/preview-count — how many members
+     * the criteria CURRENTLY IN THE FORM resolve to, before anything is
+     * saved.
+     *
+     * The AND between the three axes is what makes this worth a round
+     * trip: crossing a badge with an animés section gives zero every
+     * time, because badges are only assignable to the Staff d'U and to
+     * the chef/chef d'unité functions — a trap the sentence above the
+     * counter states and the counter proves.
+     *
+     * A POST although it reads nothing but: it carries a set of ids and a
+     * CSRF token, both of which belong in a body rather than in a query
+     * string that proxies and access logs keep.
+     *
+     * @param array<string, string> $params
+     */
+    public function previewCount(Request $request, array $params): Response
+    {
+        $data = $this->decodeJsonBody($request);
+        if ($data === null || !$this->checkCsrf($data)) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+
+        $year = $this->effectiveYear();
+
+        return $this->json([
+            'success' => true,
+            'count' => $this->mailingListService->countMembersForCriteria(
+                $this->toIntArray($data['function_ids'] ?? []),
+                $this->toIntArray($data['section_ids'] ?? []),
+                $this->toIntArray($data['badge_ids'] ?? []),
+                $year->id
+            ),
+            'scout_year_label' => $year->label,
+        ]);
+    }
+
+    private function effectiveYear(): \Core\ScoutYear\EffectiveScoutYear
+    {
+        return $this->scoutYearResolver->getEffectiveYear(
+            ScoutYearSession::getPreviewId(),
+            Role::fromString(AuthSession::getRole())
+        );
     }
 
     /**

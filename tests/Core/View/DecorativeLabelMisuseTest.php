@@ -119,12 +119,23 @@ class DecorativeLabelMisuseTest extends TestCase
             'default_lists' => [],
             'custom_lists' => [],
             'custom_list_criteria' => [],
-            'all_functions' => [],
-            'all_sections' => [],
+            // Non-empty on purpose: a select bar with nothing to choose
+            // from renders its empty state and no field name at all, so an
+            // empty list would assert nothing.
+            'all_functions' => [['id' => 1, 'label' => 'Animateur', 'role' => 'identified']],
+            'all_sections' => [['id' => 2, 'name' => 'Meute']],
+            'all_badges' => [['id' => 3, 'name' => 'Infirmier']],
+            'effective_year_label' => '2025-2026',
         ]);
 
-        $this->assertTextIsNotInsideALabel($html, 'Fonctions (au moins une)');
-        $this->assertTextIsNotInsideALabel($html, 'Sections (au moins une)');
+        // The three criteria axes are select bars now, and the component
+        // renders each field name in a <span> inside its <summary>. The
+        // headings this case was written for were <div class="form-label">
+        // captions; the guarantee is the same one either way — a caption
+        // that labels a GROUP is never a <label>, which has a control.
+        $this->assertTextIsNotInsideALabel($html, 'Fonctions');
+        $this->assertTextIsNotInsideALabel($html, 'Sections');
+        $this->assertTextIsNotInsideALabel($html, 'Badges');
     }
 
     public function testFinanceReceiptsListSpacerLabelsAreNotLabelElements(): void

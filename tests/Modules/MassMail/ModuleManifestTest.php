@@ -59,6 +59,7 @@ class ModuleManifestTest extends TestCase
         $this->assertSame(
             [
                 '/admin/listes-de-diffusion',
+                '/admin/listes-de-diffusion/preview-count',
                 '/admin/listes-de-diffusion/lists',
                 '/admin/listes-de-diffusion/lists/{id}',
                 '/admin/listes-de-diffusion/lists/{id}/toggle',

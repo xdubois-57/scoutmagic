@@ -29,13 +29,16 @@
                     <label class="form-check-label small" for="badge-active-{{ badge.id }}">Actif</label>
                 </div>
                 {% if not badge.isDefault %}
-                    {% set badgeIsAssigned = badge.id in assigned_badge_ids %}
-                    {% if badgeIsAssigned %}
+                    {# Why it cannot be deleted, straight from the service that
+                       would refuse — an assignment, or a module still pointing
+                       at it (Core\Module\BadgeUsageProvider). #}
+                    {% set badgeBlockedReason = undeletable_badge_reasons[badge.id] ?? null %}
+                    {% if badgeBlockedReason %}
                         {# A disabled <button> doesn't fire the hover events browsers
                            need to show its own title tooltip, so the tooltip goes on
                            a plain (non-disabled) wrapping span instead; pointer-events:
                            none on the button lets the span receive the hover. #}
-                        <span class="d-inline-block" title="Ce badge est attribué à un membre — désactivez-le au lieu de le supprimer.">
+                        <span class="d-inline-block" title="{{ badgeBlockedReason }}">
                             <button type="button" class="btn btn-sm btn-outline-danger badge-delete-btn" disabled style="pointer-events:none;" aria-label="Supprimer le badge">
                                 <i class="bi bi-trash" aria-hidden="true"></i>
                             </button>

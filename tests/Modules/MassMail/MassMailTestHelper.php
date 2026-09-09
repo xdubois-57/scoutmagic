@@ -39,6 +39,14 @@ class MassMailTestHelper
             FOREIGN KEY (section_id) REFERENCES sections(id)
         )');
 
+        $pdo->exec('CREATE TABLE mass_mail_list_badges (
+            list_id INTEGER NOT NULL,
+            badge_id INTEGER NOT NULL,
+            PRIMARY KEY (list_id, badge_id),
+            FOREIGN KEY (list_id) REFERENCES mass_mail_lists(id),
+            FOREIGN KEY (badge_id) REFERENCES badges(id)
+        )');
+
         $pdo->exec('CREATE TABLE mass_mail_audiences (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             source_filename TEXT NOT NULL,
