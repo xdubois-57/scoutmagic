@@ -245,8 +245,17 @@
         var count = res.data.count;
         var year = res.data.scout_year_label || yearLabel;
         if (count === 0) {
-            countEl.textContent = '0 destinataire pour l\'année ' + year + ' — vérifiez le croisement des '
-                + 'critères : un badge n\'est porté que par le Staff d\'U et les animateurs, jamais par un animé.';
+            // Zero is worth explaining only when there is something to
+            // explain. The badge axis is the one that surprises people —
+            // a badge is worn by the Staff d'U and the chiefs and by
+            // nobody else, so crossing it with anything else is often
+            // empty by construction. Saying that to somebody who picked
+            // no badge at all points them at an axis they never touched,
+            // which is worse than saying nothing.
+            countEl.textContent = criteria.badge_ids.length > 0
+                ? '0 destinataire pour l\'année ' + year + ' — vérifiez le croisement des critères : '
+                    + 'un badge n\'est porté que par le Staff d\'U et les animateurs, jamais par un animé.'
+                : '0 destinataire pour l\'année ' + year + '.';
             countEl.className = 'small mb-0 text-danger';
             return;
         }

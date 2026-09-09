@@ -244,6 +244,14 @@ critère que personne ne peut retirer.
   est « qui cette liste désigne », et l'exclure ferait diverger le nombre
   de la liste elle-même.
 
+**Et une troisième, plus petite.** Le message de zéro destinataire
+expliquait le piège du badge (« un badge n'est porté que par le Staff d'U
+et les animateurs ») **quel que soit** le critère choisi. Dit à quelqu'un
+qui n'a sélectionné qu'une section, il désigne un axe qu'il n'a jamais
+touché : ça se lit comme un défaut de la page, pas comme un conseil sur
+sa liste. L'explication n'apparaît plus que si un badge fait partie des
+critères ; sinon, zéro est simplement zéro.
+
 **Tests.** Résolution : ET entre axes, OU dedans, axe vide non contraignant
 dans les deux sens, trois axes vides → ensemble vide, badge d'une année
 passée non compté, liste par badge seul n'exigeant aucune fonction, membre
@@ -259,6 +267,7 @@ sections ; la suppression d'un badge refusée tant qu'une liste le croise
 et permise sinon, la même sans registre de hooks, la phrase de refus
 identique des deux côtés, le fournisseur du module qui nomme les badges
 croisés, et le compteur qui replie deux membres sur une adresse commune
-tout en gardant celui qui n'en a pas.
+tout en gardant celui qui n'en a pas ; et le zéro sans badge qui ne parle
+pas de badge.
 
 **Reporté.** Rien.

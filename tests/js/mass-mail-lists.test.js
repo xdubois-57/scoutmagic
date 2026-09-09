@@ -267,6 +267,22 @@ describe('mass-mail-lists.js', () => {
             expect(countLine().textContent).toContain('vérifiez le croisement');
         });
 
+        it('says zero and nothing more when no badge was ever picked', async () => {
+            // Pointing at « le croisement des critères : un badge… » when
+            // the admin chose only a section names an axis they never
+            // touched, which reads as a bug in the page rather than as
+            // advice about their list.
+            global.fetch = vi.fn(() => jsonResponse({ success: true, count: 0, scout_year_label: '2025-2026' }));
+            await boot();
+
+            toggle('cfg-section-picker', 5);
+            await settle();
+
+            expect(countLine().className).toContain('text-danger');
+            expect(countLine().textContent).toBe('0 destinataire pour l\'année 2025-2026.');
+            expect(countLine().textContent).not.toContain('badge');
+        });
+
         it('asks nothing at all while no axis carries a criterion', async () => {
             await boot();
             document.getElementById('cfg-new-list-btn').click();
