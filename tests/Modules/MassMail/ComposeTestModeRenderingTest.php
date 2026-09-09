@@ -90,6 +90,23 @@ final class ComposeTestModeRenderingTest extends TestCase
     }
 
     /**
+     * The script disables « Envoyer le test » until the first preview has
+     * landed, because the offset the form carries only names the row on
+     * screen once there IS one. It needs a hook to do that — and the
+     * button must NOT ship disabled, or this form stops working with the
+     * script absent, which is the guarantee it is built on.
+     */
+    public function testTheTestSendButtonOffersAHookAndShipsEnabled(): void
+    {
+        $html = $this->render(Email::LIST_TYPE_MAIL_MERGE, Email::STATUS_TEST);
+
+        $this->assertStringContainsString('id="mm-test-send-btn"', $html);
+
+        $button = substr($html, (int) strpos($html, 'id="mm-test-send-btn"') - 200, 260);
+        $this->assertStringNotContainsString('disabled', $button);
+    }
+
+    /**
      * Attachments belong under the email they travel with, not above the
      * screen that shows it.
      */

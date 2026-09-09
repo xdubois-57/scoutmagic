@@ -295,7 +295,15 @@
                 <input type="hidden" name="merge_offset" value="0" id="mm-merge-offset">
                 <input type="email" class="form-control form-control-sm" name="to" id="mm-test-send-email"
                        value="{{ current_user_email }}" aria-label="Adresse de test" required>
-                <button type="submit" class="btn btn-sm btn-outline-primary text-nowrap">Envoyer le test</button>
+                {# An id and no `disabled` here: the script disables this
+                   button until the first publipostage preview has landed
+                   (a test send before that would carry the offset the
+                   preview has not chosen yet), and it can only do that
+                   from JavaScript. Disabling it in the markup would take
+                   away this form's own guarantee — it works with
+                   assets/js/mass-mail-compose.js absent. #}
+                <button type="submit" class="btn btn-sm btn-outline-primary text-nowrap"
+                        id="mm-test-send-btn">Envoyer le test</button>
             </form>
             {% if email.listType == 'mail_merge' %}
                 <p class="form-text small mb-0">Le test est envoyé avec les valeurs de la ligne affichée dans l'aperçu ci-dessus.</p>

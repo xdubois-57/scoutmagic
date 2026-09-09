@@ -119,6 +119,7 @@ function buildDom({ status = 'draft', listType = 'default_section', merge = fals
         <form id="mm-test-send-form">
             <input type="hidden" id="mm-merge-offset" name="merge_offset" value="0">
             <input type="email" id="mm-test-send-email" name="to" value="">
+            <button type="submit" id="mm-test-send-btn">Envoyer le test</button>
         </form>
 
         <form id="mm-start-sending-form">
@@ -382,6 +383,67 @@ describe('mass-mail-compose.js: the per-recipient preview', () => {
         expect(warnings.classList.contains('d-none')).toBe(false);
         expect(warnings.textContent).toContain('{{Prenom}}');
         expect(warnings.textContent).toContain('Montant');
+    });
+
+    /**
+     * The random opening row created a window this page did not have
+     * before: `#mm-merge-offset` reads 0 until the first preview
+     * resolves, so a « Envoyer le test » clicked in it would send line 1
+     * — precisely the line this screen stopped opening on — while the
+     * page promises the row displayed in the preview, and none is
+     * displayed yet. Before the offset was random the two agreed by
+     * accident.
+     */
+    it('refuses the test send until the first preview has actually landed', async () => {
+        await boot({
+            status: 'test',
+            listType: 'mail_merge',
+            merge: true,
+            // A fetch that never answers: the page is left in exactly the
+            // window the guard exists for.
+            fetch: () => new Promise(() => {}),
+        });
+
+        expect(document.getElementById('mm-test-send-btn').disabled).toBe(true);
+        expect(document.getElementById('mm-merge-prev-btn').disabled).toBe(true);
+        expect(document.getElementById('mm-merge-next-btn').disabled).toBe(true);
+    });
+
+    it('lets the test send go as soon as a row is on screen', async () => {
+        await boot({ status: 'test', listType: 'mail_merge', merge: true, fetch: () => jsonResponse(preview()) });
+
+        expect(document.getElementById('mm-test-send-btn').disabled).toBe(false);
+        // And the offset now names the row that is showing, which is the
+        // whole point of having waited.
+        expect(document.getElementById('mm-merge-offset').value).toBe('0');
+    });
+
+    /**
+     * A preview that cannot be had leaves a visibly empty box, and
+     * refusing the test send for good over one failed fetch would be a
+     * worse answer than the one that stood here before the guard.
+     */
+    it('gives the controls back when the preview cannot be loaded at all', async () => {
+        await boot({
+            status: 'test',
+            listType: 'mail_merge',
+            merge: true,
+            fetch: () => jsonResponse({ success: false, error: 'Audience purgée.' }),
+        });
+
+        expect(document.getElementById('mm-test-send-btn').disabled).toBe(false);
+    });
+
+    /**
+     * The guard belongs to the publipostage preview, not to test mode: an
+     * ordinary list has no preview to wait for, and its test send must
+     * stay available from the first paint.
+     */
+    it('never locks the test send of a list that has no preview', async () => {
+        await boot({ status: 'test', listType: 'default_section', merge: false });
+
+        expect(document.getElementById('mm-test-send-btn').disabled).toBe(false);
+        expect(fetch).not.toHaveBeenCalled();
     });
 
     it('does not ask for a preview when the email is still a draft', async () => {
