@@ -324,7 +324,11 @@
          * @param {{added: number, unchanged: number, removed: number, kept_unsubscribed: number}} summary
          * @returns {string}
          */
-        function summarySentence(summary) {
+        /**
+         * @param {{added: number, unchanged: number, removed: number, kept_unsubscribed: number}} summary
+         * @param {number} duplicates lines of the file that collapsed onto an address already named
+         */
+        function summarySentence(summary, duplicates) {
             var parts = [
                 summary.added + ' adresse' + (summary.added > 1 ? 's' : '') + ' ajoutée'
                     + (summary.added > 1 ? 's' : ''),
@@ -336,6 +340,18 @@
                     summary.kept_unsubscribed + ' désinscrite' + (summary.kept_unsubscribed > 1 ? 's' : '')
                         + ' — conservée' + (summary.kept_unsubscribed > 1 ? 's' : '')
                         + ', toujours exclue' + (summary.kept_unsubscribed > 1 ? 's' : '') + ' des envois'
+                );
+            }
+
+            if (duplicates > 0) {
+                // Lines that vanished into another line rather than into
+                // the list. Saying nothing would let a file of 300 rows
+                // report « 280 ajoutées » with no explanation of the
+                // twenty missing, which reads as a loss.
+                parts.push(
+                    duplicates + ' ligne' + (duplicates > 1 ? 's' : '')
+                        + ' en double dans le fichier, fondue' + (duplicates > 1 ? 's' : '')
+                        + ' dans la précédente'
                 );
             }
 
@@ -395,7 +411,7 @@
 
             showError(null);
             pendingImport = data.addresses;
-            importSummary.textContent = summarySentence(data.summary);
+            importSummary.textContent = summarySentence(data.summary, data.duplicates || 0);
             renderImportErrors(data.errors || []);
             importPreview.classList.remove('d-none');
             importInput.value = '';

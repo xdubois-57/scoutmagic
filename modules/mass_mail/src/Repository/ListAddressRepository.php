@@ -204,6 +204,34 @@ class ListAddressRepository
      */
     public function replaceForList(int $listId, array $addresses): array
     {
+        // One transaction, because this is the one operation of this
+        // module with no way back: N inserts followed by M deletes, and a
+        // failure between the two halves would leave the list holding
+        // both what the file brought AND what it removed — over the cap
+        // that was just checked, and with no journal entry, since the
+        // caller only logs once this returns. Same shape as
+        // Modules\Attestations\Service\BatchResetService.
+        $this->pdo->beginTransaction();
+        try {
+            $summary = $this->replaceForListInTransaction($listId, $addresses);
+            $this->pdo->commit();
+        } catch (\Throwable $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+
+            throw $e;
+        }
+
+        return $summary;
+    }
+
+    /**
+     * @param array<int, array{name: ?string, email: string}> $addresses
+     * @return array{added: int, unchanged: int, removed: int, kept_unsubscribed: int}
+     */
+    private function replaceForListInTransaction(int $listId, array $addresses): array
+    {
         $existing = [];
         foreach ($this->findForList($listId) as $address) {
             $existing[$this->blindIndex($address->email)] = $address;

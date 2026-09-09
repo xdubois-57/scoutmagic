@@ -499,6 +499,26 @@ describe('mass-mail-list-addresses.js', () => {
             expect(importSummary().textContent).toBe('1 adresse ajoutée · 0 inchangée · 0 supprimée');
         });
 
+        it('says how many lines of the file collapsed onto one another', async () => {
+            // A file of 300 lines reporting « 280 ajoutées » with nothing
+            // said about the other twenty reads as a loss.
+            serve([]);
+            await boot();
+            await open();
+
+            global.fetch = vi.fn(() => jsonResponse({
+                success: true,
+                summary: { added: 2, unchanged: 0, removed: 0, kept_unsubscribed: 0 },
+                addresses: [{ name: null, email: 'une@test.be' }, { name: null, email: 'deux@test.be' }],
+                errors: [],
+                duplicates: 3,
+            }));
+            chooseFile();
+            await settle();
+
+            expect(importSummary().textContent).toContain('3 lignes en double dans le fichier');
+        });
+
         it('lists the lines that will not be imported, as text', async () => {
             serve([]);
             await boot();

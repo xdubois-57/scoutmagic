@@ -498,6 +498,18 @@ l'ensemble depuis le serveur, et l'échec qui laisse l'écran intact.
   `countUnsubscribedNotIn()` répond sur les index aveugles, sans rien
   déchiffrer, la question étant un nombre.
 
+- **Le remplacement n'était pas transactionnel.** N insertions puis M
+  suppressions : une panne entre les deux moitiés laissait la liste
+  porter à la fois ce que le fichier apportait et ce qu'il retirait —
+  au-delà du plafond qu'on venait de vérifier, et sans entrée au journal
+  puisque l'appelant ne journalise qu'au retour. Enveloppé, annulé sur
+  `\Throwable`, comme le fait déjà `BatchResetService`.
+- **Le compte de doublons du fichier n'était affiché nulle part.**
+  `analyse()` le calcule et la route le renvoie, mais l'aperçu ne le
+  lisait pas : un fichier de 300 lignes annonçant « 280 ajoutées » sans
+  rien dire des vingt autres se lit comme une perte. La phrase de résumé
+  le nomme désormais.
+
 **Complété dans la foulée de la revue d'IT-03.** `replaceForList()` ne
 protège que les lignes désinscrites **de la liste qu'il remplace** — les
 seules qu'il voie. Une adresse désinscrite sur une *autre* liste arrive
