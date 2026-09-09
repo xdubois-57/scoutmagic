@@ -16,15 +16,15 @@ This file is automatically loaded by Devin, Cursor, Copilot, and other AI coding
   the thread stands unchanged. Reviews arrive in English and the maintainer
   writes French, so a reply matches whoever it answers. The rule above is
   about the *record* a change leaves behind; a thread reply is a
-  conversation with the person reading it, and it disappears with the
-  branch.
+  conversation with the person reading it, not part of that record.
 - No exceptions beyond that one. A French variable name or an English UI
   label is always a bug, and so is an English commit message or PR title.
 
 The split is easy to state and easy to get wrong in the same file: **the code
-is English, everything said about the code is French.** A docblock explaining
-why a method exists is a comment, so it stays English; the commit message
-explaining why that method was added is prose for a human, so it is French.
+and its comments are English, everything written *about a change* is
+French.** A docblock explaining why a method exists is a comment, so it
+stays English; the commit message explaining why that method was added is
+prose for a human, so it is French.
 
 ## Architecture
 
