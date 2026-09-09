@@ -9,43 +9,34 @@ declare(strict_types=1);
 namespace Core\Storage;
 
 /**
- * How many bytes a directory tree actually occupies.
+ * How many bytes a directory tree occupies, and which files are in it.
  *
- * **Symbolic links are not counted unless a caller asks for them.** Two
- * reasons: a link to a file already inside the tree double-counts it, and
- * a link to a file outside the tree counts bytes that are not on this
- * account's quota at all — which reports a site as fuller than it is, on
- * exactly the shared hosting where the number matters.
- *
- * Symlinked *directories* are never descended into, whatever `$followLinks`
- * says. That is `RecursiveDirectoryIterator`'s own default and this
- * codebase's existing behaviour; changing it would be a way to make a
- * backup loop forever on a link pointing at an ancestor.
- *
- * An unreadable subdirectory is skipped rather than fatal: this measurement
- * feeds a warning and a refusal-to-write, and neither is worth turning a
- * page into a 500 over one directory whose permissions are wrong.
+ * One walk, two intents — see {@see DirectoryWalk}, which is where the
+ * differences live and why. A measurement is lenient and does not follow
+ * links; an archive is strict and does. They were two independent boolean
+ * parameters once, which let an archive silently inherit a measurement's
+ * leniency: the parameter names an intent now so that cannot happen by
+ * forgetting an argument.
  */
 final class DirectorySize
 {
     /**
      * @param string[] $excludedPrefixes absolute path prefixes to leave out
-     *                                   entirely — matched with
-     *                                   str_starts_with, so pass a real
-     *                                   directory path without its trailing
-     *                                   slash
-     * @param bool     $followLinks      see {@see files()}; false is what a
-     *                                   quota measurement wants and the
-     *                                   default for that reason
+     *                                   entirely — matched on a path
+     *                                   boundary, so excluding `temp` never
+     *                                   also excludes `temperatures`
      */
-    public static function measure(string $directory, array $excludedPrefixes = [], bool $followLinks = false): int
-    {
+    public static function measure(
+        string $directory,
+        array $excludedPrefixes = [],
+        DirectoryWalk $intent = DirectoryWalk::Measurement
+    ): int {
         if (!is_dir($directory)) {
             return 0;
         }
 
         $total = 0;
-        foreach (self::files($directory, $excludedPrefixes, $followLinks) as $file) {
+        foreach (self::files($directory, $excludedPrefixes, $intent) as $file) {
             $total += max(0, (int) $file->getSize());
         }
 
@@ -54,55 +45,66 @@ final class DirectorySize
 
     /**
      * The same walk, exposed so a caller that needs the files themselves
-     * (Core\Maintenance\BackupService, deciding what to archive) uses one
+     * (`Core\Maintenance\BackupService`, deciding what to archive) uses one
      * definition of "which files are in this tree" rather than a second
      * copy that forgets an exclusion.
      *
      * @param string[] $excludedPrefixes
-     * @param bool     $followLinks whether symlinked FILES are yielded.
-     *        **False for a measurement** — see this class's docblock.
-     *        **True for an archive**: that is what `BackupService` has
-     *        always done, and a backup is not the place to start silently
-     *        leaving out a file somebody's host symlinked elsewhere. The
-     *        two callers want genuinely different answers, so the
-     *        difference is a parameter rather than a compromise. Symlinked
-     *        directories are never descended into either way.
      * @return iterable<\SplFileInfo>
+     * @throws \UnexpectedValueException on an unreadable directory, and only
+     *         under {@see DirectoryWalk::Archive} — a measurement swallows it
      */
-    public static function files(string $directory, array $excludedPrefixes = [], bool $followLinks = false): iterable
-    {
+    public static function files(
+        string $directory,
+        array $excludedPrefixes = [],
+        DirectoryWalk $intent = DirectoryWalk::Measurement
+    ): iterable {
         if (!is_dir($directory)) {
             return;
         }
 
-        try {
-            $directoryIterator = new \RecursiveDirectoryIterator(
-                $directory,
-                \FilesystemIterator::SKIP_DOTS | \FilesystemIterator::CURRENT_AS_FILEINFO
-            );
+        $followLinks = $intent->followsLinks();
 
-            $filtered = new \RecursiveCallbackFilterIterator(
-                $directoryIterator,
-                static function (\SplFileInfo $current) use ($excludedPrefixes, $followLinks): bool {
-                    if (!$followLinks && $current->isLink()) {
+        $directoryIterator = new \RecursiveDirectoryIterator(
+            $directory,
+            \FilesystemIterator::SKIP_DOTS | \FilesystemIterator::CURRENT_AS_FILEINFO
+        );
+
+        $filtered = new \RecursiveCallbackFilterIterator(
+            $directoryIterator,
+            static function (\SplFileInfo $current) use ($excludedPrefixes, $followLinks): bool {
+                if (!$followLinks && $current->isLink()) {
+                    return false;
+                }
+                $path = $current->getPathname();
+                foreach ($excludedPrefixes as $prefix) {
+                    if ($path === $prefix || str_starts_with($path, rtrim($prefix, '/') . '/')) {
                         return false;
                     }
-                    $path = $current->getPathname();
-                    foreach ($excludedPrefixes as $prefix) {
-                        if ($path === $prefix || str_starts_with($path, rtrim($prefix, '/') . '/')) {
-                            return false;
-                        }
-                    }
-                    return true;
                 }
-            );
+                return true;
+            }
+        );
 
-            $iterator = new \RecursiveIteratorIterator(
-                $filtered,
-                \RecursiveIteratorIterator::LEAVES_ONLY,
-                \RecursiveIteratorIterator::CATCH_GET_CHILD
-            );
+        // CATCH_GET_CHILD swallows an unreadable subdirectory and carries
+        // on. Right for a measurement, wrong for an archive — an archive
+        // that skips what it cannot read is worse than one that fails,
+        // because only the failure is visible before the restore.
+        $flags = $intent->failsOnUnreadable() ? 0 : \RecursiveIteratorIterator::CATCH_GET_CHILD;
 
+        $iterator = new \RecursiveIteratorIterator($filtered, \RecursiveIteratorIterator::LEAVES_ONLY, $flags);
+
+        if ($intent->failsOnUnreadable()) {
+            foreach ($iterator as $file) {
+                if ($file instanceof \SplFileInfo && $file->isFile()) {
+                    yield $file;
+                }
+            }
+
+            return;
+        }
+
+        try {
             foreach ($iterator as $file) {
                 if ($file instanceof \SplFileInfo && $file->isFile()) {
                     yield $file;

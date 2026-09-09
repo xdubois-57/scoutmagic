@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Core\Storage;
 
 use Core\Storage\DirectorySize;
+use Core\Storage\DirectoryWalk;
 use PHPUnit\Framework\TestCase;
 
 class DirectorySizeTest extends TestCase
@@ -100,11 +101,55 @@ class DirectorySizeTest extends TestCase
         }
 
         try {
-            $this->assertSame(5064, DirectorySize::measure($this->root, [], true));
+            $this->assertSame(5064, DirectorySize::measure($this->root, [], DirectoryWalk::Archive));
         } finally {
             @unlink($this->root . '/linked.bin');
             $this->removeDirectory($outside);
         }
+    }
+
+    /**
+     * An archive that skips what it cannot read is worse than one that
+     * fails: only the failure is visible before the restore. A
+     * measurement, feeding a warning and a refusal-to-write, is the
+     * opposite — it must never turn a configuration page into a 500.
+     */
+    public function testAnUnreadableSubdirectoryIsFatalForAnArchiveAndSkippedForAMeasurement(): void
+    {
+        if (function_exists('posix_geteuid') && posix_geteuid() === 0) {
+            $this->markTestSkipped('root reads unreadable directories anyway.');
+        }
+
+        $this->write('readable/a.txt', str_repeat('x', 10));
+        mkdir($this->root . '/locked', 0755, true);
+        file_put_contents($this->root . '/locked/secret.txt', 'x');
+        chmod($this->root . '/locked', 0000);
+
+        try {
+            // The measurement carries on and reports what it could read.
+            $this->assertSame(10, DirectorySize::measure($this->root));
+
+            // The archive refuses rather than quietly omitting the subtree.
+            $this->expectException(\UnexpectedValueException::class);
+            iterator_to_array(DirectorySize::files($this->root, [], DirectoryWalk::Archive));
+        } finally {
+            chmod($this->root . '/locked', 0755);
+        }
+    }
+
+    /**
+     * The permission test above cannot run as root, which CI is — so this
+     * pins the same contract where nothing can skip it. It is the weaker
+     * of the two (it checks the intent, not the walk), and it exists
+     * because the stronger one is silent exactly where it matters most.
+     */
+    public function testTheTwoIntentsDifferOnBothBehavioursTogether(): void
+    {
+        $this->assertFalse(DirectoryWalk::Measurement->followsLinks());
+        $this->assertFalse(DirectoryWalk::Measurement->failsOnUnreadable());
+
+        $this->assertTrue(DirectoryWalk::Archive->followsLinks());
+        $this->assertTrue(DirectoryWalk::Archive->failsOnUnreadable());
     }
 
     public function testFilesYieldsEveryFileTheMeasurementCounted(): void

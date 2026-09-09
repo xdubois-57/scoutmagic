@@ -161,4 +161,42 @@ class ChunkedUploadStoreTest extends TestCase
 
         $this->assertSame(4, $this->store->receivedBytes(self::ID, 'sess1'));
     }
+
+    /**
+     * The per-chunk check has to hold the CUMULATIVE size against the
+     * budget, not this chunk's.
+     *
+     * `DiskBudget::measure()` serves a reading cached for fifteen minutes,
+     * and the first chunk is what populates it — so the baseline is frozen
+     * at the pre-upload usage for the whole upload. Checking one chunk at
+     * a time against that frozen figure passes the same small number over
+     * and over while a half-gigabyte archive lands past the quota, which
+     * is precisely the mid-write overshoot the guard exists to refuse.
+     */
+    public function testTheQuotaIsCheckedAgainstTheAssembledSizeNotTheChunk(): void
+    {
+        $pdo = \Tests\DatabaseTestHelper::createTestDatabase();
+        $settings = new \Core\Config\SettingService(new \Core\Config\SettingRepository($pdo));
+        $settings->register(\Core\Storage\DiskBudget::QUOTA_SETTING, '', 'text', 'Quota', 'Quota');
+        // Room for the safety margin plus a little: one small chunk fits,
+        // the accumulated total must not.
+        $settings->set(\Core\Storage\DiskBudget::QUOTA_SETTING, (string) (60 * 1024 * 1024));
+
+        $store = new ChunkedUploadStore(
+            $this->storagePath,
+            new \Core\Storage\DiskBudget($this->storagePath, $settings)
+        );
+
+        $uploadId = bin2hex(random_bytes(16));
+        $chunk = $this->storagePath . '/chunk.bin';
+        file_put_contents($chunk, str_repeat('x', 1024));
+
+        // The first chunk sits well inside the budget.
+        $store->appendChunk($uploadId, 'sess-quota', 0, $chunk, false, 500 * 1024 * 1024);
+
+        // A chunk claiming to start 400 MiB in must be refused, even
+        // though the chunk itself is a kilobyte.
+        $this->expectException(UploadException::class);
+        $store->appendChunk($uploadId, 'sess-quota', 400 * 1024 * 1024, $chunk, false, 500 * 1024 * 1024);
+    }
 }

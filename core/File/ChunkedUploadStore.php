@@ -82,12 +82,28 @@ final class ChunkedUploadStore
             $this->purgeStalePartials();
         }
 
+        // The CUMULATIVE size, not this chunk's.
+        //
+        // `DiskBudget::measure()` serves a reading cached for fifteen
+        // minutes, and nothing invalidates it as bytes land — the first
+        // chunk populates that cache, pinning the pre-upload usage for the
+        // rest of the upload. Checking one chunk at a time against a
+        // frozen baseline therefore compares the same eight megabytes
+        // against the same headroom sixty times over, and a half-gigabyte
+        // archive sails past the quota: exactly the mid-write overshoot
+        // this guard exists to refuse. `$maxTotalBytes` does not close it
+        // either — it bounds the assembled file, not the disk.
+        //
+        // `$offset` is where this chunk starts, so `$offset + its size` is
+        // what the assembled file will weigh, which is the right number to
+        // hold against a baseline taken before any of it existed.
+        //
         // Re-stated as an UploadException, with the sentence written here
         // and the shortfall carried by $previous — the caller catches this
         // type and nothing else (AGENTS.md § Exception messages that reach
         // a visitor).
         try {
-            $this->diskBudget?->ensureRoom((int) @filesize($chunkTmpPath));
+            $this->diskBudget?->ensureRoom($offset + (int) @filesize($chunkTmpPath));
         } catch (\Core\Storage\InsufficientDiskSpaceException $e) {
             throw new UploadException(
                 'L\'espace disque disponible ne suffit pas pour recevoir ce fichier. Libérez de la place, '

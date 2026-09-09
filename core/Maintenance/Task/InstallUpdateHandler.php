@@ -192,20 +192,30 @@ class InstallUpdateHandler implements TaskHandlerInterface
         $filesZipPath = null;
 
         try {
-            // Step 0: room for the whole operation, BEFORE the safety
-            // backup — which is itself the largest write here, and which
-            // BackupService checks for separately. What this call covers is
-            // the part nothing else can: the downloaded artifact and its
-            // extracted copy, both of which land in storage/temp and whose
-            // real size is not known until the download has already
-            // happened.
+            // Step 0: room for the whole operation AT ONCE — the safety
+            // backup's dump, its file archive, and the workspace the
+            // downloaded artifact and its extracted copy will need.
+            //
+            // Summed, not checked one at a time, and that is the whole
+            // point of doing it here. Each of those three writes is also
+            // checked by whatever performs it, but all three would be
+            // measured against the same pre-backup reading (DiskBudget
+            // caches its walk), so all three can pass individually while
+            // their total does not fit. `createFullBackup()` documents
+            // exactly this trap for its own two halves — « checking them
+            // one at a time would let the dump succeed and the archive run
+            // out of room half-written » — and an update has three.
             //
             // This class already documents having met « Disk quota
             // exceeded » in production. Running out here does not fail
-            // cleanly — it leaves a half-copied install over a running
+            // cleanly: it leaves a half-copied install over a running
             // site, which is the failure a rollback is least able to
             // recover from.
-            $diskBudget->ensureRoom(self::UPDATE_WORKSPACE_ESTIMATE_BYTES);
+            $diskBudget->ensureRoom(
+                self::UPDATE_WORKSPACE_ESTIMATE_BYTES
+                + $backupService->estimateDatabaseDumpBytes()
+                + $backupService->estimateFileBackupBytes(true)
+            );
 
             // Step 1: mandatory safety backup — the only thing an automatic
             // rollback can restore from, so it must be a genuine, restorable

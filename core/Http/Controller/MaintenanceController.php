@@ -629,12 +629,20 @@ class MaintenanceController extends AbstractController
                 ['backup_id' => $backupId], $userId
             );
             FlashMessage::set('success', 'Sauvegarde de la base de données générée.');
-        } catch (BackupException $e) {
-            // BackupException is marked UserFacingException, so its own
+        } catch (BackupException | \Core\Storage\InsufficientDiskSpaceException $e) {
+            // Both are marked UserFacingException, so each one's own
             // sentence survives — the gate stands here for the empty-message
             // case (which would render as a blank flash and a blank tooltip:
             // a failure that looks like a success) and so this write site
             // reads the same as every other one.
+            //
+            // InsufficientDiskSpaceException is named explicitly because it
+            // is a SIBLING of BackupException, not a subtype — both extend
+            // RuntimeException. Catching only the latter let a full quota
+            // escape as a 500, leaving the `backups` row stuck at
+            // `in_progress` for ever and hiding the one message that says
+            // what to do about it. This is the only synchronous backup
+            // route; the background ones report through their own handler.
             $message = UserFacingMessage::from(
                 $e,
                 'La sauvegarde de la base de données n\'a pas pu être générée — vérifiez l\'espace disque et '

@@ -13,6 +13,7 @@ use Core\Database\DatabaseDumper;
 use Core\Database\DatabaseRestorer;
 use Core\Database\SchemaIntrospector;
 use Core\Storage\DirectorySize;
+use Core\Storage\DirectoryWalk;
 use Core\Storage\DiskBudget;
 
 /**
@@ -115,6 +116,29 @@ class BackupService implements BackupServiceInterface
     private const BACKED_UP_TOP_LEVEL = ['core', 'modules', 'public', 'schema', 'storage', 'vendor'];
 
     /**
+     * The trees the OPERATOR'S OWN downloadable backup archives — four,
+     * not the six above.
+     *
+     * `vendor` and `schema` are deliberately absent: every entry in this
+     * archive is separately AES-256 encrypted, and paying that per-file
+     * cost over a `vendor/` tree of thousands of files, on the shared
+     * hosting this feature exists for, buys back a tree the operator can
+     * reinstall from any release artifact.
+     *
+     * It is a named constant rather than an inline list because the size
+     * ESTIMATE has to read the same one. It did not, once, and the
+     * estimate summed all six for an archive that writes four — inflating
+     * the pre-write check by the whole of `vendor/` and able to refuse a
+     * backup that would have fitted. Same lesson as
+     * `excludedArchivePrefixes()` below, arrived at from the other
+     * direction: what the archive writes and what the estimate measures
+     * are one list or they eventually disagree.
+     *
+     * @var string[]
+     */
+    private const FULL_BACKUP_TOP_LEVEL = ['core', 'modules', 'public', 'storage'];
+
+    /**
      * Zips BACKED_UP_TOP_LEVEL (excluding storage/keys/ and
      * storage/config/ — secrets never leave the server in a backup
      * archive, encrypted or not) into a single archive. $includeGallery
@@ -184,7 +208,9 @@ class BackupService implements BackupServiceInterface
         // to prevent, arrived at through the guard itself.
         $this->diskBudget?->ensureRoom(
             $this->estimateDatabaseDumpBytes()
-            + ($scope === 'full_config' ? 0 : $this->estimateFileBackupBytes($scope === 'full_with_gallery'))
+            + ($scope === 'full_config'
+                ? 0
+                : $this->estimateFileBackupBytes($scope === 'full_with_gallery', self::FULL_BACKUP_TOP_LEVEL))
         );
 
         $dbDumpPath = $scope === 'full_config' ? $this->createConfigOnlyDump() : $this->createDatabaseDump();
@@ -212,7 +238,7 @@ class BackupService implements BackupServiceInterface
                 // (createFileBackup() above) is the one that must be
                 // complete, and it is unencrypted. RESTORABLE_TOP_LEVEL is
                 // a superset check, so both archives stay restorable.
-                foreach (['core', 'modules', 'public', 'storage'] as $topDir) {
+                foreach (self::FULL_BACKUP_TOP_LEVEL as $topDir) {
                     $this->addDirectoryToZip(
                         $zip,
                         $this->basePath . '/' . $topDir,
@@ -528,14 +554,22 @@ class BackupService implements BackupServiceInterface
      * out smaller. For a "will this fit?" question, erring high is the
      * safe direction, and the alternative (guessing a compression ratio)
      * would be a number nobody could defend.
+     *
+     * @param string[]|null $topLevel which trees the caller is about to
+     *        archive. Null means the safety backup's six
+     *        (BACKED_UP_TOP_LEVEL); `createFullBackup()` passes its own
+     *        four, because erring high is only safe up to a point —
+     *        summing `vendor/` for an archive that does not contain it
+     *        inflates the check by hundreds of megabytes and can refuse a
+     *        backup that would have fitted.
      */
-    public function estimateFileBackupBytes(bool $includeGallery): int
+    public function estimateFileBackupBytes(bool $includeGallery, ?array $topLevel = null): int
     {
         $excluded = $this->excludedArchivePrefixes($includeGallery);
 
         $total = 0;
-        foreach (self::BACKED_UP_TOP_LEVEL as $topDir) {
-            $total += DirectorySize::measure($this->basePath . '/' . $topDir, $excluded, true);
+        foreach ($topLevel ?? self::BACKED_UP_TOP_LEVEL as $topDir) {
+            $total += DirectorySize::measure($this->basePath . '/' . $topDir, $excluded, DirectoryWalk::Archive);
         }
 
         return $total;
@@ -595,7 +629,11 @@ class BackupService implements BackupServiceInterface
         // A quota measurement must not follow a symlink; a backup must,
         // or a host that symlinks storage/gallery elsewhere gets an
         // archive that silently contains none of it.
-        $files = DirectorySize::files($sourceDir, $this->excludedArchivePrefixes($includeGallery), true);
+        $files = DirectorySize::files(
+            $sourceDir,
+            $this->excludedArchivePrefixes($includeGallery),
+            DirectoryWalk::Archive
+        );
 
         foreach ($files as $file) {
             $absolutePath = $file->getPathname();

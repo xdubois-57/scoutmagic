@@ -107,13 +107,31 @@ class BackupServiceTest extends TestCase
         $excludedBytes = strlen('secret-key-bytes') + strlen('secret-config') + strlen('ephemeral');
         $everything = 0;
         foreach (['core', 'modules', 'public', 'schema', 'storage', 'vendor'] as $top) {
-            $everything += \Core\Storage\DirectorySize::measure($this->basePath . '/' . $top, [], true);
+            $everything += \Core\Storage\DirectorySize::measure($this->basePath . '/' . $top, [], \Core\Storage\DirectoryWalk::Archive);
         }
 
         $this->assertSame(
             $everything - $excludedBytes - strlen('fake-jpeg-bytes'),
             $this->service->estimateFileBackupBytes(false)
         );
+    }
+
+    /**
+     * The full backup writes four trees, not the safety backup's six —
+     * `vendor` and `schema` are deliberately absent from it. An estimate
+     * that summed all six would inflate the pre-write check by the whole
+     * of `vendor/` and could refuse a backup that would have fitted.
+     */
+    public function testTheEstimateSizesOnlyTheTreesTheCallerWillArchive(): void
+    {
+        $everything = $this->service->estimateFileBackupBytes(false);
+        $fullBackupOnly = $this->service->estimateFileBackupBytes(false, ['core', 'modules', 'public', 'storage']);
+
+        $vendorAndSchema = strlen('<?php // composer')
+            + strlen('<?php // twig')
+            + strlen('CREATE TABLE members (id INT);');
+
+        $this->assertSame($everything - $vendorAndSchema, $fullBackupOnly);
     }
 
     /**

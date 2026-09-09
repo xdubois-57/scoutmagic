@@ -250,6 +250,53 @@ restauration), et le CSV déposé de l'import Desk.
    ce que l'archive écrit annonce « ça tient » à propos d'une écriture
    qui ne tient pas.
 
+**Cinq défauts relevés en revue, tous réels, tous corrigés.** Ils
+partagent une même racine — le cache de quinze minutes de `DiskBudget`
+gèle la mesure, donc plusieurs contrôles successifs se comparent tous à
+la même ligne de base — et c'est la revue qui l'a vue avant nous.
+
+1. **`ChunkedUploadStore` ne contrôlait que la taille du fragment.** Le
+   premier fragment peuple le cache ; tous les suivants comparaient donc
+   les mêmes huit mégaoctets à la même marge, et une archive d'un
+   demi-gigaoctet passait entièrement le quota — exactement le
+   dépassement en cours d'écriture que ce garde-fou refuse. Il contrôle
+   désormais `$offset + taille du fragment`, c'est-à-dire ce que pèsera le
+   fichier assemblé, qui est le bon nombre face à une ligne de base prise
+   avant que rien n'existe.
+
+2. **L'archive avait hérité de la clémence de la mesure.** Avant cette
+   itération, `addDirectoryToZip()` utilisait un itérateur nu : un
+   sous-dossier illisible faisait échouer la sauvegarde bruyamment.
+   Partagé avec `DirectorySize`, il s'est mis à le sauter en silence — une
+   sauvegarde de sécurité pouvait donc se terminer avec succès en omettant
+   tout un sous-arbre, découvert le jour d'un retour en arrière. Les deux
+   booléens (`followLinks`, clémence) allaient toujours ensemble : ils
+   sont devenus **une** énumération `DirectoryWalk` (`Measurement` /
+   `Archive`), pour que l'erreur ne soit plus faisable par omission.
+
+3. **L'estimation dimensionnait six arbres pour une archive qui en écrit
+   quatre.** `createFullBackup()` exclut délibérément `vendor` et
+   `schema` ; l'estimation les sommait quand même, gonflant le contrôle de
+   plusieurs centaines de mégaoctets et pouvant refuser une sauvegarde qui
+   tenait. `FULL_BACKUP_TOP_LEVEL` est maintenant une constante nommée que
+   la marche ET l'estimation lisent — même leçon que
+   `excludedArchivePrefixes()`, prise par l'autre bout.
+
+4. **La seule route synchrone n'attrapait pas le refus.**
+   `InsufficientDiskSpaceException` est un **frère** de `BackupException`,
+   pas un sous-type : sur un quota plein, elle échappait au `catch`, la
+   ligne `backups` restait bloquée à `in_progress` pour toujours et
+   l'administrateur recevait un 500 au lieu de la phrase qui dit quoi
+   faire.
+
+5. **`InstallUpdateHandler` faisait trois contrôles indépendants.**
+   L'espace de travail, le dump et l'archive, chacun contre la même
+   mesure gelée : les trois passaient séparément alors que leur somme ne
+   tenait pas. C'est précisément le piège que `createFullBackup()`
+   documente pour ses deux moitiés — « les contrôler un par un laisserait
+   le dump réussir et l'archive manquer de place à mi-chemin » — et une
+   mise à jour en a trois. Un seul contrôle, sommé.
+
 **Reporté.** La saisie du quota se fait sur la page générique
 Configuration > Réglages, pas sur la page Maintenance : le document de
 chantier borne l'interface de cette itération au seul encart de lecture.
