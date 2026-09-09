@@ -93,10 +93,15 @@ final class CommitLanguageRuleIsWrittenDownTest extends TestCase
     {
         $rules = self::languageSection();
 
+        // The contiguous phrase, not the three carriers separately: « release
+        // notes » occurs TWICE inside this section — in the enumeration, and
+        // in the justification a couple of lines below ("site administrators
+        // read the release notes"). Asserting it on its own would survive an
+        // edit that dropped it from the rule and left the prose alone, which
+        // is the very regression scoping to the section was meant to stop.
         foreach ([
             'Commit messages',
-            'pull request titles and descriptions',
-            'release notes',
+            'pull request titles and descriptions, release notes.',
         ] as $carrier) {
             $this->assertStringContainsString(
                 $carrier,
