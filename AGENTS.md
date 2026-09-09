@@ -7,12 +7,19 @@ This file is automatically loaded by Devin, Cursor, Copilot, and other AI coding
 - All code, comments, variable names, function names, class names, table names, column names: **English**.
 - All user-facing text (Twig templates, labels, messages, descriptions, settings labels): **French**.
 - **Everything written *about* a change: French.** Commit messages (title and
-  body), pull request titles and descriptions, release notes, and replies
-  posted on pull request review threads. This line used to say English, and
-  the history shows it: the maintainer reads this repository's log and its
-  Releases in French, and site administrators read the release notes.
-- No exceptions. A French variable name or an English UI label is always a
-  bug, and so is an English commit message.
+  body), pull request titles and descriptions, release notes. This line used
+  to say English, and the history shows it: the maintainer reads this
+  repository's log and its Releases in French, and site administrators read
+  the release notes.
+- **A reply on a pull request review thread is the one exception**, and it is
+  deliberate: `.claude/skills/steward/SKILL.md` § Reply in the language of
+  the thread stands unchanged. Reviews arrive in English and the maintainer
+  writes French, so a reply matches whoever it answers. The rule above is
+  about the *record* a change leaves behind; a thread reply is a
+  conversation with the person reading it, and it disappears with the
+  branch.
+- No exceptions beyond that one. A French variable name or an English UI
+  label is always a bug, and so is an English commit message or PR title.
 
 The split is easy to state and easy to get wrong in the same file: **the code
 is English, everything said about the code is French.** A docblock explaining

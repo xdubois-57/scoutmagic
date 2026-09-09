@@ -61,7 +61,10 @@ UTF-8 in a user-facing French label. Judge the consequence, not the size of
 the patch.
 
 **Reply in the language of the thread.** Reviews arrive in English; the
-maintainer writes French. Match whoever you are answering.
+maintainer writes French. Match whoever you are answering. This is the one
+thing `AGENTS.md` § Language exempts from its "everything written about a
+change is French" rule, and the two files now say so to each other — a
+thread reply is a conversation, not the record the change leaves behind.
 
 **Two questions, and size answers before identity.**
 
