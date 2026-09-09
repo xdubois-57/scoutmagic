@@ -62,6 +62,7 @@
 // September. Every label is read from the page and then asserted
 // *relationally* (the public year becomes the year step 7 previewed, and so
 // on), which is what the workflow actually promises.
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -81,6 +82,68 @@ const DESK_FIXTURE = path.join(
     // format Core\Import actually parses.
     '../../fixtures/desk_export_sample.csv',
 );
+
+/**
+ * The Desk export this scenario uploads: the shared sample, plus ONE row —
+ * the super-admin, as chef d'unité of the target year.
+ *
+ * WHY THE EXTRA ROW EXISTS. A Desk import replaces a roster:
+ * DeskImportService calls deactivateAllForYear() before writing, so after
+ * step 8 the only members of the target year are the ones this file names.
+ * The shared sample names six children and no unit chief, so the account
+ * every later scenario signs in as stopped being Staff d'U the moment this
+ * spec moved the public year forward — and pages gated on « chef d'unité »
+ * (/config/retro, /config/banner) began answering 403 in
+ * zz-module-boot-matrix, which runs after this one.
+ *
+ * A real unit's export always carries its own chief; the six-row sample
+ * simply is not a real unit. Adding the row here rather than to
+ * tests/fixtures/desk_export_sample.csv keeps that file byte-identical for
+ * tests/Core/Import/, which asserts on its exact contents.
+ *
+ * `FONCTION` is the column DeskCsvParser reads as the function code, and
+ * `E2E-CDU` is the admin-role function scripts/e2e-support.php already
+ * seeds (e2e_seed_unit_chief_function_for_admin). Section is left EMPTY on
+ * purpose: UnitStaffSectionService::syncMembership() is what puts every
+ * admin-role function with no section into « Staff d'U », which is exactly
+ * how a real chief lands there.
+ */
+function deskExportCarryingTheUnitChief() {
+    const raw = fs.readFileSync(DESK_FIXTURE, 'utf8');
+    const lines = raw.split(/\r?\n/).filter((line) => line.trim() !== '');
+    const header = lines[0].split(';');
+
+    const row = new Array(header.length).fill('');
+    const set = (column, value) => {
+        const index = header.indexOf(column);
+        if (index === -1) {
+            throw new Error(`Desk export has no "${column}" column — the fixture format changed.`);
+        }
+        row[index] = value;
+    };
+
+    set('Nom', 'Cheffe');
+    set('Prenom', 'Unite');
+    set('Genre', 'F');
+    set('Date de naissance', '01/01/1990');
+    set('Email Tiers', process.env.E2E_ADMIN_EMAIL ?? 'admin@example.invalid');
+    set('Rue', 'Rue du Staff');
+    set('No', '1');
+    set('Code Postal', '1000');
+    set('Ville', 'Bruxelles');
+    set('Pays', 'Belgique');
+    set("Type d'adresse", 'Domicile');
+    set('Courrier fédération', 'true');
+    set("Courrier d'unité", 'true');
+    set('Groupe unités', 'SV025');
+    set("Fonction au sein de l'unité", 'SV025U');
+    set('FONCTION', 'E2E-CDU');
+    set('Tiers', 'T900');
+    set('Date début', '01/09/2025');
+    set('Fonction principale', 'true');
+
+    return [...lines, row.join(';')].join('\n') + '\n';
+}
 
 /**
  * The card carrying a given year heading ("Année publique", "Année du
@@ -388,7 +451,11 @@ test('the whole site transitions to the next scout year through the documented w
 
     const importForm = page.locator('form[action="/admin/import"]');
     await importForm.getByLabel('Année scoute cible').selectOption({ label: targetYear });
-    await importForm.getByLabel('Fichier CSV à importer').setInputFiles(DESK_FIXTURE);
+    await importForm.getByLabel('Fichier CSV à importer').setInputFiles({
+        name: 'desk_export.csv',
+        mimeType: 'text/csv',
+        buffer: Buffer.from(deskExportCarryingTheUnitChief(), 'utf8'),
+    });
     // exact: Chromium exposes <input type="file"> as a button too, and its
     // accessible name ("Fichier CSV à importer") contains "importer".
     await importForm.getByRole('button', { name: 'Importer', exact: true }).click();
