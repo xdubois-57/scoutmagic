@@ -2,7 +2,7 @@
   "id": "mass_mail",
   "name": "Envoi de mails",
   "description": "Envoi de mails groupés aux membres de l'unité : listes de diffusion par défaut ou personnalisées, publipostage depuis un fichier Excel avec variables personnalisées, mode test, envoi en arrière-plan par lots, suivi détaillé des envois. Accueille aussi, lorsque le module inscriptions est actif, une liste prédéfinie non modifiable pour l'année scoute cible.",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -186,60 +186,51 @@
       "label": ""
     },
     {
-      "path": "/config/mass-mail",
+      "path": "/admin/listes-de-diffusion",
       "method": "GET",
-      "controller": "Modules\\MassMail\\Controller\\ConfigController",
+      "controller": "Modules\\MassMail\\Controller\\MailingListController",
       "action": "index",
-      "menu": "configuration",
-      "role_min": "superadmin",
-      "label": "Envoi de mails",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": "Listes de diffusion",
       "menu_icon": "bi-send",
-      "menu_group": "modules",
-      "breadcrumb": { "label": "Envoi de mails", "parents": ["Configuration"] }
+      "menu_group": "services",
+      "breadcrumb": { "label": "Listes de diffusion", "parents": ["Espace chefs d'U"] }
     },
     {
-      "path": "/config/mass-mail/lists",
+      "path": "/admin/listes-de-diffusion/lists",
       "method": "POST",
-      "controller": "Modules\\MassMail\\Controller\\ConfigController",
+      "controller": "Modules\\MassMail\\Controller\\MailingListController",
       "action": "createList",
-      "menu": "configuration",
-      "role_min": "superadmin",
+      "menu": "espace_admin",
+      "role_min": "admin",
       "label": ""
     },
     {
-      "path": "/config/mass-mail/lists/{id}",
+      "path": "/admin/listes-de-diffusion/lists/{id}",
       "method": "PATCH",
-      "controller": "Modules\\MassMail\\Controller\\ConfigController",
+      "controller": "Modules\\MassMail\\Controller\\MailingListController",
       "action": "updateList",
-      "menu": "configuration",
-      "role_min": "superadmin",
+      "menu": "espace_admin",
+      "role_min": "admin",
       "label": ""
     },
     {
-      "path": "/config/mass-mail/lists/{id}/toggle",
+      "path": "/admin/listes-de-diffusion/lists/{id}/toggle",
       "method": "POST",
-      "controller": "Modules\\MassMail\\Controller\\ConfigController",
+      "controller": "Modules\\MassMail\\Controller\\MailingListController",
       "action": "toggleList",
-      "menu": "configuration",
-      "role_min": "superadmin",
+      "menu": "espace_admin",
+      "role_min": "admin",
       "label": ""
     },
     {
-      "path": "/config/mass-mail/lists/{id}",
+      "path": "/admin/listes-de-diffusion/lists/{id}",
       "method": "DELETE",
-      "controller": "Modules\\MassMail\\Controller\\ConfigController",
+      "controller": "Modules\\MassMail\\Controller\\MailingListController",
       "action": "deleteList",
-      "menu": "configuration",
-      "role_min": "superadmin",
-      "label": ""
-    },
-    {
-      "path": "/config/mass-mail/settings",
-      "method": "POST",
-      "controller": "Modules\\MassMail\\Controller\\ConfigController",
-      "action": "saveSettings",
-      "menu": "configuration",
-      "role_min": "superadmin",
+      "menu": "espace_admin",
+      "role_min": "admin",
       "label": ""
     }
   ],

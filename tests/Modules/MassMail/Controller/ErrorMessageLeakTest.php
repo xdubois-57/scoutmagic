@@ -6,11 +6,9 @@ namespace Tests\Modules\MassMail\Controller;
 
 use Core\Badge\MemberBadgeRepository;
 use Core\Config\ScoutYearService;
-use Core\Config\SettingException;
 use Core\Config\SettingService;
 use Core\Database\Connection;
 use Core\Security\AuthSession;
-use Core\Exception\UserFacingMessage;
 use Core\File\FileRepository;
 use Core\File\UploadHandler;
 use Core\Http\FlashMessage;
@@ -21,7 +19,6 @@ use Core\Mail\MailException;
 use Core\Member\MemberService;
 use Core\Member\SectionService;
 use Core\Security\EncryptionService;
-use Modules\MassMail\Controller\ConfigController;
 use Modules\MassMail\Controller\MassMailController;
 use Modules\MassMail\Repository\MailingListRepository;
 use Modules\MassMail\Repository\MemberResolutionRepository;
@@ -36,16 +33,13 @@ use Tests\Modules\MassMail\MassMailTestHelper;
 use Twig\Environment;
 
 /**
- * What these two endpoints are allowed to SAY when something fails.
+ * What this endpoint is allowed to SAY when something fails.
  *
  * Core\Mail\MailException is never a Core\Exception\UserFacingException: it
  * is constructed in Core\Mail\MailService::send() from PHPMailer's
  * `ErrorInfo`, so its message is raw SMTP English every single time — and
  * Controller\MassMailController::testSend() used to concatenate it into a
- * JSON body the composer page renders. Core\Config\SettingException is the
- * opposite case: it is being made French and user-facing in a separate
- * change, so the settings endpoint is pinned on its ROUTING rather than on
- * either outcome.
+ * JSON body the composer page renders.
  *
  * @group database
  */
@@ -177,42 +171,5 @@ class ErrorMessageLeakTest extends TestCase
 
         $this->assertSame(302, $response->getStatusCode());
         $this->assertSame('Adresse email invalide.', FlashMessage::get()['message'] ?? null);
-    }
-
-    public function testSaveSettingsShowsAFailureOnlyThroughTheUserFacingHelper(): void
-    {
-        $failure = new SettingException("Setting 'batch_size' is not editable.");
-        $settingService = $this->createMock(SettingService::class);
-        $settingService->method('set')->willThrowException($failure);
-
-        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
-        $connection = Connection::withPdo($this->pdo);
-        $controller = new ConfigController(
-            $this->createMock(Environment::class),
-            new MailingListService(
-                new MailingListRepository($this->pdo),
-                new MemberResolutionRepository($this->pdo, $encryption),
-                new SectionService($connection, $encryption, new MemberBadgeRepository($this->pdo)),
-                new FunctionRepository($this->pdo)
-            ),
-            $settingService
-        );
-
-        $response = $controller->saveSettings(
-            $this->jsonRequest(['_csrf_token' => $this->csrfToken(), 'batch_size' => 20, 'batch_interval_minutes' => 5]),
-            []
-        );
-
-        $this->assertSame(422, $response->getStatusCode());
-        $payload = json_decode($response->getBody(), true);
-        $this->assertIsArray($payload);
-        $this->assertFalse($payload['success']);
-        $this->assertSame(
-            UserFacingMessage::from(
-                $failure,
-                "La vitesse d'envoi n'a pas pu être enregistrée — réessayez, ou modifiez ces deux réglages depuis Configuration > Réglages."
-            ),
-            $payload['error']
-        );
     }
 }

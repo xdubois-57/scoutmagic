@@ -10,7 +10,7 @@ question: Comment prévenir tous les parents d'une section ?
 question: Comment vérifier qu'un e-mail groupé est bien parti ?
 question: Comment se tester soi-même avant un envoi groupé ?
 paths: /mass-mail, /mass-mail/new, /mass-mail/*, /mass-mail/*/tracking, /mass-mail/*/recipients
-related: publipostage, config-envoi-mails, membres-par-section
+related: publipostage, listes-de-diffusion, membres-par-section
 ---
 
 La page « Envoi de mails » gère les e-mails groupés de l'unité :

@@ -1,9 +1,9 @@
 {% extends "base.html.twig" %}
 
-{% block title %}Configuration envoi de mails — {{ site_name }}{% endblock %}
+{% block title %}Listes de diffusion — {{ site_name }}{% endblock %}
 
 {% block content %}
-    {% include 'partials/page_header.html.twig' with { title: 'Configuration envoi de mails' } only %}
+    {% include 'partials/page_header.html.twig' with { title: 'Listes de diffusion' } only %}
 
     <div class="card mb-4">
         <div class="card-body">
@@ -67,23 +67,6 @@
         </div>
     </div>
 
-    <div class="card mb-4">
-        <div class="card-body">
-            <h2 class="h5 mb-3">Vitesse d'envoi</h2>
-            <p class="text-body-secondary small">
-                Ce réglage est <strong>global à tout le site</strong> — il s'applique à tous les emails de masse en cours d'envoi, quel que soit leur expéditeur.
-            </p>
-            <form id="cfg-settings-form" class="d-flex align-items-center flex-wrap gap-2">
-                <span>Envoyer</span>
-                <input type="number" min="1" class="form-control form-control-sm" style="width:6rem;" id="cfg-batch-size" value="{{ batch_size }}" aria-label="Nombre d'emails par envoi">
-                <span>emails toutes les</span>
-                <input type="number" min="1" class="form-control form-control-sm" style="width:6rem;" id="cfg-batch-interval" aria-label="Intervalle en minutes entre les envois">
-                <span id="cfg-batch-interval-label">minutes</span>
-                <button type="submit" class="btn btn-sm btn-primary ms-2">Enregistrer</button>
-            </form>
-        </div>
-    </div>
-
     {# The title id the JS targets (cfg-list-modal-title) is exactly the
        embed's {id}-title convention. #}
     {% embed 'partials/modal.html.twig' with {
@@ -134,14 +117,5 @@
 {% endblock %}
 
 {% block scripts %}
-{# Server data as a JSON ISLAND, read by mass-mail-config.js through
-   ScoutMagicApi.pageData(): data to the parser rather than code, so the
-   template needs no nonce for it. #}
-{% set json_flags = constant('JSON_HEX_TAG') b-or constant('JSON_HEX_AMP') b-or constant('JSON_UNESCAPED_UNICODE') %}
-<script type="application/json" id="mass-mail-config-data">
-{{ {
-    batchIntervalMinutes: batch_interval_minutes
-}|json_encode(json_flags)|raw }}
-</script>
-<script src="{{ asset('/assets/js/mass-mail-config.js') }}" defer></script>
+<script src="{{ asset('/assets/js/mass-mail-lists.js') }}" defer></script>
 {% endblock %}

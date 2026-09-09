@@ -95,7 +95,7 @@ final class HelpLabelDriftTest extends TestCase
         // and plurals do not matter.
         'recherche-dans-l-aide' => ['médailles'],
         'camps-encoder' => ['On est allés là en 2012'],
-        'config-envoi-mails' => [
+        'listes-de-diffusion' => [
             'les intendants de toutes les sections',
             'les animateurs des deux sections aînées',
         ],
