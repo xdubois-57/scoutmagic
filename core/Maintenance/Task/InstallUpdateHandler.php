@@ -380,8 +380,12 @@ class InstallUpdateHandler implements TaskHandlerInterface
     ): void {
         $basePath = dirname($context->storagePath);
         $pdo = $context->connection->getPdo();
-        $backupService = new BackupService($context->connection, $context->storagePath, $basePath,
-            new DiskBudget($context->storagePath, $context->settings));
+        $backupService = new BackupService(
+            $context->connection,
+            $context->storagePath,
+            $basePath,
+            new DiskBudget($context->storagePath, $context->settings)
+        );
 
         // This invocation changes no status — a resumed migration re-enters
         // and leaves on 'migrating' — so without this the whole migration,

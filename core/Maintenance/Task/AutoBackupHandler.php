@@ -71,8 +71,12 @@ class AutoBackupHandler implements TaskHandlerInterface
     {
         $pdo = $context->connection->getPdo();
         $basePath = dirname($context->storagePath);
-        $backupService = $this->backupService ?? new BackupService($context->connection, $context->storagePath,
-            $basePath, new DiskBudget($context->storagePath, $context->settings));
+        $backupService = $this->backupService ?? new BackupService(
+            $context->connection,
+            $context->storagePath,
+            $basePath,
+            new DiskBudget($context->storagePath, $context->settings)
+        );
         $backupRepository = new BackupRepository($pdo);
         $fileRepository = new FileRepository($pdo);
 
