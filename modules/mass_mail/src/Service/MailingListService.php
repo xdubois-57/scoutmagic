@@ -11,6 +11,7 @@ namespace Modules\MassMail\Service;
 use Core\Badge\Badge;
 use Core\Badge\BadgeService;
 use Core\Config\ScoutYearService;
+use Core\Config\SettingService;
 use Core\Import\FunctionRepository;
 use Core\Member\SectionService;
 use Core\ScoutYear\ScoutYearResolver;
@@ -40,6 +41,13 @@ class MailingListService
 {
     public const ACTIVE_MEMBERS_LABEL = 'Membres actifs';
     public const CHIEFS_LABEL = 'Animateurs uniquement';
+    public const FORMER_MEMBERS_LABEL = 'Anciens';
+
+    public const SETTING_MIN_SCOUT_YEARS = 'anciens_min_scout_years';
+    public const SETTING_MAX_YEARS_SINCE_DEPARTURE = 'anciens_max_years_since_departure';
+
+    private const DEFAULT_MIN_SCOUT_YEARS = 2;
+    private const DEFAULT_MAX_YEARS_SINCE_DEPARTURE = 10;
 
     public function __construct(
         private MailingListRepository $listRepository,
@@ -70,7 +78,13 @@ class MailingListService
          */
         private ?ProjectedPopulationProvider $projectedPopulation = null,
         private ?ScoutYearResolver $scoutYearResolver = null,
-        private ?ScoutYearService $scoutYearService = null
+        private ?ScoutYearService $scoutYearService = null,
+        /**
+         * The two « Anciens » settings. Nullable for the same reason as
+         * the two above it — the composition roots always pass it, and
+         * without it the list falls back to its documented defaults.
+         */
+        private ?SettingService $settingService = null
     ) {
     }
 
@@ -186,6 +200,13 @@ class MailingListService
                 . "toutes sections confondues, pour l'année scoute sélectionnée.",
         ];
 
+        $lists[] = [
+            'list_type' => Email::LIST_TYPE_DEFAULT_FORMER_MEMBERS,
+            'list_section_id' => null,
+            'label' => self::FORMER_MEMBERS_LABEL,
+            'description' => $this->formerMembersDescription(),
+        ];
+
         if ($this->externalListProvider !== null) {
             $external = $this->externalListProvider->describeMailingList();
             $lists[] = [
@@ -197,6 +218,64 @@ class MailingListService
         }
 
         return $lists;
+    }
+
+    /**
+     * The « Anciens » list's description is COMPUTED, not fixed, and that
+     * is the point of it: this is the only list whose contents depend on
+     * two settings that are invisible from the page choosing it, and on a
+     * date nobody chose — the oldest year the unit ever imported, before
+     * which the site simply cannot know anybody. Saying that here, next to
+     * the list, is the only place a reader will actually see it; a note in
+     * a help topic is a note nobody reads at the moment they need it.
+     */
+    public function formerMembersDescription(): string
+    {
+        $parts = [];
+
+        $oldest = $this->resolutionRepository->oldestKnownScoutYearLabel();
+        $parts[] = $oldest !== null
+            ? "Anciens connus depuis {$oldest}"
+            : 'Anciens membres de l\'unité';
+
+        $minYears = $this->formerMembersMinScoutYears();
+        $parts[] = $minYears > 1
+            ? "au moins {$minYears} années scoutes"
+            : 'au moins une année scoute';
+
+        $maxYears = $this->formerMembersMaxYearsSinceDeparture();
+        $parts[] = $maxYears > 0 ? "partis depuis moins de {$maxYears} ans" : 'sans limite d\'ancienneté';
+
+        return implode(' · ', $parts) . '.';
+    }
+
+    /**
+     * Two distinct scout years means somebody re-enrolled at least once —
+     * the most honest substitute there is for « stayed », `member_years`
+     * being an annual snapshot. At 1, the list writes to everybody who
+     * ever came to three meetings.
+     */
+    public function formerMembersMinScoutYears(): int
+    {
+        $value = (int) ($this->settingService?->get(
+            self::SETTING_MIN_SCOUT_YEARS,
+            'mass_mail',
+            (string) self::DEFAULT_MIN_SCOUT_YEARS
+        ) ?? self::DEFAULT_MIN_SCOUT_YEARS);
+
+        return $value > 0 ? $value : self::DEFAULT_MIN_SCOUT_YEARS;
+    }
+
+    /** `0` means no bound at all. */
+    public function formerMembersMaxYearsSinceDeparture(): int
+    {
+        $value = (int) ($this->settingService?->get(
+            self::SETTING_MAX_YEARS_SINCE_DEPARTURE,
+            'mass_mail',
+            (string) self::DEFAULT_MAX_YEARS_SINCE_DEPARTURE
+        ) ?? self::DEFAULT_MAX_YEARS_SINCE_DEPARTURE);
+
+        return max(0, $value);
     }
 
     /**
@@ -369,6 +448,16 @@ class MailingListService
                 return $this->resolutionRepository->resolveActiveMembers($scoutYearId);
             case 'default_chiefs':
                 return $this->resolutionRepository->resolveChiefs($scoutYearId);
+            case Email::LIST_TYPE_DEFAULT_FORMER_MEMBERS:
+                // Each former member carries their own last active year;
+                // the shape this method promises does not, so the caller
+                // that needs it is resolveMembersForYears(), which
+                // special-cases this list exactly as it does the external
+                // one.
+                return array_map(
+                    fn(array $m) => ['member_id' => $m['member_id'], 'email' => $m['email']],
+                    $this->resolveFormerMembers($scoutYearId)
+                );
             case Email::LIST_TYPE_EXTERNAL:
                 // $scoutYearId is ignored on purpose — the provider
                 // resolves its own fixed target year internally (module
@@ -442,6 +531,21 @@ class MailingListService
     }
 
     /**
+     * The « Anciens » list, resolved against one reference year — the
+     * year somebody has to be ABSENT from to be a former member.
+     *
+     * @return array<int, array{member_id: int, email: ?string, scout_year_id: int}>
+     */
+    public function resolveFormerMembers(int $referenceScoutYearId): array
+    {
+        return $this->resolutionRepository->resolveFormerMembers(
+            $referenceScoutYearId,
+            $this->formerMembersMinScoutYears(),
+            $this->formerMembersMaxYearsSinceDeparture()
+        );
+    }
+
+    /**
      * A custom list's own addresses that may be written to — the
      * unsubscribed ones never leave the repository.
      *
@@ -504,6 +608,29 @@ class MailingListService
             );
         }
 
+        // « Anciens » is not re-scoped by the compose page's year
+        // checkboxes either, and for a stronger reason than the external
+        // list's: every former member carries their OWN last active year,
+        // which is the only year their profile exists for and therefore
+        // the only one their recipient row may be tagged with.
+        //
+        // The years it IS given are used for one thing only — the year
+        // somebody has to be absent from to count as a former member — and
+        // only the most recent of them, the caller having ordered them
+        // that way. That is deliberately the year the email targets rather
+        // than a year this service resolves for itself: the count shown on
+        // the compose page and the freeze then answer the same question,
+        // and the reference year is a stored property of the email
+        // (`mass_mail_email_scout_years`) rather than a session's.
+        if ($listType === Email::LIST_TYPE_DEFAULT_FORMER_MEMBERS) {
+            $referenceYearId = $scoutYearIds[0] ?? $this->scoutYearResolver?->getCurrentPublicYear()['id'];
+            if ($referenceYearId === null) {
+                return [];
+            }
+
+            return $this->deduplicateFormerMembers($this->resolveFormerMembers((int) $referenceYearId));
+        }
+
         $seenMemberIds = [];
         $seenAddresses = [];
         $merged = [];
@@ -548,6 +675,34 @@ class MailingListService
                     'scout_year_id' => null,
                 ];
             }
+        }
+
+        return $merged;
+    }
+
+    /**
+     * The same deduplication as everywhere else — two former members who
+     * share one address (a couple, a family address kept for two children
+     * who both left) receive one mail, not two — except that each keeps
+     * the year it was resolved from rather than being given a common one.
+     *
+     * @param array<int, array{member_id: int, email: ?string, scout_year_id: int}> $members
+     * @return array<int, array{member_id: int, email: ?string, scout_year_id: int}>
+     */
+    private function deduplicateFormerMembers(array $members): array
+    {
+        $seenAddresses = [];
+        $merged = [];
+
+        foreach ($members as $member) {
+            $addressKey = $member['email'] !== null ? mb_strtolower(trim($member['email'])) : null;
+            if ($addressKey !== null && isset($seenAddresses[$addressKey])) {
+                continue;
+            }
+            if ($addressKey !== null) {
+                $seenAddresses[$addressKey] = true;
+            }
+            $merged[] = $member;
         }
 
         return $merged;

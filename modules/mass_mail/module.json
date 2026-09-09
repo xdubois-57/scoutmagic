@@ -2,7 +2,7 @@
   "id": "mass_mail",
   "name": "Envoi de mails",
   "description": "Envoi de mails groupés aux membres de l'unité : listes de diffusion par défaut ou personnalisées, publipostage depuis un fichier Excel avec variables personnalisées, mode test, envoi en arrière-plan par lots, suivi détaillé des envois. Accueille aussi, lorsque le module inscriptions est actif, une liste prédéfinie non modifiable pour l'année scoute cible.",
-  "version": "1.13.0",
+  "version": "1.14.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -328,6 +328,20 @@
       "editable": false,
       "label": "Rétention des audiences de publipostage (mois)",
       "description": "Durée de conservation des données importées d'un fichier Excel de publipostage après l'envoi de l'email, avant leur suppression définitive. Paramètre en lecture seule."
+    },
+    {
+      "key": "anciens_min_scout_years",
+      "default_value": "2",
+      "type": "number",
+      "label": "Anciens : années scoutes minimum",
+      "description": "Nombre d'années scoutes distinctes pendant lesquelles une personne doit avoir été active pour figurer dans la liste « Anciens ». Le réglage est en ANNÉES et pas en mois, et ce n'est pas un raccourci : les données de la fédération sont un instantané annuel, sans date d'entrée ni date de sortie, donc quelqu'un présent dans l'export d'une année y a une ligne qu'il soit resté trois semaines ou douze mois. Le nombre d'années distinctes est la seule granularité réelle. À 2, on écrit à qui s'est réinscrit au moins une fois — le meilleur substitut honnête à « est resté » ; à 1, on écrit à qui a fait trois réunions."
+    },
+    {
+      "key": "anciens_max_years_since_departure",
+      "default_value": "10",
+      "type": "number",
+      "label": "Anciens : années depuis le départ (maximum)",
+      "description": "Au-delà de ce nombre d'années scoutes depuis la dernière année active, une personne ne figure plus dans la liste « Anciens ». Mettre 0 retire toute limite. Compté en années scoutes que l'unité a réellement connues, pas en arithmétique de calendrier : une unité qui a sauté une année n'a pas de ligne pour elle. Au-delà d'une dizaine d'années les adresses sont majoritairement mortes, et les rebonds abîment la réputation d'envoi du domaine — donc de tous les emails de l'unité, y compris ceux qui partent aux familles."
     },
     {
       "key": "mass_mail_list_addresses_max",

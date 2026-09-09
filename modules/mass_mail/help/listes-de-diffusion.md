@@ -9,7 +9,7 @@ question: Comment écrire aux intendants de toutes les sections ?
 question: Comment écrire aux animateurs qui portent un badge ?
 question: Pourquoi ne puis-je pas supprimer une liste de diffusion ?
 paths: /admin/listes-de-diffusion
-related: adresses-de-liste, envoi-de-mails, publipostage
+related: adresses-de-liste, anciens, envoi-de-mails, publipostage
 ---
 
 Cette page décide **à qui l'unité écrit**. Elle ne compose aucun
@@ -18,9 +18,9 @@ ensuite au moment d'écrire.
 
 ## Les listes par défaut
 
-Une par section, plus « Membres actifs » et « Animateurs uniquement » :
-elles sont fournies par le site et ne se modifient pas — elles portent
-un cadenas. Leur contenu suit les données de la fédération : une section
+Une par section, plus « Membres actifs », « Animateurs uniquement » et
+« Anciens », qui a son propre sujet d'aide : elles sont fournies par le
+site et ne se modifient pas — elles portent un cadenas. Leur contenu suit les données de la fédération : une section
 qui devient inactive disparaît d'elle-même, sans entretien.
 
 ## Vos propres listes

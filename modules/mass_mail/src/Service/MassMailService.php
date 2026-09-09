@@ -101,14 +101,25 @@ class MassMailService
         ?array $visibleSectionIds = null,
         ?int $ownAccountId = null
     ): array {
-        $matchesActiveMembers = $search !== '' && mb_stripos(
-            MailingListService::ACTIVE_MEMBERS_LABEL,
-            $search
-        ) !== false;
-        $matchesChiefs = $search !== '' && mb_stripos(MailingListService::CHIEFS_LABEL, $search) !== false;
+        // The default lists have no row anywhere, so their labels are not
+        // a column the search can reach — they are matched here, in PHP,
+        // and handed over as the list types they stand for.
+        $matchedDefaultListTypes = [];
+        if ($search !== '') {
+            $defaultListLabels = [
+                Email::LIST_TYPE_DEFAULT_ACTIVE_MEMBERS => MailingListService::ACTIVE_MEMBERS_LABEL,
+                Email::LIST_TYPE_DEFAULT_CHIEFS => MailingListService::CHIEFS_LABEL,
+                Email::LIST_TYPE_DEFAULT_FORMER_MEMBERS => MailingListService::FORMER_MEMBERS_LABEL,
+            ];
+            foreach ($defaultListLabels as $listType => $label) {
+                if (mb_stripos($label, $search) !== false) {
+                    $matchedDefaultListTypes[] = $listType;
+                }
+            }
+        }
 
-        $result = $this->emailRepository->findFiltered($search, $status, $sectionId, $matchesActiveMembers,
-            $matchesChiefs, $page, $visibleSectionIds, $ownAccountId);
+        $result = $this->emailRepository->findFiltered($search, $status, $sectionId, $matchedDefaultListTypes,
+            $page, $visibleSectionIds, $ownAccountId);
 
         return ['emails' => $result['emails'], 'total' => $result['total'], 'per_page' => EmailRepository::perPage()];
     }
@@ -949,7 +960,7 @@ class MassMailService
         if (!in_array($listType, [
             Email::LIST_TYPE_DEFAULT_SECTION, Email::LIST_TYPE_DEFAULT_ACTIVE_MEMBERS,
             Email::LIST_TYPE_DEFAULT_CHIEFS, Email::LIST_TYPE_CUSTOM, Email::LIST_TYPE_EXTERNAL,
-            Email::LIST_TYPE_MAIL_MERGE,
+            Email::LIST_TYPE_MAIL_MERGE, Email::LIST_TYPE_DEFAULT_FORMER_MEMBERS,
         ], true)) {
             throw new MassMailException('Type de liste invalide.');
         }

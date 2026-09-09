@@ -616,11 +616,69 @@ class MassMailServiceTest extends TestCase
         $this->assertSame(2, $counts['total']);
     }
 
-    private function createPastScoutYear(): int
+    private function createPastScoutYear(int $yearsBack = -1): int
     {
-        [$label, $yearStart, $yearEnd] = DatabaseTestHelper::scoutYear(-1);
+        [$label, $yearStart, $yearEnd] = DatabaseTestHelper::scoutYear($yearsBack);
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('{$label}', '{$yearStart}', '{$yearEnd}', 0)");
         return (int) $this->pdo->lastInsertId();
+    }
+
+    private function addMemberYear(int $memberId, int $scoutYearId, string $email): void
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted,
+                                       email_encrypted, email_blind_index, unit_mail_consent, is_active)
+             VALUES (?, ?, ?, ?, ?, ?, 1, 1)'
+        );
+        $stmt->execute([
+            $memberId,
+            $scoutYearId,
+            $encryption->encrypt('John', 'member_years.first_name'),
+            $encryption->encrypt('Doe', 'member_years.last_name'),
+            $encryption->encrypt($email, 'member_years.email'),
+            $encryption->blindIndex($email, 'email'),
+        ]);
+    }
+
+    /**
+     * The « Anciens » list is the only one whose recipients do not share
+     * one scout year: each former member is reached at the address of
+     * THEIR OWN last active year, and the recipient row must carry that
+     * year — the tracking page looks a profile up by it, and theirs only
+     * exists for that year.
+     */
+    public function testStartSendingTagsEachFormerMemberWithTheirOwnLastActiveYear(): void
+    {
+        $lastYear = $this->createPastScoutYear(-1);
+        $twoYearsAgo = $this->createPastScoutYear(-2);
+        $threeYearsAgo = $this->createPastScoutYear(-3);
+
+        $recent = $this->createMemberWithEmail('recent@test.be', scoutYearId: $twoYearsAgo);
+        $this->addMemberYear($recent, $lastYear, 'recent@test.be');
+
+        $older = $this->createMemberWithEmail('older@test.be', scoutYearId: $threeYearsAgo);
+        $this->addMemberYear($older, $twoYearsAgo, 'older@test.be');
+
+        // Still here: never a former member, whatever their history.
+        $stillHere = $this->createMemberWithEmail('encore@test.be', scoutYearId: $twoYearsAgo);
+        $this->addMemberYear($stillHere, $this->scoutYearId, 'encore@test.be');
+
+        $email = $this->service->createDraft(
+            'Sujet', '<p>Corps</p>', $this->sectionId, Email::LIST_TYPE_DEFAULT_FORMER_MEMBERS, null, null,
+            [$this->scoutYearId], null, $this->unrestricted
+        );
+        $this->service->moveToTest($email->id, null);
+        $this->service->startSending($email->id, null);
+
+        $byMember = [];
+        foreach ($this->recipientRepository->findByEmailId($email->id) as $recipient) {
+            $byMember[(int) $recipient->memberId] = $recipient->scoutYearId;
+        }
+
+        $this->assertSame([$recent, $older], array_keys($byMember));
+        $this->assertSame($lastYear, $byMember[$recent]);
+        $this->assertSame($twoYearsAgo, $byMember[$older]);
     }
 
     // --- Sender/list authorization (plain section chief vs chef d'unité) ---

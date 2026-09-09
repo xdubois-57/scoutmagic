@@ -57,19 +57,24 @@
     }
 
     /**
-     * Two list types answer the "which year?" question themselves, so the
-     * year checkboxes make no sense for either — and each puts a note in
-     * their place, since a block that comes and goes with nothing said
-     * reads as a bug rather than as a rule.
+     * Three list types answer the "which year?" question themselves, so
+     * the year checkboxes make no sense for any of them — and each puts a
+     * note in their place, since a block that comes and goes with nothing
+     * said reads as a bug rather than as a rule. « Anciens » is the
+     * strongest of the three: every former member is reached at the
+     * address of THEIR OWN last active year, so there is not one year to
+     * pick for the list at all.
      */
     function updateListTypeUi() {
         const listType = currentListType();
         const isMerge = listType === 'mail_merge';
         const isExternal = listType === 'external';
+        const isFormer = listType === 'default_former_members';
         toggle('mm-merge-zone', !isMerge);
         toggle('mm-merge-list-note', !isMerge);
         toggle('mm-external-list-note', !isExternal);
-        toggle('mm-scout-year-zone', isMerge || isExternal);
+        toggle('mm-former-list-note', !isFormer);
+        toggle('mm-scout-year-zone', isMerge || isExternal || isFormer);
     }
 
     /**
