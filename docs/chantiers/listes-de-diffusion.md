@@ -350,6 +350,40 @@ l'algorithme** en JavaScript, ce que le dépôt admet explicitement pour
 `OfflineWhitelist::matches()` — il n'y a pas d'exécution partagée entre PHP
 et le navigateur. Ce n'est pas une seconde copie de la *donnée*.
 
+**Corrigé après revue (revue Claude sur la PR).** Deux trous dans
+l'invariant que cette itération énonce elle-même — « une demande, honorée
+sur toutes les tables qui pourraient réécrire à cette adresse ».
+
+- **La désinscription d'un membre n'écrivait pas sur la liste de
+  suppression.** Elle ne désactivait que sa ligne `member_emails`, ce qui
+  arrête le courrier aux membres et rien d'autre : un chef ajoutant la
+  même adresse à une liste le lendemain, ou un import Excel la portant,
+  passait à travers — aucun de ces deux chemins ne lit `member_emails`.
+  Ce que la personne demande d'arrêter, c'est **l'adresse** ; la trace de
+  sa demande doit donc vivre ailleurs que dans son adhésion. La
+  suppression est désormais écrite **quel que soit** le demandeur. Elle
+  ne restreint rien en retour : le gel des membres est gouverné par
+  `member_emails.is_active` et ne lit pas cette table, donc quelqu'un qui
+  réencode son adresse dans son compte est de nouveau joint comme membre.
+  Seuls restent fermés les deux chemins adressés par l'adresse — les
+  adresses propres d'une liste et le publipostage — c'est-à-dire
+  exactement les deux que personne d'autre qu'un chef ne peut rouvrir.
+  Et `ListAddressService::add()`/`edit()` écrivent désormais une ligne
+  **déjà désinscrite** pour une adresse supprimée : refuser au chef (qui
+  n'est pas la personne qui s'est désinscrite) l'aurait fait recommencer
+  par Excel, et accepter en silence aurait affiché un compte d'adresses
+  que l'envoi refuse ensuite.
+- **Le dédoublonnage ne voyait que l'adresse Desk.** `MailingListService`
+  écarte une adresse de liste égale à l'adresse Desk d'un membre — la
+  seule que ses critères portent — mais le gel écrit une ligne par membre
+  et par adresse **valide** (`member_emails` comprises). Une adresse de
+  liste égale à la *deuxième* adresse d'un membre était donc un second
+  e-mail à la même personne, ce que la page d'aide de cette itération
+  promet précisément qui n'arrive pas. Le gel se fait maintenant en deux
+  passes — les membres, puis les adresses de la liste — et saute une
+  adresse déjà écrite : aucune ligne plutôt qu'une ligne `error`, parce
+  que rien n'a échoué et personne n'a été oublié.
+
 **Tests.** `ListAddressRepositoryTest` (chiffrement vérifié sur les octets
 bruts, index aveugle insensible à la casse, unicité par liste, même adresse
 dans deux listes, comptage sans déchiffrement, tri, désinscription
@@ -364,7 +398,10 @@ deux listes). `MailingListControllerTest` gagne les quatre routes.
 `module.json`. Vitest : chargement unique, recherche insensible aux
 accents, filtre, tranches de 50, ligne désinscrite sans boutons, ajout,
 édition en place, annulation, suppression confirmée, et un nom porteur de
-balises rendu en texte.
+balises rendu en texte. Plus, après revue : une adresse de liste égale à
+la *deuxième* adresse d'un membre ne produit pas un second envoi, et la
+désinscription d'un membre ferme aussi le chemin des adresses de liste —
+la ligne qu'un chef ajoute ensuite naissant désinscrite.
 
 **Reporté.** L'aller-retour Excel, qui est IT-04 : le dépôt ne contient de
 cette itération ni export, ni import, ni `replaceForList()`.

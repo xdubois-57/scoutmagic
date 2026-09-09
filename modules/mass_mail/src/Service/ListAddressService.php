@@ -13,6 +13,7 @@ use Core\Journal\JournalService;
 use Modules\MassMail\Repository\ListAddress;
 use Modules\MassMail\Repository\ListAddressRepository;
 use Modules\MassMail\Repository\MailingListRepository;
+use Modules\MassMail\Repository\SuppressedAddressRepository;
 
 /**
  * The addresses a custom list carries of its own — the commune, the curé,
@@ -30,11 +31,17 @@ class ListAddressService
     public const SETTING_MAX_ADDRESSES = 'mass_mail_list_addresses_max';
     private const DEFAULT_MAX_ADDRESSES = 2000;
 
+    /**
+     * $suppressedAddressRepository is what lets a NEW row be born already
+     * unsubscribed — see markIfAlreadyUnsubscribed(). Nullable so a test
+     * that never writes an address does not have to build it.
+     */
     public function __construct(
         private ListAddressRepository $addressRepository,
         private MailingListRepository $listRepository,
         private SettingService $settingService,
-        private JournalService $journal
+        private JournalService $journal,
+        private ?SuppressedAddressRepository $suppressedAddressRepository = null
     ) {
     }
 
@@ -92,6 +99,8 @@ class ListAddressService
             ['list_id' => $listId, 'address_id' => $id]
         );
 
+        $this->markIfAlreadyUnsubscribed($email);
+
         $address = $this->addressRepository->findById($id);
         \assert($address !== null);
 
@@ -120,10 +129,34 @@ class ListAddressService
             ['list_id' => $address->listId, 'address_id' => $id]
         );
 
+        $this->markIfAlreadyUnsubscribed($email);
+
         $updated = $this->addressRepository->findById($id);
         \assert($updated !== null);
 
         return $updated;
+    }
+
+    /**
+     * A row written for an address that already asked the unit to stop
+     * writing to it is born unsubscribed.
+     *
+     * Refusing the write instead would be worse: the chief typing the
+     * address is not the person who unsubscribed, would be told « non »
+     * with no way to see why, and would try again from Excel. Accepting
+     * it silently would be worse still — the screen would count an
+     * address the send then refuses, which is « 312 adresses » followed
+     * by « 311 envoyés » all over again. So the row exists, greyed, with
+     * its mention, and says what happened.
+     *
+     * Idempotent by construction: the repository's own statement only
+     * touches rows that are not already flagged.
+     */
+    private function markIfAlreadyUnsubscribed(string $email): void
+    {
+        if ($this->suppressedAddressRepository?->isSuppressed($email) === true) {
+            $this->addressRepository->unsubscribeEverywhere($email);
+        }
     }
 
     /**

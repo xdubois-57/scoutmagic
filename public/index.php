@@ -4687,7 +4687,7 @@ if ($isEnabled('mass_mail')) {
     // has to work with registration disabled too.
     $massMailListAddressRepo = new \Modules\MassMail\Repository\ListAddressRepository($pdo, $encryptionService);
     $massMailListAddressService = new \Modules\MassMail\Service\ListAddressService(
-        $massMailListAddressRepo, $massMailListRepo, $settingService, $journalService
+        $massMailListAddressRepo, $massMailListRepo, $settingService, $journalService, $massMailSuppressedRepo
     );
     $massMailListService = new \Modules\MassMail\Service\MailingListService(
         $massMailListRepo, $massMailResolutionRepo, $sectionService, $massMailFunctionRepo, $badgeService,

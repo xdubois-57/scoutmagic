@@ -546,14 +546,26 @@ class MassMailService
 
         $validCount = 0;
         $invalidCount = 0;
+
+        // Members first, in a pass of their own, and the list's own
+        // addresses second — because only the first pass knows the whole
+        // set of addresses a member is actually written to.
+        //
+        // Service\MailingListService already dropped a list address equal
+        // to a member's DESK address, which is the only one it can see. A
+        // member is frozen here at every valid address they have
+        // (member_emails included), so a list address matching a member's
+        // SECOND address would otherwise be a second mail to the same
+        // person — which is exactly what « le site compare les adresses,
+        // pas les fiches » promises does not happen. The set below is
+        // what makes that promise true, and it can only be built once the
+        // member rows are written.
+        $writtenAddresses = [];
+        $listAddresses = [];
+
         foreach ($members as $member) {
             if ($member['member_id'] === null) {
-                [$validCount, $invalidCount] = $this->freezeListAddressRecipient(
-                    $email,
-                    (string) $member['email'],
-                    $validCount,
-                    $invalidCount
-                );
+                $listAddresses[] = (string) $member['email'];
                 continue;
             }
 
@@ -574,8 +586,28 @@ class MassMailService
                     $email->id, $member['member_id'], $member['scout_year_id'], $memberEmail->email,
                     Recipient::STATUS_PENDING, null, $memberEmail->id
                 );
+                $writtenAddresses[mb_strtolower(trim($memberEmail->email))] = true;
                 $validCount++;
             }
+        }
+
+        foreach ($listAddresses as $listAddress) {
+            $key = mb_strtolower(trim($listAddress));
+            if (isset($writtenAddresses[$key])) {
+                // Already written to as a member, at this very address.
+                // No row at all rather than an error row: nothing went
+                // wrong and nobody was left out — the person IS a
+                // recipient, once, which is what the count must say.
+                continue;
+            }
+            $writtenAddresses[$key] = true;
+
+            [$validCount, $invalidCount] = $this->freezeListAddressRecipient(
+                $email,
+                $listAddress,
+                $validCount,
+                $invalidCount
+            );
         }
 
         return [$validCount, $invalidCount];

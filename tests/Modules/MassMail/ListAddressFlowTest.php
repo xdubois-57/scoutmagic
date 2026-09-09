@@ -17,6 +17,7 @@ use Core\Import\MemberYearRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Mail\MailService;
+use Core\Member\MemberEmail;
 use Core\Member\MemberEmailRepository;
 use Core\Member\MemberEmailService;
 use Core\Member\MemberService;
@@ -92,7 +93,8 @@ class ListAddressFlowTest extends TestCase
             $this->addressRepository,
             $listRepository,
             new SettingService(new SettingRepository($this->pdo)),
-            $this->createMock(JournalService::class)
+            $this->createMock(JournalService::class),
+            new SuppressedAddressRepository($this->pdo)
         );
         $this->listService = new MailingListService(
             $listRepository,
@@ -324,7 +326,69 @@ class ListAddressFlowTest extends TestCase
         return $this->massMailService->moveToTest($email->id, null);
     }
 
-    private function createMember(string $email): void
+    /**
+     * The dedup at resolution time only knows a member's DESK address —
+     * it is the one the criteria carry. A member is written to at every
+     * valid address they have, so the freeze is the only place that can
+     * see a list address matching a member's SECOND one.
+     */
+    public function testAListAddressMatchingAMembersSecondAddressIsNotASecondMail(): void
+    {
+        $memberId = $this->createMember('chef@test.be');
+        $this->addSecondaryEmail($memberId, 'perso@test.be');
+        $this->addressService->add($this->listId, 'Le même', 'PERSO@test.be');
+
+        $email = $this->sendableEmail();
+        $this->massMailService->startSending($email->id, null);
+
+        $recipients = $this->recipientRepository->findByEmailId($email->id);
+        $addresses = array_map(
+            static fn(Recipient $r): string => mb_strtolower((string) $r->emailAddress),
+            $recipients
+        );
+
+        $this->assertSame(['chef@test.be', 'perso@test.be'], $addresses);
+        // The one row kept is the member's, not a nameless list address.
+        $this->assertNotNull($this->recipientFor($recipients, 'perso@test.be')->memberId);
+    }
+
+    /**
+     * A member's own unsubscribe deactivates their member_emails row and
+     * nothing else — so without the suppression write, a chief adding
+     * that same address to a list tomorrow would write to somebody who
+     * asked the unit to stop.
+     */
+    public function testAMembersUnsubscribeAlsoClosesTheListAddressPath(): void
+    {
+        $memberId = $this->createMember('chef@test.be');
+        $email = $this->sendableEmail();
+        $this->massMailService->startSending($email->id, null);
+
+        $recipient = $this->recipientFor($this->recipientRepository->findByEmailId($email->id), 'chef@test.be');
+        $this->assertNotNull($recipient->memberEmailId, 'a member recipient, unsubscribing through member_emails');
+
+        $token = 'a' . str_repeat('b', 63);
+        $this->recipientRepository->setUnsubscribeTokenHash($recipient->id, \Core\Security\CapabilityToken::hash($token));
+        $this->unsubscribeController()->unsubscribe(
+            new Request('POST', '/mass-mail/unsubscribe/' . $recipient->id, ['token' => $token], [], [], []),
+            ['id' => (string) $recipient->id]
+        );
+
+        $this->assertTrue($this->suppressedRepository->isSuppressed('chef@test.be'));
+
+        // And the row a chief adds afterwards is born unsubscribed, so the
+        // screen says so instead of counting an address the send refuses.
+        $added = $this->addressService->add($this->listId, 'Ancien chef', 'chef@test.be');
+        $this->assertNotNull($this->addressRepository->findById($added->id)?->unsubscribedAt);
+        // The member is still WHO the list designates — resolution reads
+        // the criteria, not an address's fate — but the new row is not a
+        // second entry beside them.
+        $resolved = $this->listService->resolveMembersForYears('custom', $this->listId, null, [$this->scoutYearId]);
+        $this->assertCount(1, $resolved);
+        $this->assertSame($memberId, $resolved[0]['member_id']);
+    }
+
+    private function createMember(string $email): int
     {
         $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK_" . uniqid() . "')");
         $memberId = (int) $this->pdo->lastInsertId();
@@ -350,6 +414,21 @@ class ListAddressFlowTest extends TestCase
              VALUES (?, ?, ?, 1)'
         );
         $stmt->execute([$memberYearId, $this->functionId, $this->sectionId]);
+
+        return $memberId;
+    }
+
+    /** A confirmed secondary address, as the account page would leave it. */
+    private function addSecondaryEmail(int $memberId, string $email): int
+    {
+        return (new MemberEmailRepository($this->pdo, $this->encryption))->create(
+            $memberId,
+            $email,
+            MemberEmail::SOURCE_MANUAL,
+            MemberEmail::STATUS_VALID,
+            null,
+            null
+        );
     }
 
     private function unsubscribeController(): UnsubscribeController
