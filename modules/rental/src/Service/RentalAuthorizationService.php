@@ -101,6 +101,52 @@ class RentalAuthorizationService
     }
 
     /**
+     * The same list over the years an access decision may consider.
+     *
+     * This is the ENTRY POINT of « Mes locations », and that is why it
+     * matters more than the checks further in: the page 403s on an empty
+     * list before any of them runs, so widening those alone would have
+     * been cosmetic. A Staff d'U or an asset manager whose member_year row
+     * sits in the other of the two adjacent years is exactly who this
+     * exists to let back in.
+     *
+     * Deduplicated by asset id and re-sorted by name: the union of two
+     * individually ordered lists is not an ordered list, and Staff d'U in
+     * either year already returns every asset.
+     *
+     * @param list<int> $scoutYearIds
+     * @return RentalAsset[]
+     */
+    public function listManageableAssetsAcrossYears(?string $email, array $scoutYearIds): array
+    {
+        $byId = [];
+        foreach ($scoutYearIds as $scoutYearId) {
+            foreach ($this->listManageableAssets($email, $scoutYearId) as $asset) {
+                $byId[$asset->id] = $asset;
+            }
+        }
+
+        $assets = array_values($byId);
+        usort($assets, static fn(RentalAsset $a, RentalAsset $b): int => strcmp($a->name, $b->name));
+
+        return $assets;
+    }
+
+    /**
+     * @param list<int> $scoutYearIds
+     */
+    public function managesAnyAssetAcrossYears(?string $email, array $scoutYearIds): bool
+    {
+        foreach ($scoutYearIds as $scoutYearId) {
+            if ($this->managesAnyAsset($email, $scoutYearId)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Whether $email manages at least one asset — the cheap gate behind the
      * "Mes locations" menu entry, which must not run a full asset load on
      * every request that builds a menu.
@@ -122,11 +168,7 @@ class RentalAuthorizationService
     }
 
     /**
-     * Whether $email is a unit chief (Staff d'U), and therefore an implicit
-     * manager of every asset.
-     */
-    /**
-     * The three questions above, over the years an access decision may
+     * The four questions above, over the years an access decision may
      * consider — Core\ScoutYear\ScoutYearResolver::getAccessYearIds(),
      * whose docblock carries the reasoning and the one-year bound.
      *
@@ -170,6 +212,10 @@ class RentalAuthorizationService
         return false;
     }
 
+    /**
+     * Whether $email is a unit chief (Staff d'U), and therefore an implicit
+     * manager of every asset.
+     */
     public function isUnitStaff(?string $email, int $scoutYearId): bool
     {
         if ($email === null || $email === '') {

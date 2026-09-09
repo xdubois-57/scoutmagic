@@ -501,7 +501,13 @@ class RentalManagementController extends AbstractController
     {
         $email = AuthSession::getEmail();
         $scoutYearId = $this->scoutYearId();
-        $assets = $this->authorizationService->listManageableAssets($email, $scoutYearId);
+        // Across both years, because this list is the ENTRY GATE: the 403
+        // below fires on an empty one, before any of the finer checks
+        // further down this method ever runs. Widening those alone would
+        // have been cosmetic — a Staff d'U whose member_year row sits in
+        // the other of the two adjacent years would still have been turned
+        // away here.
+        $assets = $this->authorizationService->listManageableAssetsAcrossYears($email, $this->accessYearIds());
 
         // Someone who manages nothing is still refused (403 — the menu never
         // offered them this page), but with a page saying what this space is

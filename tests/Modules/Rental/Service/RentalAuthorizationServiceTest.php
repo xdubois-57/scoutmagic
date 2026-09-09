@@ -278,4 +278,100 @@ class RentalAuthorizationServiceTest extends TestCase
 
         $this->assertFalse($service->canManageAssetId('manager@example.org', self::YEAR, 999999));
     }
+
+    // ---------------------------------------------------------------
+    // The transition allowance. Which years reach here is Core\ScoutYear\
+    // ScoutYearResolver::getAccessYearIds()' business and is tested there;
+    // what these pin is that Staff d'U in EITHER of them opens the module,
+    // and above all that the ENTRY list does — /mes-locations 403s on an
+    // empty one before any finer check runs, so a widening that stopped
+    // short of it would have changed nothing anybody could see.
+    // ---------------------------------------------------------------
+
+    private const OTHER_YEAR = 8;
+
+    /**
+     * A service whose Staff d'U answer is true in ONE year only — the
+     * fortnight between the 1st of September and the Desk import, where
+     * the roster of the year the calendar has moved to does not name
+     * anybody yet.
+     */
+    private function serviceWithUnitStaffInYear(string $email, int $scoutYearId): RentalAuthorizationService
+    {
+        $memberService = new class ($email, $scoutYearId) extends MemberService {
+            public function __construct(private string $email, private int $scoutYearId)
+            {
+                // Same reasoning as the stub above: answers from its own
+                // two values, never touches a database.
+            }
+
+            public function getLinkedMembers(string $email, int $scoutYearId): array
+            {
+                return [];
+            }
+
+            public function isUnitChief(string $email, int $scoutYearId): bool
+            {
+                return $email === $this->email && $scoutYearId === $this->scoutYearId;
+            }
+        };
+
+        return new RentalAuthorizationService($memberService, $this->assetRepository, $this->managerRepository);
+    }
+
+    public function testEntryListIsEmptyForTheYearTheRosterHasNotReachedYet(): void
+    {
+        $this->createAsset('Local', 'local');
+        $service = $this->serviceWithUnitStaffInYear('cdu@example.org', self::YEAR);
+
+        // The bug, stated: on the year the calendar has moved to, the entry
+        // point of « Mes locations » hands back nothing and the page 403s.
+        $this->assertSame([], $service->listManageableAssets('cdu@example.org', self::OTHER_YEAR));
+    }
+
+    public function testEntryListAdmitsStaffDuFromEitherYear(): void
+    {
+        $this->createAsset('Local', 'local');
+        $service = $this->serviceWithUnitStaffInYear('cdu@example.org', self::YEAR);
+
+        $this->assertCount(
+            1,
+            $service->listManageableAssetsAcrossYears('cdu@example.org', [self::OTHER_YEAR, self::YEAR])
+        );
+    }
+
+    public function testEntryListNeverRepeatsAnAssetGrantedByBothYears(): void
+    {
+        $this->createAsset('Local', 'local');
+        $this->createAsset('Chalet', 'chalet');
+        $service = $this->serviceWithUnitStaffInYear('cdu@example.org', self::YEAR);
+
+        $assets = $service->listManageableAssetsAcrossYears('cdu@example.org', [self::YEAR, self::YEAR]);
+
+        $this->assertCount(2, $assets);
+        // And re-sorted by name, since merging two ordered lists does not
+        // give an ordered one.
+        $this->assertSame(['Chalet', 'Local'], array_map(static fn($asset) => $asset->name, $assets));
+    }
+
+    public function testMenuGateOpensForStaffDuFromEitherYear(): void
+    {
+        $this->createAsset('Local', 'local');
+        $service = $this->serviceWithUnitStaffInYear('cdu@example.org', self::YEAR);
+
+        $this->assertFalse($service->managesAnyAsset('cdu@example.org', self::OTHER_YEAR));
+        $this->assertTrue(
+            $service->managesAnyAssetAcrossYears('cdu@example.org', [self::OTHER_YEAR, self::YEAR])
+        );
+    }
+
+    public function testMenuGateStaysClosedForSomebodyStaffInNeitherYear(): void
+    {
+        $this->createAsset('Local', 'local');
+        $service = $this->serviceWithUnitStaffInYear('cdu@example.org', self::YEAR);
+
+        $this->assertFalse(
+            $service->managesAnyAssetAcrossYears('stranger@example.org', [self::OTHER_YEAR, self::YEAR])
+        );
+    }
 }

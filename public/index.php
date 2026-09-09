@@ -6900,7 +6900,13 @@ if ($isEnabled('rental')) {
     $rentalMenuHookService = new \Modules\Rental\Service\RentalMenuHookService(
         $rentalAssetRepository,
         $rentalAuthorizationService,
-        $rentalCurrentYearId
+        // Both years, so the menu entry appears for exactly the people
+        // /mes-locations lets in — a screen that hides what the page
+        // grants is the same defect as one that offers what it refuses.
+        $scoutYearResolver->getAccessYearIds(
+            \Core\ScoutYear\ScoutYearSession::getPreviewId(),
+            \Core\Security\Role::fromString(AuthSession::getRole())
+        )
     );
     $rentalMenuEntries = $dynamicMenuRegistrar->register(
         $menuBuilder,

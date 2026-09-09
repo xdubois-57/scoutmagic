@@ -606,6 +606,23 @@ class BoardServiceTest extends TestCase
         $this->assertTrue($this->service()->isUnitChief('unit-chief@example.com', 1));
     }
 
+    /**
+     * Same shape, same reason: the union over the years an access decision
+     * may consider is Core\Member\MemberService's to make (and is tested
+     * against real fixtures there), so this confirms the delegation and
+     * that the year LIST is passed through unaltered — a delegate that
+     * quietly dropped the second year would restore the very lockout the
+     * union exists to lift.
+     */
+    public function testIsUnitChiefAcrossYearsDelegatesWithBothYears(): void
+    {
+        $this->memberService->method('isUnitChiefAcrossYears')
+            ->with('unit-chief@example.com', [2, 1])
+            ->willReturn(true);
+
+        $this->assertTrue($this->service()->isUnitChiefAcrossYears('unit-chief@example.com', [2, 1]));
+    }
+
     public function testHasLinkedBoardIsFalseWithoutAnyBoard(): void
     {
         $this->assertFalse($this->service()->hasLinkedBoard(999));

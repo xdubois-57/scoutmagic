@@ -108,7 +108,7 @@ class RentalMenuHookServiceTest extends TestCase
         return new RentalMenuHookService(
             $this->assetRepository,
             new RentalAuthorizationService($memberService, $this->assetRepository, $this->managerRepository),
-            self::YEAR
+            [self::YEAR]
         );
     }
 

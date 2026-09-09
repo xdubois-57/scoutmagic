@@ -50,7 +50,8 @@ class RentalMenuHookService implements MenuEntryProvider
     public function __construct(
         private RentalAssetRepository $assetRepository,
         private RentalAuthorizationService $authorizationService,
-        private int $scoutYearId
+        /** @var list<int> The years an access decision may consider. */
+        private array $scoutYearIds
     ) {
     }
 
@@ -79,7 +80,7 @@ class RentalMenuHookService implements MenuEntryProvider
         // "Mes locations" — the managers' daily entry point (§6.5). Only
         // for someone who actually manages something, so an ordinary
         // identified visitor never sees it.
-        if ($email !== null && $this->authorizationService->managesAnyAsset($email, $this->scoutYearId)) {
+        if ($email !== null && $this->authorizationService->managesAnyAssetAcrossYears($email, $this->scoutYearIds)) {
             $entries[] = new MenuEntry(
                 MenuBuilder::MENU_ESPACE_ANIMES,
                 'Mes locations',
