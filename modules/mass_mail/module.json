@@ -330,14 +330,14 @@
       "description": "Durée de conservation des données importées d'un fichier Excel de publipostage après l'envoi de l'email, avant leur suppression définitive. Paramètre en lecture seule."
     },
     {
-      "key": "anciens_min_scout_years",
+      "key": "former_members_min_scout_years",
       "default_value": "2",
       "type": "number",
       "label": "Anciens : années scoutes minimum",
       "description": "Nombre d'années scoutes distinctes pendant lesquelles une personne doit avoir été active pour figurer dans la liste « Anciens ». Le réglage est en ANNÉES et pas en mois, et ce n'est pas un raccourci : les données de la fédération sont un instantané annuel, sans date d'entrée ni date de sortie, donc quelqu'un présent dans l'export d'une année y a une ligne qu'il soit resté trois semaines ou douze mois. Le nombre d'années distinctes est la seule granularité réelle. À 2, on écrit à qui s'est réinscrit au moins une fois — le meilleur substitut honnête à « est resté » ; à 1, on écrit à qui a fait trois réunions."
     },
     {
-      "key": "anciens_max_years_since_departure",
+      "key": "former_members_max_years_since_departure",
       "default_value": "10",
       "type": "number",
       "label": "Anciens : années depuis le départ (maximum)",

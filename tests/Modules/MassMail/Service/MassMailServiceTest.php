@@ -6,6 +6,8 @@ namespace Tests\Modules\MassMail\Service;
 
 use Core\Badge\MemberBadgeRepository;
 use Core\Config\ScoutYearService;
+use Core\Config\SettingRepository;
+use Core\Config\SettingService;
 use Core\Database\Connection;
 use Core\File\FileRepository;
 use Core\Import\FunctionRepository;
@@ -19,6 +21,7 @@ use Core\Member\MemberEmailService;
 use Core\Member\MemberService;
 use Core\Member\SectionService;
 use Core\Scheduler\SchedulerRepository;
+use Core\ScoutYear\ScoutYearResolver;
 use Core\Scheduler\SchedulerService;
 use Core\Security\EncryptionService;
 use Core\Security\HtmlSanitizer;
@@ -57,6 +60,7 @@ class MassMailServiceTest extends TestCase
     private int $sectionId;
     private int $otherSectionId;
     private SenderAuthorization $unrestricted;
+    private ScoutYearResolver $scoutYearResolver;
 
     protected function setUp(): void
     {
@@ -70,11 +74,21 @@ class MassMailServiceTest extends TestCase
         $this->recipientRepository = new RecipientRepository($this->pdo, $encryption);
         $this->importJournalRepository = new ImportJournalRepository($this->pdo);
         $emailRepository = new EmailRepository($this->pdo);
+        $this->scoutYearResolver = new ScoutYearResolver(
+            new ScoutYearService($this->pdo),
+            new SettingService(new SettingRepository($this->pdo)),
+            new MemberYearRepository($this->pdo)
+        );
         $listService = new MailingListService(
             new MailingListRepository($this->pdo),
             new MemberResolutionRepository($this->pdo, $encryption),
             $sectionService,
-            new FunctionRepository($this->pdo)
+            new FunctionRepository($this->pdo),
+            null,
+            null,
+            null,
+            null,
+            $this->scoutYearResolver
         );
 
         $this->audienceRepository = new AudienceRepository($this->pdo, $encryption);
@@ -112,6 +126,17 @@ class MassMailServiceTest extends TestCase
         $this->otherSectionId = (int) $this->pdo->lastInsertId();
 
         $this->unrestricted = new SenderAuthorization(true, [], null);
+
+        // « Anciens » resolves its own reference year rather than reading
+        // the submitted one, so pin the public year instead of letting the
+        // date fallback make these tests depend on the day they run.
+        (new SettingService(new SettingRepository($this->pdo)))->register(
+            ScoutYearResolver::SETTING_PUBLIC_YEAR,
+            (string) $this->scoutYearId,
+            'number',
+            'Année scoute courante',
+            'Description.'
+        );
     }
 
     /**
@@ -128,7 +153,12 @@ class MassMailServiceTest extends TestCase
             new MailingListRepository($this->pdo),
             new MemberResolutionRepository($this->pdo, $encryption),
             $sectionService,
-            new FunctionRepository($this->pdo)
+            new FunctionRepository($this->pdo),
+            null,
+            null,
+            null,
+            null,
+            $this->scoutYearResolver
         );
 
         return new MassMailService(

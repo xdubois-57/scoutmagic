@@ -544,8 +544,8 @@ d'autre.
   planifiée** (D4).
 - `MemberResolutionRepository::resolveFormerMembers()` : actif sur une
   année scoute *passée*, inactif sur l'année effective, présent dans au
-  moins `anciens_min_scout_years` années scoutes distinctes, parti depuis
-  moins de `anciens_max_years_since_departure` années scoutes.
+  moins `former_members_min_scout_years` années scoutes distinctes, parti depuis
+  moins de `former_members_max_years_since_departure` années scoutes.
 - Les deux réglages, avec la description française obligatoire qui
   explique noir sur blanc pourquoi le seuil est en **années**.
 - La description de la liste, **calculée** : « Anciens connus depuis
@@ -644,7 +644,47 @@ minimum à `0` retombe sur le défaut, deux anciens partageant une adresse
 sont dédoublonnés, et sans année de référence la liste est vide. Envoi :
 le gel étiquette chaque ancien avec sa propre dernière année active.
 Vitest : les années masquées et la note affichée pour cette liste, et le
-retour à la normale pour une liste qui, elle, vise une année.
+retour à la normale pour une liste qui, elle, vise une année. Plus, après
+revue : le consentement lu sur la dernière année active et non sur une
+plus ancienne (dans les deux sens), et une année soumise en douce qui ne
+change rien à ce que la liste contient.
+
+**Corrigé après revue (revue Claude sur la PR).**
+
+- **Les deux clés de réglage étaient en français** (`anciens_min_...`).
+  `AGENTS.md` ne laisse aucune marge : « All code, comments, variable
+  names, function names, class names, table names, column names… :
+  English. No exceptions. » Une clé de réglage est un identifiant de
+  code — stockée telle quelle dans `settings.key`, reflétée en constantes
+  PHP, écrite en dur dans un test — et c'est le `label` et la
+  `description` à côté qui portent le français. Renommées en
+  `former_members_min_scout_years` et
+  `former_members_max_years_since_departure`. **Divergence avec le
+  document de chantier**, qui nommait explicitement ces deux clés : les
+  documents du dépôt priment sur lui pour toute règle générale, et
+  celle-ci en est une.
+- **`unit_mail_consent` était lu sur la mauvaise ligne.** Il filtrait
+  dans le `WHERE`, donc *avant* la réduction qui élit la dernière année
+  active : le gagnant devenait « la dernière année active qui, en plus,
+  consentait ». Quelqu'un dont l'instantané le plus récent dit non était
+  donc quand même retenu — à l'adresse périmée d'une année plus
+  ancienne, étiqueté avec l'identifiant de cette année-là (celui dont la
+  page de suivi ne trouve pas le profil), et mesuré contre la borne de
+  départ depuis la mauvaise date. Il est désormais **sélectionné** puis
+  lu sur la ligne gagnante : une seule ligne répond aux quatre
+  questions, ou aucune n'est fiable.
+- **Les cases d'années masquées pilotaient encore l'année de
+  référence.** La page les cache par une classe CSS et écrit « il n'y a
+  donc pas d'année scoute à choisir » — mais les `input` restent dans le
+  formulaire, et une case cochée avant de changer de type de liste est
+  toujours envoyée. Cocher « Année suivante » puis passer sur
+  « Anciens » résolvait « tous ceux qui sont absents de l'an prochain »,
+  c'est-à-dire une bonne partie de l'unité. Les années soumises sont
+  maintenant **ignorées**, pas seulement rétrécies : l'année de
+  référence est l'année publique courante, résolue dans le service. Une
+  année que personne ne voit n'est pas une année que quelqu'un a
+  choisie. Le compteur et le gel continuent de s'accorder, tous deux
+  passant par la même méthode.
 
 **Reporté.** Rien de cette itération. Restent hors périmètre, comme le
 document le prévoit : la portée en années comme propriété d'une liste

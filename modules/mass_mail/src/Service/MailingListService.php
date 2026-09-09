@@ -43,8 +43,8 @@ class MailingListService
     public const CHIEFS_LABEL = 'Animateurs uniquement';
     public const FORMER_MEMBERS_LABEL = 'Anciens';
 
-    public const SETTING_MIN_SCOUT_YEARS = 'anciens_min_scout_years';
-    public const SETTING_MAX_YEARS_SINCE_DEPARTURE = 'anciens_max_years_since_departure';
+    public const SETTING_MIN_SCOUT_YEARS = 'former_members_min_scout_years';
+    public const SETTING_MAX_YEARS_SINCE_DEPARTURE = 'former_members_max_years_since_departure';
 
     private const DEFAULT_MIN_SCOUT_YEARS = 2;
     private const DEFAULT_MAX_YEARS_SINCE_DEPARTURE = 10;
@@ -614,16 +614,23 @@ class MailingListService
         // which is the only year their profile exists for and therefore
         // the only one their recipient row may be tagged with.
         //
-        // The years it IS given are used for one thing only — the year
-        // somebody has to be absent from to count as a former member — and
-        // only the most recent of them, the caller having ordered them
-        // that way. That is deliberately the year the email targets rather
-        // than a year this service resolves for itself: the count shown on
-        // the compose page and the freeze then answer the same question,
-        // and the reference year is a stored property of the email
-        // (`mass_mail_email_scout_years`) rather than a session's.
+        // **$scoutYearIds is IGNORED, not merely narrowed.** The page
+        // hides the year checkboxes for this list and says so in words —
+        // « il n'y a donc pas d'année scoute à choisir » — but it hides
+        // them with a CSS class: the inputs are still in the form, and a
+        // box ticked before the list type was switched is still
+        // submitted. Reading it would resolve « everybody absent from
+        // NEXT year », which is most of the unit, from a control the
+        // page told the chief not to think about. A year nobody can see
+        // is not a year anybody chose.
+        //
+        // The reference year — the one somebody has to be absent from to
+        // count as a former member — is therefore the current public
+        // year, resolved here. The count shown before sending and the
+        // freeze still answer the same question, since both come through
+        // this method.
         if ($listType === Email::LIST_TYPE_DEFAULT_FORMER_MEMBERS) {
-            $referenceYearId = $scoutYearIds[0] ?? $this->scoutYearResolver?->getCurrentPublicYear()['id'];
+            $referenceYearId = $this->scoutYearResolver?->getCurrentPublicYear()['id'] ?? null;
             if ($referenceYearId === null) {
                 return [];
             }

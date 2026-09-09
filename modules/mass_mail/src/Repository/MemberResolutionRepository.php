@@ -198,7 +198,11 @@ class MemberResolutionRepository
      * `$maxYearsSinceDeparture` bounds the other end, counted in scout
      * years since the last active one; `0` means no bound.
      *
-     * **`unit_mail_consent` IS applied here**, and only here. The rest of
+     * **`unit_mail_consent` IS applied here**, and only here — read from
+     * the winning row rather than filtered in the query, so that all four
+     * answers this method gives (in the list at all, at which address,
+     * under which scout year, and how long ago they left) come from the
+     * SAME row. The rest of
      * this repository deliberately ignores it (see the class docblock):
      * the Desk column it comes from was judged unreliable, and for members
      * who are in the unit right now that is defensible — they are being
@@ -223,12 +227,14 @@ class MemberResolutionRepository
         int $minScoutYears,
         int $maxYearsSinceDeparture
     ): array {
+        // unit_mail_consent is SELECTED, never filtered on here — see
+        // the reduction below for why that distinction is the whole
+        // correctness of this query.
         $stmt = $this->pdo->prepare(
-            'SELECT my.member_id, my.scout_year_id, my.email_encrypted, sy.start_date
+            'SELECT my.member_id, my.scout_year_id, my.email_encrypted, my.unit_mail_consent, sy.start_date
              FROM member_years my
              JOIN scout_years sy ON sy.id = my.scout_year_id
              WHERE my.is_active = 1
-               AND my.unit_mail_consent = 1
                AND sy.start_date < (SELECT start_date FROM scout_years WHERE id = ?)
                AND my.member_id NOT IN (
                    SELECT member_id FROM member_years WHERE scout_year_id = ? AND is_active = 1
@@ -246,6 +252,20 @@ class MemberResolutionRepository
         if ($lastActive === []) {
             return [];
         }
+
+        // Consent is read from THAT row, and only once it has won.
+        // Filtering on it in the WHERE above would have made the winner
+        // « the last active year that also happened to consent », not the
+        // last active year: somebody whose most recent Desk snapshot says
+        // no would still have been written to, at the stale address of an
+        // older year, tagged with that older year's id — the profile the
+        // tracking page then fails to find — and measured against the
+        // departure bound from the wrong date. One row decides all four,
+        // or none of them is trustworthy.
+        $lastActive = array_filter(
+            $lastActive,
+            static fn(array $row): bool => (int) $row['unit_mail_consent'] === 1
+        );
 
         $yearCounts = $this->countDistinctScoutYears(array_keys($lastActive));
         $cutoff = $maxYearsSinceDeparture > 0

@@ -9,9 +9,12 @@ use Core\Badge\BadgeService;
 use Core\Badge\MemberBadgeRepository;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
+use Core\Config\ScoutYearService;
 use Core\Database\Connection;
 use Core\Import\FunctionRepository;
+use Core\Import\MemberYearRepository;
 use Core\Member\SectionService;
+use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\EncryptionService;
 use Modules\MassMail\Repository\Email;
 use Modules\MassMail\Repository\MailingListRepository;
@@ -34,6 +37,7 @@ class MailingListServiceTest extends TestCase
     private int $sectionActiveId;
     private int $functionId;
     private int $badgeId;
+    private ScoutYearResolver $scoutYearResolver;
 
     protected function setUp(): void
     {
@@ -43,6 +47,11 @@ class MailingListServiceTest extends TestCase
         $connection = Connection::withPdo($this->pdo);
         $sectionService = new SectionService($connection, $encryption, new MemberBadgeRepository($this->pdo));
 
+        $this->scoutYearResolver = new ScoutYearResolver(
+            new ScoutYearService($this->pdo),
+            new SettingService(new SettingRepository($this->pdo)),
+            new MemberYearRepository($this->pdo)
+        );
         $this->service = new MailingListService(
             new MailingListRepository($this->pdo),
             new MemberResolutionRepository($this->pdo, $encryption),
@@ -52,7 +61,11 @@ class MailingListServiceTest extends TestCase
                 new BadgeRepository($this->pdo),
                 new MemberBadgeRepository($this->pdo),
                 $sectionService
-            )
+            ),
+            null,
+            null,
+            null,
+            $this->scoutYearResolver
         );
 
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
@@ -70,6 +83,18 @@ class MailingListServiceTest extends TestCase
 
         $this->pdo->exec("INSERT INTO badges (name, is_default) VALUES ('Infirmier', 1)");
         $this->badgeId = (int) $this->pdo->lastInsertId();
+
+        // The « Anciens » list resolves its own reference year through the
+        // resolver, so pin it rather than letting the date fallback pick
+        // one and make these tests depend on the day they run.
+        $settings = new SettingService(new SettingRepository($this->pdo));
+        $settings->register(
+            ScoutYearResolver::SETTING_PUBLIC_YEAR,
+            (string) $this->scoutYearId,
+            'number',
+            'Année scoute courante',
+            'Description.'
+        );
     }
 
     /**
@@ -418,7 +443,7 @@ class MailingListServiceTest extends TestCase
             null,
             null,
             null,
-            null,
+            $this->scoutYearResolver,
             null,
             $settingService
         );
@@ -615,11 +640,56 @@ class MailingListServiceTest extends TestCase
         $this->assertSame('famille@test.be', $members[0]['email']);
     }
 
-    public function testTheFormerMembersListIsEmptyWhenNoReferenceYearCanBeFound(): void
+    /**
+     * The compose page hides the year checkboxes for this list and says
+     * so in words — but it hides them with a CSS class, so a box ticked
+     * before the list type was switched is still in the form and still
+     * submitted. Reading it would resolve « everybody absent from NEXT
+     * year », which is most of the unit.
+     */
+    public function testASubmittedScoutYearIsIgnoredForTheFormerMembersList(): void
+    {
+        $nextYear = $this->createScoutYear('2026-2027', '2026-09-01', '2027-08-31');
+        $lastYear = $this->createScoutYear('2024-2025', '2024-09-01', '2025-08-31');
+        $twoYearsAgo = $this->createScoutYear('2023-2024', '2023-09-01', '2024-08-31');
+
+        // Active right now: a former member of nothing.
+        $current = $this->createMemberYear($twoYearsAgo, 'encore@test.be');
+        $this->createMemberYear($this->scoutYearId, 'encore@test.be', $current);
+
+        // Genuinely gone.
+        $gone = $this->createMemberYear($twoYearsAgo, 'parti@test.be');
+        $this->createMemberYear($lastYear, 'parti@test.be', $gone);
+
+        $members = $this->service->resolveMembersForYears(
+            Email::LIST_TYPE_DEFAULT_FORMER_MEMBERS,
+            null,
+            null,
+            // The stale tick left behind by another list type.
+            [$nextYear]
+        );
+
+        $this->assertSame([$gone], array_column($members, 'member_id'));
+    }
+
+    public function testTheFormerMembersListIsEmptyWithoutAResolver(): void
     {
         $this->assertSame(
             [],
-            $this->service->resolveMembersForYears(Email::LIST_TYPE_DEFAULT_FORMER_MEMBERS, null, null, [])
+            $this->serviceWithSettingsAndNoResolver()
+                ->resolveMembersForYears(Email::LIST_TYPE_DEFAULT_FORMER_MEMBERS, null, null, [])
+        );
+    }
+
+    private function serviceWithSettingsAndNoResolver(): MailingListService
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+
+        return new MailingListService(
+            new MailingListRepository($this->pdo),
+            new MemberResolutionRepository($this->pdo, $encryption),
+            new SectionService(Connection::withPdo($this->pdo), $encryption, new MemberBadgeRepository($this->pdo)),
+            new FunctionRepository($this->pdo)
         );
     }
 }

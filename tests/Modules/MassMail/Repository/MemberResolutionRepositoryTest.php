@@ -525,6 +525,41 @@ class MemberResolutionRepositoryTest extends TestCase
         $this->assertNotSame([], $this->repository->resolveActiveMembers($this->previousYearId));
     }
 
+    /**
+     * Consent is read from the row that WINS the « last active year »
+     * reduction, never filtered before it. Filtered first, the winner
+     * would be « the last active year that also happened to consent »:
+     * somebody whose most recent snapshot says no would still be written
+     * to, at the stale address of an older year, tagged with that older
+     * year's id, and measured against the departure bound from the wrong
+     * date.
+     */
+    public function testConsentIsReadFromTheLastActiveYearAndNotFromAnyEarlierOne(): void
+    {
+        $olderYear = $this->createScoutYear('2023-2024', '2023-09-01', '2024-08-31');
+
+        $withdrew = $this->createBareMember();
+        $this->addMemberYear($withdrew, $olderYear, 'old@test.be');
+        $this->addMemberYear($withdrew, $this->previousYearId, 'new@test.be', consent: false);
+
+        $this->assertSame(
+            [],
+            $this->resolveFormerMemberIds(),
+            'the most recent signal is « no », and it is the one that counts'
+        );
+
+        // The mirror image: no on the older year, yes on the last one.
+        $joined = $this->createBareMember();
+        $this->addMemberYear($joined, $olderYear, 'old@test.be', consent: false);
+        $this->addMemberYear($joined, $this->previousYearId, 'yes@test.be');
+
+        $resolved = $this->repository->resolveFormerMembers($this->scoutYearId, 2, 0);
+
+        $this->assertSame([$joined], array_column($resolved, 'member_id'));
+        $this->assertSame('yes@test.be', $resolved[0]['email']);
+        $this->assertSame($this->previousYearId, $resolved[0]['scout_year_id']);
+    }
+
     public function testAnInactivePastRowIsNotAPastMembership(): void
     {
         $member = $this->createBareMember();
