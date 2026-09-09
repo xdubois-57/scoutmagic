@@ -374,4 +374,58 @@ class RentalAuthorizationServiceTest extends TestCase
             $service->managesAnyAssetAcrossYears('stranger@example.org', [self::OTHER_YEAR, self::YEAR])
         );
     }
+
+    /**
+     * The per-asset gates, which guard the WRITES (asset settings, tariffs)
+     * rather than a list. Same union, and they need their own cases: a
+     * regression that only ever consulted `$scoutYearIds[0]`, or that
+     * turned the OR into an AND, would leave every list test above green
+     * while sealing a Staff d'U out of the actions the lists just offered
+     * them.
+     */
+    public function testPerAssetGateAdmitsStaffDuFromEitherYear(): void
+    {
+        $assetId = $this->createAsset('Local', 'local');
+        $asset = $this->assetRepository->findById($assetId);
+        $this->assertNotNull($asset);
+        $service = $this->serviceWithUnitStaffInYear('cdu@example.org', self::YEAR);
+
+        $this->assertFalse($service->canManageAsset('cdu@example.org', self::OTHER_YEAR, $asset));
+        $this->assertTrue(
+            $service->canManageAssetAcrossYears('cdu@example.org', [self::OTHER_YEAR, self::YEAR], $asset)
+        );
+        $this->assertTrue(
+            $service->canManageAssetIdAcrossYears('cdu@example.org', [self::OTHER_YEAR, self::YEAR], $assetId)
+        );
+    }
+
+    public function testPerAssetGateIsNotOpenedByTheFirstYearAlone(): void
+    {
+        $assetId = $this->createAsset('Local', 'local');
+        $asset = $this->assetRepository->findById($assetId);
+        $this->assertNotNull($asset);
+        // Staff d'U in the SECOND year of the list: an implementation that
+        // read only the first would answer false here.
+        $service = $this->serviceWithUnitStaffInYear('cdu@example.org', self::OTHER_YEAR);
+
+        $this->assertTrue(
+            $service->canManageAssetAcrossYears('cdu@example.org', [self::YEAR, self::OTHER_YEAR], $asset)
+        );
+        $this->assertTrue($service->isUnitStaffAcrossYears('cdu@example.org', [self::YEAR, self::OTHER_YEAR]));
+    }
+
+    public function testPerAssetGateRefusesSomebodyStaffInNeitherYear(): void
+    {
+        $assetId = $this->createAsset('Local', 'local');
+        $asset = $this->assetRepository->findById($assetId);
+        $this->assertNotNull($asset);
+        $service = $this->serviceWithUnitStaffInYear('cdu@example.org', self::YEAR);
+
+        $this->assertFalse(
+            $service->canManageAssetAcrossYears('stranger@example.org', [self::OTHER_YEAR, self::YEAR], $asset)
+        );
+        $this->assertFalse(
+            $service->isUnitStaffAcrossYears('stranger@example.org', [self::OTHER_YEAR, self::YEAR])
+        );
+    }
 }

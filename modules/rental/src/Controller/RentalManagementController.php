@@ -500,7 +500,13 @@ class RentalManagementController extends AbstractController
     public function myRentals(Request $request, array $params): Response
     {
         $email = AuthSession::getEmail();
-        $scoutYearId = $this->scoutYearId();
+        // No scoutYearId() here any more, and not merely because nothing
+        // reads it: that call goes through getCurrentYear() → ensureYear(),
+        // which INSERTS next year's row on the first request after the 1st
+        // of September. A stray write on the hot path of a method whose
+        // access decisions this change made read-only is exactly what
+        // ScoutYearResolver::getAccessYearIds() avoids by design.
+        //
         // Across both years, because this list is the ENTRY GATE: the 403
         // below fires on an empty one, before any of the finer checks
         // further down this method ever runs. Widening those alone would
