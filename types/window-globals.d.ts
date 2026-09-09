@@ -274,6 +274,14 @@ interface Window {
     SelectBar?: {
         setSelected?: (pickerId: string, id: string, selected: boolean) => void;
     };
+    // public/assets/js/mass-mail-list-addresses.js — the one address
+    // panel, pointed at a list by mass-mail-lists.js when the edit dialog
+    // opens on one, and blanked when the dialog is a « Nouvelle liste »
+    // that has nothing to attach an address to yet.
+    MassMailListAddresses?: {
+        attach: (listId: string) => void;
+        detach: () => void;
+    };
     // public/assets/js/chunked-upload.js (audit M2) — consumed by
     // public/assets/js/gallery.js and public/assets/js/maintenance.js.
     ScoutMagicChunkedUpload?: {

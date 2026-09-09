@@ -7,11 +7,13 @@
 // the DOM present at import time, so every test builds its fixture first
 // and imports afterwards — the tests/js/mass-mail-lists.test.js pattern.
 //
-// What this suite owns: the whole set is fetched ONCE and everything after
-// that happens here — the accent-insensitive search, the « désinscrites
-// seulement » filter and the slicing — plus the two guarantees a screen
-// full of addresses has to make, that an unsubscribed row offers no way to
-// change it and that a name somebody typed never becomes markup.
+// What this suite owns: the panel is ONE panel pointed at a list rather
+// than one per row, the whole set is fetched ONCE per list and everything
+// after that happens here — the accent-insensitive search, the
+// « désinscrites seulement » filter and the slicing — plus the guarantees
+// a screen full of addresses has to make: an unsubscribed row offers no
+// way to remove it, a row's one action is named after the address it acts
+// on however it is drawn, and a name somebody typed never becomes markup.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 function jsonResponse(body, status = 200) {
@@ -30,33 +32,37 @@ async function settle() {
     await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-// Mirrors the panel modules/mass_mail/views/mailing_lists.html.twig renders
-// inside each custom list's row.
+// Mirrors what modules/mass_mail/views/mailing_lists.html.twig renders:
+// the read-only summary line on the page, and the one address panel that
+// lives inside the list's edit dialog.
 const PAGE = `
-    <details class="mml-addresses" data-list-id="7">
-        <summary><span data-address-count>0 adresse</span></summary>
-        <div>
-            <input type="search" data-address-search>
-            <input type="checkbox" data-address-unsubscribed-only>
-            <div class="d-none" data-address-error></div>
-            <ul data-address-rows></ul>
-            <p class="d-none" data-address-empty>Aucune adresse ne correspond.</p>
-            <button type="button" class="d-none" data-address-more></button>
-            <form data-address-add-form>
-                <input type="text" data-address-new-name>
-                <input type="email" data-address-new-email>
-                <button type="submit">Ajouter</button>
-            </form>
-            <a href="/admin/listes-de-diffusion/lists/7/addresses/export">Exporter en Excel</a>
-            <input type="file" data-address-import-input>
-            <div class="d-none" data-address-import-preview>
-                <p data-address-import-summary></p>
-                <ul class="d-none" data-address-import-errors></ul>
-                <button type="button" data-address-import-confirm>Remplacer les adresses</button>
-                <button type="button" data-address-import-cancel>Annuler</button>
-            </div>
+    <ul id="cfg-custom-lists">
+        <li data-id="7">
+            <p data-address-count data-list-id="7">Aucune adresse propre à cette liste.</p>
+        </li>
+    </ul>
+    <p class="d-none" id="cfg-addresses-unsaved">Enregistrez d'abord la liste</p>
+    <div id="cfg-list-addresses" class="d-none" data-list-id="">
+        <input type="search" data-address-search>
+        <input type="checkbox" data-address-unsubscribed-only>
+        <div class="d-none" data-address-error></div>
+        <ul data-address-rows></ul>
+        <p class="d-none" data-address-empty>Aucune adresse ne correspond.</p>
+        <button type="button" class="d-none" data-address-more></button>
+        <form data-address-add-form>
+            <input type="text" data-address-new-name>
+            <input type="email" data-address-new-email>
+            <button type="submit">Ajouter</button>
+        </form>
+        <a data-address-export href="#">Exporter en Excel</a>
+        <input type="file" data-address-import-input>
+        <div class="d-none" data-address-import-preview>
+            <p data-address-import-summary></p>
+            <ul class="d-none" data-address-import-errors></ul>
+            <button type="button" data-address-import-confirm>Remplacer les adresses</button>
+            <button type="button" data-address-import-cancel>Annuler</button>
         </div>
-    </details>
+    </div>
 `;
 
 function address(id, name, email, unsubscribedAt = null) {
@@ -79,7 +85,8 @@ describe('mass-mail-list-addresses.js', () => {
         await import('../../public/assets/js/mass-mail-list-addresses.js');
     }
 
-    const panel = () => document.querySelector('.mml-addresses');
+    const panel = () => document.getElementById('cfg-list-addresses');
+    const unsavedNote = () => document.getElementById('cfg-addresses-unsaved');
     const rows = () => Array.from(document.querySelectorAll('[data-address-rows] li'));
     const rowTexts = () => rows().map((li) => li.querySelector('span').textContent);
     const searchEl = () => document.querySelector('[data-address-search]');
@@ -87,10 +94,12 @@ describe('mass-mail-list-addresses.js', () => {
     const countEl = () => document.querySelector('[data-address-count]');
     const errorEl = () => document.querySelector('[data-address-error]');
 
-    /** Opens the panel the way a person does, and lets the fetch settle. */
-    async function open() {
-        panel().setAttribute('open', '');
-        panel().dispatchEvent(new Event('toggle'));
+    /**
+     * What mass-mail-lists.js does when the dialog opens on an existing
+     * list — the only way the panel is ever filled.
+     */
+    async function open(listId = '7') {
+        window.MassMailListAddresses.attach(listId);
         await settle();
     }
 
@@ -99,14 +108,15 @@ describe('mass-mail-list-addresses.js', () => {
     }
 
     describe('loading', () => {
-        it('fetches nothing at all until the panel is opened', async () => {
+        it('fetches nothing at all until the dialog points it at a list', async () => {
             serve([address(1, 'Commune', 'jeunesse@wavre.be')]);
             await boot();
 
             expect(fetch).not.toHaveBeenCalled();
+            expect(panel().classList.contains('d-none')).toBe(true);
         });
 
-        it('fetches the whole set once, on the first opening only', async () => {
+        it('fetches the whole set once, and only for the list it was pointed at', async () => {
             serve([address(1, 'Commune', 'jeunesse@wavre.be')]);
             await boot();
 
@@ -114,14 +124,42 @@ describe('mass-mail-list-addresses.js', () => {
             expect(fetch).toHaveBeenCalledTimes(1);
             expect(fetch.mock.calls[0][0]).toBe('/admin/listes-de-diffusion/lists/7/addresses');
             expect(rowTexts()).toEqual(['Commune — jeunesse@wavre.be']);
+            expect(panel().classList.contains('d-none')).toBe(false);
+        });
 
-            panel().removeAttribute('open');
-            panel().dispatchEvent(new Event('toggle'));
-            panel().setAttribute('open', '');
-            panel().dispatchEvent(new Event('toggle'));
-            await settle();
+        /**
+         * A « Nouvelle liste » has nothing to attach an address to, so the
+         * panel says so rather than offering controls that refuse every
+         * click — and it forgets whichever list it last stood for.
+         */
+        it('empties itself and explains when the dialog is a list that does not exist yet', async () => {
+            serve([address(1, 'Commune', 'jeunesse@wavre.be')]);
+            await boot();
+            await open();
+            expect(rows()).toHaveLength(1);
 
-            expect(fetch).toHaveBeenCalledTimes(1);
+            window.MassMailListAddresses.detach();
+
+            expect(panel().classList.contains('d-none')).toBe(true);
+            expect(unsavedNote().classList.contains('d-none')).toBe(false);
+            expect(rows()).toHaveLength(0);
+        });
+
+        /**
+         * The same panel, a second list: what the first one held must not
+         * survive into it, and the set has to be read again.
+         */
+        it('re-reads the set when it is pointed at another list', async () => {
+            serve([address(1, 'Commune', 'jeunesse@wavre.be')]);
+            await boot();
+            await open('7');
+
+            serve([address(9, 'Paroisse', 'cure@paroisse.be')]);
+            await open('8');
+
+            expect(fetch.mock.calls[0][0]).toBe('/admin/listes-de-diffusion/lists/8/addresses');
+            expect(rowTexts()).toEqual(['Paroisse — cure@paroisse.be']);
+            expect(panel().dataset.listId).toBe('8');
         });
 
         it('says so when the set could not be read, rather than showing an empty list', async () => {
@@ -226,17 +264,34 @@ describe('mass-mail-list-addresses.js', () => {
          * followed by « 304 envoyés » reads as a breakdown unless the
          * screen says which eight are out.
          */
-        it('marks an unsubscribed row and offers neither Modifier nor Supprimer', async () => {
+        it('marks an unsubscribed row and offers no way to remove it', async () => {
             await boot();
             await open();
 
             const unsubscribed = rows().find((li) => li.textContent.includes('Curé'));
             expect(unsubscribed.textContent).toContain('Désinscrite');
             expect(unsubscribed.querySelectorAll('button')).toHaveLength(0);
+        });
+
+        /**
+         * One action per row, drawn as the trash icon every other
+         * destructive row button on this page uses. The word next to fifty
+         * rows is fifty times the same word — but an icon with no
+         * accessible name is fifty unnamed buttons, so the button is named
+         * after the address it removes and the icon is aria-hidden.
+         */
+        it('gives an active row one icon button, named after the address it removes', async () => {
+            await boot();
+            await open();
 
             const active = rows().find((li) => li.textContent.includes('Commune'));
-            expect(Array.from(active.querySelectorAll('button')).map((b) => b.textContent))
-                .toEqual(['Modifier', 'Supprimer']);
+            const buttons = Array.from(active.querySelectorAll('button'));
+
+            expect(buttons).toHaveLength(1);
+            expect(buttons[0].textContent).toBe('');
+            expect(buttons[0].getAttribute('aria-label')).toBe('Retirer jeunesse@wavre.be');
+            expect(buttons[0].querySelector('i').className).toContain('bi-trash');
+            expect(buttons[0].querySelector('i').getAttribute('aria-hidden')).toBe('true');
         });
     });
 
@@ -299,7 +354,7 @@ describe('mass-mail-list-addresses.js', () => {
                 _csrf_token: 'tok-123',
             });
             expect(rowTexts()).toEqual(['Commune — jeunesse@wavre.be']);
-            expect(countEl().textContent).toBe('1 adresse');
+            expect(countEl().textContent).toBe('1 adresse propre à cette liste.');
             expect(document.querySelector('[data-address-new-email]').value).toBe('');
         });
 
@@ -350,44 +405,6 @@ describe('mass-mail-list-addresses.js', () => {
             expect(rows()).toHaveLength(0);
         });
 
-        it('PATCHes an edit made in the row itself', async () => {
-            serve([address(4, 'Commune', 'ancienne@wavre.be')]);
-            await boot();
-            await open();
-
-            rows()[0].querySelector('button').click();
-            const inputs = rows()[0].querySelectorAll('input');
-            expect(inputs[0].value).toBe('Commune');
-            expect(inputs[1].value).toBe('ancienne@wavre.be');
-
-            global.fetch = vi.fn(() => jsonResponse({
-                success: true,
-                address: address(4, 'Commune de Wavre', 'nouvelle@wavre.be'),
-            }));
-            inputs[0].value = 'Commune de Wavre';
-            inputs[1].value = 'nouvelle@wavre.be';
-            Array.from(rows()[0].querySelectorAll('button'))
-                .find((b) => b.textContent === 'Enregistrer').click();
-            await settle();
-
-            const [url, opts] = fetch.mock.calls[0];
-            expect(url).toBe('/admin/listes-de-diffusion/addresses/4');
-            expect(opts.method).toBe('PATCH');
-            expect(rowTexts()).toEqual(['Commune de Wavre — nouvelle@wavre.be']);
-        });
-
-        it('puts the row back untouched when the edit is cancelled', async () => {
-            serve([address(4, 'Commune', 'ancienne@wavre.be')]);
-            await boot();
-            await open();
-
-            rows()[0].querySelector('button').click();
-            Array.from(rows()[0].querySelectorAll('button'))
-                .find((b) => b.textContent === 'Annuler').click();
-
-            expect(rowTexts()).toEqual(['Commune — ancienne@wavre.be']);
-        });
-
         it('asks before removing, and sends nothing when the answer is no', async () => {
             serve([address(4, 'Commune', 'jeunesse@wavre.be')]);
             await boot();
@@ -395,8 +412,7 @@ describe('mass-mail-list-addresses.js', () => {
             const callsAfterLoad = fetch.mock.calls.length;
 
             window.ScoutMagicConfirm.ask = vi.fn(() => Promise.resolve(false));
-            Array.from(rows()[0].querySelectorAll('button'))
-                .find((b) => b.textContent === 'Supprimer').click();
+            rows()[0].querySelector('button').click();
             await settle();
 
             expect(window.ScoutMagicConfirm.ask).toHaveBeenCalled();
@@ -410,15 +426,17 @@ describe('mass-mail-list-addresses.js', () => {
             await open();
 
             global.fetch = vi.fn(() => jsonResponse({ success: true, counts: { total: 0, unsubscribed: 0 } }));
-            Array.from(rows()[0].querySelectorAll('button'))
-                .find((b) => b.textContent === 'Supprimer').click();
+            rows()[0].querySelector('button').click();
             await settle();
 
             const [url, opts] = fetch.mock.calls[0];
             expect(url).toBe('/admin/listes-de-diffusion/addresses/4');
             expect(opts.method).toBe('DELETE');
             expect(rows()).toHaveLength(0);
-            expect(countEl().textContent).toBe('0 adresse');
+            // The page BEHIND the dialog, rewritten in place: adding and
+            // removing are immediate, so « Annuler » on the dialog must
+            // not leave the summary claiming a count that no longer holds.
+            expect(countEl().textContent).toBe('Aucune adresse propre à cette liste.');
         });
     });
 
@@ -440,15 +458,20 @@ describe('mass-mail-list-addresses.js', () => {
             importInput().dispatchEvent(new Event('change'));
         }
 
-        it('offers the export as a plain link, never as a script-driven download', async () => {
+        it('offers the export as a plain link, pointed at the list the dialog is on', async () => {
             serve([]);
             await boot();
             await open();
 
-            const link = document.querySelector('a[href$="/addresses/export"]');
-            expect(link).not.toBeNull();
+            const link = document.querySelector('[data-address-export]');
             expect(link.getAttribute('href'))
                 .toBe('/admin/listes-de-diffusion/lists/7/addresses/export');
+
+            // And it stops pointing anywhere when there is no list yet:
+            // a « Nouvelle liste » must not offer the export of whichever
+            // list the dialog was last opened on.
+            window.MassMailListAddresses.detach();
+            expect(link.hasAttribute('href')).toBe(false);
         });
 
         it('uploads for ANALYSIS and shows the counts without replacing anything', async () => {
@@ -617,7 +640,7 @@ describe('mass-mail-list-addresses.js', () => {
             // The set on screen came back from the server, not from a guess.
             expect(calls[1][0]).toBe('/admin/listes-de-diffusion/lists/7/addresses');
             expect(rowTexts()).toEqual(['Nouvelle — nouvelle@test.be']);
-            expect(countEl().textContent).toBe('1 adresse');
+            expect(countEl().textContent).toBe('1 adresse propre à cette liste.');
             expect(importPreview().classList.contains('d-none')).toBe(true);
         });
 

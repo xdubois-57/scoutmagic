@@ -702,3 +702,40 @@ change rien à ce que la liste contient.
 document le prévoit : la portée en années comme propriété d'une liste
 personnalisée, l'inscription publique, et la sélection multiple, les
 étiquettes, les filtres avancés et la suppression en masse (D6).
+
+---
+
+## Après le chantier — les adresses passent dans la fenêtre d'édition
+
+Les sections ci-dessus disent ce que chaque itération a livré, et restent
+telles quelles. Une demande ultérieure a déplacé l'écran qu'IT-03 et IT-04
+avaient construit, sans rien changer à ce qu'ils avaient décidé (D1, D2,
+D3, D6 tiennent tous).
+
+**Les adresses d'une liste se gèrent dans la fenêtre qui modifie la
+liste**, plus dans un panneau replié sur la page. Elles font partie de ce
+que la liste contient, au même titre que ses critères, et c'est cette
+fenêtre qui décide du contenu d'une liste. La page **résume** : ce que les
+critères désignent, en les nommant (`MailingListService::describeCriteria()`
+— une phrase distincte de celle du dialogue, qui les compte parce que les
+sélecteurs sont juste au-dessus), et combien d'adresses propres la liste
+porte. Un seul panneau, pointé sur la liste ouverte ; une « Nouvelle
+liste » le voit remplacé par une phrase, une adresse n'ayant rien à quoi
+s'attacher tant que la liste n'existe pas.
+
+**Une adresse s'ajoute et se retire, elle ne se corrige plus en place.**
+Une ligne ne porte qu'un nom et une adresse : une faute de frappe se
+répare en la retirant et en la retapant. La route `PATCH
+/admin/listes-de-diffusion/addresses/{id}` et `ListAddressService::edit()`
+sont parties avec le bouton plutôt que de rester joignables sans appelant ;
+l'aller-retour Excel corrige toujours un nom en place, parce qu'il
+réconcilie trois cents lignes au lieu d'en réparer une. Le geste restant
+est la corbeille que le reste de la page utilise déjà — le mot à côté de
+cinquante lignes, c'est cinquante fois le même mot — nommée d'après
+l'adresse qu'elle retire pour qu'un lecteur d'écran annonce laquelle.
+
+**Ajouter et retirer restent immédiats**, alors qu'enregistrer la liste ne
+l'est pas : le panneau réécrit donc le compte de la page au passage, sinon
+« Annuler » laisserait le résumé annoncer un nombre que la base ne porte
+plus.
+

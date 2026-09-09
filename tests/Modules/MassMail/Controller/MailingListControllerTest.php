@@ -175,6 +175,12 @@ class MailingListControllerTest extends TestCase
                 'section_ids' => [$this->sectionId],
                 'badge_ids' => [$this->badgeId],
                 'address_counts' => ['total' => 0, 'unsubscribed' => 0],
+                // The page only ever summarises a list, so the sentence
+                // it prints is built here rather than in the browser —
+                // and it NAMES the criteria, having no pickers above it
+                // to point at (MailingListService::describeCriteria()).
+                'criteria_summary' => 'Membres qui exercent la fonction Intendant '
+                    . 'ET sont dans la section Meute ET portent le badge Infirmier.',
             ],
             $captured['custom_list_criteria'][$list->id]
         );
@@ -400,20 +406,6 @@ class MailingListControllerTest extends TestCase
         $this->assertSame(0, $this->listAddressService->countForList($list->id)['total']);
     }
 
-    public function testUpdateAddressRewritesTheRow(): void
-    {
-        $list = $this->list('Avec des adresses');
-        $address = $this->listAddressService->add($list->id, 'Commune', 'ancienne@wavre.be');
-
-        $payload = $this->call('updateAddress', ['id' => (string) $address->id], [
-            'name' => 'Commune de Wavre',
-            'email' => 'nouvelle@wavre.be',
-        ]);
-
-        $this->assertSame('Commune de Wavre', $payload['address']['name']);
-        $this->assertSame('nouvelle@wavre.be', $payload['address']['email']);
-    }
-
     public function testDeleteAddressRemovesItAndAnswersWithTheListsNewCounts(): void
     {
         $list = $this->list('Avec des adresses');
@@ -467,7 +459,6 @@ class MailingListControllerTest extends TestCase
             'toggleList' => ['toggleList'],
             'deleteList' => ['deleteList'],
             'addAddress' => ['addAddress'],
-            'updateAddress' => ['updateAddress'],
             'deleteAddress' => ['deleteAddress'],
         ];
     }

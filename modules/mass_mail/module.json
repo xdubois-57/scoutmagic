@@ -271,15 +271,6 @@
     },
     {
       "path": "/admin/listes-de-diffusion/addresses/{id}",
-      "method": "PATCH",
-      "controller": "Modules\\MassMail\\Controller\\MailingListController",
-      "action": "updateAddress",
-      "menu": "espace_admin",
-      "role_min": "admin",
-      "label": ""
-    },
-    {
-      "path": "/admin/listes-de-diffusion/addresses/{id}",
       "method": "DELETE",
       "controller": "Modules\\MassMail\\Controller\\MailingListController",
       "action": "deleteAddress",

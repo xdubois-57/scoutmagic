@@ -462,6 +462,25 @@ describe('mass-mail-lists.js', () => {
             expect(window.location.reload).toHaveBeenCalled();
         });
 
+        /**
+         * The dialog is where BOTH halves of a list are decided — the
+         * criteria and the list's own addresses — so opening it on a list
+         * points the one address panel at that list. Opening « Nouvelle
+         * liste » points it at nothing: an address attaches to a list,
+         * and the list does not exist yet.
+         */
+        it('points the address panel at the list it opens on, and at nothing for a new one', async () => {
+            window.MassMailListAddresses = { attach: vi.fn(), detach: vi.fn() };
+            await boot();
+
+            document.querySelector('.cfg-edit-list-btn').click();
+            expect(window.MassMailListAddresses.attach).toHaveBeenCalledWith('7');
+
+            document.getElementById('cfg-new-list-btn').click();
+            expect(window.MassMailListAddresses.detach).toHaveBeenCalled();
+            expect(window.MassMailListAddresses.attach).toHaveBeenCalledTimes(1);
+        });
+
         it('PATCHes the edited list to its own URL, pre-filled from the row', async () => {
             await boot();
 

@@ -250,6 +250,71 @@ class MailingListServiceTest extends TestCase
         $this->assertSame([], $service->getAllBadges());
     }
 
+    // --- The summary the page prints (describeCriteria) ------------------
+
+    /**
+     * The page that lists the lists has no pickers above its sentence, so
+     * the sentence NAMES the criteria rather than counting them — see the
+     * method's own docblock for why it is deliberately not the same
+     * sentence as the dialog's.
+     */
+    public function testTheSummaryNamesEachAxisAndJoinsThemWithEt(): void
+    {
+        $this->assertSame(
+            'Membres qui exercent la fonction Animateur ET sont dans la section Meute A '
+                . 'ET portent le badge Infirmier.',
+            $this->service->describeCriteria([$this->functionId], [$this->sectionActiveId], [$this->badgeId])
+        );
+    }
+
+    public function testAnAxisThatConstrainsNothingDisappearsFromTheSummary(): void
+    {
+        $this->assertSame(
+            'Membres qui exercent la fonction Animateur.',
+            $this->service->describeCriteria([$this->functionId], [], [])
+        );
+    }
+
+    /**
+     * Singular and plural are two sentences rather than one carrying an
+     * « (s) »: « une des fonctions Animateur » is what a template
+     * produces and nobody writes.
+     */
+    public function testTwoCriteriaOnOneAxisSwitchTheClauseToItsPlural(): void
+    {
+        $this->pdo->exec("INSERT INTO functions (desk_code, label, role) VALUES ('INT', 'Intendant', 'identified')");
+        $second = (int) $this->pdo->lastInsertId();
+
+        $this->assertSame(
+            'Membres qui exercent une des fonctions Animateur, Intendant.',
+            $this->service->describeCriteria([$this->functionId, $second], [], [])
+        );
+    }
+
+    public function testNoCriterionAtAllSaysSoRatherThanNamingNothing(): void
+    {
+        $this->assertSame(
+            'Aucun membre du site dans cette liste.',
+            $this->service->describeCriteria([], [], [])
+        );
+    }
+
+    /**
+     * A deactivated badge a list still names keeps the suffix the picker
+     * gives it — this sentence is the one place a chief finds out why the
+     * list resolves to fewer members than its other axes suggest.
+     */
+    public function testADeactivatedBadgeIsNamedWithItsSuffix(): void
+    {
+        $this->service->createCustomList('Ma liste', 'Description', [], [], [$this->badgeId], null);
+        $this->pdo->exec("UPDATE badges SET is_active = 0 WHERE id = {$this->badgeId}");
+
+        $this->assertSame(
+            'Membres qui portent le badge Infirmier (désactivé).',
+            $this->service->describeCriteria([], [], [$this->badgeId])
+        );
+    }
+
     public function testCountMembersForCriteriaCountsWhatASendWouldResolve(): void
     {
         $this->assertSame(0, $this->service->countMembersForCriteria([], [], [], $this->scoutYearId));
