@@ -2,7 +2,7 @@
   "id": "mass_mail",
   "name": "Envoi de mails",
   "description": "Envoi de mails groupés aux membres de l'unité : listes de diffusion par défaut ou personnalisées, publipostage depuis un fichier Excel avec variables personnalisées, mode test, envoi en arrière-plan par lots, suivi détaillé des envois. Accueille aussi, lorsque le module inscriptions est actif, une liste prédéfinie non modifiable pour l'année scoute cible.",
-  "version": "1.10.0",
+  "version": "1.11.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -196,6 +196,15 @@
       "menu_icon": "bi-send",
       "menu_group": "services",
       "breadcrumb": { "label": "Listes de diffusion", "parents": ["Espace chefs d'U"] }
+    },
+    {
+      "path": "/admin/listes-de-diffusion/preview-count",
+      "method": "POST",
+      "controller": "Modules\\MassMail\\Controller\\MailingListController",
+      "action": "previewCount",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
     },
     {
       "path": "/admin/listes-de-diffusion/lists",

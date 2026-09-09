@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\MassMail\Service;
 
+use Core\Badge\Badge;
+use Core\Badge\BadgeService;
 use Core\Config\ScoutYearService;
 use Core\Import\FunctionRepository;
 use Core\Member\SectionService;
@@ -42,6 +44,13 @@ class MailingListService
         private MemberResolutionRepository $resolutionRepository,
         private SectionService $sectionService,
         private FunctionRepository $functionRepository,
+        /**
+         * The third criteria axis. Nullable and defaulted only so the
+         * many tests that drive a list by its two original axes keep
+         * their constructor call — the composition roots always pass it,
+         * and a null one simply offers no badge to choose from.
+         */
+        private ?BadgeService $badgeService = null,
         private ?ExternalMailingListProvider $externalListProvider = null,
         /**
          * The projection (ARCHITECTURE.md §7.5, `registration`'s
@@ -218,8 +227,17 @@ class MailingListService
     }
 
     /**
+     * @return int[]
+     */
+    public function getCustomListBadgeIds(int $listId): array
+    {
+        return $this->listRepository->getBadgeIds($listId);
+    }
+
+    /**
      * @param int[] $functionIds
      * @param int[] $sectionIds
+     * @param int[] $badgeIds
      * @throws MailingListException on an invalid name/description or empty criteria
      */
     public function createCustomList(
@@ -227,12 +245,20 @@ class MailingListService
         string $description,
         array $functionIds,
         array $sectionIds,
+        array $badgeIds,
         ?int $createdBy
     ): MailingList
     {
-        $this->validateCriteria($name, $description, $functionIds, $sectionIds);
+        $this->validateCriteria($name, $description, $functionIds, $sectionIds, $badgeIds);
 
-        $id = $this->listRepository->create(trim($name), trim($description), $functionIds, $sectionIds, $createdBy);
+        $id = $this->listRepository->create(
+            trim($name),
+            trim($description),
+            $functionIds,
+            $sectionIds,
+            $badgeIds,
+            $createdBy
+        );
         $list = $this->listRepository->findById($id);
         \assert($list !== null);
         return $list;
@@ -241,6 +267,7 @@ class MailingListService
     /**
      * @param int[] $functionIds
      * @param int[] $sectionIds
+     * @param int[] $badgeIds
      * @throws MailingListException on an invalid name/description, empty criteria, or an unknown list
      */
     public function updateCustomList(
@@ -248,15 +275,16 @@ class MailingListService
         string $name,
         string $description,
         array $functionIds,
-        array $sectionIds
+        array $sectionIds,
+        array $badgeIds
     ): MailingList
     {
         if ($this->listRepository->findById($id) === null) {
             throw new MailingListException('Liste introuvable.');
         }
-        $this->validateCriteria($name, $description, $functionIds, $sectionIds);
+        $this->validateCriteria($name, $description, $functionIds, $sectionIds, $badgeIds);
 
-        $this->listRepository->update($id, trim($name), trim($description), $functionIds, $sectionIds);
+        $this->listRepository->update($id, trim($name), trim($description), $functionIds, $sectionIds, $badgeIds);
         $updated = $this->listRepository->findById($id);
         \assert($updated !== null);
         return $updated;
@@ -349,6 +377,7 @@ class MailingListService
                 return $this->resolutionRepository->resolveCustomList(
                     $this->listRepository->getFunctionIds($listId),
                     $this->listRepository->getSectionIds($listId),
+                    $this->listRepository->getBadgeIds($listId),
                     $scoutYearId
                 );
             default:
@@ -534,20 +563,81 @@ class MailingListService
     }
 
     /**
+     * Active badges only — a deactivated badge is no longer assignable
+     * anywhere (Core\Badge\BadgeService::getActive()), so offering it as
+     * a criterion would only ever build a list that resolves to nobody.
+     * Existing criteria naming a badge that was deactivated afterwards
+     * are left alone: the row survives, exactly as `member_badges`
+     * assignments do.
+     *
+     * @return array<int, array{id: int, name: string}>
+     */
+    public function getAllBadges(): array
+    {
+        if ($this->badgeService === null) {
+            return [];
+        }
+
+        return array_map(
+            fn(Badge $b) => ['id' => $b->id, 'name' => $b->name],
+            $this->badgeService->getActive()
+        );
+    }
+
+    /**
+     * How many members the given criteria resolve to right now, for the
+     * live counter on the criteria form — the same resolution a send
+     * performs, against the same year, so the two can never disagree.
+     *
      * @param int[] $functionIds
      * @param int[] $sectionIds
+     * @param int[] $badgeIds
+     */
+    public function countMembersForCriteria(
+        array $functionIds,
+        array $sectionIds,
+        array $badgeIds,
+        int $scoutYearId
+    ): int {
+        return count($this->resolutionRepository->resolveCustomList(
+            $functionIds,
+            $sectionIds,
+            $badgeIds,
+            $scoutYearId
+        ));
+    }
+
+    /**
+     * An axis left empty is not a constraint (see
+     * `MemberResolutionRepository::resolveCustomList()`), so demanding one
+     * function AND one section would forbid « les intendants, toutes
+     * sections confondues » — the very list the empty axis exists to
+     * express. What stays forbidden is all three empty at once: that
+     * resolves to nobody, and a list nothing can ever be added to is a
+     * mistake, not a choice.
+     *
+     * @param int[] $functionIds
+     * @param int[] $sectionIds
+     * @param int[] $badgeIds
      * @throws MailingListException
      */
-    private function validateCriteria(string $name, string $description, array $functionIds, array $sectionIds): void
-    {
+    private function validateCriteria(
+        string $name,
+        string $description,
+        array $functionIds,
+        array $sectionIds,
+        array $badgeIds
+    ): void {
         if (trim($name) === '') {
             throw new MailingListException('Le nom de la liste est obligatoire.');
         }
         if (trim($description) === '') {
             throw new MailingListException('La description de la liste est obligatoire.');
         }
-        if ($functionIds === [] || $sectionIds === []) {
-            throw new MailingListException('Une liste doit combiner au moins une fonction et une section.');
+        if ($functionIds === [] && $sectionIds === [] && $badgeIds === []) {
+            throw new MailingListException(
+                'Une liste doit porter au moins un critère — une fonction, une section ou un badge.'
+            );
         }
     }
 }

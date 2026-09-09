@@ -23,6 +23,9 @@ class MemberResolutionRepositoryTest extends TestCase
     private int $sectionBId;
     private int $functionAnimateurId;
     private int $functionChiefId;
+    private int $badgeInfirmierId;
+    private int $badgeTresorierId;
+    private int $previousYearId;
 
     protected function setUp(): void
     {
@@ -43,6 +46,20 @@ class MemberResolutionRepositoryTest extends TestCase
         $this->functionAnimateurId = (int) $this->pdo->lastInsertId();
         $this->pdo->exec("INSERT INTO functions (desk_code, label, role) VALUES ('CHEF', 'Chef', 'chief')");
         $this->functionChiefId = (int) $this->pdo->lastInsertId();
+
+        $this->pdo->exec("INSERT INTO badges (name, is_default) VALUES ('Infirmier', 1)");
+        $this->badgeInfirmierId = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec("INSERT INTO badges (name, is_default) VALUES ('Trésorier', 1)");
+        $this->badgeTresorierId = (int) $this->pdo->lastInsertId();
+
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2024-2025', '2024-09-01', '2025-08-31', 0)");
+        $this->previousYearId = (int) $this->pdo->lastInsertId();
+    }
+
+    private function assignBadge(int $memberYearId, int $badgeId): void
+    {
+        $stmt = $this->pdo->prepare('INSERT INTO member_badges (member_year_id, badge_id) VALUES (?, ?)');
+        $stmt->execute([$memberYearId, $badgeId]);
     }
 
     private function createSection(string $deskCode, int $branchId, string $name): int
@@ -157,16 +174,165 @@ class MemberResolutionRepositoryTest extends TestCase
         $wrongFunction = $this->createMember('wrong-function@test.be');
         $this->assignFunction($wrongFunction['member_year_id'], $this->functionAnimateurId, $this->sectionAId);
 
-        $resolved = $this->repository->resolveCustomList([$this->functionChiefId], [$this->sectionAId], $this->scoutYearId);
+        $resolved = $this->repository->resolveCustomList(
+            [$this->functionChiefId],
+            [$this->sectionAId],
+            [],
+            $this->scoutYearId
+        );
 
         $this->assertCount(1, $resolved);
         $this->assertSame($qualifies['member_id'], $resolved[0]['member_id']);
     }
 
-    public function testResolveCustomListReturnsEmptyWhenEitherCriteriaGroupIsEmpty(): void
+    /**
+     * An axis with nothing selected is an ABSENCE of constraint, not a
+     * constraint nothing satisfies — « les chefs, toutes sections
+     * confondues » is the list this makes expressible.
+     */
+    public function testAnEmptyAxisConstrainsNothing(): void
     {
-        $this->assertSame([], $this->repository->resolveCustomList([], [$this->sectionAId], $this->scoutYearId));
-        $this->assertSame([], $this->repository->resolveCustomList([$this->functionChiefId], [], $this->scoutYearId));
+        $chiefInA = $this->createMember('chief-a@test.be');
+        $this->assignFunction($chiefInA['member_year_id'], $this->functionChiefId, $this->sectionAId);
+        $chiefInB = $this->createMember('chief-b@test.be');
+        $this->assignFunction($chiefInB['member_year_id'], $this->functionChiefId, $this->sectionBId);
+        $animateurInA = $this->createMember('anim-a@test.be');
+        $this->assignFunction($animateurInA['member_year_id'], $this->functionAnimateurId, $this->sectionAId);
+
+        // No section selected: the function alone decides.
+        $byFunction = $this->repository->resolveCustomList(
+            [$this->functionChiefId],
+            [],
+            [],
+            $this->scoutYearId
+        );
+        $this->assertEqualsCanonicalizing(
+            [$chiefInA['member_id'], $chiefInB['member_id']],
+            array_column($byFunction, 'member_id')
+        );
+
+        // No function selected: the section alone decides.
+        $bySection = $this->repository->resolveCustomList(
+            [],
+            [$this->sectionAId],
+            [],
+            $this->scoutYearId
+        );
+        $this->assertEqualsCanonicalizing(
+            [$chiefInA['member_id'], $animateurInA['member_id']],
+            array_column($bySection, 'member_id')
+        );
+    }
+
+    /**
+     * D5's other half: no constraint on any axis is NOT « everybody ».
+     * A list may legitimately hold nothing but its own addresses, and
+     * « the whole unit » is what the « Membres actifs » default list is
+     * for.
+     */
+    public function testAllThreeAxesEmptyResolvesToNobody(): void
+    {
+        $member = $this->createMember('somebody@test.be');
+        $this->assignFunction($member['member_year_id'], $this->functionChiefId, $this->sectionAId);
+
+        $this->assertSame([], $this->repository->resolveCustomList([], [], [], $this->scoutYearId));
+    }
+
+    public function testTheBadgeAxisIsOredWithinItselfAndAndedWithTheOthers(): void
+    {
+        $infirmierInA = $this->createMember('infirmier@test.be');
+        $this->assignFunction($infirmierInA['member_year_id'], $this->functionChiefId, $this->sectionAId);
+        $this->assignBadge($infirmierInA['member_year_id'], $this->badgeInfirmierId);
+
+        $tresorierInB = $this->createMember('tresorier@test.be');
+        $this->assignFunction($tresorierInB['member_year_id'], $this->functionChiefId, $this->sectionBId);
+        $this->assignBadge($tresorierInB['member_year_id'], $this->badgeTresorierId);
+
+        $noBadgeInA = $this->createMember('no-badge@test.be');
+        $this->assignFunction($noBadgeInA['member_year_id'], $this->functionChiefId, $this->sectionAId);
+
+        // OR within the axis: either badge qualifies.
+        $eitherBadge = $this->repository->resolveCustomList(
+            [],
+            [],
+            [$this->badgeInfirmierId, $this->badgeTresorierId],
+            $this->scoutYearId
+        );
+        $this->assertEqualsCanonicalizing(
+            [$infirmierInA['member_id'], $tresorierInB['member_id']],
+            array_column($eitherBadge, 'member_id')
+        );
+
+        // AND with the section axis: the Trésorier is in the other section.
+        $badgeAndSection = $this->repository->resolveCustomList(
+            [],
+            [$this->sectionAId],
+            [$this->badgeInfirmierId, $this->badgeTresorierId],
+            $this->scoutYearId
+        );
+        $this->assertCount(1, $badgeAndSection);
+        $this->assertSame($infirmierInA['member_id'], $badgeAndSection[0]['member_id']);
+    }
+
+    /**
+     * Badges are historised per scout year (member_badges.member_year_id,
+     * ARCHITECTURE.md §8.11), so the axis reads the badge worn in the year
+     * being resolved and never one worn in another.
+     */
+    public function testABadgeWornInAPastYearDoesNotCountForTheCurrentOne(): void
+    {
+        $member = $this->createMember('returning@test.be');
+        $this->assignFunction($member['member_year_id'], $this->functionChiefId, $this->sectionAId);
+
+        // The same person, last year, with the badge — and this year without.
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, is_active)
+             VALUES (?, ?, ?, ?, 1)'
+        );
+        $stmt->execute([
+            $member['member_id'],
+            $this->previousYearId,
+            $this->encryption->encrypt('John', 'member_years.first_name'),
+            $this->encryption->encrypt('Doe', 'member_years.last_name'),
+        ]);
+        $this->assignBadge((int) $this->pdo->lastInsertId(), $this->badgeInfirmierId);
+
+        $this->assertSame(
+            [],
+            $this->repository->resolveCustomList([], [], [$this->badgeInfirmierId], $this->scoutYearId)
+        );
+    }
+
+    /**
+     * A badge-only list must not silently acquire « and holds a function »
+     * from a join nothing asked for — a Staff d'U member with a badge and
+     * no member_functions row is still a recipient.
+     */
+    public function testABadgeOnlyListDoesNotRequireAFunction(): void
+    {
+        $badgeOnly = $this->createMember('badge-only@test.be');
+        $this->assignBadge($badgeOnly['member_year_id'], $this->badgeInfirmierId);
+
+        $resolved = $this->repository->resolveCustomList([], [], [$this->badgeInfirmierId], $this->scoutYearId);
+
+        $this->assertCount(1, $resolved);
+        $this->assertSame($badgeOnly['member_id'], $resolved[0]['member_id']);
+    }
+
+    public function testAnInactiveMemberIsNeverResolvedByCriteria(): void
+    {
+        $inactive = $this->createMember('inactive@test.be', false);
+        $this->assignFunction($inactive['member_year_id'], $this->functionChiefId, $this->sectionAId);
+        $this->assignBadge($inactive['member_year_id'], $this->badgeInfirmierId);
+
+        $this->assertSame(
+            [],
+            $this->repository->resolveCustomList([$this->functionChiefId], [], [], $this->scoutYearId)
+        );
+        $this->assertSame(
+            [],
+            $this->repository->resolveCustomList([], [], [$this->badgeInfirmierId], $this->scoutYearId)
+        );
     }
 
     public function testEmailAddressIsDecryptedNotStoredCleartextRoundTrip(): void

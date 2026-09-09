@@ -37,15 +37,50 @@ async function settle() {
     await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+/**
+ * One select bar in mode:multi, as partials/select_bar.html.twig renders
+ * it — the same class names, data attributes and check-mark span the real
+ * select-bar.js toggles, so this suite exercises the real component rather
+ * than a stand-in for it.
+ *
+ * @param {string} id
+ * @param {string} noneText
+ * @param {string} countLabel
+ * @param {{id: number, label: string}[]} items
+ */
+function selectBar(id, noneText, countLabel, items) {
+    const rows = items.map((item) => `
+        <li>
+            <button type="button" class="select-bar-item" data-id="${item.id}"
+                    data-selected="false" aria-pressed="false">
+                <span><i class="bi bi-check-lg invisible"></i></span>
+                <span><span class="select-bar-row-label">${item.label}</span></span>
+            </button>
+        </li>`).join('');
+
+    return `
+    <div class="select-bar" id="${id}" data-mode="multi">
+        <details class="select-bar-details">
+            <summary class="select-bar-trigger">
+                <span class="select-bar-value"
+                      data-none-text="${noneText}" data-count-label="${countLabel}">${noneText}</span>
+            </summary>
+            <div class="select-bar-panel"><ul>${rows}</ul></div>
+        </details>
+    </div>`;
+}
+
 // Mirrors what modules/mass_mail/views/mailing_lists.html.twig renders: two
-// custom lists (one active, one not) and the shared modal the create/edit
-// flow drives.
+// custom lists (one active, one not), the shared modal the create/edit flow
+// drives, and the three criteria pickers with the sentence and the count
+// underneath them.
 const PAGE = `
     <button type="button" id="cfg-new-list-btn">Nouvelle liste</button>
     <ul id="cfg-custom-lists">
         <li data-id="7">
             <button type="button" class="cfg-edit-list-btn" data-id="7" data-name="Parents louveteaux"
-                    data-description="Les parents de la meute" data-function-ids="2,3" data-section-ids="5"></button>
+                    data-description="Les parents de la meute" data-function-ids="2,3" data-section-ids="5"
+                    data-badge-ids="11"></button>
             <button type="button" class="cfg-toggle-list-btn" data-id="7" data-active="1"></button>
             <button type="button" class="cfg-delete-list-btn" data-id="7"></button>
         </li>
@@ -60,10 +95,20 @@ const PAGE = `
         <div id="cfg-list-error" class="d-none"></div>
         <input type="text" id="cfg-list-name" value="">
         <textarea id="cfg-list-description"></textarea>
-        <input class="cfg-function-checkbox" type="checkbox" value="2" id="cfg-fn-2">
-        <input class="cfg-function-checkbox" type="checkbox" value="3" id="cfg-fn-3">
-        <input class="cfg-section-checkbox" type="checkbox" value="5" id="cfg-sec-5">
-        <input class="cfg-section-checkbox" type="checkbox" value="6" id="cfg-sec-6">
+        ${selectBar('cfg-function-picker', 'Toutes les fonctions', 'fonctions', [
+            { id: 2, label: 'Animateur' },
+            { id: 3, label: 'Intendant' },
+        ])}
+        ${selectBar('cfg-section-picker', 'Toutes les sections', 'sections', [
+            { id: 5, label: 'Meute' },
+            { id: 6, label: 'Troupe' },
+        ])}
+        ${selectBar('cfg-badge-picker', 'Tous les badges', 'badges', [
+            { id: 11, label: 'Infirmier' },
+            { id: 12, label: 'Trésorier' },
+        ])}
+        <p id="cfg-criteria-sentence"></p>
+        <p id="cfg-criteria-count" data-year-label="2025-2026"></p>
         <button type="button" id="cfg-list-save-btn">Enregistrer</button>
     </div>
 `;
@@ -85,12 +130,26 @@ describe('mass-mail-lists.js', () => {
     });
 
     async function boot() {
-        // The real fetch toolbox — mass-mail-lists.js posts through
-        // window.ScoutMagicApi (base.html.twig guarantees this load order in
-        // production).
+        // The real fetch toolbox and the real select bar — base.html.twig
+        // guarantees this load order in production (api.js and
+        // select-bar.js both ship before {% block scripts %}).
         await import('../../public/assets/js/api.js');
+        await import('../../public/assets/js/select-bar.js');
         await import('../../public/assets/js/mass-mail-lists.js');
     }
+
+    /**
+     * Clicks one picker row, the way a person does.
+     *
+     * @param {string} pickerId
+     * @param {number} id
+     */
+    function toggle(pickerId, id) {
+        document.querySelector(`#${pickerId} .select-bar-item[data-id="${id}"]`).click();
+    }
+
+    const sentence = () => document.getElementById('cfg-criteria-sentence').textContent;
+    const countLine = () => document.getElementById('cfg-criteria-count');
 
     function lastRequest() {
         const [url, opts] = fetch.mock.calls[fetch.mock.calls.length - 1];
@@ -99,11 +158,155 @@ describe('mass-mail-lists.js', () => {
 
     const deleteBtn = () => document.querySelector('.cfg-delete-list-btn[data-id="7"]');
 
+    /**
+     * The ids one picker currently has selected, in DOM order.
+     *
+     * @param {string} pickerId
+     */
+    function selected(pickerId) {
+        return Array.from(document.querySelectorAll(`#${pickerId} .select-bar-item[data-selected="true"]`))
+            .map((el) => el.dataset.id);
+    }
+
     describe('entry guard', () => {
         it('does nothing at all on a page without the modal', async () => {
             document.body.innerHTML = '<p>Une autre page</p>';
             await expect(boot()).resolves.not.toThrow();
             expect(fetch).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('the sentence the three axes add up to', () => {
+        it('says the list holds nobody while no axis carries a criterion', async () => {
+            await boot();
+            document.getElementById('cfg-new-list-btn').click();
+
+            expect(sentence()).toBe('Aucun membre du site dans cette liste.');
+        });
+
+        it('names one axis in the singular, without a count', async () => {
+            await boot();
+            toggle('cfg-function-picker', 2);
+
+            expect(sentence()).toBe('Membres qui exercent la fonction choisie.');
+        });
+
+        it('counts an axis that carries several, and joins the axes with ET', async () => {
+            await boot();
+            toggle('cfg-function-picker', 2);
+            toggle('cfg-function-picker', 3);
+            toggle('cfg-section-picker', 5);
+            toggle('cfg-badge-picker', 11);
+            toggle('cfg-badge-picker', 12);
+
+            expect(sentence()).toBe(
+                'Membres qui exercent une des 2 fonctions choisies ET sont dans la section choisie '
+                + 'ET portent un des 2 badges choisis.',
+            );
+        });
+
+        it('drops an empty axis from the sentence entirely — a stated ET over nothing is what confuses', async () => {
+            await boot();
+            toggle('cfg-badge-picker', 11);
+
+            expect(sentence()).toBe('Membres qui portent le badge choisi.');
+            expect(sentence()).not.toContain('ET');
+            expect(sentence()).not.toContain('section');
+        });
+
+        it('goes back to nobody when the last criterion is unticked', async () => {
+            await boot();
+            toggle('cfg-section-picker', 5);
+            toggle('cfg-section-picker', 5);
+
+            expect(sentence()).toBe('Aucun membre du site dans cette liste.');
+        });
+    });
+
+    describe('the live count beside it', () => {
+        it('asks the server for the current criteria and states the year it counted', async () => {
+            global.fetch = vi.fn(() => jsonResponse({ success: true, count: 12, scout_year_label: '2025-2026' }));
+            await boot();
+
+            toggle('cfg-function-picker', 2);
+            toggle('cfg-section-picker', 5);
+            await settle();
+
+            const { url, body } = lastRequest();
+            expect(url).toBe('/admin/listes-de-diffusion/preview-count');
+            expect(body).toEqual({
+                function_ids: [2],
+                section_ids: [5],
+                badge_ids: [],
+                _csrf_token: 'tok-123',
+            });
+            expect(countLine().textContent).toBe('12 destinataires pour l\'année 2025-2026.');
+            expect(countLine().className).not.toContain('text-danger');
+        });
+
+        it('writes the singular for exactly one recipient', async () => {
+            global.fetch = vi.fn(() => jsonResponse({ success: true, count: 1, scout_year_label: '2025-2026' }));
+            await boot();
+
+            toggle('cfg-badge-picker', 11);
+            await settle();
+
+            expect(countLine().textContent).toBe('1 destinataire pour l\'année 2025-2026.');
+        });
+
+        it('turns red at zero and says what to look at — the crossing, not the spelling', async () => {
+            global.fetch = vi.fn(() => jsonResponse({ success: true, count: 0, scout_year_label: '2025-2026' }));
+            await boot();
+
+            toggle('cfg-badge-picker', 11);
+            toggle('cfg-section-picker', 5);
+            await settle();
+
+            expect(countLine().className).toContain('text-danger');
+            expect(countLine().textContent).toContain('0 destinataire');
+            expect(countLine().textContent).toContain('vérifiez le croisement');
+        });
+
+        it('asks nothing at all while no axis carries a criterion', async () => {
+            await boot();
+            document.getElementById('cfg-new-list-btn').click();
+            await settle();
+
+            expect(fetch).not.toHaveBeenCalled();
+            expect(countLine().textContent).toBe('');
+        });
+
+        it('keeps the answer of the LAST request, whatever order the answers come back in', async () => {
+            const resolvers = [];
+            global.fetch = vi.fn(() => new Promise((resolve) => {
+                resolvers.push(resolve);
+            }));
+            await boot();
+
+            toggle('cfg-function-picker', 2);
+            toggle('cfg-function-picker', 3);
+            await settle();
+            expect(resolvers).toHaveLength(2);
+
+            // The FIRST request answers last — a stale answer that must not
+            // land on screen.
+            resolvers[1]({ ok: true, status: 200, json: () => Promise.resolve({ success: true, count: 9, scout_year_label: '2025-2026' }) });
+            await settle();
+            resolvers[0]({ ok: true, status: 200, json: () => Promise.resolve({ success: true, count: 4, scout_year_label: '2025-2026' }) });
+            await settle();
+
+            expect(countLine().textContent).toBe('9 destinataires pour l\'année 2025-2026.');
+        });
+
+        it('says the count could not be computed rather than showing a stale number', async () => {
+            global.fetch = vi.fn(() => htmlErrorResponse());
+            await boot();
+
+            toggle('cfg-function-picker', 2);
+            await settle();
+
+            expect(countLine().textContent).toBe('Le nombre de destinataires n\'a pas pu être calculé.');
+            expect(countLine().className).not.toContain('text-danger');
         });
     });
 
@@ -223,8 +426,9 @@ describe('mass-mail-lists.js', () => {
             document.getElementById('cfg-new-list-btn').click();
             document.getElementById('cfg-list-name').value = 'Anciens';
             document.getElementById('cfg-list-description').value = 'Les anciens de l\'unité';
-            document.getElementById('cfg-fn-3').checked = true;
-            document.getElementById('cfg-sec-6').checked = true;
+            toggle('cfg-function-picker', 3);
+            toggle('cfg-section-picker', 6);
+            toggle('cfg-badge-picker', 12);
             document.getElementById('cfg-list-save-btn').click();
             await settle();
 
@@ -236,6 +440,7 @@ describe('mass-mail-lists.js', () => {
                 description: 'Les anciens de l\'unité',
                 function_ids: [3],
                 section_ids: [6],
+                badge_ids: [12],
                 _csrf_token: 'tok-123',
             });
             expect(window.location.reload).toHaveBeenCalled();
@@ -247,10 +452,9 @@ describe('mass-mail-lists.js', () => {
             document.querySelector('.cfg-edit-list-btn').click();
             expect(document.getElementById('cfg-list-modal-title').textContent).toBe('Modifier la liste');
             expect(document.getElementById('cfg-list-name').value).toBe('Parents louveteaux');
-            expect(document.getElementById('cfg-fn-2').checked).toBe(true);
-            expect(document.getElementById('cfg-fn-3').checked).toBe(true);
-            expect(document.getElementById('cfg-sec-5').checked).toBe(true);
-            expect(document.getElementById('cfg-sec-6').checked).toBe(false);
+            expect(selected('cfg-function-picker')).toEqual(['2', '3']);
+            expect(selected('cfg-section-picker')).toEqual(['5']);
+            expect(selected('cfg-badge-picker')).toEqual(['11']);
 
             document.getElementById('cfg-list-save-btn').click();
             await settle();
@@ -261,6 +465,7 @@ describe('mass-mail-lists.js', () => {
             expect(body.name).toBe('Parents louveteaux');
             expect(body.function_ids).toEqual([2, 3]);
             expect(body.section_ids).toEqual([5]);
+            expect(body.badge_ids).toEqual([11]);
         });
 
         it('shows a refusal inside the still-open modal rather than in a toast', async () => {
@@ -296,7 +501,9 @@ describe('mass-mail-lists.js', () => {
 
             expect(document.getElementById('cfg-list-modal-title').textContent).toBe('Nouvelle liste');
             expect(document.getElementById('cfg-list-name').value).toBe('');
-            expect(document.getElementById('cfg-fn-2').checked).toBe(false);
+            expect(selected('cfg-function-picker')).toEqual([]);
+            expect(selected('cfg-badge-picker')).toEqual([]);
+            expect(sentence()).toBe('Aucun membre du site dans cette liste.');
 
             document.getElementById('cfg-list-save-btn').click();
             await settle();

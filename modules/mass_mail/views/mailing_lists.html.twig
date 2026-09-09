@@ -44,6 +44,7 @@
                                         data-id="{{ list.id }}" data-name="{{ list.name }}" data-description="{{ list.description }}"
                                         data-function-ids="{{ custom_list_criteria[list.id].function_ids|join(',') }}"
                                         data-section-ids="{{ custom_list_criteria[list.id].section_ids|join(',') }}"
+                                        data-badge-ids="{{ custom_list_criteria[list.id].badge_ids|join(',') }}"
                                         aria-label="Modifier la liste">
                                     <i class="bi bi-pencil" aria-hidden="true"></i>
                                 </button>
@@ -74,6 +75,8 @@
         title: 'Nouvelle liste',
         all_functions: all_functions,
         all_sections: all_sections,
+        all_badges: all_badges,
+        effective_year_label: effective_year_label,
     } only %}
         {% block body %}
             <div class="alert alert-danger d-none" id="cfg-list-error"></div>
@@ -86,27 +89,55 @@
                 <textarea class="form-control form-control-sm" id="cfg-list-description" rows="2" maxlength="500"
                           placeholder="À qui s'adresse cette liste, dans quel but — affiché aux animateurs qui la choisissent."></textarea>
             </div>
+            {# Three axes, three select bars (design.md §1.4 / §7.10.1):
+               each list is open-ended, comes from the database and carries
+               long labels, which is what the select bar is for. It also
+               brings, at no cost here, the things a hand-rolled row of
+               controls gets wrong — a real 44px tap target from
+               `.tap-target`, a panel that scrolls itself instead of the
+               page, and nothing hidden behind a « +N ». #}
             <div class="mb-3">
-                <div class="form-label small d-block">Fonctions (au moins une)</div>
-                <div class="border rounded p-2" style="max-height:160px;overflow-y:auto;">
-                    {% for f in all_functions %}
-                        <div class="form-check">
-                            <input class="form-check-input cfg-function-checkbox" type="checkbox" value="{{ f.id }}" id="cfg-fn-{{ f.id }}">
-                            <label class="form-check-label small" for="cfg-fn-{{ f.id }}">{{ f.label }}</label>
-                        </div>
-                    {% endfor %}
-                </div>
+                {% include 'partials/select_bar.html.twig' with {
+                    picker_id: 'cfg-function-picker',
+                    label: 'Fonctions',
+                    items: all_functions|map(f => { id: f.id, label: f.label, selected: false }),
+                    mode: 'multi',
+                    none_selected_text: 'Toutes les fonctions',
+                    count_label: 'fonctions',
+                    empty_text: 'Aucune fonction — importez Desk pour en disposer.',
+                } only %}
             </div>
             <div class="mb-3">
-                <div class="form-label small d-block">Sections (au moins une)</div>
-                <div class="border rounded p-2" style="max-height:160px;overflow-y:auto;">
-                    {% for s in all_sections %}
-                        <div class="form-check">
-                            <input class="form-check-input cfg-section-checkbox" type="checkbox" value="{{ s.id }}" id="cfg-sec-{{ s.id }}">
-                            <label class="form-check-label small" for="cfg-sec-{{ s.id }}">{{ s.name }}</label>
-                        </div>
-                    {% endfor %}
-                </div>
+                {% include 'partials/select_bar.html.twig' with {
+                    picker_id: 'cfg-section-picker',
+                    label: 'Sections',
+                    items: all_sections|map(s => { id: s.id, label: s.name, selected: false }),
+                    mode: 'multi',
+                    none_selected_text: 'Toutes les sections',
+                    count_label: 'sections',
+                    empty_text: 'Aucune section — importez Desk pour en disposer.',
+                } only %}
+            </div>
+            <div class="mb-3">
+                {% include 'partials/select_bar.html.twig' with {
+                    picker_id: 'cfg-badge-picker',
+                    label: 'Badges',
+                    items: all_badges|map(b => { id: b.id, label: b.name, selected: false }),
+                    mode: 'multi',
+                    none_selected_text: 'Tous les badges',
+                    count_label: 'badges',
+                    empty_text: 'Aucun badge actif.',
+                } only %}
+            </div>
+
+            {# What the three selections add up to, in a sentence, rebuilt
+               at every toggle — the combination is the one thing the
+               controls themselves cannot show, and it is where the AND
+               between axes stops being a guess. #}
+            <div class="border rounded p-2 bg-body-tertiary">
+                <p class="small mb-1" id="cfg-criteria-sentence"></p>
+                <p class="small mb-0" id="cfg-criteria-count"
+                   data-year-label="{{ effective_year_label }}"></p>
             </div>
         {% endblock %}
         {% block footer %}
@@ -117,5 +148,8 @@
 {% endblock %}
 
 {% block scripts %}
+{# select-bar.js is loaded by base.html.twig, before this block and with
+   the same `defer`, so it has already run and window.SelectBar exists by
+   the time this file drives the three pickers. #}
 <script src="{{ asset('/assets/js/mass-mail-lists.js') }}" defer></script>
 {% endblock %}

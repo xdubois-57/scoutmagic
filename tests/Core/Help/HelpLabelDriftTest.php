@@ -95,10 +95,6 @@ final class HelpLabelDriftTest extends TestCase
         // and plurals do not matter.
         'recherche-dans-l-aide' => ['médailles'],
         'camps-encoder' => ['On est allés là en 2012'],
-        'listes-de-diffusion' => [
-            'les intendants de toutes les sections',
-            'les animateurs des deux sections aînées',
-        ],
         // Reported speech: what a banner, a reminder or a person says.
         'bannieres' => ['pensez à vos fiches médicales'],
         'config-calendrier' => ['votre activité a lieu demain'],

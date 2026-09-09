@@ -92,34 +92,88 @@ class MemberResolutionRepository
     }
 
     /**
-     * A custom list's criteria: a member qualifies when they hold one of
-     * the selected functions WITHIN one of the selected sections (AND
-     * between the two criteria groups, OR within each — module spec:
-     * "une combinaison de fonctions ET de sections à inclure").
+     * A custom list's criteria, on three axes: functions, sections and
+     * badges. **AND between the axes, OR within each one** — a member
+     * qualifies when they hold one of the selected functions AND are
+     * within one of the selected sections AND wear one of the selected
+     * badges.
+     *
+     * **An empty axis is not a constraint**, and drops out of the
+     * conjunction entirely: a list naming three functions and no section
+     * means those functions in every section. This reverses the previous
+     * convention, which returned the empty set as soon as EITHER of the
+     * two axes was empty — so « les intendants, toutes sections
+     * confondues » was unexpressible, and a list that lost its last
+     * section to a Desk import silently resolved to nobody instead of
+     * widening. That behaviour was never reachable through the form
+     * (`MailingListService::validateCriteria()` demanded one of each), so
+     * nothing stored can change meaning under the new rule.
+     *
+     * **All three axes empty resolves to NO member**, never to every
+     * member. « No constraint on any axis » would otherwise mean « the
+     * whole unit », which is what the « Membres actifs » default list is
+     * for, and a mail to the entire unit is not something a form should
+     * be able to produce by having nothing filled in.
+     *
+     * The badge axis joins `member_badges` on the member_year of the year
+     * being resolved: badges are already historised per scout year
+     * (`Core\Badge`, ARCHITECTURE.md §8.11), so a badge worn two years ago
+     * never counts for this one.
      *
      * @param int[] $functionIds
      * @param int[] $sectionIds
+     * @param int[] $badgeIds
      * @return ResolvedMember[]
      */
-    public function resolveCustomList(array $functionIds, array $sectionIds, int $scoutYearId): array
-    {
-        if ($functionIds === [] || $sectionIds === []) {
+    public function resolveCustomList(
+        array $functionIds,
+        array $sectionIds,
+        array $badgeIds,
+        int $scoutYearId
+    ): array {
+        if ($functionIds === [] && $sectionIds === [] && $badgeIds === []) {
             return [];
         }
 
-        $functionPlaceholders = implode(',', array_fill(0, count($functionIds), '?'));
-        $sectionPlaceholders = implode(',', array_fill(0, count($sectionIds), '?'));
+        $conditions = ['my.scout_year_id = ?', 'my.is_active = 1'];
+        $parameters = [$scoutYearId];
+
+        // The member_functions join carries both the function and the
+        // section axis, and only those two — joining it for a badge-only
+        // list would silently add « holds any function » to the criteria.
+        $joins = '';
+        if ($functionIds !== [] || $sectionIds !== []) {
+            $joins .= ' JOIN member_functions mf ON mf.member_year_id = my.id';
+        }
+        if ($functionIds !== []) {
+            $conditions[] = 'mf.function_id IN (' . self::placeholders($functionIds) . ')';
+            $parameters = [...$parameters, ...array_values($functionIds)];
+        }
+        if ($sectionIds !== []) {
+            $conditions[] = 'mf.section_id IN (' . self::placeholders($sectionIds) . ')';
+            $parameters = [...$parameters, ...array_values($sectionIds)];
+        }
+        if ($badgeIds !== []) {
+            $joins .= ' JOIN member_badges mb ON mb.member_year_id = my.id';
+            $conditions[] = 'mb.badge_id IN (' . self::placeholders($badgeIds) . ')';
+            $parameters = [...$parameters, ...array_values($badgeIds)];
+        }
 
         $stmt = $this->pdo->prepare(
-            "SELECT DISTINCT my.member_id, my.email_encrypted
-             FROM member_years my
-             JOIN member_functions mf ON mf.member_year_id = my.id
-             WHERE mf.function_id IN ({$functionPlaceholders})
-               AND mf.section_id IN ({$sectionPlaceholders})
-               AND my.scout_year_id = ? AND my.is_active = 1"
+            'SELECT DISTINCT my.member_id, my.email_encrypted
+             FROM member_years my' . $joins . '
+             WHERE ' . implode(' AND ', $conditions)
         );
-        $stmt->execute([...array_values($functionIds), ...array_values($sectionIds), $scoutYearId]);
+        $stmt->execute($parameters);
         return $this->hydrateResolvedMembers($stmt);
+    }
+
+    /**
+     * @param int[] $ids
+     */
+    private static function placeholders(array $ids): string
+    {
+        return implode(',', array_fill(0, count($ids), '?'));
     }
 
     /**

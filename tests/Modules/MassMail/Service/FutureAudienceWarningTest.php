@@ -236,6 +236,7 @@ class FutureAudienceWarningTest extends TestCase
             new SectionService(Connection::withPdo($this->pdo), $this->encryption, new MemberBadgeRepository($this->pdo)),
             new FunctionRepository($this->pdo),
             null,
+            null,
             $projection,
             new ScoutYearResolver(
                 $scoutYearService,

@@ -6,13 +6,18 @@ namespace Tests\Modules\MassMail\Controller;
 
 use Core\Badge\MemberBadgeRepository;
 use Core\Config\AppConfig;
+use Core\Config\ScoutYearService;
+use Core\Config\SettingRepository;
+use Core\Config\SettingService;
 use Core\Database\Connection;
 use Core\Http\FrontController;
 use Core\Http\Request;
 use Core\Http\Router;
 use Core\Import\FunctionRepository;
+use Core\Import\MemberYearRepository;
 use Core\Member\SectionService;
 use Core\Module\ModuleManifest;
+use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
 use Modules\MassMail\Controller\MailingListController;
@@ -69,7 +74,15 @@ class MailingListRbacTest extends TestCase
         );
 
         $this->twig = $this->createMock(Environment::class);
-        $this->controller = new MailingListController($this->twig, $listService);
+        $this->controller = new MailingListController(
+            $this->twig,
+            $listService,
+            new ScoutYearResolver(
+                new ScoutYearService($this->pdo),
+                new SettingService(new SettingRepository($this->pdo)),
+                new MemberYearRepository($this->pdo)
+            )
+        );
 
         if (session_status() === PHP_SESSION_NONE) {
             session_start();

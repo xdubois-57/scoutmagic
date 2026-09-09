@@ -4680,7 +4680,7 @@ if ($isEnabled('mass_mail')) {
     // they are what decides whether a year is in the future at all, which
     // has to work with registration disabled too.
     $massMailListService = new \Modules\MassMail\Service\MailingListService(
-        $massMailListRepo, $massMailResolutionRepo, $sectionService, $massMailFunctionRepo,
+        $massMailListRepo, $massMailResolutionRepo, $sectionService, $massMailFunctionRepo, $badgeService,
         null, null, $scoutYearResolver, $scoutYearService
     );
     $massMailAccessService = new \Modules\MassMail\Service\MassMailAccessService($memberService, $sectionService);
@@ -4716,7 +4716,7 @@ if ($isEnabled('mass_mail')) {
     $schedulerService->rearm('mass_mail', 'purge_merge_audiences', 'daily', new DateTimeImmutable());
     $frontController->registerController(
         \Modules\MassMail\Controller\MailingListController::class,
-        new \Modules\MassMail\Controller\MailingListController($twig, $massMailListService)
+        new \Modules\MassMail\Controller\MailingListController($twig, $massMailListService, $scoutYearResolver)
     );
 
     // The member page's "view as sent" email detail route
@@ -6408,7 +6408,7 @@ if ($isEnabled('registration')) {
         // since PHP doesn't retroactively update an already-injected
         // dependency. Both are rebuilt together here.
         $massMailListService = new \Modules\MassMail\Service\MailingListService(
-            $massMailListRepo, $massMailResolutionRepo, $sectionService, $massMailFunctionRepo,
+            $massMailListRepo, $massMailResolutionRepo, $sectionService, $massMailFunctionRepo, $badgeService,
             $registrationExternalMailingListService,
             // IT-11 — with registration enabled, a list aimed at a year the
             // unit has not reached yet resolves through the projection
@@ -6446,7 +6446,9 @@ if ($isEnabled('registration')) {
         );
         $frontController->registerController(
             \Modules\MassMail\Controller\MailingListController::class,
-            new \Modules\MassMail\Controller\MailingListController($twig, $massMailListService)
+            new \Modules\MassMail\Controller\MailingListController(
+                $twig, $massMailListService, $scoutYearResolver
+            )
         );
     }
 

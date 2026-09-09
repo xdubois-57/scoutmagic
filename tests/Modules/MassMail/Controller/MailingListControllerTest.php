@@ -4,11 +4,18 @@ declare(strict_types=1);
 
 namespace Tests\Modules\MassMail\Controller;
 
+use Core\Badge\BadgeRepository;
+use Core\Badge\BadgeService;
 use Core\Badge\MemberBadgeRepository;
+use Core\Config\ScoutYearService;
+use Core\Config\SettingRepository;
+use Core\Config\SettingService;
 use Core\Database\Connection;
 use Core\Http\Request;
 use Core\Import\FunctionRepository;
+use Core\Import\MemberYearRepository;
 use Core\Member\SectionService;
+use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
@@ -42,6 +49,8 @@ class MailingListControllerTest extends TestCase
     private int $accountId;
     private int $sectionId;
     private int $functionId;
+    private int $badgeId;
+    private ScoutYearResolver $scoutYearResolver;
 
     protected function setUp(): void
     {
@@ -66,14 +75,32 @@ class MailingListControllerTest extends TestCase
         $this->pdo->exec("INSERT INTO functions (desk_code, label, role) VALUES ('INT', 'Intendant', 'intendant')");
         $this->functionId = (int) $this->pdo->lastInsertId();
 
+        $this->pdo->exec("INSERT INTO badges (name, is_default) VALUES ('Infirmier', 1)");
+        $this->badgeId = (int) $this->pdo->lastInsertId();
+
+        $sectionService = new SectionService(
+            Connection::withPdo($this->pdo),
+            $encryption,
+            new MemberBadgeRepository($this->pdo)
+        );
         $this->listService = new MailingListService(
             new MailingListRepository($this->pdo),
             new MemberResolutionRepository($this->pdo, $encryption),
-            new SectionService(Connection::withPdo($this->pdo), $encryption, new MemberBadgeRepository($this->pdo)),
-            new FunctionRepository($this->pdo)
+            $sectionService,
+            new FunctionRepository($this->pdo),
+            new BadgeService(new BadgeRepository($this->pdo), new MemberBadgeRepository($this->pdo), $sectionService)
         );
 
-        $this->controller = new MailingListController($this->createMock(Environment::class), $this->listService);
+        $this->scoutYearResolver = new ScoutYearResolver(
+            new ScoutYearService($this->pdo),
+            new SettingService(new SettingRepository($this->pdo)),
+            new MemberYearRepository($this->pdo)
+        );
+        $this->controller = new MailingListController(
+            $this->createMock(Environment::class),
+            $this->listService,
+            $this->scoutYearResolver
+        );
 
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
@@ -99,6 +126,7 @@ class MailingListControllerTest extends TestCase
             'Description.',
             [$this->functionId],
             [$this->sectionId],
+            [$this->badgeId],
             $this->accountId
         );
 
@@ -111,14 +139,18 @@ class MailingListControllerTest extends TestCase
             }
         );
 
-        $response = (new MailingListController($twig, $this->listService))
+        $response = (new MailingListController($twig, $this->listService, $this->scoutYearResolver))
             ->index(new Request('GET', '/admin/listes-de-diffusion', [], [], [], []), []);
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertIsArray($captured);
         $this->assertCount(1, $captured['custom_lists']);
         $this->assertSame(
-            ['function_ids' => [$this->functionId], 'section_ids' => [$this->sectionId]],
+            [
+                'function_ids' => [$this->functionId],
+                'section_ids' => [$this->sectionId],
+                'badge_ids' => [$this->badgeId],
+            ],
             $captured['custom_list_criteria'][$list->id]
         );
         $this->assertNotSame([], $captured['default_lists']);
@@ -132,6 +164,7 @@ class MailingListControllerTest extends TestCase
             'description' => 'Tous les intendants de la meute.',
             'function_ids' => [$this->functionId],
             'section_ids' => [$this->sectionId],
+            'badge_ids' => [$this->badgeId],
         ]);
 
         $this->assertTrue($payload['success']);
@@ -141,6 +174,7 @@ class MailingListControllerTest extends TestCase
         $listId = (int) $payload['list']['id'];
         $this->assertSame([$this->functionId], $this->listService->getCustomListFunctionIds($listId));
         $this->assertSame([$this->sectionId], $this->listService->getCustomListSectionIds($listId));
+        $this->assertSame([$this->badgeId], $this->listService->getCustomListBadgeIds($listId));
     }
 
     /**
@@ -178,6 +212,7 @@ class MailingListControllerTest extends TestCase
             'Description initiale.',
             [$this->functionId],
             [$this->sectionId],
+            [],
             $this->accountId
         );
 
@@ -186,6 +221,7 @@ class MailingListControllerTest extends TestCase
             'description' => 'Description révisée.',
             'function_ids' => [$otherFunctionId],
             'section_ids' => [$this->sectionId],
+            'badge_ids' => [],
         ]);
 
         $this->assertTrue($payload['success']);
@@ -217,6 +253,7 @@ class MailingListControllerTest extends TestCase
             'Description.',
             [$this->functionId],
             [$this->sectionId],
+            [],
             $this->accountId
         );
 
@@ -234,6 +271,7 @@ class MailingListControllerTest extends TestCase
             'Description.',
             [$this->functionId],
             [$this->sectionId],
+            [],
             $this->accountId
         );
 
@@ -253,6 +291,7 @@ class MailingListControllerTest extends TestCase
             'Description.',
             [$this->functionId],
             [$this->sectionId],
+            [],
             $this->accountId
         );
         $this->pdo->exec(
