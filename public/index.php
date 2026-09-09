@@ -3244,8 +3244,9 @@ $frontController->registerController(ShortUrlController::class, new ShortUrlCont
 $frontController->registerController(ImportController::class,
     new ImportController($twig, $importService, $scoutYearResolver, $importJournalRepo, $functionRepo,
         $importRetentionService, $rosterSnapshotRepository, $fileRepository, $userAccountRepo, $importReportPresenter,
-        $storagePath, $registrationReconciliation ?? null, $diskBudget)
-    );
+        $storagePath, $registrationReconciliation ?? null, $diskBudget
+    )
+);
 $frontController->registerController(MemberController::class,
     new MemberController($twig, $memberService, $memberYearService, $journalService, $memberPageService,
         $departureService, $sectionStaffAuthorizationService)

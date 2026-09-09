@@ -141,8 +141,11 @@ class SyncMailboxesHandler implements TaskHandlerInterface
                 new MailboxErrorFormatter(),
                 new MailboxClientFactory(),
                 new AnalysisResultApplier($messageRepository),
-                new UploadHandler(new FileRepository($pdo), $context->storagePath,
-                    new \Core\Storage\DiskBudget($context->storagePath, $context->settings)),
+                new UploadHandler(
+                    new FileRepository($pdo),
+                    $context->storagePath,
+                    new \Core\Storage\DiskBudget($context->storagePath, $context->settings)
+                ),
                 $this->quotaService,
                 new EncryptedFileStorageService(new FileRepository($pdo), $context->encryption, $context->storagePath),
                 $this->scopeService,

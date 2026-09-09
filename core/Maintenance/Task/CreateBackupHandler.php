@@ -59,8 +59,12 @@ class CreateBackupHandler implements TaskHandlerInterface
             $password = $context->encryption->decrypt($rawPassword, 'backup_password');
 
             $basePath = dirname($context->storagePath);
-            $backupService = new BackupService($context->connection, $context->storagePath, $basePath,
-            new DiskBudget($context->storagePath, $context->settings));
+            $backupService = new BackupService(
+                $context->connection,
+                $context->storagePath,
+                $basePath,
+                new DiskBudget($context->storagePath, $context->settings)
+            );
             $result = $backupService->createFullBackup($scope, $password);
 
             $zipFileId = $fileRepository->create(

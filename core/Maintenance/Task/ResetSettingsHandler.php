@@ -44,8 +44,12 @@ class ResetSettingsHandler implements TaskHandlerInterface
 
         $pdo = $context->connection->getPdo();
         $basePath = dirname($context->storagePath);
-        $backupService = new BackupService($context->connection, $context->storagePath, $basePath,
-            new DiskBudget($context->storagePath, $context->settings));
+        $backupService = new BackupService(
+            $context->connection,
+            $context->storagePath,
+            $basePath,
+            new DiskBudget($context->storagePath, $context->settings)
+        );
         $backupRepository = new BackupRepository($pdo);
         $fileRepository = new FileRepository($pdo);
 

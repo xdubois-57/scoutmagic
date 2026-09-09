@@ -91,8 +91,12 @@ class RestoreBackupHandler implements TaskHandlerInterface
         $extractedUploadDbDump = null;
 
         $basePath = dirname($context->storagePath);
-        $backupService = new BackupService($context->connection, $context->storagePath, $basePath,
-            new DiskBudget($context->storagePath, $context->settings));
+        $backupService = new BackupService(
+            $context->connection,
+            $context->storagePath,
+            $basePath,
+            new DiskBudget($context->storagePath, $context->settings)
+        );
 
         $safetyDbDump = null;
         $safetyZip = null;
@@ -278,8 +282,12 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 return;
             }
 
-            $backupService = new BackupService($context->connection, $context->storagePath, $basePath,
-            new DiskBudget($context->storagePath, $context->settings));
+            $backupService = new BackupService(
+                $context->connection,
+                $context->storagePath,
+                $basePath,
+                new DiskBudget($context->storagePath, $context->settings)
+            );
             $this->rollbackToSafetyBackup(
                 $context,
                 $backupService,
