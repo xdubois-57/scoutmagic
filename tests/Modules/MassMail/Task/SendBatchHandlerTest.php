@@ -393,6 +393,107 @@ class SendBatchHandlerTest extends TestCase
         $this->assertSame('/members/' . $memberYearId . '/emails/' . $recipient->id, $notifications[0]->url);
     }
 
+    /**
+     * Issue #287 showed the notification reading the stored TEMPLATE —
+     * « Camp de {{Prenom}} » — because it took `$email->subject` while
+     * the substitution lived in a local variable one scope away. The
+     * template must never reach it.
+     *
+     * Nor must the substituted subject, and that is the second half:
+     * `notifications.body` is written once and only ever purged once
+     * READ, so a personalised subject stored there outlives the 18-month
+     * merge retention the rest of this change is built to respect.
+     */
+    public function testAPersonalisedSubjectIsNeverWrittenIntoTheNotificationStore(): void
+    {
+        $this->pdo->exec("DELETE FROM mass_mail_recipients WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_recipients)");
+        $recipient = $this->recipientRepository->findByEmailId($this->emailId)[0];
+        $account = $this->userAccountRepository->create($recipient->emailAddress);
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted) VALUES (?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            $this->memberId,
+            $this->scoutYearId,
+            $this->encryption->encrypt('Jean', 'member_years.first_name'),
+            $this->encryption->encrypt('Dupont', 'member_years.last_name'),
+        ]);
+
+        // Turn the fixture's ordinary email into a publipostage whose
+        // subject carries a variable, and give this recipient a row.
+        $audienceRepository = new \Modules\MassMail\Repository\AudienceRepository($this->pdo, $this->encryption);
+        $audienceId = $audienceRepository->createAudience('camp.xlsx', 'Camp', ['Prenom'], 1, null);
+        $rowId = $audienceRepository->createRow($audienceId, 2, $this->memberId, null, ['Prenom' => 'Kaa']);
+        $update = $this->pdo->prepare(
+            "UPDATE mass_mail_emails SET subject = 'Camp de {{Prenom}}', list_type = 'mail_merge', audience_id = ?
+             WHERE id = ?"
+        );
+        $update->execute([$audienceId, $this->emailId]);
+        $this->pdo->prepare('UPDATE mass_mail_recipients SET audience_row_id = ? WHERE id = ?')
+            ->execute([$rowId, $recipient->id]);
+
+        $handler = new SendBatchHandler();
+        $handler->handle([], $this->buildContextWithNotifications(
+            $this->createMock(MailService::class),
+            $this->buildNotificationService()
+        ));
+
+        $notifications = (new NotificationRepository($this->pdo, $this->encryption))->findByUserAccountId($account->id);
+        $this->assertCount(1, $notifications);
+        // A subject that personalises is NOT written into the
+        // notification store — see notificationBody(). What must never
+        // survive is the raw template.
+        $this->assertStringNotContainsString('{{', $notifications[0]->body);
+        $this->assertSame('Un email personnalisé vous a été envoyé.', $notifications[0]->body);
+    }
+
+    /**
+     * The other half of that rule, and the common case: most
+     * publipostages keep their variables in the BODY, so every recipient
+     * shares one subject. Nothing per-recipient is written, so the
+     * notification says what the mail is — losing that for every merge
+     * would be paying a privacy price where there is nothing to protect.
+     */
+    public function testAMergeWhoseSubjectIsTheSameForEverybodyKeepsItsSubjectInTheNotification(): void
+    {
+        $this->pdo->exec("DELETE FROM mass_mail_recipients WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_recipients)");
+        $recipient = $this->recipientRepository->findByEmailId($this->emailId)[0];
+        $account = $this->userAccountRepository->create($recipient->emailAddress);
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted) VALUES (?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            $this->memberId,
+            $this->scoutYearId,
+            $this->encryption->encrypt('Jean', 'member_years.first_name'),
+            $this->encryption->encrypt('Dupont', 'member_years.last_name'),
+        ]);
+
+        $audienceRepository = new \Modules\MassMail\Repository\AudienceRepository($this->pdo, $this->encryption);
+        $audienceId = $audienceRepository->createAudience('camp.xlsx', 'Camp', ['Prenom'], 1, null);
+        $rowId = $audienceRepository->createRow($audienceId, 2, $this->memberId, null, ['Prenom' => 'Kaa']);
+        // Variables in the body only — the subject is shared.
+        $update = $this->pdo->prepare(
+            "UPDATE mass_mail_emails SET subject = 'Infos camp', body_html = '<p>Cher {{Prenom}}</p>',
+                    list_type = 'mail_merge', audience_id = ? WHERE id = ?"
+        );
+        $update->execute([$audienceId, $this->emailId]);
+        $this->pdo->prepare('UPDATE mass_mail_recipients SET audience_row_id = ? WHERE id = ?')
+            ->execute([$rowId, $recipient->id]);
+
+        $handler = new SendBatchHandler();
+        $handler->handle([], $this->buildContextWithNotifications(
+            $this->createMock(MailService::class),
+            $this->buildNotificationService()
+        ));
+
+        $notifications = (new NotificationRepository($this->pdo, $this->encryption))->findByUserAccountId($account->id);
+        $this->assertCount(1, $notifications);
+        $this->assertSame('Infos camp', $notifications[0]->body);
+    }
+
     public function testDoesNotDispatchWhenRecipientHasNoLoginAccount(): void
     {
         $this->pdo->exec("DELETE FROM mass_mail_recipients WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_recipients)");

@@ -26,7 +26,19 @@ interface MassMailQueryInterface
      * recipient id — pass it to findEmailDetailForMember() below to open
      * the "view as sent" detail page.
      *
-     * @return array<int, array{id: int, subject: string, sent_at: string, section_name: string}>
+     * **`subject` is what THIS member received**, not what was composed: a
+     * publipostage stores one template and substitutes per recipient at
+     * send time, so the two differ whenever the subject carries a
+     * variable (issue #287). The one exception is `merge_purged`, and it
+     * carries the same meaning as on findEmailDetailForMember() below —
+     * a publipostage past its retention has no values left to put back,
+     * so `subject` is then the template, `{{tokens}}` and all, and a view
+     * that renders it must say so.
+     *
+     * @return array<int, array{
+     *     id: int, subject: string, sent_at: string, section_name: string,
+     *     merge_purged: bool
+     * }>
      */
     public function getRecentEmailsForMember(int $memberId, int $limit): array;
 
@@ -37,7 +49,17 @@ interface MassMailQueryInterface
      * belonging to a different member; the caller must not assume role_min
      * alone makes this safe, see the member page's email-detail route).
      *
-     * @return array{subject: string, body_html: string, sent_at: string, section_name: string}|null
+     * As above, this is the copy THIS member received, variables
+     * substituted. `merge_purged` is the one case where it cannot be: a
+     * publipostage whose audience has passed its 18-month retention has
+     * no values left to substitute, and the subject and body then still
+     * carry their `{{tokens}}`. A view that renders them must say so
+     * rather than let a reader take a template for their own mail.
+     *
+     * @return array{
+     *     subject: string, body_html: string, sent_at: string, section_name: string,
+     *     merge_purged: bool
+     * }|null
      */
     public function findEmailDetailForMember(int $memberId, int $recipientId): ?array;
 }

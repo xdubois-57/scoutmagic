@@ -157,6 +157,39 @@ class RecipientRepositoryTest extends TestCase
         $this->assertSame($sentId, $recent[0]['id']);
     }
 
+    /**
+     * Issue #287. These two queries feed the member page and its detail
+     * view, and for a publipostage the stored subject/body are the
+     * TEMPLATE. The substitution belongs to Service\MassMailQueryService,
+     * so what the repository owes it is the two keys that say which line
+     * to substitute from — without them the service has nothing to work
+     * with and the reader gets `{{tokens}}`.
+     */
+    public function testBothMemberQueriesCarryWhatIsNeededToSubstituteAPublipostage(): void
+    {
+        $this->repository->create(
+            $this->emailId,
+            $this->memberId,
+            $this->scoutYearId,
+            'a@test.be',
+            Recipient::STATUS_SENT,
+            null
+        );
+
+        $recentBefore = $this->repository->findRecentSentForMember($this->memberId, 10);
+        $this->assertNotEmpty($recentBefore);
+        $this->assertArrayHasKey('list_type', $recentBefore[0]);
+        $this->assertArrayHasKey('audience_row_id', $recentBefore[0]);
+
+        $detail = $this->repository->findSentDetailForMember($recentBefore[0]['id'], $this->memberId);
+        $this->assertNotNull($detail);
+        $this->assertArrayHasKey('list_type', $detail);
+        $this->assertArrayHasKey('audience_row_id', $detail);
+        // An ordinary list carries no row, and that null is what tells the
+        // service there is nothing to substitute.
+        $this->assertNull($detail['audience_row_id']);
+    }
+
     public function testFindSentDetailForMemberReturnsSubjectAndBody(): void
     {
         $sentId = $this->repository->create($this->emailId, $this->memberId, $this->scoutYearId, 'a@test.be', Recipient::STATUS_SENT, null);

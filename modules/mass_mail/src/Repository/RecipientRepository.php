@@ -226,12 +226,21 @@ class RecipientRepository
      * `id` is the recipient id, not the email id — it's what the member
      * page's detail-view link passes back to findSentByIdAndMember() below.
      *
-     * @return array<int, array{id: int, subject: string, sent_at: string, section_name: string}>
+     * `subject` comes out as STORED, which for a publipostage is the
+     * template — see the two merge keys beside it, and
+     * Service\MassMailQueryService, which is what turns them back into
+     * the subject this member actually received (#287).
+     *
+     * @return array<int, array{
+     *     id: int, subject: string, sent_at: string, section_name: string,
+     *     list_type: string, audience_row_id: int|null
+     * }>
      */
     public function findRecentSentForMember(int $memberId, int $limit): array
     {
         $stmt = $this->pdo->prepare(
-            "SELECT r.id AS id, e.subject AS subject, r.sent_at AS sent_at, s.name AS section_name
+            "SELECT r.id AS id, e.subject AS subject, r.sent_at AS sent_at, s.name AS section_name,
+                    e.list_type AS list_type, r.audience_row_id AS audience_row_id
              FROM mass_mail_recipients r
              JOIN mass_mail_emails e ON e.id = r.email_id
              JOIN sections s ON s.id = e.section_id
@@ -246,6 +255,12 @@ class RecipientRepository
             'subject' => (string) $row['subject'],
             'sent_at' => (string) $row['sent_at'],
             'section_name' => (string) $row['section_name'],
+            // The stored subject is the TEMPLATE — `{{Prenom}}` and all —
+            // for a publipostage. These two say which line's values put it
+            // back the way this member read it; Service\MassMailQueryService
+            // does that, since substitution is not a repository's job.
+            'list_type' => (string) $row['list_type'],
+            'audience_row_id' => $row['audience_row_id'] !== null ? (int) $row['audience_row_id'] : null,
         ], $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
 
@@ -257,12 +272,21 @@ class RecipientRepository
      * status = 'sent' for the same reason as findRecentSentForMember()
      * above — a pending/errored row was never actually delivered.
      *
-     * @return array{subject: string, body_html: string, sent_at: string, section_name: string}|null
+     * Subject and body come out as STORED, which for a publipostage is the
+     * template with its `{{tokens}}` — `list_type`/`audience_row_id` are
+     * what Service\MassMailQueryService needs to put this member's own
+     * values back before anybody reads it.
+     *
+     * @return array{
+     *     subject: string, body_html: string, sent_at: string, section_name: string,
+     *     list_type: string, audience_row_id: int|null
+     * }|null
      */
     public function findSentDetailForMember(int $recipientId, int $memberId): ?array
     {
         $stmt = $this->pdo->prepare(
-            "SELECT e.subject AS subject, e.body_html AS body_html, r.sent_at AS sent_at, s.name AS section_name
+            "SELECT e.subject AS subject, e.body_html AS body_html, r.sent_at AS sent_at, s.name AS section_name,
+                    e.list_type AS list_type, r.audience_row_id AS audience_row_id
              FROM mass_mail_recipients r
              JOIN mass_mail_emails e ON e.id = r.email_id
              JOIN sections s ON s.id = e.section_id
@@ -279,6 +303,8 @@ class RecipientRepository
             'body_html' => (string) $row['body_html'],
             'sent_at' => (string) $row['sent_at'],
             'section_name' => (string) $row['section_name'],
+            'list_type' => (string) $row['list_type'],
+            'audience_row_id' => $row['audience_row_id'] !== null ? (int) $row['audience_row_id'] : null,
         ];
     }
 

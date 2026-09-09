@@ -187,7 +187,12 @@ class SendBatchHandler implements TaskHandlerInterface
                 // lot?") and answers nothing about any one recipient.
                 $massMailService->journalRecipientSent($email->id, $recipient->id, $recipient->memberId);
                 $sentCount++;
-                $this->dispatchEmailReceivedNotification($context, $recipient, $email);
+                $this->dispatchEmailReceivedNotification(
+                    $context,
+                    $recipient,
+                    $email,
+                    $this->notificationBody($email, $subject, $mergeRenderer)
+                );
             } catch (MailException $e) {
                 // $e->getMessage() is a transport-level error (SMTP
                 // response, connection failure) built from PHPMailer's
@@ -242,9 +247,16 @@ class SendBatchHandler implements TaskHandlerInterface
      * resolution). The deep link resolves the member_year row for this
      * recipient's own snapshot scout year, matching MemberEmailController's
      * `/members/{member_year_id}/emails/{recipient_id}` route.
+     *
+     * $body is what the notification should say — see notificationBody()
+     * below, which is where the one interesting decision lives.
      */
-    private function dispatchEmailReceivedNotification(TaskContext $context, Recipient $recipient, Email $email): void
-    {
+    private function dispatchEmailReceivedNotification(
+        TaskContext $context,
+        Recipient $recipient,
+        Email $email,
+        string $body
+    ): void {
         if ($context->notifications === null || $recipient->emailAddress === null) {
             return;
         }
@@ -268,9 +280,48 @@ class SendBatchHandler implements TaskHandlerInterface
             ['userAccountId' => $account->id, 'memberId' => $recipient->memberId],
         ], [
             'title' => 'Nouvel email',
-            'body' => $email->subject,
+            'body' => $body,
             'url' => $url,
         ], $email->createdBy);
+    }
+
+    /**
+     * What a « Nouvel email » notification says — and the one place in
+     * #287's fix where the answer is NOT simply "what was sent".
+     *
+     * Everywhere else, this change re-renders the merge at READ time so
+     * the personalisation disappears with the audience it came from
+     * (Service\MassMailQueryService's docblock, ARCHITECTURE.md §8.61). A
+     * notification cannot: `notifications.body` is written once, at
+     * dispatch, and `Core\Notification\Task\PurgeNotificationsHandler`
+     * only ever deletes rows that were READ
+     * (`NotificationRepository::deleteReadOlderThan()`). A notification
+     * nobody opens is kept for good — so a substituted subject stored
+     * there would outlive the 18-month merge retention this whole change
+     * is built to respect. Encrypted at rest, yes; but the guarantee at
+     * stake is erasure, not confidentiality.
+     *
+     * So the rule is: the notification carries the subject whenever the
+     * subject is **the same for everybody**, and says only that an email
+     * arrived when it is not. And that is most publipostages — the
+     * variables usually live in the body, not the subject, in which case
+     * the rendered subject IS the stored one and nothing personal is
+     * written anywhere. The reader loses nothing either way: the
+     * notification links to the member page's detail view, which renders
+     * their own copy live and correctly.
+     *
+     * The fuller alternative — keeping the personalised subject and
+     * giving these notifications a purge path of their own — is a real
+     * option and a larger one; it is written up as its own issue rather
+     * than decided here.
+     */
+    private function notificationBody(Email $email, string $sentSubject, MergeRenderer $mergeRenderer): string
+    {
+        if ($email->listType !== Email::LIST_TYPE_MAIL_MERGE || !$mergeRenderer->containsToken($email->subject)) {
+            return $sentSubject;
+        }
+
+        return 'Un email personnalisé vous a été envoyé.';
     }
 
     private function rescheduleIfPendingRemain(TaskContext $context, RecipientRepository $recipientRepository): void

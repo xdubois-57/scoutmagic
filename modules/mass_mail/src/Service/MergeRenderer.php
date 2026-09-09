@@ -61,6 +61,22 @@ class MergeRenderer
     private const ENCODED_TOKEN_PATTERN = '/%7B%7B(.*?)%7D%7D/i';
 
     /**
+     * Whether this template personalises anything at all.
+     *
+     * A publipostage's subject very often carries no variable — the
+     * variables live in the body — and then every recipient's subject is
+     * the same string. Callers that must not handle per-recipient values
+     * (Task\SendBatchHandler's notification, whose store outlives the
+     * merge retention) use this to tell the two cases apart instead of
+     * assuming a merge always personalises.
+     */
+    public function containsToken(string $template): bool
+    {
+        return preg_match(self::TOKEN_PATTERN, $template) === 1
+            || preg_match(self::ENCODED_TOKEN_PATTERN, $template) === 1;
+    }
+
+    /**
      * @param array<string, string> $data {header: value}
      */
     public function renderHtml(string $template, array $data): string
