@@ -26,12 +26,6 @@ namespace Modules\Gallery\Service;
  */
 final class DiskSpace
 {
-    /** 1024, like every other size in this module: `Mo` here means MiB, as it does for the upload limits. */
-    private const STEP = 1024;
-
-    /** @var array<int, string> */
-    private const UNITS = ['o', 'Ko', 'Mo', 'Go', 'To', 'Po'];
-
     /**
      * @param int $freeBytes      bytes still available on the volume
      * @param int $totalBytes     the volume's size, or 0 when the host would not say
@@ -97,20 +91,16 @@ final class DiskSpace
      * A byte count in French: one decimal from « Go » up to 100, none
      * anywhere else. « 1,5 Go » is worth the digit; « 340,0 Mo » and
      * « 512,0 Go » only look more precise than the measurement is.
+     *
+     * The implementation moved to `Core\Storage\ByteFormatter` when the
+     * Maintenance page started reporting sizes too: two spellings of
+     * « 1,5 Go » on two configuration screens of the same site is exactly
+     * the kind of drift nobody notices and everybody reads. This stays as
+     * the gallery's own name for it — the module's templates call it, and
+     * its tests are what pin the behaviour.
      */
     public static function format(int $bytes): string
     {
-        $bytes = max(0, $bytes);
-        $unit = 0;
-        $value = (float) $bytes;
-
-        while ($value >= self::STEP && $unit < count(self::UNITS) - 1) {
-            $value /= self::STEP;
-            $unit++;
-        }
-
-        $decimals = $unit >= 3 && $value < 100 ? 1 : 0;
-
-        return number_format($value, $decimals, ',', ' ') . ' ' . self::UNITS[$unit];
+        return \Core\Storage\ByteFormatter::format($bytes);
     }
 }

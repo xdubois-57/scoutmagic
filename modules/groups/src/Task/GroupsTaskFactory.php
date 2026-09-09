@@ -86,7 +86,8 @@ final class GroupsTaskFactory
                     new \Modules\Groups\Repository\LinkFetchLogRepository($pdo)
                 ),
                 new PostLinkRepository($pdo),
-                new UploadHandler($fileRepository, $context->storagePath),
+                new UploadHandler($fileRepository, $context->storagePath,
+                new \Core\Storage\DiskBudget($context->storagePath, $context->settings)),
                 $fileRepository,
                 $context->storagePath
             ),

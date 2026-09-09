@@ -16,6 +16,7 @@ use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
+use Core\Storage\DiskBudget;
 
 /**
  * Recurring automatic full-site backup (database + files, gallery always
@@ -71,7 +72,7 @@ class AutoBackupHandler implements TaskHandlerInterface
         $pdo = $context->connection->getPdo();
         $basePath = dirname($context->storagePath);
         $backupService = $this->backupService ?? new BackupService($context->connection, $context->storagePath,
-            $basePath);
+            $basePath, new DiskBudget($context->storagePath, $context->settings));
         $backupRepository = new BackupRepository($pdo);
         $fileRepository = new FileRepository($pdo);
 

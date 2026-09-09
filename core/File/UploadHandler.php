@@ -10,9 +10,18 @@ namespace Core\File;
 
 class UploadHandler
 {
+    /**
+     * @param \Core\Storage\DiskBudget|null $diskBudget checked before the
+     *        upload is written, so a file that would not fit is refused
+     *        rather than truncated. Nullable and trailing so that a caller
+     *        constructing this handler outside the composition root keeps
+     *        working unchanged; every construction site in this repository
+     *        passes one.
+     */
     public function __construct(
         private FileRepository $fileRepository,
-        private string $storagePath
+        private string $storagePath,
+        private ?\Core\Storage\DiskBudget $diskBudget = null
     ) {
     }
 
@@ -63,6 +72,30 @@ class UploadHandler
         if ($size > $maxSizeBytes) {
             $maxMb = round($maxSizeBytes / 1024 / 1024, 1);
             throw new UploadException("Le fichier dépasse la taille maximale autorisée ({$maxMb} Mo).");
+        }
+
+        // Room for it, before a byte of it is written. The size is the
+        // one the browser announced and PHP already accepted, which is
+        // what will land on disk (an image is re-encoded below and comes
+        // out smaller, never larger).
+        //
+        // Re-stated as an UploadException rather than let through:
+        // eighteen call sites across core and six modules catch
+        // UploadException and nothing else, so a different type here would
+        // turn a full disk into a 500 on every upload surface in the site
+        // at once. The sentence is written HERE and the cause travels as
+        // $previous with the exact shortfall in it (AGENTS.md § Exception
+        // messages that reach a visitor) — never $e->getMessage() folded
+        // into a new message.
+        try {
+            $this->diskBudget?->ensureRoom($size);
+        } catch (\Core\Storage\InsufficientDiskSpaceException $e) {
+            throw new UploadException(
+                'L\'espace disque disponible ne suffit pas pour enregistrer ce fichier. Supprimez des photos '
+                . 'ou des sauvegardes, puis réessayez.',
+                0,
+                $e
+            );
         }
 
         // Check true MIME type

@@ -12,6 +12,7 @@ use Core\Maintenance\BackupService;
 use Core\Maintenance\BackupServiceInterface;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
+use Core\Storage\DiskBudget;
 
 /**
  * Background "Réinitialisation complète" — scheduled by
@@ -44,7 +45,7 @@ class FullResetHandler implements TaskHandlerInterface
         $pdo = $context->connection->getPdo();
         $basePath = dirname($context->storagePath);
         $backupService = $this->backupService ?? new BackupService($context->connection, $context->storagePath,
-            $basePath);
+            $basePath, new DiskBudget($context->storagePath, $context->settings));
 
         $preserveDir = null;
 

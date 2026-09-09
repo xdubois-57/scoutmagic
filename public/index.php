@@ -680,6 +680,18 @@ $settingService->register('installed_version_notes_for', '', 'text', 'Version de
     'Version pour laquelle installed_version_notes a été mis en cache — sert uniquement à détecter qu\'un '
         . 'rafraîchissement est nécessaire après une mise à jour. Géré automatiquement.',
     null, null, null, false, 999);
+// The declared hosting quota (Core\Storage\DiskBudget). Empty by default
+// and deliberately so: nothing can guess it, and a wrong guess is worse
+// than none. Without it the site can only measure the hosting VOLUME,
+// which on shared hosting is shared with every other account and says far
+// less than it looks like it says.
+$settingService->register('storage_quota_bytes', '', 'text', 'Quota disque déclaré',
+    'Espace disque que votre hébergeur vous accorde, tel qu\'il figure sur votre contrat — par exemple '
+        . '« 10 Go » ou « 500 Mo ». Laissez vide si vous ne le connaissez pas : le site mesurera alors le '
+        . 'volume de l\'hébergeur, qui est partagé et bien plus grand que votre part. Sert à calculer '
+        . 'l\'occupation affichée dans Configuration > Maintenance et à refuser proprement une écriture '
+        . 'qui ne tiendrait pas.',
+    null, '/^\s*$|^\s*[0-9]+([.,][0-9]+)?\s*(o|Ko|Mo|Go|To|Po)?\s*$/i', null, true, 117);
 $settingService->register('backup_auto_frequency', 'monthly', 'select', 'Fréquence des sauvegardes automatiques',
     'Fréquence à laquelle une sauvegarde complète du site (base de données et fichiers, sans la galerie photo) '
         . 'est générée automatiquement en arrière-plan. « Aucune » désactive la sauvegarde automatique.',
@@ -1497,7 +1509,8 @@ $fileRepository = new FileRepository($pdo);
 // row first, bytes second, bytes only when the module owns them and nobody
 // else points at them. Camps and Locations both use this one instance.
 $attachedFileRemover = new \Core\File\AttachedFileRemover($fileRepository, $storagePath);
-$uploadHandler = new UploadHandler($fileRepository, $storagePath);
+$diskBudget = new \Core\Storage\DiskBudget($storagePath, $settingService);
+$uploadHandler = new UploadHandler($fileRepository, $storagePath, $diskBudget);
 $encryptedFileStorageService = new \Core\File\EncryptedFileStorageService($fileRepository, $encryptionService,
     $storagePath);
 // « Que contient ce fichier ? », posée une fois — the two writers store
@@ -1581,7 +1594,7 @@ $twig->addGlobal('unit_logo_available', $unitLogoService->resolveIconContent('64
 
 // Create backup service (Configuration > Maintenance)
 $backupRepository = new BackupRepository($pdo);
-$backupService = new BackupService($connection, $storagePath, dirname($storagePath));
+$backupService = new BackupService($connection, $storagePath, dirname($storagePath), $diskBudget);
 $updateHistoryRepository = new \Core\Maintenance\UpdateHistoryRepository($pdo);
 
 // Core "photo per person per year" component (ARCHITECTURE.md §8) — see
@@ -3231,7 +3244,7 @@ $frontController->registerController(ShortUrlController::class, new ShortUrlCont
 $frontController->registerController(ImportController::class,
     new ImportController($twig, $importService, $scoutYearResolver, $importJournalRepo, $functionRepo,
         $importRetentionService, $rosterSnapshotRepository, $fileRepository, $userAccountRepo, $importReportPresenter,
-        $storagePath, $registrationReconciliation ?? null)
+        $storagePath, $registrationReconciliation ?? null, $diskBudget)
     );
 $frontController->registerController(MemberController::class,
     new MemberController($twig, $memberService, $memberYearService, $journalService, $memberPageService,
@@ -5057,7 +5070,7 @@ if ($isEnabled('gallery')) {
         new \Modules\Gallery\Controller\GalleryChiefController(
             $twig, $galleryAlbumService, $galleryMediaService, $galleryMediaRepo, $galleryAccessService,
             $sectionService, $settingService, $galleryStorageLocationRepo, $galleryStorageLocationService,
-            new \Core\File\ChunkedUploadStore($storagePath), $scoutYearService, $scoutYearResolver
+            new \Core\File\ChunkedUploadStore($storagePath, $diskBudget), $scoutYearService, $scoutYearResolver
         )
     );
     // GalleryConfigController is NOT registered here — see the late block
@@ -6413,7 +6426,7 @@ if ($isEnabled('registration')) {
         new ImportController(
             $twig, $importService, $scoutYearResolver, $importJournalRepo, $functionRepo,
             $importRetentionService, $rosterSnapshotRepository, $fileRepository, $userAccountRepo,
-            $importReportPresenter, $storagePath, $registrationReconciliation
+            $importReportPresenter, $storagePath, $registrationReconciliation, $diskBudget
         )
     );
 

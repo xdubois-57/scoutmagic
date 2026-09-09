@@ -46,8 +46,18 @@ final class ChunkedUploadStore
     private const DIR = '/temp/chunked_uploads';
     private const STALE_AFTER_SECONDS = 24 * 3600;
 
-    public function __construct(private string $storagePath)
-    {
+    /**
+     * @param \Core\Storage\DiskBudget|null $diskBudget checked before each
+     *        chunk is appended. This is the largest single write the site
+     *        performs — a restore archive can reach half a gigabyte — and
+     *        it grows one chunk at a time, so per-chunk is where the
+     *        refusal belongs: filling the quota half-way through leaves a
+     *        partial archive that a restore would then read as corrupt.
+     */
+    public function __construct(
+        private string $storagePath,
+        private ?\Core\Storage\DiskBudget $diskBudget = null
+    ) {
     }
 
     /**
@@ -70,6 +80,21 @@ final class ChunkedUploadStore
 
         if ($offset === 0) {
             $this->purgeStalePartials();
+        }
+
+        // Re-stated as an UploadException, with the sentence written here
+        // and the shortfall carried by $previous — the caller catches this
+        // type and nothing else (AGENTS.md § Exception messages that reach
+        // a visitor).
+        try {
+            $this->diskBudget?->ensureRoom((int) @filesize($chunkTmpPath));
+        } catch (\Core\Storage\InsufficientDiskSpaceException $e) {
+            throw new UploadException(
+                'L\'espace disque disponible ne suffit pas pour recevoir ce fichier. Libérez de la place, '
+                . 'puis recommencez le téléversement.',
+                0,
+                $e
+            );
         }
 
         $chunk = @fopen($chunkTmpPath, 'rb');

@@ -453,6 +453,41 @@
         <div class="card-body">
             <h2 class="h5 mb-3">Sauvegardes</h2>
 
+            {# L'espace disque vient en tête : c'est la contrainte qui
+               décide si les boutons en dessous vont fonctionner. Toutes les
+               décisions (unité d'affichage, libellés des dossiers, quelle
+               mesure sert de base) sont prises dans
+               Core\Storage\StorageUsage — un choix pris dans un fichier
+               Twig est un choix que personne ne peut tester. #}
+            <h3 class="h6">Espace disque</h3>
+            {% set _percent = storage_usage.usedPercent %}
+            {% if _percent is not null %}
+                {# Décorative : le pourcentage est écrit en toutes lettres
+                   juste en dessous, et une barre qui le répète ne fait que
+                   le faire lire deux fois (même choix que
+                   modules/finance/views/campaigns/list.html.twig). #}
+                <div aria-hidden="true" class="progress mb-2" style="height: 6px;">
+                    <div class="progress-bar" style="width: {{ _percent }}%"></div>
+                </div>
+                <p class="small text-body-secondary mb-1">
+                    <strong>{{ storage_usage.usedLabel }}</strong> utilisés sur {{ storage_usage.totalLabel }} —
+                    {{ _percent }} %.
+                    {% if storage_usage.basis == 'volume' %}
+                        Le site occupe {{ storage_usage.storageLabel }}.
+                    {% endif %}
+                </p>
+            {% else %}
+                <p class="small text-body-secondary mb-1">
+                    Le site occupe <strong>{{ storage_usage.storageLabel }}</strong>.
+                </p>
+            {% endif %}
+            <p class="small text-body-secondary mb-1">
+                {{ storage_usage.breakdownLabels|join(' · ')|capitalize }}.
+            </p>
+            <p class="small text-body-secondary mb-3">{{ storage_usage.basisSentence }}</p>
+
+            <hr class="my-4">
+
             <div class="d-flex align-items-center gap-2 flex-wrap mb-1">
                 <label class="form-label small mb-0" for="auto-backup-frequency">Sauvegarde automatique complète (sans galerie)</label>
                 <select class="form-select form-select-sm w-auto" id="auto-backup-frequency">

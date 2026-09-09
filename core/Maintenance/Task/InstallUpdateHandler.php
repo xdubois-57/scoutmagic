@@ -28,6 +28,7 @@ use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
+use Core\Storage\DiskBudget;
 
 /**
  * Background installation of either a GitHub release or (development mode)
@@ -74,6 +75,29 @@ use Core\Scheduler\TaskHandlerInterface;
 class InstallUpdateHandler implements TaskHandlerInterface
 {
     private const KEEP_BACKUPS = 5;
+
+    /**
+     * Room insisted on for the update's own workspace — the downloaded
+     * artifact plus the tree it extracts to, both living under
+     * `storage/temp/` at the same time.
+     *
+     * A fixed figure rather than a measured one, because there is nothing
+     * to measure yet: the artifact's size is only known once it has been
+     * downloaded, which is the write this refuses in advance.
+     *
+     * The figure is anchored to a real artifact rather than guessed.
+     * Release v1.0.41's `release-v1.0.41.zip` is **19.8 MiB compressed and
+     * 56.6 MiB extracted** across 9 527 entries, so a download and its
+     * extraction need about 77 MiB together. 256 MiB is a little over
+     * three times that: enough headroom for a build that grows or a
+     * dependency tree that doubles, without refusing an update that a
+     * tight quota could really have taken. Both failure directions cost
+     * something — too generous refuses an update that would have fit, too
+     * tight leaves a half-copied install over a running site — and that
+     * is why this is a measurement with a stated margin rather than a
+     * round number.
+     */
+    private const UPDATE_WORKSPACE_ESTIMATE_BYTES = 256 * 1024 * 1024;
 
     /**
      * @param array<string, mixed> $payload
@@ -160,13 +184,29 @@ class InstallUpdateHandler implements TaskHandlerInterface
         $updateHistoryRepository->markOtherInProgressAsFailed($historyId);
 
         $basePath = dirname($context->storagePath);
-        $backupService = new BackupService($context->connection, $context->storagePath, $basePath);
+        $diskBudget = new DiskBudget($context->storagePath, $context->settings);
+        $backupService = new BackupService($context->connection, $context->storagePath, $basePath, $diskBudget);
         $tempDir = $context->storagePath . '/temp/update_' . $historyId;
 
         $dbDumpPath = null;
         $filesZipPath = null;
 
         try {
+            // Step 0: room for the whole operation, BEFORE the safety
+            // backup — which is itself the largest write here, and which
+            // BackupService checks for separately. What this call covers is
+            // the part nothing else can: the downloaded artifact and its
+            // extracted copy, both of which land in storage/temp and whose
+            // real size is not known until the download has already
+            // happened.
+            //
+            // This class already documents having met « Disk quota
+            // exceeded » in production. Running out here does not fail
+            // cleanly — it leaves a half-copied install over a running
+            // site, which is the failure a rollback is least able to
+            // recover from.
+            $diskBudget->ensureRoom(self::UPDATE_WORKSPACE_ESTIMATE_BYTES);
+
             // Step 1: mandatory safety backup — the only thing an automatic
             // rollback can restore from, so it must be a genuine, restorable
             // backup (DB dump + full file tree, gallery included).
@@ -334,7 +374,8 @@ class InstallUpdateHandler implements TaskHandlerInterface
     ): void {
         $basePath = dirname($context->storagePath);
         $pdo = $context->connection->getPdo();
-        $backupService = new BackupService($context->connection, $context->storagePath, $basePath);
+        $backupService = new BackupService($context->connection, $context->storagePath, $basePath,
+            new DiskBudget($context->storagePath, $context->settings));
 
         // This invocation changes no status — a resumed migration re-enters
         // and leaves on 'migrating' — so without this the whole migration,

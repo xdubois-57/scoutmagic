@@ -265,6 +265,55 @@ class UploadHandlerTest extends TestCase
         return substr($jpegData, 0, 2) . $app1 . substr($jpegData, 2);
     }
 
+    /**
+     * A full disk must refuse the upload as an UploadException, not as
+     * some other type: every caller in this repository catches that one
+     * and nothing else, so a different exception here turns a full disk
+     * into a 500 on every upload surface at once.
+     */
+    public function testAnUploadThatWouldNotFitIsRefusedAsAnUploadException(): void
+    {
+        $pdo = \Tests\DatabaseTestHelper::createTestDatabase();
+        $settings = new \Core\Config\SettingService(new \Core\Config\SettingRepository($pdo));
+        $settings->register(\Core\Storage\DiskBudget::QUOTA_SETTING, '', 'text', 'Quota', 'Quota');
+        // A quota already smaller than what the upload plus the safety
+        // margin needs.
+        $settings->set(\Core\Storage\DiskBudget::QUOTA_SETTING, '1 Mo');
+
+        $handler = new TestUploadHandler(
+            new FileRepository($this->pdo),
+            $this->tmpDir,
+            new \Core\Storage\DiskBudget($this->tmpDir, $settings)
+        );
+
+        $tmpFile = $this->createTempImage();
+
+        try {
+            $handler->handle(
+                ['tmp_name' => $tmpFile, 'name' => 'photo.jpg', 'size' => filesize($tmpFile), 'error' => UPLOAD_ERR_OK],
+                'test',
+                ['image/jpeg', 'image/png'],
+                10 * 1024 * 1024,
+                'public'
+            );
+            $this->fail('Expected the upload to be refused.');
+        } catch (UploadException $e) {
+            $this->assertStringContainsString('espace disque', $e->getMessage());
+            // The sentence is written at the wrap site; the shortfall
+            // travels as the cause, for the journal (AGENTS.md
+            // § Exception messages that reach a visitor).
+            $this->assertInstanceOf(\Core\Storage\InsufficientDiskSpaceException::class, $e->getPrevious());
+        } finally {
+            @unlink($tmpFile);
+        }
+
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn(),
+            'nothing should have been written'
+        );
+    }
+
     private function recursiveDelete(string $dir): void
     {
         if (!is_dir($dir)) return;

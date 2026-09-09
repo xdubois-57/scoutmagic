@@ -78,6 +78,109 @@ class BackupServiceTest extends TestCase
         rmdir($dir);
     }
 
+    // ————— Le budget disque (Core\Storage\DiskBudget) —————
+
+    /**
+     * The estimate must cover everything the archive will actually read.
+     * The direction that hurts is the quiet one: an estimate that leaves
+     * out what the archive puts in reports « it fits » about a write that
+     * does not, which is how an archive ends up truncated.
+     */
+    public function testTheFileBackupEstimateCoversTheTreeItIsAboutToArchive(): void
+    {
+        // core/App.php + modules/gallery/module.json + public/index.php +
+        // vendor ×2 + schema/core.sql + storage/uploads/doc.pdf. The
+        // excluded trees (keys, config, temp, gallery) are not in it.
+        $withoutGallery = $this->service->estimateFileBackupBytes(false);
+        $withGallery = $this->service->estimateFileBackupBytes(true);
+
+        $this->assertGreaterThan(0, $withoutGallery);
+        $this->assertSame(
+            $withoutGallery + strlen('fake-jpeg-bytes'),
+            $withGallery,
+            'the gallery is exactly the difference between the two scopes'
+        );
+    }
+
+    public function testTheFileBackupEstimateLeavesOutWhatTheArchiveLeavesOut(): void
+    {
+        $excludedBytes = strlen('secret-key-bytes') + strlen('secret-config') + strlen('ephemeral');
+        $everything = 0;
+        foreach (['core', 'modules', 'public', 'schema', 'storage', 'vendor'] as $top) {
+            $everything += \Core\Storage\DirectorySize::measure($this->basePath . '/' . $top, [], true);
+        }
+
+        $this->assertSame(
+            $everything - $excludedBytes - strlen('fake-jpeg-bytes'),
+            $this->service->estimateFileBackupBytes(false)
+        );
+    }
+
+    /**
+     * A backup refused for want of room must fail BEFORE writing anything:
+     * a truncated archive is worse than no archive, because nothing reveals
+     * it until the day somebody restores it.
+     */
+    public function testAFileBackupIsRefusedRatherThanTruncatedWhenTheQuotaIsAlreadyFull(): void
+    {
+        $service = new BackupService(
+            new Connection('127.0.0.1', 3306, 'nonexistent_db', 'nobody', ''),
+            $this->storagePath,
+            $this->basePath,
+            $this->tinyQuotaBudget()
+        );
+
+        $this->expectException(\Core\Storage\InsufficientDiskSpaceException::class);
+        try {
+            $service->createFileBackup(false);
+        } finally {
+            $this->assertSame(
+                [],
+                glob($this->storagePath . '/maintenance/*') ?: [],
+                'nothing should have been staged'
+            );
+        }
+    }
+
+    public function testAFullBackupIsRefusedBeforeEitherHalfExists(): void
+    {
+        $service = new BackupService(
+            new Connection('127.0.0.1', 3306, 'nonexistent_db', 'nobody', ''),
+            $this->storagePath,
+            $this->basePath,
+            $this->tinyQuotaBudget()
+        );
+
+        $this->expectException(\Core\Storage\InsufficientDiskSpaceException::class);
+        try {
+            $service->createFullBackup('full_no_gallery', 'un-mot-de-passe');
+        } finally {
+            $this->assertSame([], glob($this->storagePath . '/maintenance/*') ?: []);
+        }
+    }
+
+    /**
+     * The test database is SQLite and has no `information_schema` at all.
+     * That must read as "could not size this", never as a failure — a
+     * backup refusing to start because the server would not report its own
+     * size would be the guard breaking the thing it protects.
+     */
+    public function testADatabaseSizeThatCannotBeReadFallsBackToAFloor(): void
+    {
+        $this->assertGreaterThan(0, $this->service->estimateDatabaseDumpBytes());
+    }
+
+    /** A disk budget whose declared quota is far smaller than this fake site. */
+    private function tinyQuotaBudget(): \Core\Storage\DiskBudget
+    {
+        $pdo = \Tests\DatabaseTestHelper::createTestDatabase();
+        $settings = new \Core\Config\SettingService(new \Core\Config\SettingRepository($pdo));
+        $settings->register(\Core\Storage\DiskBudget::QUOTA_SETTING, '', 'text', 'Quota', 'Quota');
+        $settings->set(\Core\Storage\DiskBudget::QUOTA_SETTING, '1');
+
+        return new \Core\Storage\DiskBudget($this->storagePath, $settings);
+    }
+
     public function testSupportsZipEncryptionOnThisEnvironment(): void
     {
         // Documents the actual capability of the CI/dev environment this
