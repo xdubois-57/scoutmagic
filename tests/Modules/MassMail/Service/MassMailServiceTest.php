@@ -102,7 +102,7 @@ class MassMailServiceTest extends TestCase
             $memberService,
             $this->buildMemberEmailService($encryption, $sectionService, $memberService),
             $sectionService,
-            $this->createMock(MailService::class),
+            $this->siteMailService(),
             new SchedulerService(new SchedulerRepository($this->pdo)),
             new JournalService(new JournalRepository($this->pdo)),
             new HtmlSanitizer(),
@@ -182,6 +182,21 @@ class MassMailServiceTest extends TestCase
             new SuppressedAddressRepository($this->pdo),
             new MergeRenderer()
         );
+    }
+
+    /**
+     * A mail service that answers the one question the service asks it
+     * outside of send(): what the site's own From is, for a section that
+     * has none. An unconfigured mock answers [] there, which is not a
+     * shape that method ever returns.
+     */
+    private function siteMailService(): MailService
+    {
+        $mailService = $this->createMock(MailService::class);
+        $mailService->method('getDefaultSender')
+            ->willReturn(['address' => 'unite@test.be', 'name' => 'Test Unité']);
+
+        return $mailService;
     }
 
     private function buildMemberEmailService(EncryptionService $encryption, SectionService $sectionService, MemberService $memberService): MemberEmailService
@@ -299,6 +314,111 @@ class MassMailServiceTest extends TestCase
         $this->assertSame(1, $counts['pending']);
         $this->assertSame(2, $counts['error']);
         $this->assertSame(3, $counts['total']);
+    }
+
+    // ── One journal line per copy ───────────────────────────────────────
+
+    /**
+     * The report this was built for: an email to seven people, one copy
+     * that never left, and « aucune trace nulle part ». The row refused
+     * at freeze time is created straight in `error` and never reaches
+     * Task\SendBatchHandler, so before this it passed through no code
+     * that wrote anything down — the only record of it was one cell of
+     * one column on the tracking page.
+     */
+    public function testACopyRefusedBeforeItIsEvenAttemptedLeavesAJournalLine(): void
+    {
+        $this->createMemberWithEmail('valid@test.be');
+        $this->createMemberWithEmail(null);
+
+        $email = $this->createDraft();
+        $this->service->moveToTest($email->id, null);
+        $this->service->startSending($email->id, null);
+
+        $refused = $this->journalEntries('recipient_not_sendable');
+        $this->assertCount(1, $refused);
+        $this->assertSame('error', $refused[0]['level'], 'The tracking page calls this an error; so must the journal.');
+        $this->assertStringContainsString('Adresse invalide', $refused[0]['description']);
+
+        $context = json_decode((string) $refused[0]['context'], true);
+        $this->assertSame($email->id, $context['email_id']);
+        $this->assertNotNull($context['recipient_id']);
+    }
+
+    public function testAnUnsubscribedAddressIsWrittenDownAsWellAsShown(): void
+    {
+        $this->suppressedAddressRepository->suppress('optout@test.be');
+        $audienceId = $this->createAudience([
+            ['member_id' => null, 'email' => 'optout@test.be', 'data' => ['Email' => 'optout@test.be']],
+        ]);
+
+        $email = $this->createMergeDraft($audienceId);
+        $this->service->moveToTest($email->id, null);
+        $this->service->startSending($email->id, null);
+
+        $refused = $this->journalEntries('recipient_not_sendable');
+        $this->assertCount(1, $refused);
+        $this->assertStringContainsString('Adresse désinscrite des emails groupés', $refused[0]['description']);
+    }
+
+    /**
+     * SECURITY.md §11 — no e-mail address ever appears in a journal
+     * entry. This is the rule the whole feature runs closest to: the
+     * natural way to make a per-copy line searchable is to write the
+     * address into it, and that is precisely what must not happen.
+     * `member_id` is the only personal reference allowed, and the
+     * address-only recipients carry none at all.
+     */
+    public function testNoRecipientAddressEverReachesTheJournal(): void
+    {
+        $this->suppressedAddressRepository->suppress('optout@test.be');
+        $audienceId = $this->createAudience([
+            ['member_id' => null, 'email' => 'optout@test.be', 'data' => ['Email' => 'optout@test.be']],
+        ]);
+
+        $email = $this->createMergeDraft($audienceId);
+        $this->service->moveToTest($email->id, null);
+        $this->service->startSending($email->id, null);
+
+        $stmt = $this->pdo->query('SELECT description, context FROM event_log');
+        $rows = $stmt !== false ? (string) json_encode($stmt->fetchAll(\PDO::FETCH_ASSOC)) : '';
+        $this->assertStringNotContainsString('optout@test.be', $rows);
+        $this->assertStringNotContainsString('optout', $rows);
+    }
+
+    /**
+     * `/admin/journal`'s search box matches `description` and nothing
+     * else (Core\Journal\JournalRepository::buildFilters()), so an id
+     * that lives only in the JSON context is an id nobody can search on.
+     * Searching one mailing has to return its whole story — start, every
+     * copy, end.
+     */
+    public function testOneSearchOnTheEmailIdFindsTheWholeStory(): void
+    {
+        $this->createMemberWithEmail('valid@test.be');
+        $this->createMemberWithEmail(null);
+
+        $email = $this->createDraft();
+        $this->service->moveToTest($email->id, null);
+        $this->service->startSending($email->id, null);
+
+        $stmt = $this->pdo->prepare('SELECT event_type FROM event_log WHERE description LIKE ?');
+        $stmt->execute(['%#' . $email->id . '%']);
+        $found = $stmt->fetchAll(\PDO::FETCH_COLUMN);
+
+        $this->assertContains('email_sending_started', $found);
+        $this->assertContains('recipient_not_sendable', $found);
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function journalEntries(string $type): array
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM event_log WHERE event_type = ? ORDER BY id');
+        $stmt->execute([$type]);
+
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
     }
 
     // ── How many this would reach, asked before it is sent ──────────────
@@ -880,6 +1000,83 @@ class MassMailServiceTest extends TestCase
 
         $this->assertNull($identity['address']);
         $this->assertSame('Meute A', $identity['name']);
+    }
+
+    /**
+     * `resolveSenderIdentity()`'s null is an INSTRUCTION to send() («
+     * use the site's own configuration »), and a screen cannot print an
+     * instruction. The test-mode preview names the sender the recipient
+     * will actually read, which means resolving that fallback — once,
+     * here, rather than in a template guessing at it.
+     */
+    public function testTheDisplayedSenderFallsBackToTheSiteConfigurationRatherThanToNothing(): void
+    {
+        // $this->sectionId has no email of its own (see setUp).
+        $displayed = $this->service->resolveDisplayedSender($this->sectionId);
+
+        $this->assertSame('unite@test.be', $displayed['address']);
+        // The NAME is still the section's: send() takes it as an
+        // override, and a non-null override wins whatever the address did.
+        $this->assertSame('Meute A', $displayed['name']);
+    }
+
+    public function testTheDisplayedSenderIsTheSectionsOwnAddressWhenItHasOne(): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE sections SET email = ? WHERE id = ?');
+        $stmt->execute(['meute-a@test.be', $this->sectionId]);
+
+        $this->assertSame(
+            ['address' => 'meute-a@test.be', 'name' => 'Meute A'],
+            $this->service->resolveDisplayedSender($this->sectionId)
+        );
+    }
+
+    // ── The preview opens on somebody at random ─────────────────────────
+
+    /**
+     * Line 1 is the row whose values the author already had in front of
+     * them while writing, so it is the one row their variables were
+     * unconsciously fitted to — the one row a preview proves nothing
+     * about. Asked with no offset, the preview picks somebody.
+     *
+     * Twenty draws over ten rows: the odds of them all landing on the
+     * same row are 10 × (1/10)^20, which is not a flaky test.
+     */
+    public function testThePreviewOpensOnARowChosenAtRandom(): void
+    {
+        $rows = [];
+        for ($i = 1; $i <= 10; $i++) {
+            $rows[] = ['member_id' => null, 'email' => "ligne{$i}@test.be",
+                'data' => ['Email' => "ligne{$i}@test.be", 'Prenom' => 'Nom' . $i]];
+        }
+        $email = $this->createMergeDraft($this->createAudience($rows));
+
+        $seen = [];
+        for ($i = 0; $i < 20; $i++) {
+            $preview = $this->service->getMergePreview($email->id, null);
+            $this->assertGreaterThanOrEqual(0, $preview['offset']);
+            $this->assertLessThan(10, $preview['offset']);
+            $seen[$preview['offset']] = true;
+        }
+
+        $this->assertGreaterThan(1, count($seen), 'A preview that always opens on the same row is not a sample.');
+    }
+
+    /**
+     * The other half: the arrows still walk the file in order. Random is
+     * where the reader LANDS, never where they are kept.
+     */
+    public function testAnExplicitOffsetIsStillTheRowThatIsShown(): void
+    {
+        $email = $this->createMergeDraft($this->createAudience([
+            ['member_id' => null, 'email' => 'a@test.be', 'data' => ['Email' => 'a@test.be', 'Prenom' => 'Anne']],
+            ['member_id' => null, 'email' => 'b@test.be', 'data' => ['Email' => 'b@test.be', 'Prenom' => 'Bruno']],
+        ]));
+
+        $this->assertSame(1, $this->service->getMergePreview($email->id, 1)['offset']);
+        $this->assertSame(0, $this->service->getMergePreview($email->id, 0)['offset']);
+        // Out of range is clamped, as it always was.
+        $this->assertSame(1, $this->service->getMergePreview($email->id, 99)['offset']);
     }
 
     public function testSendTestEmailUsesTheSenderSectionsAddressNotTheSiteDefault(): void

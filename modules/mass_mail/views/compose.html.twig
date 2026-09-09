@@ -28,6 +28,27 @@
         <div class="alert alert-danger" role="alert">{{ submit_error }}</div>
     {% endif %}
 
+    {#
+      In test mode, a publipostage is ALREADY on this page in full, below
+      « Envoyer un email de test » and with every variable resolved — so
+      the composition above it was the same email a second time, in its
+      unresolved form, and the reader had to work out which of the two was
+      the real one. Nothing up there is editable at this point either
+      (`editable` is false the moment a draft leaves the brouillon state),
+      so what it offered was a locked copy of something shown properly ten
+      centimetres lower.
+
+      Hidden for a publipostage and only for one, because it is the only
+      list type whose final email this page renders. For every other list
+      the read-only composition IS the preview, and hiding it would leave
+      a test screen with no email on it at all.
+
+      The way back to editing is « Repasser en brouillon », at the bottom,
+      which is where it already was.
+    #}
+    {% set final_email_shown = email and email.status == 'test' and email.listType == 'mail_merge' %}
+
+    {% if not final_email_shown %}
     <form method="post" action="{{ email ? '/mass-mail/' ~ email.id : '/mass-mail' }}" id="mm-compose-form">
         {{ csrf_field()|raw }}
         {# A fieldset rather than a per-control `disabled`: once an email
@@ -212,6 +233,7 @@
             </div>
         {% endif %}
     </form>
+    {% endif %}
 
     {% if not email %}
         {# Attachments need a row to hang on, and the status machine needs
@@ -223,7 +245,75 @@
     {% endif %}
 
     {% if email %}
-    <hr class="my-4">
+    {% if not final_email_shown %}
+        <hr class="my-4">
+    {% endif %}
+
+    {% if email.status == 'test' %}
+        <div class="border-top pt-3 mb-4">
+            <div class="form-label d-block">Envoyer un email de test</div>
+            {% if email.listType == 'mail_merge' %}
+                <div id="mm-merge-preview-zone" class="mb-3">
+                    <div class="d-flex align-items-center gap-2 mb-2">
+                        <div class="form-label small mb-0">Aperçu par destinataire</div>
+                        <div class="d-flex align-items-center gap-1 ms-auto">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="mm-merge-prev-btn" title="Ligne précédente" aria-label="Ligne précédente"><i class="bi bi-chevron-left" aria-hidden="true"></i></button>
+                            <span class="small text-body-secondary text-nowrap" id="mm-merge-preview-position"></span>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="mm-merge-next-btn" title="Ligne suivante" aria-label="Ligne suivante"><i class="bi bi-chevron-right" aria-hidden="true"></i></button>
+                        </div>
+                    </div>
+                    <div class="alert alert-warning small py-2 d-none" id="mm-merge-preview-warnings"></div>
+                    {# The header of a real message, in the order a mail
+                       client shows it: De, À, Sujet. Once this is the only
+                       rendering of the email on the page, « Sujet » alone
+                       left two questions the composition above used to
+                       answer — who it comes from, and who this particular
+                       copy is going to.
+
+                       « De » is server-rendered because it is the same for
+                       every row and is resolved by the service that owns
+                       the fallback (resolveDisplayedSender()); « À »
+                       changes with the row, so the script fills it from
+                       the preview payload. #}
+                    <div class="border rounded mb-2">
+                        <div class="px-2 py-1 border-bottom bg-body-tertiary small">
+                            <div>
+                                <span class="text-body-secondary">De :</span>
+                                {{ sender.name }}{% if sender.address %} &lt;{{ sender.address }}&gt;{% endif %}
+                            </div>
+                            <div>
+                                <span class="text-body-secondary">À :</span>
+                                <span id="mm-merge-preview-recipient"></span>
+                            </div>
+                            <div>
+                                <span class="text-body-secondary">Sujet :</span>
+                                <strong id="mm-merge-preview-subject"></strong>
+                            </div>
+                        </div>
+                        <div class="p-2 small" id="mm-merge-preview-body"></div>
+                    </div>
+                </div>
+            {% endif %}
+            <form method="post" action="/mass-mail/{{ email.id }}/test-send" class="d-flex flex-column flex-sm-row gap-2" id="mm-test-send-form">
+                {{ csrf_field()|raw }}
+                <input type="hidden" name="merge_offset" value="0" id="mm-merge-offset">
+                <input type="email" class="form-control form-control-sm" name="to" id="mm-test-send-email"
+                       value="{{ current_user_email }}" aria-label="Adresse de test" required>
+                {# An id and no `disabled` here: the script disables this
+                   button until the first publipostage preview has landed
+                   (a test send before that would carry the offset the
+                   preview has not chosen yet), and it can only do that
+                   from JavaScript. Disabling it in the markup would take
+                   away this form's own guarantee — it works with
+                   assets/js/mass-mail-compose.js absent. #}
+                <button type="submit" class="btn btn-sm btn-outline-primary text-nowrap"
+                        id="mm-test-send-btn">Envoyer le test</button>
+            </form>
+            {% if email.listType == 'mail_merge' %}
+                <p class="form-text small mb-0">Le test est envoyé avec les valeurs de la ligne affichée dans l'aperçu ci-dessus.</p>
+            {% endif %}
+        </div>
+    {% endif %}
 
     <div class="mb-4">
         <div class="form-label d-block">Pièces jointes</div>
@@ -258,40 +348,6 @@
             <div class="form-text small">PDF ou image, 10 Mo maximum.</div>
         {% endif %}
     </div>
-
-    {% if email.status == 'test' %}
-        <div class="border-top pt-3 mb-4">
-            <div class="form-label d-block">Envoyer un email de test</div>
-            {% if email.listType == 'mail_merge' %}
-                <div id="mm-merge-preview-zone" class="mb-3">
-                    <div class="d-flex align-items-center gap-2 mb-2">
-                        <div class="form-label small mb-0">Aperçu par destinataire</div>
-                        <div class="d-flex align-items-center gap-1 ms-auto">
-                            <button type="button" class="btn btn-sm btn-outline-secondary" id="mm-merge-prev-btn" title="Ligne précédente" aria-label="Ligne précédente"><i class="bi bi-chevron-left" aria-hidden="true"></i></button>
-                            <span class="small text-body-secondary text-nowrap" id="mm-merge-preview-position"></span>
-                            <button type="button" class="btn btn-sm btn-outline-secondary" id="mm-merge-next-btn" title="Ligne suivante" aria-label="Ligne suivante"><i class="bi bi-chevron-right" aria-hidden="true"></i></button>
-                        </div>
-                    </div>
-                    <p class="small text-body-secondary mb-2" id="mm-merge-preview-recipient"></p>
-                    <div class="alert alert-warning small py-2 d-none" id="mm-merge-preview-warnings"></div>
-                    <div class="border rounded mb-2">
-                        <div class="px-2 py-1 border-bottom bg-body-tertiary small"><span class="text-body-secondary">Sujet :</span> <strong id="mm-merge-preview-subject"></strong></div>
-                        <div class="p-2 small" id="mm-merge-preview-body"></div>
-                    </div>
-                </div>
-            {% endif %}
-            <form method="post" action="/mass-mail/{{ email.id }}/test-send" class="d-flex flex-column flex-sm-row gap-2" id="mm-test-send-form">
-                {{ csrf_field()|raw }}
-                <input type="hidden" name="merge_offset" value="0" id="mm-merge-offset">
-                <input type="email" class="form-control form-control-sm" name="to" id="mm-test-send-email"
-                       value="{{ current_user_email }}" aria-label="Adresse de test" required>
-                <button type="submit" class="btn btn-sm btn-outline-primary text-nowrap">Envoyer le test</button>
-            </form>
-            {% if email.listType == 'mail_merge' %}
-                <p class="form-text small mb-0">Le test est envoyé avec les valeurs de la ligne affichée dans l'aperçu ci-dessus.</p>
-            {% endif %}
-        </div>
-    {% endif %}
 
     {% if email.status in ['sending', 'sent'] %}
         <output class="border-top pt-3 mb-4 d-block">
