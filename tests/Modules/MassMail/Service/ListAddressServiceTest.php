@@ -92,41 +92,17 @@ class ListAddressServiceTest extends TestCase
         $this->service->add(9999, null, 'cure@paroisse.be');
     }
 
-    public function testEditingChangesTheNameAndTheAddress(): void
-    {
-        $address = $this->service->add($this->listId, 'Commune', 'ancienne@wavre.be');
 
-        $updated = $this->service->edit($address->id, 'Commune de Wavre', 'nouvelle@wavre.be');
-
-        $this->assertSame('Commune de Wavre', $updated->name);
-        $this->assertSame('nouvelle@wavre.be', $updated->email);
-    }
-
-    public function testEditingOntoAnAddressTheListAlreadyHoldsIsRefused(): void
-    {
-        $this->service->add($this->listId, null, 'un@test.be');
-        $second = $this->service->add($this->listId, null, 'deux@test.be');
-
-        $this->expectException(MailingListException::class);
-        $this->service->edit($second->id, null, 'un@test.be');
-    }
 
     /**
      * D3: an unsubscribed row survives everything. It is not editable and
      * not deletable — an unsubscribe a chief can undo with two clicks is
      * not an unsubscribe.
      */
-    public function testAnUnsubscribedAddressIsNeitherEditableNorDeletable(): void
+    public function testAnUnsubscribedAddressIsNotDeletable(): void
     {
         $address = $this->service->add($this->listId, null, 'cure@paroisse.be');
         $this->service->unsubscribeEverywhere('cure@paroisse.be');
-
-        try {
-            $this->service->edit($address->id, 'Curé', 'cure@paroisse.be');
-            $this->fail('editing an unsubscribed address should be refused');
-        } catch (MailingListException $e) {
-            $this->assertStringContainsString('désinscrite', $e->getMessage());
-        }
 
         try {
             $this->service->remove($address->id);

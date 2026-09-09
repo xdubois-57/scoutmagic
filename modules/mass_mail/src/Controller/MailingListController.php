@@ -81,10 +81,21 @@ class MailingListController extends AbstractController
                     'function_ids' => $this->mailingListService->getCustomListFunctionIds($l->id),
                     'section_ids' => $this->mailingListService->getCustomListSectionIds($l->id),
                     'badge_ids' => $this->mailingListService->getCustomListBadgeIds($l->id),
-                    // A COUNT, never the addresses themselves: a list that
-                    // is nothing but criteria must not pay the cost of
-                    // decrypting a section nobody opened.
+                    // A COUNT, never the addresses themselves: this page
+                    // only ever summarises a list, so it must not pay the
+                    // cost of decrypting addresses nobody asked to see.
+                    // They are read once, in the edit dialog, by the chief
+                    // who opened it.
                     'address_counts' => $this->listAddressService->countForList($l->id),
+                    // What the three axes come to, named rather than
+                    // counted — see MailingListService::describeCriteria()
+                    // for why this page's sentence and the dialog's are
+                    // deliberately two different sentences.
+                    'criteria_summary' => $this->mailingListService->describeCriteria(
+                        $this->mailingListService->getCustomListFunctionIds($l->id),
+                        $this->mailingListService->getCustomListSectionIds($l->id),
+                        $this->mailingListService->getCustomListBadgeIds($l->id)
+                    ),
                 ]],
                 []
             ),
@@ -308,31 +319,6 @@ class MailingListController extends AbstractController
             'address' => $this->presentAddress($address),
             'counts' => $this->listAddressService->countForList((int) $params['id']),
         ]);
-    }
-
-    /**
-     * PATCH /admin/listes-de-diffusion/addresses/{id}
-     *
-     * @param array<string, string> $params
-     */
-    public function updateAddress(Request $request, array $params): Response
-    {
-        $data = $this->decodeJsonBody($request);
-        if ($data === null || !$this->checkCsrf($data)) {
-            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
-        }
-
-        try {
-            $address = $this->listAddressService->edit(
-                (int) $params['id'],
-                $this->optionalString($data['name'] ?? null),
-                (string) ($data['email'] ?? '')
-            );
-        } catch (MailingListException $e) {
-            return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
-        }
-
-        return $this->json(['success' => true, 'address' => $this->presentAddress($address)]);
     }
 
     /**

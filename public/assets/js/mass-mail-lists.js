@@ -24,14 +24,26 @@
 // rows, so Configuration > Réglages already edits them, and a second
 // editor for the same two values was a second thing to keep in step.
 //
+// The dialog is where a list's CONTENTS are decided, both halves of them:
+// the criteria here, and the list's own addresses through
+// mass-mail-list-addresses.js, which this file points at a list when it
+// opens the dialog on one. The page behind only summarises — it carries
+// no control over either half.
+//
 // The criteria are three select bars in mode:multi (design.md §1.4), and
 // this file owns what they cannot say by themselves: the sentence the
 // three of them add up to, and the number of members that sentence
-// currently resolves to. The AND between axes is invisible in the
-// controls — three separate pickers look like three independent filters —
-// and it is exactly what turns « un badge » crossed with « une section
-// d'animés » into zero recipients every time, badges being assignable
-// only to the Staff d'U and to the chef/chef d'unité functions.
+// currently resolves to. That sentence COUNTS the chosen rows
+// (« une des 3 fonctions choisies ») because they are visible right above
+// it; the page's summary, built in PHP by
+// MailingListService::describeCriteria(), names them instead, having no
+// pickers to point at. Two sentences on purpose, not one duplicated.
+//
+// The AND between axes is invisible in the controls — three separate
+// pickers look like three independent filters — and it is exactly what
+// turns « un badge » crossed with « une section d'animés » into zero
+// recipients every time, badges being assignable only to the Staff d'U
+// and to the chef/chef d'unité functions.
 (function () {
     var modalEl = document.getElementById('cfg-list-modal');
 
@@ -305,6 +317,11 @@
             setPickerSelection(SECTION_PICKER, []);
             setPickerSelection(BADGE_PICKER, []);
             refreshCriteria();
+            // Whatever list the dialog last stood for, forgotten — and a
+            // « Nouvelle liste » has nothing to attach an address to
+            // until it exists, which the panel says in words rather than
+            // by refusing clicks.
+            window.MassMailListAddresses?.detach();
         }
 
         document.getElementById('cfg-new-list-btn')?.addEventListener('click', function () {
@@ -324,6 +341,7 @@
                 setPickerSelection(SECTION_PICKER, splitIds(btn.dataset.sectionIds));
                 setPickerSelection(BADGE_PICKER, splitIds(btn.dataset.badgeIds));
                 refreshCriteria();
+                window.MassMailListAddresses?.attach(btn.dataset.id);
                 showModal();
             });
         });

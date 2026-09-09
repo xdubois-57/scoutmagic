@@ -88,6 +88,13 @@ class MailingListService
     ) {
     }
 
+    /** @var array<int, string>|null */
+    private ?array $functionLabels = null;
+    /** @var array<int, string>|null */
+    private ?array $sectionLabels = null;
+    /** @var array<int, string>|null */
+    private ?array $badgeLabels = null;
+
     /**
      * Whether `$scoutYearId` is a year the unit has not reached yet.
      *
@@ -745,6 +752,115 @@ class MailingListService
         }
 
         return $merged;
+    }
+
+    /**
+     * What a custom list's criteria come to, in one French sentence, for
+     * the page that LISTS the lists.
+     *
+     * There is a second sentence for the same three axes, in
+     * `public/assets/js/mass-mail-lists.js`, and the two are deliberately
+     * different rather than one duplicated: the browser's is rebuilt at
+     * every click UNDER the three pickers, where the chosen rows are
+     * visible, so it counts them (« une des 3 fonctions choisies »); this
+     * one has no pickers above it and nothing else on the page says which
+     * ones they are, so it NAMES them. The same words in both places
+     * would leave the summary saying « choisies » about a choice the
+     * reader cannot see.
+     *
+     * A deactivated badge or a section gone from Desk keeps the suffix
+     * `getAllBadges()`/`getAllSections()` give it — « portent le badge
+     * Infirmier (désactivé) » is the one place a chief finds out why the
+     * list resolves to fewer members than its other axes suggest.
+     *
+     * @param int[] $functionIds
+     * @param int[] $sectionIds
+     * @param int[] $badgeIds
+     */
+    public function describeCriteria(array $functionIds, array $sectionIds, array $badgeIds): string
+    {
+        $clauses = array_values(array_filter([
+            self::axisClause(
+                $this->labelsFor($functionIds, $this->functionLabels()),
+                'exercent la fonction %s',
+                'exercent une des fonctions %s'
+            ),
+            self::axisClause(
+                $this->labelsFor($sectionIds, $this->sectionLabels()),
+                'sont dans la section %s',
+                'sont dans une des sections %s'
+            ),
+            self::axisClause(
+                $this->labelsFor($badgeIds, $this->badgeLabels()),
+                'portent le badge %s',
+                'portent un des badges %s'
+            ),
+        ]));
+
+        if ($clauses === []) {
+            return 'Aucun membre du site dans cette liste.';
+        }
+
+        return 'Membres qui ' . implode(' ET ', $clauses) . '.';
+    }
+
+    /**
+     * One axis's clause, or null when the axis constrains nothing.
+     *
+     * Singular and plural are two sentences rather than one carrying an
+     * « (s) »: « une des fonctions Intendant » is what a template
+     * produces and nobody writes.
+     *
+     * @param string[] $labels
+     */
+    private static function axisClause(array $labels, string $singular, string $plural): ?string
+    {
+        if ($labels === []) {
+            return null;
+        }
+
+        return sprintf(count($labels) === 1 ? $singular : $plural, implode(', ', $labels));
+    }
+
+    /**
+     * @param int[] $ids
+     * @param array<int, string> $vocabulary
+     * @return string[] in the vocabulary's own order, not the ids'
+     */
+    private function labelsFor(array $ids, array $vocabulary): array
+    {
+        $wanted = array_flip($ids);
+
+        return array_values(array_filter(
+            $vocabulary,
+            static fn(string $label, int $id): bool => isset($wanted[$id]),
+            ARRAY_FILTER_USE_BOTH
+        ));
+    }
+
+    /**
+     * The three vocabularies, read once per request. The page that needs
+     * them draws one sentence per custom list, and reading them per list
+     * would be three queries per row for three answers that cannot have
+     * changed in between.
+     *
+     * @return array<int, string>
+     */
+    private function functionLabels(): array
+    {
+        return $this->functionLabels ??= array_column($this->getAllFunctions(), 'label', 'id');
+    }
+
+    /** @return array<int, string> */
+    private function sectionLabels(): array
+    {
+        return $this->sectionLabels ??= array_column($this->getAllSections(), 'name', 'id');
+    }
+
+    /** @return array<int, string> */
+    private function badgeLabels(): array
+    {
+        return $this->badgeLabels ??= array_column($this->getAllBadges(), 'name', 'id');
     }
 
     /**

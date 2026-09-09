@@ -20,11 +20,19 @@ use Modules\MassMail\Repository\SuppressedAddressRepository;
  * the owner of the camp ground, a former member Desk never knew.
  *
  * The addresses belong to the LIST. There is no global address book and no
- * contact entity shared between lists: editing an address changes it here
- * and nowhere else. **The unsubscribe, by contrast, is global** — it flags
- * every row holding the same address, in every list, because somebody who
- * asks that the unit stop writing to them is addressing the unit rather
- * than a list.
+ * contact entity shared between lists: an address written here is written
+ * here and nowhere else. **The unsubscribe, by contrast, is global** — it
+ * flags every row holding the same address, in every list, because
+ * somebody who asks that the unit stop writing to them is addressing the
+ * unit rather than a list.
+ *
+ * **An address is added and removed, never corrected in place.** One row
+ * carries a name and an address and nothing else, so a typo is one delete
+ * and one add — two clicks, against a per-row editor that has to be
+ * opened, saved or cancelled. Anything at scale goes through the Excel
+ * round trip, which does correct names in place
+ * (`ListAddressRepository::replaceForList()`), because there a file of
+ * three hundred rows is being reconciled rather than one row fixed.
  */
 class ListAddressService
 {
@@ -105,36 +113,6 @@ class ListAddressService
         \assert($address !== null);
 
         return $address;
-    }
-
-    /**
-     * @throws MailingListException on an unknown address, an invalid address, a duplicate, or an unsubscribed row
-     */
-    public function edit(int $id, ?string $name, string $email): ListAddress
-    {
-        $address = $this->requireAddress($id);
-        $email = $this->normalizeEmail($email);
-        $name = $this->normalizeName($name);
-
-        if ($this->addressRepository->existsInList($address->listId, $email, $id)) {
-            throw new MailingListException('Cette adresse figure déjà dans la liste.');
-        }
-
-        $this->addressRepository->update($id, $name, $email);
-        $this->journal->log(
-            'mass_mail',
-            'list_address_updated',
-            'info',
-            'Adresse de liste de diffusion modifiée',
-            ['list_id' => $address->listId, 'address_id' => $id]
-        );
-
-        $this->markIfAlreadyUnsubscribed($email);
-
-        $updated = $this->addressRepository->findById($id);
-        \assert($updated !== null);
-
-        return $updated;
     }
 
     /**

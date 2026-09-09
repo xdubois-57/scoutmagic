@@ -68,7 +68,6 @@ class ModuleManifestTest extends TestCase
                 '/admin/listes-de-diffusion/lists/{id}/addresses/import',
                 '/admin/listes-de-diffusion/lists/{id}/addresses/import/confirm',
                 '/admin/listes-de-diffusion/addresses/{id}',
-                '/admin/listes-de-diffusion/addresses/{id}',
                 '/admin/listes-de-diffusion/lists/{id}/toggle',
                 '/admin/listes-de-diffusion/lists/{id}',
             ],
