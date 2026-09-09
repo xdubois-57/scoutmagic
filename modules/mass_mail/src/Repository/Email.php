@@ -43,6 +43,17 @@ final class Email
     public const LIST_TYPE_MAIL_MERGE = 'mail_merge';
 
     /**
+     * The « Anciens » list — every member who was active in a past scout
+     * year and is not active in this one. Computed on the fly like every
+     * other default list: there is no table, no junction and no scheduled
+     * task, because a departure is not an event the site receives — it is
+     * the ABSENCE of a row in the next Desk import, and there is no hook
+     * to hang « add to the former members » on. See Service\
+     * MailingListService::getDefaultLists().
+     */
+    public const LIST_TYPE_DEFAULT_FORMER_MEMBERS = 'default_former_members';
+
+    /**
      * @param int[] $scoutYearIds One or more scout years this email targets — module addendum
      *                            (e.g. "Montages dias" retrospectives spanning several promotions).
      *                            Lists resolved for each are merged and deduplicated by address.

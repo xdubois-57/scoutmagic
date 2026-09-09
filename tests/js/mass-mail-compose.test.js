@@ -58,9 +58,11 @@ function buildDom({ status = 'draft', listType = 'default_section', merge = fals
                 <option value="default_section:2" data-list-type="default_section"${listType === 'default_section' ? ' selected' : ''}>Section</option>
                 <option value="external:" data-list-type="external"${listType === 'external' ? ' selected' : ''}>Inscriptions</option>
                 <option value="mail_merge:" data-list-type="mail_merge"${listType === 'mail_merge' ? ' selected' : ''}>Publipostage</option>
+                <option value="default_former_members:" data-list-type="default_former_members"${listType === 'default_former_members' ? ' selected' : ''}>Anciens</option>
             </select>
             <p id="mm-merge-list-note" class="d-none"></p>
             <p id="mm-external-list-note" class="d-none"></p>
+            <p id="mm-former-list-note" class="d-none"></p>
 
             <div id="mm-merge-zone" class="d-none">
                 <input type="hidden" id="mm-audience-id" name="audience_id" value="">
@@ -268,6 +270,25 @@ describe('mass-mail-compose.js: the list type reshapes the form', () => {
 
         expect(document.getElementById('mm-scout-year-zone').classList.contains('d-none')).toBe(true);
         expect(document.getElementById('mm-external-list-note').classList.contains('d-none')).toBe(false);
+    });
+
+    it('hides the scout years for the former members, whose year is their own last active one', async () => {
+        await boot();
+        const select = document.getElementById('mm-list');
+
+        select.value = 'default_former_members:';
+        select.dispatchEvent(new Event('change'));
+
+        expect(document.getElementById('mm-scout-year-zone').classList.contains('d-none')).toBe(true);
+        expect(document.getElementById('mm-former-list-note').classList.contains('d-none')).toBe(false);
+        expect(document.getElementById('mm-external-list-note').classList.contains('d-none')).toBe(true);
+
+        // And it comes back for a list that IS scoped by a scout year.
+        select.value = 'default_section:2';
+        select.dispatchEvent(new Event('change'));
+
+        expect(document.getElementById('mm-scout-year-zone').classList.contains('d-none')).toBe(false);
+        expect(document.getElementById('mm-former-list-note').classList.contains('d-none')).toBe(true);
     });
 
     it('shows the server-written future-year warning only while such a year is ticked', async () => {

@@ -76,6 +76,10 @@
                     <p class="form-text small mb-0 {{ form.list starts with 'external' ? '' : 'd-none' }}" id="mm-external-list-note">
                         Cette liste vise toujours l'année d'inscription.
                     </p>
+                    <p class="form-text small mb-0 {{ form.list starts with 'default_former_members' ? '' : 'd-none' }}" id="mm-former-list-note">
+                        Chaque ancien est joint à l'adresse de sa dernière année active — il n'y a donc pas d'année
+                        scoute à choisir.
+                    </p>
                 </div>
             </div>
 
@@ -141,7 +145,7 @@
                 <div class="alert alert-danger small py-2 mt-2 mb-0 d-none" id="mm-merge-error"></div>
             </div>
 
-            <div class="mb-3 mt-3 {{ form.list starts with 'mail_merge' or form.list starts with 'external' ? 'd-none' : '' }}" id="mm-scout-year-zone">
+            <div class="mb-3 mt-3 {{ form.list starts with 'mail_merge' or form.list starts with 'external' or form.list starts with 'default_former_members' ? 'd-none' : '' }}" id="mm-scout-year-zone">
                 <div class="form-label small d-block">Année(s) scoute(s)</div>
                 <div class="d-flex flex-wrap gap-3" id="mm-scout-year-group">
                     {% for key, year in { previous: scout_years.previous, current: scout_years.current, next: scout_years.next } %}

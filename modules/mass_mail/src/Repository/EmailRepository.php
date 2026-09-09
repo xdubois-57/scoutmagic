@@ -131,10 +131,10 @@ class EmailRepository
      * Server-side paginated, filtered list for the "Envoi de mails" page —
      * module spec: 50/page, most recent first, free-text search across
      * subject/sender-section-name/list-name (both custom-list names and
-     * the two fixed default-list labels, matched in PHP since they're not
-     * a real column — see the two $matchesActiveMembersLabel/
-     * $matchesChiefsLabel params).
+     * the fixed default-list labels, matched in PHP since they're not a
+     * real column — see the $matchedDefaultListTypes param).
      *
+     * @param string[] $matchedDefaultListTypes default list types whose label matches $search
      * @param int[]|null $visibleSectionIds null = every section (a chef d'unité and above)
      * @return array{emails: Email[], total: int}
      */
@@ -142,8 +142,7 @@ class EmailRepository
         string $search,
         ?string $status,
         ?int $sectionId,
-        bool $matchesActiveMembersLabel,
-        bool $matchesChiefsLabel,
+        array $matchedDefaultListTypes,
         int $page,
         // The sections this session may see mailings of, or null for
         // "every one of them" (a chef d'unité and above). An empty array
@@ -177,11 +176,9 @@ class EmailRepository
             $like = '%' . $search . '%';
             $searchConditions = ['e.subject LIKE ?', 'sender.name LIKE ?', 'list_sec.name LIKE ?', 'ml.name LIKE ?'];
             array_push($params, $like, $like, $like, $like);
-            if ($matchesActiveMembersLabel) {
-                $searchConditions[] = "e.list_type = 'default_active_members'";
-            }
-            if ($matchesChiefsLabel) {
-                $searchConditions[] = "e.list_type = 'default_chiefs'";
+            foreach ($matchedDefaultListTypes as $listType) {
+                $searchConditions[] = 'e.list_type = ?';
+                $params[] = $listType;
             }
             $where[] = '(' . implode(' OR ', $searchConditions) . ')';
         }

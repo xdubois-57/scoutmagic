@@ -218,7 +218,14 @@ CREATE TABLE IF NOT EXISTS mass_mail_emails (
     -- list_section_id stay NULL, and the mass_mail_email_scout_years
     -- junction stays empty (the file, not a scout year, defines who
     -- receives it).
-    list_type ENUM('default_section', 'default_active_members', 'default_chiefs', 'custom', 'external', 'mail_merge') NOT NULL,
+    -- 'default_former_members': the « Anciens » list — active in a past
+    -- scout year, not active in the effective one. Computed on the fly
+    -- like the other default lists; list_id/list_section_id stay NULL.
+    -- Each former member is resolved from THEIR OWN last active year, and
+    -- that is what mass_mail_recipients.scout_year_id carries for them —
+    -- the tracking page looks their profile up by it, and their profile
+    -- only exists for that year.
+    list_type ENUM('default_section', 'default_active_members', 'default_chiefs', 'custom', 'external', 'mail_merge', 'default_former_members') NOT NULL,
     list_id INT UNSIGNED NULL,
     list_section_id INT UNSIGNED NULL,
     audience_id INT UNSIGNED NULL,
