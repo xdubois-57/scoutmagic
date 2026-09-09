@@ -479,3 +479,14 @@ confirmer, « Annuler » qui n'envoie rien, la confirmation qui recharge
 l'ensemble depuis le serveur, et l'échec qui laisse l'écran intact.
 
 **Reporté.** Rien.
+
+**Complété dans la foulée de la revue d'IT-03.** `replaceForList()` ne
+protège que les lignes désinscrites **de la liste qu'il remplace** — les
+seules qu'il voie. Une adresse désinscrite sur une *autre* liste arrive
+comme une ligne neuve et aurait été créée active, ce qui contredit D2.
+`apply()` interroge donc la table de suppression sur le fichier entier en
+une requête (`filterSuppressed()`) et marque ce qu'elle nomme : c'est la
+seule table qui sache, toute désinscription y écrivant depuis IT-03, quel
+que soit le demandeur. Test : un fichier portant une adresse supprimée
+crée bien sa ligne, mais désinscrite, et elle ne rejoint jamais la liste
+des adresses joignables.

@@ -11,6 +11,7 @@ namespace Modules\MassMail\Service;
 use Core\Journal\JournalService;
 use Modules\MassMail\Repository\ListAddress;
 use Modules\MassMail\Repository\ListAddressRepository;
+use Modules\MassMail\Repository\SuppressedAddressRepository;
 use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\Reader\Xlsx as XlsxReader;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
@@ -54,10 +55,16 @@ class ListAddressImportService
     private const EMAIL_ALIASES = ['adresse', 'adresseemail', 'email', 'courriel', 'mail'];
     private const UNSUBSCRIBED_ALIASES = ['desinscrit', 'desinscrite', 'desabonne'];
 
+    /**
+     * $suppressedAddressRepository is what keeps a file from re-opening a
+     * door somebody asked to be shut — see apply(). Nullable so a test
+     * that only reads a file does not have to build it.
+     */
     public function __construct(
         private ListAddressRepository $addressRepository,
         private ListAddressService $addressService,
-        private JournalService $journal
+        private JournalService $journal,
+        private ?SuppressedAddressRepository $suppressedAddressRepository = null
     ) {
     }
 
@@ -178,6 +185,20 @@ class ListAddressImportService
         $this->addressService->assertRoomForReplacement($listId, count($addresses));
 
         $summary = $this->addressRepository->replaceForList($listId, $addresses);
+
+        // A file never re-subscribes anybody (D3), and `replaceForList()`
+        // already refuses to touch an unsubscribed row of THIS list. What
+        // it cannot see is an address unsubscribed somewhere else and now
+        // arriving as a new line: it would be created active. The
+        // suppression table is the one place that knows, every unsubscribe
+        // writing to it whoever asked, so the rows it names are flagged
+        // right after the replacement — in one query for the whole file,
+        // then one statement per address actually concerned, which is
+        // almost always none.
+        $imported = array_map(static fn(array $a): string => $a['email'], $addresses);
+        foreach ($this->suppressedAddressRepository?->filterSuppressed($imported) ?? [] as $suppressed) {
+            $this->addressRepository->unsubscribeEverywhere($suppressed);
+        }
 
         $this->journal->log(
             'mass_mail',

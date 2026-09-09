@@ -10,6 +10,7 @@ use Core\Journal\JournalService;
 use Core\Security\EncryptionService;
 use Modules\MassMail\Repository\ListAddressRepository;
 use Modules\MassMail\Repository\MailingListRepository;
+use Modules\MassMail\Repository\SuppressedAddressRepository;
 use Modules\MassMail\Service\ListAddressImportException;
 use Modules\MassMail\Service\ListAddressImportService;
 use Modules\MassMail\Service\ListAddressService;
@@ -41,6 +42,7 @@ class ListAddressImportServiceTest extends TestCase
     private ListAddressService $addressService;
     private ListAddressRepository $repository;
     private SettingService $settings;
+    private SuppressedAddressRepository $suppressedRepository;
     private int $listId;
     /** @var string[] */
     private array $tempFiles = [];
@@ -61,10 +63,12 @@ class ListAddressImportServiceTest extends TestCase
             $this->settings,
             $this->createMock(JournalService::class)
         );
+        $this->suppressedRepository = new SuppressedAddressRepository($this->pdo);
         $this->service = new ListAddressImportService(
             $this->repository,
             $this->addressService,
-            $this->createMock(JournalService::class)
+            $this->createMock(JournalService::class),
+            $this->suppressedRepository
         );
 
         $stmt = $this->pdo->prepare('INSERT INTO mass_mail_lists (name, description) VALUES (?, ?)');
@@ -326,6 +330,37 @@ class ListAddressImportServiceTest extends TestCase
         // Absent from the file entirely.
         $this->service->apply($this->listId, [['name' => 'Autre', 'email' => 'autre@test.be']], null);
         $this->assertSame(['total' => 2, 'unsubscribed' => 1], $this->repository->countForList($this->listId));
+    }
+
+    /**
+     * D3, from the other side: `replaceForList()` protects the
+     * unsubscribed rows of THIS list, but an address unsubscribed
+     * elsewhere arrives as a brand-new line and would be created active.
+     * The suppression table is the one place that knows.
+     */
+    public function testAFileNeverReopensADoorSomebodyAskedToBeShut(): void
+    {
+        $this->suppressedRepository->suppress('cure@paroisse.be');
+
+        $this->service->apply($this->listId, [
+            ['name' => 'Commune', 'email' => 'jeunesse@wavre.be'],
+            ['name' => 'Curé', 'email' => 'CURE@paroisse.be'],
+        ], null);
+
+        $byEmail = [];
+        foreach ($this->repository->findForList($this->listId) as $address) {
+            $byEmail[$address->email] = $address;
+        }
+
+        $this->assertNull($byEmail['jeunesse@wavre.be']->unsubscribedAt);
+        $this->assertNotNull($byEmail['cure@paroisse.be']->unsubscribedAt);
+        $this->assertSame(
+            ['jeunesse@wavre.be'],
+            array_map(
+                static fn($a): string => $a->email,
+                $this->repository->findActiveForList($this->listId)
+            )
+        );
     }
 
     public function testApplyingCorrectsANameWithoutDuplicatingTheRow(): void

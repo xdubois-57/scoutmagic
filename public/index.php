@@ -4690,7 +4690,7 @@ if ($isEnabled('mass_mail')) {
         $massMailListAddressRepo, $massMailListRepo, $settingService, $journalService, $massMailSuppressedRepo
     );
     $massMailListAddressImportService = new \Modules\MassMail\Service\ListAddressImportService(
-        $massMailListAddressRepo, $massMailListAddressService, $journalService
+        $massMailListAddressRepo, $massMailListAddressService, $journalService, $massMailSuppressedRepo
     );
     $massMailListService = new \Modules\MassMail\Service\MailingListService(
         $massMailListRepo, $massMailResolutionRepo, $sectionService, $massMailFunctionRepo, $badgeService,
