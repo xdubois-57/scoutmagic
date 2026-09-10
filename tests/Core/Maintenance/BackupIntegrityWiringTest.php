@@ -47,9 +47,7 @@ final class BackupIntegrityWiringTest extends TestCase
             if ($relative === self::ALLOWED) {
                 continue;
             }
-            // `$updateHistoryRepository->markCompleted()` is a different
-            // class with the same verb, and none of its business.
-            if (preg_match('/\$\w*[bB]ackupRepository->markCompleted\(/', $source) === 1) {
+            if ($this->completesABackup($source)) {
                 $offenders[] = $relative;
             }
         }
@@ -65,8 +63,45 @@ final class BackupIntegrityWiringTest extends TestCase
         );
     }
 
-    /** And the service really is what the handlers reach for. */
-    public function testEveryHandlerThatCreatesABackupUsesTheService(): void
+    /**
+     * The ratchet can see the call however it is spelled.
+     *
+     * A first version anchored on `\$\w*[bB]ackupRepository->markCompleted\(`,
+     * which requires the repository's name to start right after the `$`.
+     * That matches a handler's local variable and **not** a controller's
+     * promoted property, `$this->backupRepository->...` — so the one site
+     * this class's docblock names first was scanned and invisible. It also
+     * assumed the variable would always be called `backupRepository`.
+     *
+     * A ratchet whose blind spot is the riskiest call site is worse than
+     * no ratchet, because it is believed. These fixtures are what stop the
+     * pattern from narrowing again.
+     */
+    public function testTheScanSeesEveryWayOfSpellingTheCall(): void
+    {
+        $seen = [
+            'local variable' => '$backupRepository->markCompleted($id, $a, $b);',
+            'promoted property' => '$this->backupRepository->markCompleted($id, $a, null);',
+            'renamed property' => '$this->backups->markCompleted($id, $a, null);',
+            'a different name entirely' => '$repo->markCompleted($id, $a, null);',
+        ];
+        foreach ($seen as $spelling => $code) {
+            $this->assertTrue($this->completesABackup($code), 'blind to a ' . $spelling);
+        }
+
+        // And the one it must NOT see: a different class with the same verb.
+        $this->assertFalse(
+            $this->completesABackup('$updateHistoryRepository->markCompleted($historyId);'),
+            'update_history is not a backup and never was'
+        );
+        $this->assertFalse(
+            $this->completesABackup('$this->updateHistoryRepository->markCompleted($historyId);'),
+            'nor is it, as a property'
+        );
+    }
+
+    /** And the service really is what every creation site reaches for. */
+    public function testEveryFileThatCreatesABackupUsesTheService(): void
     {
         $creators = [];
         $completers = [];
@@ -75,7 +110,7 @@ final class BackupIntegrityWiringTest extends TestCase
             if ($relative === self::ALLOWED) {
                 continue;
             }
-            if (preg_match('/\$\w*[bB]ackupRepository->create\(/', $source) === 1) {
+            if ($this->createsABackup($source)) {
                 $creators[] = $relative;
             }
             if (str_contains($source, 'BackupIntegrity(')) {
@@ -84,6 +119,11 @@ final class BackupIntegrityWiringTest extends TestCase
         }
 
         $this->assertNotSame([], $creators, 'No backup creation sites found — the scan is broken.');
+        $this->assertContains(
+            'core/Http/Controller/MaintenanceController.php',
+            $creators,
+            'The controller creates backups; a scan that cannot see it is not scanning.'
+        );
 
         foreach ($creators as $file) {
             $this->assertContains(
@@ -92,6 +132,57 @@ final class BackupIntegrityWiringTest extends TestCase
                 $file . ' crée une sauvegarde mais ne la termine jamais via BackupIntegrity.'
             );
         }
+    }
+
+    /**
+     * Whether this source completes a backup row.
+     *
+     * Every `->markCompleted(` counts, whatever the receiver is called —
+     * the receiver's NAME is not evidence, and pinning the pattern to one
+     * spelling is what made the first version blind. The only thing
+     * excluded is the other class that happens to share the verb:
+     * `UpdateHistoryRepository`, which finishes an update, not a backup.
+     */
+    private function completesABackup(string $source): bool
+    {
+        $offset = 0;
+        while (($at = strpos($source, '->markCompleted(', $offset)) !== false) {
+            $offset = $at + 1;
+            // The receiver chain, however long: `$this->updateHistoryRepository`
+            // and `$updateHistoryRepository` both have to be recognised.
+            $receiver = substr($source, max(0, $at - 60), min(60, $at));
+            if (stripos($receiver, 'updatehistory') !== false) {
+                continue;
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether this source creates a `backups` row.
+     *
+     * Two signals, because neither alone covers the real call sites: the
+     * repository reached by name, and a `create()` whose first argument is
+     * one of the backup types. The controller uses both forms — a literal
+     * `'database'` and a `$scope` variable — and a scan keyed on only one
+     * of them would miss half of what it is looking at.
+     */
+    private function createsABackup(string $source): bool
+    {
+        if (preg_match('/[bB]ackupRepository->create\(/', $source) === 1) {
+            return true;
+        }
+
+        foreach (\Core\Maintenance\Backup::TYPES as $type) {
+            if (str_contains($source, "->create('" . $type . "'")) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

@@ -1141,6 +1141,33 @@ au-delà de 8 Mio. Le test ne mesurait que l'appétit du harnais.
 l'implémentation naïve échoue maintenant d'un facteur huit, ce qui a été
 vérifié en la remettant.
 
+**Deux constats de revue, et le second portait sur le cliquet lui-même.**
+
+1. **Le test du gestionnaire ne reflétait pas l'arborescence.** `AGENTS.md`
+   § Tests : « `tests/` mirrors the structure of `core/` ». Le fichier
+   était sous `tests/Core/Maintenance/` alors que la classe vit dans
+   `core/Maintenance/Task/`. Déplacé ; `phpunit.xml` enregistre
+   `tests/Core` en bloc, donc rien d'autre à changer.
+
+2. **Le cliquet était aveugle au site que son propre docbloc nomme en
+   premier.** Le motif `\$\w*[bB]ackupRepository->markCompleted\(` exige
+   que le nom du dépôt commence juste après le `$` : il voyait la variable
+   locale d'un gestionnaire et **pas** la propriété promue d'un
+   contrôleur, `$this->backupRepository->...`. Le contrôleur était donc
+   parcouru et invisible, et une régression y serait passée en silence.
+   Le même angle mort affectait le second test, sur `->create(`.
+
+   Un cliquet dont l'angle mort est le site le plus risqué est pire que
+   pas de cliquet, parce qu'on lui fait confiance. La détection ne
+   s'appuie plus sur le **nom** du receveur — un nom n'est pas une preuve,
+   c'est la leçon d'IT-04 sur `GALLERY_TYPES` — mais sur l'appel lui-même,
+   en n'excluant que la classe qui partage le verbe
+   (`UpdateHistoryRepository`, qui termine une mise à jour, pas une
+   sauvegarde). Un test de fixtures épingle les quatre orthographes du
+   receveur et les deux qu'il ne doit pas voir, et la régression exacte
+   décrite par le relecteur a été rejouée dans le contrôleur pour vérifier
+   qu'elle échoue désormais.
+
 **Reporté.** Le marqueur « sur Drive » sur chaque ligne (IT-09) et la
 vérification des archives distantes : ce qui part chez un tiers se vérifie
 autrement, et le raccordement n'existe pas encore.

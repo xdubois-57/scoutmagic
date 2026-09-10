@@ -7,7 +7,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Core\Maintenance;
+namespace Tests\Core\Maintenance\Task;
 
 use Core\Database\Connection;
 use Core\File\FileRepository;
