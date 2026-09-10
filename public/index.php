@@ -2658,7 +2658,11 @@ $router->addRoute(
 // operation that is running right now, and that is refused outright by
 // Core\Maintenance\BackupSafetyNet whatever the caller's role.
 $router->addRoute(
-    'POST', '/config/maintenance/backup/{id}/delete', MaintenanceController::class, 'deleteBackup', 'admin'
+    'POST',
+    '/config/maintenance/backup/{id}/delete',
+    MaintenanceController::class,
+    'deleteBackup',
+    'admin'
 );
 $router->addRoute('GET', '/api/maintenance/backup-status/{id}', MaintenanceController::class, 'backupStatus', 'admin');
 $router->addRoute(
