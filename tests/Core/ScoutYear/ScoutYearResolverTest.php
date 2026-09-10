@@ -175,25 +175,31 @@ class ScoutYearResolverTest extends TestCase
     }
 
     /**
-     * A dozen controllers resolve the effective year on one page, and the
-     * answer costs a role resolution — several queries. It is asked once.
+     * **The question is put every time, and this resolver caches nothing
+     * about it.** The answer depends on WHO is asking as much as on the
+     * year, and the identity changes inside a single request the moment a
+     * login succeeds — a cache here, keyed on the year alone, would
+     * answer the controller with the anonymous answer the front
+     * controller got before routing. The cache belongs one layer up,
+     * where the address is known: Core\ScoutYear\StaffYearEligibility,
+     * and Tests\Core\ScoutYear\StaffYearEligibilityTest holds both
+     * halves of that.
      */
-    public function testEligibilityIsResolvedOncePerYear(): void
+    public function testEligibilityIsAskedAgainRatherThanCachedHere(): void
     {
         $this->setPublicYear($this->year2024);
         $this->setStaffYear($this->year2025);
 
-        $calls = 0;
-        $this->resolver->setStaffYearEligibility(function () use (&$calls): bool {
-            $calls++;
-            return true;
+        $answers = [false, true, true];
+        $this->resolver->setStaffYearEligibility(function () use (&$answers): bool {
+            return array_shift($answers) ?? false;
         });
 
-        $this->resolver->getEffectiveYear(null, Role::CHIEF);
-        $this->resolver->getEffectiveYear(null, Role::CHIEF);
-        $this->resolver->getEffectiveYear(null, Role::CHIEF);
+        // The front controller, before routing: nobody is signed in yet.
+        $this->assertSame($this->year2024, $this->resolver->getEffectiveYear(null, Role::CHIEF)->id);
 
-        $this->assertSame(1, $calls);
+        // The controller, after the login: the same instance must ask again.
+        $this->assertSame($this->year2025, $this->resolver->getEffectiveYear(null, Role::CHIEF)->id);
     }
 
     public function testSessionPreviewHonoredForChief(): void

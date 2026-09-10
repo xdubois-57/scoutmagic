@@ -51,6 +51,7 @@ class AuthorizationYearsAreReadOnlyTest extends TestCase
     private const GUARDED_FILES = [
         'core/ScoutYear/AuthorizationYearService.php',
         'core/ScoutYear/AuthorizationYears.php',
+        'core/ScoutYear/StaffYearEligibility.php',
         'core/Security/RoleResolver.php',
         'core/Security/SessionRevalidator.php',
     ];

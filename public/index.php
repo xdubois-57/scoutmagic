@@ -1741,15 +1741,14 @@ $sessionRevalidator->revalidate(
 // Deliberately NOT the authorization year set: that set answers "may this
 // person come in, and as what", a question about a person. This one is
 // about one specific year.
+// The address is read on every call rather than captured once: a login
+// request is anonymous when the front controller resolves the effective
+// year and identified by the time its controller does, and
+// Core\ScoutYear\StaffYearEligibility keys its cache on both halves for
+// exactly that reason.
+$staffYearEligibility = new \Core\ScoutYear\StaffYearEligibility($roleResolver);
 $scoutYearResolver->setStaffYearEligibility(
-    static function (int $staffYearId) use ($roleResolver): bool {
-        $email = AuthSession::getEmail();
-        if ($email === null || $email === '') {
-            return false;
-        }
-
-        return Role::fromString($roleResolver->resolve($email, $staffYearId))->hasAccess(Role::INTENDANT);
-    }
+    static fn(int $staffYearId): bool => $staffYearEligibility->isEligible(AuthSession::getEmail(), $staffYearId)
 );
 
 // Set Twig globals for auth state (after session is started)

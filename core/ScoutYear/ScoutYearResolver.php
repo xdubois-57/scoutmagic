@@ -71,21 +71,13 @@ class ScoutYearResolver
      *
      * **Left unset, no staff year is ever served**, and that is the
      * fail-closed direction: the public year is where an ordinary visitor
-     * belongs anyway. `public/index.php` is the one place that wires it.
+     * belongs anyway. `public/index.php` is the one place that wires it,
+     * to `Core\ScoutYear\StaffYearEligibility`, which owns the cache —
+     * see isEligibleForStaffYear() for why it cannot live here.
      *
      * @var (callable(int): bool)|null
      */
     private $staffYearEligibility = null;
-
-    /**
-     * Memo of the answer per year id. getEffectiveYear() is called once
-     * per controller that needs it — a dozen times on some pages — and the
-     * callable behind this runs a role resolution, which is several
-     * queries.
-     *
-     * @var array<int, bool>
-     */
-    private array $staffYearEligibilityMemo = [];
 
     public function __construct(
         private ScoutYearService $scoutYearService,
@@ -101,7 +93,6 @@ class ScoutYearResolver
     public function setStaffYearEligibility(callable $isEligible): void
     {
         $this->staffYearEligibility = $isEligible;
-        $this->staffYearEligibilityMemo = [];
     }
 
     /**
@@ -168,6 +159,12 @@ class ScoutYearResolver
      *
      * Unwired — a background root, a narrow test — the answer is no, and
      * the public year is served instead.
+     *
+     * **Asked every time rather than memoised here**, deliberately: the
+     * answer depends on WHO is asking as much as on the year, and the
+     * identity changes inside a single request the moment a login
+     * succeeds. `Core\ScoutYear\StaffYearEligibility` holds the cache,
+     * keyed on both, because it is the layer that knows the address.
      */
     private function isEligibleForStaffYear(int $staffYearId): bool
     {
@@ -175,8 +172,7 @@ class ScoutYearResolver
             return false;
         }
 
-        return $this->staffYearEligibilityMemo[$staffYearId]
-            ??= ($this->staffYearEligibility)($staffYearId);
+        return ($this->staffYearEligibility)($staffYearId);
     }
 
     /**

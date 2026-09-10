@@ -393,6 +393,24 @@ fichier de test existe déjà pour attraper (ARCHITECTURE.md §8.17), et
 `testTheStaffOfTheYearBeingPreparedStaysAmongTheRecipients` fige le
 comportement — il redevient rouge dès qu'on retire le jeu.
 
+### Un défaut de cette itération, trouvé en relisant son propre diff
+
+La mémoïsation de l'éligibilité vivait d'abord dans `ScoutYearResolver`,
+**clé sur la seule année**. C'est faux, et d'une façon qui n'aurait
+échoué nulle part dans la suite : une requête résout l'année effective une
+première fois dans le front controller — où une requête de connexion est
+encore anonyme — puis une seconde fois dans le contrôleur, après
+`AuthSession::login()`. La seconde question recevait la réponse de la
+première, donc l'animateur entrant se connectait et le site enregistrait
+ses membres liés dans l'année publique, où il n'en a aucun. L'identité
+change au milieu de la requête, donc l'identité fait partie de la clé.
+
+Le cache est descendu dans `Core\ScoutYear\StaffYearEligibility`, la
+seule couche qui connaît l'adresse ; `ScoutYearResolver` ne cache plus
+rien et son test dit désormais qu'il redemande.
+`StaffYearEligibilityTest::testTheAnswerFollowsTheAddressWhenAnIdentityAppearsMidRequest`
+fige le cas.
+
 ---
 
 ## Récapitulatif
