@@ -1538,6 +1538,19 @@ l'hôte, le nom et le mot de passe de la base de **l'origine** en place —
 précisément D5, atteint par une panne que personne ne verrait. Le refus
 ne coûte rien, puisqu'il précède la sauvegarde de sécurité.
 
+**Sous `storage/` n'est pas la même chose que « des données ».** La liste
+blanche `storage/` laissait passer `storage/temp/twig_cache/`, où vivent
+les gabarits compilés que le rendu suivant fait `include` : une archive
+capable d'y déposer un fichier était une archive capable d'exécuter du
+code sur le site qui la restaure — et le modèle de menace de cette
+fonctionnalité, c'est précisément l'archive qu'un inconnu remet avec sa
+phrase de passe. Les sous-arbres que l'écrivain ne produit jamais
+(`keys`, `config`, `temp`, `maintenance`) sont désormais refusés à la
+lecture, et la liste est la sienne
+(`BackupService::NON_ARCHIVED_STORAGE_SUBDIRS`) plutôt qu'une seconde à
+tenir à jour. La galerie n'y est pas : elle est exclue par périmètre, pas
+par nature.
+
 **Un garde-fou qui n'en était pas un.** `restorableEntries()` filtrait les
 entrées par une liste blanche (`storage/`) *puis* par une liste noire
 (`secrets/`). La seconde ne pouvait jamais s'exécuter : un nom qui

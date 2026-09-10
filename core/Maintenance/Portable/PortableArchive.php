@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Core\Maintenance\Portable;
 
 use Core\Maintenance\BackupException;
+use Core\Maintenance\BackupService;
 use Core\Maintenance\VersionFile;
 
 /**
@@ -71,6 +72,9 @@ final class PortableArchive
      */
     private const RESTORED_TREE = 'storage/';
 
+    /** What a manifest may weigh: a short JSON document, generously. */
+    private const MAX_MANIFEST_BYTES = 1024 * 1024;
+
 
     /** @param array<string, mixed> $manifest */
     private function __construct(
@@ -113,6 +117,18 @@ final class PortableArchive
 
             $keys = PortableKeys::derive($passphrase, $derivation);
             $zip->setPassword($keys->archivePassword());
+
+            // Capped like every other member, and before the read rather
+            // than after it — this is the FIRST member this class ever
+            // touches, so a manifest that decompresses to gigabytes would
+            // exhaust the machine before any of the refusals below could
+            // run. A manifest is a short JSON document: the ceiling here
+            // is generous by three orders of magnitude and still bounds
+            // the read.
+            $manifestStat = $zip->statName(PortableManifest::MEMBER);
+            if ($manifestStat !== false && (int) $manifestStat['size'] > self::MAX_MANIFEST_BYTES) {
+                throw new BackupException('Le manifeste de cette sauvegarde portable est illisible.');
+            }
 
             $json = $zip->getFromName(PortableManifest::MEMBER);
             if ($json === false) {
@@ -491,18 +507,39 @@ final class PortableArchive
                 throw new BackupException('Archive de sauvegarde illisible.');
             }
 
-            // **An allow-list, and it is the only exclusion there is.**
-            // `secrets/`, the manifest and `database.sql` are outside
-            // `storage/`, so this one line already refuses them — and it
-            // refuses them the way an allow-list does, by never having
-            // said yes, rather than by naming each of them. The sealed
-            // secrets in particular must never land as ordinary entries:
-            // that would write the SEALED bytes where the live key
-            // belongs. They are unsealed and written deliberately, by
-            // {@see PortableRestore::installSecrets()}.
+            // **An allow-list first.** `secrets/`, the manifest and
+            // `database.sql` are outside `storage/`, so this one line
+            // refuses them the way an allow-list does — by never having
+            // said yes, rather than by naming each of them.
             $name = str_replace('\\', '/', (string) $stat['name']);
             if (!str_starts_with($name, self::RESTORED_TREE)) {
                 continue;
+            }
+
+            // **And inside `storage/`, the trees the WRITER never puts
+            // there.** Being under `storage/` is not the same as being
+            // data. `storage/temp/twig_cache/` holds compiled templates
+            // that the next page render `include`s, so an archive able to
+            // plant a file there is an archive able to run code on the
+            // site restoring it — and the threat model here is explicitly
+            // an archive a stranger hands over along with its passphrase.
+            // `storage/keys` and `storage/config` are the live encryption
+            // material, written deliberately from the sealed members and
+            // never extracted as ordinary files.
+            //
+            // The list comes from the writer's own, so the two cannot
+            // drift: an archive containing any of this is not one we
+            // produced, and is refused rather than quietly filtered — the
+            // same judgement as for a `..` below.
+            foreach (BackupService::NON_ARCHIVED_STORAGE_SUBDIRS as $subdir) {
+                $forbidden = self::RESTORED_TREE . $subdir;
+                if ($name === $forbidden || str_starts_with($name, $forbidden . '/')) {
+                    throw new BackupException(
+                        'Archive de sauvegarde invalide (emplacement interdit).',
+                        0,
+                        new \RuntimeException('Refused portable entry outside the data trees: ' . $name)
+                    );
+                }
             }
 
             // A name that begins with `storage/` still has to BE inside

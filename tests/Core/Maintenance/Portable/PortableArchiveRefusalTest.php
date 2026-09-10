@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Tests\Core\Maintenance\Portable;
 
 use Core\Maintenance\BackupException;
+use Core\Maintenance\BackupService;
 use Core\Maintenance\Portable\PortableArchive;
 use Core\Maintenance\Portable\PortableKeys;
 use Core\Maintenance\Portable\PortableManifest;
@@ -355,6 +356,65 @@ final class PortableArchiveRefusalTest extends TestCase
         $archive->close();
     }
 
+    /**
+     * **Being under `storage/` is not the same as being data.**
+     *
+     * `storage/temp/twig_cache/` holds compiled templates that the next
+     * page render `include`s, so an entry landing there is code that runs
+     * on the site that restored it — and this feature's threat model is
+     * explicitly an archive handed over by a stranger together with its
+     * passphrase. `storage/keys` and `storage/config` are the live
+     * encryption material, written deliberately from the sealed members
+     * and never extracted as ordinary files.
+     *
+     * The writer produces none of these, which is why the list is its own
+     * (`BackupService::NON_ARCHIVED_STORAGE_SUBDIRS`) rather than a second
+     * one written here to keep in step.
+     */
+    public function testAnEntryInATreeTheWriterNeverProducesIsRefused(): void
+    {
+        foreach (BackupService::NON_ARCHIVED_STORAGE_SUBDIRS as $subdir) {
+            $archive = $this->open(['extraEntry' => 'storage/' . $subdir . '/intrus.php']);
+
+            try {
+                $archive->restorableEntries();
+                $this->fail('An archive placing a file in storage/' . $subdir . ' was accepted.');
+            } catch (BackupException $e) {
+                $this->assertStringContainsString('emplacement interdit', $e->getMessage());
+            } finally {
+                $archive->close();
+            }
+        }
+    }
+
+    /** And the ordinary data trees still go through. */
+    public function testTheOrdinaryDataTreesAreStillRestored(): void
+    {
+        $archive = $this->open(['extraEntry' => 'storage/uploads/comptes.pdf']);
+
+        $entries = $archive->restorableEntries();
+
+        $this->assertContains('storage/uploads/comptes.pdf', $entries);
+        $archive->close();
+    }
+
+    /**
+     * The manifest is the first member this class reads, so its size is
+     * checked before the read like every other — otherwise the refusals
+     * below would be unreachable on the archive that most needs them.
+     */
+    public function testAManifestFarLargerThanAManifestIsRefused(): void
+    {
+        $path = $this->buildArchive(['manifestPadding' => str_repeat('a', 2 * 1024 * 1024)]);
+
+        try {
+            PortableArchive::open($path, self::PASSPHRASE);
+            $this->fail('An archive whose manifest is megabytes long was accepted.');
+        } catch (BackupException $e) {
+            $this->assertStringContainsString('manifeste', $e->getMessage());
+        }
+    }
+
     /** @param array<string, mixed> $options */
     private function open(array $options = []): PortableArchive
     {
@@ -406,6 +466,9 @@ final class PortableArchiveRefusalTest extends TestCase
         }
         $this->addEncrypted($zip, 'storage/uploads/doc.pdf', 'des octets', $password);
 
+        if (is_string($options['extraEntry'] ?? null)) {
+            $this->addEncrypted($zip, $options['extraEntry'], 'des octets', $password);
+        }
         if (($options['traversal'] ?? false) === true) {
             $this->assertTrue($zip->addFromString('storage/../../evil.txt', 'des octets choisis ailleurs'));
         }
@@ -430,6 +493,9 @@ final class PortableArchiveRefusalTest extends TestCase
             'includes_secrets' => array_values(PortableManifest::SECRET_MEMBERS),
             'members' => $options['members'] ?? $members,
         ];
+        if (is_string($options['manifestPadding'] ?? null)) {
+            $manifest['padding'] = $options['manifestPadding'];
+        }
         $this->addEncrypted($zip, PortableManifest::MEMBER, (string) json_encode($manifest), $password);
 
         $this->assertTrue($zip->setArchiveComment(PortableKeys::comment($derivation)));
