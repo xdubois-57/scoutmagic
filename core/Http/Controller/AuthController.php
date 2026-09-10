@@ -442,6 +442,10 @@ class AuthController extends AbstractController
 
     /**
      * Resolve role using RoleResolver if available, fallback to is_super_admin check.
+     *
+     * The ladder below is deliberate, and the order of its rungs is a
+     * security property rather than a style — see isMemberAuthorized(),
+     * which walks the same one for the same reason.
      */
     private function resolveRole(string $email, ?int $userAccountId = null): string
     {
@@ -449,6 +453,16 @@ class AuthController extends AbstractController
             return $this->roleResolver->resolveAcrossYears(
                 $email,
                 $this->authorizationYearService->resolve()
+            );
+        }
+
+        // A role system with no year SET still resolves, in the one year it
+        // has. Falling through to the crude super-admin check here would
+        // quietly downgrade a real chief to `identified`.
+        if ($this->roleResolver !== null && $this->scoutYearResolver !== null) {
+            return $this->roleResolver->resolve(
+                $email,
+                (int) $this->scoutYearResolver->getCurrentPublicYear()['id']
             );
         }
 
@@ -511,17 +525,41 @@ class AuthController extends AbstractController
      * unless the account is a super-admin. Degrades to "allow" when no
      * role/member system is configured (mirrors resolveRole()'s own
      * fallback), since there's nothing to check against.
+     *
+     * **`$roleResolver === null` is the whole of that condition, and
+     * widening it is how this gate gets switched off by accident.** It is
+     * the one dependency whose absence really means "this installation has
+     * no role/member system"; a missing YEAR source means only that the
+     * question must be asked in one year instead of a set, and the gate
+     * still has to be asked. Keying the fail-open on the year source
+     * instead would hand a free pass to any composition that omits an
+     * optional constructor argument — and this gate is also where a
+     * DEACTIVATED account is refused (`RoleResolver::
+     * isEmailAuthorizedToLogin*()` checks `is_active` before the
+     * super-admin short-circuit), so the pass would be wider than it
+     * looks.
      */
     private function isMemberAuthorized(string $email): bool
     {
-        if ($this->roleResolver === null || $this->authorizationYearService === null) {
+        if ($this->roleResolver === null) {
             return true;
         }
 
-        return $this->roleResolver->isEmailAuthorizedToLoginAcrossYears(
-            $email,
-            $this->authorizationYearService->resolve()
-        );
+        if ($this->authorizationYearService !== null) {
+            return $this->roleResolver->isEmailAuthorizedToLoginAcrossYears(
+                $email,
+                $this->authorizationYearService->resolve()
+            );
+        }
+
+        if ($this->scoutYearResolver !== null) {
+            return $this->roleResolver->isEmailAuthorizedToLogin(
+                $email,
+                (int) $this->scoutYearResolver->getCurrentPublicYear()['id']
+            );
+        }
+
+        return true;
     }
 
     /**
