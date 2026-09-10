@@ -130,7 +130,11 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 null,
                 $requestedBy
             );
-            $backupRepository->markCompleted($safetyBackupId, $safetyZipFileId, $safetyDbFileId);
+            (new \Core\Maintenance\BackupIntegrity(
+                $backupRepository,
+                $fileRepository,
+                $context->storagePath
+            ))->complete($safetyBackupId, $safetyZipFileId, $safetyZip, $safetyDbFileId, $safetyDbDump);
 
             // Declared in THIS task's payload, not only in the resume one
             // scheduled much later. Between the line above and the

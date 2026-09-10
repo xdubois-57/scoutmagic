@@ -53,6 +53,11 @@ class Backup
      *        everywhere else, because a purge does not need it and a
      *        second join on every read would be paid by callers that never
      *        look at it.
+     * @param string|null $archiveSha256 what each file hashed to when the
+     * @param string|null $dbDumpSha256  backup completed, so that a pass
+     *        can later ask whether it still does ({@see BackupIntegrity}).
+     *        Null on a backup taken before that existed — which is not the
+     *        same as a mismatch and is never reported as one.
      */
     public function __construct(
         public readonly int $id,
@@ -64,7 +69,11 @@ class Backup
         public readonly ?string $errorMessage,
         public readonly string $createdAt,
         public readonly ?string $completedAt,
-        public readonly ?int $sizeBytes = null
+        public readonly ?int $sizeBytes = null,
+        public readonly ?string $archiveSha256 = null,
+        public readonly ?string $dbDumpSha256 = null,
+        public readonly BackupIntegrityStatus $integrityStatus = BackupIntegrityStatus::Unknown,
+        public readonly ?string $integrityCheckedAt = null
     ) {
     }
 

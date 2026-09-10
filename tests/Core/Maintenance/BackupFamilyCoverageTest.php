@@ -37,8 +37,8 @@ final class BackupFamilyCoverageTest extends TestCase
         foreach ($this->schemaTypes() as $type) {
             $this->assertNotNull(
                 BackupFamily::tryFromType($type),
-                "Le type de sauvegarde « {$type} » n'appartient à aucune famille : rien ne le purgera jamais. "
-                    . 'Ajoutez-le à BackupFamily::tryFromType() et à docs/exigences-non-fonctionnelles.md §4bis.'
+                "Backup type '{$type}' belongs to no family, so nothing will ever purge it. "
+                    . 'Add it to BackupFamily::tryFromType() and to docs/exigences-non-fonctionnelles.md §4bis.'
             );
         }
     }
@@ -65,7 +65,7 @@ final class BackupFamilyCoverageTest extends TestCase
             $this->assertNotSame(
                 $type,
                 Backup::typeLabel($type),
-                "Le type « {$type} » s'afficherait tel quel, en anglais, dans la liste des sauvegardes."
+                "Type '{$type}' would be shown as-is, in English, in the backup list."
             );
         }
     }
@@ -89,7 +89,7 @@ final class BackupFamilyCoverageTest extends TestCase
             $schema,
             $matches
         );
-        $this->assertSame(1, $found, 'La colonne backups.type n\'a pas été retrouvée dans schema/core.sql.');
+        $this->assertSame(1, $found, 'The backups.type column was not found in schema/core.sql.');
 
         preg_match_all("/'([a-z_]+)'/", $matches[1], $types);
 

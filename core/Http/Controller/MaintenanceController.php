@@ -647,7 +647,7 @@ class MaintenanceController extends AbstractController
                 null,
                 $userId
             );
-            $this->backupRepository->markCompleted($backupId, $fileId, null);
+            $this->integrity()->complete($backupId, $fileId, $path, null, null);
             $this->retention()->purgeAfterCreating('database');
 
             $this->journalService->log(
@@ -873,6 +873,13 @@ class MaintenanceController extends AbstractController
                 // would vanish silently the day somebody rewords the
                 // badge, and nothing would fail.
                 'isOperational' => $family === \Core\Maintenance\BackupFamily::Operational,
+                // What the last verification pass found (§8.101). Null
+                // where there is nothing to say — a backup taken an hour
+                // ago has not been re-read yet, and a badge saying so
+                // would put a word on every row that carries no news.
+                'integrityLabel' => $backup->integrityStatus->label(),
+                'integrityClass' => $backup->integrityStatus->badgeClass(),
+                'integrityExplanation' => $backup->integrityStatus->explanation(),
                 'status' => $backup->status,
                 'errorMessage' => $backup->errorMessage,
                 'createdAt' => $backup->createdAt,
@@ -1495,6 +1502,20 @@ class MaintenanceController extends AbstractController
     private function relativePath(string $absolutePath): string
     {
         return ltrim(substr($absolutePath, strlen($this->storagePath)), '/');
+    }
+
+    /**
+     * The one completion path, shared with every background task that
+     * creates a backup — a backup marked complete without its digests is
+     * a backup nothing can ever verify.
+     */
+    private function integrity(): \Core\Maintenance\BackupIntegrity
+    {
+        return new \Core\Maintenance\BackupIntegrity(
+            $this->backupRepository,
+            $this->fileRepository,
+            $this->storagePath
+        );
     }
 
     /**

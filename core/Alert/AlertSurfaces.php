@@ -35,6 +35,7 @@ final class AlertSurfaces
             Check\DevelopmentModeCheck::KEY => 'Mises à jour automatiques',
             Check\CronSilenceCheck::KEY => 'Tâche planifiée',
             Check\HttpsCheck::KEY => 'Connexion sécurisée',
+            Check\BackupIntegrityCheck::KEY => 'Intégrité des sauvegardes',
         ];
     }
 }

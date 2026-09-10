@@ -68,9 +68,9 @@ final class GalleryTypeCoverageTest extends TestCase
         $this->assertSame(
             $declared,
             $found,
-            "Un appel à createFileBackup(true) a été ajouté ou retiré. Une archive qui contient la galerie pèse "
-                . "plus que toutes les autres réunies : classez-la dans GALLERY_CALL_SITES, et si elle enregistre "
-                . 'une ligne `backups`, ajoutez son type à Backup::GALLERY_TYPES.'
+            'A call to createFileBackup(true) was added or removed. An archive that carries the gallery weighs '
+                . 'more than all the others put together: classify it in GALLERY_CALL_SITES, and if it records a '
+                . '`backups` row, add its type to Backup::GALLERY_TYPES.'
         );
     }
 
@@ -93,7 +93,7 @@ final class GalleryTypeCoverageTest extends TestCase
             $this->assertContains(
                 $type,
                 Backup::GALLERY_TYPES,
-                "{$file} archive la galerie sous le type « {$type} », qui échappe donc au plafond."
+                "{$file} archives the gallery under type '{$type}', which therefore escapes the cap."
             );
         }
     }
@@ -105,7 +105,7 @@ final class GalleryTypeCoverageTest extends TestCase
         $recorded[] = self::SCOPE_DRIVEN_GALLERY_TYPE;
 
         foreach (Backup::GALLERY_TYPES as $type) {
-            $this->assertContains($type, $recorded, "Aucun appelant n'archive la galerie sous « {$type} ».");
+            $this->assertContains($type, $recorded, "No call site archives the gallery under '{$type}'.");
         }
     }
 

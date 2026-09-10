@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Alert\Task;
 
 use Core\Alert\Check\BackupAgeCheck;
+use Core\Alert\Check\BackupIntegrityCheck;
 use Core\Alert\Check\DevelopmentModeCheck;
 use Core\Alert\Check\DiskUsageCheck;
 use Core\Alert\Check\MailDeliveryCheck;
@@ -23,8 +24,8 @@ use Core\Scheduler\TaskHandlerInterface;
 use Core\Storage\DiskBudget;
 
 /**
- * The daily operational pass: disk, backup age, e-mail delivery, and
- * whether development mode has been left on.
+ * The daily operational pass: disk, backup age, backup integrity, e-mail
+ * delivery, and whether development mode has been left on.
  *
  * Self-reschedules at the end of every run rather than being a first-class
  * recurring task, because `Core\Scheduler` has no such concept — the same
@@ -63,6 +64,10 @@ class RunOperationalChecksHandler implements TaskHandlerInterface
         $service->run([
             new DiskUsageCheck(new DiskBudget($context->storagePath, $context->settings)),
             new BackupAgeCheck(new BackupRepository($pdo)),
+            // Counts what Core\Maintenance\Task\VerifyBackupIntegrityHandler
+            // wrote; it re-reads nothing itself, which is what keeps this
+            // pass as cheap as its own docblock claims.
+            new BackupIntegrityCheck(new BackupRepository($pdo)),
             new MailDeliveryCheck(new JournalRepository($pdo)),
             new DevelopmentModeCheck($context->settings),
         ]);

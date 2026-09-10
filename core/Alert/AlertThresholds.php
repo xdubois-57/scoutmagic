@@ -43,6 +43,21 @@ final class AlertThresholds
     public const CRON_SILENT_REARM_HOURS = 6;
 
     /**
+     * Stored backups the last verification pass could not read.
+     *
+     * One and zero, and the absence of a gap is the honest shape here
+     * rather than an exception to the rule above. The others watch a level
+     * that drifts and needs room to come back; a backup that cannot be
+     * read is not a level but a copy of the unit's work that no longer
+     * exists, and there is no count of them small enough to tolerate. The
+     * re-arm at zero is the meaningful half: nothing repairs a truncated
+     * archive, so the alert goes quiet when the last unreadable one has
+     * been deleted (`Core\Alert\Check\BackupIntegrityCheck`).
+     */
+    public const BACKUP_UNREADABLE_TRIGGER_COUNT = 1;
+    public const BACKUP_UNREADABLE_REARM_COUNT = 0;
+
+    /**
      * Hours of uninterrupted encrypted traffic before the HTTPS alert goes
      * quiet again.
      *
