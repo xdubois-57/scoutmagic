@@ -166,6 +166,15 @@ class SchedulerRunner
                     && $task['requested_by_user_account_id'] !== null
                     ? (int) $task['requested_by_user_account_id']
                     : null;
+                // A second reserved key, for the same reason and with a
+                // narrower use: a handler that creates something the rest
+                // of the site must not destroy while the task runs has to
+                // be able to say so in its OWN row, which means knowing
+                // which row it is. RestoreBackupHandler is the caller —
+                // its safety copy exists from the moment it is written,
+                // and nothing outside the task could tell it apart from
+                // an ordinary old backup until the payload said so.
+                $payload['scheduled_action_id'] = (int) $task['id'];
                 $context = $this->taskContext ?? $this->createFallbackContext();
                 $handler->handle($payload, $context);
                 $this->repository->markDone((int) $task['id']);

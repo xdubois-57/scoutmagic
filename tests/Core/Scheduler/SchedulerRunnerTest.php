@@ -68,7 +68,16 @@ class SchedulerRunnerTest extends TestCase
 
         $this->assertSame(1, $processed);
         $this->assertTrue($handler->called);
-        $this->assertSame(['key' => 'value', 'requested_by_user_account_id' => null], $handler->payload);
+        // Both reserved keys reach the handler whatever it was scheduled
+        // with: the requester, so any handler can notify without the
+        // caller threading it through, and the row's own id, so a handler
+        // that creates something the site must not destroy while it runs
+        // can say so in its own payload (Core\Maintenance\Task\
+        // RestoreBackupHandler and its safety copy).
+        $this->assertSame('value', $handler->payload['key']);
+        $this->assertNull($handler->payload['requested_by_user_account_id']);
+        $this->assertIsInt($handler->payload['scheduled_action_id']);
+        $this->assertGreaterThan(0, $handler->payload['scheduled_action_id']);
     }
 
     public function testProcessOverduePropagatesRequestedByUserAccountIdIntoPayload(): void
@@ -288,10 +297,9 @@ class SchedulerRunnerTest extends TestCase
         $this->assertSame(1, $processed);
         $this->assertSame('done', $this->repo->findById($id)['status']);
         $this->assertCount(1, ModuleResolvedFixtureHandler::$payloads);
-        $this->assertSame(
-            ['a' => 1, 'requested_by_user_account_id' => null],
-            ModuleResolvedFixtureHandler::$payloads[0]
-        );
+        $this->assertSame(1, ModuleResolvedFixtureHandler::$payloads[0]['a']);
+        $this->assertNull(ModuleResolvedFixtureHandler::$payloads[0]['requested_by_user_account_id']);
+        $this->assertSame($id, ModuleResolvedFixtureHandler::$payloads[0]['scheduled_action_id']);
     }
 
     public function testATaskWhoseModuleIsDisabledFailsAsUnregistered(): void

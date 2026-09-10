@@ -132,6 +132,29 @@ class RestoreBackupHandler implements TaskHandlerInterface
             );
             $backupRepository->markCompleted($safetyBackupId, $safetyZipFileId, $safetyDbFileId);
 
+            // Declared in THIS task's payload, not only in the resume one
+            // scheduled much later. Between the line above and the
+            // database being replaced below, the safety copy is a
+            // `completed` row like any other: listed on Configuration >
+            // Maintenance with a working « Supprimer » button, and
+            // invisible to Core\Maintenance\BackupSafetyNet, which reads
+            // live payloads. Building it takes minutes on an installation
+            // with a gallery, and it is the only thing the rollback below
+            // can restore from — so the window in which it could be
+            // deleted is both real and the worst possible one.
+            //
+            // Silent on failure, like every other write on this path: a
+            // declaration that cannot be made leaves the copy as exposed
+            // as it was before, and must not abort a restore that is
+            // otherwise fine.
+            $runningTaskId = (int) ($payload['scheduled_action_id'] ?? 0);
+            if ($runningTaskId > 0) {
+                (new SchedulerRepository($pdo))->rememberInPayload(
+                    $runningTaskId,
+                    ['safety_backup_id' => $safetyBackupId]
+                );
+            }
+
             try {
                 // Steps 2-5: resolve source (validating an uploaded file's
                 // integrity as part of resolution), restore DB, restore

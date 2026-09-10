@@ -65,6 +65,39 @@ class SchedulerRepository
     }
 
     /**
+     * Merges keys into one row's payload, keeping what is already there.
+     *
+     * For a handler recording something it has just created into its own
+     * row, so that a reader of the queue — `Core\Maintenance\
+     * BackupSafetyNet` — can see what the task depends on. A payload is
+     * written once at schedule time, and a task that creates its own
+     * safety net has nothing to declare until it has created it.
+     *
+     * Read-modify-write in PHP rather than a JSON function: MySQL and
+     * MariaDB do not spell those identically, and a merge that works on
+     * one engine and not the other is the failure `docs/quality-pipeline.md`
+     * describes. The row is `processing` and owned by the pass doing the
+     * writing, so there is no second writer to race with.
+     *
+     * @param array<string, mixed> $extra
+     */
+    public function rememberInPayload(int $id, array $extra): void
+    {
+        $stmt = $this->pdo->prepare('SELECT payload FROM scheduled_actions WHERE id = ?');
+        $stmt->execute([$id]);
+        $current = $stmt->fetchColumn();
+
+        $decoded = is_string($current) ? json_decode($current, true) : null;
+        $merged = json_encode(array_merge(is_array($decoded) ? $decoded : [], $extra));
+        if ($merged === false) {
+            return;
+        }
+
+        $update = $this->pdo->prepare('UPDATE scheduled_actions SET payload = ? WHERE id = ?');
+        $update->execute([$merged, $id]);
+    }
+
+    /**
      * The decoded payload of every LIVE row — queued or running.
      *
      * For callers that need to know whether anything still in the queue

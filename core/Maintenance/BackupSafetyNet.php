@@ -30,6 +30,16 @@ use Core\Scheduler\SchedulerService;
  * the scheduled task's payload while it is queued or claimed, and
  * `update_history.backup_id` for the length of an install. Either is
  * enough to refuse.
+ *
+ * **A task that creates its own net declares it mid-run**, and it has to:
+ * a payload is written when the task is scheduled, and
+ * `RestoreBackupHandler` takes its `auto_reset` copy long after that. Until
+ * the copy is named in the running row — `SchedulerRepository::
+ * rememberInPayload()`, called in the same breath as marking it complete —
+ * it is a `completed` row like any other, listed with a working
+ * « Supprimer » button, for the minutes it takes to build a
+ * gallery-inclusive archive. That is the worst copy to lose in the worst
+ * window to lose it in, and nothing here could see it.
  */
 final class BackupSafetyNet
 {

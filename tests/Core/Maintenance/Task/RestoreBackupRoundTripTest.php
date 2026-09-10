@@ -506,6 +506,59 @@ class RestoreBackupRoundTripTest extends TestCase
         $this->pdo()->exec('SET FOREIGN_KEY_CHECKS = 1');
     }
 
+    /**
+     * The restore's own safety copy is DECLARED before anything else runs.
+     *
+     * A behavioural assertion is not available here, and the reason is
+     * itself worth writing down: the pass rolls back from that very copy
+     * when it fails, which restores the database and takes the `backups`
+     * row and the queue row with it. So by the time a test can look,
+     * whatever it wanted to observe has been consumed by the mechanism it
+     * was observing.
+     *
+     * What matters is therefore pinned in two halves. That
+     * `rememberInPayload()` makes a copy visible to
+     * `Core\Maintenance\BackupSafetyNet` is proved behaviourally in
+     * `Tests\Core\Maintenance\BackupSafetyNetTest`. That THIS handler
+     * calls it, on its own task, in the same breath as marking the copy
+     * complete, is proved here — textually, in the manner of
+     * `Tests\Core\Storage\DiskBudgetWiringTest` and for the same reason:
+     * a call site that goes missing fails nothing, logs nothing, and
+     * leaves the only rollback point of a running restore deletable from
+     * a list of dates.
+     */
+    public function testTheSafetyCopyIsDeclaredInTheRunningTasksOwnPayload(): void
+    {
+        $source = (string) file_get_contents(
+            dirname(__DIR__, 4) . '/core/Maintenance/Task/RestoreBackupHandler.php'
+        );
+
+        $marked = strpos($source, 'markCompleted($safetyBackupId');
+        $declared = strpos($source, 'rememberInPayload(');
+
+        $this->assertIsInt($marked, 'The safety copy is no longer marked complete under that name.');
+        $this->assertIsInt(
+            $declared,
+            'RestoreBackupHandler no longer declares its safety copy in its own payload. Until it does, that copy '
+                . 'is a completed row like any other — listed with a working « Supprimer » button — for the whole '
+                . 'time the restore runs, and it is the only thing the rollback can restore from.'
+        );
+        $this->assertGreaterThan($marked, $declared, 'It can only be declared once it exists.');
+
+        // In the same breath, not merely somewhere later: everything
+        // between those two points is time the copy spends deletable, and
+        // step 2 of the restore begins a few lines below.
+        $between = substr($source, $marked, $declared - $marked);
+        $this->assertStringNotContainsString(
+            'try {',
+            $between,
+            'The declaration has drifted past the start of the restore itself.'
+        );
+
+        $this->assertStringContainsString('$payload[\'scheduled_action_id\']', $source);
+        $this->assertStringContainsString('\'safety_backup_id\' => $safetyBackupId', $source);
+    }
+
     // ── harness ───────────────────────────────────────────────────────
 
     /**

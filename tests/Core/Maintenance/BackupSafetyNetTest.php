@@ -109,6 +109,56 @@ final class BackupSafetyNetTest extends TestCase
     }
 
     /**
+     * A task that creates its own safety net can declare it mid-run.
+     *
+     * `RestoreBackupHandler` takes its `auto_reset` copy AFTER its task
+     * is already queued, so the payload written at schedule time cannot
+     * name it — and between that copy being marked `completed` and the
+     * database being replaced, it is a row like any other: listed with a
+     * working « Supprimer » button, and invisible here. Building it takes
+     * minutes on an installation with a gallery, which makes that window
+     * both real and the worst one to lose the copy in.
+     */
+    public function testATaskCanDeclareTheNetItCreatesWhileItIsRunning(): void
+    {
+        $repository = new SchedulerRepository($this->pdo);
+        $id = $repository->create(
+            'core',
+            'restore_backup',
+            (new \DateTimeImmutable('-1 minute'))->format('Y-m-d H:i:s'),
+            json_encode(['source' => 'server', 'backup_id' => 5]),
+            'restore'
+        );
+
+        $this->assertNull($this->net->reasonToKeep(12), 'Nothing names it yet.');
+
+        $repository->rememberInPayload($id, ['safety_backup_id' => 12]);
+
+        $this->assertNotNull($this->net->reasonToKeep(12));
+        $this->assertContains(12, $this->net->protectedIds());
+    }
+
+    /** And declaring one keeps what the payload already carried. */
+    public function testDeclaringTheNetDoesNotDiscardTheRestOfThePayload(): void
+    {
+        $repository = new SchedulerRepository($this->pdo);
+        $id = $repository->create(
+            'core',
+            'restore_backup',
+            (new \DateTimeImmutable('-1 minute'))->format('Y-m-d H:i:s'),
+            json_encode(['source' => 'server', 'backup_id' => 5]),
+            'restore'
+        );
+
+        $repository->rememberInPayload($id, ['safety_backup_id' => 12]);
+
+        $payloads = $repository->findLivePayloads();
+        $this->assertSame('server', $payloads[0]['payload']['source'] ?? null);
+        $this->assertSame(5, $payloads[0]['payload']['backup_id'] ?? null);
+        $this->assertSame(12, $payloads[0]['payload']['safety_backup_id'] ?? null);
+    }
+
+    /**
      * Asking whether a delete button may be pressed must not change the
      * state of an update while answering — which is why this reads the
      * table directly instead of going through findInProgress(), whose

@@ -974,6 +974,42 @@ besoin de la galerie ? — part en **issue #298** avec ce qu'il faut vérifier
 avant d'y toucher : si le retour en arrière restaure `storage/` en bloc,
 retirer la galerie de l'archive effacerait les photos au premier rollback.
 
+**Un troisième constat de revue : la copie de sécurité de la restauration
+n'était pas protégée pendant la restauration.** `BackupSafetyNet` lit la
+charge utile des tâches vivantes, or une charge utile est écrite au moment
+où la tâche est *planifiée*, et `RestoreBackupHandler` prend sa copie
+`auto_reset` bien après. `safety_backup_id` n'apparaissait que dans la
+charge utile de la passe de *reprise*, planifiée beaucoup plus tard.
+
+Entre le `markCompleted()` de cette copie et le remplacement de la base,
+elle était donc une ligne `completed` comme une autre : listée avec un
+bouton « Supprimer » qui marche, et invisible au filet. Sur une
+installation avec galerie, construire cette archive prend des minutes — et
+c'est la seule chose depuis laquelle le retour en arrière peut repartir.
+La pire copie à perdre, dans la pire fenêtre.
+
+La tâche la déclare maintenant dans **sa propre** ligne, dans le même
+geste que le `markCompleted()`, via `SchedulerRepository::rememberInPayload()`.
+Le lanceur injecte pour cela un second identifiant réservé,
+`scheduled_action_id`, à côté du `requested_by_user_account_id` qui suivait
+déjà exactement le même raisonnement : un gestionnaire qui crée quelque
+chose que le reste du site ne doit pas détruire doit pouvoir le dire, ce
+qui suppose de savoir quelle ligne il est. La fusion se fait en PHP et non
+par une fonction JSON du moteur — les deux moteurs ne les écrivent pas
+pareil, et `docs/quality-pipeline.md` décrit précisément cette panne-là.
+
+**Ce constat n'a pas pu être épinglé par un test de comportement, et la
+raison mérite d'être écrite.** La passe se rétablit depuis cette copie
+quand elle échoue, ce qui restaure la base et emporte avec elle la ligne
+`backups` et la ligne de file : au moment où un test peut regarder, ce
+qu'il voulait observer a été consommé par le mécanisme qu'il observait. La
+propriété est donc épinglée en deux moitiés — que `rememberInPayload()`
+rende la copie visible au filet est prouvé par le comportement dans
+`BackupSafetyNetTest` ; que *ce* gestionnaire l'appelle, sur sa propre
+tâche, dans le même geste, est prouvé textuellement, à la manière de
+`DiskBudgetWiringTest` et pour la même raison : un site d'appel qui
+disparaît ne fait échouer aucun test et ne journalise rien.
+
 **Reporté.** Le bloc « Sauvegarde portable » (IT-06) et son avertissement,
 la destination distante (IT-08), la phrase de passe générée (IT-09), l'état
 d'intégrité par ligne et le marqueur « sur Drive » (IT-05, IT-09). La
