@@ -16,6 +16,8 @@ use Core\Notification\NotificationRepository;
 use Core\Notification\NotificationService;
 use Core\Notification\NotificationType;
 use Core\Notification\PushSubscriptionRepository;
+use Core\ScoutYear\AuthorizationYearService;
+use Core\ScoutYear\ScoutYearResolver;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Security\EncryptionService;
@@ -93,6 +95,17 @@ class RoleScopedNotificationDefaultsTest extends TestCase
      */
     private function giveRole(string $email, string $role): void
     {
+        $this->giveRoleInYear($email, $role, 1);
+    }
+
+    /**
+     * The same, in a scout year of the caller's choosing — what a
+     * transition looks like: the animateur recruited for the year being
+     * prepared has a function there and no row at all in the year the
+     * site is still on.
+     */
+    private function giveRoleInYear(string $email, string $role, int $scoutYearId): void
+    {
         $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK_" . uniqid() . "')");
         $memberId = (int) $this->pdo->lastInsertId();
         $this->pdo->exec("INSERT INTO functions (desk_code, label, role, confirmed) VALUES ('F_" . uniqid() . "', 'Fonction', '{$role}', 1)");
@@ -100,10 +113,11 @@ class RoleScopedNotificationDefaultsTest extends TestCase
 
         $stmt = $this->pdo->prepare(
             'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, email_encrypted, email_blind_index)
-             VALUES (?, 1, ?, ?, ?, ?)'
+             VALUES (?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $memberId,
+            $scoutYearId,
             $this->encryption->encrypt('Prénom', 'member_years.first_name'),
             $this->encryption->encrypt('Nom', 'member_years.last_name'),
             $this->encryption->encrypt($email, 'member_years.email'),
@@ -227,6 +241,61 @@ class RoleScopedNotificationDefaultsTest extends TestCase
         $this->preferenceRepository->setChannel($superadminId, 'core.update_installed', 'in_app', false);
 
         $this->assertSame([], $this->service->recipientsForType('core.update_installed'));
+    }
+
+    /**
+     * **A dispatch has no session**, so nothing has resolved a scout year
+     * for the people it is about: the role_min re-check asks over the
+     * authorization set. During a transition, the animateur recruited for
+     * the year being prepared is `chief` there and has no row at all in
+     * the year the site is still on — judged in that one year, they are
+     * dropped from every notification their new role entitles them to,
+     * which is the missed booking request the widening exists to prevent.
+     */
+    public function testTheStaffOfTheYearBeingPreparedStaysAmongTheRecipients(): void
+    {
+        [$nextLabel, $nextStart, $nextEnd] = DatabaseTestHelper::scoutYear(1);
+        $this->pdo->exec(
+            "INSERT INTO scout_years (label, start_date, end_date) VALUES ('{$nextLabel}', '{$nextStart}', '{$nextEnd}')"
+        );
+        $nextYearId = (int) $this->pdo->lastInsertId();
+
+        $settingService = new SettingService(new SettingRepository($this->pdo));
+        $settingService->register(
+            ScoutYearResolver::SETTING_PUBLIC_YEAR, '1', 'number', 'Public', 'Public year id',
+            null, '^[0-9]+$', null, false
+        );
+        $settingService->register(
+            ScoutYearResolver::SETTING_STAFF_YEAR, (string) $nextYearId, 'number', 'Staff', 'Staff year id',
+            null, '^[0-9]+$', null, false
+        );
+
+        $arrivingEmail = 'arriving@test.example';
+        $arrivingId = $this->createAccount($arrivingEmail);
+        $this->giveRoleInYear($arrivingEmail, 'admin', $nextYearId);
+        $this->preferenceRepository->setChannel($arrivingId, 'core.update_installed', 'in_app', true);
+
+        // Judged in the year the site is still on, they are nobody.
+        $this->assertSame([], $this->service->recipientsForType('core.update_installed'));
+
+        $withTheSet = new NotificationService(
+            $this->notificationRepository,
+            new PushSubscriptionRepository($this->pdo, $this->encryption),
+            $this->preferenceRepository,
+            $this->createMock(WebPush::class),
+            $settingService,
+            new JournalService(new JournalRepository($this->pdo)),
+            new SchedulerService($this->schedulerRepository),
+            new UserAccountRepository($this->pdo, $this->encryption),
+            new RoleResolver(new MemberYearRepository($this->pdo), $this->encryption, $this->pdo),
+            new ScoutYearService($this->pdo),
+            new AuthorizationYearService(new ScoutYearService($this->pdo), $settingService)
+        );
+
+        $this->assertSame(
+            [$arrivingId],
+            array_column($withTheSet->recipientsForType('core.update_installed'), 'userAccountId')
+        );
     }
 
     public function testRecipientsForTypeIsEmptyForAnUndeclaredType(): void

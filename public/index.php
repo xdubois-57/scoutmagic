@@ -1406,6 +1406,14 @@ $sectionRepository = new SectionRepository($pdo);
 
 // Create import-related services
 $scoutYearService = new ScoutYearService($pdo);
+// The years an ACCESS decision may be taken in — the public year, the
+// date-computed year and the staff year, deduplicated and bounded to one
+// year of slack. Distinct from $scoutYearResolver on purpose: that one
+// answers "which year does this request DISPLAY", honours the session
+// preview and may create a year row; this one answers "which years may a
+// question about a person be asked in", never sees a preview and never
+// writes (ARCHITECTURE.md §4 « Scout year »).
+$authorizationYearService = new \Core\ScoutYear\AuthorizationYearService($scoutYearService, $settingService);
 $functionRepo = new FunctionRepository($pdo);
 $ageBranchRepo = new AgeBranchRepository($pdo);
 $importSectionRepo = new ImportSectionRepository($pdo);
@@ -1479,7 +1487,8 @@ $notificationService = new NotificationService(
     $schedulerService,
     $userAccountRepo,
     $roleResolver,
-    $scoutYearService
+    $scoutYearService,
+    $authorizationYearService
 );
 
 // The one session-aware temporary-member resolver (ARCHITECTURE.md §8.42).
@@ -1549,14 +1558,6 @@ $memberEmailService = new \Core\Member\MemberEmailService(
 // Scout year resolution (public / staff / session-preview priority)
 $scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepo);
 
-// The years an ACCESS decision may be taken in — the public year, the
-// date-computed year and the staff year, deduplicated and bounded to one
-// year of slack. Distinct from $scoutYearResolver on purpose: that one
-// answers "which year does this request DISPLAY", honours the session
-// preview and may create a year row; this one answers "which years may a
-// question about a person be asked in", never sees a preview and never
-// writes (ARCHITECTURE.md §4 « Scout year »).
-$authorizationYearService = new \Core\ScoutYear\AuthorizationYearService($scoutYearService, $settingService);
 
 $scoutYearAdminService = new ScoutYearAdminService($settingService);
 

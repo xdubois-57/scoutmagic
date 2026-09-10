@@ -371,3 +371,57 @@ agenda une plage occupée anonyme là où son collègue reçoit la réservation
 sous cette conception, l'élargissement au jeu d'années n'est presque jamais
 nécessaire, parce que presque personne n'est réellement hors requête. Ce
 qui manquait n'était pas de l'ampleur, c'était la bonne année.
+
+### Un sixième appelant, trouvé et traité
+
+Le document en listait cinq. Il en existe un sixième, du même genre et sur
+un chemin plus visible : `Core\Notification\NotificationService::dispatch()`
+revérifie le `role_min` de **chaque destinataire** en résolvant son rôle,
+et le faisait dans l'année date-calculée. Il tourne aussi bien en requête
+que depuis le vrai crontab, où il n'y a strictement aucune session.
+
+Conséquence pendant une transition : l'animateur recruté pour l'année
+préparée est filtré hors de **toutes** les notifications que son nouveau
+rôle lui vaut, sur des écrans que le site lui ouvre par ailleurs. C'est mot
+pour mot le mode de panne que le document invoque pour justifier
+l'élargissement — « un chef jamais notifié rate une demande de réservation
+ou une échéance de conformité » — donc il est traité ici plutôt que
+signalé. `dispatch()` et `recipientsForType()` jugent désormais sur le jeu,
+dans les deux points d'entrée : `NotificationRoleWiringTest` fige les deux,
+parce que le câblage dans un seul des deux est précisément la panne que ce
+fichier de test existe déjà pour attraper (ARCHITECTURE.md §8.17), et
+`testTheStaffOfTheYearBeingPreparedStaysAmongTheRecipients` fige le
+comportement — il redevient rouge dès qu'on retire le jeu.
+
+---
+
+## Récapitulatif
+
+**Ce qui a été livré**, en quatre commits sur la branche du chantier :
+
+| # | Livré |
+|---|---|
+| IT-01 | `AuthorizationYearService` + `AuthorizationYears`, le test d'architecture (lecture seule, pas d'aperçu), 14 cas unitaires |
+| IT-02 | `RoleResolver::resolveAcrossYears()` / `isEmailAuthorizedToLoginAcrossYears()`, `SessionRevalidator`, `AuthController`, le scénario A/B complet |
+| IT-03 | L'éligibilité à l'année staff testée dans l'année staff, `getAuthorizationYear()`, six appelants en requête corrigés, un trou d'aperçu refermé |
+| IT-04 | Les méthodes en forme de jeu de `RentalAuthorizationService`, le jeton ICS personnel, la revérification de `role_min` des notifications |
+
+**Aucun `schema.sql` n'a été touché** : aucune table, aucune colonne, aucun
+bump de version de module. Le chantier n'en a pas eu besoin.
+
+**Les deux constats qui contredisent le document**, et qu'il faut retenir
+si quelqu'un rouvre ce sujet :
+
+1. **La borne d'années n'est pas symétrique.** Une année *derrière* l'année
+   publique ne compte pas, quelle que soit la distance. Sans cela, l'état 3
+   du tableau de la situation ne tient pas.
+2. **Presque personne n'est réellement hors requête.** Sur les cinq
+   appelants que le document décrit ainsi, quatre tournent dans une requête
+   avec une session. Ce qui leur manquait n'était pas de l'ampleur, c'était
+   la bonne année : ils interrogeaient l'année date-calculée, qui
+   n'appartient à personne entre le 1er septembre et la bascule — et qui
+   crée une ligne au passage.
+
+**Rien n'a été reporté** au-delà de ce que le document reporte lui-même
+(l'élargissement de la portée des données, et la tolérance des écrans chefs
+à un chef sans section — qui ne se produit plus sous cette conception).

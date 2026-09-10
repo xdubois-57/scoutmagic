@@ -187,6 +187,7 @@ $userAccountRepo = new UserAccountRepository($pdo, $encryptionService);
 // NotificationService construction below for why this entry point can no
 // longer do without it.
 $scoutYearService = new ScoutYearService($pdo);
+$authorizationYearService = new \Core\ScoutYear\AuthorizationYearService($scoutYearService, $settingService);
 $roleResolver = new RoleResolver(
     new MemberYearRepository($pdo),
     $encryptionService,
@@ -292,7 +293,11 @@ if (VapidKeyPairFactory::isValid(
         // parent included, instead of the superadmins the type is
         // declared for.
         $roleResolver,
-        $scoutYearService
+        $scoutYearService,
+        // Same set the web path judges on: a dispatch from the real
+        // crontab must not filter out an animateur the site itself lets
+        // in (ARCHITECTURE.md §4 « Scout year »).
+        $authorizationYearService
     );
 }
 

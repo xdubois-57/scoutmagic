@@ -64,4 +64,25 @@ class NotificationRoleWiringTest extends TestCase
             $file . ' must pass a ScoutYearService — dispatch() needs the current year to resolve a role at all.'
         );
     }
+
+    /**
+     * The same §8.17 failure mode, one collaborator later. A dispatch has
+     * no session, so nothing has resolved a scout year for the people it
+     * is about: the role_min re-check asks over the authorization set
+     * (ARCHITECTURE.md §4 « Scout year »). Wired into one entry point and
+     * not the other, an animateur recruited for the year being prepared
+     * would receive the notifications the site raises on a page view and
+     * none of those the real crontab raises — a difference nobody would
+     * ever trace back to a missing constructor argument.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('entryPoints')]
+    public function testBothEntryPointsGiveItTheAuthorizationYearSet(string $file): void
+    {
+        $this->assertStringContainsString(
+            '$authorizationYearService',
+            self::notificationServiceConstruction($file),
+            $file . ' must pass an AuthorizationYearService, or dispatch() judges every recipient in one year'
+            . ' and silently drops the staff of the year being prepared.'
+        );
+    }
 }
