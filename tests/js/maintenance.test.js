@@ -285,6 +285,32 @@ describe('maintenance.js: portable-backup-form + its poller', () => {
         expect(fetch).not.toHaveBeenCalled();
     });
 
+    // The refusal above sets a custom validity message, and such a message
+    // lasts until something clears it — while one is set the browser fires
+    // no `submit` event at all. The clearing therefore cannot live in the
+    // submit handler: an operator who tripped the guard once would find
+    // the form refusing every later passphrase, correct ones included,
+    // until they reloaded the page. Typing is what clears it.
+    //
+    // jsdom runs no native pre-submit validation, so the lockout itself
+    // cannot be staged here; the state that causes it can. A field still
+    // carrying a message after the operator has typed a good passphrase is
+    // a field the browser will keep refusing.
+    it('lets the operator correct a refused passphrase without reloading the page', async () => {
+        buildDom();
+        global.fetch = vi.fn();
+        await submit('\u{1F600}'.repeat(8));
+
+        const field = /** @type {HTMLInputElement} */ (document.getElementById('portable-backup-passphrase'));
+        expect(field.validationMessage).not.toBe('');
+
+        field.value = 'quatre mots parfaitement ordinaires';
+        field.dispatchEvent(new Event('input'));
+
+        expect(field.validationMessage).toBe('');
+        expect(field.checkValidity()).toBe(true);
+    });
+
     it('accepts sixteen accented characters, which are more than sixteen bytes', async () => {
         buildDom();
         global.fetch = vi.fn(() => jsonResponse({}));

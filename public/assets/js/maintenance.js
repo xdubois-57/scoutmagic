@@ -115,8 +115,24 @@
     // Core\Maintenance\Portable\PortablePassphrase is the rule, this is a
     // courtesy. The number comes from the field's own minlength rather than
     // being written twice.
+    var portablePassphrase = /** @type {HTMLInputElement} */ (document.getElementById('portable-backup-passphrase'));
+
+    // A custom validity message lasts until something clears it, and while
+    // one is set the browser refuses to fire `submit` at all. The only
+    // clearing used to live inside the callback below — on the far side of
+    // the event the message itself suppresses. So an operator who tripped
+    // the guard once met a form that refused every later passphrase,
+    // correct ones included, until they reloaded the page: the courtesy
+    // check locking the door it exists to hold open. Clearing on `input`
+    // has to be wired here, once, rather than on that unreachable path.
+    if (portablePassphrase) {
+        portablePassphrase.addEventListener('input', function () {
+            portablePassphrase.setCustomValidity('');
+        });
+    }
+
     wireBackupForm('portable-backup', '/config/maintenance/backup/portable', function () {
-        var field = /** @type {HTMLInputElement} */ (document.getElementById('portable-backup-passphrase'));
+        var field = portablePassphrase;
         var passphrase = field.value;
         var minimum = parseInt(field.getAttribute('minlength') || '0', 10) || 0;
 
