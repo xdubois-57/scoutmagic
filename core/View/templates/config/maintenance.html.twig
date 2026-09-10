@@ -654,7 +654,7 @@
                         {% include 'partials/form_field.html.twig' with {
                             field_id: 'portable-backup-passphrase', type: 'password',
                             label: 'Phrase de passe',
-                            help: 'Au moins ' ~ portable_passphrase_min_length ~ ' caractères. Elle n\'est enregistrée nulle part : une archive dont la phrase de passe est perdue est définitivement illisible.',
+                            help: 'Au moins ' ~ portable_passphrase_min_length ~ ' caractères. Elle n\'est jamais enregistrée en clair : le site en garde une copie chiffrée dans la tâche de sauvegarde, jusqu\'à la suppression de cette tâche. Une archive dont la phrase de passe est perdue est définitivement illisible.',
                             required: true, minlength: portable_passphrase_min_length,
                             size: 'sm', wrapper_class: 'mb-2',
                         } only %}

@@ -110,6 +110,31 @@ final class SecretEnvelopeTest extends TestCase
         SecretEnvelope::open($bytes, $key);
     }
 
+    /**
+     * **An empty plaintext seals and opens.**
+     *
+     * `seal('')` returns exactly IV + tag and nothing else, and a guard
+     * written as `<=` would call that length truncated — making a validly
+     * sealed file unopenable. It is reachable: `file_get_contents()` on an
+     * empty `storage/config/secrets.enc` returns `''`, not `false`, and an
+     * empty file is what a quota reached mid-write leaves behind. The
+     * archive would be produced without complaint and refuse its own
+     * secret on the day of the restore.
+     *
+     * The service refuses to BUILD such an archive too — see
+     * `BackupService::addSealedSecrets()` — but the cipher must not be the
+     * thing that is wrong about it.
+     */
+    public function testAnEmptyPlaintextRoundTrips(): void
+    {
+        $key = $this->key();
+
+        $sealed = SecretEnvelope::seal('', $key);
+
+        $this->assertSame(28, strlen($sealed));
+        $this->assertSame('', SecretEnvelope::open($sealed, $key));
+    }
+
     public function testATruncatedEnvelopeIsRefused(): void
     {
         $key = $this->key();

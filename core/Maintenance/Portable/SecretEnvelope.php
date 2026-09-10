@@ -98,7 +98,11 @@ final class SecretEnvelope
     {
         self::assertKey($key);
 
-        if (strlen($bytes) <= self::IV_LENGTH + self::TAG_LENGTH) {
+        // `<`, not `<=`: sealing an empty plaintext legitimately yields
+        // exactly IV + tag and nothing else, and rejecting that length
+        // would make a validly sealed file unopenable — discovered, as
+        // ever with this feature, on the day of the restore.
+        if (strlen($bytes) < self::IV_LENGTH + self::TAG_LENGTH) {
             throw new BackupException('Le fichier de secrets de l\'archive est tronqué.');
         }
 

@@ -273,6 +273,25 @@ describe('maintenance.js: portable-backup-form + its poller', () => {
         expect(document.getElementById('portable-backup-submit').disabled).toBe(false);
     });
 
+    // The server counts characters with mb_strlen(); `.length` counts
+    // UTF-16 units, so eight emoji are sixteen units and eight characters.
+    // A client guard that used `.length` would wave them through and let
+    // the server refuse them — telling the operator the opposite of the
+    // rule they have to satisfy.
+    it('counts code points, not UTF-16 units, like the server does', async () => {
+        buildDom();
+        global.fetch = vi.fn();
+        await submit('\u{1F600}'.repeat(8));
+        expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('accepts sixteen accented characters, which are more than sixteen bytes', async () => {
+        buildDom();
+        global.fetch = vi.fn(() => jsonResponse({}));
+        await submit('é'.repeat(16));
+        await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+    });
+
     it('accepts exactly the minimum length', async () => {
         buildDom();
         global.fetch = vi.fn(() => jsonResponse({}));

@@ -387,7 +387,13 @@ class BackupService implements BackupServiceInterface
         foreach (PortableManifest::SECRET_MEMBERS as $relativePath => $member) {
             $absolutePath = $this->storagePath . '/' . $relativePath;
             $plaintext = is_file($absolutePath) ? @file_get_contents($absolutePath) : false;
-            if ($plaintext === false) {
+            // `''` as well as `false`: an empty master key decrypts
+            // nothing, so an archive carrying one is restorable nowhere —
+            // and an empty file is exactly what a quota reached mid-write
+            // leaves behind, which is the failure IT-02 exists for.
+            // `file_get_contents()` returns '' rather than false for it,
+            // so the two have to be refused together.
+            if ($plaintext === false || $plaintext === '') {
                 // Not survivable, and refusing is the whole point: an
                 // archive that is missing one of these is one that cannot
                 // be restored anywhere else, and the operator would only
@@ -447,7 +453,16 @@ class BackupService implements BackupServiceInterface
     {
         $digest = @hash_file('sha256', $absolutePath);
         if ($digest === false) {
-            throw new BackupException('Impossible de calculer l\'empreinte de ' . basename($absolutePath) . '.');
+            // Same rule as addSealedSecrets() below, and the same reason:
+            // this class's exception is marked UserFacingException, so the
+            // message is rendered verbatim on Configuration > Maintenance
+            // and stored in `backups.error_message`. A staging file name
+            // like `database_2026-05-01_101010_9f3c1a20.sql` is internal.
+            throw new BackupException(
+                'L\'empreinte d\'un fichier de la sauvegarde n\'a pas pu être calculée.',
+                0,
+                new \RuntimeException('Unreadable backup member: ' . $absolutePath)
+            );
         }
 
         return $digest;

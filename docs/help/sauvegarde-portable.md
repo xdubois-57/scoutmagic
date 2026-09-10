@@ -41,10 +41,16 @@ Quatre mots ordinaires suffisent, et se retiennent : c'est la
 longueur, pas les majuscules ni les chiffres, qui protège vraiment. Le
 site refuse plus court.
 
-**Elle n'est enregistrée nulle part.** Une archive dont la phrase de
-passe est perdue est définitivement illisible — par un intrus comme
-par vous. Notez-la là où vous notez ce qui compte, pas dans un fichier
-posé à côté de l'archive.
+**Elle n'est jamais enregistrée en clair.** Le site en garde une copie
+chiffrée le temps de fabriquer l'archive — dans la tâche de
+sauvegarde, jusqu'à la suppression de celle-ci — parce que la
+génération se fait en arrière-plan, après que vous avez quitté la
+page. Nulle part ailleurs, et jamais lisible telle quelle.
+
+Une archive dont la phrase de passe est perdue est donc
+définitivement illisible — par un intrus comme par vous. Notez-la là
+où vous notez ce qui compte, pas dans un fichier posé à côté de
+l'archive.
 
 ## Une seule est conservée
 

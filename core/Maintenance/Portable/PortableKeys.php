@@ -78,6 +78,24 @@ final class PortableKeys
     private const MASTER_LENGTH = 32;
 
     /**
+     * The widest cost this reader will honour from an archive.
+     *
+     * **The archive names its own cost, and an archive is a file somebody
+     * else may have written.** IT-07 hands one straight to a restore, so
+     * these numbers are read from untrusted input: without a ceiling, a
+     * crafted header could ask libsodium for gigabytes of working memory
+     * or minutes of CPU on a shared host, and the restore would sit there
+     * obeying it. SENSITIVE is the top of what libsodium itself
+     * recommends, so an archive sealed by any honest ScoutMagic — now or
+     * later — is inside it, and anything beyond is refused by name.
+     *
+     * A floor matters too, and for the opposite reason: an archive
+     * claiming an opslimit of 1 would be one whose key derives instantly,
+     * which is the whole protection removed by the file it is written in.
+     */
+    private const MAX_PBKDF2_ITERATIONS = 10000000;
+
+    /**
      * HKDF context strings. Changing one invalidates every archive sealed
      * with it, which is why they are constants and not inline literals.
      */
@@ -154,20 +172,48 @@ final class PortableKeys
                 );
             }
 
+            // Everything below is read from a file somebody else may have
+            // written. libsodium raises SodiumException — not a
+            // BackupException — on a salt of the wrong length or a cost
+            // below its own minimum, which would escape this class's
+            // contract; and a cost ABOVE the honest range is a crafted
+            // archive asking a shared host for gigabytes of memory. Both
+            // are refused here, before the call.
+            if (strlen($salt) !== SODIUM_CRYPTO_PWHASH_SALTBYTES) {
+                throw new BackupException('L\'archive déclare un sel de dérivation invalide.');
+            }
+
+            $opslimit = (int) ($params['opslimit'] ?? 0);
+            $memlimit = (int) ($params['memlimit'] ?? 0);
+            if ($opslimit < SODIUM_CRYPTO_PWHASH_OPSLIMIT_INTERACTIVE
+                || $opslimit > SODIUM_CRYPTO_PWHASH_OPSLIMIT_SENSITIVE
+                || $memlimit < SODIUM_CRYPTO_PWHASH_MEMLIMIT_INTERACTIVE
+                || $memlimit > SODIUM_CRYPTO_PWHASH_MEMLIMIT_SENSITIVE
+            ) {
+                throw new BackupException(
+                    'L\'archive demande un coût de dérivation hors de ce que cette version accepte.'
+                );
+            }
+
             return new self(sodium_crypto_pwhash(
                 self::MASTER_LENGTH,
                 $passphrase,
                 $salt,
-                (int) ($params['opslimit'] ?? SODIUM_CRYPTO_PWHASH_OPSLIMIT_INTERACTIVE),
-                (int) ($params['memlimit'] ?? SODIUM_CRYPTO_PWHASH_MEMLIMIT_INTERACTIVE),
+                $opslimit,
+                $memlimit,
                 SODIUM_CRYPTO_PWHASH_ALG_ARGON2ID13
             ));
         }
 
         if ($kdf === self::KDF_PBKDF2_SHA256) {
+            // Bounded at both ends for the same reason: below, an archive
+            // whose key derives instantly; above, one that makes a shared
+            // host spin for minutes on a header it did not write.
             $iterations = (int) ($params['iterations'] ?? 0);
-            if ($iterations < 1) {
-                throw new BackupException('L\'archive déclare une dérivation invalide.');
+            if ($iterations < self::PBKDF2_ITERATIONS || $iterations > self::MAX_PBKDF2_ITERATIONS) {
+                throw new BackupException(
+                    'L\'archive déclare un nombre d\'itérations hors de ce que cette version accepte.'
+                );
             }
 
             return new self(

@@ -118,10 +118,19 @@
     wireBackupForm('portable-backup', '/config/maintenance/backup/portable', function () {
         var field = /** @type {HTMLInputElement} */ (document.getElementById('portable-backup-passphrase'));
         var passphrase = field.value;
-        if (passphrase.length < (parseInt(field.getAttribute('minlength') || '0', 10) || 0)) {
+        var minimum = parseInt(field.getAttribute('minlength') || '0', 10) || 0;
+
+        // Code points, not UTF-16 units: the server counts with
+        // mb_strlen(), and `.length` counts an emoji as two. Eight of them
+        // would satisfy a `.length` check and then be refused by the
+        // server for being eight characters — the client guard telling the
+        // operator the opposite of the rule.
+        if (Array.from(passphrase).length < minimum) {
+            field.setCustomValidity('La phrase de passe doit faire au moins ' + minimum + ' caractères.');
             field.reportValidity();
             return null;
         }
+        field.setCustomValidity('');
 
         return { passphrase: passphrase };
     });

@@ -214,7 +214,10 @@ final class PortableBackupArchiveTest extends TestCase
         // An ordinary member is itself once the zip layer is off — the
         // envelope is not applied to the whole archive.
         $this->assertSame('<?php // app', $this->read($zip, 'core/App.php'));
-        $this->assertStringContainsString('INSERT INTO', $this->read($zip, 'database.sql'));
+        // `CREATE TABLE`, not `INSERT INTO`: the dump is of a freshly
+        // migrated schema, whose tables may legitimately hold no rows, so
+        // asserting on data would fail without indicating a defect.
+        $this->assertStringContainsString('CREATE TABLE', $this->read($zip, 'database.sql'));
         $zip->close();
     }
 
@@ -388,9 +391,19 @@ final class PortableBackupArchiveTest extends TestCase
         $service->createPortableBackup(self::PASSPHRASE, '2.4.1', null);
     }
 
+    /**
+     * An empty passphrase is refused before the database is touched.
+     *
+     * Deliberately NOT `realDbConnection()`: that one skips the whole test
+     * when no engine is reachable, and this assertion has nothing to do
+     * with a database — `writeArchive()` refuses an empty password before
+     * any connection is opened, and `Connection` connects lazily. Using
+     * the real one would let this quietly stop running.
+     */
     public function testAnEmptyPassphraseIsRefusedByTheServiceToo(): void
     {
-        $service = new BackupService($this->realDbConnection(), $this->storagePath, $this->basePath);
+        $unconnected = new Connection('127.0.0.1', 3306, 'nonexistent_db', 'nobody', '');
+        $service = new BackupService($unconnected, $this->storagePath, $this->basePath);
 
         $this->expectException(BackupException::class);
         $service->createPortableBackup('', '2.4.1', null);

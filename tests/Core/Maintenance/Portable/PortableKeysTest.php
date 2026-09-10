@@ -139,12 +139,14 @@ final class PortableKeysTest extends TestCase
      */
     public function testPbkdf2ParametersAreHonouredEvenWhereLibsodiumExists(): void
     {
+        // The production count, not a cheap one: the floor below refuses
+        // anything less, and an archive claiming a fast derivation is
+        // exactly what that floor exists to reject. Paying ~0.2 s once is
+        // the honest price of testing the real branch.
         $params = [
             'kdf' => PortableKeys::KDF_PBKDF2_SHA256,
             'salt' => base64_encode(random_bytes(16)),
-            // Not the production count: this test is about which branch
-            // runs, not about how slow it is.
-            'iterations' => 1000,
+            'iterations' => PortableKeys::PBKDF2_ITERATIONS,
         ];
 
         $keys = PortableKeys::derive(self::PASSPHRASE, $params);
@@ -155,6 +157,94 @@ final class PortableKeysTest extends TestCase
             $keys->archivePassword(),
             PortableKeys::derive(self::PASSPHRASE, $params)->archivePassword()
         );
+    }
+
+    /**
+     * **An archive names its own cost, and an archive is a file somebody
+     * else may have written.**
+     *
+     * IT-07 will hand one straight to a restore, so these numbers are
+     * untrusted input. Two things must not happen: a cost so low that the
+     * derivation is instant — the protection removed by the very file it
+     * is written in — and a cost so high that a crafted header makes a
+     * shared host allocate gigabytes or spin for minutes. Both are
+     * refused by name rather than passed to libsodium, which would raise
+     * a `SodiumException` outside this class's contract.
+     */
+    public function testAnArchiveCannotAskForATriviallyCheapDerivation(): void
+    {
+        $params = [
+            'kdf' => PortableKeys::KDF_PBKDF2_SHA256,
+            'salt' => base64_encode(random_bytes(16)),
+            'iterations' => 1,
+        ];
+
+        $this->expectException(BackupException::class);
+        PortableKeys::derive(self::PASSPHRASE, $params);
+    }
+
+    public function testAnArchiveCannotAskForARuinouslyExpensiveDerivation(): void
+    {
+        $params = [
+            'kdf' => PortableKeys::KDF_PBKDF2_SHA256,
+            'salt' => base64_encode(random_bytes(16)),
+            'iterations' => 999999999,
+        ];
+
+        $this->expectException(BackupException::class);
+        PortableKeys::derive(self::PASSPHRASE, $params);
+    }
+
+    /** Argon2id: a salt of the wrong length is refused before libsodium. */
+    public function testAnArgon2idSaltOfTheWrongLengthIsRefusedNotPassedToSodium(): void
+    {
+        if (!PortableKeys::hasSodium()) {
+            $this->markTestSkipped('No libsodium on this host, so there is no Argon2id branch to reach.');
+        }
+
+        $params = PortableKeys::newDerivation();
+        $params['salt'] = base64_encode(random_bytes(8));
+
+        $this->expectException(BackupException::class);
+        PortableKeys::derive(self::PASSPHRASE, $params);
+    }
+
+    /** And a cost outside the accepted range, likewise. */
+    public function testAnArgon2idCostOutsideTheAcceptedRangeIsRefused(): void
+    {
+        if (!PortableKeys::hasSodium()) {
+            $this->markTestSkipped('No libsodium on this host, so there is no Argon2id branch to reach.');
+        }
+
+        $params = PortableKeys::newDerivation();
+        // Far beyond SENSITIVE: a header asking a shared host for this
+        // much memory is not one any ScoutMagic ever wrote.
+        $params['memlimit'] = 64 * 1024 * 1024 * 1024;
+
+        $this->expectException(BackupException::class);
+        PortableKeys::derive(self::PASSPHRASE, $params);
+    }
+
+    /** An opslimit of 1 is refused too — instant is not a cost. */
+    public function testAnArgon2idOpslimitBelowTheFloorIsRefused(): void
+    {
+        if (!PortableKeys::hasSodium()) {
+            $this->markTestSkipped('No libsodium on this host, so there is no Argon2id branch to reach.');
+        }
+
+        $params = PortableKeys::newDerivation();
+        $params['opslimit'] = 1;
+
+        $this->expectException(BackupException::class);
+        PortableKeys::derive(self::PASSPHRASE, $params);
+    }
+
+    /** What this server itself writes is, of course, inside the range. */
+    public function testWhatThisServerWritesIsAcceptedByItsOwnReader(): void
+    {
+        $params = PortableKeys::newDerivation();
+
+        $this->assertSame(32, strlen(PortableKeys::derive(self::PASSPHRASE, $params)->envelopeKey()));
     }
 
     public function testTheFallbackIterationCountStaysFarAboveTheZipFormats(): void
