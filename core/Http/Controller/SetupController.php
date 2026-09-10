@@ -604,7 +604,17 @@ class SetupController extends AbstractController
     {
         $uploadId = (string) $request->getBody('upload_id', '');
         if ($uploadId !== '') {
-            return (new ChunkedUploadStore($this->storageRoot()))->assembledPath($uploadId, session_id());
+            try {
+                return (new ChunkedUploadStore($this->storageRoot()))->assembledPath($uploadId, session_id());
+            } catch (\Core\File\UploadException) {
+                // An identifier this store will not accept names no upload,
+                // which is the same fact as an upload that is not there —
+                // and the caller's answer to that is already the right one.
+                // Letting it out would leave this endpoint, alone among
+                // its siblings, answering an HTML error page to a request
+                // whose caller can only read JSON.
+                return null;
+            }
         }
 
         $file = $request->getFile('portable_file');

@@ -246,7 +246,7 @@ final class PortableArchiveRefusalTest extends TestCase
         $archive = $this->open(['dropDatabase' => true]);
 
         try {
-            $archive->databaseDump();
+            $archive->databaseDumpSize();
             $this->fail('An archive with no database was accepted.');
         } catch (BackupException $e) {
             $this->assertStringContainsString('base de données', $e->getMessage());
@@ -306,6 +306,55 @@ final class PortableArchiveRefusalTest extends TestCase
         }
     }
 
+    /**
+     * **The dump is never held in memory, at either step.**
+     *
+     * `database.sql` is a declared manifest member like the sealed
+     * secrets, so `verifyDeclaredMembers()` hashes it on every restore —
+     * and it used to do so with `getFromName()`, which expands the whole
+     * member into a PHP string. On the shared hosting this feature exists
+     * for that is not a hostile case but the ordinary one: a site whose
+     * dump is larger than `memory_limit` would die at the verification
+     * step, before the ceiling that is supposed to bound it was ever
+     * consulted.
+     *
+     * The peak memory is what matters, so that is what is measured: a
+     * dump comfortably larger than the allowance below, verified and read,
+     * with the digest still right at the end of it.
+     */
+    public function testALargeDumpIsHashedAndReadWithoutBeingHeldInMemory(): void
+    {
+        $dump = str_repeat("INSERT INTO membres VALUES ('x');\n", 200_000);
+        $this->assertGreaterThan(6_000_000, strlen($dump));
+
+        $archive = $this->open(['database' => $dump]);
+
+        // The PEAK, not the level: a string that is allocated and freed
+        // again leaves the level exactly where it was, which is precisely
+        // the failure this is about — the machine still had to hold it.
+        memory_reset_peak_usage();
+        $before = memory_get_peak_usage();
+
+        $archive->verifyDeclaredMembers();
+
+        $stream = $archive->databaseDumpStream();
+        $context = hash_init('sha256');
+        hash_update_stream($context, $stream);
+        fclose($stream);
+
+        $peak = memory_get_peak_usage() - $before;
+
+        $this->assertSame(hash('sha256', $dump), hash_final($context));
+        $this->assertSame(strlen($dump), $archive->databaseDumpSize());
+        $this->assertLessThan(
+            strlen($dump) / 2,
+            $peak,
+            'the dump was materialised: peak memory grows with the size of the site being restored'
+        );
+
+        $archive->close();
+    }
+
     /** @param array<string, mixed> $options */
     private function open(array $options = []): PortableArchive
     {
@@ -348,8 +397,12 @@ final class PortableArchiveRefusalTest extends TestCase
             $members[$member] = ['sha256' => hash('sha256', $sealed), 'bytes' => strlen($sealed)];
         }
 
+        $dump = (string) ($options['database'] ?? '-- un dump');
         if (($options['dropDatabase'] ?? false) !== true) {
-            $this->addEncrypted($zip, 'database.sql', '-- un dump', $password);
+            $this->addEncrypted($zip, 'database.sql', $dump, $password);
+            // Declared like every other member, which is the point: the
+            // digest walk visits the dump too.
+            $members['database.sql'] = ['sha256' => hash('sha256', $dump), 'bytes' => strlen($dump)];
         }
         $this->addEncrypted($zip, 'storage/uploads/doc.pdf', 'des octets', $password);
 

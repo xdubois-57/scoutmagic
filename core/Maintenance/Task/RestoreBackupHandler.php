@@ -315,6 +315,14 @@ class RestoreBackupHandler implements TaskHandlerInterface
             $archive = PortableArchive::open($archivePath, $this->passphraseOf($payload, $context->encryption));
             $archive->assertRestorableOnto(VersionFile::read($basePath));
             $archive->verifyDeclaredMembers();
+
+            // Read BEFORE anything is replaced: after the database and the
+            // secrets have been overwritten these are the origin's values,
+            // and there is nothing left to put back (D5). Here rather than
+            // further down so that a site whose own secrets cannot be read
+            // is refused where every other refusal happens — before the
+            // safety backup, and with the operator told why.
+            $targetOwnedSecrets = $this->targetOwnedSecrets($context);
         } catch (\Throwable $refusal) {
             // Nothing has been written, and saying so is half the message:
             // an operator who has just been refused needs to know whether
@@ -335,6 +343,12 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 UserFacingMessage::from($refusal, 'Cette archive n\'a pas pu être ouverte.')
                 . ' Rien n\'a été modifié.'
             );
+            // Opened if the refusal came from anything after the first
+            // line, and an open zip handle held past this method is a
+            // descriptor nobody closes.
+            if (isset($archive)) {
+                $archive->close();
+            }
 
             return;
         }
@@ -348,10 +362,6 @@ class RestoreBackupHandler implements TaskHandlerInterface
         $backupRepository = new BackupRepository($pdo);
         $fileRepository = new FileRepository($pdo);
 
-        // Read BEFORE anything is replaced: after the database and the
-        // secrets have been overwritten, these are the origin's values and
-        // there is nothing left to put back (D5).
-        $targetOwnedSecrets = $this->targetOwnedSecrets($context);
         $targetBaseUrl = $context->settings->get('base_url');
 
         try {
@@ -432,11 +442,13 @@ class RestoreBackupHandler implements TaskHandlerInterface
     /**
      * This machine's own secrets, the ones a restore must not import (D5).
      *
-     * An installation that has none — the wizard's path, where the restore
-     * happens before `secrets.enc` is ever written — is not an error here;
-     * that caller passes its values in directly.
+     * An installation that has none is not an error: nothing has to be
+     * kept, and there is nothing an archive could displace. The wizard
+     * never comes through here at all — it passes its values straight into
+     * `PortableRestore::apply()`.
      *
      * @return array<string, mixed>
+     * @throws BackupException
      */
     private function targetOwnedSecrets(TaskContext $context): array
     {
@@ -450,8 +462,23 @@ class RestoreBackupHandler implements TaskHandlerInterface
 
         try {
             $secrets = $manager->readSecrets();
-        } catch (\Throwable) {
-            return [];
+        } catch (\Throwable $e) {
+            // **Emphatically not an empty array**, which is what this used
+            // to return. Empty means "this machine owns no credentials",
+            // and `installSecrets()` only overrides the keys it is handed
+            // — so an unreadable `secrets.enc` here would end with the
+            // ORIGIN's db_host, db_name and db_password live in the file
+            // just written. That is precisely the D5 outcome, arrived at
+            // by a failure nobody would see.
+            //
+            // Refusing costs nothing: this runs before the safety backup,
+            // before the dump, before anything is written.
+            throw new BackupException(
+                'Les secrets de ce site n\'ont pas pu être lus. La restauration a été refusée plutôt que d\'y '
+                . 'laisser ceux de l\'archive.',
+                0,
+                $e
+            );
         }
 
         $owned = [];

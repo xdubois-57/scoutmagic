@@ -509,6 +509,41 @@ final class SetupPortableRestoreTest extends TestCase
         $this->assertFileDoesNotExist($this->installRoot . '/storage/uploads/tresorerie.pdf');
     }
 
+    /**
+     * An upload identifier the store will not accept is answered in JSON,
+     * like every other failure on this endpoint.
+     *
+     * The uploader reads JSON and nothing else, so an exception escaping
+     * to the front controller here would hand it an HTML error page — a
+     * page it can only report as an unexplained failure, and a spurious
+     * "uncaught error" in the journal besides. An identifier that names no
+     * upload is the same fact as an upload that is not there, and gets the
+     * same answer.
+     */
+    #[Group('database')]
+    public function testAnUnusableUploadIdentifierIsAnsweredAsAMissingArchive(): void
+    {
+        $this->realDbConnection();
+        $_SESSION['setup_token_verified'] = true;
+
+        $body = $this->targetCredentials() + [
+            '_csrf_token' => $this->issueCsrfToken(),
+            'upload_id' => '../../etc/passwd',
+            'passphrase' => self::PASSPHRASE,
+        ];
+
+        $response = $this->controller()->restorePortable(
+            new Request('POST', '/setup/restore-portable', [], $body, [], ['HTTP_HOST' => 'nouveau.example']),
+            []
+        );
+        $decoded = json_decode($response->getBody(), true);
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertIsArray($decoded);
+        $this->assertFalse($decoded['success'] ?? true);
+        $this->assertStringContainsString('Archive introuvable', (string) ($decoded['message'] ?? ''));
+    }
+
     /** What « Installer la base de données » does: the schema, and no data. */
     private function migrate(Connection $connection): void
     {

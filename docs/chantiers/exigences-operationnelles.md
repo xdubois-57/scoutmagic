@@ -1515,6 +1515,29 @@ refusée — cela n'a jamais fait de doute — mais que la base de la cible
 est intacte quand elle l'est ; en rétablissant l'ordre d'avant, c'est
 exactement lui qui tombe.
 
+**Un plafond qui ne plafonnait que le disque.** Le refus « archive trop
+volumineuse une fois décompressée » est fixé à quatre gigaoctets — or
+aucun hébergement n'a quatre gigaoctets de `memory_limit`. Tant que le
+code lisait les membres avec `getFromName()`, un dump *parfaitement
+ordinaire* d'un gros site suffisait à faire mourir la restauration au
+moment de la vérification des empreintes, bien avant que le plafond soit
+consulté. Ce n'était donc pas un cas hostile mais le cas courant. Les
+empreintes se calculent désormais par flux (`hash_update_stream()`) et le
+dump est recopié sur le disque par `stream_copy_to_stream()` : la mémoire
+maximale d'une restauration ne dépend plus de la taille du site restauré.
+Le test le mesure sur le pic et non sur le niveau — une chaîne allouée
+puis libérée laisse le niveau où il était, ce qui est exactement la faute
+en question.
+
+**Un tableau vide qui voulait dire le contraire de ce qu'il disait.**
+`targetOwnedSecrets()` renvoyait `[]` quand les secrets du site ne
+pouvaient pas être lus. Mais `[]` signifie « cette machine n'a aucun
+identifiant à conserver », et `installSecrets()` ne remplace que les clés
+qu'on lui donne : un `secrets.enc` illisible se terminait donc avec
+l'hôte, le nom et le mot de passe de la base de **l'origine** en place —
+précisément D5, atteint par une panne que personne ne verrait. Le refus
+ne coûte rien, puisqu'il précède la sauvegarde de sécurité.
+
 **Un garde-fou qui n'en était pas un.** `restorableEntries()` filtrait les
 entrées par une liste blanche (`storage/`) *puis* par une liste noire
 (`secrets/`). La seconde ne pouvait jamais s'exécuter : un nom qui

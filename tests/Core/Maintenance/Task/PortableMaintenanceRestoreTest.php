@@ -325,6 +325,43 @@ final class PortableMaintenanceRestoreTest extends TestCase
         return $value === false ? null : (string) $value;
     }
 
+    /**
+     * **A site whose own secrets cannot be read is refused, not restored
+     * over.**
+     *
+     * This used to answer an empty array, and an empty array means "this
+     * machine owns no credentials to keep" — `installSecrets()` only
+     * overrides the keys it is handed. So an unreadable `secrets.enc`
+     * ended with the ORIGIN's database host, name and password live in
+     * the file just written: the exact D5 outcome, reached by a failure
+     * nobody would ever see, on a site that was working a minute earlier.
+     *
+     * Refusing costs nothing, because it happens before the safety backup
+     * and before the first write.
+     */
+    public function testASiteWhoseOwnSecretsAreUnreadableIsRefusedRatherThanRestoredOver(): void
+    {
+        $archivePath = $this->buildOriginArchive();
+        $keyBefore = file_get_contents($this->siteBase . '/storage/keys/master.key');
+
+        // Both files still there, so the site still looks configured — it
+        // is the CONTENT that has gone wrong, which is the case an
+        // existence check cannot see.
+        file_put_contents($this->siteBase . '/storage/config/secrets.enc', 'des octets qui ne veulent rien dire');
+
+        $this->handler->handle([
+            'source' => 'upload',
+            'uploaded_temp_path' => $archivePath,
+            'encrypted_password' => $this->encryptedPassphrase(self::PASSPHRASE),
+            'requested_by_user_account_id' => $this->userId,
+        ], $this->context);
+
+        $this->assertNotSame([], $this->journalEntries('portable_restore_refused'));
+        $this->assertSame([], $this->journalEntries('backup_restore_failed'));
+        $this->assertSame($keyBefore, file_get_contents($this->siteBase . '/storage/keys/master.key'));
+        $this->assertFileDoesNotExist($this->siteBase . '/storage/uploads/tresorerie.pdf');
+    }
+
     /** Builds the origin's archive and puts it where an upload would be. */
     private function buildOriginArchive(): string
     {

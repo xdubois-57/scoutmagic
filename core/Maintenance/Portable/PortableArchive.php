@@ -275,17 +275,8 @@ final class PortableArchive
                 throw new BackupException('Le manifeste de cette sauvegarde portable est illisible.');
             }
 
-            $bytes = $this->zip->getFromName($name);
-            if ($bytes === false) {
-                throw new BackupException(
-                    'Un fichier annoncé par cette sauvegarde portable est absent de l\'archive.',
-                    0,
-                    new \RuntimeException('Missing declared portable member: ' . $name)
-                );
-            }
-
             $expected = (string) ($facts['sha256'] ?? '');
-            if ($expected === '' || !hash_equals($expected, hash('sha256', $bytes))) {
+            if ($expected === '' || !hash_equals($expected, $this->digestOfMember($name))) {
                 throw new BackupException(
                     'Cette sauvegarde portable est endommagée : un de ses fichiers ne correspond pas à ce que '
                     . 'l\'archive annonce. Rien n\'a été modifié.',
@@ -297,38 +288,113 @@ final class PortableArchive
     }
 
     /**
-     * The archive's database dump, refused if it does not fit the ceiling.
+     * How large the dump inside the archive says it is, refused if it does
+     * not fit the ceiling.
      *
-     * **The size is read from the entry's header before a byte is
-     * decompressed**, which is the only order that helps: `getFromName()`
-     * expands the whole member into a PHP string, so checking afterwards
-     * checks a machine that has already run out of memory. A dump is
-     * extremely compressible by nature — it is repetitive SQL — so this is
-     * the member where a small file expanding to gigabytes is not even
-     * adversarial, merely a large site.
+     * **Read from the entry's header, before a byte is decompressed** —
+     * the only order that helps. A dump is extremely compressible by
+     * nature, being repetitive SQL, so this is the member where a small
+     * file expanding to gigabytes is not even adversarial, merely a large
+     * site.
      *
-     * It sits here rather than in `restorableEntries()` because that walk
-     * only sees `storage/`: the dump is a root-level member, so nothing
-     * counted it against the ceiling this class declares.
+     * The check sits here rather than in `restorableEntries()` because
+     * that walk only sees `storage/`: the dump is a root-level member, so
+     * nothing there ever counted it.
      *
      * @throws BackupException
      */
-    public function databaseDump(): string
+    public function databaseDumpSize(): int
     {
-        $stat = $this->zip->statName('database.sql');
-        if ($stat === false) {
+        $size = $this->ceilingCheckedSize('database.sql');
+        if ($size === null) {
             throw new BackupException('Cette sauvegarde portable ne contient pas de base de données.');
+        }
+
+        return $size;
+    }
+
+    /**
+     * The dump as a stream, never as a string.
+     *
+     * **The ceiling is four gigabytes and no host has four gigabytes of
+     * `memory_limit`**, so a member that merely FITS the ceiling can still
+     * be far past what a PHP string may hold. Handing back a stream is
+     * what makes the ceiling a real bound rather than a formality: the
+     * caller copies it to disk in fixed-size pieces, and the peak memory
+     * of a restore stops depending on the size of the site being restored
+     * — which on the shared hosting this feature targets is the difference
+     * between working and dying at the last step.
+     *
+     * @return resource
+     * @throws BackupException
+     */
+    public function databaseDumpStream()
+    {
+        $this->databaseDumpSize();
+
+        $stream = $this->zip->getStream('database.sql');
+        if ($stream === false) {
+            throw new BackupException('La base de données de cette sauvegarde portable est illisible.');
+        }
+
+        return $stream;
+    }
+
+    /**
+     * A member's digest, computed without ever holding the member.
+     *
+     * Same reasoning as {@see databaseDumpStream()}, and the same member
+     * is at stake: `database.sql` is declared in the manifest like the
+     * sealed secrets are, so hashing the declared members with
+     * `getFromName()` would expand the whole dump into a string — on every
+     * restore, hostile or not, and *before* the code that checks the
+     * ceiling is ever reached.
+     *
+     * @throws BackupException
+     */
+    private function digestOfMember(string $name): string
+    {
+        if ($this->ceilingCheckedSize($name) === null) {
+            throw new BackupException(
+                'Un fichier annoncé par cette sauvegarde portable est absent de l\'archive.',
+                0,
+                new \RuntimeException('Missing declared portable member: ' . $name)
+            );
+        }
+
+        $stream = $this->zip->getStream($name);
+        if ($stream === false) {
+            throw new BackupException(
+                'Un fichier annoncé par cette sauvegarde portable est illisible.',
+                0,
+                new \RuntimeException('Unreadable declared portable member: ' . $name)
+            );
+        }
+
+        $context = hash_init('sha256');
+        hash_update_stream($context, $stream);
+        fclose($stream);
+
+        return hash_final($context);
+    }
+
+    /**
+     * The declared uncompressed size of a member, or null when the archive
+     * does not hold it — refusing outright anything past the ceiling.
+     *
+     * @throws BackupException
+     */
+    private function ceilingCheckedSize(string $name): ?int
+    {
+        $stat = $this->zip->statName($name);
+        if ($stat === false) {
+            return null;
         }
         if ((int) $stat['size'] > self::MAX_RESTORE_UNCOMPRESSED_BYTES) {
             throw new BackupException('Archive de sauvegarde trop volumineuse une fois décompressée.');
         }
 
-        $sql = $this->zip->getFromName('database.sql');
-        if ($sql === false) {
-            throw new BackupException('La base de données de cette sauvegarde portable est illisible.');
-        }
-
-        return $sql;
+        return (int) $stat['size'];
     }
 
     /**
@@ -347,6 +413,20 @@ final class PortableArchive
         $secrets = [];
 
         foreach (PortableManifest::SECRET_MEMBERS as $liveRelativePath => $member) {
+            // Against the same ceiling as everything else, before the read
+            // rather than after it. These two are small by construction —
+            // a key and an encrypted settings blob — but "by construction"
+            // is a fact about archives we wrote, and this class exists to
+            // read the ones we did not.
+            if ($this->ceilingCheckedSize($member) === null) {
+                throw new BackupException(
+                    'Cette sauvegarde portable ne contient pas les clés de chiffrement du site — elle ne peut pas '
+                    . 'servir à repartir ailleurs.',
+                    0,
+                    new \RuntimeException('Missing sealed secret member: ' . $member)
+                );
+            }
+
             $sealed = $this->zip->getFromName($member);
             if ($sealed === false) {
                 throw new BackupException(

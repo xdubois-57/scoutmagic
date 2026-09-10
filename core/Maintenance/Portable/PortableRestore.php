@@ -207,7 +207,7 @@ final class PortableRestore
         // Through the archive, which checks the declared size against its
         // own ceiling before decompressing anything — a dump is the most
         // compressible member there is.
-        $sql = $archive->databaseDump();
+        $expected = $archive->databaseDumpSize();
 
         $directory = $this->storagePath . '/temp';
         if (!is_dir($directory) && !@mkdir($directory, 0755, true) && !is_dir($directory)) {
@@ -215,12 +215,29 @@ final class PortableRestore
         }
 
         $path = $directory . '/portable_restore_' . bin2hex(random_bytes(8)) . '.sql';
+        $destination = @fopen($path, 'wb');
+        if ($destination === false) {
+            throw new BackupException(
+                'La base de données de l\'archive n\'a pas pu être écrite sur le disque — vérifiez les droits '
+                . 'sur storage/.'
+            );
+        }
+
+        // **Copied, never held.** The dump is the size of the whole
+        // database and the ceiling above it is four gigabytes, which no
+        // host has as `memory_limit`: reading it into a string first would
+        // make the peak memory of a restore depend on the size of the site
+        // being restored.
+        $source = $archive->databaseDumpStream();
+        $written = @stream_copy_to_stream($source, $destination);
+        fclose($source);
+        $closed = fclose($destination);
+
         // The BYTE COUNT, not just `false`. A quota reached mid-write
         // returns a short count and no error, and a dump truncated at a
         // statement boundary restores without complaint — leaving a site
         // with some of its tables and a message saying it succeeded.
-        $written = @file_put_contents($path, $sql);
-        if ($written === false || $written !== strlen($sql)) {
+        if (!$closed || $written === false || $written !== $expected) {
             @unlink($path);
 
             throw new BackupException(
