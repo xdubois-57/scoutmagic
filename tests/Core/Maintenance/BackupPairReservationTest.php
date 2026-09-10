@@ -57,7 +57,7 @@ class BackupPairReservationTest extends TestCase
         $this->assertSame(
             [],
             $offenders,
-            'Ces fichiers écrivent le dump ET l\'archive sans réserver les deux d\'abord : '
+            'These files write the dump AND the archive without reserving both first: '
             . implode(', ', $offenders)
         );
     }
@@ -70,11 +70,11 @@ class BackupPairReservationTest extends TestCase
     {
         $this->assertTrue(
             method_exists(\Core\Maintenance\BackupService::class, self::RESERVATION),
-            'BackupService::' . self::RESERVATION . '() a disparu — la règle ci-dessus ne vérifie plus rien.'
+            'BackupService::' . self::RESERVATION . '() is gone — the rule above no longer checks anything.'
         );
         $this->assertTrue(
             method_exists(\Core\Maintenance\BackupServiceInterface::class, self::RESERVATION),
-            'BackupServiceInterface ne déclare plus ' . self::RESERVATION . '() — un remplaçant peut l\'omettre.'
+            'BackupServiceInterface no longer declares ' . self::RESERVATION . '() — a replacement could omit it.'
         );
     }
 
@@ -98,7 +98,7 @@ class BackupPairReservationTest extends TestCase
                 'InstallUpdateHandler.php',
             ] as $handler
         ) {
-            $this->assertContains($handler, $seen, $handler . ' n\'est plus vu par ce contrôle.');
+            $this->assertContains($handler, $seen, $handler . ' is no longer seen by this check.');
         }
     }
 

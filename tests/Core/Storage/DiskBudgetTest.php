@@ -311,7 +311,7 @@ class DiskBudgetTest extends TestCase
         $budget = $this->budget();
 
         $budget->measureNow();
-        $this->assertFileExists($this->cacheFile(), 'La mesure doit être en cache pour que le test ait un sujet.');
+        $this->assertFileExists($this->cacheFile(), 'The reading must be cached for this test to have a subject.');
 
         // Well under the margin: the reading still stands.
         $budget->ensureRoom(DiskBudget::SAFETY_MARGIN_BYTES - 2 * self::MIB);
@@ -395,7 +395,7 @@ class DiskBudgetTest extends TestCase
 
         $this->assertSame(100, $usage->storageBytes);
         $this->assertSame(1000, $usage->installBytes);
-        $this->assertSame(1000, $usage->usedBytes(), 'Le quota paie aussi le code et vendor/.');
+        $this->assertSame(1000, $usage->usedBytes(), 'The quota pays for the code and vendor/ too.');
         $this->assertSame(10 * self::MIB - 1000, $usage->availableBytes());
     }
 

@@ -417,6 +417,30 @@ gênant.**
     quand même pas pu être ouvert est la panne de permissions qu'une
     archive refuse de dépasser en silence.
 
+14. **Suivre les liens ouvrait un contournement des exclusions —
+    régression introduite par la correction n° 8, et la plus grave du
+    chantier.** Les préfixes exclus étaient comparés au chemin textuel.
+    Tant que les dossiers liés n'étaient pas parcourus, cela suffisait ;
+    dès qu'ils le sont, `storage/link -> storage/keys` produit des entrées
+    nommées `storage/link/master.key`, qu'aucun préfixe commençant par
+    `storage/keys` ne peut faire correspondre. Or ce sont précisément ces
+    préfixes qui tiennent `master.key` et `secrets.enc` **hors** de toute
+    archive (`SECURITY.md` §11 : les secrets ne quittent jamais le serveur
+    dans une sauvegarde, chiffrée ou non). Reproduit avant correction : la
+    clé maîtresse sortait bien du filtre. Le chemin **résolu** est
+    désormais comparé lui aussi, à des préfixes résolus une fois par
+    marche et non par entrée, et la règle de frontière tient sur les deux —
+    exclure `temp` n'exclut toujours pas `temperatures`.
+
+    Leçon à consigner : une correction qui élargit ce qu'un parcours
+    atteint doit être relue contre tout ce qui filtrait ce parcours. Le
+    suivi des liens et la liste d'exclusions étaient corrects
+    séparément.
+
+15. **Neuf messages d'assertion en français**, traduits — même règle que
+    les commentaires, relevée au tour précédent et appliquée trop
+    étroitement la première fois.
+
 **Reporté.** La saisie du quota se fait sur la page générique
 Configuration > Réglages, pas sur la page Maintenance : le document de
 chantier borne l'interface de cette itération au seul encart de lecture.

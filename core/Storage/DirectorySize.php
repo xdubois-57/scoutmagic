@@ -119,34 +119,65 @@ final class DirectorySize
         // being counted twice.
         $enteredDirectories = [];
 
+        // **An exclusion has to survive a symbolic link, or it is not an
+        // exclusion.** Matching only the textual pathname was enough while
+        // linked directories were never descended into; the moment they
+        // are, `storage/link -> storage/keys` produces entries named
+        // `storage/link/master.key`, which no prefix beginning
+        // `storage/keys` will ever match — and `BackupService` uses these
+        // prefixes to keep the master key and `secrets.enc` OUT of every
+        // archive (SECURITY.md: secrets never leave the server in a
+        // backup, encrypted or not). So the resolved path is matched too,
+        // against resolved prefixes. Resolving the prefixes once here, not
+        // per entry: there are a handful of them and thousands of files.
+        $resolvedExcludedPrefixes = [];
+        if ($followLinks) {
+            foreach ($excludedPrefixes as $prefix) {
+                $resolvedPrefix = realpath($prefix);
+                if ($resolvedPrefix !== false) {
+                    $resolvedExcludedPrefixes[] = $resolvedPrefix;
+                }
+            }
+        }
+
         $filtered = new \RecursiveCallbackFilterIterator(
             $directoryIterator,
             static function (\SplFileInfo $current) use (
                 $excludedPrefixes,
+                $resolvedExcludedPrefixes,
                 $followLinks,
                 &$enteredDirectories
             ): bool {
                 if (!$followLinks && $current->isLink()) {
                     return false;
                 }
+
                 $path = $current->getPathname();
-                foreach ($excludedPrefixes as $prefix) {
-                    if ($path === $prefix || str_starts_with($path, rtrim($prefix, '/') . '/')) {
-                        return false;
-                    }
+                if (self::isUnder($path, $excludedPrefixes)) {
+                    return false;
                 }
-                if ($followLinks && $current->isDir()) {
-                    $resolved = realpath($path);
-                    if ($resolved === false) {
-                        // A link pointing nowhere. Nothing to walk, and
-                        // nothing that belongs in an archive either.
-                        return false;
-                    }
+
+                if (!$followLinks) {
+                    return true;
+                }
+
+                $resolved = realpath($path);
+                if ($resolved === false) {
+                    // A link pointing nowhere. Nothing to walk, and
+                    // nothing that belongs in an archive either.
+                    return false;
+                }
+                if (self::isUnder($resolved, $resolvedExcludedPrefixes)) {
+                    return false;
+                }
+
+                if ($current->isDir()) {
                     if (isset($enteredDirectories[$resolved])) {
                         return false;
                     }
                     $enteredDirectories[$resolved] = true;
                 }
+
                 return true;
             }
         );
@@ -179,5 +210,25 @@ final class DirectorySize
             // The root itself became unreadable mid-walk. Nothing to add.
             return;
         }
+    }
+
+    /**
+     * Whether a path is one of these prefixes or sits under it, matched on
+     * a **path boundary** — so excluding `temp` never also excludes
+     * `temperatures`, which is the whole reason this is not a
+     * `str_starts_with()` at each call site.
+     *
+     * @param string[] $prefixes
+     */
+    private static function isUnder(string $path, array $prefixes): bool
+    {
+        foreach ($prefixes as $prefix) {
+            $prefix = rtrim($prefix, '/');
+            if ($path === $prefix || str_starts_with($path, $prefix . '/')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

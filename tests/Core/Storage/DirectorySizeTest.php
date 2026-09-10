@@ -189,6 +189,97 @@ class DirectorySizeTest extends TestCase
     }
 
     /**
+     * **An exclusion has to survive a symbolic link, or it is not an
+     * exclusion** — and this is the one that hurts: `BackupService` uses
+     * these prefixes to keep `storage/keys/master.key` and
+     * `storage/config/secrets.enc` OUT of every archive (SECURITY.md:
+     * secrets never leave the server in a backup, encrypted or not).
+     *
+     * Matching only the textual pathname was enough while linked
+     * directories were never descended into. The moment they are — which
+     * is what `DirectoryWalk::Archive` now does, deliberately —
+     * `storage/link -> storage/keys` yields entries named
+     * `storage/link/master.key`, and no prefix beginning `storage/keys`
+     * will ever match that. The secret would have gone straight into the
+     * zip, past an exclusion list that looked complete.
+     *
+     * So the resolved path is matched too, against resolved prefixes.
+     */
+    public function testAnExcludedDirectoryStaysExcludedWhenReachedThroughASymlink(): void
+    {
+        $this->write('keys/master.key', 'SUPER-SECRET-MASTER-KEY');
+        $this->write('uploads/doc.pdf', 'ordinary');
+
+        if (!@symlink($this->root . '/keys', $this->root . '/link')) {
+            $this->markTestSkipped('This filesystem does not support symbolic links.');
+        }
+
+        try {
+            $names = [];
+            foreach (
+                DirectorySize::files(
+                    $this->root,
+                    [$this->root . '/keys'],
+                    DirectoryWalk::Archive
+                ) as $file
+            ) {
+                $names[] = str_replace($this->root . '/', '', $file->getPathname());
+            }
+
+            $this->assertSame(['uploads/doc.pdf'], $names);
+            $this->assertSame(
+                strlen('ordinary'),
+                DirectorySize::measure($this->root, [$this->root . '/keys'], DirectoryWalk::Archive)
+            );
+        } finally {
+            @unlink($this->root . '/link');
+        }
+    }
+
+    /**
+     * And resolving the exclusions must not start excluding what they
+     * never covered: `temp` still does not exclude `temperatures`, reached
+     * directly or through a link.
+     *
+     * The link also shows the cycle guard doing its second job — a tree
+     * symlinked twice is walked once, so `temperatures/` appears under its
+     * own name and not a second time under `readings/`. The two rules meet
+     * here and the assertion pins both: what is excluded stays out, and
+     * what is not excluded appears exactly once.
+     */
+    public function testResolvingAnExclusionStillMatchesOnAPathBoundary(): void
+    {
+        $this->write('temp/scratch.txt', 'x');
+        $this->write('temperatures/reading.txt', str_repeat('y', 9));
+
+        if (!@symlink($this->root . '/temperatures', $this->root . '/readings')) {
+            $this->markTestSkipped('This filesystem does not support symbolic links.');
+        }
+
+        try {
+            $names = [];
+            foreach (
+                DirectorySize::files(
+                    $this->root,
+                    [$this->root . '/temp'],
+                    DirectoryWalk::Archive
+                ) as $file
+            ) {
+                $names[] = str_replace($this->root . '/', '', $file->getPathname());
+            }
+
+            $this->assertSame(['temperatures/reading.txt'], $names);
+            $this->assertSame(9, DirectorySize::measure(
+                $this->root,
+                [$this->root . '/temp'],
+                DirectoryWalk::Archive
+            ), 'Nine bytes once: the link must not count them twice.');
+        } finally {
+            @unlink($this->root . '/readings');
+        }
+    }
+
+    /**
      * A directory the iterator cannot even OPEN must not escape the
      * handling written for it.
      *

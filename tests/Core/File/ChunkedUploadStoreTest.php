@@ -243,7 +243,7 @@ class ChunkedUploadStoreTest extends TestCase
         // a nearly-full runner would bind there instead and prove nothing.
         $volumeFree = @disk_free_space($this->storagePath);
         if (!is_float($volumeFree) || $volumeFree < $quota) {
-            $this->markTestSkipped('Volume libre insuffisant pour que le quota déclaré soit la contrainte.');
+            $this->markTestSkipped('Not enough free space on the volume for the declared quota to be the binding constraint.');
         }
 
         $store = new ChunkedUploadStore(
