@@ -261,57 +261,114 @@ class ChecksTest extends TestCase
 
     // ————— HTTPS —————
 
-    public function testHttpsAbsentTriggersAndPresentRearms(): void
+    /**
+     * The scenario the class was written for, and the one the second
+     * version of this check could not see.
+     *
+     * A certificate expired overnight: the site now answers in clear while
+     * `base_url` still says — correctly, and unchanged — `https://`. When
+     * both directions required the observation and the declaration to
+     * agree, triggering needed `base_url` NOT to say `https://`, so this
+     * case produced nothing at all. The declaration is no longer read: a
+     * request answered in clear is the whole trigger.
+     */
+    public function testAClearRequestTriggersEvenWhereTheSiteDeclaresItselfSecure(): void
     {
-        $plain = new HttpsCheck(self::PLAIN_REQUEST, $this->settings(['base_url' => 'http://exemple.be']));
-        $reading = $plain->read();
-        $this->assertTrue($reading->overTrigger);
-        $this->assertSame('HTTP', $reading->value);
+        $settings = $this->httpsSettings(null, ['base_url' => 'https://exemple.be']);
 
-        $secure = new HttpsCheck(self::SECURE_REQUEST, $this->settings(['base_url' => 'https://exemple.be']));
-        $reading = $secure->read();
-        $this->assertFalse($reading->overTrigger);
-        $this->assertTrue($reading->underRearm);
-        $this->assertSame('HTTPS', $reading->value);
+        $reading = (new HttpsCheck(self::PLAIN_REQUEST, $settings, $this->at('2026-06-01 12:00:00')))->read();
+
+        $this->assertTrue($reading->overTrigger);
+        $this->assertFalse($reading->underRearm);
+        $this->assertSame('en clair à l\'instant', $reading->value);
+    }
+
+    /**
+     * Triggering also stamps, because nothing else would.
+     *
+     * `CronSilenceCheck` reads a stamp `public/cron.php` writes as it runs;
+     * a request answered in clear leaves no trace of its own, so the check
+     * makes one. Everything below depends on this write having happened.
+     */
+    public function testAClearRequestRecordsWhenItWasSeen(): void
+    {
+        $settings = $this->httpsSettings(null);
+        $now = $this->at('2026-06-01 12:00:00');
+
+        (new HttpsCheck(self::PLAIN_REQUEST, $settings, $now))->read();
+
+        $this->assertSame(
+            (string) $now->getTimestamp(),
+            (string) $settings->get(HttpsCheck::LAST_CLEAR_SETTING)
+        );
     }
 
     /**
      * A site answering on BOTH schemes must not flap.
      *
-     * The first version read one request's scheme for both directions —
-     * `overTrigger: !$secure`, `underRearm: $secure` — complementary
-     * values of the same boolean, so a gap of zero. Nothing here forces
-     * HTTP to HTTPS, so such a site alternates as visitors arrive, and
-     * this check runs every quarter of an hour: triggered, armed,
-     * triggered, e-mailing every super-admin each way. Triggering and
-     * re-arming therefore each need the observation AND the declared
-     * `base_url` to agree, and the disagreement between them is the gap.
+     * The first version of this check read one request's scheme for both
+     * directions — `overTrigger: !$secure`, `underRearm: $secure` —
+     * complementary values of the same boolean, so a gap of zero. Nothing
+     * here forces HTTP to HTTPS, so such a site alternates as visitors
+     * arrive, and the check runs every quarter of an hour: triggered,
+     * armed, triggered, e-mailing every super-admin each way.
+     *
+     * The gap is now time. One secure request an hour after a clear one
+     * moves nothing, and neither would ninety-five more within the day.
      */
-    public function testARequestThatDisagreesWithTheDeclaredAddressMovesNothing(): void
+    public function testASecureRequestSoonAfterAClearOneMovesNothing(): void
     {
-        // Declared HTTPS, this request arrived over HTTP: a stray plain
-        // request against a site that says it is secure. Not proof enough.
-        $stray = (new HttpsCheck(self::PLAIN_REQUEST, $this->settings(['base_url' => 'https://exemple.be'])))->read();
-        $this->assertFalse($stray->overTrigger);
-        $this->assertFalse($stray->underRearm);
+        $settings = $this->httpsSettings($this->at('2026-06-01 11:00:00')->getTimestamp());
 
-        // Declared HTTP, this request arrived over HTTPS: secure once, but
-        // the site still says it is not. Not a re-arm either.
-        $partial = (new HttpsCheck(self::SECURE_REQUEST, $this->settings(['base_url' => 'http://exemple.be'])))->read();
-        $this->assertFalse($partial->overTrigger);
-        $this->assertFalse($partial->underRearm);
-    }
+        $reading = (new HttpsCheck(self::SECURE_REQUEST, $settings, $this->at('2026-06-01 12:00:00')))->read();
 
-    /** No declared address at all is not a declaration of HTTPS. */
-    public function testAnUndeclaredAddressStillTriggersOnAPlainRequest(): void
-    {
-        $reading = (new HttpsCheck(self::PLAIN_REQUEST, $this->settings(['base_url' => ''])))->read();
-
-        $this->assertTrue($reading->overTrigger);
+        $this->assertFalse($reading->overTrigger);
         $this->assertFalse($reading->underRearm);
+        $this->assertSame('en clair il y a 1 h', $reading->value);
     }
 
-    /** With nothing to read the declaration from, the check declines to guess. */
+    /**
+     * Repairing the certificate is enough to clear the alert.
+     *
+     * The second version of this check could not manage that: every
+     * triggered instance had `base_url` saying `http://` by construction,
+     * re-arming required it to say `https://`, and the alert's own advice
+     * — « Activez le certificat HTTPS chez votre hébergeur » — never
+     * mentioned the setting an administrator would also have had to edit.
+     * The alert was, in practice, permanent.
+     */
+    public function testAFullQuietDayOfSecureTrafficRearmsWithNothingToEdit(): void
+    {
+        $settings = $this->httpsSettings(
+            $this->at('2026-06-01 12:00:00')->getTimestamp(),
+            ['base_url' => 'http://exemple.be']
+        );
+
+        $reading = (new HttpsCheck(self::SECURE_REQUEST, $settings, $this->at('2026-06-02 12:00:00')))->read();
+
+        $this->assertFalse($reading->overTrigger);
+        $this->assertTrue($reading->underRearm);
+        $this->assertSame('en clair il y a 24 h', $reading->value);
+    }
+
+    /**
+     * An installation never seen in clear is armed and has nothing to say.
+     *
+     * The empty value matters: `OperationalAlertService` refuses to write
+     * one over the figure a still-triggered alert is showing.
+     */
+    public function testAnInstallationNeverSeenInClearIsArmed(): void
+    {
+        $settings = $this->httpsSettings(null);
+
+        $reading = (new HttpsCheck(self::SECURE_REQUEST, $settings, $this->at('2026-06-01 12:00:00')))->read();
+
+        $this->assertFalse($reading->overTrigger);
+        $this->assertTrue($reading->underRearm);
+        $this->assertSame('', $reading->value);
+    }
+
+    /** With nowhere to keep the observation, the check declines to guess. */
     public function testWithNoSettingsToReadTheHttpsCheckIsInconclusive(): void
     {
         $reading = (new HttpsCheck(self::PLAIN_REQUEST))->read();
@@ -378,6 +435,24 @@ class ChecksTest extends TestCase
         }
 
         return $service;
+    }
+
+    /**
+     * A settings service holding {@see HttpsCheck::LAST_CLEAR_SETTING},
+     * plus whatever else a case needs. Null means never seen in clear.
+     *
+     * @param array<string, string> $extra
+     */
+    private function httpsSettings(?int $lastClearAt, array $extra = []): SettingService
+    {
+        return $this->settings(
+            [HttpsCheck::LAST_CLEAR_SETTING => $lastClearAt === null ? '' : (string) $lastClearAt] + $extra
+        );
+    }
+
+    private function at(string $moment): \DateTimeImmutable
+    {
+        return new \DateTimeImmutable($moment);
     }
 
     private function insertBackup(string $status, string $ago): void

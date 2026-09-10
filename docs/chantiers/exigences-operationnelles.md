@@ -490,7 +490,8 @@ notification, le sujet d'aide `alertes-operationnelles`,
 C'est la PR qui allume l'alerte, donc la seule qui pouvait le faire sans
 livrer une alerte fausse.
 
-**Trois constats de revue, tous réels.**
+**Quatre constats de revue, tous réels — et le quatrième porte sur la
+correction du deuxième.**
 
 1. **Une lecture inconclusive effaçait le chiffre affiché.**
    `AlertReading::inconclusive()` porte une valeur vide, et le
@@ -510,18 +511,18 @@ livrer une alerte fausse.
    contrôle tourne tous les quarts d'heure : déclenché, réarmé, déclenché,
    avec un courriel à chaque super-administrateur dans les deux sens.
 
-   Les deux directions lisent maintenant **deux faits différents** : une
-   observation vivante (le schéma de cette requête) et une déclaration
-   stockée (`base_url`, l'adresse que l'exploitant a donnée à
-   l'installation). Déclencher exige que les deux disent HTTP, réarmer que
-   les deux disent HTTPS, et leur désaccord est l'écart. C'est un vrai
-   écart plutôt qu'un écart arithmétique, et il ne peut pas se refermer.
+   La correction apportée alors — exiger que l'observation et la
+   déclaration `base_url` s'accordent dans les deux directions — était un
+   vrai écart, et **elle était fausse**. Le constat 4 ci-dessous la
+   remplace ; elle reste consignée ici parce que c'est la deuxième version
+   de ce contrôle sur trois, et que la troisième ne se comprend qu'avec
+   les deux premières.
 
-   À noter : `DevelopmentModeCheck` a la même forme complémentaire et n'a
-   pas le défaut, parce qu'il lit un **réglage** — qui ne change que quand
-   un administrateur le change, et ne peut donc pas osciller entre deux
-   requêtes. C'est la nature de la source, pas la forme du code, qui
-   décide.
+   À noter, et cela vaut pour les trois versions : `DevelopmentModeCheck`
+   a la même forme complémentaire et n'a pas le défaut, parce qu'il lit un
+   **réglage** — qui ne change que quand un administrateur le change, et ne
+   peut donc pas osciller entre deux requêtes. C'est la nature de la
+   source, pas la forme du code, qui décide.
 
 3. **L'alerte « cron muet » ne peut pas atteindre un administrateur
    absent.** `dispatch()` planifie push et courriel au lieu de les
@@ -536,6 +537,70 @@ livrer une alerte fausse.
    `CronSilenceCheck` pour que personne ne croie que le courriel part. Le
    contournement évident, appeler `MailService` depuis `Core\Alert`, est
    exactement le raccourci qui survit à sa raison d'être.
+
+4. **La correction du constat 2 ne pouvait ni se déclencher ni
+   s'éteindre**, et c'est le constat le plus utile des quatre. Exiger que
+   `base_url` ne dise **pas** `https://` pour déclencher rendait le
+   contrôle aveugle au seul cas pour lequel la classe avait été écrite —
+   un certificat expiré cette nuit sur un site qui déclare toujours,
+   correctement, `https://`. Le docbloc de la classe décrivait ce
+   scénario ; le code ne pouvait pas le voir. Et comme toute instance
+   déclenchée avait dès lors `base_url` en `http://` par construction,
+   tandis que le réarmement exigeait `https://`, réparer le certificat ne
+   pouvait jamais éteindre l'alerte : seule l'édition d'un réglage le
+   pouvait — un réglage que le conseil de l'alerte (« Activez le
+   certificat HTTPS chez votre hébergeur ») ne mentionne pas. L'alerte
+   était, en pratique, définitive.
+
+   **L'écart est désormais du temps, pas une seconde lecture du même
+   booléen**, et le contrôle reprend la forme de tous les autres : un
+   évènement, et depuis combien de temps il a eu lieu. Déclencher, c'est
+   avoir servi cette requête en clair — la condition entière ; un site qui
+   confie un mot de passe au réseau ne devient pas acceptable parce qu'un
+   réglage dit autre chose. Réarmer, c'est avoir servi cette requête en
+   HTTPS **et** n'avoir rien vu en clair depuis
+   `AlertThresholds::HTTPS_REARM_QUIET_HOURS` (24 h). Un site qui répond
+   sur les deux schémas retampone sans cesse et ne se tait jamais : c'est
+   la bonne réponse et non une réponse tolérée, puisqu'il confie toujours
+   des mots de passe au réseau. Et l'administrateur qui répare son
+   certificat éteint l'alerte en le réparant, sans rien avoir à éditer.
+
+   **`base_url` n'est plus lu du tout, et l'abandonner n'a rien coûté.**
+   Ce que fait une adresse déclarée, c'est y envoyer des gens ; les gens
+   envoyés vers une adresse `http://` arrivent ici en requêtes claires,
+   c'est-à-dire exactement ce que le contrôle mesure. La conséquence est
+   observable, la cause n'a pas besoin de l'être.
+
+   **Décision autonome : le contrôle écrit.** Il est le seul, et le seul
+   qui doive l'être. `cron_last_run` existe pour que `CronSilenceCheck` le
+   lise parce que `public/cron.php` le tamponne en tournant : l'évènement
+   se consigne lui-même. Une requête servie en clair ne consigne rien —
+   ni ligne, ni fichier, rien que le `$_SERVER` d'une requête déjà en
+   cours de réponse — donc la trace doit être faite au seul moment où le
+   fait existe. Une ligne de `settings` (`insecure_request_last_seen`)
+   plutôt qu'un fichier-marqueur sous `storage/temp/`, alors que
+   `RequestBoundChecks` et `DiskBudget` utilisent un fichier pour leur
+   propre comptabilité de chemin de requête : ce qui tranche, c'est le
+   coût de la perte. Perdre le marqueur du limiteur achète une évaluation
+   de plus ; perdre ce tampon laisserait un site bi-schéma se réarmer trop
+   tôt puis se redéclencher à la requête claire suivante — précisément
+   l'oscillation que tout ce dessin existe pour empêcher. L'écriture coûte
+   au plus une fois par quart d'heure, uniquement sur un site réellement
+   servi en clair, et après `send()` et `session_write_close()`.
+
+   Le réglage est enregistré à l'endroit où le contrôle est câblé, et non
+   avec les autres réglages du démarrage — comme `public/cron.php`
+   enregistre `cron_last_run` juste avant de l'écrire.
+
+**Deux pages que le code contredisait.** Elles sont corrigées dans la même
+PR, comme le chantier l'exige. `docs/exigences-non-fonctionnelles.md` §4
+annonçait encore que `backup_auto_frequency` valait `monthly` et que
+l'autre moitié de l'objectif de reprise « n'est pas encore livrée » —
+c'était cette itération qui la livrait. Son tableau des seuils ne portait
+par ailleurs ni la ligne des échecs d'envoi (5 sur 24 h), ni celle du
+HTTPS, alors que `AlertThresholds` se présente comme l'endroit unique où
+ce code et cette page se rencontrent : un seuil présent d'un seul côté est
+la manière dont une exigence cesse d'en être une.
 
 **Un mot réservé que seul MySQL réserve.** La colonne s'appelait
 `last_value` ; MySQL 8 a refusé la table entière — `LAST_VALUE` y est un

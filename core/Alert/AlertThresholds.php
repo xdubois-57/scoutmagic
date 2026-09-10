@@ -43,6 +43,28 @@ final class AlertThresholds
     public const CRON_SILENT_REARM_HOURS = 6;
 
     /**
+     * Hours of uninterrupted encrypted traffic before the HTTPS alert goes
+     * quiet again.
+     *
+     * The one check whose trigger side carries no number, which is the
+     * limit case of the rule above rather than an exception to it. The
+     * others watch a level that drifts — a percentage, an age — and have
+     * to decide how far it must come back. This one watches an event: a
+     * request answered in clear, seen as it happens. There is no level to
+     * cross, so the trigger is the event itself and the only tunable
+     * number is how long the site must stay quiet before the alert
+     * believes it (`Core\Alert\Check\HttpsCheck`).
+     *
+     * A day, because that is long enough to outlast a site answering on
+     * BOTH schemes — the failure this number exists for, and one that
+     * alternates on the timescale of visitors arriving rather than of days
+     * — and short enough that an administrator who repairs a certificate
+     * this morning sees the alert clear by tomorrow, having edited
+     * nothing.
+     */
+    public const HTTPS_REARM_QUIET_HOURS = 24;
+
+    /**
      * Failed e-mail sends counted over this window, and the count that
      * trips the alert.
      *

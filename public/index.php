@@ -7542,6 +7542,26 @@ if ($operationalRequestChecks->due()) {
     // Claimed before the run, not after — see markRun()'s docblock.
     $operationalRequestChecks->markRun();
 
+    // Registered here rather than with the other settings above, and for
+    // the reason public/cron.php registers 'cron_last_run' beside the
+    // stamp it writes: it belongs to the one piece of code that reads and
+    // writes it, and inside this throttle it costs an ordinary request
+    // nothing. HttpsCheck stamps it when it observes a request answered
+    // without encryption; nothing else touches it.
+    $settingService->register(
+        \Core\Alert\Check\HttpsCheck::LAST_CLEAR_SETTING,
+        '0',
+        'number',
+        'Dernière requête servie sans chiffrement',
+        'Horodatage de la dernière requête que le site a servie en HTTP, sur lequel repose l\'alerte '
+            . '« Connexion sécurisée ». Géré automatiquement.',
+        null,
+        null,
+        null,
+        false,
+        128
+    );
+
     (new \Core\Alert\OperationalAlertService(
         new \Core\Alert\OperationalAlertRepository($pdo),
         $notificationService,
