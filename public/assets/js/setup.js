@@ -553,4 +553,110 @@
                 dnsRecords.innerHTML = '<p class="text-danger small">Erreur lors de la v\u00e9rification DNS.</p>';
             });
     });
+
+    // ------------------------------------------------------------------
+    // « Repartir d'une sauvegarde portable »
+    //
+    // Le jour où l'on a besoin d'une sauvegarde portable est le jour où il
+    // n'y a plus de site : pas de base, pas de page Maintenance, pas de
+    // connexion. Cette branche est donc ici, juste après l'étape base de
+    // données — la seule chose dont elle a besoin.
+    // ------------------------------------------------------------------
+    var portableFile = /** @type {HTMLInputElement} */ (document.getElementById('portable-file'));
+    var portablePassphrase = /** @type {HTMLInputElement} */ (document.getElementById('portable-passphrase'));
+    var btnPortable = /** @type {HTMLButtonElement} */ (document.getElementById('btn-portable-restore'));
+    var portableSpinner = document.getElementById('portable-spinner');
+    var portableResult = document.getElementById('portable-restore-result');
+    var portableProgress = document.getElementById('portable-progress');
+
+    if (portableFile && portablePassphrase && btnPortable) {
+        function updatePortableState() {
+            // La base doit être installée d'abord : la restauration écrit
+            // par-dessus, et l'opérateur doit avoir vu qu'elle était vide.
+            btnPortable.disabled = !(dbTestPassed && portableFile.files.length > 0
+                && portablePassphrase.value !== '');
+        }
+
+        portableFile.addEventListener('change', updatePortableState);
+        portablePassphrase.addEventListener('input', updatePortableState);
+        // La même chose après « Installer la base de données », dont le
+        // résultat conditionne ce bouton.
+        if (btnTestDb) { btnTestDb.addEventListener('click', function () { setTimeout(updatePortableState, 0); }); }
+
+        function portableCredentials() {
+            return {
+                db_host: /** @type {HTMLInputElement} */ (document.getElementById('db_host')).value,
+                db_port: /** @type {HTMLInputElement} */ (document.getElementById('db_port')).value,
+                db_name: /** @type {HTMLInputElement} */ (document.getElementById('db_name')).value,
+                db_user: /** @type {HTMLInputElement} */ (document.getElementById('db_user')).value,
+                db_password: /** @type {HTMLInputElement} */ (document.getElementById('db_password')).value,
+                passphrase: portablePassphrase.value
+            };
+        }
+
+        function finishPortable(json) {
+            portableSpinner.classList.add('d-none');
+            portableProgress.classList.add('d-none');
+            if (json && json.success) {
+                // Rien à ajouter au formulaire : le site restauré a déjà son
+                // unité, ses comptes et ses réglages. Ce qu'il reste à faire
+                // est de s'y connecter.
+                portableResult.innerHTML = '<span class="text-success">✓ Site restauré.</span>';
+                portableProgress.textContent = 'Vous pouvez maintenant vous connecter avec vos identifiants habituels.';
+                portableProgress.classList.remove('d-none');
+                btnPortable.disabled = true;
+                return;
+            }
+            portableResult.innerHTML = '<span class="text-danger">✗ '
+                + escapeHtml((json && json.message) || 'La restauration a échoué.') + '</span>';
+            btnPortable.disabled = false;
+        }
+
+        function postPortable(fields, file) {
+            var data = new FormData();
+            data.append('_csrf_token', form.elements['_csrf_token'].value);
+            Object.keys(fields).forEach(function (key) { data.append(key, fields[key]); });
+            if (file) { data.append('portable_file', file); }
+
+            return fetch('/setup/restore-portable', { method: 'POST', body: data })
+                .then(function (r) { return r.json(); })
+                .then(finishPortable)
+                .catch(function () { finishPortable({ success: false, message: 'Erreur réseau.' }); });
+        }
+
+        btnPortable.addEventListener('click', function () {
+            var file = portableFile.files[0];
+            if (!file) { return; }
+
+            btnPortable.disabled = true;
+            portableResult.textContent = '';
+            portableSpinner.classList.remove('d-none');
+
+            var chunker = window.ScoutMagicChunkedUpload;
+            if (chunker && file.size > chunker.CHUNK_THRESHOLD) {
+                portableProgress.classList.remove('d-none');
+                portableProgress.textContent = 'Envoi de l’archive…';
+                chunker.uploadInChunks(file, '/setup/restore-portable-chunk', {
+                    csrfToken: form.elements['_csrf_token'].value,
+                    onProgress: function (sent, total) {
+                        portableProgress.textContent = 'Envoi de l’archive… '
+                            + Math.round((sent / total) * 100) + ' %';
+                    }
+                }).then(function (res) {
+                    portableProgress.textContent = 'Restauration en cours… ne fermez pas cette page.';
+                    var fields = portableCredentials();
+                    fields.upload_id = res.uploadId;
+                    return postPortable(fields, null);
+                }).catch(function (err) {
+                    finishPortable({ success: false, message: (err && err.message) || 'Le téléversement a échoué.' });
+                });
+                return;
+            }
+
+            portableProgress.classList.remove('d-none');
+            portableProgress.textContent = 'Restauration en cours… ne fermez pas cette page.';
+            postPortable(portableCredentials(), file);
+        });
+    }
+
 })();

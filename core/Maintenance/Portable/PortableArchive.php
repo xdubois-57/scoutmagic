@@ -43,14 +43,43 @@ use Core\Maintenance\VersionFile;
 final class PortableArchive
 {
     /**
+     * The only tree a portable restore puts back on disk.
+     *
+     * **The archive also carries `core/`, `modules/` and `public/`, and a
+     * restore deliberately ignores them.** That looks like throwing away
+     * most of the file, so it is worth being exact about why: a portable
+     * archive moves a unit's DATA to a new home, and the new home already
+     * has ScoutMagic on it — the operator has just installed it. Consider
+     * the three cases the version rule allows, and code is never wanted in
+     * any of them. Onto the same version, extracting it is a no-op that
+     * rewrites thousands of files. Onto a NEWER installation it is a
+     * silent downgrade, and one that contradicts the very next step: the
+     * schema migration exists to bring an older dump forward, which needs
+     * the newer code to bring it forward TO. Onto an older installation
+     * nothing is extracted at all, because that archive was refused before
+     * this method was ever reached.
+     *
+     * It also removes a hazard rather than managing one. Extracting
+     * `core/` replaces the running process's own code mid-request — the
+     * mixture that cost this project six consecutive rollbacks in
+     * production, and the reason the ordinary restore defers its migration
+     * to a later scheduler pass. A restore that never touches code has
+     * nothing to defer.
+     *
+     * The entries stay IN the archive: it is one zip, and a human who
+     * wants the tree it came from can open it.
+     */
+    private const RESTORED_TREE = 'storage/';
+
+    /**
      * Members that must never be extracted over the install root.
      *
      * The sealed secrets are unsealed and written deliberately, to the
      * paths the manifest names; the manifest itself describes the archive
-     * and belongs to no installation. Extracting either as an ordinary
-     * entry would drop a `secrets/` directory and a stray JSON file into
-     * the site root — and, for the secrets, would write the SEALED bytes
-     * where the live key belongs.
+     * and belongs to no installation; the dump is read straight out of the
+     * archive rather than being dropped in the site root. Extracting the
+     * secrets as ordinary entries would write the SEALED bytes where the
+     * live key belongs.
      */
     private const NON_RESTORABLE_PREFIXES = ['secrets/'];
 
@@ -313,14 +342,16 @@ final class PortableArchive
     }
 
     /**
-     * The entries to extract over the install root: everything except the
-     * archive's own bookkeeping.
+     * The entries a restore actually writes: the site's data, and nothing
+     * else.
      *
      * Returned as an explicit list rather than filtered afterwards, because
      * `ZipArchive::extractTo()` takes one and there is no undoing an entry
-     * it has already written.
+     * it has already written. See {@see RESTORED_TREE} for why the code
+     * trees in the archive are not among them.
      *
      * @return string[]
+     * @throws BackupException
      */
     public function restorableEntries(): array
     {
@@ -333,7 +364,7 @@ final class PortableArchive
             }
 
             $name = str_replace('\\', '/', (string) $stat['name']);
-            if ($name === PortableManifest::MEMBER) {
+            if (!str_starts_with($name, self::RESTORED_TREE)) {
                 continue;
             }
             foreach (self::NON_RESTORABLE_PREFIXES as $prefix) {

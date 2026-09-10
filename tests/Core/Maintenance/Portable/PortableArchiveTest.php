@@ -248,7 +248,7 @@ final class PortableArchiveTest extends TestCase
      * hold the SEALED bytes, and putting them anywhere near the live paths
      * is how a successful restore locks an installation out of its own
      * database. The manifest describes the archive and belongs to no
-     * installation.
+     * installation, and the dump is read straight out of the archive.
      */
     public function testTheArchivesOwnBookkeepingIsNeverExtracted(): void
     {
@@ -257,13 +257,52 @@ final class PortableArchiveTest extends TestCase
         $entries = $archive->restorableEntries();
 
         $this->assertNotContains(PortableManifest::MEMBER, $entries);
+        $this->assertNotContains('database.sql', $entries);
         foreach ($entries as $entry) {
             $this->assertStringStartsNotWith('secrets/', $entry, 'a sealed secret would be extracted as a plain file');
         }
-        $this->assertContains('database.sql', $entries);
         $this->assertNotEmpty(
             array_filter($entries, static fn (string $e): bool => str_starts_with($e, 'storage/uploads/')),
-            'the file trees the archive exists to carry are not in the extraction list'
+            'the data the archive exists to carry is not in the extraction list'
+        );
+
+        $archive->close();
+    }
+
+    /**
+     * **The code trees are in the archive and are never restored.**
+     *
+     * The target already has ScoutMagic on it, and the version rule allows
+     * only two cases here: the same version, where extracting `core/`
+     * rewrites thousands of files to no effect, or a NEWER one, where it
+     * is a silent downgrade that would also contradict the migration
+     * running immediately afterwards. It would additionally replace the
+     * running process's own code mid-request.
+     *
+     * Asserted from both sides, because "the list is empty of code" would
+     * also pass on an archive that never carried any.
+     */
+    public function testTheCodeTreesAreCarriedButNeverPutBack(): void
+    {
+        $path = $this->buildArchive();
+        $archive = PortableArchive::open($path, self::PASSPHRASE);
+
+        $entries = $archive->restorableEntries();
+        foreach (['core/', 'modules/', 'public/'] as $tree) {
+            $this->assertEmpty(
+                array_filter($entries, static fn (string $e): bool => str_starts_with($e, $tree)),
+                $tree . ' would be extracted over the installation being restored onto'
+            );
+        }
+
+        $names = [];
+        for ($i = 0; $i < $archive->handle()->numFiles; $i++) {
+            $stat = $archive->handle()->statIndex($i);
+            $names[] = is_array($stat) ? (string) $stat['name'] : '';
+        }
+        $this->assertNotEmpty(
+            array_filter($names, static fn (string $e): bool => str_starts_with($e, 'core/')),
+            'the archive carries no code at all, so the assertion above proves nothing'
         );
 
         $archive->close();
