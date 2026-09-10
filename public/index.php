@@ -2031,8 +2031,12 @@ $schedulerService->rearm('core', 'auto_backup', 'auto', new DateTimeImmutable())
 // re-armer would find nothing and queue a second chain (Core\Scheduler\
 // SchedulerService::seed(), and Tests\Architecture\
 // ChainSeedingInvariantTest for what that once cost).
-$schedulerService->seed('core', 'operational_checks',
-    \Core\Alert\Task\RunOperationalChecksHandler::REFERENCE, new DateTimeImmutable());
+$schedulerService->seed(
+    'core',
+    'operational_checks',
+    \Core\Alert\Task\RunOperationalChecksHandler::REFERENCE,
+    new DateTimeImmutable()
+);
 
 // Same bootstrap for the notification retention purge (Core\Notification\
 // Task\PurgeNotificationsHandler).
