@@ -33,6 +33,25 @@ Réglages.
 > une sauvegarde qui vit sur le serveur ne protège pas d'un problème
 > d'hébergement.
 
+## L'intégrité
+
+Le site relit régulièrement les sauvegardes qu'il garde et compare leur
+contenu à ce qui avait été écrit. Une ligne peut donc porter :
+
+- **Vérifiée** — relue, identique à l'original ;
+- **Illisible** — le fichier est là mais son contenu a changé, le plus
+  souvent une archive tronquée par un disque plein. Elle ne se restaurera
+  pas : supprimez-la et créez-en une nouvelle tout de suite ;
+- **Fichier absent** — le fichier n'est plus sur le serveur. Le site ne
+  l'a pas supprimé, une suppression retire la ligne en même temps ;
+- **Non vérifiable** — sauvegarde antérieure à cette vérification, sans
+  empreinte à laquelle la comparer. Les suivantes en ont une.
+
+Une ligne sans mention n'a pas encore été relue : la vérification prend
+quelques sauvegardes par nuit plutôt que toutes d'un coup.
+
+## Supprimer
+
 « Supprimer » retire une sauvegarde après une confirmation qui la
 nomme. Celle prise **avant une opération** est ce depuis quoi le site
 revient en arrière seul : tant que cette opération tourne, la

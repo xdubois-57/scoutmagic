@@ -533,10 +533,15 @@ class RestoreBackupRoundTripTest extends TestCase
             dirname(__DIR__, 4) . '/core/Maintenance/Task/RestoreBackupHandler.php'
         );
 
-        $marked = strpos($source, 'markCompleted($safetyBackupId');
+        // The completion call moved behind Core\Maintenance\BackupIntegrity
+        // in IT-05, so that no site can complete a backup without recording
+        // the digests that let it be verified later. What this test pins is
+        // unchanged: the copy is declared in the running task's payload the
+        // moment it exists.
+        $marked = strpos($source, '->complete($safetyBackupId');
         $declared = strpos($source, 'rememberInPayload(');
 
-        $this->assertIsInt($marked, 'The safety copy is no longer marked complete under that name.');
+        $this->assertIsInt($marked, 'The safety copy is no longer completed under that name.');
         $this->assertIsInt(
             $declared,
             'RestoreBackupHandler no longer declares its safety copy in its own payload. Until it does, that copy '

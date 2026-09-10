@@ -108,7 +108,11 @@ class AutoBackupHandler implements TaskHandlerInterface
                 null,
                 null
             );
-            $backupRepository->markCompleted($backupId, $zipFileId, $dbDumpFileId);
+            (new \Core\Maintenance\BackupIntegrity(
+                $backupRepository,
+                $fileRepository,
+                $context->storagePath
+            ))->complete($backupId, $zipFileId, $filesZipPath, $dbDumpFileId, $dbDumpPath);
 
             $context->settings->setInternal('backup_auto_last_run', (new \DateTimeImmutable())->format('Y-m-d H:i:s'));
 

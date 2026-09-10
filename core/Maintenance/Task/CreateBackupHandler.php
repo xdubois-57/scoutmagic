@@ -85,7 +85,11 @@ class CreateBackupHandler implements TaskHandlerInterface
                 $backup->requestedBy
             );
 
-            $backupRepository->markCompleted($backupId, $zipFileId, $dbDumpFileId);
+            (new \Core\Maintenance\BackupIntegrity(
+                $backupRepository,
+                $fileRepository,
+                $context->storagePath
+            ))->complete($backupId, $zipFileId, $result['zipPath'], $dbDumpFileId, $result['dbDumpPath']);
             (new \Core\Maintenance\BackupRetention(
                 $backupRepository,
                 $fileRepository,

@@ -17,6 +17,12 @@
                 <div class="flex-grow-1">
                     <div class="d-flex flex-wrap align-items-center gap-2">
                         <span class="badge {{ backup.familyClass }}">{{ backup.typeLabel }}</span>
+                        {% if backup.integrityLabel %}
+                            <span class="badge {{ backup.integrityClass }}"
+                                  {% if backup.integrityExplanation %}title="{{ backup.integrityExplanation }}"{% endif %}>
+                                {{ backup.integrityLabel }}
+                            </span>
+                        {% endif %}
                         {% if backup.status == 'in_progress' %}
                             {% include 'partials/status_badge.html.twig' with { status: 'in_progress', label: 'En cours' } only %}
                         {% elseif backup.status == 'pending' %}

@@ -79,7 +79,11 @@ class ResetSettingsHandler implements TaskHandlerInterface
                 null,
                 $requestedBy
             );
-            $backupRepository->markCompleted($backupId, $zipFileId, $dbDumpFileId);
+            (new \Core\Maintenance\BackupIntegrity(
+                $backupRepository,
+                $fileRepository,
+                $context->storagePath
+            ))->complete($backupId, $zipFileId, $filesZipPath, $dbDumpFileId, $dbDumpPath);
 
             $context->settings->resetAllToDefaults();
 

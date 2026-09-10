@@ -121,13 +121,90 @@ class BackupRepository
         $stmt->execute([$id]);
     }
 
-    public function markCompleted(int $id, ?int $fileId, ?int $dbDumpFileId): void
-    {
+    /**
+     * **Call this through {@see BackupIntegrity::complete()}, not directly.**
+     *
+     * The digests are what let a later pass ask whether a stored backup is
+     * still readable, and a completion that recorded none would produce a
+     * row that looks finished and can never be verified. Six sites
+     * complete a backup; routing them all through one place is what stops
+     * the seventh from forgetting, and
+     * `Tests\Core\Maintenance\BackupIntegrityWiringTest` refuses a
+     * production caller that reaches past it.
+     */
+    public function markCompleted(
+        int $id,
+        ?int $fileId,
+        ?int $dbDumpFileId,
+        ?string $archiveSha256 = null,
+        ?string $dbDumpSha256 = null
+    ): void {
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare(
-            "UPDATE backups SET status = 'completed', file_id = ?, db_dump_file_id = ?, completed_at = ? WHERE id = ?"
+            "UPDATE backups SET status = 'completed', file_id = ?, db_dump_file_id = ?, "
+            . 'archive_sha256 = ?, db_dump_sha256 = ?, completed_at = ? WHERE id = ?'
         );
-        $stmt->execute([$fileId, $dbDumpFileId, $now, $id]);
+        $stmt->execute([$fileId, $dbDumpFileId, $archiveSha256, $dbDumpSha256, $now, $id]);
+    }
+
+    /**
+     * Records what a verification pass found, and when it looked.
+     *
+     * The timestamp is written even when nothing could be concluded: it is
+     * what makes {@see findLeastRecentlyVerified()} move on to the next
+     * backup instead of returning the same unverifiable one for ever.
+     */
+    public function recordIntegrity(int $id, BackupIntegrityStatus $status): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE backups SET integrity_status = ?, integrity_checked_at = ? WHERE id = ?'
+        );
+        $stmt->execute([$status->value, (new \DateTimeImmutable())->format('Y-m-d H:i:s'), $id]);
+    }
+
+    /**
+     * Completed backups whose turn it is to be re-read, oldest check first.
+     *
+     * `integrity_checked_at IS NULL` sorts first on both engines with
+     * `ORDER BY ... IS NULL DESC`, which is spelled explicitly rather than
+     * relying on either one's default treatment of NULL — the asymmetry
+     * `docs/quality-pipeline.md` warns about, and a silent wrong order
+     * here would mean a freshly created backup never getting checked.
+     *
+     * Only `completed` rows: a pending one has no files yet and a failed
+     * one has nothing worth reading.
+     *
+     * @return Backup[]
+     */
+    public function findLeastRecentlyVerified(int $limit): array
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT * FROM backups WHERE status = 'completed'
+             ORDER BY integrity_checked_at IS NULL DESC, integrity_checked_at ASC, id ASC
+             LIMIT ?"
+        );
+        $stmt->bindValue(1, $limit, \PDO::PARAM_INT);
+        $stmt->execute();
+
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * How many kept backups the last pass could not read.
+     *
+     * Counts `missing` and `corrupt` only — never `unknown` (not looked at
+     * yet) or `unverifiable` (nothing to compare against). Read by
+     * `Core\Alert\Check\BackupIntegrityCheck`, which is why it counts
+     * rather than lists: an alert needs a number, and the list is on the
+     * page already.
+     */
+    public function countUnreadable(): int
+    {
+        $stmt = $this->pdo->query(
+            "SELECT COUNT(*) FROM backups WHERE integrity_status IN ('missing', 'corrupt')"
+        );
+
+        return $stmt !== false ? (int) $stmt->fetchColumn() : 0;
     }
 
     public function markFailed(int $id, string $errorMessage): void
@@ -157,7 +234,18 @@ class BackupRepository
             errorMessage: $row['error_message'] !== null ? (string) $row['error_message'] : null,
             createdAt: (string) $row['created_at'],
             completedAt: $row['completed_at'] !== null ? (string) $row['completed_at'] : null,
-            sizeBytes: isset($row['size_bytes']) ? (int) $row['size_bytes'] : null
+            sizeBytes: isset($row['size_bytes']) ? (int) $row['size_bytes'] : null,
+            archiveSha256: $row['archive_sha256'] !== null ? (string) $row['archive_sha256'] : null,
+            dbDumpSha256: $row['db_dump_sha256'] !== null ? (string) $row['db_dump_sha256'] : null,
+            // An unknown value from a future version is read as « not
+            // looked at » rather than as a failure: this row is displayed
+            // and counted, and guessing wrong towards "broken" is the one
+            // direction that costs somebody a night.
+            integrityStatus: BackupIntegrityStatus::tryFrom((string) ($row['integrity_status'] ?? ''))
+                ?? BackupIntegrityStatus::Unknown,
+            integrityCheckedAt: $row['integrity_checked_at'] !== null
+                ? (string) $row['integrity_checked_at']
+                : null
         );
     }
 }

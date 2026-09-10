@@ -1078,9 +1078,33 @@ CREATE TABLE backups (
     status ENUM('pending', 'in_progress', 'completed', 'failed') NOT NULL DEFAULT 'pending',
     requested_by INT UNSIGNED,
     error_message VARCHAR(500),
+    -- SHA-256 of each of the two files, written once when the backup
+    -- completes and never again (Core\Maintenance\BackupIntegrity). Nothing
+    -- verifies that a backup ALREADY ON DISK is still readable otherwise:
+    -- an upload is validated as it arrives, but a stored archive is only
+    -- ever opened on the day somebody needs it, which is the worst day to
+    -- discover it was truncated — and truncation is exactly what a full
+    -- quota produces.
+    --
+    -- NULL means "taken before this existed", which is not the same as
+    -- "corrupt" and must never be reported as one: an installation
+    -- upgrading with five older backups would light the alert on day one,
+    -- which is how an alert stops being read.
+    archive_sha256 CHAR(64),
+    db_dump_sha256 CHAR(64),
+    -- What the last verification pass found. 'missing' and 'corrupt' are
+    -- deliberately distinct: a file that vanished and a file that changed
+    -- under us are different accidents with different causes, and telling
+    -- an operator "illisible" for both would hide which one happened.
+    integrity_status ENUM('unknown', 'intact', 'missing', 'corrupt', 'unverifiable') NOT NULL DEFAULT 'unknown',
+    integrity_checked_at DATETIME,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     completed_at DATETIME,
     INDEX idx_backups_created (created_at),
+    -- The verification pass takes the least recently checked first, so that
+    -- an installation with more backups than one pass can hash still gets
+    -- round to all of them.
+    INDEX idx_backups_integrity (integrity_checked_at),
     CONSTRAINT fk_backups_file FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE SET NULL,
     CONSTRAINT fk_backups_db_dump_file FOREIGN KEY (db_dump_file_id) REFERENCES files(id) ON DELETE SET NULL,
     CONSTRAINT fk_backups_requested_by FOREIGN KEY (requested_by) REFERENCES user_accounts(id) ON DELETE SET NULL

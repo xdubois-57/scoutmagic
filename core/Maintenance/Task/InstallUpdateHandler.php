@@ -238,7 +238,11 @@ class InstallUpdateHandler implements TaskHandlerInterface
                 null,
                 $history->requestedBy
             );
-            $backupRepository->markCompleted($backupId, $zipFileId, $dbDumpFileId);
+            (new \Core\Maintenance\BackupIntegrity(
+                $backupRepository,
+                $fileRepository,
+                $context->storagePath
+            ))->complete($backupId, $zipFileId, $filesZipPath, $dbDumpFileId, $dbDumpPath);
             $updateHistoryRepository->setBackupId($historyId, $backupId);
 
             try {
