@@ -90,7 +90,27 @@ function buildDom(options = {}) {
             <div id="save-hint">Testez d'abord la connexion.</div>
             <div id="cron-save-hint" class="d-none">Aucune tâche cron n'a encore été détectée.</div>
         </form>
+        <div id="portable-restore-card">
+            <input type="file" id="portable-file">
+            <input type="password" id="portable-passphrase" value="">
+            <button type="button" id="btn-portable-restore" disabled>Restaurer cette sauvegarde</button>
+            <span id="portable-spinner" class="d-none"></span>
+            <span id="portable-restore-result"></span>
+            <output id="portable-progress" class="d-none"></output>
+        </div>
     `;
+}
+
+/**
+ * Puts a file on the (read-only) file input, the way the browser would.
+ */
+function attachFile(id, name, size) {
+    const file = new File(['x'], name, { type: 'application/zip' });
+    Object.defineProperty(file, 'size', { value: size });
+    Object.defineProperty(document.getElementById(id), 'files', {
+        value: [file],
+        configurable: true,
+    });
 }
 
 async function boot(options) {
@@ -478,5 +498,105 @@ describe('setup.js: copy buttons', () => {
 
         expect(execCommand).toHaveBeenCalledWith('copy');
         expect(button.textContent).toBe('Copié !');
+    });
+});
+
+describe('setup.js: repartir d\'une sauvegarde portable', () => {
+    // La base doit être installée avant : la restauration écrit par-dessus,
+    // et l'opérateur doit avoir vu qu'elle était vide. Le bouton reste donc
+    // inerte tant que l'étape précédente n'a pas abouti.
+    it('leaves the button disabled until the database step has passed', async () => {
+        await boot({ installAction: '/setup/install-database' });
+
+        attachFile('portable-file', 'sauvegarde.zip', 1024);
+        document.getElementById('portable-file').dispatchEvent(new Event('change'));
+        document.getElementById('portable-passphrase').value = 'quatre mots parfaitement ordinaires';
+        document.getElementById('portable-passphrase').dispatchEvent(new Event('input'));
+
+        expect(document.getElementById('btn-portable-restore').disabled).toBe(true);
+    });
+
+    async function readyToRestore() {
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, migrated: true, table_count: 40, statements_executed: 40 }),
+        }));
+        await boot({ installAction: '/setup/install-database' });
+
+        document.getElementById('btn-test-db').click();
+        await settle();
+
+        attachFile('portable-file', 'sauvegarde.zip', 1024);
+        document.getElementById('portable-file').dispatchEvent(new Event('change'));
+        document.getElementById('portable-passphrase').value = 'quatre mots parfaitement ordinaires';
+        document.getElementById('portable-passphrase').dispatchEvent(new Event('input'));
+    }
+
+    it('enables the button once the database is installed and both fields are filled', async () => {
+        await readyToRestore();
+
+        expect(document.getElementById('btn-portable-restore').disabled).toBe(false);
+    });
+
+    /**
+     * Les identifiants de base partent avec la requête, et c'est tout
+     * l'intérêt : ce sont eux que la restauration conserve (D5), contre ceux
+     * que l'archive transporte.
+     */
+    it('posts the passphrase and the database credentials of THIS machine', async () => {
+        await readyToRestore();
+
+        const calls = [];
+        global.fetch = vi.fn((url, init) => {
+            calls.push({ url, body: init.body });
+            return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true }) });
+        });
+
+        document.getElementById('btn-portable-restore').click();
+        await settle();
+
+        expect(calls).toHaveLength(1);
+        expect(calls[0].url).toBe('/setup/restore-portable');
+        expect(calls[0].body.get('passphrase')).toBe('quatre mots parfaitement ordinaires');
+        expect(calls[0].body.get('db_name')).toBe('scoutmagic');
+        expect(calls[0].body.get('db_password')).toBe('secret');
+        expect(calls[0].body.get('_csrf_token')).toBe('setup-tok');
+    });
+
+    it('tells the operator to log in with their usual credentials once it succeeds', async () => {
+        await readyToRestore();
+
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true }),
+        }));
+
+        document.getElementById('btn-portable-restore').click();
+        await settle();
+
+        expect(document.getElementById('portable-restore-result').textContent).toContain('restauré');
+        expect(document.getElementById('portable-progress').textContent).toContain('identifiants habituels');
+        // Rien à ajouter au formulaire : le site restauré a déjà son unité,
+        // ses comptes et ses réglages.
+        expect(document.getElementById('btn-portable-restore').disabled).toBe(true);
+    });
+
+    /**
+     * Un refus est réversible : l'opérateur peut s'être trompé de phrase de
+     * passe, et doit pouvoir réessayer sans recharger la page.
+     */
+    it('shows the refusal and lets the operator try again', async () => {
+        await readyToRestore();
+
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: false, message: 'La phrase de passe ne correspond pas.' }),
+        }));
+
+        document.getElementById('btn-portable-restore').click();
+        await settle();
+
+        expect(document.getElementById('portable-restore-result').textContent).toContain('phrase de passe');
+        expect(document.getElementById('btn-portable-restore').disabled).toBe(false);
     });
 });
