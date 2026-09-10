@@ -13,10 +13,19 @@ class UploadHandler
     /**
      * @param \Core\Storage\DiskBudget|null $diskBudget checked before the
      *        upload is written, so a file that would not fit is refused
-     *        rather than truncated. Nullable and trailing so that a caller
-     *        constructing this handler outside the composition root keeps
-     *        working unchanged; every construction site in this repository
-     *        passes one.
+     *        rather than truncated.
+     *
+     *        Nullable and trailing so a test can build this handler with
+     *        no settings to read a quota from — and that convenience is
+     *        exactly what makes a forgotten argument silent: it does not
+     *        fail to compile, fail a test, or log anything, it just writes
+     *        past a full quota. Two production sites were already wrong
+     *        when this was first written, one of them a whole composition
+     *        root (`public/scheduler-bootstrap.php`) that nobody had
+     *        looked at. `Tests\Core\Storage\DiskBudgetWiringTest` now
+     *        asserts over the source that no production construction of
+     *        this class — or of `ChunkedUploadStore` or `BackupService` —
+     *        omits it, with one named exception carrying its reason.
      */
     public function __construct(
         private FileRepository $fileRepository,

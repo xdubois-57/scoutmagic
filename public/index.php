@@ -4026,7 +4026,7 @@ if ($isEnabled('inbound_mail')) {
                 new \Modules\InboundMail\Service\MailboxErrorFormatter(),
                 new \Modules\InboundMail\Service\MailboxClientFactory(),
                 new \Modules\InboundMail\Service\AnalysisResultApplier($inboundMessageRepository),
-                new \Core\File\UploadHandler(new \Core\File\FileRepository($pdo), $storagePath),
+                new \Core\File\UploadHandler(new \Core\File\FileRepository($pdo), $storagePath, $diskBudget),
                 null,
                 $encryptedFileStorageService,
                 $inboundScopeService,

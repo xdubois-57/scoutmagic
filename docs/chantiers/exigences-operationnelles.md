@@ -441,6 +441,30 @@ gênant.**
     les commentaires, relevée au tour précédent et appliquée trop
     étroitement la première fois.
 
+16. **Deux points de construction sans budget disque, dont une racine de
+    composition entière.** Le docbloc d'`UploadHandler` affirmait que
+    « tous les points de construction du dépôt en passent un » ; c'était
+    faux. L'écran de rafraîchissement manuel des boîtes mail dans
+    `public/index.php` n'en passait pas, et `public/scheduler-bootstrap.php`
+    — la seconde racine de composition, que personne n'avait ouverte — non
+    plus. Le paramètre étant nullable et en dernier, l'oubli ne casse
+    rien : il écrit simplement par-dessus un quota plein, en silence.
+
+    Les deux sont corrigés, et le motif est fermé plutôt que réparé :
+    `DiskBudgetWiringTest` vérifie sur le source qu'aucune construction de
+    production d'`UploadHandler`, `ChunkedUploadStore` ou `BackupService`
+    n'omet le budget, avec **une** exception nommée et motivée —
+    `SetupController::reinstall()` fait son dump avant que l'application
+    existe, donc sans `SettingService` pour lire un quota, et ce dump est
+    la copie de secours prise avant une réinstallation : la refuser sur une
+    lecture impossible détruirait ce qu'elle sauvait. Le test vérifie aussi
+    que l'exception désigne encore quelque chose de réel et que le balayage
+    atteint bien les deux racines.
+
+    Rendre le paramètre obligatoire aurait été l'autre réponse : elle
+    imposait un `, null` à quarante constructions de test pour fermer un
+    trou qui n'existe que dans le câblage de production.
+
 **Reporté.** La saisie du quota se fait sur la page générique
 Configuration > Réglages, pas sur la page Maintenance : le document de
 chantier borne l'interface de cette itération au seul encart de lecture.

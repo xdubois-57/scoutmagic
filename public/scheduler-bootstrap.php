@@ -76,6 +76,12 @@ function scoutmagic_bootstrap_scheduler(
 ): \Core\Scheduler\TaskContext {
     $pdo = $connection->getPdo();
 
+    // The quota guard, built once for every handler wired below — the
+    // scheduler is a second composition root and a service constructed
+    // without it writes past a full quota in silence (ARCHITECTURE.md
+    // §8.98).
+    $diskBudget = new \Core\Storage\DiskBudget($storagePath, $settingService);
+
     // ── Capabilities: what a handler may getOptional() ──────────────────
     //
     // One registration per published Api\ interface, each guarded by its
@@ -333,7 +339,8 @@ function scoutmagic_bootstrap_scheduler(
             $storagePath,
             $enabledModuleIds,
             $notificationService,
-            $userAccountRepo
+            $userAccountRepo,
+            $diskBudget
         ): \Modules\InboundMail\Service\MessageConsumerRegistry {
                 $registry = new \Modules\InboundMail\Service\MessageConsumerRegistry();
                 $inboundMail = $context->getOptional(\Modules\InboundMail\Api\InboundMailInterface::class);
@@ -570,7 +577,7 @@ function scoutmagic_bootstrap_scheduler(
                         new \Modules\Camps\Service\DocumentService(
                             new \Modules\Camps\Repository\DocumentRepository($pdo),
                             new \Core\File\AttachedFileRemover($fileRepository, $storagePath),
-                            new \Core\File\UploadHandler($fileRepository, $storagePath),
+                            new \Core\File\UploadHandler($fileRepository, $storagePath, $diskBudget),
                             $auditService
                         ),
                         new \Modules\Camps\Mail\MailFieldCompletionService(
