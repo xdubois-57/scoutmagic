@@ -47,6 +47,9 @@ class MaintenanceControllerTest extends TestCase
     private SecretManager $secretManager;
     private Environment $twig;
     private string $storagePath;
+    private Connection $connection;
+    /** @var callable(BackupService): MaintenanceController */
+    private $rebuildController;
 
     /**
      * Configurable per-test — the "Vérifier maintenant" / dev-branch
@@ -84,7 +87,11 @@ class MaintenanceControllerTest extends TestCase
         $this->settingService->register('base_url', 'https://example.test', 'url', 'L', 'D');
 
         $connection = new Connection('127.0.0.1', 3306, 'nonexistent_db', 'nobody', '');
-        $storagePath = sys_get_temp_dir() . '/maintenance_controller_test_' . uniqid();
+        // Nested rather than directly under the system temp directory:
+        // `DiskBudget` charges a declared quota for `storage/`'s whole
+        // parent tree, so a flat temp directory would drag in everything
+        // else on the machine.
+        $storagePath = sys_get_temp_dir() . '/maintenance_controller_test_' . uniqid() . '/storage';
         mkdir($storagePath, 0755, true);
         $this->storagePath = $storagePath;
         $backupService = new BackupService($connection, $storagePath, dirname($storagePath));
@@ -169,14 +176,31 @@ class MaintenanceControllerTest extends TestCase
             }
         };
 
-        $this->controller = new MaintenanceController(
-            $this->twig, $backupService, $this->backupRepository, $fileRepository, $this->updateHistoryRepository, $schedulerService,
-            $moduleManager, $encryption, $journalService, $this->settingService, $storagePath, $this->secretManager, $this->fakeReleaseClient,
-            null,
-            // The health block's crontab line is spelled from the public
-            // directory, the one anchor valid in both hosting layouts.
-            dirname($storagePath) . '/public'
-        );
+        // Captured so a test can rebuild the controller around a DIFFERENT
+        // BackupService — the disk-budget refusal below needs one whose
+        // quota is already full, and everything else about the page must
+        // stay identical for that test to mean anything.
+        $this->rebuildController = function (BackupService $service) use (
+            $fileRepository,
+            $schedulerService,
+            $moduleManager,
+            $encryption,
+            $journalService,
+            $storagePath
+        ): MaintenanceController {
+            return new MaintenanceController(
+                $this->twig, $service, $this->backupRepository, $fileRepository, $this->updateHistoryRepository,
+                $schedulerService, $moduleManager, $encryption, $journalService, $this->settingService, $storagePath,
+                $this->secretManager, $this->fakeReleaseClient,
+                null,
+                // The health block's crontab line is spelled from the public
+                // directory, the one anchor valid in both hosting layouts.
+                dirname($storagePath) . '/public'
+            );
+        };
+
+        $this->connection = $connection;
+        $this->controller = ($this->rebuildController)($backupService);
 
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
@@ -491,6 +515,47 @@ class MaintenanceControllerTest extends TestCase
         $this->assertSame([], $this->backupRepository->findRecent(5));
     }
 
+    /**
+     * A full quota must reach the admin as the actionable French sentence,
+     * not as a 500 — and must not leave the `backups` row stuck at
+     * `in_progress` for ever.
+     *
+     * `InsufficientDiskSpaceException` is a SIBLING of `BackupException`
+     * (both extend RuntimeException), so a `catch (BackupException)` alone
+     * let it escape. This is the only synchronous backup route; every
+     * background one reports through its own handler.
+     */
+    public function testAFullQuotaIsReportedToTheAdminRatherThanEscapingAsAnError(): void
+    {
+        $this->settingService->register(\Core\Storage\DiskBudget::QUOTA_SETTING, '', 'text', 'Quota', 'Quota');
+        $this->settingService->set(\Core\Storage\DiskBudget::QUOTA_SETTING, '1');
+
+        $controller = ($this->rebuildController)(new BackupService(
+            $this->connection,
+            $this->storagePath,
+            dirname($this->storagePath),
+            new \Core\Storage\DiskBudget($this->storagePath, $this->settingService)
+        ));
+
+        $token = $this->csrfToken();
+        $request = new Request(
+            'POST',
+            '/config/maintenance/backup/database',
+            [],
+            ['_csrf_token' => $token],
+            [],
+            []
+        );
+
+        $response = $controller->createDatabaseBackup($request, []);
+
+        $this->assertSame(302, $response->getStatusCode(), 'a refusal redirects, it does not 500');
+
+        $backups = $this->backupRepository->findRecent(5);
+        $this->assertNotSame([], $backups);
+        $this->assertSame('failed', $backups[0]->status, 'the row must not be left at in_progress');
+    }
+
     public function testCreateFullBackupValidatesCsrf(): void
     {
         $response = $this->controller->createFullBackup($this->jsonRequest([
@@ -612,7 +677,7 @@ class MaintenanceControllerTest extends TestCase
      */
     public function testIndexShowsTheInstalledCommitInParenthesesForADevBuild(): void
     {
-        $versionFile = sys_get_temp_dir() . '/VERSION';
+        $versionFile = dirname($this->storagePath) . '/VERSION';
         $original = is_file($versionFile) ? file_get_contents($versionFile) : null;
         file_put_contents($versionFile, "dev-a1b2c3d\n");
 
@@ -655,7 +720,7 @@ class MaintenanceControllerTest extends TestCase
 
     public function testIndexShowsTheInstalledCommitMessageForADevBuild(): void
     {
-        $versionFile = sys_get_temp_dir() . '/VERSION';
+        $versionFile = dirname($this->storagePath) . '/VERSION';
         $original = is_file($versionFile) ? file_get_contents($versionFile) : null;
         file_put_contents($versionFile, "dev-a1b2c3d\n");
         $this->fakeReleaseClient->commitBySha = new CommitInfo(
@@ -707,7 +772,7 @@ class MaintenanceControllerTest extends TestCase
      */
     public function testIndexDoesNotShowUpdateAvailableWhenADevBuildIsInstalledAndChannelStaysDev(): void
     {
-        $versionFile = sys_get_temp_dir() . '/VERSION';
+        $versionFile = dirname($this->storagePath) . '/VERSION';
         $original = is_file($versionFile) ? file_get_contents($versionFile) : null;
         file_put_contents($versionFile, "dev-a1b2c3d\n");
         $this->settingService->setInternal('update_latest_version', '1.0.22');
@@ -738,7 +803,7 @@ class MaintenanceControllerTest extends TestCase
      */
     public function testIndexShowsUpdateAvailableWhenADevBuildIsInstalledButChannelIsNoLongerDev(): void
     {
-        $versionFile = sys_get_temp_dir() . '/VERSION';
+        $versionFile = dirname($this->storagePath) . '/VERSION';
         $original = is_file($versionFile) ? file_get_contents($versionFile) : null;
         file_put_contents($versionFile, "dev-a1b2c3d\n");
         $this->settingService->setInternal('update_latest_version', '1.0.22');
@@ -1436,7 +1501,7 @@ class MaintenanceControllerTest extends TestCase
      */
     public function testCheckForUpdatesNowReportsAReleaseAsAvailableOverAnInstalledDevBuildWhenChannelIsStable(): void
     {
-        $versionFile = sys_get_temp_dir() . '/VERSION';
+        $versionFile = dirname($this->storagePath) . '/VERSION';
         $original = is_file($versionFile) ? file_get_contents($versionFile) : null;
         file_put_contents($versionFile, "dev-a1b2c3d\n");
         $this->fakeReleaseClient->release = new ReleaseInfo('v1.0.22', 'Notes', 'https://github.com/x/y/releases/tag/v1.0.22', 'https://example.test/artifact.zip');
@@ -1467,7 +1532,7 @@ class MaintenanceControllerTest extends TestCase
      */
     public function testCheckForUpdatesNowProposesTheLatestReleaseWhateverTheConfiguredLevel(): void
     {
-        $versionFile = sys_get_temp_dir() . '/VERSION';
+        $versionFile = dirname($this->storagePath) . '/VERSION';
         $original = is_file($versionFile) ? file_get_contents($versionFile) : null;
         file_put_contents($versionFile, "1.0.36\n");
         $this->fakeReleaseClient->releases = [
@@ -1506,7 +1571,7 @@ class MaintenanceControllerTest extends TestCase
      */
     public function testCheckForUpdatesNowProposesTheNextMajorReleaseRatherThanTheLatest(): void
     {
-        $versionFile = sys_get_temp_dir() . '/VERSION';
+        $versionFile = dirname($this->storagePath) . '/VERSION';
         $original = is_file($versionFile) ? file_get_contents($versionFile) : null;
         file_put_contents($versionFile, "1.4.2\n");
         $this->settingService->set('auto_update_level', 'major');

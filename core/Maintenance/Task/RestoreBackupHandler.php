@@ -23,6 +23,7 @@ use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 use Core\Security\EncryptionService;
+use Core\Storage\DiskBudget;
 
 /**
  * Background "Restaurer un backup" — scheduled by Core\Http\Controller\
@@ -90,13 +91,24 @@ class RestoreBackupHandler implements TaskHandlerInterface
         $extractedUploadDbDump = null;
 
         $basePath = dirname($context->storagePath);
-        $backupService = new BackupService($context->connection, $context->storagePath, $basePath);
+        $backupService = new BackupService(
+            $context->connection,
+            $context->storagePath,
+            $basePath,
+            new DiskBudget($context->storagePath, $context->settings)
+        );
 
         $safetyDbDump = null;
         $safetyZip = null;
 
         try {
             // Step 1: safety backup of the CURRENT state.
+            // Both writes reserved at once, against the reading they are
+            // both sized on. This safety backup is the only thing the
+            // automatic rollback below can restore from, so a truncated
+            // one is unrecoverable.
+            $backupService->ensureRoomForDumpAndArchive(true);
+
             $safetyDbDump = $backupService->createDatabaseDump();
             $safetyZip = $backupService->createFileBackup(true);
 
@@ -276,7 +288,12 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 return;
             }
 
-            $backupService = new BackupService($context->connection, $context->storagePath, $basePath);
+            $backupService = new BackupService(
+                $context->connection,
+                $context->storagePath,
+                $basePath,
+                new DiskBudget($context->storagePath, $context->settings)
+            );
             $this->rollbackToSafetyBackup(
                 $context,
                 $backupService,

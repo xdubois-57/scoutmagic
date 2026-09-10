@@ -81,7 +81,11 @@ final class DelegatedAlbumManagerFactory
         $mediaService = new MediaService(
             $mediaRepository,
             $albumRepository,
-            new UploadHandler($fileRepository, $context->storagePath),
+            new UploadHandler(
+                $fileRepository,
+                $context->storagePath,
+                new \Core\Storage\DiskBudget($context->storagePath, $context->settings)
+            ),
             new SchedulerService(new SchedulerRepository($pdo)),
             $context->settings,
             new GalleryAccessService(

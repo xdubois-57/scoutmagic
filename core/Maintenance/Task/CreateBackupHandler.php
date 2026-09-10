@@ -15,6 +15,7 @@ use Core\Maintenance\BackupRepository;
 use Core\Maintenance\BackupService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
+use Core\Storage\DiskBudget;
 
 /**
  * Background generation of a full (config/no-gallery/with-gallery)
@@ -58,7 +59,12 @@ class CreateBackupHandler implements TaskHandlerInterface
             $password = $context->encryption->decrypt($rawPassword, 'backup_password');
 
             $basePath = dirname($context->storagePath);
-            $backupService = new BackupService($context->connection, $context->storagePath, $basePath);
+            $backupService = new BackupService(
+                $context->connection,
+                $context->storagePath,
+                $basePath,
+                new DiskBudget($context->storagePath, $context->settings)
+            );
             $result = $backupService->createFullBackup($scope, $password);
 
             $zipFileId = $fileRepository->create(

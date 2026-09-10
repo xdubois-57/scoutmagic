@@ -12,6 +12,7 @@ use Core\Maintenance\BackupService;
 use Core\Maintenance\BackupServiceInterface;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
+use Core\Storage\DiskBudget;
 
 /**
  * Background "Réinitialisation complète" — scheduled by
@@ -43,8 +44,12 @@ class FullResetHandler implements TaskHandlerInterface
     {
         $pdo = $context->connection->getPdo();
         $basePath = dirname($context->storagePath);
-        $backupService = $this->backupService ?? new BackupService($context->connection, $context->storagePath,
-            $basePath);
+        $backupService = $this->backupService ?? new BackupService(
+            $context->connection,
+            $context->storagePath,
+            $basePath,
+            new DiskBudget($context->storagePath, $context->settings)
+        );
 
         $preserveDir = null;
 
@@ -56,6 +61,13 @@ class FullResetHandler implements TaskHandlerInterface
             // storage/maintenance/, retrievable only via FTP. That is the
             // literal, accepted trade-off of "keep the file, not the
             // bookkeeping" for a reset whose whole point is an empty DB.
+            // Both writes reserved at once, against the reading they are
+            // both sized on. This is the sharpest of the five sites that
+            // take this pair: step 4 wipes `storage/` and step 2 empties
+            // every table, so a safety backup truncated half-way through
+            // is the only copy of a site that no longer exists.
+            $backupService->ensureRoomForDumpAndArchive(true);
+
             $dbDumpPath = $backupService->createDatabaseDump();
             $filesZipPath = $backupService->createFileBackup(true);
 

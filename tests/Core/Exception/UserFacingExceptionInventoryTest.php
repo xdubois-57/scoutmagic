@@ -55,6 +55,7 @@ final class UserFacingExceptionInventoryTest extends TestCase
         \Core\Module\ModuleRefusalException::class,
         \Core\Security\SsrfValidationException::class,
         \Core\Security\SuperAdminException::class,
+        \Core\Storage\InsufficientDiskSpaceException::class,
         \Core\Support\SupportPackageException::class,
         \Core\View\RgpdGenerationException::class,
         \Modules\Attestations\Service\AttestationsException::class,

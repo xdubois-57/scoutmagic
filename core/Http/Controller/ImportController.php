@@ -55,7 +55,8 @@ class ImportController extends AbstractController
         private UserAccountRepository $userAccountRepository,
         private ImportReportPresenter $reportPresenter,
         private string $storagePath,
-        private ?ReconciliationTrigger $registrationReconciliation = null
+        private ?ReconciliationTrigger $registrationReconciliation = null,
+        private ?\Core\Storage\DiskBudget $diskBudget = null
     ) {
     }
 
@@ -246,6 +247,19 @@ class ImportController extends AbstractController
         if ($file['size'] > 10 * 1024 * 1024) {
             FlashMessage::set('error', 'Le fichier dépasse la taille maximale de 10 Mo.');
             return $this->redirect('/admin/import');
+        }
+
+        // The deposited CSV is written to storage/temp before anything
+        // reads it, so it is a real write against the quota — small, but
+        // the one that runs while an import is also about to write member
+        // photos and an encrypted kept copy.
+        if ($this->diskBudget !== null) {
+            try {
+                $this->diskBudget->ensureRoom((int) $file['size']);
+            } catch (\Core\Storage\InsufficientDiskSpaceException $e) {
+                FlashMessage::set('error', $e->getMessage());
+                return $this->redirect('/admin/import');
+            }
         }
 
         // Save to temp

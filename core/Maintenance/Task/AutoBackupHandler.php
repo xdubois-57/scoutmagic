@@ -16,6 +16,7 @@ use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
+use Core\Storage\DiskBudget;
 
 /**
  * Recurring automatic full-site backup (database + files, gallery always
@@ -70,12 +71,22 @@ class AutoBackupHandler implements TaskHandlerInterface
     {
         $pdo = $context->connection->getPdo();
         $basePath = dirname($context->storagePath);
-        $backupService = $this->backupService ?? new BackupService($context->connection, $context->storagePath,
-            $basePath);
+        $backupService = $this->backupService ?? new BackupService(
+            $context->connection,
+            $context->storagePath,
+            $basePath,
+            new DiskBudget($context->storagePath, $context->settings)
+        );
         $backupRepository = new BackupRepository($pdo);
         $fileRepository = new FileRepository($pdo);
 
         try {
+            // Both writes reserved at once, against the reading they are
+            // both sized on — see the method's docblock. Checking them one
+            // at a time would let the dump succeed and the archive run out
+            // of room half-written.
+            $backupService->ensureRoomForDumpAndArchive(false);
+
             $dbDumpPath = $backupService->createDatabaseDump();
             $filesZipPath = $backupService->createFileBackup(false);
 

@@ -46,8 +46,26 @@ final class ChunkedUploadStore
     private const DIR = '/temp/chunked_uploads';
     private const STALE_AFTER_SECONDS = 24 * 3600;
 
-    public function __construct(private string $storagePath)
-    {
+    /**
+     * Holds the headroom reading pinned before an upload's first fragment.
+     * A sidecar rather than a field, because each fragment arrives in its
+     * own request and nothing else survives between them.
+     */
+    private const BUDGET_SUFFIX = '.budget';
+
+    /**
+     * @param \Core\Storage\DiskBudget|null $diskBudget checked before each
+     *        chunk is appended, against the headroom pinned before the
+     *        first one. This is the largest single write the site performs
+     *        — a restore archive can reach half a gigabyte — and it grows
+     *        one chunk at a time, so per-chunk is where the refusal
+     *        belongs: filling the quota half-way through leaves a partial
+     *        archive that a restore would then read as corrupt.
+     */
+    public function __construct(
+        private string $storagePath,
+        private ?\Core\Storage\DiskBudget $diskBudget = null
+    ) {
     }
 
     /**
@@ -70,6 +88,62 @@ final class ChunkedUploadStore
 
         if ($offset === 0) {
             $this->purgeStalePartials();
+        }
+
+        // The CUMULATIVE size, against a headroom PINNED before the first
+        // fragment. Both halves are needed, and each one alone is wrong.
+        //
+        // Cumulative, because a single chunk proves nothing: checking eight
+        // megabytes sixty times lets a half-gigabyte archive through one
+        // fragment at a time, which is exactly the mid-write overshoot this
+        // guard exists to refuse. `$maxTotalBytes` does not close it either
+        // — it bounds the assembled file, not the disk. `$offset` is where
+        // this chunk starts, so `$offset + its size` is what the assembled
+        // file will weigh.
+        //
+        // Pinned, because the headroom MOVES while the upload writes:
+        // `DiskBudget::availableBytes()` reads `disk_free_space()` live on
+        // every call, and each `.part` byte already on disk has already
+        // shrunk it. Measuring again and charging the cumulative size would
+        // charge `$offset` twice — once because the partial file is already
+        // subtracted from the reading, once because it is added to the
+        // demand — roughly doubling the room asked for and refusing an
+        // upload that fits, on precisely the nearly-full hosts this exists
+        // for. So one reading is taken before any byte of this upload lands
+        // and is held for its duration, in a sidecar next to the partial
+        // because each fragment arrives in a separate request.
+        //
+        // With no pinned reading — a resumed upload whose sidecar was
+        // purged, a temp directory that refused the write, or a host that
+        // said nothing in the first place — the fallback is the ordinary
+        // live check on this fragment alone. Weaker, never wrong: it can
+        // still only under-charge, and it never double-counts.
+        //
+        // Re-stated as an UploadException, with the sentence written here
+        // and the shortfall carried by $previous — the caller catches this
+        // type and nothing else (AGENTS.md § Exception messages that reach
+        // a visitor).
+        $chunkBytes = (int) @filesize($chunkTmpPath);
+        $pinnedAvailable = $offset === 0
+            ? $this->pinAvailableBytes($path)
+            : $this->readPinnedAvailableBytes($path);
+        try {
+            if ($pinnedAvailable !== null) {
+                $this->diskBudget?->ensureRoomAgainst($offset + $chunkBytes, $pinnedAvailable);
+                // Judged against the pin, but the fragment's own bytes are
+                // about to land like any other write — so the cached walk
+                // that OTHER operations read has to know about them.
+                $this->diskBudget?->notePendingWrite($chunkBytes);
+            } else {
+                $this->diskBudget?->ensureRoom($chunkBytes);
+            }
+        } catch (\Core\Storage\InsufficientDiskSpaceException $e) {
+            throw new UploadException(
+                'L\'espace disque disponible ne suffit pas pour recevoir ce fichier. Libérez de la place, '
+                . 'puis recommencez le téléversement.',
+                0,
+                $e
+            );
         }
 
         $chunk = @fopen($chunkTmpPath, 'rb');
@@ -151,7 +225,9 @@ final class ChunkedUploadStore
 
     public function discard(string $uploadId, string $sessionId): void
     {
-        @unlink($this->pathFor($uploadId, $sessionId));
+        $path = $this->pathFor($uploadId, $sessionId);
+        @unlink($path);
+        @unlink(self::budgetPathFor($path));
     }
 
     /**
@@ -178,7 +254,56 @@ final class ChunkedUploadStore
             $mtime = @filemtime($file);
             if ($mtime !== false && $mtime < $cutoff) {
                 @unlink($file);
+                @unlink(self::budgetPathFor($file));
             }
         }
+        // A pinned reading whose partial is gone is dead weight, and it
+        // would be read back by an upload that reused the same id after a
+        // purge. Swept on its own, not only alongside a `.part`, so a
+        // failure to unlink one does not strand the other.
+        foreach (glob($this->storagePath . self::DIR . '/*' . self::BUDGET_SUFFIX) ?: [] as $file) {
+            if (!is_file(substr($file, 0, -strlen(self::BUDGET_SUFFIX)))) {
+                @unlink($file);
+            }
+        }
+    }
+
+    /**
+     * Takes the headroom reading this upload will be held against and stores
+     * it next to the partial, returning it. Null when nothing said — which
+     * is also what a host with neither a declared quota nor a readable
+     * volume returns, and is not an error.
+     *
+     * Deliberately silent on a failed write: a temp directory that refuses
+     * the sidecar degrades to the live per-fragment check, never to a
+     * refused upload.
+     */
+    private function pinAvailableBytes(string $partialPath): ?int
+    {
+        $available = $this->diskBudget?->availableBytes();
+        $budgetPath = self::budgetPathFor($partialPath);
+
+        if ($available === null) {
+            @unlink($budgetPath);
+
+            return null;
+        }
+
+        @file_put_contents($budgetPath, (string) $available);
+
+        return $available;
+    }
+
+    /** The reading pinned when this upload started, or null when there is none. */
+    private function readPinnedAvailableBytes(string $partialPath): ?int
+    {
+        $raw = @file_get_contents(self::budgetPathFor($partialPath));
+
+        return is_string($raw) && preg_match('/^[0-9]+$/', trim($raw)) === 1 ? (int) trim($raw) : null;
+    }
+
+    private static function budgetPathFor(string $partialPath): string
+    {
+        return $partialPath . self::BUDGET_SUFFIX;
     }
 }

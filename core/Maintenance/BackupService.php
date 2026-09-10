@@ -12,6 +12,9 @@ use Core\Database\Connection;
 use Core\Database\DatabaseDumper;
 use Core\Database\DatabaseRestorer;
 use Core\Database\SchemaIntrospector;
+use Core\Storage\DirectorySize;
+use Core\Storage\DirectoryWalk;
+use Core\Storage\DiskBudget;
 
 /**
  * Mechanical backup/restore operations (Configuration > Maintenance,
@@ -33,10 +36,22 @@ class BackupService implements BackupServiceInterface
     /** @var string[] */
     private const CONFIG_ONLY_TABLES = ['settings', 'module_registry'];
 
+    /**
+     * @param DiskBudget|null $diskBudget the disk budget every write here
+     *        is checked against BEFORE it starts (Core\Storage\DiskBudget).
+     *        Null is legitimate in exactly one place — `SetupController`,
+     *        which backs up a database while the site is still being
+     *        installed and has no settings to read a declared quota from —
+     *        and means "write without checking", which is what this class
+     *        did before the check existed. Everywhere else, pass one: a
+     *        backup truncated by a quota reached mid-write is worse than no
+     *        backup, because nothing reveals it until it is restored.
+     */
     public function __construct(
         private Connection $connection,
         private string $storagePath,
-        private string $basePath
+        private string $basePath,
+        private ?DiskBudget $diskBudget = null
     ) {
     }
 
@@ -101,6 +116,29 @@ class BackupService implements BackupServiceInterface
     private const BACKED_UP_TOP_LEVEL = ['core', 'modules', 'public', 'schema', 'storage', 'vendor'];
 
     /**
+     * The trees the OPERATOR'S OWN downloadable backup archives — four,
+     * not the six above.
+     *
+     * `vendor` and `schema` are deliberately absent: every entry in this
+     * archive is separately AES-256 encrypted, and paying that per-file
+     * cost over a `vendor/` tree of thousands of files, on the shared
+     * hosting this feature exists for, buys back a tree the operator can
+     * reinstall from any release artifact.
+     *
+     * It is a named constant rather than an inline list because the size
+     * ESTIMATE has to read the same one. It did not, once, and the
+     * estimate summed all six for an archive that writes four — inflating
+     * the pre-write check by the whole of `vendor/` and able to refuse a
+     * backup that would have fitted. Same lesson as
+     * `excludedArchivePrefixes()` below, arrived at from the other
+     * direction: what the archive writes and what the estimate measures
+     * are one list or they eventually disagree.
+     *
+     * @var string[]
+     */
+    private const FULL_BACKUP_TOP_LEVEL = ['core', 'modules', 'public', 'storage'];
+
+    /**
      * Zips BACKED_UP_TOP_LEVEL (excluding storage/keys/ and
      * storage/config/ — secrets never leave the server in a backup
      * archive, encrypted or not) into a single archive. $includeGallery
@@ -111,6 +149,8 @@ class BackupService implements BackupServiceInterface
      */
     public function createFileBackup(bool $includeGallery = false): string
     {
+        $this->diskBudget?->ensureRoom($this->estimateFileBackupBytes($includeGallery));
+
         $path = $this->stagingPath('files', 'zip');
 
         $zip = new \ZipArchive();
@@ -162,6 +202,17 @@ class BackupService implements BackupServiceInterface
                 . 'hébergeur.');
         }
 
+        // Both halves at once, before either exists. Checking them one at a
+        // time would let the dump succeed and the archive run out of room
+        // half-written — the exact mid-write truncation this guard exists
+        // to prevent, arrived at through the guard itself.
+        $this->diskBudget?->ensureRoom(
+            $this->estimateDatabaseDumpBytes()
+            + ($scope === 'full_config'
+                ? 0
+                : $this->estimateFileBackupBytes($scope === 'full_with_gallery', self::FULL_BACKUP_TOP_LEVEL))
+        );
+
         $dbDumpPath = $scope === 'full_config' ? $this->createConfigOnlyDump() : $this->createDatabaseDump();
 
         $zipPath = $this->stagingPath('backup', 'zip');
@@ -187,7 +238,7 @@ class BackupService implements BackupServiceInterface
                 // (createFileBackup() above) is the one that must be
                 // complete, and it is unencrypted. RESTORABLE_TOP_LEVEL is
                 // a superset check, so both archives stay restorable.
-                foreach (['core', 'modules', 'public', 'storage'] as $topDir) {
+                foreach (self::FULL_BACKUP_TOP_LEVEL as $topDir) {
                     $this->addDirectoryToZip(
                         $zip,
                         $this->basePath . '/' . $topDir,
@@ -413,6 +464,8 @@ class BackupService implements BackupServiceInterface
      */
     private function dump(?array $onlyTables): string
     {
+        $this->diskBudget?->ensureRoom($this->estimateDatabaseDumpBytes());
+
         [$host, $port, $dbName, $user, $password] = $this->connectionCredentials();
         $path = $this->stagingPath($onlyTables === null ? 'database' : 'config', 'sql');
 
@@ -451,6 +504,111 @@ class BackupService implements BackupServiceInterface
         return $path;
     }
 
+    /**
+     * Floor for a database dump when the server will not report its own
+     * size. Not a guess at how big the dump is — a guess at how much room
+     * is worth insisting on before starting one at all, on a site whose
+     * database is small enough that nothing else would have refused.
+     */
+    private const MINIMUM_DUMP_ESTIMATE_BYTES = 8 * 1024 * 1024;
+
+    /**
+     * Roughly how many bytes a full dump will occupy, read from
+     * `information_schema` — the only cheap source for it, and one both
+     * supported engines answer (AGENTS.md § Database).
+     *
+     * Deliberately the stored size rather than a multiple of it. Textual
+     * SQL is larger than the pages it came from, but this figure feeds
+     * `DiskBudget::ensureRoom()`, which adds its own margin on top; a
+     * second fudge factor here would refuse writes that fit. The test
+     * database (SQLite, `Tests\DatabaseTestHelper`) has no
+     * `information_schema` at all, which the catch below turns into the
+     * floor rather than into a failure.
+     */
+    public function estimateDatabaseDumpBytes(): int
+    {
+        try {
+            $stmt = $this->connection->getPdo()->query(
+                'SELECT SUM(data_length + index_length) FROM information_schema.TABLES '
+                . 'WHERE table_schema = DATABASE()'
+            );
+            $bytes = $stmt !== false ? $stmt->fetchColumn() : false;
+            if (is_numeric($bytes)) {
+                return max(self::MINIMUM_DUMP_ESTIMATE_BYTES, (int) $bytes);
+            }
+        } catch (\Throwable) {
+            // No information_schema, or no permission on it. The floor is
+            // the honest answer: "we could not size this, insist on a
+            // little room anyway".
+        }
+
+        return self::MINIMUM_DUMP_ESTIMATE_BYTES;
+    }
+
+    /**
+     * Reserves the dump AND the archive together, before either exists.
+     *
+     * The reason is written out in `createFullBackup()` and is the single
+     * most repeated mistake this whole guard invites: checking them one at
+     * a time lets the dump succeed and the archive run out of room
+     * half-written — the exact mid-write truncation the guard exists to
+     * prevent, arrived at through the guard itself. Both writes are sized
+     * against the same reading, so both must be charged to it at once.
+     *
+     * It lives here rather than in each handler because five call sites do
+     * this pair — `Task\AutoBackupHandler`, `Task\FullResetHandler`,
+     * `Task\ResetSettingsHandler`, `Task\RestoreBackupHandler` and
+     * `Task\InstallUpdateHandler` — and four of them had it wrong for the
+     * same reason: the per-write checks inside `createDatabaseDump()` and
+     * `createFileBackup()` each look complete on their own. The per-write
+     * checks stay, since they still guard callers that reach them without
+     * passing here; once this one has passed they cost nothing.
+     *
+     * @param int $extraBytes anything else the caller is about to write in
+     *        the same run — `InstallUpdateHandler` adds its artifact
+     *        workspace, which has to be charged with the backup rather
+     *        than after it
+     * @throws \Core\Storage\InsufficientDiskSpaceException
+     */
+    public function ensureRoomForDumpAndArchive(bool $includeGallery, int $extraBytes = 0): void
+    {
+        $this->diskBudget?->ensureRoom(
+            $extraBytes
+            + $this->estimateDatabaseDumpBytes()
+            + $this->estimateFileBackupBytes($includeGallery)
+        );
+    }
+
+    /**
+     * Roughly how many bytes the file archive will occupy: the summed size
+     * of everything it is about to read, with the same exclusions
+     * `addDirectoryToZip()` applies.
+     *
+     * A deliberate OVER-estimate — the archive is compressed and will come
+     * out smaller. For a "will this fit?" question, erring high is the
+     * safe direction, and the alternative (guessing a compression ratio)
+     * would be a number nobody could defend.
+     *
+     * @param string[]|null $topLevel which trees the caller is about to
+     *        archive. Null means the safety backup's six
+     *        (BACKED_UP_TOP_LEVEL); `createFullBackup()` passes its own
+     *        four, because erring high is only safe up to a point —
+     *        summing `vendor/` for an archive that does not contain it
+     *        inflates the check by hundreds of megabytes and can refuse a
+     *        backup that would have fitted.
+     */
+    public function estimateFileBackupBytes(bool $includeGallery, ?array $topLevel = null): int
+    {
+        $excluded = $this->excludedArchivePrefixes($includeGallery);
+
+        $total = 0;
+        foreach ($topLevel ?? self::BACKED_UP_TOP_LEVEL as $topDir) {
+            $total += DirectorySize::measure($this->basePath . '/' . $topDir, $excluded, DirectoryWalk::Archive);
+        }
+
+        return $total;
+    }
+
     private function addEncryptedFile(\ZipArchive $zip, string $sourcePath, string $entryName, string $password): void
     {
         if (!$zip->addFile($sourcePath, $entryName)) {
@@ -459,6 +617,35 @@ class BackupService implements BackupServiceInterface
         if (!$zip->setEncryptionName($entryName, \ZipArchive::EM_AES_256, $password)) {
             throw new BackupException("Impossible de chiffrer {$entryName} dans l'archive.");
         }
+    }
+
+    /**
+     * What an archive never contains: the secrets (`storage/keys/`,
+     * `storage/config/` — they never leave the server in a backup,
+     * encrypted or not), the scratch directories, and the gallery unless
+     * asked for.
+     *
+     * One definition, read by both the archive walk and the size estimate
+     * that decides whether the archive will fit. Two copies of this list
+     * would eventually disagree, and the direction that hurts is the
+     * quiet one: an estimate that leaves out what the archive puts in
+     * reports "it fits" about a write that does not.
+     *
+     * @return string[] absolute path prefixes
+     */
+    private function excludedArchivePrefixes(bool $includeGallery): array
+    {
+        $excluded = [
+            $this->storagePath . '/keys',
+            $this->storagePath . '/config',
+            $this->storagePath . '/temp',
+            $this->storagePath . '/' . self::STAGING_SUBDIR,
+        ];
+        if (!$includeGallery) {
+            $excluded[] = $this->storagePath . '/gallery';
+        }
+
+        return $excluded;
     }
 
     private function addDirectoryToZip(
@@ -472,37 +659,18 @@ class BackupService implements BackupServiceInterface
             return;
         }
 
-        $excludedAbsolutePrefixes = [
-            $this->storagePath . '/keys',
-            $this->storagePath . '/config',
-            $this->storagePath . '/temp',
-            $this->storagePath . '/' . self::STAGING_SUBDIR,
-        ];
-        if (!$includeGallery) {
-            $excludedAbsolutePrefixes[] = $this->storagePath . '/gallery';
-        }
-
-        $iterator = new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator($sourceDir, \FilesystemIterator::SKIP_DOTS)
+        // followLinks: true — the behaviour this archive has always had.
+        // A quota measurement must not follow a symlink; a backup must,
+        // or a host that symlinks storage/gallery elsewhere gets an
+        // archive that silently contains none of it.
+        $files = DirectorySize::files(
+            $sourceDir,
+            $this->excludedArchivePrefixes($includeGallery),
+            DirectoryWalk::Archive
         );
 
-        foreach ($iterator as $file) {
-            if (!$file->isFile()) {
-                continue;
-            }
+        foreach ($files as $file) {
             $absolutePath = $file->getPathname();
-
-            $excluded = false;
-            foreach ($excludedAbsolutePrefixes as $prefix) {
-                if (str_starts_with($absolutePath, $prefix)) {
-                    $excluded = true;
-                    break;
-                }
-            }
-            if ($excluded) {
-                continue;
-            }
-
             $relativePath = $zipPrefix . substr($absolutePath, strlen($sourceDir));
 
             if ($encryptWithPassword !== null) {
