@@ -354,8 +354,6 @@ class RestoreBackupHandler implements TaskHandlerInterface
         $targetOwnedSecrets = $this->targetOwnedSecrets($context);
         $targetBaseUrl = $context->settings->get('base_url');
 
-        $dumpPath = null;
-
         try {
             $safety = $this->createSafetyBackup(
                 $context,
@@ -388,13 +386,8 @@ class RestoreBackupHandler implements TaskHandlerInterface
         }
 
         try {
-            $dumpPath = $this->extractPortableDump($archive, $context->storagePath);
-
-            $backupService->restoreDatabase($dumpPath);
-
-            $restore = new PortableRestore($basePath, $context->storagePath);
-            $restore->extractFiles($archive);
-            $restore->installSecrets($archive, $targetOwnedSecrets);
+            (new PortableRestore($basePath, $context->storagePath))
+                ->apply($archive, $backupService, $targetOwnedSecrets);
 
             $this->scheduleMigrationResume(
                 $context,
@@ -420,41 +413,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
             );
         } finally {
             $archive->close();
-            if ($dumpPath !== null) {
-                @unlink($dumpPath);
-            }
         }
-    }
-
-    /**
-     * The archive's database dump, written out where the restore can read
-     * it.
-     *
-     * Under `storage/` rather than the system temp directory, because it
-     * is the size of the whole database and shared hosting's `/tmp` is
-     * routinely the smallest filesystem on the machine — the one place a
-     * restore must not run out of room.
-     *
-     * @throws BackupException
-     */
-    private function extractPortableDump(PortableArchive $archive, string $storagePath): string
-    {
-        $sql = $archive->handle()->getFromName('database.sql');
-        if ($sql === false) {
-            throw new BackupException('Cette sauvegarde portable ne contient pas de base de données.');
-        }
-
-        $directory = $storagePath . '/temp';
-        if (!is_dir($directory) && !@mkdir($directory, 0755, true) && !is_dir($directory)) {
-            throw new BackupException('Le dossier temporaire du site n\'a pas pu être créé.');
-        }
-
-        $path = $directory . '/portable_restore_' . bin2hex(random_bytes(8)) . '.sql';
-        if (@file_put_contents($path, $sql) === false) {
-            throw new BackupException('La base de données de l\'archive n\'a pas pu être écrite sur le disque.');
-        }
-
-        return $path;
     }
 
     /**

@@ -14,6 +14,7 @@ use Core\Database\MigrationRunner;
 use Core\Database\SchemaComparator;
 use Core\Database\SchemaIntrospector;
 use Core\Database\SqlParser;
+use Core\Maintenance\BackupException;
 use Core\Maintenance\BackupService;
 use Core\Maintenance\Portable\PortableArchive;
 use Core\Maintenance\Portable\PortableManifest;
@@ -229,6 +230,111 @@ final class PortableRestoreTest extends TestCase
             ->adoptNewIdentity($pdo, null, null);
 
         $this->assertSame(0, (int) $pdo->query('SELECT COUNT(*) FROM push_subscriptions')->fetchColumn());
+    }
+
+    /**
+     * **The whole sequence, on a real database**: the archive's dump goes
+     * back, its data goes back, its keys go in last.
+     *
+     * Last is deliberate and is the reason these four steps live in one
+     * method rather than in each caller: an installation whose restore
+     * died half way still holds the keys to the database it had before,
+     * rather than the keys to one it never received.
+     *
+     * This is the wizard's path in miniature — the roadmap's « restauration
+     * sur une base vide depuis l'assistant » — minus the HTTP layer, which
+     * is what `SetupPortableRestoreTest` covers.
+     */
+    public function testTheWholeSequenceRestoresTheDatabaseTheDataAndTheKeys(): void
+    {
+        $connection = $this->realDbConnection();
+        $service = new BackupService($connection, $this->originBase . '/storage', $this->originBase);
+        if (!$service->supportsZipEncryption()) {
+            $this->markTestSkipped('This PHP build has no AES zip encryption, which this feature refuses without.');
+        }
+
+        // A row that exists only in the ORIGIN's database, so that "the dump
+        // came back" is a fact about content and not about a table existing.
+        $marker = 'unite-' . bin2hex(random_bytes(4));
+        $this->seedSetting($connection->getPdo(), 'site_name', $marker);
+
+        $result = $service->createPortableBackup(self::PASSPHRASE, '2.4.1', self::ORIGIN_ID);
+        $this->zipPath = $result['zipPath'];
+        $this->dbDumpPath = $result['dbDumpPath'];
+
+        // The target's database is emptied of that fact before the restore,
+        // exactly as a freshly installed one would be.
+        $this->seedSetting($connection->getPdo(), 'site_name', 'site tout neuf');
+
+        $archive = PortableArchive::open($this->zipPath, self::PASSPHRASE);
+        $archive->verifyDeclaredMembers();
+
+        (new PortableRestore($this->targetBase, $this->targetBase . '/storage'))->apply(
+            $archive,
+            new BackupService($connection, $this->targetBase . '/storage', $this->targetBase),
+            $this->targetOwnedSecrets()
+        );
+        $archive->close();
+
+        $this->assertSame(
+            $marker,
+            $this->readSetting($connection->getPdo(), 'site_name'),
+            'the origin\'s database did not come back'
+        );
+        $this->assertFileExists($this->targetBase . '/storage/uploads/tresorerie.pdf');
+        $this->assertSame(
+            $this->originMasterKey,
+            file_get_contents($this->targetBase . '/storage/keys/master.key')
+        );
+
+        $restored = $this->readSecrets($this->targetBase);
+        $this->assertSame(self::ORIGIN_ENCRYPTION_KEY, $restored['encryption_key'] ?? null);
+        foreach ($this->targetOwnedSecrets() as $key => $expected) {
+            $this->assertSame($expected, $restored[$key] ?? null, $key . ' was overwritten by the archive.');
+        }
+
+        // And the dump it wrote to do all that does not survive it.
+        $this->assertSame(
+            [],
+            glob($this->targetBase . '/storage/temp/portable_restore_*.sql') ?: [],
+            'the restored dump was left behind in storage/temp'
+        );
+    }
+
+    /**
+     * An archive with no database in it is refused, rather than restoring
+     * the files of a site whose data never arrives.
+     */
+    public function testAnArchiveWithoutADatabaseIsRefused(): void
+    {
+        $connection = $this->realDbConnection();
+        $service = new BackupService($connection, $this->originBase . '/storage', $this->originBase);
+        if (!$service->supportsZipEncryption()) {
+            $this->markTestSkipped('This PHP build has no AES zip encryption, which this feature refuses without.');
+        }
+
+        $result = $service->createPortableBackup(self::PASSPHRASE, '2.4.1', self::ORIGIN_ID);
+        $this->zipPath = $result['zipPath'];
+        $this->dbDumpPath = $result['dbDumpPath'];
+
+        $zip = new \ZipArchive();
+        $this->assertTrue($zip->open($this->zipPath) === true);
+        $this->assertTrue($zip->deleteName('database.sql'));
+        $zip->close();
+
+        $archive = PortableArchive::open($this->zipPath, self::PASSPHRASE);
+
+        $this->expectException(BackupException::class);
+
+        try {
+            (new PortableRestore($this->targetBase, $this->targetBase . '/storage'))->apply(
+                $archive,
+                new BackupService($connection, $this->targetBase . '/storage', $this->targetBase),
+                $this->targetOwnedSecrets()
+            );
+        } finally {
+            $archive->close();
+        }
     }
 
     /** Builds the origin's archive and restores it onto the target root. */

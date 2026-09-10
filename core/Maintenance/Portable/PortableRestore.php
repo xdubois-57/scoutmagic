@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Core\Maintenance\Portable;
 
 use Core\Maintenance\BackupException;
+use Core\Maintenance\BackupService;
 use Core\Security\SecretManager;
 use Core\Statistics\InstallationIdentityService;
 
@@ -75,6 +76,68 @@ final class PortableRestore
         private readonly string $basePath,
         private readonly string $storagePath
     ) {
+    }
+
+    /**
+     * The whole restore, in the order that matters, shared by both entry
+     * points.
+     *
+     * The wizard and the scheduled task differ in what surrounds this —
+     * one has a safety backup to take and a resume pass to queue, the
+     * other migrates on the spot — but the middle is identical: put the
+     * database back, put the data back, put the keys back. A copy of these
+     * four steps in each caller would be a copy to keep in step, and the
+     * order is not arbitrary: the secrets go in LAST, so that an
+     * installation whose restore died half way still holds the keys to the
+     * database it had before rather than the keys to one it never
+     * received.
+     *
+     * The dump is written under `storage/` rather than the system temp
+     * directory: it is the size of the whole database, and a shared host's
+     * `/tmp` is routinely the smallest filesystem on the machine — the one
+     * place a restore must not run out of room. It is removed in a
+     * `finally`, whatever happens.
+     *
+     * @param array<string, mixed> $targetOwnedSecrets {@see installSecrets()}
+     * @throws BackupException
+     */
+    public function apply(PortableArchive $archive, BackupService $backupService, array $targetOwnedSecrets): void
+    {
+        $dumpPath = $this->writeDump($archive);
+
+        try {
+            $backupService->restoreDatabase($dumpPath);
+        } finally {
+            @unlink($dumpPath);
+        }
+
+        $this->extractFiles($archive);
+        $this->installSecrets($archive, $targetOwnedSecrets);
+    }
+
+    /**
+     * The archive's database dump, written where the restore can read it.
+     *
+     * @throws BackupException
+     */
+    private function writeDump(PortableArchive $archive): string
+    {
+        $sql = $archive->handle()->getFromName('database.sql');
+        if ($sql === false) {
+            throw new BackupException('Cette sauvegarde portable ne contient pas de base de données.');
+        }
+
+        $directory = $this->storagePath . '/temp';
+        if (!is_dir($directory) && !@mkdir($directory, 0755, true) && !is_dir($directory)) {
+            throw new BackupException('Le dossier temporaire du site n\'a pas pu être créé.');
+        }
+
+        $path = $directory . '/portable_restore_' . bin2hex(random_bytes(8)) . '.sql';
+        if (@file_put_contents($path, $sql) === false) {
+            throw new BackupException('La base de données de l\'archive n\'a pas pu être écrite sur le disque.');
+        }
+
+        return $path;
     }
 
     /**

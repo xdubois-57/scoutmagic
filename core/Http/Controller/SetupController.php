@@ -481,29 +481,17 @@ class SetupController extends AbstractController
             $archive->assertRestorableOnto(VersionFile::read($installRoot));
             $archive->verifyDeclaredMembers();
 
-            $dumpPath = $storageRoot . '/temp/setup_portable_' . bin2hex(random_bytes(8)) . '.sql';
-            $sql = $archive->handle()->getFromName('database.sql');
-            if ($sql === false) {
-                throw new BackupException('Cette sauvegarde portable ne contient pas de base de données.');
-            }
-            if (!is_dir(dirname($dumpPath))) {
-                @mkdir(dirname($dumpPath), 0755, true);
-            }
-            file_put_contents($dumpPath, $sql);
-
-            try {
-                (new BackupService($connection, $storageRoot, $installRoot))->restoreDatabase($dumpPath);
-            } finally {
-                @unlink($dumpPath);
-            }
-
             $restore = new PortableRestore($installRoot, $storageRoot);
-            $restore->extractFiles($archive);
-            // `base_url` too: at this point in the wizard the operator has
-            // not been asked for one, so the address they reached this page
-            // at is the honest answer — and certainly better than the
-            // previous host's, which is what the archive carries.
-            $restore->installSecrets($archive, $credentials + ['base_url' => $baseUrl]);
+            // `base_url` travels with the credentials: at this point in the
+            // wizard the operator has not been asked for one, so the address
+            // they reached this page at is the honest answer — and certainly
+            // better than the previous host's, which is what the archive
+            // carries.
+            $restore->apply(
+                $archive,
+                new BackupService($connection, $storageRoot, $installRoot),
+                $credentials + ['base_url' => $baseUrl]
+            );
 
             // The dump is the ORIGIN's, so its schema may be older than this
             // code. Same job as after an update, same runner.
