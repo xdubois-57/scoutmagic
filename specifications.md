@@ -471,8 +471,12 @@ Annual transition from one scout year to the next, managed through a guided work
 ### 16.2 Effective year resolution
 For each request, the effective year is determined in order of precedence:
 1. Preview year (if set in session by admin)
-2. Staff year (if role is chief/intendant and staff year is configured)
+2. Staff year — for whoever is **staff of the staff year itself**, i.e. reaches `intendant` resolved in that year, and not merely for whoever holds that role in general
 3. Public year (fallback for all other users)
+
+Point 2 is what gives the outgoing and incoming staff opposite answers on the same day (§16.5): each is served the one year where they actually have a section. Nothing merges two years — see §16.5's last paragraph.
+
+**Which year an access decision is taken in is a different question from which year is displayed**, and only the first one matters for permissions. The preview moves what is displayed and never who may see it.
 
 ### 16.3 Transition workflow (Espace chefs d'U > Année scoute)
 
@@ -536,6 +540,23 @@ The Desk-encoding date of §16.3 does not reopen this question. It labels phases
 Without an automatic catch-up, a unit that never runs the transition would stay on a stale public year indefinitely with no visible sign. The Année scoute page shows a non-blocking warning when the current public year is past its end date, inviting the admin to run the transition workflow — it never blocks anything and never changes anything on its own.
 
 A freshly installed site with no public year configured yet still starts on a plausible year computed from the current date — this initial determination is unrelated to (and unaffected by) the removal of the automatic switch above.
+
+### 16.5 Qui a accès pendant la transition, et à quelle année
+
+Pendant la transition, le site a **trois** publics et non deux, et le troisième est celui qu'on oublie : le staff **sortant**, qui anime encore une section de l'année qui se termine et n'existe pas dans celle qu'on prépare.
+
+| Audience | A un accès chef | Voit l'année |
+|---|---|---|
+| Staff **entrant** — animateur de l'année préparée, absent de l'année en cours | Oui, dès que l'année staff est activée | L'année préparée |
+| Staff **présent dans les deux années** | Oui | L'année préparée |
+| Staff **sortant** — animateur de l'année en cours, absent de l'année préparée | Oui, jusqu'à la bascule publique | L'année en cours, où il a sa section et ses animés |
+| Membre ou parent | Non | L'année publique |
+
+Deux animateurs voient donc, le même jour, deux années différentes. C'est voulu : l'en-tête du site indique toujours l'année effective. Un animé inscrit pour l'année préparée seulement peut se connecter, mais son espace reste vide jusqu'à la bascule.
+
+**L'accès est décidé sur l'état du site, jamais sur la prévisualisation.** Les sources sont l'année publique, l'année calculée depuis la date et l'année staff — trois faits de l'installation. La prévisualisation, elle, est choisie par la personne qu'elle autoriserait et acceptée pour n'importe quelle année ayant existé : elle décide de ce qui est **affiché**, jamais de qui a le droit de le voir. Un rôle obtenu dans une année autre que l'année publique ne compte qu'à partir d'`intendant`, et une année à plus d'un an devant l'année publique — ou n'importe quelle année derrière elle — ne compte pas du tout. Voir ARCHITECTURE.md §4 « Scout year » pour le détail et pour ce que chacune de ces bornes coûte le jour où elle saute.
+
+**Ce que la transition n'élargit pas**, c'est le contenu des écrans : aucune liste, aucun sélecteur, aucun tableau de bord ne fusionne jamais deux années scoutes. Qui peut ouvrir un écran est une question sur une personne ; ce qui s'y affiche est une question sur des lignes.
 
 ## 17. Registration module — staff-side request management (module registration)
 

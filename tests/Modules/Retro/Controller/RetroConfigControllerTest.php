@@ -58,7 +58,7 @@ class RetroConfigControllerTest extends TestCase
         $this->memberService = $this->createMock(MemberService::class);
         $this->memberService->method('isUnitChief')->willReturn(true);
         $this->scoutYearService = $this->createMock(\Core\ScoutYear\ScoutYearResolver::class);
-        $this->scoutYearService->method('getEffectiveYear')
+        $this->scoutYearService->method('getAuthorizationYear')
             ->willReturn(new \Core\ScoutYear\EffectiveScoutYear(1, '2025-2026', null));
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';

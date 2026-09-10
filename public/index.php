@@ -1406,6 +1406,14 @@ $sectionRepository = new SectionRepository($pdo);
 
 // Create import-related services
 $scoutYearService = new ScoutYearService($pdo);
+// The years an ACCESS decision may be taken in — the public year, the
+// date-computed year and the staff year, deduplicated and bounded to one
+// year of slack. Distinct from $scoutYearResolver on purpose: that one
+// answers "which year does this request DISPLAY", honours the session
+// preview and may create a year row; this one answers "which years may a
+// question about a person be asked in", never sees a preview and never
+// writes (ARCHITECTURE.md §4 « Scout year »).
+$authorizationYearService = new \Core\ScoutYear\AuthorizationYearService($scoutYearService, $settingService);
 $functionRepo = new FunctionRepository($pdo);
 $ageBranchRepo = new AgeBranchRepository($pdo);
 $importSectionRepo = new ImportSectionRepository($pdo);
@@ -1479,7 +1487,8 @@ $notificationService = new NotificationService(
     $schedulerService,
     $userAccountRepo,
     $roleResolver,
-    $scoutYearService
+    $scoutYearService,
+    $authorizationYearService
 );
 
 // The one session-aware temporary-member resolver (ARCHITECTURE.md §8.42).
@@ -1548,6 +1557,7 @@ $memberEmailService = new \Core\Member\MemberEmailService(
 
 // Scout year resolution (public / staff / session-preview priority)
 $scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepo);
+
 
 $scoutYearAdminService = new ScoutYearAdminService($settingService);
 
@@ -1702,13 +1712,44 @@ $roleLabelMap = [
 // Re-check an existing session against current data BEFORE anything reads
 // the role from it (Core\Security\SessionRevalidator): a password change
 // revokes sessions issued earlier, and the effective role is re-resolved so
-// a demotion doesn't wait out the 30-day session cookie. Uses the current
-// PUBLIC year deliberately — the same basis AuthController::resolveRole()
-// used to grant the role at login, and unlike $effectiveScoutYear below it
-// doesn't itself depend on the role we are about to validate.
+// a demotion doesn't wait out the 30-day session cookie. Judged on the same
+// year SET AuthController::resolveRole() granted the role on — the door and
+// every later request must agree, or an animateur of the year being
+// prepared is signed in and thrown out on their first click. Unlike
+// $effectiveScoutYear below, the set does not depend on the role we are
+// about to validate, and it never honours a preview.
 $sessionRevalidator = new \Core\Security\SessionRevalidator($userAccountRepo, $roleResolver);
 $sessionRevalidator->setJournalService($journalService);
-$sessionRevalidator->revalidate(static fn(): int => (int) $scoutYearResolver->getCurrentPublicYear()['id']);
+$sessionRevalidator->revalidate(
+    static fn(): \Core\ScoutYear\AuthorizationYears => $authorizationYearService->resolve()
+);
+
+// Who may be SERVED the staff year: whoever reaches `intendant` resolved in
+// that year itself, rather than by their role in general. Wired here because
+// this is the only layer that knows which account is signed in —
+// ScoutYearResolver never touches the session and holds no email.
+//
+// The two halves this fixes are one defect. An animateur who is a chief of
+// the year that is ending used to be dragged into the year being prepared,
+// where they have neither section nor animés; and the animateur recruited
+// FOR the year being prepared could never be shown it, because seeing the
+// staff year required already being staff, and one was only staff by the
+// public year. Asking the question inside the target year gives each of
+// them the one year where they really have a section, which is what lets
+// every downstream check keep asking in a single year, unchanged.
+//
+// Deliberately NOT the authorization year set: that set answers "may this
+// person come in, and as what", a question about a person. This one is
+// about one specific year.
+// The address is read on every call rather than captured once: a login
+// request is anonymous when the front controller resolves the effective
+// year and identified by the time its controller does, and
+// Core\ScoutYear\StaffYearEligibility keys its cache on both halves for
+// exactly that reason.
+$staffYearEligibility = new \Core\ScoutYear\StaffYearEligibility($roleResolver);
+$scoutYearResolver->setStaffYearEligibility(
+    static fn(int $staffYearId): bool => $staffYearEligibility->isEligible(AuthSession::getEmail(), $staffYearId)
+);
 
 // Set Twig globals for auth state (after session is started)
 $currentRole = AuthSession::getRole();
@@ -3265,7 +3306,8 @@ $webAuthnService = new WebAuthnService(
     $webAuthnBaseUrl
 );
 
-$authController = new AuthController($twig, $authService, $roleResolver, $scoutYearResolver, $cookieConsentService);
+$authController = new AuthController($twig, $authService, $roleResolver, $scoutYearResolver,
+    $cookieConsentService, $authorizationYearService);
 $authController->setPasswordAuth($passwordAuthMethod);
 $authController->setWebAuthnService($webAuthnService);
 $authController->setHumanCheck($humanCheckService);
@@ -3288,7 +3330,7 @@ $frontController->registerController(
         $notificationPreferenceRepo,
         $userAccountRepo,
         $roleResolver,
-        $scoutYearService
+        $authorizationYearService
     )
 );
 $frontController->registerController(
@@ -3673,7 +3715,12 @@ if ($isEnabled('calendar')) {
         $userAccountRepo,
         $sectionService,
         $calendarRetroLinks,
-        $calendarPresenceSheetLinks
+        $calendarPresenceSheetLinks,
+        // The personal ICS token is the one reader on this site with no
+        // session — nothing has resolved a scout year for them, so an
+        // access question about them is asked over the whole authorization
+        // set rather than in a year picked for them.
+        $authorizationYearService
     );
     $calendarPickerService = new \Modules\Calendar\Service\CalendarPickerService(
         $calendarService, $calendarPersonalFeedService
@@ -3955,7 +4002,7 @@ if ($isEnabled('banner')) {
     $frontController->registerController(
         \Modules\Banner\Controller\BannerConfigController::class,
         new \Modules\Banner\Controller\BannerConfigController($twig, $bannerService, $journalService, $memberService,
-            $scoutYearService)
+            $scoutYearResolver)
     );
 
     // The home page's banner hook (§7.4) — resolved per request through
@@ -6670,7 +6717,12 @@ if ($isEnabled('registration')) {
 // is defined. Both are stateless wrappers around the same PDO handle.
 if ($isEnabled('rental')) {
     \Core\Debug\RequestTimeline::mark('module_rental');
-    $rentalCurrentYearId = (int) $scoutYearService->getCurrentYear()['id'];
+    // The year an authorization question about the CALLER is asked in on
+    // this module's screens: the year they are served, preview excluded
+    // (ScoutYearResolver::getAuthorizationYear()). The date-computed year
+    // used to stand here, and it is nobody's year between 1 September and
+    // the day a unit runs its transition.
+    $rentalCurrentYearId = $scoutYearResolver->getAuthorizationYear()->id;
 
     $rentalAssetRepository = new \Modules\Rental\Repository\RentalAssetRepository($pdo, $encryptionService);
     $rentalManagerRepository = new \Modules\Rental\Repository\RentalAssetManagerRepository($pdo);
@@ -6769,12 +6821,16 @@ if ($isEnabled('rental')) {
     // right as reading the booking, so the checker delegates to it.
     $auditAccessResolver->register(
         \Modules\Rental\Audit\BookingAudit::ENTITY_TYPE,
-        static function (int $id) use ($rentalBookingRepository, $rentalAuthorizationService, $scoutYearService): bool {
+        static function (int $id) use (
+            $rentalBookingRepository,
+            $rentalAuthorizationService,
+            $rentalCurrentYearId
+        ): bool {
             $booking = $rentalBookingRepository->findById($id);
 
             return $booking !== null && $rentalAuthorizationService->canManageAssetId(
                 \Core\Security\AuthSession::getEmail(),
-                (int) $scoutYearService->getCurrentYear()['id'],
+                $rentalCurrentYearId,
                 $booking->assetId
             );
         }
@@ -6818,14 +6874,14 @@ if ($isEnabled('rental')) {
             // `role_min: identified` on every one of this controller's
             // routes: the authorization service, not the route guard, is
             // what keeps one asset's tariff out of another manager's reach.
-            $rentalAuthorizationService, $rentalAssetRepository, $scoutYearService,
+            $rentalAuthorizationService, $rentalAssetRepository, $scoutYearResolver,
             $rentalPaymentService
         )
     );
     $frontController->registerController(
         \Modules\Rental\Controller\RentalPublicController::class,
         new \Modules\Rental\Controller\RentalPublicController(
-            $twig, $rentalAssetRepository, $rentalAuthorizationService, $scoutYearService,
+            $twig, $rentalAssetRepository, $rentalAuthorizationService, $scoutYearResolver,
             $rentalAvailabilityService, $rentalPricingService, new \Core\View\MonthGrid\DayStateGridBuilder()
         )
     );
@@ -6867,7 +6923,11 @@ if ($isEnabled('rental')) {
     // somebody who may manage the asset (ARCHITECTURE.md §8.3).
     $fileOwnershipCheckers[] = new \Modules\Rental\File\RentalComplianceOwnershipChecker(
         $rentalAuthorizationService,
-        (int) $scoutYearService->getCurrentYear()['id'],
+        // Same year as every other authorization question on this module's
+        // screens: the one the CALLER is served. This checker runs inside a
+        // request on /files/{id}, with a session — it is not a background
+        // caller, whatever its name suggests.
+        $rentalCurrentYearId,
         \Core\Security\AuthSession::getEmail()
     );
 
@@ -6994,7 +7054,7 @@ if ($isEnabled('rental')) {
     $frontController->registerController(
         \Modules\Rental\Controller\RentalManagementController::class,
         new \Modules\Rental\Controller\RentalManagementController(
-            $twig, $rentalAuthorizationService, $scoutYearService, $rentalAssetRepository,
+            $twig, $rentalAuthorizationService, $scoutYearResolver, $rentalAssetRepository,
             $rentalBookingRepository, $auditService, $rentalCommentRepository,
             $rentalChangeRequestRepository, $rentalOperationsService, $rentalBlockService,
             $rentalAvailabilityService, $rentalPricingService, $memberService,

@@ -8,6 +8,9 @@ use Core\Http\Controller\AuthController;
 use Core\Http\Request;
 use Core\Import\MemberYearRepository;
 use Core\Database\Connection;
+use Core\ScoutYear\AuthorizationYears;
+use Core\ScoutYear\AuthorizationYearService;
+use Core\ScoutYear\EffectiveScoutYear;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\AuthService;
 use Core\Security\AuthSession;
@@ -44,6 +47,7 @@ class DeactivatedAccountLoginTest extends TestCase
     private UserAccountRepository $userRepo;
     private RoleResolver $roleResolver;
     private ScoutYearResolver $scoutYearResolver;
+    private AuthorizationYearService $authorizationYearService;
     private int $scoutYearId;
     private string $csrfToken;
 
@@ -78,6 +82,17 @@ class DeactivatedAccountLoginTest extends TestCase
             'start_date' => '2025-09-01',
             'end_date' => '2026-08-31',
         ]);
+        // Nobody here is staff of anything, so the year served is the
+        // public one — this test is about a deactivated account, not
+        // about a transition.
+        $this->scoutYearResolver->method('getEffectiveYear')->willReturn(
+            new EffectiveScoutYear($this->scoutYearId, '2025-2026', null)
+        );
+
+        $this->authorizationYearService = $this->createStub(AuthorizationYearService::class);
+        $this->authorizationYearService->method('resolve')->willReturn(
+            new AuthorizationYears($this->scoutYearId, [$this->scoutYearId])
+        );
 
         $this->csrfToken = CsrfGuard::generateToken();
     }
@@ -296,6 +311,55 @@ class DeactivatedAccountLoginTest extends TestCase
     }
 
     // ---------------------------------------------------------------
+    // The gate's fail-open condition
+    // ---------------------------------------------------------------
+
+    /**
+     * **`$roleResolver === null` is the whole of the fail-open condition**,
+     * and this test exists because widening it is silent. The year set is
+     * an optional, last-positional constructor argument; keying the
+     * bypass on it instead meant that any composition omitting it — this
+     * repository already had one, in
+     * `Tests\Integration\MagicLinkWindowIdentityTest` — skipped the
+     * membership check altogether, and with it the `is_active` refusal
+     * that lives inside it. Nothing went red: a test that does not assert
+     * on membership passes just as well with the gate switched off.
+     *
+     * So the assertion is deliberately about the DEGRADED wiring rather
+     * than the complete one: a controller that cannot ask the question in
+     * a set must still ask it in a year, never wave the caller through.
+     */
+    public function testADeactivatedAccountIsStillRefusedWithoutTheYearSet(): void
+    {
+        $account = $this->deactivatedSuperAdmin();
+        $this->userRepo->updatePasswordHash($account->id, password_hash('CorrectPassword', PASSWORD_DEFAULT));
+
+        $controller = $this->controllerWithoutTheYearSet($this->createStub(AuthService::class));
+        $controller->setPasswordAuth($this->passwordAuth());
+
+        $response = $controller->loginWithPassword($this->jsonRequest('/login/password', [
+            'email' => $account->email,
+            'password' => 'CorrectPassword',
+            '_csrf_token' => $this->csrfToken,
+            'rgpd_consent' => true,
+        ]), []);
+
+        $data = json_decode($response->getBody(), true);
+        $this->assertFalse($data['success']);
+        $this->assertFalse(AuthSession::isAuthenticated());
+    }
+
+    /** And an address that matches no member at all is refused there too. */
+    public function testANonMemberIsStillRefusedWithoutTheYearSet(): void
+    {
+        $this->userRepo->create('stranger@example.com');
+
+        $this->assertFalse(
+            $this->roleResolver->isEmailAuthorizedToLogin('stranger@example.com', $this->scoutYearId)
+        );
+    }
+
+    // ---------------------------------------------------------------
 
     private function deactivatedSuperAdmin(): \Core\Security\UserAccount
     {
@@ -306,6 +370,26 @@ class DeactivatedAccountLoginTest extends TestCase
     }
 
     private function controllerWith(AuthService $authService): AuthController
+    {
+        $twig = $this->createStub(Environment::class);
+        $twig->method('render')->willReturn('<html></html>');
+
+        return new AuthController(
+            $twig,
+            $authService,
+            $this->roleResolver,
+            $this->scoutYearResolver,
+            null,
+            $this->authorizationYearService
+        );
+    }
+
+    /**
+     * The same controller, built the way a composition that has not heard
+     * of the year set builds it — a real RoleResolver and ScoutYearResolver,
+     * no AuthorizationYearService.
+     */
+    private function controllerWithoutTheYearSet(AuthService $authService): AuthController
     {
         $twig = $this->createStub(Environment::class);
         $twig->method('render')->willReturn('<html></html>');

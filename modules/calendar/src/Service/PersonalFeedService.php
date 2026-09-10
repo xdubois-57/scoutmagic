@@ -10,6 +10,7 @@ namespace Modules\Calendar\Service;
 
 use Core\Member\MemberService;
 use Core\Member\SectionService;
+use Core\ScoutYear\AuthorizationYearService;
 use Core\Security\Role;
 use Core\Security\RoleResolver;
 use Core\Security\UserAccountRepository;
@@ -40,7 +41,16 @@ class PersonalFeedService
         private UserAccountRepository $userAccountRepository,
         private SectionService $sectionService,
         private ?RetroEventLinkLookupInterface $retroEventLinkLookup = null,
-        private ?PresenceSheetLinkLookupInterface $presenceSheetLinkLookup = null
+        private ?PresenceSheetLinkLookupInterface $presenceSheetLinkLookup = null,
+        /**
+         * A token is the one reader here with no session at all, so
+         * nothing has resolved which scout year they belong to. Access
+         * questions about them are therefore asked over the whole
+         * authorization set — see resolveVirtualEvents(). Null leaves the
+         * feed on the single year it is generated for, which is what it
+         * did before this existed.
+         */
+        private ?AuthorizationYearService $authorizationYearService = null
     ) {
     }
 
@@ -116,7 +126,16 @@ class PersonalFeedService
                 Role::fromString($this->roleResolver->resolve($userAccount->email, $scoutYearId)),
                 $userAccount->email,
                 $scoutYearId,
-                $this->resolveCalendarIdsForEmail($userAccount->email, $scoutYearId)
+                $this->resolveCalendarIdsForEmail($userAccount->email, $scoutYearId),
+                // The years a provider may establish this reader's rights
+                // in. The feed's own CONTENT stays on $scoutYearId — one
+                // year, as every list does; this only says which years may
+                // prove that the reader manages something. During a
+                // transition an ICS token carries no year of its own, and
+                // a manager recruited for the year being prepared would
+                // otherwise get a busy block where their colleague gets
+                // the booking.
+                $this->authorizationYearService?->resolve()->ids() ?? []
             )
         );
     }

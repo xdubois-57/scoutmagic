@@ -69,7 +69,7 @@ class RentalRbacTest extends TestCase
     private RentalAssetManagerRepository $managerRepository;
     private EncryptionService $encryption;
     private RentalAuthorizationService $authorizationService;
-    private ScoutYearService $scoutYearService;
+    private \Core\ScoutYear\ScoutYearResolver $scoutYearResolver;
     private int $scoutYearId;
 
     protected function setUp(): void
@@ -96,6 +96,14 @@ class RentalRbacTest extends TestCase
         // the one the code under test looks in, and every manager would
         // silently resolve to nobody.
         $this->scoutYearId = $scoutYearService->getCurrentYear()['id'];
+        // Authorization questions go through ScoutYearResolver — the year
+        // the CALLER is served, preview excluded. With no public year
+        // configured it falls back to the date-computed year above.
+        $scoutYearResolver = new \Core\ScoutYear\ScoutYearResolver(
+            $scoutYearService,
+            $settingService,
+            new MemberYearRepository($this->pdo)
+        );
 
         $this->assetRepository = new RentalAssetRepository($this->pdo, $encryption);
         $this->managerRepository = new RentalAssetManagerRepository($this->pdo);
@@ -113,7 +121,7 @@ class RentalRbacTest extends TestCase
             $this->managerRepository
         );
         $this->authorizationService = $authorizationService;
-        $this->scoutYearService = $scoutYearService;
+        $this->scoutYearResolver = $scoutYearResolver;
         $assetService = new RentalAssetService(
             $this->assetRepository,
             new RentalSlugGenerator($this->assetRepository),
@@ -163,7 +171,7 @@ class RentalRbacTest extends TestCase
         $this->managementController = new RentalManagementController(
             $this->twig,
             $authorizationService,
-            $scoutYearService,
+            $scoutYearResolver,
             $this->assetRepository,
             $bookingRepository,
             new \Core\Audit\AuditService(new \Core\Audit\AuditRepository($this->pdo, $encryption)),
@@ -189,7 +197,7 @@ class RentalRbacTest extends TestCase
             $this->twig,
             $this->assetRepository,
             $authorizationService,
-            $scoutYearService,
+            $scoutYearResolver,
             $availabilityService,
             $pricingService,
             new DayStateGridBuilder()
@@ -357,7 +365,7 @@ class RentalRbacTest extends TestCase
                     $this->availabilityServiceFor(),
                     $this->authorizationService,
                     $this->assetRepository,
-                    $this->scoutYearService
+                    $this->scoutYearResolver
                 ),
             default => $this->publicController,
         };

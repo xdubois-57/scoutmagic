@@ -100,6 +100,15 @@ class MagicLinkWindowIdentityTest extends TestCase
                 new ScoutYearService($this->pdo),
                 new SettingService(new SettingRepository($this->pdo)),
                 $memberYearRepo
+            ),
+            null,
+            // Wired so the login gate below is the real one. Omitted, this
+            // controller resolves the role and the membership check in a
+            // single year instead of the set — which proves less than this
+            // test looks like it proves.
+            new \Core\ScoutYear\AuthorizationYearService(
+                new ScoutYearService($this->pdo),
+                new SettingService(new SettingRepository($this->pdo))
             )
         );
     }

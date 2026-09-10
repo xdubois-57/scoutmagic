@@ -30,6 +30,22 @@ class ScoutYearTransitionTest extends TestCase
     private int $current;
     private int $next;
 
+    /**
+     * Stands in for what public/index.php wires: whether the caller
+     * reaches `intendant` RESOLVED IN the staff year. The staff year is
+     * served on that, and not on the caller's role in general — an
+     * animateur who is a chief of the year that is ending has no section
+     * in the year being prepared, and used to be dragged into it anyway.
+     *
+     * Re-set rather than toggled through a flag: the resolver memoises
+     * the answer per year, because a page resolves the effective year a
+     * dozen times and each answer costs a role resolution.
+     */
+    private function staffOfTheYearBeingPrepared(bool $isStaff): void
+    {
+        $this->resolver->setStaffYearEligibility(static fn(): bool => $isStaff);
+    }
+
     protected function setUp(): void
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
@@ -39,6 +55,12 @@ class ScoutYearTransitionTest extends TestCase
         $this->settingService->register(ScoutYearResolver::SETTING_STAFF_YEAR, '0', 'number', 'Staff', 'Staff year id', null, '^[0-9]+$', null, false);
 
         $this->resolver = new ScoutYearResolver($scoutYearService, $this->settingService, new MemberYearRepository($this->pdo));
+        // What public/index.php wires: whether the caller reaches
+        // `intendant` RESOLVED IN the staff year. Answered here by a flag
+        // the tests below set, since this file is about the workflow
+        // rather than about role resolution — Tests\Integration\
+        // ScoutYearTransitionAccessTest resolves it for real.
+        $this->staffOfTheYearBeingPrepared(true);
         $this->admin = new ScoutYearAdminService($this->settingService);
 
         $this->current = $scoutYearService->ensureYear('2024-2025');
@@ -60,22 +82,33 @@ class ScoutYearTransitionTest extends TestCase
         // --- Step 2: staff starts preparing next year.
         $this->admin->activateStaffYear($this->next);
 
-        // Chiefs/intendants now see next year; the public (identified) still sees current.
+        // Whoever is staff OF THE YEAR BEING PREPARED now sees it.
         $staffView = $this->resolver->getEffectiveYear(null, Role::INTENDANT);
         $this->assertSame($this->next, $staffView->id);
         $this->assertSame('staff', $staffView->overrideType);
 
-        $this->assertSame($this->current, $this->resolver->getEffectiveYear(null, Role::IDENTIFIED)->id);
+        $this->staffOfTheYearBeingPrepared(false);
 
-        // Login role resolution must still use the public year (never the staff year).
+        // An ordinary member is not, and neither is the animateur who is
+        // leaving — a chief, even a chef d'unité, of the year that is
+        // ending. Sending them into a year where they have no section and
+        // no animés is the half of the old rule nobody noticed.
+        $this->assertSame($this->current, $this->resolver->getEffectiveYear(null, Role::IDENTIFIED)->id);
+        $this->assertSame($this->current, $this->resolver->getEffectiveYear(null, Role::ADMIN)->id);
+
+        // The public year — what a member is served, what an import writes
+        // into, what an access decision is anchored on — has not moved.
         $this->assertSame($this->current, $this->resolver->getCurrentPublicYear()['id']);
 
         // --- Step 3: a chief previews an even older/other year for their session only.
+        $this->staffOfTheYearBeingPrepared(true);
         $preview = $this->resolver->getEffectiveYear($this->current, Role::CHIEF);
         $this->assertSame($this->current, $preview->id);
         $this->assertSame('session', $preview->overrideType);
 
-        // The same preview id has no effect for a plain identified user.
+        // The same preview id has no effect for a plain identified user,
+        // who is not staff of the year being prepared either.
+        $this->staffOfTheYearBeingPrepared(false);
         $this->assertSame($this->current, $this->resolver->getEffectiveYear($this->current, Role::IDENTIFIED)->id);
 
         // --- Step 4: transition the whole site to next year.

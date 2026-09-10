@@ -8,7 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Controller;
 
-use Core\Config\ScoutYearService;
+use Core\ScoutYear\ScoutYearResolver;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
@@ -54,7 +54,7 @@ class RentalPublicController extends AbstractController
         Environment $twig,
         private RentalAssetRepository $assetRepository,
         private RentalAuthorizationService $authorizationService,
-        private ScoutYearService $scoutYearService,
+        private ScoutYearResolver $scoutYearResolver,
         private RentalAvailabilityService $availabilityService,
         private RentalPricingService $pricingService,
         private DayStateGridBuilder $gridBuilder
@@ -93,7 +93,7 @@ class RentalPublicController extends AbstractController
         }
 
         $email = AuthSession::getEmail();
-        $scoutYearId = (int) $this->scoutYearService->getCurrentYear()['id'];
+        $scoutYearId = $this->scoutYearResolver->getAuthorizationYear()->id;
         $canManage = $this->authorizationService->canManageAsset($email, $scoutYearId, $asset);
 
         // A non-public or archived asset stays reachable by its own
@@ -159,7 +159,7 @@ class RentalPublicController extends AbstractController
             return new Response('Not Found', 404);
         }
 
-        $scoutYearId = (int) $this->scoutYearService->getCurrentYear()['id'];
+        $scoutYearId = $this->scoutYearResolver->getAuthorizationYear()->id;
         if (
             !$asset->isPubliclyVisible()
             && !$this->authorizationService->canManageAsset(AuthSession::getEmail(), $scoutYearId, $asset)

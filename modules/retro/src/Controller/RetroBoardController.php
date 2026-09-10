@@ -9,7 +9,6 @@ declare(strict_types=1);
 namespace Modules\Retro\Controller;
 
 use Core\ScoutYear\ScoutYearResolver;
-use Core\ScoutYear\ScoutYearSession;
 use Core\Config\SettingService;
 use Core\Cookie\CookieConsentException;
 use Core\Cookie\CookieConsentService;
@@ -94,10 +93,11 @@ class RetroBoardController extends AbstractController
         // The effective year, never the date-computed one: see
         // Controller\RetroConfigController for what the latter does to the
         // real chef d'unité on the 1st of September.
-        return $this->boardService->isUnitChief($email, $this->scoutYearService->getEffectiveYear(
-            ScoutYearSession::getPreviewId(),
-            Role::fromString(AuthSession::getRole())
-        )->id);
+        // Preview excluded, unlike the year this board's CONTENT is read
+        // in: this answer opens hidden comments and the moderation
+        // controls, so it is an authorization question, and a preview is
+        // chosen by the person it would authorise (ARCHITECTURE.md §4).
+        return $this->boardService->isUnitChief($email, $this->scoutYearService->getAuthorizationYear()->id);
     }
 
     /**

@@ -8,7 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Http\Controller;
 
-use Core\Config\ScoutYearService;
+use Core\ScoutYear\AuthorizationYearService;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Notification\NotificationPreferenceRepository;
@@ -34,7 +34,7 @@ class NotificationPreferenceController extends AbstractController
         private NotificationPreferenceRepository $preferenceRepository,
         private UserAccountRepository $userAccountRepository,
         private RoleResolver $roleResolver,
-        private ScoutYearService $scoutYearService
+        private AuthorizationYearService $authorizationYearService
     ) {
     }
 
@@ -166,9 +166,15 @@ class NotificationPreferenceController extends AbstractController
             return Role::IDENTIFIED;
         }
 
-        $currentYear = $this->scoutYearService->getCurrentYear();
-
-        return Role::fromString($this->roleResolver->resolve($email, $currentYear['id']));
+        // The SAME set NotificationService::dispatch() judges a recipient
+        // on, and for the reason the docblock below already gives: this
+        // page and the send pipeline disagreeing is the defect. During a
+        // transition, judging here in one year would offer the animateur
+        // of the year being prepared only an animé's switches, for
+        // notifications the pipeline sends them as a chief.
+        return Role::fromString(
+            $this->roleResolver->resolveAcrossYears($email, $this->authorizationYearService->resolve())
+        );
     }
 
     /**

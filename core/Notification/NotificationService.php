@@ -14,6 +14,8 @@ use Core\Journal\JournalService;
 use Core\Scheduler\SchedulerService;
 use Core\Security\DecryptionException;
 use Core\Security\Role;
+use Core\ScoutYear\AuthorizationYears;
+use Core\ScoutYear\AuthorizationYearService;
 use Core\Security\RoleResolver;
 use Core\Security\UserAccount;
 use Core\Security\UserAccountRepository;
@@ -88,7 +90,22 @@ class NotificationService
         private SchedulerService $schedulerService,
         private UserAccountRepository $userAccountRepository,
         private ?RoleResolver $roleResolver = null,
-        private ?ScoutYearService $scoutYearService = null
+        private ?ScoutYearService $scoutYearService = null,
+        /**
+         * The years an access decision about a recipient may be taken in.
+         * A dispatch has no session — it may well be running from the
+         * real crontab — so nothing has resolved a year for the people it
+         * is about, and the role_min re-check below asks over the set
+         * (ARCHITECTURE.md §4 « Scout year »). Without it, an animateur
+         * recruited for the year being prepared is filtered out of every
+         * notification their new role entitles them to, which is exactly
+         * the missed booking request the widening exists to prevent.
+         *
+         * Null falls back to the single date-computed year, which is what
+         * this service did before — the documented degradation for a
+         * narrow test that wires neither.
+         */
+        private ?AuthorizationYearService $authorizationYearService = null
     ) {
     }
 
@@ -181,7 +198,7 @@ class NotificationService
         $body = (string) $payload['body'];
         $url = isset($payload['url']) ? (string) $payload['url'] : null;
 
-        $currentScoutYearId = $this->scoutYearService?->getCurrentYear()['id'] ?? null;
+        $authorizationYears = $this->authorizationYears();
 
         /** @var array<string, array{runAt: \DateTimeImmutable, ids: int[]}> $pushBuckets */
         $pushBuckets = [];
@@ -198,7 +215,7 @@ class NotificationService
             // re-check below and, further down, whether a type declaring
             // default_on_role_min counts this recipient as one of the
             // audiences its "default_on" channels are on for.
-            $role = $this->resolveRole($userAccountId, $currentScoutYearId);
+            $role = $this->resolveRole($userAccountId, $authorizationYears);
             if (!$this->isRoleAllowed($role, $type->roleMin)) {
                 continue;
             }
@@ -445,7 +462,7 @@ class NotificationService
             return $type->channels[$channel] === 'on';
         }
 
-        $role ??= $this->resolveRole($userAccountId, $this->scoutYearService?->getCurrentYear()['id'] ?? null);
+        $role ??= $this->resolveRole($userAccountId, $this->authorizationYears());
 
         return $this->resolveChannel(
             $type,
@@ -592,9 +609,9 @@ class NotificationService
      * gone. Callers read null as "no role information", never as "no
      * role": isRoleAllowed() below is what turns it into a decision.
      */
-    private function resolveRole(int $userAccountId, ?int $currentScoutYearId): ?Role
+    private function resolveRole(int $userAccountId, ?AuthorizationYears $years): ?Role
     {
-        if ($this->roleResolver === null || $currentScoutYearId === null) {
+        if ($this->roleResolver === null || $years === null) {
             return null;
         }
 
@@ -603,7 +620,24 @@ class NotificationService
             return null;
         }
 
-        return Role::fromString($this->roleResolver->resolve($account->email, $currentScoutYearId));
+        return Role::fromString($this->roleResolver->resolveAcrossYears($account->email, $years));
+    }
+
+    /**
+     * The years a dispatch may judge a recipient's role in — the whole
+     * authorization set when one can be built, and otherwise the single
+     * date-computed year this service used before, wrapped so the rest of
+     * the class has one shape to handle.
+     */
+    private function authorizationYears(): ?AuthorizationYears
+    {
+        if ($this->authorizationYearService !== null) {
+            return $this->authorizationYearService->resolve();
+        }
+
+        $id = $this->scoutYearService?->getCurrentYear()['id'] ?? null;
+
+        return $id === null ? null : new AuthorizationYears($id, [$id]);
     }
 
     /**
@@ -646,11 +680,11 @@ class NotificationService
             return [];
         }
 
-        $currentScoutYearId = $this->scoutYearService?->getCurrentYear()['id'] ?? null;
+        $authorizationYears = $this->authorizationYears();
 
         $recipients = [];
         foreach ($this->userAccountRepository->findAllIds() as $userAccountId) {
-            $role = $this->resolveRole($userAccountId, $currentScoutYearId);
+            $role = $this->resolveRole($userAccountId, $authorizationYears);
             if (!$this->isRoleAllowed($role, $type->roleMin)) {
                 continue;
             }

@@ -100,7 +100,10 @@ class NotificationPreferenceControllerTest extends TestCase
             $this->preferenceRepository,
             $this->userAccountRepository,
             $roleResolver,
-            new ScoutYearService($this->pdo)
+            new \Core\ScoutYear\AuthorizationYearService(
+                new ScoutYearService($this->pdo),
+                new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo))
+            )
         );
 
         $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');

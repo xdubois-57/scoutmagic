@@ -53,13 +53,22 @@ class SessionRevalidator
      * Returns true when the session survived (or there was none to check),
      * false when it was revoked and the caller is now anonymous.
      *
-     * $currentScoutYearId is a callable rather than a value so an anonymous
+     * $authorizationYears is a callable rather than a value so an anonymous
      * visitor — the majority of traffic on a public site — costs nothing
-     * here: there is no session to check, so the year is never resolved.
+     * here: there is no session to check, so the year set is never
+     * resolved.
      *
-     * @param callable(): int $currentScoutYearId
+     * **It must be the same set the login gate judged on**, which is why
+     * `Core\Http\Controller\AuthController` and this class both go through
+     * `Core\ScoutYear\AuthorizationYearService`. Judging the door on two
+     * years and every subsequent request on one would sign an animateur of
+     * the year being prepared in, then throw them out on their first click
+     * — a bug that would look like a broken session rather than like a
+     * missing year.
+     *
+     * @param callable(): \Core\ScoutYear\AuthorizationYears $authorizationYears
      */
-    public function revalidate(callable $currentScoutYearId): bool
+    public function revalidate(callable $authorizationYears): bool
     {
         if (!AuthSession::isAuthenticated()) {
             return true;
@@ -83,19 +92,19 @@ class SessionRevalidator
             return false;
         }
 
-        $scoutYearId = $currentScoutYearId();
+        $years = $authorizationYears();
 
         // Same gate AuthController applies at login: a user_accounts row is
         // never sufficient on its own, the address must still match a real
-        // member of the unit this year (super-admins excepted). Letting an
-        // existing session outlive that would just be the login gate with
-        // an up-to-30-day grace period.
-        if (!$this->roleResolver->isEmailAuthorizedToLogin($account->email, $scoutYearId)) {
+        // member of the unit in one of the years an access decision may use
+        // (super-admins excepted). Letting an existing session outlive that
+        // would just be the login gate with an up-to-30-day grace period.
+        if (!$this->roleResolver->isEmailAuthorizedToLoginAcrossYears($account->email, $years)) {
             $this->revoke('no_longer_a_member', $userAccountId);
             return false;
         }
 
-        $freshRole = $this->roleResolver->resolve($account->email, $scoutYearId);
+        $freshRole = $this->roleResolver->resolveAcrossYears($account->email, $years);
         if ($freshRole !== AuthSession::getRole()) {
             $this->journalService?->log(
                 'core', 'session_role_refreshed', 'security',

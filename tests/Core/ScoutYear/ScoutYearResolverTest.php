@@ -56,6 +56,16 @@ class ScoutYearResolverTest extends TestCase
         $this->settingService->setInternal(ScoutYearResolver::SETTING_STAFF_YEAR, (string) $id);
     }
 
+    /**
+     * Stands in for the composition root's wiring: whether the account
+     * behind the request reaches `intendant` resolved IN the staff year.
+     * Tests that never call this exercise the unwired, fail-closed path.
+     */
+    private function eligibleForStaffYear(bool $eligible): void
+    {
+        $this->resolver->setStaffYearEligibility(static fn(int $yearId): bool => $eligible);
+    }
+
     public function testPublicSettingUsedWhenSet(): void
     {
         $this->setPublicYear($this->year2024);
@@ -88,10 +98,11 @@ class ScoutYearResolverTest extends TestCase
         $this->assertNull($effective->overrideType);
     }
 
-    public function testStaffYearHonoredForIntendant(): void
+    public function testStaffYearHonoredForWhoeverReachesIntendantInThatYear(): void
     {
         $this->setPublicYear($this->year2024);
         $this->setStaffYear($this->year2025);
+        $this->eligibleForStaffYear(true);
 
         $effective = $this->resolver->getEffectiveYear(null, Role::INTENDANT);
 
@@ -99,15 +110,96 @@ class ScoutYearResolverTest extends TestCase
         $this->assertSame('staff', $effective->overrideType);
     }
 
-    public function testStaffYearIgnoredBelowIntendant(): void
+    /**
+     * **The animateur who is leaving.** They are a chief — a chef d'unité
+     * even — by the public year, and have no row at all in the year being
+     * prepared. Under the old rule their global role sent them into that
+     * year, where they have neither section nor animés. The question is
+     * asked in the staff year now, so they stay where their section is.
+     */
+    public function testStaffYearRefusedToAnAdminWhoIsNotIntendantInThatYear(): void
     {
         $this->setPublicYear($this->year2024);
         $this->setStaffYear($this->year2025);
+        $this->eligibleForStaffYear(false);
+
+        $effective = $this->resolver->getEffectiveYear(null, Role::ADMIN);
+
+        $this->assertSame($this->year2024, $effective->id);
+        $this->assertNull($effective->overrideType);
+    }
+
+    public function testStaffYearIgnoredForAnOrdinaryMember(): void
+    {
+        $this->setPublicYear($this->year2024);
+        $this->setStaffYear($this->year2025);
+        $this->eligibleForStaffYear(false);
 
         $effective = $this->resolver->getEffectiveYear(null, Role::IDENTIFIED);
 
         $this->assertSame($this->year2024, $effective->id);
         $this->assertNull($effective->overrideType);
+    }
+
+    /**
+     * Unwired — a background root with no session to ask about — no staff
+     * year is served at all. The public year is where a caller with no
+     * identity belongs, so this fails in the closed direction.
+     */
+    public function testStaffYearIgnoredWhenNoEligibilityIsWired(): void
+    {
+        $this->setPublicYear($this->year2024);
+        $this->setStaffYear($this->year2025);
+
+        $effective = $this->resolver->getEffectiveYear(null, Role::ADMIN);
+
+        $this->assertSame($this->year2024, $effective->id);
+        $this->assertNull($effective->overrideType);
+    }
+
+    /** The question is asked about the staff year, not about some other one. */
+    public function testEligibilityIsAskedAboutTheStaffYearItself(): void
+    {
+        $this->setPublicYear($this->year2024);
+        $this->setStaffYear($this->year2025);
+
+        $asked = [];
+        $this->resolver->setStaffYearEligibility(function (int $yearId) use (&$asked): bool {
+            $asked[] = $yearId;
+            return true;
+        });
+
+        $this->resolver->getEffectiveYear(null, Role::CHIEF);
+
+        $this->assertSame([$this->year2025], $asked);
+    }
+
+    /**
+     * **The question is put every time, and this resolver caches nothing
+     * about it.** The answer depends on WHO is asking as much as on the
+     * year, and the identity changes inside a single request the moment a
+     * login succeeds — a cache here, keyed on the year alone, would
+     * answer the controller with the anonymous answer the front
+     * controller got before routing. The cache belongs one layer up,
+     * where the address is known: Core\ScoutYear\StaffYearEligibility,
+     * and Tests\Core\ScoutYear\StaffYearEligibilityTest holds both
+     * halves of that.
+     */
+    public function testEligibilityIsAskedAgainRatherThanCachedHere(): void
+    {
+        $this->setPublicYear($this->year2024);
+        $this->setStaffYear($this->year2025);
+
+        $answers = [false, true, true];
+        $this->resolver->setStaffYearEligibility(function () use (&$answers): bool {
+            return array_shift($answers) ?? false;
+        });
+
+        // The front controller, before routing: nobody is signed in yet.
+        $this->assertSame($this->year2024, $this->resolver->getEffectiveYear(null, Role::CHIEF)->id);
+
+        // The controller, after the login: the same instance must ask again.
+        $this->assertSame($this->year2025, $this->resolver->getEffectiveYear(null, Role::CHIEF)->id);
     }
 
     public function testSessionPreviewHonoredForChief(): void
@@ -125,6 +217,7 @@ class ScoutYearResolverTest extends TestCase
     {
         $this->setPublicYear($this->year2024);
         $this->setStaffYear($this->year2025);
+        $this->eligibleForStaffYear(true);
 
         // Intendant is below chief: the preview must be ignored, staff year applies.
         $effective = $this->resolver->getEffectiveYear($this->year2023, Role::INTENDANT);
@@ -152,6 +245,77 @@ class ScoutYearResolverTest extends TestCase
 
         $this->assertSame($this->year2023, $effective->id);
         $this->assertSame('session', $effective->overrideType);
+    }
+
+    /**
+     * **The authorization year is not the displayed year**, and the
+     * difference is the preview. A chief previewing 2019-2020 sees that
+     * year; the question « is this person a chef d'unité » is still asked
+     * in the year they are served, or whoever was Staff d'U in 2019-2020
+     * could preview their way back into every screen gated on it.
+     */
+    public function testTheAuthorizationYearIgnoresThePreviewTheDisplayedYearHonours(): void
+    {
+        $this->setPublicYear($this->year2024);
+
+        $displayed = $this->resolver->getEffectiveYear($this->year2023, Role::ADMIN);
+
+        $this->assertSame($this->year2023, $displayed->id);
+        $this->assertSame('session', $displayed->overrideType);
+        $this->assertSame($this->year2024, $this->resolver->getAuthorizationYear()->id);
+        $this->assertNull($this->resolver->getAuthorizationYear()->overrideType);
+    }
+
+    /**
+     * **A stale `staff_scout_year_id` grants nothing**, however eligible
+     * the caller is inside it.
+     *
+     * This is the hole the bound closes. Eligibility used to be the
+     * caller's session role, which came from the public year and so meant
+     * current standing. Asking inside the target year instead is what
+     * lets the arriving animateur in — and it stops asking anything about
+     * today, so without a bound anyone who was `intendant` in 2019-2020
+     * is served 2019-2020 the moment the setting points there, with no
+     * current standing at all. `activateStaffYear()` validates nothing
+     * and the page offers every year on record, so the value can get
+     * there by a mis-click or a restored backup.
+     *
+     * getAuthorizationYear() is the year every per-year check then runs
+     * in, so the consequence is not cosmetic: it is rental management on
+     * a `role_min: identified` route.
+     */
+    public function testAStaffYearTwoSeasonsBackIsNotServedEvenToSomebodyEligibleInIt(): void
+    {
+        $this->setPublicYear($this->year2025);
+        $this->setStaffYear($this->year2023);
+        $this->eligibleForStaffYear(true);
+
+        $effective = $this->resolver->getEffectiveYear(null, Role::ADMIN);
+
+        $this->assertSame($this->year2025, $effective->id);
+        $this->assertNull($effective->overrideType);
+        $this->assertSame($this->year2025, $this->resolver->getAuthorizationYear()->id);
+    }
+
+    /** One season back is out too — the interval is asymmetric. */
+    public function testAStaffYearOneSeasonBackIsNotServedEither(): void
+    {
+        $this->setPublicYear($this->year2025);
+        $this->setStaffYear($this->year2024);
+        $this->eligibleForStaffYear(true);
+
+        $this->assertSame($this->year2025, $this->resolver->getEffectiveYear(null, Role::ADMIN)->id);
+    }
+
+    /** It does honour the staff year, on the same rule as the displayed one. */
+    public function testTheAuthorizationYearStillFollowsTheStaffYear(): void
+    {
+        $this->setPublicYear($this->year2024);
+        $this->setStaffYear($this->year2025);
+        $this->eligibleForStaffYear(true);
+
+        $this->assertSame($this->year2025, $this->resolver->getAuthorizationYear()->id);
+        $this->assertSame('staff', $this->resolver->getAuthorizationYear()->overrideType);
     }
 
     public function testGetPublicAndStaffYearIdReturnNullWhenUnset(): void

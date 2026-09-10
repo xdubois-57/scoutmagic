@@ -258,6 +258,40 @@ class RentalVirtualEventProviderTest extends TestCase
         $this->assertNull($events[0]->description);
     }
 
+    /**
+     * **The personal ICS token is the one reader with no session**, so
+     * nothing has resolved a scout year for them. A manager whose
+     * member_year exists only in the year being prepared would, on the
+     * feed's own single year, be handed the anonymous busy block their
+     * colleague gets — an alert they never receive about a booking they
+     * can open. The authorization set is what the viewer carries for
+     * exactly that case (Api\VirtualEventViewer::authorizationYearIds()).
+     */
+    public function testAManagerOfTheYearBeingPreparedSeesTheDetailThroughTheAuthorizationSet(): void
+    {
+        $nextYearId = (new \Core\Config\ScoutYearService($this->pdo))->ensureYear(
+            \Core\Config\ScoutYearService::nextLabel(\Tests\DatabaseTestHelper::scoutYear()[0])
+        );
+        $memberId = RentalTestHelper::insertMember($this->pdo, 'D-NEXTYEAR');
+        RentalTestHelper::insertMemberYear($this->pdo, $this->encryption, $memberId, $nextYearId, 'arriving@test.be');
+        $this->managerRepository->grant($this->assetId, $memberId, false);
+        $this->createBooking();
+
+        // The feed's own year, alone: this manager does not exist in it.
+        $withoutTheSet = $this->collect($this->viewer('arriving@test.be'));
+        $this->assertNull($withoutTheSet[0]->description);
+
+        $withTheSet = $this->collect(new VirtualEventViewer(
+            Role::fromString('identified'),
+            'arriving@test.be',
+            $this->scoutYearId,
+            [self::CALENDAR_ID],
+            [$this->scoutYearId, $nextYearId]
+        ));
+
+        $this->assertStringContainsString('LOC-2027-0001', (string) $withTheSet[0]->description);
+    }
+
     public function testAManagerOfTheAssetSeesTheDetail(): void
     {
         $this->addManager('manager@test.be');
