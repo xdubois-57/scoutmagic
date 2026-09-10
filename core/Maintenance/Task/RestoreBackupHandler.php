@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Maintenance\Task;
 
 use Core\Database\MigrationRunner;
+use Core\Exception\UserFacingMessage;
 use Core\Database\SchemaFiles;
 use Core\Database\SchemaComparator;
 use Core\Database\SchemaIntrospector;
@@ -331,9 +332,8 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 $requestedBy,
                 self::TYPE_FAILED,
                 'Restauration impossible',
-                $refusal instanceof BackupException
-                    ? $refusal->getMessage() . ' Rien n\'a été modifié.'
-                    : 'Cette archive n\'a pas pu être ouverte. Rien n\'a été modifié.'
+                UserFacingMessage::from($refusal, 'Cette archive n\'a pas pu être ouverte.')
+                . ' Rien n\'a été modifié.'
             );
 
             return;

@@ -626,6 +626,11 @@
             btnPortable.disabled = false;
         }
 
+        /**
+         * @param {Object<string, string>} fields the request body's fields
+         * @param {File|null} file the archive, or null when it was already sent in chunks
+         * @returns {Promise<void>}
+         */
         function postPortable(fields, file) {
             var data = new FormData();
             data.append('_csrf_token', form.elements['_csrf_token'].value);

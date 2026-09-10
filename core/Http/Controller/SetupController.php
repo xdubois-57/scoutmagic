@@ -450,9 +450,10 @@ class SetupController extends AbstractController
 
             return $this->json([
                 'success' => false,
-                'message' => $e instanceof UserFacingException
-                    ? $e->getMessage()
-                    : 'La restauration a échoué. Consultez le journal du serveur pour le détail.',
+                'message' => UserFacingMessage::from(
+                    $e,
+                    'La restauration a échoué. Consultez le journal du serveur pour le détail.'
+                ),
             ]);
         } finally {
             @unlink($archivePath);
