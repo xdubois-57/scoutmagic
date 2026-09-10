@@ -1538,6 +1538,37 @@ l'hôte, le nom et le mot de passe de la base de **l'origine** en place —
 précisément D5, atteint par une panne que personne ne verrait. Le refus
 ne coûte rien, puisqu'il précède la sauvegarde de sécurité.
 
+**Une photo des clés qui ne survivait pas au processus qui l'a prise.**
+Sur le chemin Maintenance la migration est différée : une restauration
+peut donc échouer sur une passe qui s'exécute des heures plus tard, dans
+un autre processus, alors que la photo en mémoire a disparu depuis
+longtemps. Le retour en arrière y restaure la base et l'arborescence
+depuis une archive de sécurité qui, par construction, ne contient ni
+`storage/keys/` ni `storage/config/` : le site revenait donc avec sa
+propre base et la clé de l'archive, pendant que le journal annonçait une
+récupération propre. Les clés sont désormais mises de côté sur le disque
+sous `storage/temp` — le seul arbre qu'un retour en arrière ne touche
+pas, qu'aucune archive ne contient et qu'une sauvegarde portable n'a plus
+le droit d'écrire — et c'est le *chemin* qui voyage dans la charge du
+planificateur, jamais la matière chiffrante, qui se retrouverait sinon
+dans une ligne de base lisible par tout ce qui lit la file.
+
+**Un manifeste peut aussi mentir par omission.** Vérifier les empreintes
+de ce qu'un manifeste énumère ne dit rien de ce qu'il tait : une archive
+qui ne déclarait tout simplement pas ses deux secrets scellés passait
+tous les refus d'avant-écriture et n'était attrapée que par
+`unsealSecrets()`, après le remplacement de la base et de
+l'arborescence. Leur présence dans la liste déclarée est désormais exigée
+là où les autres refus se font.
+
+**Et une comparaison sensible à la casse là où le système de fichiers ne
+l'est pas.** `storage/Temp/twig_cache/intrus.php` franchissait la liste
+noire et atterrissait dans `storage/temp/` sur Windows ou un volume macOS
+par défaut. Une garde dont le sujet est « où ce fichier va finir » doit
+raisonner sur l'idée de « pareil » du système de fichiers, pas sur celle
+de PHP. La liste blanche, elle, reste sensible à la casse : `Storage/...`
+n'est pas admis du tout, donc rien n'est extrait.
+
 **Une taille annoncée n'est pas une taille.** Le plafond se lit dans le
 répertoire central du zip, c'est-à-dire chez celui qui a écrit l'archive.
 Une entrée peut annoncer quelques kilo-octets et se décompresser en

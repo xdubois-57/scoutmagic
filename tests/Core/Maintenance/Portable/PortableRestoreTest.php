@@ -625,6 +625,80 @@ final class PortableRestoreTest extends TestCase
         );
     }
 
+    /**
+     * **The snapshot has to outlive the process that took it.**
+     *
+     * On the Maintenance path the migration is deferred to the scheduler,
+     * so a restore can fail on a pass that runs hours later, in another
+     * process, with the in-memory snapshot long gone. The rollback there
+     * restores the database and the file tree from the safety archive —
+     * which structurally cannot carry `storage/keys/` or
+     * `storage/config/`. Held only in memory, the target's own keys would
+     * be recoverable on the synchronous failure and lost on the deferred
+     * one, and the second is the worse: the site comes back with its own
+     * database and somebody else's key, while the journal reports a clean
+     * recovery.
+     *
+     * What travels between the two passes is the PATH — never the key
+     * material, which would then sit in a scheduler row.
+     */
+    public function testTheTargetsOwnKeysSurviveAFailureOnALaterPass(): void
+    {
+        $restore = new PortableRestore($this->targetBase, $this->targetBase . '/storage');
+        $before = $restore->secretsSnapshot();
+
+        $held = $restore->holdSecretsAside($before);
+        $this->assertFileExists($held);
+        $this->assertStringNotContainsString(
+            (string) $before['storage/keys/master.key'],
+            (string) file_get_contents($held),
+            'the key is in the held file as plain bytes'
+        );
+
+        // What the first pass then did, and what the resumed one has to
+        // undo: the archive's keys are on disk and the snapshot is gone.
+        file_put_contents($this->targetBase . '/storage/keys/master.key', 'la clef de l\'archive');
+        file_put_contents($this->targetBase . '/storage/config/secrets.enc', 'le blob de l\'archive');
+        unset($before, $restore);
+
+        // A different instance, as a later pass would be.
+        (new PortableRestore($this->targetBase, $this->targetBase . '/storage'))
+            ->restoreSecretsHeldAside($held);
+
+        $restored = $this->readSecrets($this->targetBase);
+        foreach ($this->targetOwnedSecrets() as $key => $expected) {
+            $this->assertSame($expected, $restored[$key] ?? null, $key . ' did not survive the resumed pass.');
+        }
+        $this->assertFileDoesNotExist($held, 'the held key material was left on disk after being used');
+    }
+
+    /**
+     * And on a fresh installation it deletes, exactly as the in-memory
+     * snapshot does — the wizard's case, where leaving the archive's keys
+     * behind makes the next attempt refuse itself as already configured.
+     */
+    public function testAFreshInstallationIsLeftUnconfiguredByTheHeldSnapshotToo(): void
+    {
+        $freshBase = $this->targetBase . '/fresh_hold';
+        @mkdir($freshBase . '/storage/keys', 0700, true);
+        @mkdir($freshBase . '/storage/config', 0700, true);
+
+        $restore = new PortableRestore($freshBase, $freshBase . '/storage');
+        $held = $restore->holdSecretsAside($restore->secretsSnapshot());
+
+        file_put_contents($freshBase . '/storage/keys/master.key', 'la clef de l\'archive');
+        file_put_contents($freshBase . '/storage/config/secrets.enc', 'le blob de l\'archive');
+
+        $restore->restoreSecretsHeldAside($held);
+
+        $this->assertFalse(
+            (new SecretManager(
+                $freshBase . '/storage/keys/master.key',
+                $freshBase . '/storage/config/secrets.enc'
+            ))->isInitialized()
+        );
+    }
+
     /** Builds the origin's archive and restores it onto the target root. */
     private function restoreOntoTarget(): void
     {

@@ -212,6 +212,19 @@ final class PortableMaintenanceRestoreTest extends TestCase
         $this->assertTrue($payload['resume_migration'] ?? false);
         $this->assertTrue($payload['portable'] ?? false, 'the resumed pass will not adopt a new identity');
         $this->assertSame(self::ORIGIN_ID, $payload['portable_origin_installation_id'] ?? null);
+
+        // And the target's own keys, held aside on the disk so a failure
+        // on that later pass still has them to give back. The PATH
+        // travels, never the key material — this row is readable by
+        // anything that can read the queue.
+        $held = $payload['portable_secrets_hold'] ?? null;
+        $this->assertIsString($held);
+        $this->assertFileExists($held);
+        $this->assertStringNotContainsString(
+            (string) file_get_contents($this->siteBase . '/storage/keys/master.key'),
+            (string) $rows[0]['payload'],
+            'the key material itself is in the scheduler row'
+        );
     }
 
     /**

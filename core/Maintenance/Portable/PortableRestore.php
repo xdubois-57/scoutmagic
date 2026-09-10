@@ -149,6 +149,86 @@ final class PortableRestore
     }
 
     /**
+     * Writes the snapshot somewhere that outlives this process, and
+     * returns where.
+     *
+     * **Because a restore can fail on a later pass**, after the request
+     * that took the snapshot is long gone. The migration is deferred to
+     * the scheduler on the Maintenance path, and a failure there rolls
+     * back the database and the file tree from the safety archive —
+     * which structurally cannot carry `storage/keys/` or
+     * `storage/config/` (see {@see secretsSnapshot()}). Held only in
+     * memory, the target's own keys would be recoverable on the
+     * synchronous failure and lost on the deferred one, which is the
+     * worse of the two: the site comes back with its own database and
+     * somebody else's key, and the journal reports a clean rollback.
+     *
+     * The file goes under `storage/temp`, which is the one tree a
+     * rollback does not touch, no backup archive ever contains, and a
+     * portable archive may not write into. What travels in the scheduler's
+     * payload is this PATH — never the key material, which would then sit
+     * in a database row read by anything that can read the queue.
+     *
+     * @param array<string, string|null> $snapshot
+     * @throws BackupException
+     */
+    public function holdSecretsAside(array $snapshot): string
+    {
+        $directory = $this->storagePath . '/temp';
+        if (!is_dir($directory) && !@mkdir($directory, 0700, true) && !is_dir($directory)) {
+            throw new BackupException('Le dossier temporaire du site n\'a pas pu être créé.');
+        }
+
+        $encoded = [];
+        foreach ($snapshot as $relativeTarget => $contents) {
+            // Base64 because these are key bytes, not text, and JSON is
+            // the format the scheduler's own payloads already use.
+            $encoded[$relativeTarget] = $contents === null ? null : base64_encode($contents);
+        }
+
+        $path = $directory . '/portable_secrets_' . bin2hex(random_bytes(8)) . '.json';
+        if (@file_put_contents($path, (string) json_encode($encoded)) === false) {
+            throw new BackupException('Les clés de ce site n\'ont pas pu être mises de côté avant la restauration.');
+        }
+        if (PHP_OS_FAMILY !== 'Windows') {
+            @chmod($path, 0600);
+        }
+
+        return $path;
+    }
+
+    /**
+     * Puts back a snapshot held aside by {@see holdSecretsAside()}, and
+     * removes the file either way.
+     *
+     * Best-effort like {@see restoreSecretsSnapshot()}, and for the same
+     * reason: this runs while something else has already failed.
+     */
+    public function restoreSecretsHeldAside(string $path): void
+    {
+        $raw = is_file($path) ? @file_get_contents($path) : false;
+        @unlink($path);
+        if ($raw === false) {
+            return;
+        }
+
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded)) {
+            return;
+        }
+
+        $snapshot = [];
+        foreach ($decoded as $relativeTarget => $contents) {
+            if (!is_string($relativeTarget)) {
+                continue;
+            }
+            $snapshot[$relativeTarget] = is_string($contents) ? (base64_decode($contents, true) ?: null) : null;
+        }
+
+        $this->restoreSecretsSnapshot($snapshot);
+    }
+
+    /**
      * The whole restore, in the order that matters, shared by both entry
      * points.
      *
@@ -483,7 +563,16 @@ final class PortableRestore
             $this->writeSetting($pdo, 'base_url', $baseUrl);
         }
 
-        $pdo->exec('DELETE FROM push_subscriptions');
+        // Guarded, because this can run against a schema the migration has
+        // not finished bringing forward: the dump is the ORIGIN's, and an
+        // origin old enough may predate this table. A table that is not
+        // there holds no subscriptions, which is the state this line is
+        // trying to reach — so its absence is the outcome, not an error.
+        try {
+            $pdo->exec('DELETE FROM push_subscriptions');
+        } catch (\PDOException) {
+            // Nothing to empty.
+        }
     }
 
     /**

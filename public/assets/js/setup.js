@@ -616,7 +616,14 @@
                 // unit, its accounts and its settings. All that remains is
                 // to log into it.
                 portableResult.innerHTML = '<span class="text-success">✓ Site restauré.</span>';
-                portableProgress.textContent = 'Vous pouvez maintenant vous connecter avec vos identifiants habituels.';
+                // `migrated` says whether the schema finished being brought
+                // forward inside this request. When it did not, the site is
+                // restored and usable, but the first pages will show the
+                // update screen while it finishes — saying so beats letting
+                // the operator meet it without warning.
+                portableProgress.textContent = json.migrated === false
+                    ? 'La restauration est faite, la mise à jour du schéma se termine en arrière-plan : les premières pages peuvent afficher un écran de mise à jour. Vous pourrez ensuite vous connecter avec vos identifiants habituels.'
+                    : 'Vous pouvez maintenant vous connecter avec vos identifiants habituels.';
                 portableProgress.classList.remove('d-none');
                 btnPortable.disabled = true;
                 return;

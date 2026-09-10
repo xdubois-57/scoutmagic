@@ -280,6 +280,10 @@ class RestoreBackupHandler implements TaskHandlerInterface
             'portable' => true,
             'portable_origin_installation_id' => $payload['portable_origin_installation_id'] ?? null,
             'portable_base_url' => $payload['portable_base_url'] ?? null,
+            // The PATH of the target's own keys, held aside on disk. A
+            // restore needing three passes would otherwise arrive at the
+            // last one with nothing to put back if it failed.
+            'portable_secrets_hold' => $payload['portable_secrets_hold'] ?? null,
         ];
     }
 
@@ -403,6 +407,13 @@ class RestoreBackupHandler implements TaskHandlerInterface
         // tree and leave the ARCHIVE's keys in place.
         $secretsBefore = $restore->secretsSnapshot();
 
+        // And held on the DISK as well, because the migration is deferred:
+        // a failure on the resume pass happens in another process, hours
+        // later, with this snapshot long gone — and would roll the database
+        // and the files back while leaving the ARCHIVE's keys in place. The
+        // path travels in the payload; the key material does not.
+        $secretsHold = $restore->holdSecretsAside($secretsBefore);
+
         try {
             $restore->apply($archive, $backupService, $targetOwnedSecrets);
 
@@ -417,6 +428,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
                     'portable' => true,
                     'portable_origin_installation_id' => $archive->originInstallationId(),
                     'portable_base_url' => $targetBaseUrl,
+                    'portable_secrets_hold' => $secretsHold,
                 ]
             );
         } catch (\Throwable $restoreError) {
@@ -425,6 +437,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
             // installation it hands back must be the one that was here —
             // keys included, or it cannot read what it just recovered.
             $restore->restoreSecretsSnapshot($secretsBefore);
+            @unlink($secretsHold);
 
             $this->rollbackToSafetyBackup(
                 $context,
@@ -697,6 +710,13 @@ class RestoreBackupHandler implements TaskHandlerInterface
                     ['restored_from' => $originId],
                     $requestedBy
                 );
+
+                // Nothing left to roll back to: this restore has arrived.
+                // The target's old keys were carried this far only so that
+                // a failure on the way could hand them back.
+                if (is_string($payload['portable_secrets_hold'] ?? null)) {
+                    @unlink((string) $payload['portable_secrets_hold']);
+                }
             }
 
             $this->finishRestore($context, $backupRepository, $fileRepository, $source, $requestedBy);
@@ -729,6 +749,17 @@ class RestoreBackupHandler implements TaskHandlerInterface
                     . 'restaurée automatiquement. Une intervention manuelle est nécessaire.'
                 );
                 return;
+            }
+
+            // Before the rollback, exactly as on the synchronous path and
+            // for the same reason: the safety archive structurally cannot
+            // carry storage/keys/ or storage/config/, so an installation
+            // handed its own database back with the ARCHIVE's key would be
+            // unable to read a single encrypted column — while the journal
+            // reported a clean recovery.
+            if (is_string($payload['portable_secrets_hold'] ?? null)) {
+                (new PortableRestore($basePath, $context->storagePath))
+                    ->restoreSecretsHeldAside((string) $payload['portable_secrets_hold']);
             }
 
             $backupService = new BackupService(

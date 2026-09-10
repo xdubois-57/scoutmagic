@@ -690,6 +690,31 @@ describe('setup.js: restoring from a portable backup', () => {
     });
 
     /**
+     * A restore whose schema migration has not converged yet is still a
+     * success, and says so differently.
+     *
+     * `migrated: false` is not a failure — the runner stopped on its time
+     * budget and resumes on the next request — but the operator is about
+     * to meet the update screen, and meeting it unwarned reads as a
+     * restore that went wrong.
+     */
+    it('warns that the schema is still catching up when the migration has not converged', async () => {
+        await readyToRestore();
+
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, migrated: false }),
+        }));
+
+        document.getElementById('btn-portable-restore').click();
+        await settle();
+
+        expect(document.getElementById('portable-restore-result').textContent).toContain('restauré');
+        expect(document.getElementById('portable-progress').textContent).toContain('arrière-plan');
+        expect(document.getElementById('btn-portable-restore').disabled).toBe(true);
+    });
+
+    /**
      * A refusal is reversible: the operator may simply have mistyped the
      * passphrase, and must be able to try again without reloading.
      */

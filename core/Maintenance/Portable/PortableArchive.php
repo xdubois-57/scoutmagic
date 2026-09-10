@@ -286,6 +286,25 @@ final class PortableArchive
             throw new BackupException('Cette sauvegarde portable ne déclare aucun de ses fichiers.');
         }
 
+        // **Declared, not merely consistent.** Checking the digests of
+        // whatever the manifest happens to list says nothing about what it
+        // leaves out: a manifest that simply omits the two sealed secrets
+        // passes every check here and is only caught by `unsealSecrets()`
+        // — which runs after the database and the file tree have been
+        // replaced. These are precisely the members this method exists for,
+        // so their absence is a refusal like any other, and it belongs
+        // among the ones that cost the target nothing.
+        foreach (PortableManifest::SECRET_MEMBERS as $member) {
+            if (!array_key_exists($member, $members)) {
+                throw new BackupException(
+                    'Cette sauvegarde portable ne déclare pas les clés de chiffrement du site — elle ne peut pas '
+                    . 'servir à repartir ailleurs.',
+                    0,
+                    new \RuntimeException('Undeclared sealed secret member: ' . $member)
+                );
+            }
+        }
+
         foreach ($members as $name => $facts) {
             if (!is_string($name) || !is_array($facts)) {
                 throw new BackupException('Le manifeste de cette sauvegarde portable est illisible.');
@@ -537,9 +556,18 @@ final class PortableArchive
             // drift: an archive containing any of this is not one we
             // produced, and is refused rather than quietly filtered — the
             // same judgement as for a `..` below.
+            // Compared case-INSENSITIVELY, unlike the allow-list above.
+            // The two are not symmetrical on purpose: an entry named
+            // `Storage/...` fails the allow-list and is simply skipped,
+            // while `storage/Temp/twig_cache/x.php` would pass it — and on
+            // a case-insensitive filesystem land in `storage/temp/` all the
+            // same. A refusal whose subject is "where this file would end
+            // up" has to reason about the filesystem's idea of sameness,
+            // not PHP's.
+            $lowered = strtolower($name);
             foreach (BackupService::NON_ARCHIVED_STORAGE_SUBDIRS as $subdir) {
-                $forbidden = self::RESTORED_TREE . $subdir;
-                if ($name === $forbidden || str_starts_with($name, $forbidden . '/')) {
+                $forbidden = strtolower(self::RESTORED_TREE . $subdir);
+                if ($lowered === $forbidden || str_starts_with($lowered, $forbidden . '/')) {
                     throw new BackupException(
                         'Archive de sauvegarde invalide (emplacement interdit).',
                         0,

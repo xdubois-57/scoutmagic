@@ -223,10 +223,14 @@ final class PortableArchiveRefusalTest extends TestCase
         }
     }
 
-    /** A member the manifest announces and the archive does not hold. */
+    /**
+     * A member the manifest announces and the archive does not hold —
+     * declared ALONGSIDE the real ones, so what is under test is the
+     * missing file and not the refusal about undeclared keys.
+     */
     public function testADeclaredMemberMissingFromTheArchiveIsRefused(): void
     {
-        $archive = $this->open(['members' => ['secrets/absent.enc' => ['sha256' => str_repeat('0', 64)]]]);
+        $archive = $this->open(['extraMembers' => ['secrets/absent.enc' => ['sha256' => str_repeat('0', 64)]]]);
 
         try {
             $archive->verifyDeclaredMembers();
@@ -415,6 +419,53 @@ final class PortableArchiveRefusalTest extends TestCase
         }
     }
 
+    /**
+     * **A different case is the same directory**, on the filesystems the
+     * refusal above is protecting.
+     *
+     * `storage/Temp/twig_cache/intrus.php` passes the `storage/`
+     * allow-list, and on Windows or a default macOS volume it lands in
+     * `storage/temp/` — where the next page render `include`s it. A guard
+     * whose subject is where a file will END UP has to reason about the
+     * filesystem's idea of sameness, not PHP's.
+     */
+    public function testACaseVariantOfAForbiddenTreeIsRefusedToo(): void
+    {
+        $archive = $this->open(['extraEntry' => 'storage/Temp/twig_cache/intrus.php']);
+
+        try {
+            $archive->restorableEntries();
+            $this->fail('An archive naming storage/Temp was accepted.');
+        } catch (BackupException $e) {
+            $this->assertStringContainsString('emplacement interdit', $e->getMessage());
+        } finally {
+            $archive->close();
+        }
+    }
+
+    /**
+     * **An archive that simply does not mention its keys.**
+     *
+     * Checking the digests of whatever a manifest lists says nothing about
+     * what it leaves out. Without this, such an archive passed every
+     * pre-write refusal and was caught by `unsealSecrets()` — which runs
+     * after the database and the file tree have been replaced, so the
+     * refusal arrived at a cost the refusals exist to avoid.
+     */
+    public function testAnArchiveThatDoesNotDeclareItsSealedKeysIsRefusedBeforeAnyWrite(): void
+    {
+        $archive = $this->open(['members' => ['database.sql' => ['sha256' => str_repeat('0', 64)]]]);
+
+        try {
+            $archive->verifyDeclaredMembers();
+            $this->fail('An archive declaring none of its keys was accepted.');
+        } catch (BackupException $e) {
+            $this->assertStringContainsString('ne déclare pas les clés', $e->getMessage());
+        } finally {
+            $archive->close();
+        }
+    }
+
     /** @param array<string, mixed> $options */
     private function open(array $options = []): PortableArchive
     {
@@ -491,7 +542,7 @@ final class PortableArchiveRefusalTest extends TestCase
             'installation_id' => 'aaaabbbbccccddddeeeeffff00001111',
             'includes_gallery' => false,
             'includes_secrets' => array_values(PortableManifest::SECRET_MEMBERS),
-            'members' => $options['members'] ?? $members,
+            'members' => $options['members'] ?? ($members + (array) ($options['extraMembers'] ?? [])),
         ];
         if (is_string($options['manifestPadding'] ?? null)) {
             $manifest['padding'] = $options['manifestPadding'];
