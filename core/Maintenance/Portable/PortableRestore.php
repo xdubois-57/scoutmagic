@@ -192,10 +192,10 @@ final class PortableRestore
      */
     private function writeDump(PortableArchive $archive): string
     {
-        $sql = $archive->handle()->getFromName('database.sql');
-        if ($sql === false) {
-            throw new BackupException('Cette sauvegarde portable ne contient pas de base de données.');
-        }
+        // Through the archive, which checks the declared size against its
+        // own ceiling before decompressing anything — a dump is the most
+        // compressible member there is.
+        $sql = $archive->databaseDump();
 
         $directory = $this->storagePath . '/temp';
         if (!is_dir($directory) && !@mkdir($directory, 0755, true) && !is_dir($directory)) {

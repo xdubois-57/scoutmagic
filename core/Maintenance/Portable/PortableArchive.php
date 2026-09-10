@@ -308,6 +308,41 @@ final class PortableArchive
     }
 
     /**
+     * The archive's database dump, refused if it does not fit the ceiling.
+     *
+     * **The size is read from the entry's header before a byte is
+     * decompressed**, which is the only order that helps: `getFromName()`
+     * expands the whole member into a PHP string, so checking afterwards
+     * checks a machine that has already run out of memory. A dump is
+     * extremely compressible by nature — it is repetitive SQL — so this is
+     * the member where a small file expanding to gigabytes is not even
+     * adversarial, merely a large site.
+     *
+     * It sits here rather than in `restorableEntries()` because that walk
+     * only sees `storage/`: the dump is a root-level member, so nothing
+     * counted it against the ceiling this class declares.
+     *
+     * @throws BackupException
+     */
+    public function databaseDump(): string
+    {
+        $stat = $this->zip->statName('database.sql');
+        if ($stat === false) {
+            throw new BackupException('Cette sauvegarde portable ne contient pas de base de données.');
+        }
+        if ((int) $stat['size'] > self::MAX_RESTORE_UNCOMPRESSED_BYTES) {
+            throw new BackupException('Archive de sauvegarde trop volumineuse une fois décompressée.');
+        }
+
+        $sql = $this->zip->getFromName('database.sql');
+        if ($sql === false) {
+            throw new BackupException('La base de données de cette sauvegarde portable est illisible.');
+        }
+
+        return $sql;
+    }
+
+    /**
      * The two secrets, unsealed, keyed by where they belong on the restored
      * installation (relative to the install root).
      *

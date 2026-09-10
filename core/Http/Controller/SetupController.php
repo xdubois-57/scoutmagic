@@ -491,15 +491,24 @@ class SetupController extends AbstractController
             $archive->assertRestorableOnto(VersionFile::read($installRoot));
             $archive->verifyDeclaredMembers();
 
-            // The docblock above promises an empty database, and a promise
-            // a caller cannot break on its own is worth checking: this
-            // endpoint takes the credentials from the request, so nothing
-            // guarantees they are the ones the wizard just tested. A dump
-            // laid over a populated database is a merge nobody asked for.
-            $existingTables = count((new SchemaIntrospector($connection->getPdo()))->getTables());
-            if ($existingTables > 0) {
+            // **Empty of DATA, not of tables**, and the difference is the
+            // whole guard. By the time the operator can reach this button
+            // the wizard has just run `installDatabase()`, which migrates
+            // the schema — so roughly forty tables exist, and refusing on
+            // their presence would refuse every honest restore while
+            // looking like caution. `installDatabase()` is also what
+            // already refuses a database that had tables of its own before
+            // the wizard touched it, so that half is covered.
+            //
+            // What is left to refuse is a database that belongs to a
+            // working site. This endpoint takes its credentials from the
+            // request, so nothing guarantees they are the ones the wizard
+            // just tested; a dump laid over a live site's data is a merge
+            // nobody asked for. One account is enough to say a site lives
+            // here — a freshly migrated schema has none.
+            if ($this->holdsExistingSiteData($connection->getPdo())) {
                 throw new BackupException(
-                    'Cette base de données contient déjà des tables. Videz-la, ou choisissez-en une autre, '
+                    'Cette base de données contient déjà les données d\'un site. Choisissez une base vide, '
                     . 'puis recommencez la restauration.'
                 );
             }
@@ -556,6 +565,31 @@ class SetupController extends AbstractController
         } finally {
             $archive->close();
         }
+    }
+
+    /**
+     * Whether this database already holds a working site's data.
+     *
+     * Read as "is somebody living here", never as "is this schema
+     * complete": a `user_accounts` table that does not exist yet, or is
+     * empty, both mean the same thing — nobody is. The query is guarded
+     * because the table's absence is an ordinary state at this point in
+     * the wizard, not an error.
+     */
+    private function holdsExistingSiteData(\PDO $pdo): bool
+    {
+        if (!in_array('user_accounts', (new SchemaIntrospector($pdo))->getTables(), true)) {
+            return false;
+        }
+
+        $statement = $pdo->query('SELECT COUNT(*) FROM user_accounts');
+        if ($statement === false) {
+            return false;
+        }
+
+        $count = $statement->fetchColumn();
+
+        return is_numeric($count) && (int) $count > 0;
     }
 
     /**
