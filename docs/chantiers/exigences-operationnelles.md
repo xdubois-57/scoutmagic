@@ -1421,3 +1421,86 @@ lecture du manifeste, la conservation des identifiants de la cible (D5) et
 le nouvel `installation_id` (D6) sont IT-07. Le champ `installation_id` du
 manifeste est écrit mais rien ne le relit encore. La destination distante
 (IT-08) et l'envoi récurrent (IT-09) non plus.
+
+## IT-07 — La restauration portable
+
+La moitié lecture d'IT-06, et celle où les erreurs sont destructrices
+plutôt que simplement inutiles.
+
+**Ce qui a été livré.** `PortableArchive` ouvre et authentifie une
+archive : commentaire en clair, dérivation des deux clés, manifeste
+chiffré, empreintes des membres déclarés — dans cet ordre, et entièrement
+avant la première écriture. `PortableRestore` applique le résultat :
+extraction, installation des clés, conservation des identifiants de la
+machine (D5), nouvelle identité (D6), abonnements push vidés.
+`RestoreBackupHandler` route vers ce chemin une archive téléversée qui
+s'annonce dans son en-tête, et `SetupController` offre la même chose
+depuis l'assistant, avec téléversement fragmenté. La charge de
+statistiques porte `restored_from`. Un sujet d'aide décrit la marche à
+suivre complète.
+
+**Décision autonome, et la plus lourde : le code n'est jamais restauré.**
+L'archive porte `core/`, `modules/` et `public/`, et la restauration les
+ignore. Cela ressemble à jeter la majeure partie du fichier, donc voici
+le raisonnement en entier. La règle de version n'autorise que deux cas.
+Sur la même version, extraire `core/` réécrit des milliers de fichiers
+pour rien. Sur une installation **plus récente**, c'est une
+rétrogradation silencieuse — et elle contredit l'étape suivante, la
+migration de schéma n'existant que pour amener un dump ancien vers du
+code récent : il faut donc que le code récent soit encore là. Le
+troisième cas, une installation plus ancienne, n'existe pas ici puisque
+l'archive est refusée avant. Cela supprime en outre un danger au lieu de
+le gérer : extraire `core/` remplacerait le code du processus en train de
+tourner, le mélange qui a coûté six retours en arrière consécutifs en
+production. C'est ce qui permet à l'assistant de migrer dans la même
+requête. Les entrées restent **dans** l'archive : c'est un seul zip, et
+qui veut l'arborescence d'origine peut l'ouvrir.
+
+**Décision autonome : une ligne portable de la liste de ce site reste
+refusée.** IT-06 la refusait « en attendant IT-07 » ; elle le reste, mais
+pour une raison qui tient debout seule. Une archive portable est faite
+pour être emportée et téléversée ailleurs ; la restaurer sur le site qui
+l'a produite, c'est une sauvegarde complète en moins bien — le même site,
+sans la galerie. Le chemin réel est donc le téléversement, depuis
+Maintenance ou depuis l'assistant.
+
+**Décision autonome : une version de développement n'est ordonnée contre
+rien.** `version_compare()` classe `dev-a1b2c3d` sous toute release, ce
+qui laisserait passer une archive de développement sur une release et
+refuserait l'inverse — deux réponses obtenues par accident. Quand l'un
+des deux côtés est un build de développement, ou qu'une version est
+inconnue, la comparaison s'abstient. Le trou est délibéré et de la bonne
+taille : un build de développement est une copie de travail, pas une
+installation dont une unité dépend.
+
+**Divergence entre le document et le dépôt.** Le document demande la
+section correspondante dans `specifications.md` ; ce fichier décrit les
+menus et n'a pas de section consacrée à l'assistant d'installation. La
+ligne « Maintenance » du tableau a donc été complétée, et rien n'a été
+inventé autour.
+
+**Le manifeste n'énumère pas les arborescences**, décision d'IT-06 que
+IT-07 hérite : « empreintes vérifiées avant extraction » porte donc sur
+les membres déclarés, c'est-à-dire les deux secrets scellés — ceux dont
+la corruption est silencieuse. Le CRC par entrée du format zip couvre le
+reste, et c'est lui qui attrape la corruption qui arrive réellement à une
+archive transportée sur une clé USB.
+
+**Réparation en passant.** `ARCHITECTURE.md` plaçait §8.100 à §8.102 —
+IT-04, IT-05 et IT-06 — après le titre « ## 9. Installation / bootstrap »,
+donc dans la mauvaise section. §8.103 s'y ajoutait naturellement, ce qui
+aurait fait quatre. Les quatre sont remontées dans la section 8, dans
+l'ordre numérique ; le diff se limite au déplacement du titre de la
+section 9 et au texte neuf.
+
+**Ce que les gardes prouvent.** Chacune a été vérifiée en réinjectant
+exactement le défaut qu'elle interdit : retirer la remise en place des
+identifiants fait tomber le test D5 et lui seul ; neutraliser le routage
+portable fait tomber le test qui distingue un refus tôt d'un refus tard ;
+retirer la garde « site déjà configuré » fait tomber le test
+correspondant de l'assistant.
+
+**Reporté.** La destination distante (IT-08) et l'envoi récurrent avec
+rétention distante (IT-09). Le téléversement fragmenté de l'assistant ne
+consulte pas le budget disque, faute de base de données où lire un quota
+à ce moment-là ; le magasin de fragments applique son propre plafond.
