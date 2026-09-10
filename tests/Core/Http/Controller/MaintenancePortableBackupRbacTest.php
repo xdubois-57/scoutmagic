@@ -20,6 +20,11 @@ use PHPUnit\Framework\TestCase;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 
+if (!defined('AUTHZ_SUPPORT_TEST')) {
+    define('AUTHZ_SUPPORT_TEST', true);
+}
+require_once dirname(__DIR__, 4) . '/scripts/authz-support.php';
+
 /**
  * The role boundary of `POST /config/maintenance/backup/portable`: allowed
  * at `admin`, refused one level below.
@@ -123,6 +128,43 @@ final class MaintenancePortableBackupRbacTest extends TestCase
 
         $this->assertSame(302, $response->getStatusCode());
         $this->assertSame('/login', $response->getHeaders()['Location'] ?? null);
+    }
+
+    /**
+     * **The half a stub cannot prove: what `public/index.php` actually
+     * registers.**
+     *
+     * The cases above build their own Router, so they prove that the
+     * Router enforces a floor of `admin` — and they would go on passing if
+     * this route were registered as `public`, as `chief`, or not at all.
+     * That gap is real, and it is closed here rather than argued away:
+     * `authz_core_routes()` parses the production registrations (the same
+     * reading `scripts/authz-support.php` gives the authorization matrix,
+     * which replays every route as every role in CI), so this asserts the
+     * floor where it is really written.
+     *
+     * Reading rather than booting, because booting `public/index.php`
+     * inside a test would run an entire application — connections,
+     * migrations, session — for one question about one line.
+     */
+    public function testTheProductionRegistrationIsTheFloorTheseTestsAssume(): void
+    {
+        $matching = array_values(array_filter(
+            \authz_core_routes(),
+            static fn (array $route): bool => $route['path'] === self::PATH && $route['method'] === 'POST'
+        ));
+
+        $this->assertCount(
+            1,
+            $matching,
+            'public/index.php does not register POST ' . self::PATH . ' — the tests above prove a floor on a '
+            . 'route nobody can reach.'
+        );
+        $this->assertSame(
+            'admin',
+            $matching[0]['role_min'],
+            'The production route no longer carries the floor these tests assert.'
+        );
     }
 
     private function handle(): Response
