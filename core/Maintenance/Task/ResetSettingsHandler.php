@@ -27,7 +27,6 @@ use Core\Storage\DiskBudget;
  */
 class ResetSettingsHandler implements TaskHandlerInterface
 {
-    private const KEEP_BACKUPS = 5;
 
     private const TYPE_COMPLETED = 'core.settings_reset_completed';
     private const TYPE_FAILED = 'core.settings_reset_failed';
@@ -93,7 +92,13 @@ class ResetSettingsHandler implements TaskHandlerInterface
                 $requestedBy
             );
 
-            $this->purgeBeyondLimit($backupRepository, $fileRepository, $context->storagePath);
+            (new \Core\Maintenance\BackupRetention(
+                $backupRepository,
+                $fileRepository,
+                $context->storagePath,
+                $context->settings,
+                \Core\Maintenance\BackupSafetyNet::forPdo($context->connection->getPdo())
+            ))->purgeAfterCreating('auto_reset');
 
             RequesterNotice::send(
                 $context,
@@ -119,31 +124,6 @@ class ResetSettingsHandler implements TaskHandlerInterface
                 'Échec de la réinitialisation',
                 'La réinitialisation des paramètres par défaut a échoué.'
             );
-        }
-    }
-
-    /**
-     * Deletes (file + row) every backup beyond the KEEP_BACKUPS most recent
-     * — same purge as the other background Maintenance tasks.
-     */
-    private function purgeBeyondLimit(
-        BackupRepository $backupRepository,
-        FileRepository $fileRepository,
-        string $storagePath
-    ): void
-    {
-        foreach ($backupRepository->findBeyond(self::KEEP_BACKUPS) as $old) {
-            foreach ([$old->fileId, $old->dbDumpFileId] as $fileId) {
-                if ($fileId === null) {
-                    continue;
-                }
-                $file = $fileRepository->findById($fileId);
-                if ($file !== null) {
-                    @unlink($storagePath . '/' . $file->relativePath);
-                    $fileRepository->delete($fileId);
-                }
-            }
-            $backupRepository->delete($old->id);
         }
     }
 

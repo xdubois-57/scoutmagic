@@ -38,7 +38,6 @@ use Core\Storage\DiskBudget;
  */
 class AutoBackupHandler implements TaskHandlerInterface
 {
-    private const KEEP_BACKUPS = 5;
     private const REFERENCE = 'auto';
 
     /** @var array<string, string> */
@@ -116,7 +115,13 @@ class AutoBackupHandler implements TaskHandlerInterface
             $context->journal->log('core', 'auto_backup_completed', 'info', 'Sauvegarde automatique effectuée',
                 ['backup_id' => $backupId]);
 
-            $this->purgeBeyondLimit($backupRepository, $fileRepository, $context->storagePath);
+            (new \Core\Maintenance\BackupRetention(
+                $backupRepository,
+                $fileRepository,
+                $context->storagePath,
+                $context->settings,
+                \Core\Maintenance\BackupSafetyNet::forPdo($context->connection->getPdo())
+            ))->purgeAfterCreating('auto_backup');
         } catch (\Throwable $e) {
             $context->journal->log('core', 'auto_backup_failed', 'info', 'Échec de la sauvegarde automatique',
                 ['error' => $e->getMessage()]);
@@ -143,32 +148,6 @@ class AutoBackupHandler implements TaskHandlerInterface
         // on purpose (SECURITY.md § 35).
         $interval = self::INTERVALS[$frequency] ?? '+1 day';
         $schedulerService->rearm('core', 'auto_backup', self::REFERENCE, new \DateTimeImmutable($interval));
-    }
-
-    /**
-     * Deletes (file + row) every backup beyond the KEEP_BACKUPS most recent
-     * — same purge as every other background Maintenance task, sharing the
-     * same quota across all backup types.
-     */
-    private function purgeBeyondLimit(
-        BackupRepository $backupRepository,
-        FileRepository $fileRepository,
-        string $storagePath
-    ): void
-    {
-        foreach ($backupRepository->findBeyond(self::KEEP_BACKUPS) as $old) {
-            foreach ([$old->fileId, $old->dbDumpFileId] as $fileId) {
-                if ($fileId === null) {
-                    continue;
-                }
-                $file = $fileRepository->findById($fileId);
-                if ($file !== null) {
-                    @unlink($storagePath . '/' . $file->relativePath);
-                    $fileRepository->delete($fileId);
-                }
-            }
-            $backupRepository->delete($old->id);
-        }
     }
 
     private function relativePath(string $storagePath, string $absolutePath): string

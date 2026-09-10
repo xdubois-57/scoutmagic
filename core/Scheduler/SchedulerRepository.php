@@ -65,6 +65,82 @@ class SchedulerRepository
     }
 
     /**
+     * Merges keys into one row's payload, keeping what is already there.
+     *
+     * For a handler recording something it has just created into its own
+     * row, so that a reader of the queue — `Core\Maintenance\
+     * BackupSafetyNet` — can see what the task depends on. A payload is
+     * written once at schedule time, and a task that creates its own
+     * safety net has nothing to declare until it has created it.
+     *
+     * Read-modify-write in PHP rather than a JSON function: MySQL and
+     * MariaDB do not spell those identically, and a merge that works on
+     * one engine and not the other is the failure `docs/quality-pipeline.md`
+     * describes. The row is `processing` and owned by the pass doing the
+     * writing, so there is no second writer to race with.
+     *
+     * @param array<string, mixed> $extra
+     */
+    public function rememberInPayload(int $id, array $extra): void
+    {
+        $stmt = $this->pdo->prepare('SELECT payload FROM scheduled_actions WHERE id = ?');
+        $stmt->execute([$id]);
+        $current = $stmt->fetchColumn();
+
+        $decoded = is_string($current) ? json_decode($current, true) : null;
+        $merged = json_encode(array_merge(is_array($decoded) ? $decoded : [], $extra));
+        if ($merged === false) {
+            return;
+        }
+
+        $update = $this->pdo->prepare('UPDATE scheduled_actions SET payload = ? WHERE id = ?');
+        $update->execute([$merged, $id]);
+    }
+
+    /**
+     * The decoded payload of every LIVE row — queued or running.
+     *
+     * For callers that need to know whether anything still in the queue
+     * refers to a thing they are about to destroy. The one today is
+     * `Core\Maintenance\BackupSafetyNet`: an `auto_update` backup is the
+     * only thing an automatic rollback can start from, and deleting it
+     * while the install that took it is still running removes the net at
+     * the exact moment it is holding something.
+     *
+     * Payloads rather than a targeted query, and read in PHP rather than
+     * with `JSON_EXTRACT`: the live set is a handful of rows by
+     * construction (one per recurring chain plus whatever one-shots are
+     * queued), and the two engines this project supports do not spell
+     * JSON path lookups identically — see `docs/quality-pipeline.md` on
+     * what only one of them accepts. A row whose payload is absent or
+     * unreadable yields an empty array rather than being skipped, so a
+     * caller counting references never mistakes "could not read" for
+     * "does not refer".
+     *
+     * @return array<int, array{module_id: string, task_key: string, payload: array<string, mixed>}>
+     */
+    public function findLivePayloads(): array
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT module_id, task_key, payload FROM scheduled_actions
+             WHERE status IN ('pending', 'processing')"
+        );
+        $stmt->execute();
+
+        $rows = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $row) {
+            $decoded = is_string($row['payload'] ?? null) ? json_decode((string) $row['payload'], true) : null;
+            $rows[] = [
+                'module_id' => (string) $row['module_id'],
+                'task_key' => (string) $row['task_key'],
+                'payload' => is_array($decoded) ? $decoded : [],
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
      * Whether this chain is alive: a row of it is queued or running.
      *
      * The twin of findByModuleAndKey() for a caller that seeds rather

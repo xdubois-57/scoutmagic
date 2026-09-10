@@ -746,3 +746,271 @@ dire.
 **Reporté.** Aucune interface nouvelle sur la page Maintenance : les
 alertes s'affichent dans la cloche et sur la page Points d'attention, qui
 existent déjà. Le découpage de la section Sauvegardes reste à IT-04.
+
+---
+
+## IT-04 — Quotas par famille, et suppression manuelle
+
+**Livré.** `Core\Maintenance\BackupFamily` (l'énumération), `BackupRetention`
+(le seul chemin de purge et de suppression), `BackupSafetyNet` (le refus),
+la route `POST /config/maintenance/backup/{id}/delete`, les trois réglages
+`backup_keep_*`, et le découpage de la section « Sauvegardes » en trois
+sections `<h2 class="h5">`. `ARCHITECTURE.md` §8.100,
+`docs/exigences-non-fonctionnelles.md` §4bis, et le sujet d'aide scindé en
+deux.
+
+**Le défaut, énoncé simplement.** `findBeyond(5)` triait *tout* par date et
+coupait après cinq, sans distinction. Les sauvegardes automatiques sont
+plus nombreuses que les délibérées sur toute installation réellement
+entretenue, donc une liste ordonnée unique garde toujours le bruit et jette
+le signal : trois mises à jour consécutives évinçaient la sauvegarde
+complète qu'un administrateur venait de prendre cinq minutes plus tôt.
+Chaque famille évince désormais la sienne.
+
+**Six copies de la même purge, et c'est ça le vrai sujet.** Le contrôleur
+et cinq gestionnaires de tâches portaient chacun leur exemplaire des mêmes
+quinze lignes. Elles étaient d'accord entre elles — c'est pour cela que
+personne ne l'avait relevé —, et le risque était la septième. Une ligne
+`backups` possède **deux** fichiers, `file_id` et `db_dump_file_id` : une
+routine qui oublie le second laisse sur le disque un orphelin que plus rien
+ne référence et que seul un accès FTP peut atteindre. La suppression
+manuelle réutilise donc `BackupRetention::forget()` au lieu d'ajouter la
+septième copie — c'est le premier des quatre pièges du document de chantier,
+et le seul dont la correction se mesure en lignes retirées.
+
+**Décisions autonomes.**
+
+1. **La famille est déduite du type, jamais stockée** (D3, mais la mise en
+   œuvre restait à choisir). Une colonne `backups.family` serait une seconde
+   source de vérité pour ce que le type décide déjà, et les deux
+   divergeraient au premier type livré sans elle. `tryFromType()` répond
+   `null` pour un type inconnu, et la purge laisse alors la ligne
+   tranquille : garder ce qu'on ne sait pas classer coûte du disque,
+   le supprimer coûte à quelqu'un son unique copie. Le prix de cette
+   prudence est qu'un type livré sans famille ne serait *jamais* purgé,
+   sans que rien à l'exécution ne le dise — d'où
+   `BackupFamilyCoverageTest`, qui lit l'énumération de `schema/core.sql`
+   comme du texte et refuse un type sans famille, sans libellé français, ou
+   absent de `Backup::TYPES`. IT-06 ajoute `portable` : c'est exactement le
+   moment où le trou se serait ouvert.
+
+2. **Le plafond galerie s'applique après *chaque* création**, pas seulement
+   après une création avec galerie. C'est une lecture délibérée de « à la
+   création » : une seconde archive avec galerie ne peut exister que parce
+   que quelqu'un l'a faite, et une installation qui en avait déjà deux à la
+   livraison ne devrait pas avoir à en faire une troisième pour que le
+   plafond s'en aperçoive. Le déclenchement à la création reste entier — le
+   piège que le document nomme est le démarrage et la migration, pas la
+   création d'une autre famille.
+
+3. **La suppression est `admin`, pas `superadmin`.** C'est le plancher de
+   toutes les autres écritures de la section : qui peut créer une sauvegarde
+   et télécharger l'archive peut aussi en retirer une. Le cas réellement
+   dangereux n'est pas un rôle, c'est supprimer le filet d'une opération qui
+   tourne en ce moment — et `BackupSafetyNet` le refuse quel que soit le
+   rôle de l'appelant. Un rôle plus élevé aurait par ailleurs affiché à un
+   `admin` un bouton qui répond 403, ce que la section Réinitialisation fait
+   déjà et qu'il n'y avait pas de raison d'étendre.
+
+4. **Le refus lit deux sources**, parce qu'une opération en cours s'inscrit à
+   deux endroits : la charge utile de la tâche planifiée (`backup_id`,
+   `safety_backup_id`) tant qu'elle est en file ou réclamée, et
+   `update_history.backup_id` pour toute la durée d'une installation.
+   Délibérément **pas** construit sur `findInProgress()`, qui marque une
+   ligne bloquée comme échouée en effet de bord : savoir si un bouton peut
+   être pressé ne doit pas changer l'état d'une mise à jour en répondant.
+   Un test épingle précisément cela.
+
+5. **Le refus parle, il ne grise pas.** Un contrôle désactivé sans
+   explication se lit comme un bug, se signale comme un bug, et n'apprend à
+   personne que la sauvegarde redeviendra supprimable dans deux minutes.
+
+6. **Les libellés de type passent du Twig au PHP** (`Backup::typeLabel()`).
+   La page dit déjà, à propos du bloc disque, qu'un choix pris dans un
+   fichier Twig est un choix que personne ne peut tester ; et ici deux
+   surfaces ont besoin de la même chaîne — la ligne de la liste et la
+   confirmation qui doit nommer ce qu'elle va détruire. Deux orthographes de
+   « Complète (sans galerie) », c'est une confirmation qui cesse de
+   correspondre à la ligne cliquée.
+
+7. **« Voir plus » reprend le mécanisme de la page**, le « collapse »
+   Bootstrap de l'historique des mises à jour vingt lignes plus haut, avec
+   `collapse-label.js` déjà chargé — et non un `<details>` natif, qui aurait
+   fait deux façons de replier une liste sur un même écran. Les libellés
+   (« Voir plus (N) », « Réduire ») viennent de la maquette, qui fait foi
+   là-dessus ; le mécanisme non, elle est en Tailwind et en React.
+
+8. **La pastille porte le libellé du *type*, coloré par la famille.** Le
+   document dit « la famille est une pastille sur chaque ligne » et la
+   maquette écrit le type dans cette pastille. Le type est strictement plus
+   informatif, et la couleur porte le regroupement : c'est la maquette qui
+   tranche, comme prévu, sur ce qui s'affiche.
+
+**Divergences constatées entre le document de chantier et le dépôt.**
+
+1. **La famille « Portable » n'est pas ajoutée.** Le type `portable`
+   n'existe pas encore — il arrive en IT-06 —, et une branche
+   d'énumération pour un type qu'aucune ligne ne peut porter est du code
+   mort. Le cliquet ci-dessus force IT-06 à l'ajouter au même moment que le
+   type, ce qui est la bonne mécanique.
+
+2. **Les sections 2 et 3 de la maquette arrivent presque vides.** « Sauvegardes
+   automatiques et distantes » ne porte que la fréquence : la destination
+   Drive est IT-08, la phrase de passe IT-09. La hiérarchie est celle de la
+   maquette dès maintenant, parce que la déplacer plus tard coûterait une
+   seconde relecture de la même page — mais les blocs qu'elle attend sont
+   nommés dans les commentaires plutôt que livrés en avance.
+
+3. **Deux paragraphes d'`ARCHITECTURE.md` que le code contredisait**, tous
+   deux hérités d'IT-03 : §8.15 annonçait encore `backup_auto_frequency`
+   par défaut à `monthly` et « la même quota de 5 sauvegardes partagé par
+   tous les types ». Corrigés dans cette PR, comme le chantier l'exige.
+   Même chose pour le repli `?: 'monthly'` du contrôleur, qui aurait placé
+   le sélecteur sur une valeur que l'installation ne porte pas.
+
+4. **Le sujet d'aide a dû être scindé.** `HelpInvariantsTest` refuse un
+   sujet au-delà de 500 mots, et « Sauvegarder le site » en faisait déjà 464
+   avant cette itération. Rogner la prose existante pour faire tenir les
+   nouvelles règles de conservation aurait été le mauvais arbitrage : le
+   cliquet dit ce que la charte dit (« au-delà d'environ 400 mots, ce sont
+   deux sujets »), et l'écran venait précisément de fournir la couture.
+   « Conserver et supprimer les sauvegardes » est donc un sujet à part,
+   qui suit la troisième section de la page.
+
+5. **Un test de restauration reposait sur la purge globale.**
+   `RestoreBackupRoundTripTest` faisait échouer la queue d'une passe reprise
+   en supprimant la table `files` sous une purge qui allait la lire — avec
+   sept sauvegardes `database`. La purge d'une reprise porte sur la famille
+   « avant opération » : les sept lignes manuelles ne la concernaient plus,
+   et le test n'observait plus rien. Le montage a été corrigé, pas
+   l'assertion : ce qu'il épingle (le retour en arrière depuis les chemins
+   portés par la charge utile) n'a pas changé.
+
+6. **Deux cliquets ont parlé, tous deux utilement.**
+   `AuthorizationMatrixInventoryTest` a refusé la route neuve tant qu'elle
+   n'avait pas de fixture dans `tests/dast/authz-fixtures.json` — sans quoi
+   la matrice l'aurait silencieusement laissée non vérifiée. Et le test E2E
+   de la page cherchait ses lignes par `getByRole('cell')` : la liste n'est
+   plus un tableau, et il fallait le dire au test plutôt qu'à personne.
+
+**Un constat de revue, et il détruisait de vraies archives.** Les deux
+règles ne filtraient que sur le type et la famille, jamais sur le
+**statut**. Or une ligne `backups` est insérée en `pending` avant que sa
+tâche de fond ne tourne, et une tâche qui échoue laisse la ligne en place,
+en `failed`, sans aucun fichier. Cette ligne vide devenait donc la plus
+récente de sa famille — et avec le plafond galerie à un, la création
+suivante, de n'importe quelle sorte, gardait l'échec et supprimait la
+dernière archive contenant réellement la galerie. Même aveuglement sur le
+quota de famille : trois échecs suffisaient à en épuiser un et à faire
+partir une sauvegarde bien réelle.
+
+Reproduit d'abord, corrigé ensuite. **Seule une ligne `completed` occupe
+une place** : un quota est une promesse sur le nombre de copies
+utilisables, et une ligne qui n'en est pas une ne peut pas la dépenser. Ne
+pas les compter ne pouvait pas vouloir dire les garder indéfiniment — la
+table grossirait d'une ligne par échec — donc **un échec survit par
+famille**, le plus récent, parce que « Échouée » sur la dernière tentative
+est précisément la raison pour laquelle la ligne n'est pas simplement
+effacée quand la tâche renonce. Les lignes `pending` et `in_progress` ne
+sont jamais supprimées : un gestionnaire écrit dedans, et l'autre bout de
+cette course est une archive à moitié écrite dont plus rien ne garde
+trace. Quatre tests, dont celui qui reproduit le scénario exact du
+constat.
+
+**Deux constats de revue de plus, et le second a rouvert un arbitrage.**
+
+1. **Un commentaire de code en français.** `AGENTS.md` § Language est
+   clair : ce qui est écrit *à propos d'un changement* est en français,
+   le code et ses commentaires en anglais — et un commentaire qui
+   explique une décision de mise en forme est un commentaire de code.
+   Corrigé.
+
+2. **`GALLERY_TYPES` ne listait que `full_with_gallery`**, et le nom d'un
+   type ne dit rien de son contenu. `InstallUpdateHandler`,
+   `ResetSettingsHandler` et `RestoreBackupHandler` appellent tous
+   `createFileBackup(true)` : l'opération dont ils protègent peut effacer
+   `storage/gallery/`, donc leur copie de sécurité doit la contenir. Les
+   archives `auto_update` et `auto_reset` échappaient donc au plafond, et
+   une installation pouvait garder **quatre** archives de la taille de la
+   galerie à la fois — une manuelle plus un quota de famille de trois.
+   C'est exactement le disque que le plafond existe pour défendre.
+
+   `GalleryTypeCoverageTest` lit désormais les **sites d'appel** plutôt
+   que les noms : il énumère tout appel à `createFileBackup()` dont
+   l'argument n'est pas littéralement `false`, en dépouillant les
+   commentaires par le tokenizer (une mention en prose n'est pas un appel,
+   et un cliquet incapable de faire la différence se fait taire au lieu
+   d'être corrigé). Un site d'appel neuf que personne n'a classé casse la
+   compilation. `FullResetHandler` y figure avec la valeur `null` : il
+   n'enregistre volontairement aucune ligne `backups`, une réinitialisation
+   complète vidant la table qui la porterait.
+
+   **Le relecteur avait raison sur la suite aussi** : ajouter les deux
+   types sans plus n'aurait pas suffi, parce que `purgeAfterCreating()` ne
+   consultait pas `BackupSafetyNet`. Une sauvegarde manuelle avec galerie
+   prise pendant qu'une mise à jour tourne aurait évincé la seule chose
+   depuis laquelle son retour en arrière peut repartir — en silence, sans
+   que personne ait demandé la moindre suppression. La purge automatique
+   lit maintenant le filet, une fois par purge et non par candidat, et
+   **saute** une ligne protégée plutôt que de la reporter : le plafond est
+   dépassé d'une archive jusqu'à la fin de l'opération, ce qui dure des
+   minutes et coûte une archive, contre une installation qui perdrait son
+   chemin de retour.
+
+**Un arbitrage rouvert, et une divergence assumée avec le document.** Le
+document fixe le plafond sur la prémisse qu'« une `full_with_gallery` peut
+peser plus que les huit autres réunies » — arithmétique qui suppose que
+les huit autres n'ont pas la galerie, alors que trois d'entre elles l'ont.
+Le plafond s'appliquant à toutes les familles, il mord donc **avant** le
+quota « avant opération » : `backup_keep_operational` vaut 3 par défaut,
+mais une seule sauvegarde avant opération est conservée en pratique.
+
+Le contraire aurait autorisé trois archives de 2 Gio de filet de sécurité
+sur une installation dont le §1 dimensionne la galerie entière à 2 Gio :
+le plafond est ce qui doit gagner. Le réglage le dit dans sa propre
+description plutôt que de promettre trois, §4bis l'explique, et la
+question de fond — une mise à jour remplace du code, son filet a-t-il
+besoin de la galerie ? — part en **issue #298** avec ce qu'il faut vérifier
+avant d'y toucher : si le retour en arrière restaure `storage/` en bloc,
+retirer la galerie de l'archive effacerait les photos au premier rollback.
+
+**Un troisième constat de revue : la copie de sécurité de la restauration
+n'était pas protégée pendant la restauration.** `BackupSafetyNet` lit la
+charge utile des tâches vivantes, or une charge utile est écrite au moment
+où la tâche est *planifiée*, et `RestoreBackupHandler` prend sa copie
+`auto_reset` bien après. `safety_backup_id` n'apparaissait que dans la
+charge utile de la passe de *reprise*, planifiée beaucoup plus tard.
+
+Entre le `markCompleted()` de cette copie et le remplacement de la base,
+elle était donc une ligne `completed` comme une autre : listée avec un
+bouton « Supprimer » qui marche, et invisible au filet. Sur une
+installation avec galerie, construire cette archive prend des minutes — et
+c'est la seule chose depuis laquelle le retour en arrière peut repartir.
+La pire copie à perdre, dans la pire fenêtre.
+
+La tâche la déclare maintenant dans **sa propre** ligne, dans le même
+geste que le `markCompleted()`, via `SchedulerRepository::rememberInPayload()`.
+Le lanceur injecte pour cela un second identifiant réservé,
+`scheduled_action_id`, à côté du `requested_by_user_account_id` qui suivait
+déjà exactement le même raisonnement : un gestionnaire qui crée quelque
+chose que le reste du site ne doit pas détruire doit pouvoir le dire, ce
+qui suppose de savoir quelle ligne il est. La fusion se fait en PHP et non
+par une fonction JSON du moteur — les deux moteurs ne les écrivent pas
+pareil, et `docs/quality-pipeline.md` décrit précisément cette panne-là.
+
+**Ce constat n'a pas pu être épinglé par un test de comportement, et la
+raison mérite d'être écrite.** La passe se rétablit depuis cette copie
+quand elle échoue, ce qui restaure la base et emporte avec elle la ligne
+`backups` et la ligne de file : au moment où un test peut regarder, ce
+qu'il voulait observer a été consommé par le mécanisme qu'il observait. La
+propriété est donc épinglée en deux moitiés — que `rememberInPayload()`
+rende la copie visible au filet est prouvé par le comportement dans
+`BackupSafetyNetTest` ; que *ce* gestionnaire l'appelle, sur sa propre
+tâche, dans le même geste, est prouvé textuellement, à la manière de
+`DiskBudgetWiringTest` et pour la même raison : un site d'appel qui
+disparaît ne fait échouer aucun test et ne journalise rien.
+
+**Reporté.** Le bloc « Sauvegarde portable » (IT-06) et son avertissement,
+la destination distante (IT-08), la phrase de passe générée (IT-09), l'état
+d'intégrité par ligne et le marqueur « sur Drive » (IT-05, IT-09). La
+maquette les montre ; cette itération ne les anticipe pas.

@@ -139,6 +139,61 @@ Notification and attention point read the same check, run once. The
 notification says "this has just tipped over"; the attention point says
 "this is still true".
 
+## 4bis. Backup retention
+
+How many backups the server keeps, **per family**. The family is deduced
+from the type and never stored (`Core\Maintenance\BackupFamily`).
+
+| Family | Types | Setting | Default |
+|---|---|---|---|
+| Manual | `database`, `full_config`, `full_no_gallery`, `full_with_gallery` | `backup_keep_manual` | 3 |
+| Scheduled | `auto_backup` | `backup_keep_scheduled` | 3 |
+| Pre-operation | `auto_update`, `auto_reset` | `backup_keep_operational` | 3 |
+
+Plus one cap across all families: **a single archive containing the photo
+gallery**, not configurable — and it applies to `full_with_gallery`,
+`auto_update` and `auto_reset` alike.
+
+**Those last two are why the pre-operation quota is an upper bound rather
+than a number an installation observes.** The name of a type says nothing
+about its contents: a pre-operation backup calls `createFileBackup(true)`,
+because the operation it guards against can wipe `storage/gallery/` and
+its safety copy has to hold it. So every pre-operation archive is
+gallery-bearing, the cap of one binds before `backup_keep_operational`
+does, and an installation keeps **one** of them. The setting says so.
+
+This is a divergence from the chantier document, which set the cap on the
+premise that « une `full_with_gallery` peut peser plus que les huit autres
+réunies » — that arithmetic assumes the other eight exclude the gallery,
+and three of them do not. Three gallery-sized safety copies is six GiB
+against the §1 sizing of a two-GiB gallery on shared hosting, so the cap
+is what has to win. Whether an update's safety copy needs the gallery at
+all is a separate question, raised as issue #298.
+
+One number for everything was the previous rule, and it kept the wrong
+backups: the automatic ones outnumber the deliberate ones on any
+installation actually being maintained, so three consecutive updates
+evicted the full backup an administrator had taken five minutes earlier.
+A single ordered list keeps the noise and drops the signal.
+
+The gallery cap is the one that decides whether the disk holds. Two
+gallery archives are routinely more than every other backup combined,
+which is also why that one is not a setting: an administrator who wants
+a second copy has somewhere better to put it than the server it is
+meant to survive.
+
+Only a **completed** backup counts towards a quota or the cap. A row is
+inserted `pending` before its background job runs and a failed job leaves
+it behind with no file, so counting every row let an empty failure evict
+the archive that had actually succeeded. One failure per family is kept —
+it is what says the backup stopped working — and rows still being written
+are never removed.
+
+Purging runs **on creation and nowhere else**, and only for the family
+just written. At boot or during a migration, an installation holding
+five backups would watch two of them vanish in the middle of an update
+nobody connected to retention.
+
 ## 5. Technical baseline
 
 | Item | Requirement |

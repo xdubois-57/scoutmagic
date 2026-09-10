@@ -126,6 +126,9 @@
     "/config/llm/providers/{id}": {
       "id": "1"
     },
+    "/config/maintenance/backup/{id}/delete": {
+      "id": "1"
+    },
     "/courrier/{id}": {
       "id": "1"
     },

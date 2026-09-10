@@ -74,7 +74,6 @@ use Core\Storage\DiskBudget;
  */
 class InstallUpdateHandler implements TaskHandlerInterface
 {
-    private const KEEP_BACKUPS = 5;
 
     /**
      * Room insisted on for the update's own workspace — the downloaded
@@ -689,7 +688,13 @@ class InstallUpdateHandler implements TaskHandlerInterface
             $history->requestedBy
         );
 
-        $this->purgeBeyondLimit($backupRepository, $fileRepository, $context->storagePath);
+        (new \Core\Maintenance\BackupRetention(
+            $backupRepository,
+            $fileRepository,
+            $context->storagePath,
+            $context->settings,
+            \Core\Maintenance\BackupSafetyNet::forPdo($context->connection->getPdo())
+        ))->purgeAfterCreating('auto_update');
 
         $this->announce(
             $context,
@@ -1282,34 +1287,6 @@ class InstallUpdateHandler implements TaskHandlerInterface
             $item->isDir() ? rmdir((string) $item) : unlink((string) $item);
         }
         rmdir($dir);
-    }
-
-    /**
-     * Deletes (file + row) every backup beyond the KEEP_BACKUPS most recent
-     * — same purge as Task\CreateBackupHandler and
-     * MaintenanceController::purgeBeyondLimit(), duplicated rather than
-     * shared per this codebase's established tolerance for this specific
-     * small duplication.
-     */
-    private function purgeBeyondLimit(
-        BackupRepository $backupRepository,
-        FileRepository $fileRepository,
-        string $storagePath
-    ): void
-    {
-        foreach ($backupRepository->findBeyond(self::KEEP_BACKUPS) as $old) {
-            foreach ([$old->fileId, $old->dbDumpFileId] as $fileId) {
-                if ($fileId === null) {
-                    continue;
-                }
-                $file = $fileRepository->findById($fileId);
-                if ($file !== null) {
-                    @unlink($storagePath . '/' . $file->relativePath);
-                    $fileRepository->delete($fileId);
-                }
-            }
-            $backupRepository->delete($old->id);
-        }
     }
 
     private function relativePath(string $storagePath, string $absolutePath): string

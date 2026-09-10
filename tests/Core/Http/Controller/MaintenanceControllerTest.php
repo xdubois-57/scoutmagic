@@ -505,6 +505,142 @@ class MaintenanceControllerTest extends TestCase
         $this->assertStringNotContainsString('>database —', $body);
     }
 
+    // --- Suppression manuelle d'une sauvegarde (IT-04) ---
+
+    public function testDeletingABackupRemovesBothItsFilesAndItsRow(): void
+    {
+        $files = new FileRepository($this->pdo);
+        @mkdir($this->storagePath . '/maintenance', 0777, true);
+        file_put_contents($this->storagePath . '/maintenance/x.zip', 'zip');
+        file_put_contents($this->storagePath . '/maintenance/x.sql', 'sql');
+        $archive = $files->create('maintenance/x.zip', 'x.zip', 'application/zip', 3, 'admin', null, null);
+        $dump = $files->create('maintenance/x.sql', 'x.sql', 'application/sql', 3, 'admin', null, null);
+        $id = $this->backupRepository->create('full_no_gallery', 1);
+        $this->backupRepository->markCompleted($id, $archive, $dump);
+
+        $response = $this->controller->deleteBackup($this->deleteRequest($id), ['id' => (string) $id]);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertNull($this->backupRepository->findById($id));
+        $this->assertFileDoesNotExist($this->storagePath . '/maintenance/x.zip');
+        $this->assertFileDoesNotExist($this->storagePath . '/maintenance/x.sql');
+        $this->assertNull($files->findById($archive));
+        $this->assertNull($files->findById($dump));
+    }
+
+    /** It destroys a means of recovery, so the journal records it as such. */
+    public function testDeletingABackupIsJournaledAsASecurityEvent(): void
+    {
+        $id = $this->backupRepository->create('database', 1);
+
+        $this->controller->deleteBackup($this->deleteRequest($id), ['id' => (string) $id]);
+
+        $entries = array_values(array_filter(
+            (new JournalRepository($this->pdo))->search(),
+            static fn (array $e): bool => $e['event_type'] === 'backup_deleted'
+        ));
+        $this->assertNotSame([], $entries);
+        $this->assertSame('security', $entries[0]['level']);
+    }
+
+    /**
+     * The refusal that matters: an install still running can only roll
+     * back to the backup it took, and the person reading a list of dates
+     * cannot tell which line that is.
+     */
+    public function testTheSafetyNetOfARunningUpdateCannotBeDeleted(): void
+    {
+        $id = $this->backupRepository->create('auto_update', 1);
+        $historyId = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, 1);
+        $this->updateHistoryRepository->setBackupId($historyId, $id);
+        $this->updateHistoryRepository->setStatus($historyId, 'installing');
+
+        $response = $this->controller->deleteBackup($this->deleteRequest($id), ['id' => (string) $id]);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertNotNull($this->backupRepository->findById($id), 'The net has to still be there.');
+        $this->assertStringContainsString('mise à jour en cours', $this->flashMessage());
+    }
+
+    public function testDeletingABackupValidatesCsrf(): void
+    {
+        $id = $this->backupRepository->create('database', 1);
+        $request = new Request(
+            'POST',
+            '/config/maintenance/backup/' . $id . '/delete',
+            [],
+            ['_csrf_token' => 'bad'],
+            [],
+            []
+        );
+
+        $this->controller->deleteBackup($request, ['id' => (string) $id]);
+
+        $this->assertNotNull($this->backupRepository->findById($id));
+    }
+
+    /** Two clicks on the same button, or a purge in between. */
+    public function testDeletingABackupThatIsAlreadyGoneSaysSoInsteadOfFailing(): void
+    {
+        $response = $this->controller->deleteBackup($this->deleteRequest(999999), ['id' => '999999']);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertStringContainsString('n\'existe plus', $this->flashMessage());
+    }
+
+    /**
+     * Five rows on screen and the rest behind « voir plus » — and the
+     * count in the summary has to be the real remainder, not a guess.
+     */
+    public function testTheListShowsFiveAndHidesTheRestBehindADisclosure(): void
+    {
+        for ($i = 0; $i < 7; $i++) {
+            $this->backupRepository->create('database', 1);
+        }
+
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Voir plus (2)', $body);
+    }
+
+    /**
+     * A pre-operation backup is what an automatic rollback starts from,
+     * so its confirmation says so — the hard refusal only applies while a
+     * task is actually holding it, and the rest of the time a sentence is
+     * what stands between a leader and a lost way back.
+     */
+    public function testTheConfirmationWarnsAboutAPreOperationBackup(): void
+    {
+        $this->backupRepository->create('auto_update', 1);
+        $this->backupRepository->create('database', 1);
+
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('retour en arrière automatique reste possible', $body);
+        $this->assertSame(
+            1,
+            substr_count($body, 'retour en arrière automatique reste possible'),
+            'Only the pre-operation row carries the warning; on every row it would stop being read.'
+        );
+    }
+
+    private function flashMessage(): string
+    {
+        return (string) (\Core\Http\FlashMessage::get()['message'] ?? '');
+    }
+
+    private function deleteRequest(int $id): Request
+    {
+        return new Request(
+            'POST',
+            '/config/maintenance/backup/' . $id . '/delete',
+            [],
+            ['_csrf_token' => $this->csrfToken()],
+            [],
+            []
+        );
+    }
+
     public function testCreateDatabaseBackupValidatesCsrf(): void
     {
         $request = new Request('POST', '/config/maintenance/backup/database', [], ['_csrf_token' => 'bad'], [], []);

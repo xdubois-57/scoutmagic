@@ -32,10 +32,12 @@ class BackupRepository
     }
 
     /**
-     * Most recent backups, newest first — Configuration > Maintenance's
-     * "recent backups" list is capped to 5 (module spec), enforced by
-     * MaintenanceController/CreateBackupHandler calling deleteOldestBeyond()
-     * after each new backup, not by this query.
+     * Most recent backups, newest first.
+     *
+     * The count is the caller's business, not this query's: retention is
+     * enforced per family by {@see BackupRetention} after each creation,
+     * so what this returns is simply "the newest N rows, whatever they
+     * are".
      *
      * @return Backup[]
      */
@@ -48,21 +50,46 @@ class BackupRepository
     }
 
     /**
-     * All backups beyond the $keep most recent, oldest first — what
-     * MaintenanceController/CreateBackupHandler delete (file + row) after
-     * creating a new one, to enforce the 5-backup cap. Fetches everything
-     * and slices in PHP rather than LIMIT/OFFSET — the row count is always
-     * tiny (a handful at most) and "OFFSET N, unlimited" isn't portable
-     * between MySQL and the SQLite test database (MySQL rejects
-     * `LIMIT -1`, SQLite's own "no limit" spelling).
+     * The same rows, with what each one occupies on disk — the list on
+     * Configuration › Maintenance, which prints a size on every line and
+     * repeats it in the deletion confirmation.
+     *
+     * Two LEFT JOINs rather than a second query per row: a backup carries
+     * up to two files (the archive and the database dump), both of which
+     * count, and a list of a dozen rows must not become twenty-five
+     * queries. LEFT, because a row can legitimately have neither — one
+     * that failed, or one whose files a previous purge already took.
      *
      * @return Backup[]
      */
-    public function findBeyond(int $keep): array
+    public function findForList(int $limit): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT b.*, COALESCE(a.size_bytes, 0) + COALESCE(d.size_bytes, 0) AS size_bytes
+             FROM backups b
+             LEFT JOIN files a ON a.id = b.file_id
+             LEFT JOIN files d ON d.id = b.db_dump_file_id
+             ORDER BY b.created_at DESC, b.id DESC LIMIT ?'
+        );
+        $stmt->bindValue(1, $limit, \PDO::PARAM_INT);
+        $stmt->execute();
+
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Every backup, newest first. Fetches the lot rather than paging:
+     * retention keeps this table to a handful of rows by construction, and
+     * "OFFSET N, unlimited" has no portable spelling anyway (MySQL rejects
+     * `LIMIT -1`; SQLite spells it its own way).
+     *
+     * @return Backup[]
+     */
+    public function findAllNewestFirst(): array
     {
         $stmt = $this->pdo->query('SELECT * FROM backups ORDER BY created_at DESC, id DESC');
-        $all = array_map([$this, 'hydrate'], $stmt !== false ? $stmt->fetchAll(\PDO::FETCH_ASSOC) : []);
-        return array_slice($all, $keep);
+
+        return array_map([$this, 'hydrate'], $stmt !== false ? $stmt->fetchAll(\PDO::FETCH_ASSOC) : []);
     }
 
     /**
@@ -129,7 +156,8 @@ class BackupRepository
             requestedBy: $row['requested_by'] !== null ? (int) $row['requested_by'] : null,
             errorMessage: $row['error_message'] !== null ? (string) $row['error_message'] : null,
             createdAt: (string) $row['created_at'],
-            completedAt: $row['completed_at'] !== null ? (string) $row['completed_at'] : null
+            completedAt: $row['completed_at'] !== null ? (string) $row['completed_at'] : null,
+            sizeBytes: isset($row['size_bytes']) ? (int) $row['size_bytes'] : null
         );
     }
 }

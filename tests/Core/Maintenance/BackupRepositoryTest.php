@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Core\Maintenance;
 
+use Core\File\FileRepository;
 use Core\Maintenance\BackupRepository;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -16,12 +17,14 @@ class BackupRepositoryTest extends TestCase
 {
     private \PDO $pdo;
     private BackupRepository $repository;
+    private FileRepository $files;
     private int $userId;
 
     protected function setUp(): void
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         $this->repository = new BackupRepository($this->pdo);
+        $this->files = new FileRepository($this->pdo);
 
         $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
         $stmt->execute(['enc', 'idx']);
@@ -106,26 +109,46 @@ class BackupRepositoryTest extends TestCase
         $this->assertSame($second, $recent[1]->id);
     }
 
-    public function testFindBeyondReturnsEverythingPastTheKeepCount(): void
+    public function testEveryBackupComesBackNewestFirst(): void
     {
         $ids = [];
         for ($i = 0; $i < 7; $i++) {
             $ids[] = $this->repository->create('database', $this->userId);
         }
 
-        $beyond = $this->repository->findBeyond(5);
+        $all = $this->repository->findAllNewestFirst();
 
-        $this->assertCount(2, $beyond);
-        // The two oldest (first created) are the ones beyond the 5 kept.
-        $beyondIds = array_map(fn($b) => $b->id, $beyond);
-        $this->assertEqualsCanonicalizing([$ids[0], $ids[1]], $beyondIds);
+        $this->assertCount(7, $all);
+        $this->assertSame(array_reverse($ids), array_map(fn($b) => $b->id, $all));
     }
 
-    public function testFindBeyondReturnsEmptyWhenUnderTheLimit(): void
+    /**
+     * The list on Configuration › Maintenance prints a size on every line,
+     * and a backup owns up to TWO files — the archive and the database
+     * dump. Counting one of them would understate every full backup on the
+     * page by the weight of its dump.
+     */
+    public function testTheListSizeAddsBothOfABackupsFiles(): void
     {
-        $this->repository->create('database', $this->userId);
-        $this->repository->create('database', $this->userId);
+        $archive = $this->files->create('maintenance/a.zip', 'a.zip', 'application/zip', 3000, 'admin', null, null);
+        $dump = $this->files->create('maintenance/a.sql', 'a.sql', 'application/sql', 200, 'admin', null, null);
+        $id = $this->repository->create('full_no_gallery', $this->userId);
+        $this->repository->markCompleted($id, $archive, $dump);
 
-        $this->assertSame([], $this->repository->findBeyond(5));
+        $rows = $this->repository->findForList(10);
+
+        $this->assertSame($id, $rows[0]->id);
+        $this->assertSame(3200, $rows[0]->sizeBytes);
+    }
+
+    /** A row whose files a purge already took still has to list. */
+    public function testTheListSurvivesABackupWithNoFilesLeft(): void
+    {
+        $id = $this->repository->create('database', $this->userId);
+
+        $rows = $this->repository->findForList(10);
+
+        $this->assertSame($id, $rows[0]->id);
+        $this->assertSame(0, $rows[0]->sizeBytes);
     }
 }
