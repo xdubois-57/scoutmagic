@@ -369,9 +369,20 @@ class BackupService implements BackupServiceInterface
                 // archive that is missing one of these is one that cannot
                 // be restored anywhere else, and the operator would only
                 // find out on the day they tried.
+                //
+                // WHICH file it was travels as $previous, never in the
+                // message: BackupException is marked UserFacingException,
+                // and that marker is a claim about every message it is
+                // ever built with — French, and naming nothing internal.
+                // `keys/master.key` is the site's own directory layout.
+                // The detail still reaches the stack trace and the
+                // journal entry that logs it, which is where somebody
+                // diagnosing this actually looks.
                 throw new BackupException(
-                    'Un fichier de secrets du site est illisible (' . $relativePath . ') — la sauvegarde '
-                    . 'portable ne serait restaurable nulle part. Vérifiez les droits sur storage/.'
+                    'Un fichier de secrets du site est illisible — la sauvegarde portable ne serait '
+                    . 'restaurable nulle part. Vérifiez les droits sur storage/.',
+                    0,
+                    new \RuntimeException('Unreadable portable secret member: ' . $relativePath)
                 );
             }
 
