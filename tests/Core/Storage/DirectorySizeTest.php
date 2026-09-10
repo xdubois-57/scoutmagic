@@ -242,10 +242,14 @@ class DirectorySizeTest extends TestCase
      * directly or through a link.
      *
      * The link also shows the cycle guard doing its second job — a tree
-     * symlinked twice is walked once, so `temperatures/` appears under its
-     * own name and not a second time under `readings/`. The two rules meet
-     * here and the assertion pins both: what is excluded stays out, and
-     * what is not excluded appears exactly once.
+     * symlinked twice is walked once. **Which of the two names survives is
+     * not asserted, and that is the point of this comment**: the guard
+     * keeps whichever the iterator reaches first, and directory order is
+     * the filesystem's to choose. A first draft of this test pinned
+     * `temperatures/` because that is what came back locally, and it went
+     * red on the CI runner, where `readings/` came first — a flake I
+     * wrote, not a behaviour worth having. What the walk actually promises
+     * is a count and a total, so that is what is asserted.
      */
     public function testResolvingAnExclusionStillMatchesOnAPathBoundary(): void
     {
@@ -268,12 +272,17 @@ class DirectorySizeTest extends TestCase
                 $names[] = str_replace($this->root . '/', '', $file->getPathname());
             }
 
-            $this->assertSame(['temperatures/reading.txt'], $names);
+            $this->assertCount(1, $names, 'The tree is reachable twice and must be walked once.');
+            $this->assertContains(
+                $names[0],
+                ['temperatures/reading.txt', 'readings/reading.txt'],
+                'Excluding `temp` must not exclude `temperatures`, under either of its names.'
+            );
             $this->assertSame(9, DirectorySize::measure(
                 $this->root,
                 [$this->root . '/temp'],
                 DirectoryWalk::Archive
-            ), 'Nine bytes once: the link must not count them twice.');
+            ), 'Nine bytes once: `temp` is out, and the link does not count `temperatures` twice.');
         } finally {
             @unlink($this->root . '/readings');
         }
