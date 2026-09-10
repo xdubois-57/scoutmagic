@@ -164,10 +164,23 @@ final class BackupRetention
      * it", which is not a retention policy anybody means to express, and a
      * negative number read out of a settings row would silently empty the
      * table.
+     *
+     * **A family with no setting key is not configurable at all**, and the
+     * settings table is not even consulted for it — `Portable` keeps
+     * exactly one, and a `backup_keep_portable` row invented by a hand, an
+     * older site's restored settings or a future version cannot raise it.
+     * Reading the setting and then ignoring the answer would have been the
+     * same behaviour today and a trap the first time someone wondered why
+     * their row did nothing.
      */
     public function quotaFor(BackupFamily $family): int
     {
-        $configured = $this->settings?->get($family->quotaSettingKey());
+        $key = $family->quotaSettingKey();
+        if ($key === null) {
+            return $family->defaultQuota();
+        }
+
+        $configured = $this->settings?->get($key);
         $value = is_scalar($configured) ? (int) $configured : 0;
 
         return $value > 0 ? $value : $family->defaultQuota();

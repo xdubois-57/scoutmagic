@@ -306,6 +306,54 @@ class MaintenanceControllerTest extends TestCase
         $this->assertStringNotContainsString('maintenance-cron-warning', $body);
     }
 
+    /**
+     * The portable block is on screen, warning first.
+     *
+     * The mockup is authoritative for this wording, and the wording is the
+     * feature: an operator who reads « Contient les clés de chiffrement du
+     * site » before clicking understands in one sentence why this archive
+     * is not like the other two, and why it has to be taken off the server.
+     * A block that shipped with the button and without the warning would
+     * look finished and would be the dangerous half.
+     */
+    public function testThePortableBlockCarriesItsWarningAndItsLengthRule(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Sauvegarde portable', $body);
+        $this->assertStringContainsString('Contient les clés de chiffrement du site.', $body);
+        $this->assertStringContainsString('Téléchargez-la puis supprimez-la du serveur.', $body);
+        $this->assertStringContainsString('Une seule est conservée', $body);
+
+        // The screen promises the same number the server enforces, and it
+        // gets it from the same constant rather than from a literal typed
+        // into a template.
+        $this->assertStringContainsString(
+            'minlength="' . \Core\Maintenance\Portable\PortablePassphrase::MIN_LENGTH . '"',
+            $body
+        );
+        $this->assertStringContainsString(
+            'Au moins ' . \Core\Maintenance\Portable\PortablePassphrase::MIN_LENGTH . ' caractères',
+            $body
+        );
+    }
+
+    /**
+     * And it still says what the OTHER archive does not carry.
+     *
+     * The two blocks sit side by side, and the difference between them is
+     * the whole decision an operator makes on the day of a disaster. IT-04
+     * put that sentence on the encrypted block; adding a neighbour that
+     * carries the keys is exactly the change that could quietly drop it.
+     */
+    public function testTheEncryptedBlockStillSaysItLeavesTheSecretsBehind(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Sans les secrets', $body);
+        $this->assertStringContainsString('se restaure sur cette installation', $body);
+    }
+
     public function testTheHealthBlockReportsAStaleCronRatherThanAMissingOne(): void
     {
         $this->writeCronHeartbeat(time() - 10800);

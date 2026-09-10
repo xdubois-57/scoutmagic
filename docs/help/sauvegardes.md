@@ -8,7 +8,7 @@ discovery: off
 question: Comment sauvegarder le site avant une opération risquée ?
 question: Pourquoi ma sauvegarde est-elle refusée faute de place ?
 paths: /config/maintenance
-related: sauvegardes-conserver, mises-a-jour, reinitialisation
+related: sauvegarde-portable, sauvegardes-conserver, mises-a-jour, reinitialisation
 ---
 
 Le bloc Sauvegardes de la page Maintenance protège votre site : il
@@ -32,7 +32,7 @@ Réglages, d'après votre contrat d'hébergement — « 10 Go » ou « 500 Mo »
 suffisent comme écriture — et le calcul portera sur votre espace à
 vous.
 
-## Deux formes de sauvegarde
+## Trois formes de sauvegarde
 
 - **Base de données seule** : un export complet, généré sur-le-champ.
   Les données personnelles y restent chiffrées, mais le fichier reste
@@ -43,6 +43,11 @@ vous.
   choix : la configuration seule, le site complet sans la galerie
   photo, ou avec elle.
 
+- **Sauvegarde portable** : la même chose, plus les clés de
+  chiffrement du site — la seule archive qui se restaure sur une
+  installation neuve, chez un autre hébergeur. Elle a ses propres
+  règles, et le sujet « Emporter le site ailleurs » les explique.
+
 Si votre hébergeur ne sait pas chiffrer les archives, la page le
 signale : la sauvegarde de la base seule reste disponible.
 
@@ -50,7 +55,8 @@ signale : la sauvegarde de la base seule reste disponible.
 
 La section « Sauvegardes automatiques et distantes » porte la
 fréquence (quotidienne à mensuelle) : le site génère seul une
-sauvegarde complète, sans la galerie. Il prend aussi une sauvegarde de
+sauvegarde complète, sans la galerie. Ces sauvegardes-là ne sont pas
+portables : elles restent sans les clés. Il prend aussi une sauvegarde de
 sécurité avant chaque mise à jour et chaque action de réinitialisation,
 sans que vous ayez rien à faire.
 

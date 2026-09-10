@@ -18,11 +18,19 @@ use Core\Scheduler\TaskHandlerInterface;
 use Core\Storage\DiskBudget;
 
 /**
- * Background generation of a full (config/no-gallery/with-gallery)
- * password-protected backup — scheduled by Core\Http\Controller\
- * MaintenanceController::createFullBackup(), too slow for a synchronous
- * request (module spec). Notifies the requesting admin via
- * $context->notifications when done, success or failure.
+ * Background generation of a password-protected backup — the full one
+ * (config/no-gallery/with-gallery), scheduled by
+ * `MaintenanceController::createFullBackup()`, and since IT-06 the
+ * portable one, scheduled by `createPortableBackup()`. Both are too slow
+ * for a synchronous request (module spec). Notifies the requesting admin
+ * via $context->notifications when done, success or failure.
+ *
+ * **Two entry points, one background path.** The controllers differ in
+ * what they validate and what they journal — one of them is asking the
+ * site to package its master key — but from the moment the task is queued
+ * there is a single sequence: build, register both files, record the
+ * digests through `BackupIntegrity`, purge to the family's quota. The one
+ * branch below is which archive to build.
  */
 class CreateBackupHandler implements TaskHandlerInterface
 {
@@ -64,11 +72,27 @@ class CreateBackupHandler implements TaskHandlerInterface
                 $basePath,
                 new DiskBudget($context->storagePath, $context->settings)
             );
-            $result = $backupService->createFullBackup($scope, $password);
+            // The one branch, and it is here rather than inside the
+            // service because the two entry points validate different
+            // things: a scope from a fixed list on one side, a passphrase
+            // long enough to be the only guard on a master key on the
+            // other. The archive-writing path below them is single.
+            $result = $scope === Backup::PORTABLE_TYPE
+                ? $backupService->createPortableBackup(
+                    $password,
+                    \Core\Maintenance\VersionFile::read($basePath),
+                    $this->installationId($context)
+                )
+                : $backupService->createFullBackup($scope, $password);
 
             $zipFileId = $fileRepository->create(
                 $this->relativePath($context->storagePath, $result['zipPath']),
-                'sauvegarde.zip',
+                // The downloaded name says which kind it is. An operator
+                // ends up with several of these in a downloads folder, and
+                // the portable one is the archive whose handling rules are
+                // different — it is worth being able to tell it apart
+                // without opening it.
+                $scope === Backup::PORTABLE_TYPE ? 'sauvegarde-portable.zip' : 'sauvegarde.zip',
                 'application/zip',
                 (int) filesize($result['zipPath']),
                 'admin',
@@ -102,7 +126,11 @@ class CreateBackupHandler implements TaskHandlerInterface
                 'core',
                 'backup_completed',
                 'info',
-                'Sauvegarde complète générée',
+                // Named by type rather than always « complète »: the same
+                // handler now also produces the portable archive, and a
+                // journal that calls it something else is a journal
+                // somebody will read on the day it matters.
+                'Sauvegarde générée : ' . Backup::typeLabel($scope),
                 ['backup_id' => $backupId, 'scope' => $scope],
                 $backup->requestedBy
             );
@@ -133,7 +161,7 @@ class CreateBackupHandler implements TaskHandlerInterface
                 'core',
                 'backup_failed',
                 'info',
-                'Échec de la génération d\'une sauvegarde',
+                'Échec de la génération d\'une sauvegarde : ' . Backup::typeLabel($scope),
                 ['backup_id' => $backupId, 'scope' => $scope, 'error' => $e->getMessage()],
                 $backup->requestedBy
             );
@@ -156,5 +184,23 @@ class CreateBackupHandler implements TaskHandlerInterface
     private function relativePath(string $storagePath, string $absolutePath): string
     {
         return ltrim(substr($absolutePath, strlen($storagePath)), '/');
+    }
+
+    /**
+     * The origin identifier a portable archive records, or null.
+     *
+     * **Read, never generated.** `InstallationIdentityService` mints one
+     * lazily on first use, which is right for the usage statistics it
+     * belongs to and wrong here: an installation that has never reported
+     * anything would acquire a permanent identity as a side effect of
+     * taking a backup. A restore assigns a new identifier regardless (D6),
+     * so the field is a record of where the archive came from, and "we do
+     * not know" is a truthful value for it.
+     */
+    private function installationId(TaskContext $context): ?string
+    {
+        $stored = $context->settings->get(\Core\Statistics\InstallationIdentityService::INSTALLATION_ID_SETTING);
+
+        return is_string($stored) && $stored !== '' ? $stored : null;
     }
 }

@@ -225,6 +225,69 @@ final class BackupRetentionTest extends TestCase
     }
 
     /**
+     * **The portable quota is one, and nobody can raise it.**
+     *
+     * Every other family's number is an administrator's to choose: they
+     * are copies of the site, and somebody with the disk for more of them
+     * is entitled to more. The portable archive is not that. It carries
+     * `master.key`, so the second copy is a second liability sitting on
+     * the very server the backup exists to survive — and the screen
+     * promises « une seule est conservée ».
+     *
+     * The mechanism is a family with no setting key at all, rather than a
+     * key that is read and then ignored: the settings table is never
+     * consulted, so a `backup_keep_portable` row — hand-written, restored
+     * from an older site, or invented by a later version — cannot change
+     * the answer. This test writes exactly such a row.
+     */
+    public function testThePortableQuotaIsOneAndNoSettingCanRaiseIt(): void
+    {
+        $settings = new SettingService(new SettingRepository($this->pdo));
+        $settings->register('backup_keep_portable', '3', 'text', 'k', 'k');
+        $settings->set('backup_keep_portable', '9');
+
+        $this->assertNull(BackupFamily::Portable->quotaSettingKey());
+        $this->assertSame(1, $this->retention($settings)->quotaFor(BackupFamily::Portable));
+    }
+
+    /**
+     * And the quota is enforced: a new portable archive replaces the old.
+     *
+     * Which is the whole promise on screen. A site accumulating three
+     * copies of the master key in `storage/` is the failure this family
+     * exists to prevent.
+     */
+    public function testANewPortableBackupReplacesThePreviousOne(): void
+    {
+        for ($i = 0; $i < 4; $i++) {
+            $this->completed(Backup::PORTABLE_TYPE);
+            $this->retention()->purgeAfterCreating(Backup::PORTABLE_TYPE);
+        }
+
+        $this->assertCount(1, $this->backups->findAllNewestFirst());
+    }
+
+    /**
+     * A portable archive does not evict the ordinary backups.
+     *
+     * Retention is per family precisely so that one kind cannot push out
+     * another, and this is the newest kind: shipping it wired into
+     * `Manual` would have made every portable backup silently consume a
+     * slot an administrator's own full backups were counting on.
+     */
+    public function testAPortableBackupDoesNotEvictTheManualOnes(): void
+    {
+        for ($i = 0; $i < 3; $i++) {
+            $this->completed('full_no_gallery');
+        }
+
+        $this->completed(Backup::PORTABLE_TYPE);
+        $this->retention()->purgeAfterCreating(Backup::PORTABLE_TYPE);
+
+        $this->assertCount(4, $this->backups->findAllNewestFirst());
+    }
+
+    /**
      * A type this version cannot classify is kept, never counted and
      * never deleted: keeping an unknown row costs disk, deleting it costs
      * the only copy of something.

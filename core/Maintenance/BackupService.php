@@ -12,6 +12,8 @@ use Core\Database\Connection;
 use Core\Database\DatabaseDumper;
 use Core\Database\DatabaseRestorer;
 use Core\Database\SchemaIntrospector;
+use Core\Maintenance\Portable\PortableManifest;
+use Core\Maintenance\Portable\SecretEnvelope;
 use Core\Storage\DirectorySize;
 use Core\Storage\DirectoryWalk;
 use Core\Storage\DiskBudget;
@@ -194,6 +196,67 @@ class BackupService implements BackupServiceInterface
         if (!in_array($scope, ['full_config', 'full_no_gallery', 'full_with_gallery'], true)) {
             throw new BackupException('Portée de sauvegarde invalide.');
         }
+
+        return $this->writeArchive($scope, $password, null);
+    }
+
+    /**
+     * The one archive that carries the site's own keys (`portable`, IT-06).
+     *
+     * Everything `full_no_gallery` writes, plus `storage/keys/master.key`
+     * and `storage/config/secrets.enc` — each under its own AES-256-GCM
+     * envelope inside the archive — plus the manifest that says where they
+     * came from and how they were sealed.
+     *
+     * **Why the secrets are in it, when every other archive excludes them
+     * on purpose.** A backup without them restores onto THIS installation
+     * and nowhere else: on a new host the master key is missing, so every
+     * encrypted column is unreadable and the restore produces a site that
+     * starts and holds nothing. An off-site backup you cannot restore
+     * off-site is not a backup. The price is stated in `SECURITY.md` §5
+     * and paid by {@see \Core\Maintenance\Portable\SecretEnvelope}: the
+     * zip layer alone would not be enough for this one archive.
+     *
+     * **No gallery, and no scope to choose.** One button, one archive:
+     * this is the copy that leaves the server, and an operator deciding
+     * between four flavours of it under a warning about master keys is an
+     * operator who picks wrong once. The gallery is excluded because this
+     * archive is meant to be carried away and, from IT-08, uploaded on a
+     * schedule — the photos are what makes an archive too big for both.
+     *
+     * @param string      $passphrase    already length-checked by
+     *        {@see \Core\Maintenance\Portable\PortablePassphrase}; this
+     *        class only refuses an empty one, as its sibling does.
+     * @param string      $version       what to write in the manifest
+     * @param string|null $installationId the origin, or null when unknown
+     * @return array{zipPath: string, dbDumpPath: string}
+     * @throws BackupException
+     */
+    public function createPortableBackup(string $passphrase, string $version, ?string $installationId): array
+    {
+        return $this->writeArchive(
+            Backup::PORTABLE_TYPE,
+            $passphrase,
+            new PortableManifest($version, $installationId, false, new \DateTimeImmutable())
+        );
+    }
+
+    /**
+     * The single archive-writing path, for all four scopes.
+     *
+     * One body rather than two, because the four steps that matter — check
+     * the room for BOTH writes at once, dump, encrypt every entry, clean up
+     * everything on any failure — are the ones that took the longest to get
+     * right, and a portable copy of them would be a copy that drifts.
+     *
+     * @param PortableManifest|null $manifest present exactly when this is a
+     *        portable archive; its presence is what adds the sealed secrets
+     *        and the manifest member, so the two can never be separated.
+     * @return array{zipPath: string, dbDumpPath: string}
+     * @throws BackupException
+     */
+    private function writeArchive(string $scope, string $password, ?PortableManifest $manifest): array
+    {
         if ($password === '') {
             throw new BackupException('Un mot de passe est requis.');
         }
@@ -211,6 +274,7 @@ class BackupService implements BackupServiceInterface
             + ($scope === 'full_config'
                 ? 0
                 : $this->estimateFileBackupBytes($scope === 'full_with_gallery', self::FULL_BACKUP_TOP_LEVEL))
+            + ($manifest !== null ? $this->estimateSecretMemberBytes() : 0)
         );
 
         $dbDumpPath = $scope === 'full_config' ? $this->createConfigOnlyDump() : $this->createDatabaseDump();
@@ -224,6 +288,7 @@ class BackupService implements BackupServiceInterface
 
         try {
             $this->addEncryptedFile($zip, $dbDumpPath, 'database.sql', $password);
+            $manifest?->addMember('database.sql', $this->digestOf($dbDumpPath), (int) filesize($dbDumpPath));
 
             if ($scope !== 'full_config') {
                 $includeGallery = $scope === 'full_with_gallery';
@@ -248,6 +313,11 @@ class BackupService implements BackupServiceInterface
                     );
                 }
             }
+
+            if ($manifest !== null) {
+                $this->addSealedSecrets($zip, $manifest, $password);
+                $this->addEncryptedString($zip, PortableManifest::MEMBER, $manifest->toJson(), $password);
+            }
         } catch (\Throwable $e) {
             $zip->close();
             @unlink($zipPath);
@@ -258,6 +328,117 @@ class BackupService implements BackupServiceInterface
         $zip->close();
 
         return ['zipPath' => $zipPath, 'dbDumpPath' => $dbDumpPath];
+    }
+
+    /**
+     * Seals the two secret files into the archive, and tells the manifest.
+     *
+     * **Read straight from disk and sealed in memory** — never routed
+     * through the directory walk that writes every other entry. That walk
+     * excludes `storage/keys/` and `storage/config/` wholesale
+     * ({@see excludedArchivePrefixes()}), and teaching it a "portable mode"
+     * that stopped excluding them was the obvious shape and the wrong one:
+     * it would have added the master key to the archive as an ORDINARY
+     * entry, protected by the zip's own 1000-iteration derivation and
+     * nothing else. That is the exact failure this whole class of archive
+     * is built to avoid, and it would have looked like a feature working.
+     * The exclusion therefore stays absolute, in every mode, and these two
+     * files travel by a path that cannot forget to seal them.
+     *
+     * Both files are small — 32 bytes and a few hundred — so reading them
+     * whole is not the sin it would be for an archive member.
+     *
+     * @throws BackupException
+     */
+    private function addSealedSecrets(\ZipArchive $zip, PortableManifest $manifest, string $passphrase): void
+    {
+        // Derived once for the whole archive, before the loop, and written
+        // to the manifest as the one answer to "how were these sealed?".
+        // Deriving inside the loop is what an earlier version did, and it
+        // sealed the second file under a salt the manifest never carried:
+        // an archive whose `secrets.enc` nothing could ever open, produced
+        // without a single error. See SecretEnvelope::newDerivation().
+        $derivation = SecretEnvelope::newDerivation();
+        $manifest->describeDerivation($derivation);
+
+        foreach (PortableManifest::SECRET_MEMBERS as $relativePath => $member) {
+            $absolutePath = $this->storagePath . '/' . $relativePath;
+            $plaintext = is_file($absolutePath) ? @file_get_contents($absolutePath) : false;
+            if ($plaintext === false) {
+                // Not survivable, and refusing is the whole point: an
+                // archive that is missing one of these is one that cannot
+                // be restored anywhere else, and the operator would only
+                // find out on the day they tried.
+                throw new BackupException(
+                    'Un fichier de secrets du site est illisible (' . $relativePath . ') — la sauvegarde '
+                    . 'portable ne serait restaurable nulle part. Vérifiez les droits sur storage/.'
+                );
+            }
+
+            $sealed = SecretEnvelope::seal($plaintext, $passphrase, $derivation);
+
+            $this->addEncryptedString($zip, $member, $sealed, $passphrase);
+            $manifest->addMember($member, hash('sha256', $sealed), strlen($sealed), 'storage/' . $relativePath);
+        }
+    }
+
+    /** What the sealed secrets add to the archive, for the room check. */
+    private function estimateSecretMemberBytes(): int
+    {
+        $total = 0;
+        foreach (array_keys(PortableManifest::SECRET_MEMBERS) as $relativePath) {
+            $size = @filesize($this->storagePath . '/' . $relativePath);
+            $total += is_int($size) ? $size : 0;
+        }
+
+        // Plus the manifest and the per-envelope overhead. A round number
+        // rather than a computed one: it is kilobytes against an estimate
+        // already measured in hundreds of megabytes, and erring high is
+        // the safe direction for "will this fit?".
+        return $total + 64 * 1024;
+    }
+
+    /**
+     * The digest of a file, without ever holding it in memory.
+     *
+     * `hash_file()` and never `hash(file_get_contents())`, for the reason
+     * {@see \Core\Maintenance\BackupIntegrity} spells out: the dump of a
+     * real site is measured in hundreds of megabytes, and reading one into
+     * a string would exhaust the memory of the shared host this feature
+     * exists for.
+     *
+     * @throws BackupException
+     */
+    private function digestOf(string $absolutePath): string
+    {
+        $digest = @hash_file('sha256', $absolutePath);
+        if ($digest === false) {
+            throw new BackupException('Impossible de calculer l\'empreinte de ' . basename($absolutePath) . '.');
+        }
+
+        return $digest;
+    }
+
+    /**
+     * Adds an in-memory string as an encrypted entry.
+     *
+     * Its own method rather than a flag on {@see addEncryptedFile()}: the
+     * two things that must never be forgotten are the same in both cases
+     * (add, then encrypt, then check BOTH answers), and a caller that gets
+     * the second half wrong writes an archive with one entry silently in
+     * clear — which for a sealed secret would still be sealed, and for the
+     * manifest would leak the salt.
+     *
+     * @throws BackupException
+     */
+    private function addEncryptedString(\ZipArchive $zip, string $entryName, string $contents, string $password): void
+    {
+        if (!$zip->addFromString($entryName, $contents)) {
+            throw new BackupException("Impossible d'ajouter {$entryName} à l'archive.");
+        }
+        if (!$zip->setEncryptionName($entryName, \ZipArchive::EM_AES_256, $password)) {
+            throw new BackupException("Impossible de chiffrer {$entryName} dans l'archive.");
+        }
     }
 
     /**

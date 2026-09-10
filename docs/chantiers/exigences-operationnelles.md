@@ -1171,3 +1171,189 @@ vérifié en la remettant.
 **Reporté.** Le marqueur « sur Drive » sur chaque ligne (IT-09) et la
 vérification des archives distantes : ce qui part chez un tiers se vérifie
 autrement, et le raccordement n'existe pas encore.
+
+---
+
+## IT-06 — La sauvegarde portable
+
+**Livré.** Le type `portable`, `Core\Maintenance\Portable\SecretEnvelope`
+(la seconde enveloppe), `PortableManifest` (`scoutmagic-backup.json`),
+`PortablePassphrase` (le plancher de seize caractères),
+`BackupService::createPortableBackup()`, la famille `Portable` à quota 1
+non réglable, `Core\Alert\Check\PortableBackupLingerCheck`, la route
+`POST /config/maintenance/backup/portable`, et le troisième sous-bloc de
+la section « Sauvegardes ». `ARCHITECTURE.md` §8.102, `SECURITY.md` §5
+et §12, `docs/exigences-non-fonctionnelles.md` §4 et §4bis, le sujet
+d'aide « Emporter le site ailleurs ».
+
+**Le défaut, énoncé simplement.** Toutes les archives du site excluent
+`storage/keys/` et `storage/config/`. C'est ce qui rend une archive
+perdue peu intéressante — les colonnes personnelles y sont le chiffré
+d'une clé restée sur le serveur — et c'est exactement ce qui fait
+qu'aucune d'elles ne se restaure ailleurs. Sur un hébergement neuf, la
+restauration réussit et le site remonte incapable de lire un seul nom.
+Une sauvegarde hors site qu'on ne peut pas restaurer hors site ne sert à
+rien.
+
+**Décisions autonomes.**
+
+1. **L'enveloppe est une conséquence arithmétique, pas une précaution
+   supplémentaire.** Le chiffrement AES d'un zip dérive sa clé par
+   PBKDF2-HMAC-SHA1 à **1000 itérations**, chiffre figé par le format en
+   2003. Pour toute autre archive c'est sans conséquence, puisque le
+   contenu est déjà du chiffré. Le jour où la clé est *dedans*, cette
+   seule couche devient ce qui sépare un fichier égaré de toutes les
+   adresses, dates de naissance et téléphones de l'unité en clair — sur
+   précisément l'archive faite pour voyager sur un portable ou une clé
+   USB. D'où AES-256-GCM par-dessus, avec une dérivation lente.
+
+2. **Argon2id si libsodium est là, PBKDF2-SHA256 sinon, et le lecteur
+   suit le manifeste.** Une archive scellée avec Argon2id peut être
+   ouverte sur un hébergement qui n'a pas libsodium, et l'inverse.
+   Redemander « que sait faire ce serveur ? » au lieu de lire `kdf`
+   dériverait silencieusement la mauvaise clé et annoncerait une phrase
+   de passe incorrecte, envoyant l'opérateur chercher une phrase qui
+   était juste depuis le début. Les limites libsodium sont la paire
+   INTERACTIVE et non MODERATE : celle-ci réclame 256 Mio dans une seule
+   requête sur un hébergement mutualisé, et une dérivation qui meurt est
+   une sauvegarde qui n'existe pas.
+
+3. **Une archive, une dérivation — et c'est structurel.** La première
+   version faisait générer son sel par `seal()` à chaque appel ;
+   l'appelant enregistrait celui du premier fichier et scellait le second
+   sous un autre. L'archive sortait sans la moindre erreur, et son
+   `secrets.enc` était définitivement inouvrable par quiconque lit le
+   manifeste. `newDerivation()` est séparé de `seal()` pour que cette
+   forme-là ne puisse plus être écrite. C'est aussi la forme la moins
+   chère : la dérivation est lente exprès, une fois par archive plutôt
+   qu'une fois par fichier.
+
+4. **Les secrets ne passent pas par la marche d'archive** —
+   contrairement à ce que le document laissait attendre en désignant
+   `excludedArchivePrefixes()` comme la couture à modifier. Lui apprendre
+   un « mode portable » qui cesserait d'exclure ces deux dossiers est la
+   forme évidente et la mauvaise : elle ajouterait la clé maîtresse comme
+   une **entrée ordinaire**, protégée par les 1000 itérations ci-dessus,
+   avec tout le reste de la fonction marchant parfaitement. L'exclusion
+   reste donc absolue dans tous les modes, et les deux fichiers voyagent
+   par un chemin qui ne peut pas oublier de les sceller. Bénéfice
+   secondaire : le piège que le docbloc de cette méthode signale — la
+   marche et l'estimation qui divergent — ne s'ouvre jamais, puisque la
+   liste ne change pas.
+
+5. **Les membres scellés ne portent pas le nom de leur destination.**
+   Une entrée nommée `storage/keys/master.key` serait extraite par-dessus
+   la vraie clé par n'importe quelle restauration ordinaire — en y
+   écrivant les octets *scellés*, c'est-à-dire en enfermant
+   l'installation dehors de sa propre base par une restauration qui
+   annonce avoir réussi. Elles vivent sous `secrets/`, et le manifeste
+   porte leur destination.
+
+6. **Le manifeste est chiffré comme le reste.** Rien n'a besoin de le
+   lire sans la phrase de passe — qui restaure vient de la taper — et en
+   clair il offrirait à qui détient le fichier sans le mot de passe le
+   sel et les paramètres de coût, c'est-à-dire l'avance que la seconde
+   serrure existe pour refuser.
+
+7. **Quota 1 sans clé de réglage du tout**, plutôt qu'une clé lue puis
+   ignorée. `quotaSettingKey()` répond `null` et la table `settings`
+   n'est pas consultée : aucune ligne `backup_keep_portable` — écrite à
+   la main, restaurée d'un site plus ancien, ou inventée par une version
+   future — ne peut lever le nombre. Les autres familles sont des copies
+   du site, et qui a le disque pour en garder plus y a droit ; celle-ci
+   est une copie des clés.
+
+8. **Une route à part plutôt qu'une quatrième portée.** Tout ce que
+   `createFullBackup` produit est restaurable ici seulement ; celle-ci
+   emporte les clés. Les deux points d'entrée ne valident pas la même
+   chose et ne journalisent pas la même chose — `security` d'un côté,
+   `info` de l'autre —, et un relecteur ne devrait pas avoir à savoir que
+   la première peut aussi émettre la clé maîtresse. Le chemin d'écriture
+   sous elles, lui, est unique : `writeArchive()`.
+
+9. **`admin`, pas `superadmin`.** Le rôle qui atteint cette route peut
+   déjà prendre une sauvegarde complète, la télécharger, lire le dossier
+   de chaque membre et réinitialiser le site. Élever celle-ci seule
+   n'achèterait rien et laisserait entendre que les autres sont
+   anodines. Ce qui la garde est ce qu'elle produit.
+
+**Divergences constatées entre le document de chantier et le dépôt.**
+
+1. **Les empreintes ne couvrent pas chaque membre de l'archive.** Le
+   document demande « les empreintes de chaque membre » ; le manifeste
+   décrit les arborescences sans les énumérer. Des dizaines de milliers
+   de lignes SHA-256 ajouteraient une seconde lecture complète du site à
+   un travail qui le lit déjà entièrement une fois, et produiraient un
+   manifeste plus gros que certains des fichiers qu'il décrit — pour
+   presque rien : le format zip stocke déjà un CRC-32 par entrée et le
+   vérifie à l'extraction, ce qui attrape la corruption qui arrive
+   réellement à une archive transportée. Contre quelqu'un capable de
+   réécrire une entrée, une liste d'empreintes scellée par la même phrase
+   de passe que l'entrée n'est pas une barrière. Les membres que la
+   restauration traite par leur nom, eux, sont bien listés avec leur
+   empreinte.
+
+2. **`SecretEnvelope::open()` est livré avec `seal()`**, alors que la
+   restauration est IT-07. Un chiffrement dont rien ne sait déchiffrer la
+   sortie n'est pas un chiffrement vérifié, c'est un espoir : l'aller-
+   retour est le seul test de cette classe qui prouve quoi que ce soit.
+   L'inclusion s'arrête là — rien de ce qui *lit* une archive portable
+   n'est écrit ici.
+
+3. **Le sujet d'aide est scindé**, comme en IT-04 et pour la même raison :
+   « Sauvegarder le site » dépassait les 400 mots de la charte
+   (`design.md` §7.11) une fois le bloc portable décrit. « Emporter le
+   site ailleurs » est le nouveau sujet ; le premier le désigne.
+
+4. **La galerie n'est pas dans l'archive portable**, et `portable` n'est
+   donc pas dans `Backup::GALLERY_TYPES`. Le document ne tranche pas ; la
+   maquette si, indirectement — sa ligne « Portable » pèse 412 Mo contre
+   377 Mo pour « Complète (sans galerie) », et une archive avec galerie
+   pèserait plusieurs fois cela. C'est aussi ce que réclame la suite :
+   IT-09 l'envoie de façon récurrente, et les photos sont ce qui la
+   rendrait trop lourde pour partir.
+
+**Ce qu'un test a trouvé et qu'aucune relecture n'aurait vu.** Le test qui
+construit une *vraie* archive puis la rouvre a échoué du premier coup, sur
+le second fichier scellé. C'est le défaut décrit au point 3 ci-dessus :
+l'archive se produisait parfaitement, et la moitié de ce qu'elle
+transportait était perdue. Aucun test unitaire sur `SecretEnvelope` ne
+pouvait le voir — la classe était juste ; c'est son contrat avec
+l'appelant qui permettait la faute.
+
+Vérifié de la même façon dans l'autre sens : en réintroduisant les deux
+erreurs que ces tests existent pour interdire. Écrire le clair au lieu du
+scellé fait échouer deux tests et seulement eux ; retirer l'exclusion de
+`storage/keys` en fait échouer deux autres, et pas les mêmes. Deux fautes
+différentes, deux gardes différentes.
+
+**Et un troisième, entre le gabarit et l'écran.** L'assertion « la page
+rend bien `minlength="16"` » a échoué : le partiel `form_field` ne
+connaissait pas cet attribut, et l'ajout était tombé dans la branche
+`textarea` au lieu de la branche `input`. Conséquence réelle et
+silencieuse : le champ ne portait aucune contrainte de longueur côté
+navigateur, et le contrôle JavaScript — qui lit précisément cet attribut
+pour éviter un aller-retour inutile — comparait à zéro, donc laissait tout
+passer. Le serveur refusait toujours, la règle n'était donc jamais
+enfreinte ; mais les deux gardes censées épargner un aller-retour à
+l'opérateur étaient mortes. L'assertion porte sur le HTML *rendu* et non
+sur la source du gabarit : c'est ce qui fait la différence entre vérifier
+qu'on a écrit quelque chose et vérifier que ça arrive à l'écran.
+
+**Et un second défaut, dans un test cette fois.** La première version de
+`PortableDispatchTest` lisait le fichier du gestionnaire en entier — or son
+docbloc de classe mentionne `createPortableBackup()` en prose. Toutes ses
+assertions passaient donc avec l'appel supprimé et le commentaire qui le
+décrit laissé en place : un test qui vérifie la documentation de la chose
+au lieu de la chose. C'est la faute d'IT-04 sur `GALLERY_TYPES` et celle
+qu'une revue d'IT-05 a relevée sur un cliquet, une troisième fois : ce
+qu'un code *dit de lui-même* n'est pas une preuve de ce qu'il fait. Le
+tokenizer dépouille désormais les commentaires, et la vérification a été
+refaite en retirant la branche tout en gardant le docbloc — deux tests
+échouent, ce qui est le comportement voulu.
+
+**Reporté.** Tout ce qui *lit* une archive portable : la restauration, la
+lecture du manifeste, la conservation des identifiants de la cible (D5) et
+le nouvel `installation_id` (D6) sont IT-07. Le champ `installation_id` du
+manifeste est écrit mais rien ne le relit encore. La destination distante
+(IT-08) et l'envoi récurrent (IT-09) non plus.

@@ -225,6 +225,11 @@ class MaintenanceController extends AbstractController
             'backups_shown_at_once' => self::BACKUPS_SHOWN_AT_ONCE,
             'gallery_enabled' => in_array('gallery', $this->moduleManager->getEnabledModuleIds(), true),
             'zip_encryption_supported' => $this->backupService->supportsZipEncryption(),
+            // The screen promises a minimum and the server enforces it;
+            // handing the number to the template is what keeps the two
+            // from being two numbers (Core\Maintenance\Portable\
+            // PortablePassphrase).
+            'portable_passphrase_min_length' => \Core\Maintenance\Portable\PortablePassphrase::MIN_LENGTH,
             // 'weekly' — the registered default since issue #286; a
             // fallback still spelling 'monthly' would put the select on a
             // value the installation does not hold.
@@ -738,6 +743,82 @@ class MaintenanceController extends AbstractController
         $this->journalService->log(
             'core', 'backup_requested', 'info', 'Sauvegarde complète demandée',
             ['backup_id' => $backupId, 'scope' => $scope], $userId
+        );
+
+        return $this->json(['success' => true, 'backup_id' => $backupId]);
+    }
+
+    /**
+     * POST /config/maintenance/backup/portable (AJAX, JSON) — the archive
+     * that carries the site's own keys (IT-06).
+     *
+     * **Its own endpoint rather than a fourth scope on `createFullBackup()`
+     * above**, and the reason is what it emits. Everything that route
+     * produces is restorable only onto this installation; this one packages
+     * `master.key` and `secrets.enc` and is meant to be carried away. They
+     * differ in what they check (a passphrase long enough to be the only
+     * guard on that key, rather than a scope from a list), in what they
+     * journal, and in what a reader has to know to review them safely. The
+     * background path they share is single —
+     * `Core\Maintenance\Task\CreateBackupHandler` dispatches on the type.
+     *
+     * @param array<string, string> $params
+     */
+    public function createPortableBackup(Request $request, array $params): Response
+    {
+        $data = json_decode($request->getRawBody(), true);
+        if (!is_array($data) || !CsrfGuard::validateToken((string) ($data['_csrf_token'] ?? ''))) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+
+        $passphrase = (string) ($data['passphrase'] ?? '');
+
+        // Server-side, because a `minlength` on the field is a suggestion:
+        // this endpoint is reachable without the page.
+        $refusal = \Core\Maintenance\Portable\PortablePassphrase::refuse($passphrase);
+        if ($refusal !== null) {
+            return $this->json(['success' => false, 'error' => $refusal], 400);
+        }
+
+        if (!$this->backupService->supportsZipEncryption()) {
+            // 422 and a sentence, never a quietly unencrypted archive: this
+            // is the one archive where the zip layer is not merely the
+            // outer wrapper but the thing standing between a stranger with
+            // the file and every member's address.
+            return $this->json(['success' => false, 'error' => 'Le serveur ne supporte pas le chiffrement des '
+                . 'archives — la sauvegarde portable est impossible. Contactez votre hébergeur.'], 422);
+        }
+
+        $userId = AuthSession::getUserAccountId();
+        $backupId = $this->backupRepository->create(\Core\Maintenance\Backup::PORTABLE_TYPE, $userId);
+
+        $encryptedPassphrase = base64_encode($this->encryption->encrypt($passphrase, 'backup_password'));
+
+        $this->schedulerService->scheduleAfter(
+            'core',
+            'create_backup',
+            0,
+            [
+                'backup_id' => $backupId,
+                'scope' => \Core\Maintenance\Backup::PORTABLE_TYPE,
+                'encrypted_password' => $encryptedPassphrase,
+            ],
+            null,
+            $userId
+        );
+
+        // `security`, not `info`, and that is the difference from the
+        // journal line its sibling writes: this is the moment an operator
+        // asked the site to package its master key into a downloadable
+        // file. The passphrase is not in the entry, and never anywhere but
+        // the encrypted payload above.
+        $this->journalService->log(
+            'core',
+            'portable_backup_requested',
+            'security',
+            'Sauvegarde portable demandée (contient les clés de chiffrement du site)',
+            ['backup_id' => $backupId],
+            $userId
         );
 
         return $this->json(['success' => true, 'backup_id' => $backupId]);

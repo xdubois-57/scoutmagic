@@ -20,63 +20,75 @@
     });
 })();
 
-// Configuration > Maintenance — "Sauvegarde complète" form: submits, then
-// polls GET /api/maintenance/backup-status/{id} via ScoutMagicApi.poll
-// until the background generation finishes or fails.
+// Configuration > Maintenance — the two forms that start a background
+// backup: "Sauvegarde complète (chiffrée)" and "Sauvegarde portable". Both
+// submit, then poll GET /api/maintenance/backup-status/{id} via
+// ScoutMagicApi.poll until the generation finishes or fails.
+//
+// One wiring for both rather than two copies of it. They differ only in
+// what they post — a scope and a password, or a passphrase — so the
+// payload is the parameter and everything else (disable the button, show
+// the spinner, poll, reload or report) is shared. The portable form
+// arrived second, and a second copy of these sixty lines is how the two
+// stop behaving the same way on the day one of them is fixed.
 (function () {
-    var form = document.getElementById('full-backup-form');
-    if (!form) return;
+    /**
+     * @param {string} prefix element id prefix: `{prefix}-form`, `-submit`, `-progress`, `-error`
+     * @param {string} endpoint where to POST
+     * @param {(form: HTMLFormElement) => (Object|null)} buildPayload null to abort (invalid input)
+     */
+    function wireBackupForm(prefix, endpoint, buildPayload) {
+        var form = /** @type {HTMLFormElement} */ (document.getElementById(prefix + '-form'));
+        if (!form) return;
 
-    var submitBtn = /** @type {HTMLButtonElement} */ (document.getElementById('full-backup-submit'));
-    var progressEl = document.getElementById('full-backup-progress');
-    var errorEl = document.getElementById('full-backup-error');
-    var polling = window.ScoutMagicApi.pollSlot();
+        var submitBtn = /** @type {HTMLButtonElement} */ (document.getElementById(prefix + '-submit'));
+        var progressEl = document.getElementById(prefix + '-progress');
+        var errorEl = document.getElementById(prefix + '-error');
+        var polling = window.ScoutMagicApi.pollSlot();
 
-    /** @param {string} message */
-    function showError(message) {
-        polling.stop();
-        submitBtn.disabled = false;
-        progressEl.classList.add('d-none');
-        errorEl.textContent = message;
-        errorEl.classList.remove('d-none');
-    }
+        /** @param {string} message */
+        function showError(message) {
+            polling.stop();
+            submitBtn.disabled = false;
+            progressEl.classList.add('d-none');
+            errorEl.textContent = message;
+            errorEl.classList.remove('d-none');
+        }
 
-    /** @param {string|number} backupId */
-    function pollStatus(backupId) {
-        polling.start(window.ScoutMagicApi.poll(function () {
-            return window.ScoutMagicApi.getJson('/api/maintenance/backup-status/' + backupId).then(function (res) {
-                if (!res.data) {
-                    // Transient network hiccup — keep polling, the next
-                    // tick will likely succeed.
+        /** @param {string|number} backupId */
+        function pollStatus(backupId) {
+            polling.start(window.ScoutMagicApi.poll(function () {
+                return window.ScoutMagicApi.getJson('/api/maintenance/backup-status/' + backupId).then(function (res) {
+                    if (!res.data) {
+                        // Transient network hiccup — keep polling, the next
+                        // tick will likely succeed.
+                        return undefined;
+                    }
+                    if (res.data.status === 'completed') {
+                        window.location.reload();
+                        return false;
+                    }
+                    if (res.data.status === 'failed') {
+                        showError(res.data.error_message || 'La génération de la sauvegarde a échoué.');
+                        return false;
+                    }
+                    // pending / in_progress: keep polling.
                     return undefined;
-                }
-                if (res.data.status === 'completed') {
-                    window.location.reload();
-                    return false;
-                }
-                if (res.data.status === 'failed') {
-                    showError(res.data.error_message || 'La génération de la sauvegarde a échoué.');
-                    return false;
-                }
-                // pending / in_progress: keep polling.
-                return undefined;
-            });
-        }, { intervalMs: 3000 }));
-    }
+                });
+            }, { intervalMs: 3000 }));
+        }
 
-    form.addEventListener('submit', function (e) {
-        e.preventDefault();
-        errorEl.classList.add('d-none');
+        form.addEventListener('submit', function (e) {
+            e.preventDefault();
+            errorEl.classList.add('d-none');
 
-        var scope = /** @type {HTMLInputElement} */ (form.querySelector('input[name="scope"]:checked'));
-        var password = /** @type {HTMLInputElement} */ (document.getElementById('full-backup-password')).value;
-        if (!scope || password === '') return;
+            var payload = buildPayload(form);
+            if (!payload) return;
 
-        submitBtn.disabled = true;
-        progressEl.classList.remove('d-none');
+            submitBtn.disabled = true;
+            progressEl.classList.remove('d-none');
 
-        window.ScoutMagicApi.postJson('/config/maintenance/backup/full', { scope: scope.value, password: password })
-            .then(function (res) {
+            window.ScoutMagicApi.postJson(endpoint, payload).then(function (res) {
                 if (!res.data) {
                     showError('Erreur réseau.');
                     return;
@@ -87,6 +99,31 @@
                 }
                 pollStatus(res.data.backup_id);
             });
+        });
+    }
+
+    wireBackupForm('full-backup', '/config/maintenance/backup/full', function (form) {
+        var scope = /** @type {HTMLInputElement} */ (form.querySelector('input[name="scope"]:checked'));
+        var password = /** @type {HTMLInputElement} */ (document.getElementById('full-backup-password')).value;
+        if (!scope || password === '') return null;
+
+        return { scope: scope.value, password: password };
+    });
+
+    // The length is checked here so the operator is told before waiting for
+    // a round trip, and again on the server, which is where it counts:
+    // Core\Maintenance\Portable\PortablePassphrase is the rule, this is a
+    // courtesy. The number comes from the field's own minlength rather than
+    // being written twice.
+    wireBackupForm('portable-backup', '/config/maintenance/backup/portable', function () {
+        var field = /** @type {HTMLInputElement} */ (document.getElementById('portable-backup-passphrase'));
+        var passphrase = field.value;
+        if (passphrase.length < (parseInt(field.getAttribute('minlength') || '0', 10) || 0)) {
+            field.reportValidity();
+            return null;
+        }
+
+        return { passphrase: passphrase };
     });
 })();
 
