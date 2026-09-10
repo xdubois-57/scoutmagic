@@ -104,21 +104,30 @@ on every scheduler pass, and the alert is switched off within days.
 | Disk usage | 85 % | 75 % |
 | Age of the last successful backup | 10 days | 3 days |
 | Age of the last real cron pass | 48 h | 6 h |
+| Failed e-mail sends, over a 24 h window | 5 | 0 |
+| A request answered without encryption | seen | none seen for 24 h |
 | A portable backup left on the server | present for 7 days | deleted |
 | Age of the last successful off-site backup | 10 days | 3 days |
 | Off-site storage quota used | 90 % | 80 % |
+
+The HTTPS row is the one whose trigger side is not a number, and it is the
+rule's limit case rather than an exception to it. Every other check watches
+a level that drifts and has to decide how far it must come back; that one
+watches an event — a request answered in clear, seen as it happens — so the
+trigger is the event and the only number left is how long the site has to
+stay quiet before the alert believes it. A site answering on *both* schemes
+therefore never goes quiet, which is the right answer and not a tolerated
+one: it is still handing passwords to the network.
 
 Read the backup-age rows together with §3. A 10-day alert only makes sense
 on top of a weekly scheduled backup, which is the RPO's other half — one
 missed run plus the time an upload takes, and no more.
 
-**That half is not shipped yet**, and the gap is worth stating here rather
-than only in a journal, because this page is meant to be cited on its own:
-`backup_auto_frequency` still defaults to `monthly`, so turning this alert
-on before changing that default would leave it *triggered* on a default
-installation two-thirds of the time — which is D1's own extinction
-mechanism, aimed at the alert it was meant to protect. The two land
-together, in the iteration that turns the check on (issue #286).
+That half **is** shipped: `backup_auto_frequency` defaults to `weekly`, and
+it had to change in the very commit that turned this alert on. A monthly
+default would have left the alert *triggered* on a default installation two
+thirds of the time — D1's own extinction mechanism, aimed at the alert it
+exists to protect — so the two landed together (issue #286).
 
 The **off-site** row carries the same two numbers as the local one on
 purpose, and it is the more important of the two: in the scenario the RPO

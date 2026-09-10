@@ -692,7 +692,18 @@ $settingService->register('storage_quota_bytes', '', 'text', 'Quota disque décl
         . 'l\'occupation affichée dans Configuration > Maintenance et à refuser proprement une écriture '
         . 'qui ne tiendrait pas.',
     null, '/^\s*$|^\s*[0-9]+([.,][0-9]+)?\s*(o|Ko|Mo|Go|To|Po)?\s*$/i', null, true, 117);
-$settingService->register('backup_auto_frequency', 'monthly', 'select', 'Fréquence des sauvegardes automatiques',
+// 'weekly', not 'monthly'. The recovery objective
+// (docs/exigences-non-fonctionnelles.md §3) accepts losing at most one
+// week of the unit's work, and a monthly default authorises four times
+// that. It also made the « âge de la dernière sauvegarde » alert below
+// permanently triggered on a default installation — an alert that cries
+// two-thirds of the time is switched off within days, which is the very
+// extinction the armed/triggered design exists to prevent. Issue #286.
+//
+// SettingService::register() self-heals the default_value column of rows
+// that already exist, so an installation that never chose a frequency
+// picks this up; one that explicitly chose monthly keeps its choice.
+$settingService->register('backup_auto_frequency', 'weekly', 'select', 'Fréquence des sauvegardes automatiques',
     'Fréquence à laquelle une sauvegarde complète du site (base de données et fichiers, sans la galerie photo) '
         . 'est générée automatiquement en arrière-plan. « Aucune » désactive la sauvegarde automatique.',
     null, null, ['none', 'daily', 'weekly', 'biweekly', 'monthly'], true, 118);
@@ -1510,6 +1521,7 @@ $fileRepository = new FileRepository($pdo);
 // else points at them. Camps and Locations both use this one instance.
 $attachedFileRemover = new \Core\File\AttachedFileRemover($fileRepository, $storagePath);
 $diskBudget = new \Core\Storage\DiskBudget($storagePath, $settingService);
+$operationalRequestChecks = new \Core\Alert\RequestBoundChecks($storagePath);
 $uploadHandler = new UploadHandler($fileRepository, $storagePath, $diskBudget);
 $encryptedFileStorageService = new \Core\File\EncryptedFileStorageService($fileRepository, $encryptionService,
     $storagePath);
@@ -1718,6 +1730,14 @@ $fileOwnershipCheckers = [$sectionDocumentOwnershipChecker, new \Core\Import\Des
 // that is wrong about the unit must never break a page.
 $attentionProviders = [
     new \Core\Attention\CoreAttentionProvider(new \Core\Attention\CoreAttentionRepository($pdo)),
+    // Every operational alert currently triggered (Core\Alert, §8.99).
+    // Reads rows, computes nothing: the same check that notified wrote
+    // them, and the state machine is the only place a threshold is ever
+    // compared.
+    new \Core\Alert\OperationalAttentionProvider(
+        new \Core\Alert\OperationalAlertRepository($pdo),
+        \Core\Alert\AlertSurfaces::labels()
+    ),
     new \Core\Member\Duplicate\DuplicateAttentionProvider(
         new \Core\Member\Duplicate\DuplicateMemberRepository($pdo, $encryptionService)
     ),
@@ -2003,6 +2023,20 @@ scoutmagic_bootstrap_scheduler(
 // Core\Scheduler has no first-class recurring-task concept), but the very
 // first occurrence needs an initial nudge.
 $schedulerService->rearm('core', 'auto_backup', 'auto', new DateTimeImmutable());
+
+// Bootstrap the daily operational pass (Core\Alert\Task\
+// RunOperationalChecksHandler). seed(), not rearm(): this line runs on
+// every single web request, and rearm()'s guard only sees `pending` rows
+// — during a scheduler pass the chain's own row is `processing`, so a
+// re-armer would find nothing and queue a second chain (Core\Scheduler\
+// SchedulerService::seed(), and Tests\Architecture\
+// ChainSeedingInvariantTest for what that once cost).
+$schedulerService->seed(
+    'core',
+    'operational_checks',
+    \Core\Alert\Task\RunOperationalChecksHandler::REFERENCE,
+    new DateTimeImmutable()
+);
 
 // Same bootstrap for the notification retention purge (Core\Notification\
 // Task\PurgeNotificationsHandler).
@@ -7492,6 +7526,51 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 // cleanup, LoginThrottler::purgeStale(), PdfThumbnailCache::purgeStale()).
 // Nothing was lost, and a visitor no longer pays for background work that a
 // per-minute crontab does on time. See ARCHITECTURE.md § 8.5.
+
+// The two operational checks that CANNOT live in the daily task
+// (Core\Alert, §8.99). CronSilenceCheck cannot, because a cron that has
+// stopped never runs the task that would notice it — an alert about the
+// engine cannot live inside the engine. HttpsCheck cannot, because a
+// scheme belongs to a request and a CLI pass has none.
+//
+// Placed HERE, past send() and session_write_close(), for the same reason
+// the poor man's cron was removed from this spot and Fréquentation sits
+// below: a visitor must not pay for background work. Core\Alert\
+// RequestBoundChecks throttles it to one evaluation per quarter of an
+// hour, so the ordinary request cost is a single stat().
+if ($operationalRequestChecks->due()) {
+    // Claimed before the run, not after — see markRun()'s docblock.
+    $operationalRequestChecks->markRun();
+
+    // Registered here rather than with the other settings above, and for
+    // the reason public/cron.php registers 'cron_last_run' beside the
+    // stamp it writes: it belongs to the one piece of code that reads and
+    // writes it, and inside this throttle it costs an ordinary request
+    // nothing. HttpsCheck stamps it when it observes a request answered
+    // without encryption; nothing else touches it.
+    $settingService->register(
+        \Core\Alert\Check\HttpsCheck::LAST_CLEAR_SETTING,
+        '0',
+        'number',
+        'Dernière requête servie sans chiffrement',
+        'Horodatage de la dernière requête que le site a servie en HTTP, sur lequel repose l\'alerte '
+            . '« Connexion sécurisée ». Géré automatiquement.',
+        null,
+        null,
+        null,
+        false,
+        128
+    );
+
+    (new \Core\Alert\OperationalAlertService(
+        new \Core\Alert\OperationalAlertRepository($pdo),
+        $notificationService,
+        $journalService
+    ))->run([
+        new \Core\Alert\Check\CronSilenceCheck(new \Core\Scheduler\CronHealth($storagePath, $settingService)),
+        new \Core\Alert\Check\HttpsCheck($_SERVER, $settingService),
+    ]);
+}
 
 // Fréquentation (§8.93): one counter incremented for one page view, and
 // only for a page view — Modules\UsageStats\Service\PageViewPolicy drops

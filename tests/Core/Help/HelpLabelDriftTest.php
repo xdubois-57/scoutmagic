@@ -111,7 +111,10 @@ final class HelpLabelDriftTest extends TestCase
             'combien la famille Dupont doit-elle ?',
             'où voir ce que les familles doivent encore ?',
             "Je dois prévenir les parents d'une section que la réunion est annulée",
-            "envoi d'e-mails",
+            // « envoi d'e-mails » left this list when Core\Alert gave the
+            // interface a surface of that name: the citation now resolves
+            // on its own, and an allowlist entry that no longer excuses
+            // anything is exactly what the ratchet forbids.
         ],
         // The browser's own menu, and a print dialog's option.
         'installer-application' => [

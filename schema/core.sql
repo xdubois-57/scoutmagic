@@ -1420,3 +1420,46 @@ CREATE TABLE sent_email_claims (
     UNIQUE KEY uniq_sent_email_claims_recipient (scope, recipient_key),
     INDEX idx_sent_email_claims_claimed_at (claimed_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Operational alerts: one row per check, holding whether it is currently
+-- ARMED or TRIGGERED (Core\Alert, ARCHITECTURE.md §8.97).
+--
+-- The state is the whole point. A check that merely notified « disque à
+-- 92 % » on every scheduler pass would be switched off within three days,
+-- and the alert would then not exist on the day it mattered. So a
+-- notification goes out on the armed → triggered transition and at that
+-- moment only, and the row re-arms only once the value has come back under
+-- a threshold STRICTLY LOWER than the one that triggered it
+-- (docs/exigences-non-fonctionnelles.md §4). Without that gap a value
+-- oscillating around a single threshold notifies in a loop, which is the
+-- same failure arrived at from the other side.
+--
+-- `alert_key` is the primary key, and it is a natural one — 'disk_usage',
+-- 'cron_silent'. Every other table here carries a surrogate id; this one
+-- has nothing to say that the key does not, there is exactly one row per
+-- check for the life of the installation, and an auto-increment column
+-- would only add a second way to name the same thing. Note that
+-- Core\Database\SchemaComparator skips primary-key changes entirely
+-- (AGENTS.md § Database), so this choice is not revisable in place: a
+-- later change of key would need a new table.
+--
+-- `last_reading` is the reading as the screen would print it (« 92 % »,
+-- « 14 jours »), not a number — it is displayed and journaled, never
+-- compared. Comparing is the check's job, against thresholds it holds.
+--
+-- It was `last_value` first, and MySQL 8 refused the table: `LAST_VALUE`
+-- is a reserved word there (the window function, reserved since 8.0.2)
+-- and is NOT reserved in MariaDB. So the statement parsed on the
+-- production engine and on this container, and failed only in CI's
+-- `test` job — nineteen errors in one class, all « syntax error near
+-- 'last_value' ». Renamed rather than back-quoted: a quoted reserved
+-- word works until the next person writes the column name in a query
+-- without the quotes, and there is no reason to keep the landmine for a
+-- table nobody had shipped yet.
+CREATE TABLE IF NOT EXISTS operational_alerts (
+    alert_key VARCHAR(64) PRIMARY KEY,
+    state ENUM('armed', 'triggered') NOT NULL DEFAULT 'armed',
+    triggered_at DATETIME,
+    last_notified_at DATETIME,
+    last_reading VARCHAR(255)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

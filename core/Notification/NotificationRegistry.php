@@ -135,6 +135,47 @@ class NotificationRegistry
                 roleMin: 'identified',
                 channels: ['in_app' => 'on', 'push' => 'on', 'email' => 'default_off']
             ),
+            // The operational alerts (Core\Alert, ARCHITECTURE.md §8.99).
+            //
+            // **E-mail is default_on here, and that is the point.** Every
+            // other Maintenance type leaves it off, because those answer
+            // somebody who just clicked something and will see the bell.
+            // These are the opposite: if the disk is full or the cron has
+            // stopped, nobody is visiting the site to notice a badge. The
+            // alert has to leave the site to be worth having.
+            //
+            // NotificationService::dispatch() re-checks each recipient's
+            // CURRENT role against role_min, so `superadmin` holds without
+            // any hand-filtering at the call site.
+            new NotificationType(
+                id: 'core.operational_alert',
+                label: 'Alerte opérationnelle',
+                description: "Quand quelque chose ne va plus sur le site lui-même : disque presque plein, "
+                    . "sauvegardes trop anciennes, tâche planifiée arrêtée",
+                group: 'Maintenance',
+                roleMin: 'superadmin',
+                channels: ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_on']
+            ),
+            // The same alert, for the one check that is ABOUT e-mail.
+            //
+            // Its e-mail channel is `off` rather than `default_off`: a
+            // locked value, which no preference can turn on. Sending « vos
+            // e-mails ne partent plus » by e-mail is not merely useless —
+            // the attempt fails, and that failure is itself journaled as
+            // `mail_send_failed`, so the alert would inflate the very
+            // count MailDeliveryCheck reads. A separate type is the honest
+            // way to say "this one cannot use that channel", and it shows
+            // on the preferences page as a row with no e-mail box, which
+            // is exactly true.
+            new NotificationType(
+                id: 'core.operational_alert_mail',
+                label: 'Alerte opérationnelle — envoi d\'e-mails',
+                description: "Quand les envois d'e-mail échouent. Cette alerte-là ne peut pas partir par "
+                    . "e-mail : elle arrive dans la cloche et dans les points d'attention",
+                group: 'Maintenance',
+                roleMin: 'superadmin',
+                channels: ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'off']
+            ),
             new NotificationType(
                 id: 'core.desk_import_done',
                 label: 'Import Desk terminé',

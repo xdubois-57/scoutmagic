@@ -471,3 +471,278 @@ chantier borne l'interface de cette itération au seul encart de lecture.
 Un champ de saisie à côté de l'encart serait plus direct ; il n'est pas
 dans le périmètre et n'a rien de bloquant, l'encart nommant le réglage à
 remplir.
+
+---
+
+## IT-03 — Les alertes opérationnelles
+
+**Livré.** `Core\Alert` : la table `operational_alerts` et son dépôt,
+`OperationalAlertService` (la machine à états D1), `AlertReading`,
+`OperationalCheck`, `AlertThresholds` (les nombres d'IT-01 en code),
+`AlertSurfaces`, six contrôles (`DiskUsageCheck`, `BackupAgeCheck`,
+`MailDeliveryCheck`, `DevelopmentModeCheck`, `CronSilenceCheck`,
+`HttpsCheck`), `OperationalAttentionProvider`,
+`Task\RunOperationalChecksHandler` et `RequestBoundChecks`. Deux types de
+notification, le sujet d'aide `alertes-operationnelles`,
+`ARCHITECTURE.md` §8.99, et 38 tests.
+
+**Corrige #286** : `backup_auto_frequency` passe de `monthly` à `weekly`.
+C'est la PR qui allume l'alerte, donc la seule qui pouvait le faire sans
+livrer une alerte fausse.
+
+**Quatre constats de revue, tous réels — et le quatrième porte sur la
+correction du deuxième.**
+
+1. **Une lecture inconclusive effaçait le chiffre affiché.**
+   `AlertReading::inconclusive()` porte une valeur vide, et le
+   `recordValue()` de fin de méthode l'enregistrait sans condition : la
+   première fois que l'hébergeur cessait de répondre, le point d'attention
+   d'une alerte **toujours déclenchée** tombait de « Espace disque : 92 % »
+   à « Espace disque » tout court — l'inverse exact de ce pour quoi cette
+   valeur est stockée, et en silence. Un contrôle qui ne peut pas savoir
+   doit laisser en place ce que le dernier qui savait avait écrit.
+
+2. **`HttpsCheck` n'avait aucun écart.** `overTrigger: !$secure` et
+   `underRearm: $secure` sont deux lectures complémentaires du même booléen
+   de requête, donc un écart de zéro — alors que l'écart *est* le dessin.
+   Rien ici ne force HTTP vers HTTPS (aucune redirection dans
+   `public/.htaccess`, HSTS émis seulement une fois déjà sécurisé), donc un
+   site qui répond sur les deux schémas alterne au gré des visiteurs, et ce
+   contrôle tourne tous les quarts d'heure : déclenché, réarmé, déclenché,
+   avec un courriel à chaque super-administrateur dans les deux sens.
+
+   La correction apportée alors — exiger que l'observation et la
+   déclaration `base_url` s'accordent dans les deux directions — était un
+   vrai écart, et **elle était fausse**. Le constat 4 ci-dessous la
+   remplace ; elle reste consignée ici parce que c'est la deuxième version
+   de ce contrôle sur trois, et que la troisième ne se comprend qu'avec
+   les deux premières.
+
+   À noter, et cela vaut pour les trois versions : `DevelopmentModeCheck`
+   a la même forme complémentaire et n'a pas le défaut, parce qu'il lit un
+   **réglage** — qui ne change que quand un administrateur le change, et ne
+   peut donc pas osciller entre deux requêtes. C'est la nature de la
+   source, pas la forme du code, qui décide.
+
+3. **L'alerte « cron muet » ne peut pas atteindre un administrateur
+   absent.** `dispatch()` planifie push et courriel au lieu de les
+   envoyer, et cette file est vidée par le cron — celui dont l'alerte
+   annonce la mort. Les canaux hors site attendent donc derrière la panne
+   qu'ils décrivent. La notification dans l'application et le point
+   d'attention fonctionnent, et quelqu'un *est* sur le site puisque c'est
+   une requête qui a fait tourner le contrôle : l'alerte est dégradée, pas
+   cassée. Fermer le trou demande un chemin d'envoi synchrone que
+   `NotificationService` n'a pas, ce qui n'est pas le sujet de cette
+   itération — **issue #296**, et la limite est écrite dans le docbloc de
+   `CronSilenceCheck` pour que personne ne croie que le courriel part. Le
+   contournement évident, appeler `MailService` depuis `Core\Alert`, est
+   exactement le raccourci qui survit à sa raison d'être.
+
+4. **La correction du constat 2 ne pouvait ni se déclencher ni
+   s'éteindre**, et c'est le constat le plus utile des quatre. Exiger que
+   `base_url` ne dise **pas** `https://` pour déclencher rendait le
+   contrôle aveugle au seul cas pour lequel la classe avait été écrite —
+   un certificat expiré cette nuit sur un site qui déclare toujours,
+   correctement, `https://`. Le docbloc de la classe décrivait ce
+   scénario ; le code ne pouvait pas le voir. Et comme toute instance
+   déclenchée avait dès lors `base_url` en `http://` par construction,
+   tandis que le réarmement exigeait `https://`, réparer le certificat ne
+   pouvait jamais éteindre l'alerte : seule l'édition d'un réglage le
+   pouvait — un réglage que le conseil de l'alerte (« Activez le
+   certificat HTTPS chez votre hébergeur ») ne mentionne pas. L'alerte
+   était, en pratique, définitive.
+
+   **L'écart est désormais du temps, pas une seconde lecture du même
+   booléen**, et le contrôle reprend la forme de tous les autres : un
+   évènement, et depuis combien de temps il a eu lieu. Déclencher, c'est
+   avoir servi cette requête en clair — la condition entière ; un site qui
+   confie un mot de passe au réseau ne devient pas acceptable parce qu'un
+   réglage dit autre chose. Réarmer, c'est avoir servi cette requête en
+   HTTPS **et** n'avoir rien vu en clair depuis
+   `AlertThresholds::HTTPS_REARM_QUIET_HOURS` (24 h). Un site qui répond
+   sur les deux schémas retampone sans cesse et ne se tait jamais : c'est
+   la bonne réponse et non une réponse tolérée, puisqu'il confie toujours
+   des mots de passe au réseau. Et l'administrateur qui répare son
+   certificat éteint l'alerte en le réparant, sans rien avoir à éditer.
+
+   **`base_url` n'est plus lu du tout, et l'abandonner n'a rien coûté.**
+   Ce que fait une adresse déclarée, c'est y envoyer des gens ; les gens
+   envoyés vers une adresse `http://` arrivent ici en requêtes claires,
+   c'est-à-dire exactement ce que le contrôle mesure. La conséquence est
+   observable, la cause n'a pas besoin de l'être.
+
+   **Décision autonome : le contrôle écrit.** Il est le seul, et le seul
+   qui doive l'être. `cron_last_run` existe pour que `CronSilenceCheck` le
+   lise parce que `public/cron.php` le tamponne en tournant : l'évènement
+   se consigne lui-même. Une requête servie en clair ne consigne rien —
+   ni ligne, ni fichier, rien que le `$_SERVER` d'une requête déjà en
+   cours de réponse — donc la trace doit être faite au seul moment où le
+   fait existe. Une ligne de `settings` (`insecure_request_last_seen`)
+   plutôt qu'un fichier-marqueur sous `storage/temp/`, alors que
+   `RequestBoundChecks` et `DiskBudget` utilisent un fichier pour leur
+   propre comptabilité de chemin de requête : ce qui tranche, c'est le
+   coût de la perte. Perdre le marqueur du limiteur achète une évaluation
+   de plus ; perdre ce tampon laisserait un site bi-schéma se réarmer trop
+   tôt puis se redéclencher à la requête claire suivante — précisément
+   l'oscillation que tout ce dessin existe pour empêcher. L'écriture coûte
+   au plus une fois par quart d'heure, uniquement sur un site réellement
+   servi en clair, et après `send()` et `session_write_close()`.
+
+   Le réglage est enregistré à l'endroit où le contrôle est câblé, et non
+   avec les autres réglages du démarrage — comme `public/cron.php`
+   enregistre `cron_last_run` juste avant de l'écrire.
+
+**Deux pages que le code contredisait.** Elles sont corrigées dans la même
+PR, comme le chantier l'exige. `docs/exigences-non-fonctionnelles.md` §4
+annonçait encore que `backup_auto_frequency` valait `monthly` et que
+l'autre moitié de l'objectif de reprise « n'est pas encore livrée » —
+c'était cette itération qui la livrait. Son tableau des seuils ne portait
+par ailleurs ni la ligne des échecs d'envoi (5 sur 24 h), ni celle du
+HTTPS, alors que `AlertThresholds` se présente comme l'endroit unique où
+ce code et cette page se rencontrent : un seuil présent d'un seul côté est
+la manière dont une exigence cesse d'en être une.
+
+**Un mot réservé que seul MySQL réserve.** La colonne s'appelait
+`last_value` ; MySQL 8 a refusé la table entière — `LAST_VALUE` y est un
+mot réservé depuis 8.0.2 (la fonction de fenêtrage) et ne l'est **pas**
+dans MariaDB. L'instruction passait donc sur le moteur de production, et
+sur ce conteneur qui tourne MariaDB, pour échouer uniquement dans le
+travail `test` de l'intégration continue : dix-neuf erreurs dans une seule
+classe, toutes « syntax error near 'last_value' », après une suite
+complète verte en local.
+
+Renommée en `last_reading` plutôt qu'échappée par des accents graves : un
+mot réservé entre guillemets fonctionne jusqu'au jour où quelqu'un écrit
+le nom de la colonne dans une requête sans les mettre, et il n'y avait
+aucune raison de garder la mine pour une table que rien n'avait encore
+livrée.
+
+`docs/quality-pipeline.md` ne décrivait que l'asymétrie inverse — « juste
+sur MySQL et faux sur MariaDB atteint la production ». Celle-ci ne coûte
+qu'un cycle d'intégration, mais elle est **invisible depuis le conteneur**,
+ce que le document dit maintenant, avec ce cas comme exemple : les listes
+de mots réservés des deux moteurs ne sont pas les mêmes, et un identifiant
+neuf est précisément l'endroit où elles divergent.
+
+**Une interaction relevée au rebasage, à consigner parce qu'elle ne se
+voyait dans aucune des deux itérations prises seule.** `DiskUsageCheck`
+délègue à `StorageUsage::usedPercent()` plutôt que de calculer quoi que ce
+soit, et IT-02 a changé — pendant la revue de cette itération — ce que ce
+pourcentage rapporte : le quota déclaré est désormais facturé sur
+l'installation entière, pas sur `storage/` seul. Le contrôle a hérité de la
+correction sans une ligne de plus, ce qui est le dessin qui marche. En
+revanche `ChecksTest` posait son `storage/` directement sous le dossier
+temporaire du système, si bien que « 900 octets sur un quota de 1000 »
+était mesuré contre tout ce que la machine garde dans `/tmp` : 100 % au
+lieu de 90 %. Le test imbrique maintenant son `storage/` dans une racine
+d'installation à lui, comme les tests d'IT-02 l'ont fait au même moment.
+Ni l'itération ni l'autre n'était fautive ; c'est leur rencontre qui l'a
+été, et seule la suite complète rejouée sur l'état fusionné pouvait le
+dire.
+
+**Décisions autonomes.**
+
+1. **Deux types de notification, pas un.** Le document de chantier
+   demande de traiter « explicitement » le corollaire : l'alerte « l'envoi
+   d'e-mails échoue » ne peut pas partir par e-mail.
+   `core.operational_alert_mail` déclare son canal e-mail à `'off'` — une
+   valeur verrouillée qu'aucune préférence ne peut rallumer — là où
+   `core.operational_alert` l'a en `default_on`. Un seul type avec un
+   filtrage à l'appel aurait été invisible sur la page des préférences ;
+   deux types y affichent une ligne sans case e-mail, ce qui est
+   exactement la vérité.
+
+   Le vrai coût de l'alternative n'est pas l'inutilité : l'envoi échoue,
+   cet échec est journalisé en `mail_send_failed`, et l'alerte gonflerait
+   donc le compteur même qu'elle lit.
+
+2. **Un second contrôle hors tâche planifiée.** Le document n'en nomme
+   qu'un — le cron. `HttpsCheck` est dans le même cas pour une raison de
+   même nature : un schéma appartient à une requête, et une passe CLI n'en
+   a pas. Le lire depuis le réglage `base_url` a été écarté : c'est ce
+   qu'un administrateur a tapé un jour, pas ce qu'un visiteur reçoit, et
+   un certificat expiré cette nuit ne modifie aucun réglage.
+
+   `RequestBoundChecks` limite les deux à une évaluation par quart
+   d'heure, décidée par le mtime d'un fichier témoin : une requête
+   ordinaire coûte un `stat()` et aucune écriture en base. Placés après
+   `send()` et `session_write_close()`, comme la Fréquentation (§8.93) et
+   pour la raison qui avait fait retirer le poor man's cron de cet
+   endroit.
+
+3. **Le plancher « jamais sauvegardé » déclenche, le plancher « cron
+   jamais vu » non.** Ce n'est pas une incohérence. N'avoir jamais
+   sauvegardé est la pire lecture possible et la plus utile à dire ; un
+   cron jamais vu est une installation en cours de configuration, où
+   l'assistant refuse déjà de terminer sans crontab et le dit bien mieux
+   qu'une notification — et où il n'existe encore aucun super-admin à
+   prévenir.
+
+4. **Une lecture indécise laisse l'alerte où elle est.**
+   `AlertReading::inconclusive()` n'est ni au-dessus du seuil ni
+   en dessous du réarmement, donc une alerte déclenchée le reste. Traiter
+   « je ne sais pas » comme « tout va bien » effacerait une alerte
+   précisément sur les installations les moins capables de s'en rendre
+   compte.
+
+5. **Un contrôle qui lève une exception est journalisé et sauté**, comme
+   `AttentionService` le fait déjà de ses fournisseurs. Un site dont le
+   contrôle disque est cassé doit quand même apprendre que son cron s'est
+   arrêté.
+
+6. **`alert_key` est une clé primaire naturelle**, la première du schéma —
+   les 49 autres tables portent un identifiant de substitution. Il y a une
+   ligne par contrôle pour la vie de l'installation et la clé ne dit rien
+   de moins que ce qu'un entier dirait de plus. Vérifié sur MariaDB 10.11
+   avant d'être écrit, parce que `SchemaComparator` ignore purement et
+   simplement les changements de clé primaire : ce choix n'est pas
+   révisable sur place.
+
+7. **`AlertSurfaces` sépare les libellés des contrôles.** Le fournisseur
+   de points d'attention rend des *lignes*, pas des contrôles : construire
+   les six contrôles — donc un `DiskBudget` et un `CronHealth` — pour leur
+   demander leur nom à chaque affichage d'une page qui ne veut
+   qu'« Espace disque » serait absurde. Un test épingle que tout contrôle
+   livré figure dans la carte.
+
+**Divergences constatées entre le document de chantier et le dépôt.**
+
+1. **`UserAccountRepository::findAllSuperAdmins()` n'a pas été ajouté.**
+   `NotificationService::recipientsForType()` répond déjà exactement à
+   cette question, en résolvant l'audience depuis le `role_min` du type et
+   en revérifiant le rôle **courant** de chaque destinataire — c'est-à-dire
+   la propriété même sur laquelle le document de chantier s'appuie. Une
+   méthode de dépôt dont l'unique appelant pouvait utiliser l'existante
+   aurait été une seconde manière de demander « qui sont les
+   super-admins », à garder en phase avec le résolveur de rôles.
+
+   (`findSuperAdmins()` existe par ailleurs déjà, pour la page Comptes
+   superadmin.)
+
+2. **Le réglage `dev_update_enabled` n'existe pas.** Le mode développement
+   est `auto_update_enabled` activé **et** `auto_update_level` à `'dev'` —
+   une quatrième valeur du groupe de boutons radio, sous le même
+   interrupteur général, plutôt qu'un basculeur de zone dangereuse propre
+   (ARCHITECTURE.md §8.17). `DevelopmentModeCheck` lit donc les deux, et
+   un test épingle que le niveau seul, sans l'interrupteur, n'est pas le
+   mode développement : il n'installe rien.
+
+3. **Le journal n'avait aucun moyen de compter un type d'évènement.**
+   `JournalRepository::search()` filtre la description par `LIKE`, ce qui
+   est le mauvais instrument : une description est une phrase française
+   écrite pour un lecteur, et elle change sans que personne y voie un
+   changement de comportement. `countEventsSince()` compte sur
+   `event_type`, l'identifiant stable. De même,
+   `BackupRepository::lastSuccessfulCompletedAt()` est nouveau — rien ne
+   savait répondre « quand la dernière sauvegarde a-t-elle abouti ».
+
+4. **Une entrée d'allowlist de `HelpLabelDriftTest` a cessé d'être
+   nécessaire.** « envoi d'e-mails » y figurait pour le sujet
+   `assistant-d-aide` parce que la citation ne correspondait à aucun
+   libellé de l'interface ; elle en a un maintenant. Le cliquet de ce test
+   refuse une entrée qui n'excuse plus rien, donc elle a été retirée — ce
+   qui est le mécanisme fonctionnant comme prévu.
+
+**Reporté.** Aucune interface nouvelle sur la page Maintenance : les
+alertes s'affichent dans la cloche et sur la page Points d'attention, qui
+existent déjà. Le découpage de la section Sauvegardes reste à IT-04.
