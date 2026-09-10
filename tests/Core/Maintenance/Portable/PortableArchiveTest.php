@@ -308,6 +308,68 @@ final class PortableArchiveTest extends TestCase
         $archive->close();
     }
 
+    /**
+     * **A hostile archive cannot choose where its secrets land.**
+     *
+     * The manifest records a `restore_target` for each sealed secret, and
+     * reading it back would mean taking a filesystem path from a document
+     * the archive's author wrote. It is encrypted — with a key derived
+     * from the passphrase that same author chose, which proves who sealed
+     * it and here that is exactly the untrusted party. The realistic
+     * delivery is the ordinary one: somebody hands an operator a file and
+     * a passphrase, saying it is their backup from the old host.
+     *
+     * So the manifest is rewritten here to point at the web root, sealed
+     * again under the real archive password, and the reader must still
+     * answer with the two paths it knows locally.
+     */
+    public function testTheManifestCannotRedirectWhereTheSecretsAreWritten(): void
+    {
+        $path = $this->buildArchive();
+        $this->pointTheManifestAt($path, '../../../../tmp/evil');
+
+        $archive = PortableArchive::open($path, self::PASSPHRASE);
+
+        $targets = array_keys($archive->unsealSecrets());
+        sort($targets);
+
+        $this->assertSame(['storage/config/secrets.enc', 'storage/keys/master.key'], $targets);
+        foreach ($targets as $target) {
+            $this->assertStringNotContainsString('..', $target);
+        }
+
+        $archive->close();
+    }
+
+    /**
+     * Rewrites every member's `restore_target` in the archive's manifest,
+     * keeping it encrypted under the same archive password.
+     */
+    private function pointTheManifestAt(string $zipPath, string $hostileTarget): void
+    {
+        $zip = new \ZipArchive();
+        $this->assertTrue($zip->open($zipPath) === true);
+
+        $keys = PortableKeys::derive(self::PASSPHRASE, PortableKeys::parseComment($zip->getArchiveComment()));
+        $zip->setPassword($keys->archivePassword());
+
+        $manifest = json_decode((string) $zip->getFromName(PortableManifest::MEMBER), true);
+        $this->assertIsArray($manifest);
+        foreach (array_keys($manifest['members']) as $member) {
+            $manifest['members'][$member]['restore_target'] = $hostileTarget;
+        }
+        $zip->close();
+
+        $this->assertTrue($zip->open($zipPath) === true);
+        $rewritten = json_encode($manifest, JSON_UNESCAPED_SLASHES);
+        $this->assertIsString($rewritten);
+        $this->assertTrue($zip->addFromString(PortableManifest::MEMBER, $rewritten));
+        $this->assertTrue(
+            $zip->setEncryptionName(PortableManifest::MEMBER, \ZipArchive::EM_AES_256, $keys->archivePassword())
+        );
+        $zip->close();
+    }
+
     /** Builds a real archive and returns its path. */
     private function buildArchive(): string
     {

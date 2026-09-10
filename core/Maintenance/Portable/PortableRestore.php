@@ -133,7 +133,23 @@ final class PortableRestore
         $secrets = $archive->unsealSecrets();
 
         foreach ($secrets as $relativeTarget => $plaintext) {
-            $absolute = $this->basePath . '/' . ltrim($relativeTarget, '/');
+            // Belt and braces over {@see PortableArchive::unsealSecrets()},
+            // which already derives these paths locally rather than reading
+            // them out of the archive. This method is public and writes
+            // files: the day a second caller hands it a map built some
+            // other way, the difference between a fixed vocabulary and a
+            // string joined onto the install root is arbitrary file write.
+            // Two known names, compared whole — no traversal to reason
+            // about, because nothing is parsed.
+            if (!in_array($relativeTarget, $this->writableSecretTargets(), true)) {
+                throw new BackupException(
+                    'Cette sauvegarde portable désigne un emplacement de clé que ce site refuse d\'écrire.',
+                    0,
+                    new \RuntimeException('Refused portable secret destination: ' . $relativeTarget)
+                );
+            }
+
+            $absolute = $this->basePath . '/' . $relativeTarget;
             $directory = dirname($absolute);
             if (!is_dir($directory) && !@mkdir($directory, 0700, true) && !is_dir($directory)) {
                 throw new BackupException(
@@ -155,6 +171,28 @@ final class PortableRestore
         }
 
         $this->putBackTargetCredentials($targetOwnedSecrets);
+    }
+
+    /**
+     * The only paths a portable restore may write a secret to.
+     *
+     * Computed from the writer's own map rather than copied beside it: a
+     * second hand-written list is a second list to keep right, and the day
+     * it fell behind this guard would start refusing honest archives —
+     * a fixed vocabulary that has quietly become the wrong one. Compared
+     * as whole strings, so there is no path to parse and therefore nothing
+     * for a traversal to hide in.
+     *
+     * @return string[]
+     */
+    private function writableSecretTargets(): array
+    {
+        $targets = [];
+        foreach (array_keys(PortableManifest::SECRET_MEMBERS) as $liveRelativePath) {
+            $targets[] = 'storage/' . $liveRelativePath;
+        }
+
+        return $targets;
     }
 
     /**

@@ -320,7 +320,6 @@ final class PortableArchive
      */
     public function unsealSecrets(): array
     {
-        $members = is_array($this->manifest['members'] ?? null) ? $this->manifest['members'] : [];
         $secrets = [];
 
         foreach (PortableManifest::SECRET_MEMBERS as $liveRelativePath => $member) {
@@ -334,8 +333,21 @@ final class PortableArchive
                 );
             }
 
-            $target = $members[$member]['restore_target'] ?? ('storage/' . $liveRelativePath);
-            $secrets[(string) $target] = SecretEnvelope::open($sealed, $this->keys->envelopeKey());
+            // **The destination comes from THIS side, never from the
+            // archive.** The manifest records a `restore_target` for each
+            // secret, and reading it back would be reading a filesystem
+            // path out of a document the archive's author wrote. The
+            // manifest is encrypted, but with a key derived from the
+            // passphrase that same author chose — encryption proves who
+            // sealed it, and here that is precisely the untrusted party.
+            // A hostile archive handed over with its passphrase (the
+            // ordinary way this feature is used: "here is your backup from
+            // the old host") could then name `../../public/index.php` and
+            // have plaintext it also chose written there.
+            //
+            // Nothing is lost by ignoring it: `SECRET_MEMBERS` is the same
+            // map the writer used, and it lives here.
+            $secrets['storage/' . $liveRelativePath] = SecretEnvelope::open($sealed, $this->keys->envelopeKey());
         }
 
         return $secrets;
