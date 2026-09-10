@@ -1538,6 +1538,20 @@ l'hôte, le nom et le mot de passe de la base de **l'origine** en place —
 précisément D5, atteint par une panne que personne ne verrait. Le refus
 ne coûte rien, puisqu'il précède la sauvegarde de sécurité.
 
+**Une taille annoncée n'est pas une taille.** Le plafond se lit dans le
+répertoire central du zip, c'est-à-dire chez celui qui a écrit l'archive.
+Une entrée peut annoncer quelques kilo-octets et se décompresser en
+gigaoctets — les taux DEFLATE au-delà de 1000:1 sont ordinaires — et
+`PortableRestore` n'a pas de budget disque à lui. La taille annoncée
+borne donc désormais la *recopie* elle-même, au lieu d'être comparée
+après coup à un disque déjà plein. Et borner seul ne suffisait pas : une
+charge plus longue que son propre en-tête serait alors silencieusement
+tronquée, or un dump coupé sur une frontière d'instruction se restaure
+sans protester. Un octet est donc lu au-delà du plafond, et sa présence
+refuse l'archive. Le test forge l'archive à la main — `ZipArchive` ne
+sait pas produire un fichier qui ment sur lui-même, et un fichier qui
+ment sur lui-même est tout le sujet.
+
 **Sous `storage/` n'est pas la même chose que « des données ».** La liste
 blanche `storage/` laissait passer `storage/temp/twig_cache/`, où vivent
 les gabarits compilés que le rendu suivant fait `include` : une archive

@@ -390,6 +390,101 @@ final class PortableRestoreTest extends TestCase
     }
 
     /**
+     * **A dump that inflates far past what its own header declares.**
+     *
+     * The size the ceiling is checked against comes from the zip's
+     * central directory — which is to say from whoever wrote the archive.
+     * An entry may declare a few kilobytes and expand to gigabytes;
+     * DEFLATE ratios past 1000:1 are ordinary, and `PortableRestore` has
+     * no disk budget of its own. So the declared size has to bound the
+     * COPY, not merely be compared with it once the disk is full.
+     *
+     * Capping alone would not be enough either, and that is the half this
+     * test actually bites on: with the copy capped and nothing checking
+     * for what follows, a payload longer than its header claims is
+     * SILENTLY TRUNCATED — and a dump cut at a statement boundary
+     * restores without complaint, which is the failure this whole method
+     * is written against. Remove the one-byte read past the cap and this
+     * test fails, on the message.
+     *
+     * The cap itself is a `$length` argument, and its effect — how many
+     * bytes reached the disk before the refusal — is not observable from
+     * outside without a filesystem quota, so what is asserted here is the
+     * refusal and the absence of truncation, not the byte count.
+     *
+     * The archive is genuine — written by `BackupService` — and only its
+     * central-directory size field is altered afterwards, because that is
+     * exactly the one thing an attacker controls and the reader believes.
+     */
+    public function testADumpThatInflatesPastItsDeclaredSizeIsRefused(): void
+    {
+        $connection = $this->realDbConnection();
+        $service = new BackupService($connection, $this->originBase . '/storage', $this->originBase);
+        if (!$service->supportsZipEncryption()) {
+            $this->markTestSkipped('This PHP build has no AES zip encryption, which this feature refuses without.');
+        }
+
+        $result = $service->createPortableBackup(self::PASSPHRASE, '2.4.1', self::ORIGIN_ID);
+        $this->zipPath = $result['zipPath'];
+        $this->dbDumpPath = $result['dbDumpPath'];
+
+        $this->assertTrue($this->understateDeclaredSize($this->zipPath, 'database.sql', 1000));
+
+        $intact = 'cible-intacte-' . bin2hex(random_bytes(4));
+        $this->seedSetting($connection->getPdo(), 'site_name', $intact);
+
+        $archive = PortableArchive::open($this->zipPath, self::PASSPHRASE);
+
+        try {
+            (new PortableRestore($this->targetBase, $this->targetBase . '/storage'))->apply(
+                $archive,
+                new BackupService($connection, $this->targetBase . '/storage', $this->targetBase),
+                $this->targetOwnedSecrets()
+            );
+            $this->fail('A dump larger than the size it declares was accepted.');
+        } catch (BackupException $e) {
+            $this->assertStringContainsString('en entier', $e->getMessage());
+        } finally {
+            $archive->close();
+        }
+
+        $this->assertSame(
+            [],
+            glob($this->targetBase . '/storage/temp/portable_restore_*.sql') ?: [],
+            'the partial dump was left on the disk it was about to fill'
+        );
+        $this->assertSame($intact, $this->readSetting($connection->getPdo(), 'site_name'));
+    }
+
+    /**
+     * Rewrites one entry's declared uncompressed size in the zip's central
+     * directory, leaving the payload alone.
+     *
+     * Hand-patched bytes, deliberately: `ZipArchive` cannot produce an
+     * archive that lies about itself, and an archive that lies about
+     * itself is the whole subject.
+     */
+    private function understateDeclaredSize(string $zipPath, string $entry, int $declared): bool
+    {
+        $raw = (string) file_get_contents($zipPath);
+        $offset = 0;
+        $patched = false;
+
+        while (($position = strpos($raw, "PK\x01\x02", $offset)) !== false) {
+            $nameLength = (int) unpack('v', substr($raw, $position + 28, 2))[1];
+            if (substr($raw, $position + 46, $nameLength) === $entry) {
+                $raw = substr_replace($raw, pack('V', $declared), $position + 24, 4);
+                $patched = true;
+            }
+            $offset = $position + 4;
+        }
+
+        file_put_contents($zipPath, $raw);
+
+        return $patched;
+    }
+
+    /**
      * **A hostile entry is refused while the target is still intact.**
      *
      * `restorableEntries()` is where a `..` path, a symlink or a payload

@@ -370,7 +370,8 @@ final class PortableArchive
      */
     private function digestOfMember(string $name): string
     {
-        if ($this->ceilingCheckedSize($name) === null) {
+        $declared = $this->ceilingCheckedSize($name);
+        if ($declared === null) {
             throw new BackupException(
                 'Un fichier annoncé par cette sauvegarde portable est absent de l\'archive.',
                 0,
@@ -387,8 +388,13 @@ final class PortableArchive
             );
         }
 
+        // Bounded by the declared size for the same reason the dump's copy
+        // is: that number is the archive author's, and an entry may
+        // inflate far past what it claims. Reading further would cost time
+        // over bytes that cannot make the digest match anyway — a member
+        // longer than its header says already disagrees with the manifest.
         $context = hash_init('sha256');
-        hash_update_stream($context, $stream);
+        hash_update_stream($context, $stream, $declared);
         fclose($stream);
 
         return hash_final($context);

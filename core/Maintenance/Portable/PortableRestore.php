@@ -228,8 +228,23 @@ final class PortableRestore
         // host has as `memory_limit`: reading it into a string first would
         // make the peak memory of a restore depend on the size of the site
         // being restored.
+        //
+        // **And bounded by the declared size, not merely compared to it
+        // afterwards.** That number comes from the zip's central
+        // directory, which is to say from whoever wrote the archive: an
+        // entry may declare a few kilobytes and inflate to gigabytes,
+        // DEFLATE ratios past 1000:1 being ordinary. An unbounded copy
+        // would fill the disk and only then discover the disagreement, so
+        // the cap goes on the copy itself.
         $source = $archive->databaseDumpStream();
-        $written = @stream_copy_to_stream($source, $destination);
+        $written = @stream_copy_to_stream($source, $destination, $expected);
+
+        // One byte past what was declared. Capping alone would turn a
+        // payload longer than its own header claims into a SILENT
+        // truncation — a dump cut at a statement boundary restores without
+        // complaint, which is the failure this whole method is written
+        // against.
+        $overrun = @fread($source, 1);
         fclose($source);
         $closed = fclose($destination);
 
@@ -237,7 +252,7 @@ final class PortableRestore
         // returns a short count and no error, and a dump truncated at a
         // statement boundary restores without complaint — leaving a site
         // with some of its tables and a message saying it succeeded.
-        if (!$closed || $written === false || $written !== $expected) {
+        if (!$closed || $written === false || $written !== $expected || (is_string($overrun) && $overrun !== '')) {
             @unlink($path);
 
             throw new BackupException(
