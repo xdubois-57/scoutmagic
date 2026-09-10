@@ -14,6 +14,7 @@ use Core\Database\SchemaComparator;
 use Core\Database\SchemaIntrospector;
 use Core\Database\SqlParser;
 use Core\File\FileRepository;
+use Core\Maintenance\Backup;
 use Core\Maintenance\BackupException;
 use Core\Maintenance\BackupRepository;
 use Core\Maintenance\BackupService;
@@ -568,6 +569,22 @@ class RestoreBackupHandler implements TaskHandlerInterface
         $backup = (new BackupRepository($pdo))->findById($backupId);
         if ($backup === null || $backup->status !== 'completed' || $backup->dbDumpFileId === null) {
             throw new BackupException('Sauvegarde introuvable ou incomplète.');
+        }
+        // **Before the database is touched, not after the files fail.**
+        // A portable archive satisfies every test above — it is completed
+        // and it has a dump — so without this the pass would restore the
+        // database, then throw while extracting `secrets/`, then roll the
+        // whole thing back from the safety copy. The site would survive,
+        // having been replaced and un-replaced for an operation that was
+        // never going to work. The controller refuses this too; the guard
+        // is repeated here because this handler is also reached by a
+        // resumed task, whose payload was written before that check
+        // existed.
+        if ($backup->type === Backup::PORTABLE_TYPE) {
+            throw new BackupException(
+                'Une sauvegarde portable ne se restaure pas depuis cette page : elle sert à repartir sur une '
+                . 'installation neuve, à qui vous la téléversez avec sa phrase de passe.'
+            );
         }
 
         $fileRepository = new FileRepository($pdo);

@@ -1197,18 +1197,35 @@ rien.
 
 **Décisions autonomes.**
 
-1. **L'enveloppe est une conséquence arithmétique, pas une précaution
-   supplémentaire.** Le chiffrement AES d'un zip dérive sa clé par
-   PBKDF2-HMAC-SHA1 à **1000 itérations**, chiffre figé par le format en
-   2003. Pour toute autre archive c'est sans conséquence, puisque le
-   contenu est déjà du chiffré. Le jour où la clé est *dedans*, cette
-   seule couche devient ce qui sépare un fichier égaré de toutes les
-   adresses, dates de naissance et téléphones de l'unité en clair — sur
-   précisément l'archive faite pour voyager sur un portable ou une clé
-   USB. D'où AES-256-GCM par-dessus, avec une dérivation lente.
+1. **Le zip ne voit jamais la phrase de passe.** Le chiffrement AES d'un
+   zip dérive sa clé par PBKDF2-HMAC-SHA1 à **1000 itérations**, chiffre
+   figé par le format en 2003, et y range une **valeur de vérification du
+   mot de passe**. La première version livrait la phrase de l'opérateur à
+   `ZipArchive` *et* s'en servait pour la seconde enveloppe : casser la
+   couche faible rendait alors **la phrase elle-même**, après quoi la
+   dérivation lente se calculait une fois, honnêtement, gratuitement. Elle
+   n'ajoutait rien contre l'attaque qui la motivait — et le dump de la
+   base étant sous cette même couche, la casser livrait déjà tout. Une
+   passe lente produit donc un secret maître, `hash_hkdf()` en tire deux
+   clés séparées, et ce que reçoit `ZipArchive` est 256 bits dérivés : ses
+   1000 itérations gardent désormais un secret qu'aucun dictionnaire ne
+   contient. C'est un relecteur qui l'a vu, et la question a été posée au
+   mainteneur parce qu'elle touchait D4.
+
+1bis. **Les deux clés sont séparées par domaine.** Le mot de passe
+   d'archive est une chaîne remise à une bibliothèque tierce — elle peut
+   finir dans un fichier temporaire ou un message d'erreur —, donc la clé
+   qui scelle la clé maîtresse ne doit pas en être calculable.
+
+1ter. **Ce que l'enveloppe achète vraiment**, une fois qu'elle ne porte
+   plus tout le dessin : une archive extraite — dans un dossier temporaire
+   pendant une restauration, sur un bureau, chez un hébergeur de fichiers —
+   garde ses secrets scellés au lieu de les laisser en clair à côté du
+   dump. Le zip protège l'archive ; ceci protège les deux fichiers quand
+   l'archive cesse d'en être une.
 
 2. **Argon2id si libsodium est là, PBKDF2-SHA256 sinon, et le lecteur
-   suit le manifeste.** Une archive scellée avec Argon2id peut être
+   suit l'en-tête.** Une archive scellée avec Argon2id peut être
    ouverte sur un hébergement qui n'a pas libsodium, et l'inverse.
    Redemander « que sait faire ce serveur ? » au lieu de lire `kdf`
    dériverait silencieusement la mauvaise clé et annoncerait une phrase
@@ -1217,6 +1234,13 @@ rien.
    INTERACTIVE et non MODERATE : celle-ci réclame 256 Mio dans une seule
    requête sur un hébergement mutualisé, et une dérivation qui meurt est
    une sauvegarde qui n'existe pas.
+
+2bis. **Les paramètres de dérivation voyagent dans le commentaire
+   d'archive du zip, en clair**, et non dans le manifeste : le mot de passe
+   d'archive en est dérivé, donc rien de ce que ce mot de passe protège ne
+   peut les porter sans circularité. Un sel n'est pas un secret. Le
+   commentaire porte aussi une phrase en français : quelqu'un qui ouvre le
+   fichier dans 7-Zip mérite qu'on lui dise ce que c'est.
 
 3. **Une archive, une dérivation — et c'est structurel.** La première
    version faisait générer son sel par `seal()` à chaque appel ;
@@ -1351,6 +1375,33 @@ qu'un code *dit de lui-même* n'est pas une preuve de ce qu'il fait. Le
 tokenizer dépouille désormais les commentaires, et la vérification a été
 refaite en retirant la branche tout en gardant le docbloc — deux tests
 échouent, ce qui est le comportement voulu.
+
+**Deux constats de revue, dont un qui a rouvert une décision verrouillée.**
+
+1. **Un chemin de fichier dans un message destiné à l'écran.**
+   `BackupException` porte le marqueur `UserFacingException`, qui est une
+   affirmation sur *tout* message dont la classe est construite. Le chemin
+   part désormais en `$previous` : le diagnostic garde le détail, l'écran
+   ne l'affiche plus.
+
+2. **La seconde enveloppe ne protégeait rien**, pour la raison écrite au
+   point 1 des décisions ci-dessus. Le correctif touchant D4, la question
+   a été posée au mainteneur avec trois options — renforcer le zip,
+   documenter sans corriger, retirer l'enveloppe — et la réponse a été
+   **renforcer le zip**. L'auto-fusion est restée désarmée entre-temps :
+   une PR qui affirme dans `SECURITY.md` une protection qui n'existe pas
+   ne doit pas être fusionnée.
+
+**Et une archive portable proposée à la restauration.** Troisième constat,
+et le plus coûteux à l'exécution : une archive portable satisfait tous les
+tests du chemin de restauration — `completed`, avec un dump —, donc la
+passe restaurait la base, échouait ensuite sur `secrets/` à l'extraction
+des fichiers, et rejouait le retour en arrière depuis la copie de
+sécurité. Le site s'en remettait, après avoir été remplacé puis
+dé-remplacé pour une opération qui ne pouvait pas aboutir. Le refus est
+maintenant en amont — le contrôleur, le sélecteur qui ne la propose plus,
+et le gestionnaire lui-même parce qu'une tâche reprise porte une charge
+utile écrite avant ces contrôles.
 
 **Reporté.** Tout ce qui *lit* une archive portable : la restauration, la
 lecture du manifeste, la conservation des identifiants de la cible (D5) et

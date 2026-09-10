@@ -12,6 +12,7 @@ use Core\Database\Connection;
 use Core\Database\DatabaseDumper;
 use Core\Database\DatabaseRestorer;
 use Core\Database\SchemaIntrospector;
+use Core\Maintenance\Portable\PortableKeys;
 use Core\Maintenance\Portable\PortableManifest;
 use Core\Maintenance\Portable\SecretEnvelope;
 use Core\Storage\DirectorySize;
@@ -265,6 +266,24 @@ class BackupService implements BackupServiceInterface
                 . 'hébergeur.');
         }
 
+        // **The portable archive does not hand the passphrase to the zip.**
+        // The zip format derives its key with PBKDF2-HMAC-SHA1 at 1000
+        // iterations AND stores a verification value beside it, so cracking
+        // that layer recovers the PASSPHRASE — after which any slower
+        // derivation keyed by the same phrase is computed once and for
+        // free. One slow pass therefore produces a high-entropy archive
+        // password and a separate envelope key; the parameters travel in
+        // the archive comment, since the password is derived from them and
+        // nothing password-protected could carry them.
+        //
+        // The ordinary full backup keeps the operator's own password, and
+        // that is not an oversight: nothing in it is readable without a
+        // master key that stays on this server, so the 1000 iterations
+        // guard ciphertext rather than a plaintext dossier.
+        $derivation = $manifest !== null ? PortableKeys::newDerivation() : null;
+        $keys = $derivation !== null ? PortableKeys::derive($password, $derivation) : null;
+        $archivePassword = $keys?->archivePassword() ?? $password;
+
         // Both halves at once, before either exists. Checking them one at a
         // time would let the dump succeed and the archive run out of room
         // half-written — the exact mid-write truncation this guard exists
@@ -287,7 +306,7 @@ class BackupService implements BackupServiceInterface
         }
 
         try {
-            $this->addEncryptedFile($zip, $dbDumpPath, 'database.sql', $password);
+            $this->addEncryptedFile($zip, $dbDumpPath, 'database.sql', $archivePassword);
             $manifest?->addMember('database.sql', $this->digestOf($dbDumpPath), (int) filesize($dbDumpPath));
 
             if ($scope !== 'full_config') {
@@ -309,14 +328,23 @@ class BackupService implements BackupServiceInterface
                         $this->basePath . '/' . $topDir,
                         $topDir,
                         $includeGallery,
-                        $password
+                        $archivePassword
                     );
                 }
             }
 
-            if ($manifest !== null) {
-                $this->addSealedSecrets($zip, $manifest, $password);
-                $this->addEncryptedString($zip, PortableManifest::MEMBER, $manifest->toJson(), $password);
+            if ($manifest !== null && $keys !== null) {
+                $this->addSealedSecrets($zip, $manifest, $keys->envelopeKey(), $archivePassword);
+                $this->addEncryptedString($zip, PortableManifest::MEMBER, $manifest->toJson(), $archivePassword);
+
+                // In clear, and it has to be: the archive password is
+                // derived FROM this, so anything the password protects
+                // could not carry it. A salt is not a secret.
+                if (!$zip->setArchiveComment(PortableKeys::comment($derivation))) {
+                    throw new BackupException(
+                        'L\'en-tête de la sauvegarde portable n\'a pas pu être écrit dans l\'archive.'
+                    );
+                }
             }
         } catch (\Throwable $e) {
             $zip->close();
@@ -350,17 +378,12 @@ class BackupService implements BackupServiceInterface
      *
      * @throws BackupException
      */
-    private function addSealedSecrets(\ZipArchive $zip, PortableManifest $manifest, string $passphrase): void
-    {
-        // Derived once for the whole archive, before the loop, and written
-        // to the manifest as the one answer to "how were these sealed?".
-        // Deriving inside the loop is what an earlier version did, and it
-        // sealed the second file under a salt the manifest never carried:
-        // an archive whose `secrets.enc` nothing could ever open, produced
-        // without a single error. See SecretEnvelope::newDerivation().
-        $derivation = SecretEnvelope::newDerivation();
-        $manifest->describeDerivation($derivation);
-
+    private function addSealedSecrets(
+        \ZipArchive $zip,
+        PortableManifest $manifest,
+        string $envelopeKey,
+        string $archivePassword
+    ): void {
         foreach (PortableManifest::SECRET_MEMBERS as $relativePath => $member) {
             $absolutePath = $this->storagePath . '/' . $relativePath;
             $plaintext = is_file($absolutePath) ? @file_get_contents($absolutePath) : false;
@@ -386,9 +409,9 @@ class BackupService implements BackupServiceInterface
                 );
             }
 
-            $sealed = SecretEnvelope::seal($plaintext, $passphrase, $derivation);
+            $sealed = SecretEnvelope::seal($plaintext, $envelopeKey);
 
-            $this->addEncryptedString($zip, $member, $sealed, $passphrase);
+            $this->addEncryptedString($zip, $member, $sealed, $archivePassword);
             $manifest->addMember($member, hash('sha256', $sealed), strlen($sealed), 'storage/' . $relativePath);
         }
     }

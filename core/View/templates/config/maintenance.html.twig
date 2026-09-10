@@ -807,8 +807,16 @@
                         <div class="mb-2" id="restore-server-picker">
                             <label class="visually-hidden" for="restore-backup-id">Sauvegarde à restaurer</label>
                             <select class="form-select form-select-sm" name="backup_id" id="restore-backup-id" {% if backups is empty %}disabled{% endif %}>
+                                {# `not backup.isPortable` : une archive portable
+                                   sert à repartir sur une installation NEUVE, pas
+                                   à écraser celle-ci. L'offrir ici mènerait à une
+                                   restauration destructive suivie d'un retour en
+                                   arrière, pour une opération qui ne peut pas
+                                   aboutir — le contrôleur la refuse aussi, et
+                                   c'est lui qui fait foi ; ceci évite d'avoir à
+                                   le découvrir. #}
                                 {% for backup in backups %}
-                                    {% if backup.status == 'completed' %}
+                                    {% if backup.status == 'completed' and not backup.isPortable %}
                                         <option value="{{ backup.id }}">{{ backup.typeLabel }} — {{ backup.createdAt }}</option>
                                     {% endif %}
                                 {% endfor %}

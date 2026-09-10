@@ -102,15 +102,24 @@ final class PortableManifestTest extends TestCase
         );
     }
 
-    public function testTheDerivationIsRecordedOnce(): void
+    /**
+     * The derivation is NOT in here, and that is load-bearing.
+     *
+     * It lives in the zip's archive comment, in clear, because the archive
+     * password is derived from it — a copy inside the encrypted manifest
+     * would be unreachable before the password exists, and a second copy
+     * of a key parameter is exactly the kind of thing that drifts. Its
+     * absence is therefore asserted rather than assumed.
+     */
+    public function testTheDerivationIsNotInTheManifest(): void
     {
         $manifest = $this->manifest();
-        $manifest->describeDerivation(['kdf' => 'argon2id', 'salt' => 'c2VsCg==', 'opslimit' => 2]);
+        $manifest->addMember('secrets/master.key.enc', str_repeat('b', 64), 60, 'storage/keys/master.key');
 
         $decoded = $this->decode($manifest);
 
-        $this->assertSame('argon2id', $decoded['secret_derivation']['kdf']);
-        $this->assertSame('c2VsCg==', $decoded['secret_derivation']['salt']);
+        $this->assertArrayNotHasKey('secret_derivation', $decoded);
+        $this->assertStringNotContainsString('salt', $manifest->toJson());
     }
 
     /**

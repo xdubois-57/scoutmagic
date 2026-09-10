@@ -19,19 +19,17 @@ namespace Core\Maintenance\Portable;
  * gallery in it, how was the key derived — are none of them answerable
  * from the file tree.
  *
- * **The derivation parameters live here and nowhere else.** They could
- * have been a header on each sealed file, and that would have made each
- * envelope self-describing; it would also have allowed two envelopes in
- * one archive to claim different derivations, which is a state nothing
- * could act on sensibly. One archive, one derivation, written once.
+ * **The derivation parameters are deliberately NOT here.** They live in
+ * the zip's archive comment, in clear, because the archive password is
+ * derived from them — anything the password protects could not carry them
+ * without being circular. {@see PortableKeys} owns that header and says
+ * why a salt in clear costs nothing.
  *
- * **It is encrypted like every other member**, not left in clear for
- * convenience. Nothing needs to read it without the passphrase — whoever
- * restores has just typed one — and in clear it would hand an attacker who
- * has the file but not the password the salt and the cost parameters,
- * which is precisely the head start the second lock exists to deny. The
- * zip's own central directory already reveals the shape of the archive;
- * that is not a reason to add its contents.
+ * **This document is encrypted like every other member.** Nothing needs to
+ * read it without the passphrase: whoever restores has just typed one, and
+ * the comment already carries everything needed to get that far. What it
+ * holds — which installation this came from, what was in it — is not
+ * something to hand to whoever picks up the file.
  */
 final class PortableManifest
 {
@@ -82,9 +80,6 @@ final class PortableManifest
     /** @var array<string, array<string, mixed>> member name => facts */
     private array $members = [];
 
-    /** @var array<string, mixed> */
-    private array $derivation = [];
-
     /**
      * @param string      $scoutmagicVersion what wrote it, from the VERSION file
      * @param string|null $installationId    the origin installation, or null
@@ -101,12 +96,6 @@ final class PortableManifest
         private readonly bool $includesGallery,
         private readonly \DateTimeImmutable $createdAt
     ) {
-    }
-
-    /** @param array<string, mixed> $params as {@see SecretEnvelope::seal()} returned them */
-    public function describeDerivation(array $params): void
-    {
-        $this->derivation = $params;
     }
 
     /**
@@ -156,7 +145,6 @@ final class PortableManifest
             'installation_id' => $this->installationId,
             'includes_gallery' => $this->includesGallery,
             'includes_secrets' => array_values(self::SECRET_MEMBERS),
-            'secret_derivation' => $this->derivation,
             'members' => $this->members,
         ];
     }

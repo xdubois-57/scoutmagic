@@ -954,6 +954,10 @@ class MaintenanceController extends AbstractController
                 // would vanish silently the day somebody rewords the
                 // badge, and nothing would fail.
                 'isOperational' => $family === \Core\Maintenance\BackupFamily::Operational,
+                // The restore picker reads this: a portable archive is not
+                // restorable onto THIS installation, and offering it would
+                // start a destructive restore that cannot finish.
+                'isPortable' => $backup->type === \Core\Maintenance\Backup::PORTABLE_TYPE,
                 // What the last verification pass found (§8.101). Null
                 // where there is nothing to say — a backup taken an hour
                 // ago has not been re-read yet, and a badge saying so
@@ -1133,6 +1137,22 @@ class MaintenanceController extends AbstractController
             $backup = $this->backupRepository->findById($backupId);
             if ($backup === null || $backup->status !== 'completed') {
                 FlashMessage::set('error', 'Sauvegarde introuvable ou incomplète.');
+                return $this->redirect('/config/maintenance');
+            }
+            // A portable archive is refused HERE, before a single row is
+            // written. It looks restorable — completed, with a database
+            // dump — and the ordinary path would happily replace the live
+            // database with it, then fail on `secrets/` while extracting
+            // the files and roll back. That cycle is destructive, slow,
+            // and entirely avoidable: this archive's restore is IT-07's,
+            // and until then the answer is a sentence rather than a
+            // recovery.
+            if ($backup->type === \Core\Maintenance\Backup::PORTABLE_TYPE) {
+                FlashMessage::set(
+                    'error',
+                    'Une sauvegarde portable ne se restaure pas depuis cette page : elle sert à repartir sur '
+                    . 'une installation neuve, à qui vous la téléversez avec sa phrase de passe.'
+                );
                 return $this->redirect('/config/maintenance');
             }
             $payload['backup_id'] = $backupId;

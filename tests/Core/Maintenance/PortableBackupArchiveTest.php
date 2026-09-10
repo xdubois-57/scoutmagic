@@ -16,6 +16,7 @@ use Core\Database\SchemaIntrospector;
 use Core\Database\SqlParser;
 use Core\Maintenance\BackupException;
 use Core\Maintenance\BackupService;
+use Core\Maintenance\Portable\PortableKeys;
 use Core\Maintenance\Portable\PortableManifest;
 use Core\Maintenance\Portable\SecretEnvelope;
 use PHPUnit\Framework\Attributes\Group;
@@ -106,9 +107,22 @@ final class PortableBackupArchiveTest extends TestCase
         return $names;
     }
 
+    /**
+     * The keys this archive was written with, derived the way a restore
+     * would: from the passphrase and the parameters in the archive
+     * comment, which is the only place they exist.
+     */
+    private function keys(\ZipArchive $zip): PortableKeys
+    {
+        $comment = $zip->getArchiveComment();
+        $this->assertIsString($comment, 'the archive carries no comment, so nothing could ever open it');
+
+        return PortableKeys::derive(self::PASSPHRASE, PortableKeys::parseComment($comment));
+    }
+
     private function read(\ZipArchive $zip, string $entry): string
     {
-        $zip->setPassword(self::PASSPHRASE);
+        $zip->setPassword($this->keys($zip)->archivePassword());
         $contents = $zip->getFromName($entry);
         $this->assertIsString($contents, $entry . ' could not be read from the archive.');
 
@@ -167,10 +181,9 @@ final class PortableBackupArchiveTest extends TestCase
         $this->assertStringNotContainsString(self::SECRETS_BLOB, $sealedSecrets);
 
         // And they really are the secrets, not merely different bytes.
-        $derivation = $this->manifest($zip)['secret_derivation'];
-        $this->assertIsArray($derivation);
-        $this->assertSame(self::MASTER_KEY, SecretEnvelope::open($sealedKey, self::PASSPHRASE, $derivation));
-        $this->assertSame(self::SECRETS_BLOB, SecretEnvelope::open($sealedSecrets, self::PASSPHRASE, $derivation));
+        $envelopeKey = $this->keys($zip)->envelopeKey();
+        $this->assertSame(self::MASTER_KEY, SecretEnvelope::open($sealedKey, $envelopeKey));
+        $this->assertSame(self::SECRETS_BLOB, SecretEnvelope::open($sealedSecrets, $envelopeKey));
         $zip->close();
     }
 
@@ -213,15 +226,73 @@ final class PortableBackupArchiveTest extends TestCase
      * checks the layer that matters rather than the one that happens to
      * come first.
      */
+    /**
+     * **The assertion the whole redesign turns on: the zip never sees the
+     * passphrase.**
+     *
+     * A review found that handing the operator's phrase to `ZipArchive`
+     * made the inner envelope worthless — the zip format's 1000-iteration
+     * derivation stores a verification value, so cracking it hands back
+     * the PHRASE, and every slower derivation keyed by that same phrase
+     * then costs one honest pass. So the archive password must be a
+     * derived, high-entropy string, and the passphrase itself must open
+     * nothing.
+     */
+    public function testThePassphraseIsNotTheArchivePassword(): void
+    {
+        $zip = $this->buildArchive();
+
+        $derived = $this->keys($zip)->archivePassword();
+        $this->assertNotSame(self::PASSPHRASE, $derived);
+
+        // The phrase itself opens no entry: what guards the zip is the
+        // derived secret, and there is no word list for that.
+        $zip->setPassword(self::PASSPHRASE);
+        $this->assertFalse(@$zip->getFromName('database.sql'));
+
+        // And the derived password does.
+        $zip->setPassword($derived);
+        $this->assertIsString($zip->getFromName('database.sql'));
+        $zip->close();
+    }
+
+    /** A wrong passphrase derives a wrong key, and opens nothing. */
     public function testAWrongPassphraseOpensNeitherLayer(): void
     {
         $zip = $this->buildArchive();
-        $derivation = $this->manifest($zip)['secret_derivation'];
+        $comment = (string) $zip->getArchiveComment();
         $sealedKey = $this->read($zip, PortableManifest::SECRET_MEMBERS['keys/master.key']);
         $zip->close();
 
+        $wrong = PortableKeys::derive('une phrase de passe entierement fausse', PortableKeys::parseComment($comment));
+
         $this->expectException(BackupException::class);
-        SecretEnvelope::open($sealedKey, 'une phrase de passe entierement fausse', is_array($derivation) ? $derivation : []);
+        SecretEnvelope::open($sealedKey, $wrong->envelopeKey());
+    }
+
+    /**
+     * The comment is in clear, and carries only what it must.
+     *
+     * It has to be readable without a password — the archive password is
+     * derived from it — so what it holds is exactly the derivation
+     * parameters and a sentence for a human. Not the installation id, not
+     * the member list: those are in the manifest, behind the password.
+     */
+    public function testTheArchiveCommentIsReadableWithoutAPasswordAndSaysOnlyWhatItMust(): void
+    {
+        $zip = $this->buildArchive();
+        $zip->close();
+
+        $unauthenticated = new \ZipArchive();
+        $this->assertTrue($unauthenticated->open((string) $this->zipPath) === true);
+        $comment = (string) $unauthenticated->getArchiveComment();
+        $unauthenticated->close();
+
+        $params = PortableKeys::parseComment($comment);
+        $this->assertArrayHasKey('salt', $params);
+        $this->assertArrayHasKey('kdf', $params);
+        $this->assertStringNotContainsString('install-abc', $comment);
+        $this->assertStringNotContainsString(self::PASSPHRASE, $comment);
     }
 
     public function testTheManifestDescribesWhatIsActuallyInTheArchive(): void
@@ -230,6 +301,7 @@ final class PortableBackupArchiveTest extends TestCase
         $manifest = $this->manifest($zip);
 
         $this->assertSame(PortableManifest::FORMAT, $manifest['format']);
+        $this->assertArrayNotHasKey('secret_derivation', $manifest);
         $this->assertSame('2.4.1', $manifest['scoutmagic_version']);
         $this->assertSame('install-abc', $manifest['installation_id']);
         $this->assertFalse($manifest['includes_gallery']);

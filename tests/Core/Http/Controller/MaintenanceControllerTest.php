@@ -806,6 +806,100 @@ class MaintenanceControllerTest extends TestCase
         $this->assertCount(1, $scheduled);
     }
 
+    // --- La sauvegarde portable (IT-06) ---
+
+    private const PORTABLE_PASSPHRASE = 'quatre mots parfaitement ordinaires';
+
+    public function testCreatePortableBackupValidatesCsrf(): void
+    {
+        $response = $this->controller->createPortableBackup($this->jsonRequest([
+            'passphrase' => self::PORTABLE_PASSPHRASE, '_csrf_token' => 'bad',
+        ]), []);
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame([], $this->schedulerRepository->findByModuleAndTaskKey('core', 'create_backup'));
+    }
+
+    /**
+     * The length rule is enforced HERE, not only in the browser.
+     *
+     * The field carries a `minlength` and the page checks it, but this
+     * endpoint is reachable without the page — and this passphrase is the
+     * only thing standing between a lost archive and the site's master
+     * key.
+     */
+    public function testCreatePortableBackupRefusesAShortPassphrase(): void
+    {
+        $response = $this->controller->createPortableBackup($this->jsonRequest([
+            'passphrase' => 'trop court', '_csrf_token' => $this->csrfToken(),
+        ]), []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertFalse($decoded['success']);
+        $this->assertStringContainsString('16', $decoded['error']);
+        $this->assertSame([], $this->schedulerRepository->findByModuleAndTaskKey('core', 'create_backup'));
+    }
+
+    public function testCreatePortableBackupSchedulesTheBackgroundTaskUnderItsOwnType(): void
+    {
+        $response = $this->controller->createPortableBackup($this->jsonRequest([
+            'passphrase' => self::PORTABLE_PASSPHRASE, '_csrf_token' => $this->csrfToken(),
+        ]), []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+
+        $backup = $this->backupRepository->findById($decoded['backup_id']);
+        $this->assertNotNull($backup);
+        $this->assertSame(\Core\Maintenance\Backup::PORTABLE_TYPE, $backup->type);
+        $this->assertSame('pending', $backup->status);
+
+        $scheduled = $this->schedulerRepository->findByModuleAndTaskKey('core', 'create_backup');
+        $this->assertCount(1, $scheduled);
+    }
+
+    /**
+     * The passphrase never reaches the database in clear.
+     *
+     * It is the only lock on the master key inside the archive; a copy of
+     * it sitting in a scheduler payload would put it in the one place a
+     * stolen database dump would look.
+     */
+    public function testThePassphraseIsEncryptedInTheScheduledPayload(): void
+    {
+        $this->controller->createPortableBackup($this->jsonRequest([
+            'passphrase' => self::PORTABLE_PASSPHRASE, '_csrf_token' => $this->csrfToken(),
+        ]), []);
+
+        $scheduled = $this->schedulerRepository->findByModuleAndTaskKey('core', 'create_backup');
+        $payload = (string) $scheduled[0]['payload'];
+
+        $this->assertStringNotContainsString(self::PORTABLE_PASSPHRASE, $payload);
+        $this->assertStringContainsString('encrypted_password', $payload);
+    }
+
+    /**
+     * And the journal says, at `security` level, what was asked for.
+     *
+     * This is the moment an operator asked the site to package its master
+     * key into a downloadable file. An `info` line beside the ordinary
+     * backups would bury it.
+     */
+    public function testAPortableBackupRequestIsJournaledAsASecurityEvent(): void
+    {
+        $this->controller->createPortableBackup($this->jsonRequest([
+            'passphrase' => self::PORTABLE_PASSPHRASE, '_csrf_token' => $this->csrfToken(),
+        ]), []);
+
+        $rows = $this->pdo->query(
+            "SELECT level, event_type FROM event_log WHERE event_type = 'portable_backup_requested'"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+
+        $this->assertCount(1, $rows);
+        $this->assertSame('security', $rows[0]['level']);
+    }
+
     public function testBackupStatusReturns404ForUnknownId(): void
     {
         $response = $this->controller->backupStatus(new Request('GET', '/api/maintenance/backup-status/999', [], [], [], []), ['id' => '999']);
@@ -1323,6 +1417,62 @@ class MaintenanceControllerTest extends TestCase
 
         $this->assertSame(302, $response->getStatusCode());
         $this->assertSame([], $this->schedulerRepository->findByModuleAndTaskKey('core', 'restore_backup'));
+    }
+
+    /**
+     * **A portable archive is refused before anything is scheduled.**
+     *
+     * It passes every test the restore path applies — `completed`, with a
+     * database dump — so without this check the pass would restore the
+     * live database from it, then throw while extracting `secrets/`
+     * (which `RESTORABLE_TOP_LEVEL` refuses), then roll the whole site
+     * back from the safety copy. The site survives that, having been
+     * replaced and un-replaced for an operation that could never have
+     * finished. A portable archive is for starting a NEW installation;
+     * restoring one onto this site is IT-07's subject, and until then the
+     * honest answer is a sentence, not a destructive round trip.
+     */
+    public function testRestoreBackupRefusesAPortableArchiveBeforeTouchingAnything(): void
+    {
+        $backupId = (new \Core\Maintenance\BackupRepository($this->pdo))
+            ->create(\Core\Maintenance\Backup::PORTABLE_TYPE, null);
+        $stmt = $this->pdo->prepare(
+            "UPDATE backups SET status = 'completed', file_id = NULL, db_dump_file_id = NULL WHERE id = ?"
+        );
+        $stmt->execute([$backupId]);
+
+        $request = new Request('POST', '/config/maintenance/reset/restore', [], [
+            '_csrf_token' => $this->csrfToken(),
+            'confirm_keyword' => 'RESTAURER',
+            'source' => 'server',
+            'backup_id' => (string) $backupId,
+        ], [], []);
+
+        $response = $this->controller->restoreBackup($request, []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            [],
+            $this->schedulerRepository->findByModuleAndTaskKey('core', 'restore_backup'),
+            'nothing may be queued: the refusal has to happen before the database is touched'
+        );
+    }
+
+    /** And the picker does not offer one, so nobody meets that refusal. */
+    public function testThePortableArchiveIsNotOfferedInTheRestorePicker(): void
+    {
+        $backups = new \Core\Maintenance\BackupRepository($this->pdo);
+        $portableId = $backups->create(\Core\Maintenance\Backup::PORTABLE_TYPE, null);
+        $ordinaryId = $backups->create('full_no_gallery', null);
+        $stmt = $this->pdo->prepare("UPDATE backups SET status = 'completed' WHERE id IN (?, ?)");
+        $stmt->execute([$portableId, $ordinaryId]);
+
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        // The ordinary one is offered; the portable one is listed in
+        // « Sauvegardes récentes » but never as a restore option.
+        $this->assertStringContainsString('<option value="' . $ordinaryId . '"', $body);
+        $this->assertStringNotContainsString('<option value="' . $portableId . '"', $body);
     }
 
     // --- Restauration : envoi fragmenté (audit M2) ---
