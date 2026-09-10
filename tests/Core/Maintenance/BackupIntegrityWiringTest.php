@@ -57,9 +57,9 @@ final class BackupIntegrityWiringTest extends TestCase
         $this->assertSame(
             [],
             $offenders,
-            "Ces fichiers marquent une sauvegarde terminée sans passer par Core\\Maintenance\\BackupIntegrity, "
-                . "donc sans enregistrer les empreintes qui permettront de la vérifier plus tard. La ligne aura "
-                . "l'air normale et rien ne pourra jamais la relire. Appelez BackupIntegrity::complete()."
+            'These files mark a backup as completed without going through Core\\Maintenance\\BackupIntegrity, '
+                . 'so without recording the digests that would let it be verified later. The row will look '
+                . 'finished and nothing will ever be able to re-read it. Call BackupIntegrity::complete().'
         );
     }
 
@@ -129,7 +129,7 @@ final class BackupIntegrityWiringTest extends TestCase
             $this->assertContains(
                 $file,
                 $completers,
-                $file . ' crée une sauvegarde mais ne la termine jamais via BackupIntegrity.'
+                $file . ' creates a backup but never completes it through BackupIntegrity.'
             );
         }
     }
