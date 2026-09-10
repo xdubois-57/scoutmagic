@@ -108,17 +108,35 @@ class ScoutYearResolver
             }
         }
 
-        // 2. Staff year — whoever reaches `intendant` in that year itself.
+        // 3. Public current year (setting, else date fallback). Resolved
+        // before the staff year because the staff year is only honoured
+        // when it is adjacent to it — see below.
+        $public = $this->getCurrentPublicYear();
+
+        // 2. Staff year — whoever reaches `intendant` in that year itself,
+        // AND only while that year is the public year or the one right
+        // after it (ScoutYearAdjacency).
+        //
+        // **The bound is not decoration, and leaving it out was a hole.**
+        // Eligibility used to be the caller's session role, which came
+        // from the public year and therefore meant current standing;
+        // asking inside the target year instead is what lets the arriving
+        // animateur in, and it is also what stops asking anything about
+        // today. `staff_scout_year_id` is written with no validation and
+        // the page that writes it offers every year on record, so a stale
+        // value — a restored backup, a mis-click, an older release — would
+        // otherwise serve 2019-2020 to whoever was intendant in
+        // 2019-2020, with no current standing at all. Since
+        // getAuthorizationYear() is the year every per-year check then
+        // runs in, that is full rental management on a `role_min:
+        // identified` route.
         $staffId = $this->getStaffYearId();
         if ($staffId !== null && $this->isEligibleForStaffYear($staffId)) {
             $year = $this->scoutYearService->findById($staffId);
-            if ($year !== null) {
+            if ($year !== null && ScoutYearAdjacency::isCandidateFor($year['label'], $public['label'])) {
                 return new EffectiveScoutYear($year['id'], $year['label'], 'staff');
             }
         }
-
-        // 3. Public current year (setting, else date fallback).
-        $public = $this->getCurrentPublicYear();
 
         return new EffectiveScoutYear($public['id'], $public['label'], null);
     }

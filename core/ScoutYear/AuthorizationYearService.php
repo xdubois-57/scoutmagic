@@ -42,11 +42,11 @@ use Core\Config\SettingService;
  * Two invariants the tests pin, both of which cost something the day
  * they are broken:
  *
- * - **One year of slack, in both directions.** Without a bound the staff
- *   year and the public year drift apart for as long as nobody runs the
- *   transition, and nothing on the site forces anybody to run it — on an
- *   instance left alone, a chief who left two seasons ago would keep
- *   their access indefinitely.
+ * - **Bounded to the public year and the one after it** —
+ *   `ScoutYearAdjacency` owns that rule and the reasoning behind its
+ *   asymmetry. `ScoutYearResolver` applies the same predicate to the
+ *   staff year before serving it: a bound here and none there would not
+ *   be half a rule, it would be a hole.
  * - **Nothing is ever created.** ScoutYearService::getCurrentYear() calls
  *   ensureYear(), which INSERTs on 1 September. An authorization question
  *   answered on every request must not write a row, so this service uses
@@ -93,7 +93,7 @@ class AuthorizationYearService
 
         $ids = [];
         foreach ([$publicYear, $dateYear, $staffYear] as $candidate) {
-            if ($candidate === null || !self::isCandidateFor($candidate['label'], $anchorLabel)) {
+            if ($candidate === null || !ScoutYearAdjacency::isCandidateFor($candidate['label'], $anchorLabel)) {
                 continue;
             }
             $ids[$candidate['id']] = $candidate['id'];
@@ -114,41 +114,5 @@ class AuthorizationYearService
         $id = (int) $this->settingService->get($settingKey, null, '0');
 
         return $id > 0 ? $this->scoutYearService->findById($id) : null;
-    }
-
-    /**
-     * Whether a candidate year may take part in an access decision, given
-     * the public year: **the public year itself, or the one right after
-     * it**. Scout year labels are `YYYY-YYYY` and their first half orders
-     * them, so this is a subtraction rather than a date range.
-     *
-     * Two years away is out in both directions, which is the forgotten
-     * instance: nobody ran the transition, the public year is two seasons
-     * behind the calendar, and without a bound every chief who left two
-     * years ago would keep their access for as long as that lasts.
-     *
-     * **The interval is asymmetric on purpose, and this is the part that
-     * is easy to get wrong.** A year BEFORE the public year is out too,
-     * one year or two. Both mechanisms that legitimately put a year in
-     * play push it FORWARD — activating the staff year, and 1 September
-     * moving the date-computed year ahead of a public year nobody has
-     * switched yet. A year behind the public year means the opposite
-     * happened: a chef d'unité switched the whole site to the next year
-     * early, which is an explicit act saying « we are on the new year
-     * now ». Keeping the old one as a candidate would hand the animateur
-     * who has just left their access back for every day between that
-     * switch and 1 September — precisely the person the transition was
-     * run to hand over from.
-     */
-    private static function isCandidateFor(string $label, string $publicLabel): bool
-    {
-        $distance = self::startYear($label) - self::startYear($publicLabel);
-
-        return $distance >= 0 && $distance <= 1;
-    }
-
-    private static function startYear(string $label): int
-    {
-        return (int) explode('-', $label)[0];
     }
 }

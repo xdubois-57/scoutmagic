@@ -266,6 +266,47 @@ class ScoutYearResolverTest extends TestCase
         $this->assertNull($this->resolver->getAuthorizationYear()->overrideType);
     }
 
+    /**
+     * **A stale `staff_scout_year_id` grants nothing**, however eligible
+     * the caller is inside it.
+     *
+     * This is the hole the bound closes. Eligibility used to be the
+     * caller's session role, which came from the public year and so meant
+     * current standing. Asking inside the target year instead is what
+     * lets the arriving animateur in — and it stops asking anything about
+     * today, so without a bound anyone who was `intendant` in 2019-2020
+     * is served 2019-2020 the moment the setting points there, with no
+     * current standing at all. `activateStaffYear()` validates nothing
+     * and the page offers every year on record, so the value can get
+     * there by a mis-click or a restored backup.
+     *
+     * getAuthorizationYear() is the year every per-year check then runs
+     * in, so the consequence is not cosmetic: it is rental management on
+     * a `role_min: identified` route.
+     */
+    public function testAStaffYearTwoSeasonsBackIsNotServedEvenToSomebodyEligibleInIt(): void
+    {
+        $this->setPublicYear($this->year2025);
+        $this->setStaffYear($this->year2023);
+        $this->eligibleForStaffYear(true);
+
+        $effective = $this->resolver->getEffectiveYear(null, Role::ADMIN);
+
+        $this->assertSame($this->year2025, $effective->id);
+        $this->assertNull($effective->overrideType);
+        $this->assertSame($this->year2025, $this->resolver->getAuthorizationYear()->id);
+    }
+
+    /** One season back is out too — the interval is asymmetric. */
+    public function testAStaffYearOneSeasonBackIsNotServedEither(): void
+    {
+        $this->setPublicYear($this->year2025);
+        $this->setStaffYear($this->year2024);
+        $this->eligibleForStaffYear(true);
+
+        $this->assertSame($this->year2025, $this->resolver->getEffectiveYear(null, Role::ADMIN)->id);
+    }
+
     /** It does honour the staff year, on the same rule as the displayed one. */
     public function testTheAuthorizationYearStillFollowsTheStaffYear(): void
     {

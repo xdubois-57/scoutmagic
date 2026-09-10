@@ -426,6 +426,41 @@ fige le cas.
   juger qui appelle. Son plancher de route est ce qui garde la page. C'est
   de la portée de données, que le document reporte explicitement (D5).
 
+### Le trou que la revue a trouvé dans IT-03, et pourquoi il existait
+
+`Claude review` a relevé, sur la PR, que la branche « année staff » de
+`getEffectiveYear()` n'avait **aucune borne** sur l'année vers laquelle
+`staff_scout_year_id` pointe. Vérifié, et exact — c'est une régression
+introduite par IT-03 lui-même :
+
+- **Avant**, l'éligibilité était `$role->hasAccess(Role::INTENDANT)` sur le
+  rôle de **session**, qui venait de l'année publique. C'était donc, sans
+  qu'on l'ait écrit ainsi, un test de standing **actuel**.
+- **Après**, elle se pose *dans l'année visée*. C'est ce qui fait entrer
+  l'animateur entrant — et c'est aussi ce qui cesse de poser la moindre
+  question sur aujourd'hui.
+
+Or `ScoutYearAdminService::activateStaffYear()` ne valide rien et le
+sélecteur de la page offre toutes les années en base. Une valeur périmée —
+un clic de travers, une sauvegarde restaurée, une version antérieure —
+servait donc 2019-2020 à quiconque fut `intendant` en 2019-2020, sans aucun
+standing actuel. Et comme `getAuthorizationYear()` est l'année dans laquelle
+tournent désormais tous les contrôles fins, la conséquence n'est pas
+cosmétique : c'est la gestion complète des locations sur une route
+`role_min: identified`.
+
+**Ce qui rendait le trou possible est instructif** : la borne existait déjà,
+dans `AuthorizationYearService`, et sa raison d'être y était écrite en
+toutes lettres. Mais elle n'alimentait qu'une moitié du refactoring — le
+rôle de session — pendant que l'autre moitié, l'année servie, n'en avait
+pas. Une règle appliquée à un seul de deux chemins n'est pas une demi-règle,
+c'est un trou : celui des deux qui n'est pas borné est celui qu'on emprunte.
+
+D'où `Core\ScoutYear\ScoutYearAdjacency` : une règle, un seul endroit, deux
+appelants. C'est la leçon à retenir si quelqu'un rouvre ce sujet — pas la
+borne elle-même, mais le fait qu'elle doit valoir partout où une année
+entre dans une décision d'accès.
+
 ---
 
 ## Récapitulatif
