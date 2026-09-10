@@ -501,10 +501,10 @@ describe('setup.js: copy buttons', () => {
     });
 });
 
-describe('setup.js: repartir d\'une sauvegarde portable', () => {
-    // La base doit être installée avant : la restauration écrit par-dessus,
-    // et l'opérateur doit avoir vu qu'elle était vide. Le bouton reste donc
-    // inerte tant que l'étape précédente n'a pas abouti.
+describe('setup.js: restoring from a portable backup', () => {
+    // The database has to be installed first: the restore writes over it,
+    // and the operator must have seen that it was empty. So the button
+    // stays inert until that step has actually succeeded.
     it('leaves the button disabled until the database step has passed', async () => {
         await boot({ installAction: '/setup/install-database' });
 
@@ -514,6 +514,35 @@ describe('setup.js: repartir d\'une sauvegarde portable', () => {
         document.getElementById('portable-passphrase').dispatchEvent(new Event('input'));
 
         expect(document.getElementById('btn-portable-restore').disabled).toBe(true);
+    });
+
+    /**
+     * **The sequence that was broken: fill the form, THEN install.**
+     *
+     * The first version refreshed this button from a timer fired at click
+     * time, before the database request had settled. An operator who chose
+     * the archive and typed the passphrase first therefore watched a
+     * successful install leave the restore button disabled, with nothing
+     * to do but touch an input again.
+     */
+    it('enables the restore button when the archive was chosen before the database was installed', async () => {
+        await boot({ installAction: '/setup/install-database' });
+
+        attachFile('portable-file', 'sauvegarde.zip', 1024);
+        document.getElementById('portable-file').dispatchEvent(new Event('change'));
+        document.getElementById('portable-passphrase').value = 'quatre mots parfaitement ordinaires';
+        document.getElementById('portable-passphrase').dispatchEvent(new Event('input'));
+
+        expect(document.getElementById('btn-portable-restore').disabled).toBe(true);
+
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, migrated: true, table_count: 40, statements_executed: 40 }),
+        }));
+        document.getElementById('btn-test-db').click();
+        await settle();
+
+        expect(document.getElementById('btn-portable-restore').disabled).toBe(false);
     });
 
     async function readyToRestore() {
@@ -539,9 +568,9 @@ describe('setup.js: repartir d\'une sauvegarde portable', () => {
     });
 
     /**
-     * Les identifiants de base partent avec la requête, et c'est tout
-     * l'intérêt : ce sont eux que la restauration conserve (D5), contre ceux
-     * que l'archive transporte.
+     * The database credentials travel with the request, and that is the
+     * whole point: they are the ones the restore keeps (D5), against the
+     * ones the archive carries.
      */
     it('posts the passphrase and the database credentials of THIS machine', async () => {
         await readyToRestore();
@@ -576,14 +605,14 @@ describe('setup.js: repartir d\'une sauvegarde portable', () => {
 
         expect(document.getElementById('portable-restore-result').textContent).toContain('restauré');
         expect(document.getElementById('portable-progress').textContent).toContain('identifiants habituels');
-        // Rien à ajouter au formulaire : le site restauré a déjà son unité,
-        // ses comptes et ses réglages.
+        // Nothing left to fill in: the restored site already has its unit,
+        // its accounts and its settings.
         expect(document.getElementById('btn-portable-restore').disabled).toBe(true);
     });
 
     /**
-     * Un refus est réversible : l'opérateur peut s'être trompé de phrase de
-     * passe, et doit pouvoir réessayer sans recharger la page.
+     * A refusal is reversible: the operator may simply have mistyped the
+     * passphrase, and must be able to try again without reloading.
      */
     it('shows the refusal and lets the operator try again', async () => {
         await readyToRestore();

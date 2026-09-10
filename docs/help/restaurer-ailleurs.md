@@ -11,8 +11,7 @@ paths: /config/maintenance
 related: sauvegarde-portable, sauvegardes, reinitialisation
 ---
 
-Vous avez une sauvegarde portable et sa phrase de passe. Le reste tient
-en une page.
+Vous avez une sauvegarde portable et sa phrase de passe. Voici la suite.
 
 ## Ce qu'il vous faut
 
@@ -67,7 +66,9 @@ Il vous dira lequel des trois cas vous êtes :
 - **la phrase de passe ne correspond pas** — c'est la phrase, pas le
   fichier ;
 - **ce n'est pas une sauvegarde portable** — une sauvegarde complète
-  ordinaire ne se restaure que sur l'installation qui l'a produite ;
+  ordinaire n'emporte pas les clés du site, donc elle ne se remonte pas
+  telle quelle ailleurs : il faudrait y recopier aussi `storage/keys/`
+  et `storage/config/` ;
 - **l'archive vient d'une version plus récente** — mettez d'abord à
   jour ce site, puis recommencez.
 
@@ -75,6 +76,5 @@ Dans les trois cas, rien n'a été modifié.
 
 ## Et après
 
-Reprenez les sauvegardes régulières, et refaites une sauvegarde
-portable : celle qui vient de servir contient l'état d'avant le
-sinistre, pas celui d'aujourd'hui.
+Refaites une sauvegarde portable : celle qui vient de servir contient
+l'état d'avant le sinistre.

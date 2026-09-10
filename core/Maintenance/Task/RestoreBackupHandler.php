@@ -385,9 +385,16 @@ class RestoreBackupHandler implements TaskHandlerInterface
             return;
         }
 
+        $restore = new PortableRestore($basePath, $context->storagePath);
+        // Held aside BEFORE anything replaces them: the safety backup
+        // cannot carry these — createFileBackup() excludes storage/keys/
+        // and storage/config/ in every mode — so without this the
+        // automatic rollback below would restore the database and the file
+        // tree and leave the ARCHIVE's keys in place.
+        $secretsBefore = $restore->secretsSnapshot();
+
         try {
-            (new PortableRestore($basePath, $context->storagePath))
-                ->apply($archive, $backupService, $targetOwnedSecrets);
+            $restore->apply($archive, $backupService, $targetOwnedSecrets);
 
             $this->scheduleMigrationResume(
                 $context,
@@ -403,6 +410,12 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 ]
             );
         } catch (\Throwable $restoreError) {
+            // Before the rollback, not after: rollbackToSafetyBackup()
+            // extracts the safety archive over the file tree, and the
+            // installation it hands back must be the one that was here —
+            // keys included, or it cannot read what it just recovered.
+            $restore->restoreSecretsSnapshot($secretsBefore);
+
             $this->rollbackToSafetyBackup(
                 $context,
                 $backupService,

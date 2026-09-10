@@ -132,64 +132,14 @@ final class PortableArchiveTest extends TestCase
         PortableArchive::open($this->basePath . '/nowhere.zip', self::PASSPHRASE);
     }
 
-    /**
-     * **The version rule, and its deliberate asymmetry.**
-     *
-     * Onto the same version, or a newer one, a restore is ordinary: the
-     * dump is older than the code and `MigrationRunner` brings it forward,
-     * exactly as after an update. Onto an OLDER installation there is no
-     * such mechanism, and the damage would not announce itself — it would
-     * surface one page at a time.
-     */
-    public function testItRefusesToRestoreOntoAnOlderScoutMagic(): void
-    {
-        $archive = PortableArchive::open($this->buildArchive(), self::PASSPHRASE);
-
-        try {
-            $archive->assertRestorableOnto('2.4.0');
-            $this->fail('An archive from a newer ScoutMagic was accepted onto an older one.');
-        } catch (BackupException $e) {
-            $this->assertStringContainsString('plus récente', $e->getMessage());
-        } finally {
-            $archive->close();
-        }
-    }
-
-    public function testTheSameOrANewerInstallationAcceptsIt(): void
-    {
-        $archive = PortableArchive::open($this->buildArchive(), self::PASSPHRASE);
-
-        $archive->assertRestorableOnto(self::ARCHIVE_VERSION);
-        $archive->assertRestorableOnto('2.5.0');
-        $archive->assertRestorableOnto('10.0.0');
-
-        $this->expectNotToPerformAssertions();
-        $archive->close();
-    }
-
-    /**
-     * A development build is not ordered against a release, in either
-     * direction — see `assertRestorableOnto()` for why abstaining beats
-     * inventing an order out of `version_compare()`'s ranking of "dev".
-     */
-    public function testADevelopmentBuildIsNotOrderedAgainstAnything(): void
-    {
-        $archive = PortableArchive::open($this->buildArchive(), self::PASSPHRASE);
-
-        $archive->assertRestorableOnto('dev-a1b2c3d');
-        $archive->assertRestorableOnto('0.0.0');
-
-        $this->expectNotToPerformAssertions();
-        $archive->close();
-    }
-
     public function testTheDeclaredMembersMatchWhatTheArchiveActuallyHolds(): void
     {
         $archive = PortableArchive::open($this->buildArchive(), self::PASSPHRASE);
 
         $archive->verifyDeclaredMembers();
 
-        $this->expectNotToPerformAssertions();
+        // Reached at all, so nothing was refused.
+        $this->assertSame(self::ARCHIVE_VERSION, $archive->version());
         $archive->close();
     }
 

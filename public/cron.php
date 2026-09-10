@@ -166,6 +166,18 @@ $settingService->register('cron_last_run', '0', 'number', 'Dernier passage du cr
 $cronSettingRepository = new SettingRepository($pdo);
 $cronSettingRepository->updateValue(null, 'cron_last_run', (string) time());
 
+// The identity rows, because a portable restore finishes HERE.
+// Task\RestoreBackupHandler's resume pass calls
+// PortableRestore::adoptNewIdentity(), which UPDATEs these rather than
+// creating them — deliberately, since a `settings` row's label and type
+// belong to whoever declares it. Immediately after a restore the database
+// is the ORIGIN's, and an origin running an older ScoutMagic never had the
+// "restored from" row at all: without this call the update matches nothing
+// and the identifier of the site being left behind is lost without a
+// sound. The web entry point already registers them; this one is where the
+// restore actually completes.
+\Core\Statistics\InstallationIdentityService::register($settingService);
+
 // ...and the ring buffer beside it. One stamp answers "did a real cron
 // ever run"; it cannot answer "how often", and a crontab configured hourly
 // on a host that silently drops it looks identical through one stamp to a

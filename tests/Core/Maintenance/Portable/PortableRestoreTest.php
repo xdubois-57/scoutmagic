@@ -337,6 +337,85 @@ final class PortableRestoreTest extends TestCase
         }
     }
 
+    /**
+     * **What the safety backup cannot put back.**
+     *
+     * `BackupService::createFileBackup()` excludes `storage/keys/` and
+     * `storage/config/` in every mode — secrets never travel in an
+     * ordinary archive — so the automatic rollback restores the database
+     * and the file tree and leaves whatever keys are on disk. After a
+     * failed portable restore those are the ARCHIVE's, and both outcomes
+     * are bad: an installation that cannot read the data just handed back
+     * to it, or one quietly pointed at the origin's database while the
+     * journal says the previous state was restored.
+     *
+     * Hence the snapshot. This asserts it round-trips the two files whose
+     * loss is unrecoverable.
+     */
+    public function testTheTargetsOwnKeysCanBePutBackAfterAFailedRestore(): void
+    {
+        $restore = new PortableRestore($this->targetBase, $this->targetBase . '/storage');
+
+        $before = $restore->secretsSnapshot();
+        $this->assertNotNull($before['storage/keys/master.key'] ?? null);
+
+        // Whatever a half-finished restore left behind.
+        file_put_contents($this->targetBase . '/storage/keys/master.key', 'la clef de l\'archive');
+        file_put_contents($this->targetBase . '/storage/config/secrets.enc', 'le blob de l\'archive');
+
+        $restore->restoreSecretsSnapshot($before);
+
+        $this->assertSame(
+            $before['storage/keys/master.key'],
+            file_get_contents($this->targetBase . '/storage/keys/master.key')
+        );
+        $this->assertSame(
+            $before['storage/config/secrets.enc'],
+            file_get_contents($this->targetBase . '/storage/config/secrets.enc')
+        );
+    }
+
+    /**
+     * **And on a fresh installation, putting back "nothing" means
+     * deleting.**
+     *
+     * This is the wizard's case and the one that matters most there. A
+     * failed restore that left the archive's keys behind would leave
+     * `SecretManager::isInitialized()` answering true — so the next
+     * attempt is refused as "already configured", on a site with no
+     * database, no account and no way forward. The operator would be stuck
+     * for good, by a failure that should have cost them one retry.
+     */
+    public function testAFreshInstallationIsLeftUnconfiguredRatherThanHalfConfigured(): void
+    {
+        $freshBase = $this->targetBase . '/fresh';
+        @mkdir($freshBase . '/storage/keys', 0700, true);
+        @mkdir($freshBase . '/storage/config', 0700, true);
+
+        $restore = new PortableRestore($freshBase, $freshBase . '/storage');
+        $before = $restore->secretsSnapshot();
+        $this->assertNull($before['storage/keys/master.key']);
+
+        file_put_contents($freshBase . '/storage/keys/master.key', 'la clef de l\'archive');
+        file_put_contents($freshBase . '/storage/config/secrets.enc', 'le blob de l\'archive');
+        $this->assertTrue(
+            (new SecretManager(
+                $freshBase . '/storage/keys/master.key',
+                $freshBase . '/storage/config/secrets.enc'
+            ))->isInitialized()
+        );
+
+        $restore->restoreSecretsSnapshot($before);
+
+        $this->assertFalse(
+            (new SecretManager(
+                $freshBase . '/storage/keys/master.key',
+                $freshBase . '/storage/config/secrets.enc'
+            ))->isInitialized(),
+            'the wizard would refuse the next attempt as already configured'
+        );
+    }
+
     /** Builds the origin's archive and restores it onto the target root. */
     private function restoreOntoTarget(): void
     {

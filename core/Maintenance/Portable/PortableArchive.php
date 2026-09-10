@@ -354,6 +354,17 @@ final class PortableArchive
     }
 
     /**
+     * Refuse an archive whose decompressed data exceeds this.
+     *
+     * The same ceiling `BackupService` applies to an ordinary restore, and
+     * for the same reason: every upload limit on the way in bounds the
+     * COMPRESSED file, which says nothing about what it expands to. A
+     * portable archive arrives by the same operator-facing upload route
+     * the ordinary restore considers dangerous enough to vet.
+     */
+    private const MAX_RESTORE_UNCOMPRESSED_BYTES = 4 * 1024 * 1024 * 1024;
+
+    /**
      * The entries a restore actually writes: the site's data, and nothing
      * else.
      *
@@ -368,6 +379,7 @@ final class PortableArchive
     public function restorableEntries(): array
     {
         $entries = [];
+        $uncompressed = 0;
 
         for ($i = 0; $i < $this->zip->numFiles; $i++) {
             $stat = $this->zip->statIndex($i);
@@ -383,6 +395,35 @@ final class PortableArchive
                 if (str_starts_with($name, $prefix)) {
                     continue 2;
                 }
+            }
+
+            // A name that begins with `storage/` still has to BE inside
+            // it. `extractTo()` normalises `..` itself, but an archive
+            // containing one is not an archive we wrote — refuse it rather
+            // than trust the library's normalisation, exactly as the
+            // ordinary restore does.
+            if ($name === '..'
+                || str_contains($name, '/../')
+                || str_ends_with($name, '/..')
+                || preg_match('#^[A-Za-z]:#', $name) === 1
+            ) {
+                throw new BackupException('Archive de sauvegarde invalide (chemin non autorisé).');
+            }
+
+            // Symlinks are never restored: a later write would follow the
+            // link out of the install root.
+            $opsys = 0;
+            $attr = 0;
+            if ($this->zip->getExternalAttributesIndex($i, $opsys, $attr)
+                && $opsys === \ZipArchive::OPSYS_UNIX
+                && ((($attr >> 16) & 0xA000) === 0xA000)
+            ) {
+                throw new BackupException('Archive de sauvegarde invalide (lien symbolique).');
+            }
+
+            $uncompressed += (int) $stat['size'];
+            if ($uncompressed > self::MAX_RESTORE_UNCOMPRESSED_BYTES) {
+                throw new BackupException('Archive de sauvegarde trop volumineuse une fois décompressée.');
             }
 
             $entries[] = (string) $stat['name'];

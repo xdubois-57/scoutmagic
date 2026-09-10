@@ -438,10 +438,14 @@ class SetupController extends AbstractController
             // see PortableArchive. A failure after that point is a genuine
             // half-restore, and saying so plainly beats a reassurance the
             // code cannot back up.
+            // The class, not the message, unless the message was written
+            // for a human. A PDOException carries the failing statement,
+            // and a restore's statements are the site's own data — the
+            // journal is read on screen and travels in a support archive.
             $this->journalService?->log(
                 'core', 'setup_portable_restore_failed', 'security',
                 'Restauration portable depuis l\'assistant : échec',
-                ['error' => $e->getMessage()]
+                ['error' => $e instanceof UserFacingException ? $e->getMessage() : $e::class]
             );
 
             return $this->json([
@@ -476,12 +480,29 @@ class SetupController extends AbstractController
         $storageRoot = $this->storageRoot();
 
         $archive = PortableArchive::open($archivePath, $passphrase);
+        $restore = new PortableRestore($installRoot, $storageRoot);
+        // Empty on a fresh installation, which is the point: restoring the
+        // snapshot on failure DELETES the archive's secrets rather than
+        // leaving the site looking configured — see below.
+        $secretsBefore = $restore->secretsSnapshot();
 
         try {
             $archive->assertRestorableOnto(VersionFile::read($installRoot));
             $archive->verifyDeclaredMembers();
 
-            $restore = new PortableRestore($installRoot, $storageRoot);
+            // The docblock above promises an empty database, and a promise
+            // a caller cannot break on its own is worth checking: this
+            // endpoint takes the credentials from the request, so nothing
+            // guarantees they are the ones the wizard just tested. A dump
+            // laid over a populated database is a merge nobody asked for.
+            $existingTables = count((new SchemaIntrospector($connection->getPdo()))->getTables());
+            if ($existingTables > 0) {
+                throw new BackupException(
+                    'Cette base de données contient déjà des tables. Videz-la, ou choisissez-en une autre, '
+                    . 'puis recommencez la restauration.'
+                );
+            }
+
             // `base_url` travels with the credentials: at this point in the
             // wizard the operator has not been asked for one, so the address
             // they reached this page at is the honest answer — and certainly
@@ -521,6 +542,16 @@ class SetupController extends AbstractController
                 'migrated' => $migration->complete,
                 'restored_from_version' => $archive->version(),
             ];
+        } catch (\Throwable $failure) {
+            // There is no safety backup here — the database was empty a
+            // moment ago, so there is nothing to roll it back to. What
+            // there IS to undo is the secrets: left behind, they make
+            // SecretManager::isInitialized() answer true, and the next
+            // attempt is refused as "already configured" on a site with no
+            // database, no account and no way forward.
+            $restore->restoreSecretsSnapshot($secretsBefore);
+
+            throw $failure;
         } finally {
             $archive->close();
         }
@@ -545,6 +576,12 @@ class SetupController extends AbstractController
         if ($file === null || $file['error'] !== UPLOAD_ERR_OK) {
             return null;
         }
+        // The same ceiling the chunked path enforces. A host whose
+        // post_max_size exceeds it would otherwise let this branch through
+        // with an archive the constant exists to refuse.
+        if ((int) $file['size'] > self::PORTABLE_UPLOAD_MAX_BYTES) {
+            return null;
+        }
 
         $destination = $this->storageRoot() . '/temp/setup_portable_' . bin2hex(random_bytes(8)) . '.zip';
         if (!is_dir(dirname($destination))) {
@@ -554,10 +591,19 @@ class SetupController extends AbstractController
         return move_uploaded_file((string) $file['tmp_name'], $destination) ? $destination : null;
     }
 
-    /** The installation root — the directory `public/` sits in. */
+    /**
+     * The installation root — the directory `public/` sits in.
+     *
+     * The fallback matches `schemaFileSet()`'s own reading: `$schemaPath`
+     * is `<root>/schema/core.sql`, so the root is two levels up, not one.
+     * Both production call sites pass a `publicDir`, so the fallback is
+     * reached only by a caller that constructs this controller without
+     * one — where being one directory short would anchor `storage/` inside
+     * `schema/`.
+     */
     private function installRoot(): string
     {
-        return $this->publicDir !== '' ? dirname($this->publicDir) : dirname($this->schemaPath);
+        return $this->publicDir !== '' ? dirname($this->publicDir) : dirname(dirname($this->schemaPath));
     }
 
     private function storageRoot(): string

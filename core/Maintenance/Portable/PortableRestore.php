@@ -79,6 +79,76 @@ final class PortableRestore
     }
 
     /**
+     * The target's own encryption files, held aside before a restore
+     * replaces them.
+     *
+     * **The safety backup cannot stand in for this**, and that is the
+     * whole reason this exists: `BackupService::createFileBackup()`
+     * excludes `storage/keys/` and `storage/config/` unconditionally —
+     * secrets never travel in an ordinary archive — so the automatic
+     * rollback restores the database and the file tree and silently leaves
+     * whatever keys are on disk. On this path those are the ARCHIVE's, and
+     * the two failure modes are both bad: the recovered installation ends
+     * up unable to read its own restored data, or pointed at the origin's
+     * database while the journal reports that the previous state came
+     * back.
+     *
+     * A null value means the file was not there, which is the ordinary
+     * case in the installation wizard and is itself worth restoring
+     * faithfully — see {@see restoreSecretsSnapshot()}.
+     *
+     * @return array<string, string|null>
+     */
+    public function secretsSnapshot(): array
+    {
+        $snapshot = [];
+        foreach ($this->writableSecretTargets() as $relativeTarget) {
+            $absolute = $this->basePath . '/' . $relativeTarget;
+            $contents = is_file($absolute) ? @file_get_contents($absolute) : false;
+            $snapshot[$relativeTarget] = $contents === false ? null : $contents;
+        }
+
+        return $snapshot;
+    }
+
+    /**
+     * Puts the snapshot back, and **deletes what was not there before**.
+     *
+     * The deletion half is not tidiness. On a fresh installation there are
+     * no secrets to restore, so a failed restore that left the archive's
+     * behind would leave `SecretManager::isInitialized()` answering true —
+     * the wizard would then refuse the next attempt as "already
+     * configured", on a site that has no database, no account and no way
+     * forward. Removing them puts the operator back where they were: able
+     * to try again.
+     *
+     * Best-effort by construction: this runs while something else has
+     * already failed, and throwing here would replace a diagnosable
+     * failure with a different one.
+     *
+     * @param array<string, string|null> $snapshot
+     */
+    public function restoreSecretsSnapshot(array $snapshot): void
+    {
+        foreach ($snapshot as $relativeTarget => $contents) {
+            if (!in_array($relativeTarget, $this->writableSecretTargets(), true)) {
+                continue;
+            }
+
+            $absolute = $this->basePath . '/' . $relativeTarget;
+            if ($contents === null) {
+                @unlink($absolute);
+                continue;
+            }
+
+            @file_put_contents($absolute, $contents);
+            if (PHP_OS_FAMILY !== 'Windows') {
+                @chmod($absolute, 0600);
+            }
+        }
+    }
+
+    /**
      * The whole restore, in the order that matters, shared by both entry
      * points.
      *
@@ -133,8 +203,18 @@ final class PortableRestore
         }
 
         $path = $directory . '/portable_restore_' . bin2hex(random_bytes(8)) . '.sql';
-        if (@file_put_contents($path, $sql) === false) {
-            throw new BackupException('La base de données de l\'archive n\'a pas pu être écrite sur le disque.');
+        // The BYTE COUNT, not just `false`. A quota reached mid-write
+        // returns a short count and no error, and a dump truncated at a
+        // statement boundary restores without complaint — leaving a site
+        // with some of its tables and a message saying it succeeded.
+        $written = @file_put_contents($path, $sql);
+        if ($written === false || $written !== strlen($sql)) {
+            @unlink($path);
+
+            throw new BackupException(
+                'La base de données de l\'archive n\'a pas pu être écrite en entier sur le disque — vérifiez '
+                . 'l\'espace disponible.'
+            );
         }
 
         return $path;

@@ -113,7 +113,22 @@
     // Test DB connection
     var dbTestPassed = form.dataset.initialized === '1';
 
+    /**
+     * Refreshes the portable-restore button, when that block exists.
+     *
+     * A hook rather than five call sites: every path that flips
+     * `dbTestPassed` already calls updateSaveState(), so hanging this off
+     * it means a future branch cannot forget one. The first version did
+     * forget — the button stayed disabled after a successful database
+     * install whenever the operator had filled the archive and passphrase
+     * first, because the only refresh was a timer fired at click time,
+     * before the request had settled.
+     */
+    var refreshPortableState = function () {};
+
     function updateSaveState() {
+        refreshPortableState();
+
         var blockedByDb = !dbTestPassed;
         var blockedByCron = isFirstRun && !cronActive;
 
@@ -555,12 +570,11 @@
     });
 
     // ------------------------------------------------------------------
-    // « Repartir d'une sauvegarde portable »
+    // Restoring from a portable backup.
     //
-    // Le jour où l'on a besoin d'une sauvegarde portable est le jour où il
-    // n'y a plus de site : pas de base, pas de page Maintenance, pas de
-    // connexion. Cette branche est donc ici, juste après l'étape base de
-    // données — la seule chose dont elle a besoin.
+    // The day a portable backup is needed is the day there is no site left:
+    // no database, no Maintenance page, no login. So this branch lives
+    // here, immediately after the database step — the only thing it needs.
     // ------------------------------------------------------------------
     var portableFile = /** @type {HTMLInputElement} */ (document.getElementById('portable-file'));
     var portablePassphrase = /** @type {HTMLInputElement} */ (document.getElementById('portable-passphrase'));
@@ -571,17 +585,17 @@
 
     if (portableFile && portablePassphrase && btnPortable) {
         function updatePortableState() {
-            // La base doit être installée d'abord : la restauration écrit
-            // par-dessus, et l'opérateur doit avoir vu qu'elle était vide.
+            // The database has to be installed first: the restore writes
+            // over it, and the operator must have seen that it was empty.
             btnPortable.disabled = !(dbTestPassed && portableFile.files.length > 0
                 && portablePassphrase.value !== '');
         }
 
         portableFile.addEventListener('change', updatePortableState);
         portablePassphrase.addEventListener('input', updatePortableState);
-        // La même chose après « Installer la base de données », dont le
-        // résultat conditionne ce bouton.
-        if (btnTestDb) { btnTestDb.addEventListener('click', function () { setTimeout(updatePortableState, 0); }); }
+        // And whenever the database step settles, which is the other half
+        // of this button's condition.
+        refreshPortableState = updatePortableState;
 
         function portableCredentials() {
             return {
@@ -598,9 +612,9 @@
             portableSpinner.classList.add('d-none');
             portableProgress.classList.add('d-none');
             if (json && json.success) {
-                // Rien à ajouter au formulaire : le site restauré a déjà son
-                // unité, ses comptes et ses réglages. Ce qu'il reste à faire
-                // est de s'y connecter.
+                // Nothing left to fill in: the restored site already has its
+                // unit, its accounts and its settings. All that remains is
+                // to log into it.
                 portableResult.innerHTML = '<span class="text-success">✓ Site restauré.</span>';
                 portableProgress.textContent = 'Vous pouvez maintenant vous connecter avec vos identifiants habituels.';
                 portableProgress.classList.remove('d-none');

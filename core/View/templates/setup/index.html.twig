@@ -157,17 +157,17 @@
         </div>
     </div>
 
-    {# Section 2bis : repartir d'une sauvegarde portable.
+    {# Section 2bis: restoring from a portable backup.
 
-       Ici, et pas ailleurs : le jour où l'on a besoin d'une sauvegarde
-       portable est le jour où il n'y a plus de site. Ne l'offrir que depuis
-       la page Maintenance obligerait à terminer tout l'assistant — inventer
-       un nom d'unité, un administrateur, une configuration d'email — pour
-       écraser le tout quelques secondes plus tard.
+       Here and nowhere else: the day a portable backup is needed is the day
+       there is no site left. Offering it only from the Maintenance page
+       would mean finishing the whole wizard — inventing a unit name, an
+       administrator, an email configuration — in order to overwrite all of
+       it seconds later.
 
-       Juste après la base de données, parce que c'est tout ce dont elle a
-       besoin : une base vide à remplir, et les identifiants qui y mènent —
-       la seule chose que l'archive ne doit surtout pas apporter. #}
+       Immediately after the database step, because that is all it needs: an
+       empty database to fill, and the credentials reaching it — the one
+       thing the archive must not bring with it. #}
     {% if not is_initialized %}
     <div class="card mb-4" id="portable-restore-card">
         <div class="card-body">
@@ -513,8 +513,8 @@
 <script type="module" src="{{ asset('/assets/js/password-field.js') }}"></script>
 {# Before setup.js, which uses it: a unit's portable archive is routinely
    larger than a shared host's post_max_size, and this is the one page where
-   « téléversez-la depuis Maintenance » is not an answer — il n'y a pas
-   encore de site. #}
+   "upload it from Maintenance instead" is not an answer — there is no site
+   yet. #}
 <script src="{{ asset('/assets/js/chunked-upload.js') }}"></script>
 <script src="{{ asset('/assets/js/setup.js') }}"></script>
 {% if is_initialized and unit_logo_is_custom %}

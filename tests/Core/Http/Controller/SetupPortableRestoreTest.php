@@ -227,6 +227,14 @@ final class SetupPortableRestoreTest extends TestCase
         $connection = $this->realDbConnection();
         $origin = $this->buildOriginArchive($connection);
 
+        // The wizard's real precondition: an EMPTY database. Here the same
+        // server plays both parts, so the origin's tables — the ones the
+        // dump was just taken from — are dropped before the target is
+        // handed to the endpoint. Without this the test would be asking
+        // the wizard to lay a dump over a populated database, which it now
+        // refuses, correctly.
+        $this->emptyDatabase($connection->getPdo());
+
         $_SESSION['setup_token_verified'] = true;
         $uploadId = $this->assembleUpload($origin['zipPath']);
 
@@ -274,6 +282,16 @@ final class SetupPortableRestoreTest extends TestCase
             self::ORIGIN_ID,
             $this->readSetting($connection->getPdo(), InstallationIdentityService::RESTORED_FROM_SETTING)
         );
+    }
+
+    /** Drops every table, foreign keys included. */
+    private function emptyDatabase(\PDO $pdo): void
+    {
+        $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
+        foreach ((new SchemaIntrospector($pdo))->getTables() as $table) {
+            $pdo->exec('DROP TABLE IF EXISTS `' . $table . '`');
+        }
+        $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
     }
 
     /** @return array<string, string> */
