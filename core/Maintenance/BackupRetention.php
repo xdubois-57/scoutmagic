@@ -75,14 +75,22 @@ final class BackupRetention
      */
     public function purgeAfterCreating(string $createdType): void
     {
+        // Read once: two rules over the same handful of rows, and a table
+        // that changes under them as forget() runs would make the second
+        // rule reason about a row the first has already removed.
+        $all = $this->backups->findAllNewestFirst();
+
         $family = BackupFamily::tryFromType($createdType);
         if ($family !== null) {
-            foreach ($this->beyondQuota($family) as $old) {
+            foreach ($this->beyondQuota($all, $family) as $old) {
+                $this->forget($old);
+            }
+            foreach ($this->supersededFailures($all, $family) as $old) {
                 $this->forget($old);
             }
         }
 
-        foreach ($this->galleryArchivesBeyondCap() as $old) {
+        foreach ($this->galleryArchivesBeyondCap($all) as $old) {
             $this->forget($old);
         }
     }
@@ -132,30 +140,73 @@ final class BackupRetention
     }
 
     /**
-     * The rows of one family beyond its quota, oldest last.
+     * The COMPLETED rows of one family beyond its quota, oldest last.
      *
+     * **Only a completed backup occupies a slot**, and getting this wrong
+     * destroyed real archives. A row is inserted `pending` before its
+     * background job runs, and a job that fails leaves the row behind as
+     * `failed` with no file at all — so counting by family alone made the
+     * newest member of a family an empty record of a failure. With
+     * {@see KEEP_GALLERY} at one, the next creation of ANY kind then kept
+     * that empty row and deleted the last archive that actually contained
+     * the gallery. The quota is a promise about how many usable copies
+     * exist; a row that is not one cannot spend it.
+     *
+     * @param Backup[] $all
      * @return Backup[]
      */
-    private function beyondQuota(BackupFamily $family): array
+    private function beyondQuota(array $all, BackupFamily $family): array
     {
-        $ofFamily = array_values(array_filter(
-            $this->backups->findAllNewestFirst(),
-            static fn(Backup $backup): bool => BackupFamily::tryFromType($backup->type) === $family
+        $usable = array_values(array_filter(
+            $all,
+            static fn(Backup $backup): bool => $backup->status === 'completed'
+                && BackupFamily::tryFromType($backup->type) === $family
         ));
 
-        return array_slice($ofFamily, $this->quotaFor($family));
+        return array_slice($usable, $this->quotaFor($family));
     }
 
     /**
-     * Gallery-bearing archives beyond {@see KEEP_GALLERY}, any family.
+     * Failed attempts of one family, except the most recent.
      *
+     * Not counting failures towards the quota cannot mean keeping them for
+     * ever: the table would grow one row per failure and the list would
+     * fill with them. But the LAST failure is exactly what an operator
+     * needs to see — « Échouée » on the most recent attempt is the whole
+     * reason the row is not simply deleted when the job gives up — so one
+     * survives per family and the rest go.
+     *
+     * `pending` and `in_progress` are deliberately absent: a handler is
+     * writing to those rows right now, and deleting one is a race whose
+     * other end is a half-written archive with no record.
+     *
+     * @param Backup[] $all
      * @return Backup[]
      */
-    private function galleryArchivesBeyondCap(): array
+    private function supersededFailures(array $all, BackupFamily $family): array
+    {
+        $failures = array_values(array_filter(
+            $all,
+            static fn(Backup $backup): bool => $backup->status === 'failed'
+                && BackupFamily::tryFromType($backup->type) === $family
+        ));
+
+        return array_slice($failures, 1);
+    }
+
+    /**
+     * Completed gallery-bearing archives beyond {@see KEEP_GALLERY}, any
+     * family — and completed for the reason {@see beyondQuota()} gives.
+     *
+     * @param Backup[] $all
+     * @return Backup[]
+     */
+    private function galleryArchivesBeyondCap(array $all): array
     {
         $withGallery = array_values(array_filter(
-            $this->backups->findAllNewestFirst(),
-            static fn(Backup $backup): bool => in_array($backup->type, Backup::GALLERY_TYPES, true)
+            $all,
+            static fn(Backup $backup): bool => $backup->status === 'completed'
+                && in_array($backup->type, Backup::GALLERY_TYPES, true)
         ));
 
         return array_slice($withGallery, self::KEEP_GALLERY);

@@ -165,6 +165,13 @@ which is also why that one is not a setting: an administrator who wants
 a second copy has somewhere better to put it than the server it is
 meant to survive.
 
+Only a **completed** backup counts towards a quota or the cap. A row is
+inserted `pending` before its background job runs and a failed job leaves
+it behind with no file, so counting every row let an empty failure evict
+the archive that had actually succeeded. One failure per family is kept —
+it is what says the backup stopped working — and rows still being written
+are never removed.
+
 Purging runs **on creation and nowhere else**, and only for the family
 just written. At boot or during a migration, an installation holding
 five backups would watch two of them vanish in the middle of an update

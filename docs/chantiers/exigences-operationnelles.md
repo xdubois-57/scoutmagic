@@ -893,6 +893,30 @@ et le seul dont la correction se mesure en lignes retirées.
    de la page cherchait ses lignes par `getByRole('cell')` : la liste n'est
    plus un tableau, et il fallait le dire au test plutôt qu'à personne.
 
+**Un constat de revue, et il détruisait de vraies archives.** Les deux
+règles ne filtraient que sur le type et la famille, jamais sur le
+**statut**. Or une ligne `backups` est insérée en `pending` avant que sa
+tâche de fond ne tourne, et une tâche qui échoue laisse la ligne en place,
+en `failed`, sans aucun fichier. Cette ligne vide devenait donc la plus
+récente de sa famille — et avec le plafond galerie à un, la création
+suivante, de n'importe quelle sorte, gardait l'échec et supprimait la
+dernière archive contenant réellement la galerie. Même aveuglement sur le
+quota de famille : trois échecs suffisaient à en épuiser un et à faire
+partir une sauvegarde bien réelle.
+
+Reproduit d'abord, corrigé ensuite. **Seule une ligne `completed` occupe
+une place** : un quota est une promesse sur le nombre de copies
+utilisables, et une ligne qui n'en est pas une ne peut pas la dépenser. Ne
+pas les compter ne pouvait pas vouloir dire les garder indéfiniment — la
+table grossirait d'une ligne par échec — donc **un échec survit par
+famille**, le plus récent, parce que « Échouée » sur la dernière tentative
+est précisément la raison pour laquelle la ligne n'est pas simplement
+effacée quand la tâche renonce. Les lignes `pending` et `in_progress` ne
+sont jamais supprimées : un gestionnaire écrit dedans, et l'autre bout de
+cette course est une archive à moitié écrite dont plus rien ne garde
+trace. Quatre tests, dont celui qui reproduit le scénario exact du
+constat.
+
 **Reporté.** Le bloc « Sauvegarde portable » (IT-06) et son avertissement,
 la destination distante (IT-08), la phrase de passe générée (IT-09), l'état
 d'intégrité par ligne et le marqueur « sur Drive » (IT-05, IT-09). La

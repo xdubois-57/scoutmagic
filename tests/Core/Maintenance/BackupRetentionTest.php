@@ -222,6 +222,95 @@ final class BackupRetentionTest extends TestCase
         $this->assertCount(6, $this->backups->findAllNewestFirst());
     }
 
+    /**
+     * The bug this rule exists for, and it destroyed real archives.
+     *
+     * A row is inserted `pending` before its background job runs, and a
+     * job that fails leaves it behind as `failed` with no file at all.
+     * Counting by family alone made that empty row the newest member of
+     * its family — and with the gallery cap at one, the next creation of
+     * ANY kind kept the failure and deleted the last archive that
+     * actually contained the gallery.
+     */
+    public function testAFailedAttemptNeverEvictsTheArchiveThatSucceeded(): void
+    {
+        $good = $this->completed('full_with_gallery', archive: 'good.zip');
+        $failed = $this->backups->create('full_with_gallery', null);
+        $this->backups->markFailed($failed, 'disque plein');
+
+        $this->completed('auto_backup');
+        $this->retention()->purgeAfterCreating('auto_backup');
+
+        $surviving = array_map(fn($b) => $b->id, $this->backups->findAllNewestFirst());
+        $this->assertContains($good, $surviving, 'The real archive must survive an empty failure.');
+        $this->assertFileExists($this->storagePath . '/maintenance/good.zip');
+    }
+
+    /** Same blindness on the family quota: three failures are not three backups. */
+    public function testFailedAttemptsDoNotSpendAFamilysQuota(): void
+    {
+        $kept = [];
+        for ($i = 0; $i < 3; $i++) {
+            $kept[] = $this->completed('database');
+        }
+        for ($i = 0; $i < 3; $i++) {
+            $this->backups->markFailed($this->backups->create('database', null), 'échec');
+        }
+
+        $this->completed('database');
+        $this->retention()->purgeAfterCreating('database');
+
+        $surviving = array_map(fn($b) => $b->id, $this->backups->findAllNewestFirst());
+        // The quota is three USABLE copies: the newest three completed
+        // survive, the oldest completed goes, and the failures never
+        // counted.
+        $this->assertNotContains($kept[0], $surviving);
+        $this->assertContains($kept[1], $surviving);
+        $this->assertContains($kept[2], $surviving);
+    }
+
+    /**
+     * Not counting failures cannot mean keeping them for ever — but the
+     * LAST one is what tells an operator the backup stopped working.
+     */
+    public function testOnlyTheMostRecentFailureOfAFamilySurvives(): void
+    {
+        $older = $this->backups->create('database', null);
+        $this->backups->markFailed($older, 'premier échec');
+        usleep(1000);
+        $newest = $this->backups->create('database', null);
+        $this->backups->markFailed($newest, 'second échec');
+
+        $this->completed('database');
+        $this->retention()->purgeAfterCreating('database');
+
+        $surviving = array_map(fn($b) => $b->id, $this->backups->findAllNewestFirst());
+        $this->assertNotContains($older, $surviving);
+        $this->assertContains($newest, $surviving, 'The last failure is the one an operator has to see.');
+    }
+
+    /**
+     * A row still being written to is never removed: deleting one is a
+     * race whose other end is a half-written archive with no record.
+     */
+    public function testARowAHandlerIsStillWritingToIsNeverTouched(): void
+    {
+        $pending = $this->backups->create('database', null);
+        usleep(1000);
+        $running = $this->backups->create('database', null);
+        $this->backups->markInProgress($running);
+        usleep(1000);
+        for ($i = 0; $i < 5; $i++) {
+            $this->completed('database');
+        }
+
+        $this->retention()->purgeAfterCreating('database');
+
+        $surviving = array_map(fn($b) => $b->id, $this->backups->findAllNewestFirst());
+        $this->assertContains($pending, $surviving);
+        $this->assertContains($running, $surviving);
+    }
+
     private function retention(?SettingService $settings = null): BackupRetention
     {
         return new BackupRetention($this->backups, $this->files, $this->storagePath, $settings);
