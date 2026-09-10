@@ -2132,6 +2132,17 @@ $schedulerService->seed(
     new DateTimeImmutable()
 );
 
+// Same bootstrap for the backup integrity pass (Core\Maintenance\Task\
+// VerifyBackupIntegrityHandler, §8.101). seed() for the same reason as the
+// line above: this runs on every request, and rearm()'s guard cannot see
+// the chain's own row while it is `processing`.
+$schedulerService->seed(
+    'core',
+    'backup_integrity',
+    \Core\Maintenance\Task\VerifyBackupIntegrityHandler::REFERENCE,
+    new DateTimeImmutable()
+);
+
 // Same bootstrap for the notification retention purge (Core\Notification\
 // Task\PurgeNotificationsHandler).
 $schedulerService->rearm('core', 'purge_notifications', \Core\Notification\Task\PurgeNotificationsHandler::REFERENCE,
@@ -2699,7 +2710,11 @@ $router->addRoute(
 // operation that is running right now, and that is refused outright by
 // Core\Maintenance\BackupSafetyNet whatever the caller's role.
 $router->addRoute(
-    'POST', '/config/maintenance/backup/{id}/delete', MaintenanceController::class, 'deleteBackup', 'admin'
+    'POST',
+    '/config/maintenance/backup/{id}/delete',
+    MaintenanceController::class,
+    'deleteBackup',
+    'admin'
 );
 $router->addRoute('GET', '/api/maintenance/backup-status/{id}', MaintenanceController::class, 'backupStatus', 'admin');
 $router->addRoute(

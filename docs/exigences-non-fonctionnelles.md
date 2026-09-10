@@ -106,9 +106,20 @@ on every scheduler pass, and the alert is switched off within days.
 | Age of the last real cron pass | 48 h | 6 h |
 | Failed e-mail sends, over a 24 h window | 5 | 0 |
 | A request answered without encryption | seen | none seen for 24 h |
+| Stored backups that cannot be re-read | 1 | 0 |
 | A portable backup left on the server | present for 7 days | deleted |
 | Age of the last successful off-site backup | 10 days | 3 days |
 | Off-site storage quota used | 90 % | 80 % |
+
+The backup-integrity row is the other one that is not really a level, and
+for a different reason: a backup that cannot be read is not a quantity
+drifting across a boundary but a copy of the unit's work that no longer
+exists. There is no count of them small enough to tolerate, so the pair is
+one and zero, and the re-arm is the meaningful half — nothing repairs a
+truncated archive, so the alert goes quiet when the last unreadable one
+has been deleted. Backups taken before the digests existed are
+`unverifiable` and are never counted: firing on them would light the alert
+on the first pass of every installation that upgrades into it.
 
 The HTTPS row is the one whose trigger side is not a number, and it is the
 rule's limit case rather than an exception to it. Every other check watches

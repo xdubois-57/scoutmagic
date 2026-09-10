@@ -1014,3 +1014,160 @@ disparaît ne fait échouer aucun test et ne journalise rien.
 la destination distante (IT-08), la phrase de passe générée (IT-09), l'état
 d'intégrité par ligne et le marqueur « sur Drive » (IT-05, IT-09). La
 maquette les montre ; cette itération ne les anticipe pas.
+
+---
+
+## IT-05 — L'intégrité des sauvegardes stockées
+
+**Livré.** `Core\Maintenance\BackupIntegrity` (l'enregistrement des
+empreintes et la vérification), `BackupIntegrityStatus` (les cinq états),
+`Task\VerifyBackupIntegrityHandler` (la passe), `Core\Alert\Check\
+BackupIntegrityCheck` (l'alerte), quatre colonnes sur `backups`, et le
+statut affiché sur chaque ligne de « Sauvegardes récentes ».
+`ARCHITECTURE.md` §8.101, `docs/exigences-non-fonctionnelles.md` §4, le
+sujet d'aide « Conserver et supprimer les sauvegardes ».
+
+**Le défaut, énoncé simplement.** Rien ne demandait jamais si une
+sauvegarde *déjà sur le disque* était encore celle qu'on avait écrite.
+`RestoreBackupHandler` valide une archive téléversée parce qu'il va s'en
+servir, mais une archive stockée n'est ouverte qu'un seul jour — celui où
+on en a besoin, c'est-à-dire le pire jour pour découvrir qu'elle est
+tronquée. Et la troncature n'est pas hypothétique : c'est ce que produit un
+quota atteint, la panne qu'IT-02 refuse désormais d'avance mais que toute
+archive écrite avant lui a pu subir.
+
+**Décisions autonomes.**
+
+1. **Quatre colonnes, pas deux.** Le document dit « la taille et
+   l'empreinte SHA-256 de chaque fichier, dans deux colonnes ». La taille
+   est déjà dans `files.size_bytes` : l'ajouter à `backups` en ferait une
+   seconde source de vérité, exactement ce que D3 refuse pour la famille.
+   Restent donc les deux empreintes — plus deux colonnes que les autres
+   exigences du document rendent nécessaires : un `integrity_status`
+   (« un statut visible dans la liste ») et un `integrity_checked_at`,
+   sans lequel la passe reprendrait éternellement les mêmes sauvegardes.
+
+2. **Cinq états, et chaque distinction a été payée.** `intact` et
+   `corrupt` sont la paire évidente. `missing` est à part parce que rien
+   dans l'application ne retire un fichier sans sa ligne — la suppression
+   d'IT-04 emporte les deux —, donc un fichier disparu vient de
+   l'extérieur : un ménage FTP, une migration d'hébergement. `unknown`,
+   c'est « pas encore regardé ». Et **`unverifiable` n'est délibérément
+   pas `corrupt`** : une installation qui se met à jour avec cinq
+   sauvegardes antérieures allumerait sinon l'alerte dès la première
+   passe, sur cinq sauvegardes très probablement saines — une alerte qui
+   crie le jour où elle arrive est coupée avant d'avoir jamais rien dit de
+   vrai. Enregistrer l'empreinte à la première rencontre était
+   l'alternative, et elle est pire : elle certifierait l'état du fichier
+   *aujourd'hui*, y compris déjà cassé.
+
+3. **`BackupIntegrity` est le seul chemin de production vers
+   `markCompleted()`**, et c'est un cliquet plutôt qu'une consigne. Les
+   empreintes sont des paramètres optionnels en fin de signature : un site
+   qui passerait outre ne casserait ni la compilation, ni un test, ni un
+   journal — il écrirait une ligne d'apparence normale que plus rien ne
+   pourra jamais vérifier, pour la vie de cette sauvegarde. C'est la forme
+   de trou pour laquelle `DiskBudgetWiringTest` avait été écrit, avec six
+   sites où se tromper. `BackupIntegrityWiringTest` refuse un appelant qui
+   contourne, et vérifie aussi la réciproque : tout fichier qui *crée* une
+   sauvegarde doit la terminer par le service.
+
+4. **Une tâche à part, pas un sixième contrôle dans la passe
+   quotidienne.** Celle-ci lit quatre faits bon marché et justifie sa
+   cadence là-dessus ; la vérification, elle, hache des gigaoctets. Les
+   fondre ferait de la passe la chose la plus lourde du cron et lierait
+   deux cadences qui n'ont aucune raison de coïncider. L'alerte, elle,
+   reste dans la passe quotidienne et **ne calcule rien** : elle compte ce
+   que la vérification a écrit. C'est le même partage que D2 trace entre
+   la notification et le point d'attention.
+
+5. **Deux sauvegardes par passe, la moins récemment vérifiée d'abord.**
+   Tout revérifier chaque nuit rehacherait les mêmes gigaoctets inchangés
+   sans information nouvelle, sur un hébergement qui facture les
+   entrées-sorties. Avec la rétention d'IT-04, une installation garde une
+   poignée de sauvegardes : deux par nuit en fait le tour en moins d'une
+   semaine, ce qui est la bonne échelle pour un fait qui change quand un
+   disque se remplit. Le plafond est petit exprès — une passe qui traîne
+   sur un hébergement mutualisé est une passe tuée à mi-chemin, qui ne
+   rapporte rien du tout.
+
+6. **Un seul est déjà de trop.** Tous les autres seuils du chantier
+   surveillent un niveau qui dérive ; celui-ci n'en est pas un. Une
+   sauvegarde illisible est une copie du travail de l'unité qui n'existe
+   plus, et il n'existe aucun nombre assez petit pour être tolérable. La
+   paire est donc 1 / 0, et c'est le réarmement qui porte le sens : rien
+   ne répare une archive tronquée, donc l'alerte se tait quand la dernière
+   illisible a été supprimée.
+
+**Divergences constatées entre le document de chantier et le dépôt.**
+
+1. **Le nombre de colonnes** (constat 1 ci-dessus) : la taille existait
+   déjà ailleurs, et deux exigences du même paragraphe en imposaient deux
+   autres.
+
+2. **Un cliquet d'IT-03 était une consigne, pas un cliquet.**
+   `ChecksTest::testEveryShippedCheckHasASurfaceLabel` comparait
+   `AlertSurfaces` à une liste de classes **écrite à la main**. Un
+   septième contrôle livré sans libellé se serait donc affiché sous sa clé
+   brute sur la page des points d'attention, et le test dont c'est
+   précisément le rôle serait passé au vert — parce que personne n'aurait
+   pensé à ajouter la classe à la liste non plus. Il lit maintenant le
+   dossier `core/Alert/Check/`. Vérifié en retirant le libellé : il mord.
+
+3. **Le schéma des tests était à mettre à jour aussi.**
+   `tests/DatabaseTestHelper.php` porte une copie SQLite écrite à la main
+   des tables, indépendante de `schema/core.sql` — c'est le piège que le
+   docbloc de `RestoreBackupRoundTripTest` décrit (« hand-written tables
+   were the first attempt and they were wrong within minutes »). Les
+   quatre colonnes y ont été ajoutées.
+
+4. **Le cliquet d'IT-04 sur la copie de sécurité a bougé d'ancre.** Il
+   repérait `markCompleted($safetyBackupId` ; la complétion passe
+   désormais par `BackupIntegrity`. La propriété épinglée est inchangée —
+   la copie est déclarée dans la charge utile de la tâche courante dès
+   qu'elle existe —, seule l'ancre textuelle a suivi.
+
+**Un test qui ne prouvait rien, et ce qu'il a fallu pour qu'il prouve
+quelque chose.** La propriété « l'archive n'est jamais chargée en
+mémoire » décide à elle seule si toute la vérification est abordable :
+l'installation de référence garde des archives en gigaoctets, sur un
+hébergement dont la limite mémoire est bien en dessous. La première
+version mesurait `memory_get_peak_usage(true)` autour de la vérification
+d'un fichier de 8 Mio — et **l'implémentation naïve
+`hash('sha256', file_get_contents(...))` passait**, parce que le pic est
+un maximum de tout le processus et que PHPUnit l'avait déjà poussé bien
+au-delà de 8 Mio. Le test ne mesurait que l'appétit du harnais.
+`memory_reset_peak_usage()` avant la mesure rend le chiffre exact ;
+l'implémentation naïve échoue maintenant d'un facteur huit, ce qui a été
+vérifié en la remettant.
+
+**Deux constats de revue, et le second portait sur le cliquet lui-même.**
+
+1. **Le test du gestionnaire ne reflétait pas l'arborescence.** `AGENTS.md`
+   § Tests : « `tests/` mirrors the structure of `core/` ». Le fichier
+   était sous `tests/Core/Maintenance/` alors que la classe vit dans
+   `core/Maintenance/Task/`. Déplacé ; `phpunit.xml` enregistre
+   `tests/Core` en bloc, donc rien d'autre à changer.
+
+2. **Le cliquet était aveugle au site que son propre docbloc nomme en
+   premier.** Le motif `\$\w*[bB]ackupRepository->markCompleted\(` exige
+   que le nom du dépôt commence juste après le `$` : il voyait la variable
+   locale d'un gestionnaire et **pas** la propriété promue d'un
+   contrôleur, `$this->backupRepository->...`. Le contrôleur était donc
+   parcouru et invisible, et une régression y serait passée en silence.
+   Le même angle mort affectait le second test, sur `->create(`.
+
+   Un cliquet dont l'angle mort est le site le plus risqué est pire que
+   pas de cliquet, parce qu'on lui fait confiance. La détection ne
+   s'appuie plus sur le **nom** du receveur — un nom n'est pas une preuve,
+   c'est la leçon d'IT-04 sur `GALLERY_TYPES` — mais sur l'appel lui-même,
+   en n'excluant que la classe qui partage le verbe
+   (`UpdateHistoryRepository`, qui termine une mise à jour, pas une
+   sauvegarde). Un test de fixtures épingle les quatre orthographes du
+   receveur et les deux qu'il ne doit pas voir, et la régression exacte
+   décrite par le relecteur a été rejouée dans le contrôleur pour vérifier
+   qu'elle échoue désormais.
+
+**Reporté.** Le marqueur « sur Drive » sur chaque ligne (IT-09) et la
+vérification des archives distantes : ce qui part chez un tiers se vérifie
+autrement, et le raccordement n'existe pas encore.

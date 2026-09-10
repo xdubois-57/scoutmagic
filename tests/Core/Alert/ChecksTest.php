@@ -378,6 +378,67 @@ class ChecksTest extends TestCase
         $this->assertSame('', $reading->value);
     }
 
+    // ————— Intégrité des sauvegardes —————
+
+    /**
+     * One unreadable backup is already one too many.
+     *
+     * Every other threshold here is a level a value drifts across, because
+     * what it measures is continuous. This is not: a backup that cannot be
+     * read is a copy of the unit's work that no longer exists, and there
+     * is no count of them small enough to be acceptable.
+     */
+    public function testOneUnreadableBackupTriggersAndZeroRearms(): void
+    {
+        $backups = new \Core\Maintenance\BackupRepository($this->pdo);
+        $check = new \Core\Alert\Check\BackupIntegrityCheck($backups);
+
+        $armed = $check->read();
+        $this->assertFalse($armed->overTrigger);
+        $this->assertTrue($armed->underRearm, 'Nothing unreadable: the alert must be able to go quiet.');
+
+        $id = $backups->create('full_no_gallery', null);
+        $backups->recordIntegrity($id, \Core\Maintenance\BackupIntegrityStatus::Corrupt);
+
+        $triggered = $check->read();
+        $this->assertTrue($triggered->overTrigger);
+        $this->assertFalse($triggered->underRearm);
+        $this->assertSame('1 sauvegarde', $triggered->value);
+    }
+
+    /** A missing file counts as much as a corrupt one: neither can be restored. */
+    public function testAMissingFileCountsTowardsTheAlert(): void
+    {
+        $backups = new \Core\Maintenance\BackupRepository($this->pdo);
+        $id = $backups->create('auto_backup', null);
+        $backups->recordIntegrity($id, \Core\Maintenance\BackupIntegrityStatus::Missing);
+
+        $this->assertTrue((new \Core\Alert\Check\BackupIntegrityCheck($backups))->read()->overTrigger);
+    }
+
+    /**
+     * The two states that are not findings must not light it.
+     *
+     * `unverifiable` is the one that matters: an installation upgrading
+     * with older backups on disk has several of them, and firing on the
+     * first pass would be an alert crying the day it arrives — switched
+     * off before it ever says anything true.
+     */
+    public function testNeitherUncheckedNorUnverifiableBackupsLightTheAlert(): void
+    {
+        $backups = new \Core\Maintenance\BackupRepository($this->pdo);
+        $backups->create('full_no_gallery', null);
+        $legacy = $backups->create('full_no_gallery', null);
+        $backups->recordIntegrity($legacy, \Core\Maintenance\BackupIntegrityStatus::Unverifiable);
+        $fine = $backups->create('database', null);
+        $backups->recordIntegrity($fine, \Core\Maintenance\BackupIntegrityStatus::Intact);
+
+        $reading = (new \Core\Alert\Check\BackupIntegrityCheck($backups))->read();
+
+        $this->assertFalse($reading->overTrigger);
+        $this->assertTrue($reading->underRearm);
+    }
+
     // ————— Les libellés —————
 
     /**
@@ -411,14 +472,24 @@ class ChecksTest extends TestCase
     /** @return list<class-string<OperationalCheck>> */
     private function everyCheckClass(): array
     {
-        return [
-            DiskUsageCheck::class,
-            BackupAgeCheck::class,
-            MailDeliveryCheck::class,
-            DevelopmentModeCheck::class,
-            CronSilenceCheck::class,
-            HttpsCheck::class,
-        ];
+        // Read from the directory rather than listed by hand. The list WAS
+        // written by hand, and a hand-written list makes this a reminder
+        // rather than a ratchet: a seventh check shipped without a surface
+        // label would have rendered as its raw key on the attention page,
+        // and the test whose whole job is to refuse that would have passed,
+        // because nobody had added the class to the list either.
+        $classes = [];
+        foreach (glob(dirname(__DIR__, 3) . '/core/Alert/Check/*.php') ?: [] as $file) {
+            $class = 'Core\\Alert\\Check\\' . basename($file, '.php');
+            if (is_a($class, \Core\Alert\OperationalCheck::class, true)) {
+                $classes[] = $class;
+            }
+        }
+        sort($classes);
+
+        $this->assertNotSame([], $classes, 'No check classes found — the scan is looking in the wrong place.');
+
+        return $classes;
     }
 
     // ————— Harnais —————

@@ -589,6 +589,10 @@ class DatabaseTestHelper
             status TEXT NOT NULL DEFAULT \'pending\',
             requested_by INTEGER,
             error_message TEXT,
+            archive_sha256 TEXT,
+            db_dump_sha256 TEXT,
+            integrity_status TEXT NOT NULL DEFAULT \'unknown\',
+            integrity_checked_at TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             completed_at TEXT
         )');
