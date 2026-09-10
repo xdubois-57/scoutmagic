@@ -1072,7 +1072,12 @@ CREATE TABLE notification_preferences (
 -- (auto_update/auto_reset, iterations 3/4) — no admin to notify.
 CREATE TABLE backups (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    type ENUM('database', 'full_config', 'full_no_gallery', 'full_with_gallery', 'auto_update', 'auto_reset', 'auto_backup') NOT NULL,
+    -- 'portable' is the one type whose archive carries
+    -- storage/keys/master.key and storage/config/secrets.enc, each under
+    -- its own AES-256-GCM envelope (Core\Maintenance\Portable\
+    -- SecretEnvelope). Every other archive deliberately excludes them, and
+    -- is therefore restorable onto this installation and nowhere else.
+    type ENUM('database', 'full_config', 'full_no_gallery', 'full_with_gallery', 'auto_update', 'auto_reset', 'auto_backup', 'portable') NOT NULL,
     file_id INT UNSIGNED,
     db_dump_file_id INT UNSIGNED,
     status ENUM('pending', 'in_progress', 'completed', 'failed') NOT NULL DEFAULT 'pending',

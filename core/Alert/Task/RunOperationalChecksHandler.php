@@ -13,6 +13,7 @@ use Core\Alert\Check\BackupIntegrityCheck;
 use Core\Alert\Check\DevelopmentModeCheck;
 use Core\Alert\Check\DiskUsageCheck;
 use Core\Alert\Check\MailDeliveryCheck;
+use Core\Alert\Check\PortableBackupLingerCheck;
 use Core\Alert\OperationalAlertRepository;
 use Core\Alert\OperationalAlertService;
 use Core\Journal\JournalRepository;
@@ -68,6 +69,11 @@ class RunOperationalChecksHandler implements TaskHandlerInterface
             // wrote; it re-reads nothing itself, which is what keeps this
             // pass as cheap as its own docblock claims.
             new BackupIntegrityCheck(new BackupRepository($pdo)),
+            // Fires on a backup that SUCCEEDED and was never taken away:
+            // the archive holds the master key, so a copy left in
+            // storage/ is the site's encryption sitting next to what it
+            // protects (Core\Alert\Check\PortableBackupLingerCheck).
+            new PortableBackupLingerCheck(new BackupRepository($pdo)),
             new MailDeliveryCheck(new JournalRepository($pdo)),
             new DevelopmentModeCheck($context->settings),
         ]);

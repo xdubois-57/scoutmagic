@@ -165,6 +165,7 @@
                {%- if readonly|default(false) %} readonly{% endif %}
                {%- if autofocus|default(false) %} autofocus{% endif %}
                {%- if maxlength|default(0) %} maxlength="{{ maxlength }}"{% endif %}
+               {%- if minlength|default(0) %} minlength="{{ minlength }}"{% endif %}
                {%- if min is defined %} min="{{ min }}"{% endif %}
                {%- if max is defined %} max="{{ max }}"{% endif %}
                {%- if step is defined %} step="{{ step }}"{% endif %}

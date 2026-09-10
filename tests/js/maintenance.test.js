@@ -220,6 +220,143 @@ describe('maintenance.js: full-backup-form + its poller', () => {
     });
 });
 
+describe('maintenance.js: portable-backup-form + its poller', () => {
+    // The two backup forms share one wiring (wireBackupForm) since the
+    // portable one arrived. These cases are therefore about what is NOT
+    // shared — a different endpoint, a different payload, and a length
+    // rule the other form does not have — plus one case proving the
+    // shared half really is reached from this form too.
+    function buildDom(minlength = '16') {
+        appendAll(
+            el(`<form id="portable-backup-form">
+                <button type="submit" id="portable-backup-submit"></button>
+            </form>`),
+            el(`<input id="portable-backup-passphrase" minlength="${minlength}" value="">`),
+            el('<div id="portable-backup-progress" class="d-none"></div>'),
+            el('<div id="portable-backup-error" class="d-none"></div>'),
+        );
+    }
+
+    async function submit(passphrase) {
+        const field = /** @type {HTMLInputElement} */ (document.getElementById('portable-backup-passphrase'));
+        field.value = passphrase;
+        // jsdom implements no constraint-validation UI.
+        field.reportValidity = vi.fn(() => false);
+        await boot();
+        document.getElementById('portable-backup-form').dispatchEvent(new Event('submit', { cancelable: true }));
+    }
+
+    it('does nothing when the form is absent from the page', async () => {
+        global.fetch = vi.fn();
+        await boot();
+        expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('POSTs the passphrase and the CSRF token to the portable endpoint', async () => {
+        buildDom();
+        global.fetch = vi.fn(() => jsonResponse({}));
+        await submit('quatre mots parfaitement ordinaires');
+        await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+        expect(fetch).toHaveBeenCalledWith('/config/maintenance/backup/portable', expect.objectContaining({
+            method: 'POST',
+            body: JSON.stringify({ passphrase: 'quatre mots parfaitement ordinaires', _csrf_token: 'tok' }),
+        }));
+    });
+
+    // The server refuses a short passphrase too, and that is where it
+    // counts: this only spares the operator a round trip.
+    it('sends nothing when the passphrase is shorter than the field demands', async () => {
+        buildDom();
+        global.fetch = vi.fn();
+        await submit('trop court');
+        expect(fetch).not.toHaveBeenCalled();
+        expect(document.getElementById('portable-backup-submit').disabled).toBe(false);
+    });
+
+    // The server counts characters with mb_strlen(); `.length` counts
+    // UTF-16 units, so eight emoji are sixteen units and eight characters.
+    // A client guard that used `.length` would wave them through and let
+    // the server refuse them — telling the operator the opposite of the
+    // rule they have to satisfy.
+    it('counts code points, not UTF-16 units, like the server does', async () => {
+        buildDom();
+        global.fetch = vi.fn();
+        await submit('\u{1F600}'.repeat(8));
+        expect(fetch).not.toHaveBeenCalled();
+    });
+
+    // The refusal above sets a custom validity message, and such a message
+    // lasts until something clears it — while one is set the browser fires
+    // no `submit` event at all. The clearing therefore cannot live in the
+    // submit handler: an operator who tripped the guard once would find
+    // the form refusing every later passphrase, correct ones included,
+    // until they reloaded the page. Typing is what clears it.
+    //
+    // jsdom runs no native pre-submit validation, so the lockout itself
+    // cannot be staged here; the state that causes it can. A field still
+    // carrying a message after the operator has typed a good passphrase is
+    // a field the browser will keep refusing.
+    it('lets the operator correct a refused passphrase without reloading the page', async () => {
+        buildDom();
+        global.fetch = vi.fn();
+        await submit('\u{1F600}'.repeat(8));
+
+        const field = /** @type {HTMLInputElement} */ (document.getElementById('portable-backup-passphrase'));
+        expect(field.validationMessage).not.toBe('');
+
+        field.value = 'quatre mots parfaitement ordinaires';
+        field.dispatchEvent(new Event('input'));
+
+        expect(field.validationMessage).toBe('');
+        expect(field.checkValidity()).toBe(true);
+    });
+
+    it('accepts sixteen accented characters, which are more than sixteen bytes', async () => {
+        buildDom();
+        global.fetch = vi.fn(() => jsonResponse({}));
+        await submit('é'.repeat(16));
+        await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+    });
+
+    it('accepts exactly the minimum length', async () => {
+        buildDom();
+        global.fetch = vi.fn(() => jsonResponse({}));
+        await submit('a'.repeat(16));
+        await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+    });
+
+    it('shows the server refusal — a host with no zip encryption, say', async () => {
+        buildDom();
+        global.fetch = vi.fn(() => jsonResponse({
+            success: false,
+            error: 'Le serveur ne supporte pas le chiffrement des archives.',
+        }, 422));
+        await submit('quatre mots parfaitement ordinaires');
+        await vi.waitFor(() => expect(document.getElementById('portable-backup-error').textContent)
+            .toBe('Le serveur ne supporte pas le chiffrement des archives.'));
+        expect(document.getElementById('portable-backup-submit').disabled).toBe(false);
+    });
+
+    // The shared half, reached from this form: one polling loop, the same
+    // status endpoint, the same reload. A second copy of that wiring is
+    // exactly what the refactor removed, and this is what would notice if
+    // one of the two forms ever stopped getting it.
+    it('polls the same status endpoint and reloads on completion', async () => {
+        buildDom();
+        global.fetch = vi.fn()
+            .mockResolvedValueOnce({ json: () => Promise.resolve({ success: true, backup_id: 7 }) })
+            .mockResolvedValueOnce({ json: () => Promise.resolve({ status: 'completed' }) });
+        Object.defineProperty(window, 'location', { configurable: true, value: { reload: vi.fn() } });
+        vi.useFakeTimers();
+
+        await submit('quatre mots parfaitement ordinaires');
+        await vi.advanceTimersByTimeAsync(3000);
+
+        expect(fetch).toHaveBeenNthCalledWith(2, '/api/maintenance/backup-status/7', expect.anything());
+        expect(window.location.reload).toHaveBeenCalled();
+    });
+});
+
 describe('maintenance.js: wireInstallForm() — wired for both update forms', () => {
     // progressEl/errorEl are looked up as descendants of the submitted form
     // itself (form.querySelector('[id$="-progress"]')), with a page-level

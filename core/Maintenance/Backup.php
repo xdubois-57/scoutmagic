@@ -10,9 +10,20 @@ namespace Core\Maintenance;
 
 class Backup
 {
+    /**
+     * The one type whose archive carries the site's own keys.
+     *
+     * Named rather than spelled, because three layers have to agree on it
+     * — the controller that creates the row, the handler that dispatches
+     * on it, and the family that gives it a quota of one — and a literal
+     * `'portable'` in each is three places for a typo to become a backup
+     * nothing purges.
+     */
+    public const PORTABLE_TYPE = 'portable';
+
     /** @var string[] */
     public const TYPES = ['database', 'full_config', 'full_no_gallery', 'full_with_gallery', 'auto_update',
-        'auto_reset', 'auto_backup'];
+        'auto_reset', 'auto_backup', self::PORTABLE_TYPE];
 
     /** @var string[] */
     public const STATUSES = ['pending', 'in_progress', 'completed', 'failed'];
@@ -35,6 +46,12 @@ class Backup
      * listed, an installation could sit on four gallery-sized archives at
      * once (one manual plus a family quota of three operational ones) —
      * exactly the disk the cap exists to defend.
+     *
+     * **`portable` is deliberately absent too**, and for the opposite
+     * reason to a name being unreliable: this one is decided by
+     * `BackupService::createPortableBackup()`, which passes `false` and
+     * offers no scope at all. The archive that leaves the server is the
+     * one that must stay small enough to leave it.
      *
      * `FullResetHandler` also takes one, and is deliberately absent: it
      * records no `backups` row at all (see its own comment about keeping
@@ -98,6 +115,7 @@ class Backup
             'auto_update' => 'Avant mise à jour',
             'auto_reset' => 'Avant réinitialisation',
             'auto_backup' => 'Planifiée',
+            self::PORTABLE_TYPE => 'Portable',
             default => $type,
         };
     }

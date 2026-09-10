@@ -42,6 +42,20 @@ enum BackupFamily: string
     case Operational = 'operational';
 
     /**
+     * The archive that carries the site's own keys and is meant to leave.
+     *
+     * Its own family rather than a fourth kind of manual backup, because
+     * everything retention does with a family it must do differently with
+     * this one: exactly one is kept, the number is not an administrator's
+     * to raise, and its lingering presence on the server is itself an
+     * alert ({@see \Core\Alert\Check\PortableBackupLingerCheck}). Filed
+     * under `Manual` it would have inherited a quota of three, which is
+     * three copies of the master key sitting where the backup was supposed
+     * to take it away from.
+     */
+    case Portable = 'portable';
+
+    /**
      * The family a `backups.type` belongs to, or null when the type is not
      * one this version knows.
      *
@@ -58,6 +72,7 @@ enum BackupFamily: string
             'database', 'full_config', 'full_no_gallery', 'full_with_gallery' => self::Manual,
             'auto_backup' => self::Scheduled,
             'auto_update', 'auto_reset' => self::Operational,
+            Backup::PORTABLE_TYPE => self::Portable,
             default => null,
         };
     }
@@ -69,6 +84,7 @@ enum BackupFamily: string
             self::Manual => 'Manuelle',
             self::Scheduled => 'Planifiée',
             self::Operational => 'Avant opération',
+            self::Portable => 'Portable',
         };
     }
 
@@ -79,16 +95,31 @@ enum BackupFamily: string
             self::Manual => 'text-bg-primary',
             self::Scheduled => 'text-bg-info',
             self::Operational => 'text-bg-secondary',
+            // The one badge that is a warning rather than a category:
+            // this row is an archive holding the site's keys, and the
+            // colour is the mockup's own (amber) read into Bootstrap.
+            self::Portable => 'text-bg-warning',
         };
     }
 
-    /** The `settings` key holding how many of this family to keep. */
-    public function quotaSettingKey(): string
+    /**
+     * The `settings` key holding how many of this family to keep, or null
+     * for a family whose count is not an administrator's to choose.
+     *
+     * Null for `Portable`, and that is the whole mechanism rather than an
+     * omission: {@see \Core\Maintenance\BackupRetention::quotaFor()}
+     * reads no setting at all when there is no key, so no row in
+     * `settings` — hand-written, restored from an older site, or added by
+     * a future version — can raise this one. A second copy of the master
+     * key on the server is not a preference.
+     */
+    public function quotaSettingKey(): ?string
     {
         return match ($this) {
             self::Manual => 'backup_keep_manual',
             self::Scheduled => 'backup_keep_scheduled',
             self::Operational => 'backup_keep_operational',
+            self::Portable => null,
         };
     }
 
@@ -102,6 +133,11 @@ enum BackupFamily: string
      */
     public function defaultQuota(): int
     {
-        return 3;
+        // One for the portable archive, and not because it is large: it
+        // holds the keys to everything, so the second copy is a second
+        // liability sitting on the very server the backup exists to
+        // survive. The new one replaces the old, which is what the screen
+        // promises.
+        return $this === self::Portable ? 1 : 3;
     }
 }

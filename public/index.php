@@ -2700,6 +2700,17 @@ $router->addRoute(
     'POST', '/config/maintenance/backup/database', MaintenanceController::class, 'createDatabaseBackup', 'admin',
 );
 $router->addRoute('POST', '/config/maintenance/backup/full', MaintenanceController::class, 'createFullBackup', 'admin');
+// 'admin', like every other backup route, and deliberately not
+// 'superadmin' even though this is the one archive that packages the
+// master key. The role that can take this backup is the role that can
+// already download a full one, read every member's file and reset the
+// site; requiring a higher one here would suggest the others are safe.
+// What guards this route is what it produces — the passphrase length
+// (Core\Maintenance\Portable\PortablePassphrase), the second envelope on
+// the secrets, and a `security` journal entry naming what was asked for.
+$router->addRoute(
+    'POST', '/config/maintenance/backup/portable', MaintenanceController::class, 'createPortableBackup', 'admin',
+);
 $router->addRoute(
     'POST', '/config/maintenance/backup/auto-frequency', MaintenanceController::class, 'updateAutoBackupFrequency',
     'admin',

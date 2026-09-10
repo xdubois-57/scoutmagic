@@ -58,6 +58,29 @@ final class AlertThresholds
     public const BACKUP_UNREADABLE_REARM_COUNT = 0;
 
     /**
+     * Days a portable archive may sit on the server before the alert says
+     * so — and the re-arm, which is zero because there is nothing to
+     * measure once it is gone.
+     *
+     * **The only artefact on this installation whose mere presence is the
+     * finding.** Every other threshold here watches something going wrong:
+     * a disk filling, a backup ageing, a job falling silent. This one
+     * watches a backup that WORKED and was never taken away. The archive
+     * holds `master.key`, so a copy left in `storage/` is the site's own
+     * encryption defeated by a file sitting next to the thing it protects
+     * — and the server it is meant to survive is the server it is on.
+     *
+     * Seven days rather than one: an operator who takes a backup on Sunday
+     * evening and downloads it on the following Saturday has done nothing
+     * wrong, and an alert that fires the next morning is an alert switched
+     * off. A week is long enough to be a habit and short enough that
+     * "forgotten" is the only remaining explanation.
+     * `docs/exigences-non-fonctionnelles.md` §4 carries the same row.
+     */
+    public const PORTABLE_LINGER_TRIGGER_DAYS = 7;
+    public const PORTABLE_LINGER_REARM_DAYS = 0;
+
+    /**
      * Hours of uninterrupted encrypted traffic before the HTTPS alert goes
      * quiet again.
      *

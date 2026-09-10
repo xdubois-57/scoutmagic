@@ -636,6 +636,40 @@
                         <div class="mt-2 small text-danger d-none" id="full-backup-error" role="alert"></div>
                     </form>
                 </div>
+
+                {# Un troisième bloc à part entière, jamais une quatrième
+                   portée du bloc chiffré au-dessus : sa sémantique et son
+                   avertissement n'ont rien à voir. Pleine largeur parce que
+                   l'avertissement est ce qu'on doit lire avant le bouton,
+                   pas à côté. #}
+                <div class="col-12">
+                    <h3 class="h6">Sauvegarde portable</h3>
+                    <div class="alert alert-warning small">
+                        <strong>Contient les clés de chiffrement du site.</strong> C'est ce qui permet de la
+                        restaurer sur une installation neuve, chez un autre hébergeur — et c'est aussi ce qui
+                        fait que son mot de passe protège, à lui seul, toutes les données de l'unité.
+                        Téléchargez-la puis supprimez-la du serveur.
+                    </div>
+                    <form id="portable-backup-form" {{ not zip_encryption_supported ? 'class="d-none"' : '' }}>
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'portable-backup-passphrase', type: 'password',
+                            label: 'Phrase de passe',
+                            help: 'Au moins ' ~ portable_passphrase_min_length ~ ' caractères. Elle n\'est jamais enregistrée en clair : le site en garde une copie chiffrée dans la tâche de sauvegarde, jusqu\'à la suppression de cette tâche. Une archive dont la phrase de passe est perdue est définitivement illisible.',
+                            required: true, minlength: portable_passphrase_min_length,
+                            size: 'sm', wrapper_class: 'mb-2',
+                        } only %}
+                        <button type="submit" class="btn btn-primary btn-sm" id="portable-backup-submit">
+                            <i class="bi bi-box-seam" aria-hidden="true"></i> Créer une sauvegarde portable
+                        </button>
+                        <output class="mt-2 small d-none d-block" id="portable-backup-progress">
+                            <span class="spinner-border spinner-border-sm"></span> Génération en cours…
+                        </output>
+                        <div class="mt-2 small text-danger d-none" id="portable-backup-error" role="alert"></div>
+                    </form>
+                    <p class="small text-body-secondary mt-2 mb-0">
+                        Une seule est conservée : la nouvelle remplace la précédente.
+                    </p>
+                </div>
             </div>
         </div>
     </div>
@@ -773,8 +807,16 @@
                         <div class="mb-2" id="restore-server-picker">
                             <label class="visually-hidden" for="restore-backup-id">Sauvegarde à restaurer</label>
                             <select class="form-select form-select-sm" name="backup_id" id="restore-backup-id" {% if backups is empty %}disabled{% endif %}>
+                                {# `not backup.isPortable` : une archive portable
+                                   sert à repartir sur une installation NEUVE, pas
+                                   à écraser celle-ci. L'offrir ici mènerait à une
+                                   restauration destructive suivie d'un retour en
+                                   arrière, pour une opération qui ne peut pas
+                                   aboutir — le contrôleur la refuse aussi, et
+                                   c'est lui qui fait foi ; ceci évite d'avoir à
+                                   le découvrir. #}
                                 {% for backup in backups %}
-                                    {% if backup.status == 'completed' %}
+                                    {% if backup.status == 'completed' and not backup.isPortable %}
                                         <option value="{{ backup.id }}">{{ backup.typeLabel }} — {{ backup.createdAt }}</option>
                                     {% endif %}
                                 {% endfor %}

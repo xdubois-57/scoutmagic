@@ -121,6 +121,17 @@ has been deleted. Backups taken before the digests existed are
 `unverifiable` and are never counted: firing on them would light the alert
 on the first pass of every installation that upgrades into it.
 
+The portable-backup row is the only one whose subject is a **success**.
+Every other check here reports something failing or drifting; this one
+reports an archive that was produced perfectly and then left where it was
+written. The archive carries `storage/keys/master.key`, so a copy still in
+`storage/` is the site's encryption-at-rest sitting in a file next to the
+database it protects, on the server the backup exists to outlive. Seven
+days rather than one, because an operator who takes a backup on Sunday and
+downloads it the following Saturday has done nothing wrong; the re-arm is
+"deleted" because there is nothing left to measure once it is gone
+(`Core\Alert\Check\PortableBackupLingerCheck`).
+
 The HTTPS row is the one whose trigger side is not a number, and it is the
 rule's limit case rather than an exception to it. Every other check watches
 a level that drifts and has to decide how far it must come back; that one
@@ -160,6 +171,16 @@ from the type and never stored (`Core\Maintenance\BackupFamily`).
 | Manual | `database`, `full_config`, `full_no_gallery`, `full_with_gallery` | `backup_keep_manual` | 3 |
 | Scheduled | `auto_backup` | `backup_keep_scheduled` | 3 |
 | Pre-operation | `auto_update`, `auto_reset` | `backup_keep_operational` | 3 |
+| Portable | `portable` | **none** | 1 |
+
+**The portable family has no setting at all**, and that is the mechanism
+rather than an omission: `BackupFamily::quotaSettingKey()` returns null for
+it, so the settings table is never consulted and no row — hand-written,
+restored from an older site, or invented by a later version — can raise the
+number. Every other family's quota is an administrator's to choose because
+those are copies of the site and somebody with the disk for more of them is
+entitled to more. This one carries `master.key`: the second copy is a
+second liability sitting on the very server the backup exists to survive.
 
 Plus one cap across all families: **a single archive containing the photo
 gallery**, not configurable — and it applies to `full_with_gallery`,

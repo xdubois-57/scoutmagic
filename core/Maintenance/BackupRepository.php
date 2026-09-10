@@ -207,6 +207,33 @@ class BackupRepository
         return $stmt !== false ? (int) $stmt->fetchColumn() : 0;
     }
 
+    /**
+     * When the OLDEST portable archive still on the server finished.
+     *
+     * **Oldest, not newest**, and that is the whole value of the query.
+     * Retention keeps one portable archive, so there is normally a single
+     * row — but an installation can briefly hold two (a purge skips a
+     * backup an operation in flight depends on), and asking for the newest
+     * would let taking a fresh backup silence an alert about the one that
+     * has been lying in `storage/` for a month.
+     *
+     * Only `completed`: a pending row has no archive on the disk yet, and
+     * a failed one has nothing anybody could carry away.
+     *
+     * Read by `Core\Alert\Check\PortableBackupLingerCheck`.
+     */
+    public function oldestPortableCompletedAt(): ?string
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT completed_at FROM backups WHERE type = ? AND status = 'completed' "
+            . 'AND completed_at IS NOT NULL ORDER BY completed_at ASC LIMIT 1'
+        );
+        $stmt->execute([Backup::PORTABLE_TYPE]);
+        $value = $stmt->fetchColumn();
+
+        return is_string($value) && $value !== '' ? $value : null;
+    }
+
     public function markFailed(int $id, string $errorMessage): void
     {
         $stmt = $this->pdo->prepare("UPDATE backups SET status = 'failed', error_message = ? WHERE id = ?");
