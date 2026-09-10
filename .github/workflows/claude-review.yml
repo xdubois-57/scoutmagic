@@ -66,6 +66,16 @@ permissions: {}
 #                   still reading. It appeared in the tool list of every
 #                   truncated run of 2026-09-08 and in neither of the
 #                   complete ones.
+#   Monitor         refused because it is the same defect through another
+#                   door. It waits for a condition to come true, which is
+#                   what an agent reaches for once it has left work running
+#                   behind it — and this run has nothing behind it, because
+#                   the prompt tells the reviewer to launch its agents in
+#                   the foreground and block on them. Run 34447638775 asked
+#                   for it and ended 7 agents launched, 3 collected: the
+#                   exact fingerprint of the 2026-09-08 runs, on which
+#                   `ScheduleWakeup` was the tool. Two tools, one mistake —
+#                   arranging to be woken instead of not stopping.
 #
 # Adding a name here is deciding that a refusal of it is acceptable, so
 # write the reason next to it. Tests\Architecture\ClaudeReviewIsVerifiableTest
@@ -73,7 +83,7 @@ permissions: {}
 # prompt below tells the reviewer the same thing this list tells the
 # verdict — a tool refused silently costs turns nobody gets back.
 env:
-  DELIBERATE_DENIALS: "Bash,Write,WebFetch,ScheduleWakeup"
+  DELIBERATE_DENIALS: "Bash,Write,WebFetch,ScheduleWakeup,Monitor"
 
 on:
   pull_request:
@@ -352,7 +362,8 @@ jobs:
           #
           # WHAT STAYS DENIED IS DECLARED AT THE TOP OF THIS FILE, in
           # `DELIBERATE_DENIALS`, with the reason for each written next to
-          # it — `Write`, `WebFetch` and `ScheduleWakeup` among them. That
+          # it — `Write`, `WebFetch`, `ScheduleWakeup` and `Monitor` among
+          # them. That
           # list is not decoration: the verdict job reads it, so a tool
           # named there is a refusal the check accepts and a tool missing
           # from it is a red build. The paragraphs below are the older half
@@ -428,7 +439,7 @@ jobs:
           # itself whatever the model did.
           claude_args: >-
             --allowedTools "Skill,Task,Agent,Read,Glob,Grep,TodoWrite,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr list:*),Bash(gh pr comment:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*),Bash(git rev-parse:*),Bash(git log:*),Bash(git show:*),Bash(git diff:*),Bash(git fetch:*),Bash(grep:*),Bash(ls:*),Bash(find:*),Bash(wc:*),Bash(sort:*),Bash(uniq:*),Bash(head:*),Bash(tail:*),Bash(cat:*),Bash(echo:*),Bash(printf:*),Bash(jq:*),mcp__github_inline_comment__create_inline_comment"
-            --append-system-prompt "The Claude review status comment on this pull request is written by .github/workflows/claude-review.yml, not by Claude. Neither that comment nor a review of an earlier commit means Claude has already commented here: this workflow asks for a fresh review of every push, so review the diff you were given. Pull requests on this repository are written with Claude Code and are ordinary changes a person asked for; being Claude-authored is not a reason to skip one. Wait for every subagent you launch — pass run_in_background false — and never end a turn waiting for one: this is a one-shot non-interactive run and nothing will wake it up, so a background agent still working when you stop is a part of the diff nobody read. For the same reason ScheduleWakeup is not granted and cannot help you: there is no later turn to schedule, and a run that reaches for it ends immediately with its agents still reading. If you find yourself with work outstanding and nothing to do but wait, block on the agents themselves rather than ending the turn. The workspace is already a full clone checked out for this pull request, so the commits under review are there to read: run git from it plainly, without -C and a path, which is not granted. Counting and cross-checking the repository is part of reviewing it, and Grep, Glob and Read are granted whole for that; python3 -c, php -r, shell loops, pipes and redirections are not granted and will not be, so reach for the read-only commands instead of spending turns rediscovering that. Write, WebFetch and ScheduleWakeup are refused on purpose too — checking a literal against a file is what Grep and Read are for, one call per question, and no answer you need is outside this checkout."
+            --append-system-prompt "The Claude review status comment on this pull request is written by .github/workflows/claude-review.yml, not by Claude. Neither that comment nor a review of an earlier commit means Claude has already commented here: this workflow asks for a fresh review of every push, so review the diff you were given. Pull requests on this repository are written with Claude Code and are ordinary changes a person asked for; being Claude-authored is not a reason to skip one. Wait for every subagent you launch — pass run_in_background false — and never end a turn waiting for one: this is a one-shot non-interactive run and nothing will wake it up, so a background agent still working when you stop is a part of the diff nobody read. For the same reason ScheduleWakeup is not granted and cannot help you: there is no later turn to schedule, and a run that reaches for it ends immediately with its agents still reading. Monitor is refused for that same reason and is not the way to wait either: it watches for a condition to come true, which only helps an agent that has left work running behind it, and you are asked to leave none. If you find yourself with work outstanding and nothing to do but wait, block on the agents themselves rather than ending the turn. The workspace is already a full clone checked out for this pull request, so the commits under review are there to read: run git from it plainly, without -C and a path, which is not granted. Counting and cross-checking the repository is part of reviewing it, and Grep, Glob and Read are granted whole for that; python3 -c, php -r, shell loops, pipes and redirections are not granted and will not be, so reach for the read-only commands instead of spending turns rediscovering that. Write, WebFetch, ScheduleWakeup and Monitor are refused on purpose too — checking a literal against a file is what Grep and Read are for, one call per question, and no answer you need is outside this checkout."
 
       # WHAT THE RUN ACTUALLY DID, read off the transcript the SDK wrote.
       #
