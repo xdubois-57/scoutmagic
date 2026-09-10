@@ -75,6 +75,21 @@ final class PortableArchive
     /** What a manifest may weigh: a short JSON document, generously. */
     private const MAX_MANIFEST_BYTES = 1024 * 1024;
 
+    /**
+     * What a sealed secret may weigh.
+     *
+     * The four-gigabyte ceiling is the wrong instrument for these two.
+     * They are a 32-byte key and an encrypted settings blob of a few
+     * kilobytes, and they are the only members read whole rather than
+     * streamed — because they are unsealed, not copied. A ceiling that
+     * admits a member no host could hold in memory is not a ceiling for
+     * them: `unsealSecrets()` runs LAST in a restore, after the database
+     * and the file tree have been replaced, and a `memory_limit` fatal is
+     * not a `Throwable` — so the safety rollback would never run.
+     * Generous by two orders of magnitude, and still a bound.
+     */
+    private const MAX_SEALED_SECRET_BYTES = 1024 * 1024;
+
 
     /** @param array<string, mixed> $manifest */
     private function __construct(
@@ -303,6 +318,13 @@ final class PortableArchive
                     new \RuntimeException('Undeclared sealed secret member: ' . $member)
                 );
             }
+
+            // Here as well as in `unsealSecrets()`, and here is the one
+            // that matters: this method runs before the first write, while
+            // `unsealSecrets()` runs last of all — after the database and
+            // the file tree are gone. A refusal that arrives there costs
+            // the installation.
+            $this->assertSealedSecretFits($member);
         }
 
         foreach ($members as $name => $facts) {
@@ -420,6 +442,33 @@ final class PortableArchive
     }
 
     /**
+     * Refuses a sealed secret that is absent, or larger than a sealed
+     * secret can be.
+     *
+     * @throws BackupException
+     */
+    private function assertSealedSecretFits(string $member): void
+    {
+        $stat = $this->zip->statName($member);
+        if ($stat === false) {
+            throw new BackupException(
+                'Cette sauvegarde portable ne contient pas les clés de chiffrement du site — elle ne peut pas '
+                . 'servir à repartir ailleurs.',
+                0,
+                new \RuntimeException('Missing sealed secret member: ' . $member)
+            );
+        }
+        if ((int) $stat['size'] > self::MAX_SEALED_SECRET_BYTES) {
+            throw new BackupException(
+                'Cette sauvegarde portable annonce des clés de chiffrement d\'une taille impossible — elle ne '
+                . 'peut pas servir à repartir ailleurs.',
+                0,
+                new \RuntimeException('Oversized sealed secret member: ' . $member)
+            );
+        }
+    }
+
+    /**
      * The declared uncompressed size of a member, or null when the archive
      * does not hold it — refusing outright anything past the ceiling.
      *
@@ -454,19 +503,14 @@ final class PortableArchive
         $secrets = [];
 
         foreach (PortableManifest::SECRET_MEMBERS as $liveRelativePath => $member) {
-            // Against the same ceiling as everything else, before the read
-            // rather than after it. These two are small by construction —
-            // a key and an encrypted settings blob — but "by construction"
-            // is a fact about archives we wrote, and this class exists to
-            // read the ones we did not.
-            if ($this->ceilingCheckedSize($member) === null) {
-                throw new BackupException(
-                    'Cette sauvegarde portable ne contient pas les clés de chiffrement du site — elle ne peut pas '
-                    . 'servir à repartir ailleurs.',
-                    0,
-                    new \RuntimeException('Missing sealed secret member: ' . $member)
-                );
-            }
+            // Against the sealed-secret ceiling, before the read rather
+            // than after it. These two are small by construction — a key
+            // and an encrypted settings blob — but "by construction" is a
+            // fact about archives we wrote, and this class exists to read
+            // the ones we did not. They are also the only members read
+            // whole rather than streamed, because they are unsealed rather
+            // than copied.
+            $this->assertSealedSecretFits($member);
 
             $sealed = $this->zip->getFromName($member);
             if ($sealed === false) {

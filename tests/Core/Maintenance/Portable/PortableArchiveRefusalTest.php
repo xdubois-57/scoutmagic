@@ -466,6 +466,32 @@ final class PortableArchiveRefusalTest extends TestCase
         }
     }
 
+    /**
+     * **A key that could not be a key is refused before the first write.**
+     *
+     * The sealed secrets are the only members read whole rather than
+     * streamed, because they are unsealed and not copied — so the generic
+     * four-gigabyte ceiling is the wrong instrument for them: it admits a
+     * member no host could hold. And `unsealSecrets()` runs LAST in a
+     * restore, after the database and the file tree have been replaced,
+     * where a `memory_limit` fatal is not a `Throwable` and the safety
+     * rollback would never run. So the refusal belongs where the other
+     * pre-write refusals are, and it is asserted there.
+     */
+    public function testASealedKeyOfAnImpossibleSizeIsRefusedBeforeAnyWrite(): void
+    {
+        $archive = $this->open(['fatSecret' => str_repeat('K', 2 * 1024 * 1024)]);
+
+        try {
+            $archive->verifyDeclaredMembers();
+            $this->fail('An archive announcing a two-megabyte master key was accepted.');
+        } catch (BackupException $e) {
+            $this->assertStringContainsString('taille impossible', $e->getMessage());
+        } finally {
+            $archive->close();
+        }
+    }
+
     /** @param array<string, mixed> $options */
     private function open(array $options = []): PortableArchive
     {
@@ -499,6 +525,10 @@ final class PortableArchiveRefusalTest extends TestCase
             $stored = ($options['corruptMasterKey'] ?? false) === true && $liveRelativePath === 'keys/master.key'
                 ? 'des octets substitués'
                 : $sealed;
+            if (is_string($options['fatSecret'] ?? null) && $liveRelativePath === 'keys/master.key') {
+                $stored = $options['fatSecret'];
+                $sealed = $stored;
+            }
 
             if (($options['dropSecrets'] ?? false) !== true) {
                 $this->addEncrypted($zip, $member, $stored, $password);

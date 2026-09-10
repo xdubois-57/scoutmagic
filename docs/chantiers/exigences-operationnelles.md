@@ -1553,6 +1553,16 @@ le droit d'écrire — et c'est le *chemin* qui voyage dans la charge du
 planificateur, jamais la matière chiffrante, qui se retrouverait sinon
 dans une ligne de base lisible par tout ce qui lit la file.
 
+**Un plafond de quatre gigaoctets n'est pas un plafond pour une clé.**
+Les deux secrets scellés sont les seuls membres lus d'un bloc plutôt
+qu'en flux — ils sont descellés, pas recopiés — et ils recevaient le
+plafond générique, qui admet une taille qu'aucun hébergement ne peut
+tenir en mémoire. Or `unsealSecrets()` s'exécute en dernier, après le
+remplacement de la base et de l'arborescence, et une fatale de
+`memory_limit` n'est pas une `Throwable` : le retour en arrière ne se
+serait donc jamais exécuté. Ils ont leur propre plafond, vérifié aussi
+dans `verifyDeclaredMembers()`, c'est-à-dire avant la première écriture.
+
 **Un manifeste peut aussi mentir par omission.** Vérifier les empreintes
 de ce qu'un manifeste énumère ne dit rien de ce qu'il tait : une archive
 qui ne déclarait tout simplement pas ses deux secrets scellés passait
