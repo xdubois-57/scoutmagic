@@ -63,6 +63,25 @@ reaches production**, because the `test` job is green. That is why
 the day someone adds a database-backed test without that group, the narrow
 version would miss it silently.
 
+**The other direction costs a CI cycle, and the remote container cannot
+see it coming.** Code correct on MariaDB and wrong on MySQL never reaches
+production — the `test` job stops it — but it is invisible to a local run,
+because the Claude Code remote container runs MariaDB and nothing else
+(`CLAUDE.md` § This container). A green `vendor/bin/phpunit` there proves
+the MariaDB half and says nothing about the other.
+
+The concrete case, because it is the shape to recognise rather than the
+word to remember: a column named `last_value` in `schema/core.sql` parsed
+on MariaDB and was refused by MySQL 8, where `LAST_VALUE` is a reserved
+word (the window function, reserved since 8.0.2). Nineteen errors in one
+test class, all « syntax error near 'last_value' », after a completely
+green local run. **The reserved-word lists of the two engines are not the
+same**, MySQL's window-function family being the part MariaDB does not
+reserve, so a new identifier is exactly where the engines part company. A
+schema change deserves the CI `test` job's verdict before it is trusted;
+`npm run test:engines` runs both locally where a MySQL is available, which
+in that container it is not.
+
 ### The skip that looks like a pass
 
 Database-backed tests call `markTestSkipped` when no server answers. They do

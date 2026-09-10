@@ -35,7 +35,7 @@ final class AlertReading
      *                          thresholds do not overlap.
      * @param string $value     the reading as a screen would print it
      *                          (« 92 % », « 14 jours »), stored in
-     *                          `operational_alerts.last_value` and shown.
+     *                          `operational_alerts.last_reading` and shown.
      *                          Displayed and journaled, never compared.
      * @param string $title     one French sentence naming what is wrong
      * @param string $why       the consequence, not a restatement of the title

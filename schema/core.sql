@@ -1443,13 +1443,23 @@ CREATE TABLE sent_email_claims (
 -- (AGENTS.md § Database), so this choice is not revisable in place: a
 -- later change of key would need a new table.
 --
--- `last_value` is the reading as the screen would print it (« 92 % »,
+-- `last_reading` is the reading as the screen would print it (« 92 % »,
 -- « 14 jours »), not a number — it is displayed and journaled, never
 -- compared. Comparing is the check's job, against thresholds it holds.
+--
+-- It was `last_value` first, and MySQL 8 refused the table: `LAST_VALUE`
+-- is a reserved word there (the window function, reserved since 8.0.2)
+-- and is NOT reserved in MariaDB. So the statement parsed on the
+-- production engine and on this container, and failed only in CI's
+-- `test` job — nineteen errors in one class, all « syntax error near
+-- 'last_value' ». Renamed rather than back-quoted: a quoted reserved
+-- word works until the next person writes the column name in a query
+-- without the quotes, and there is no reason to keep the landmine for a
+-- table nobody had shipped yet.
 CREATE TABLE IF NOT EXISTS operational_alerts (
     alert_key VARCHAR(64) PRIMARY KEY,
     state ENUM('armed', 'triggered') NOT NULL DEFAULT 'armed',
     triggered_at DATETIME,
     last_notified_at DATETIME,
-    last_value VARCHAR(255)
+    last_reading VARCHAR(255)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

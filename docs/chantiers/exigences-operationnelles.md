@@ -490,6 +490,28 @@ notification, le sujet d'aide `alertes-operationnelles`,
 C'est la PR qui allume l'alerte, donc la seule qui pouvait le faire sans
 livrer une alerte fausse.
 
+**Un mot réservé que seul MySQL réserve.** La colonne s'appelait
+`last_value` ; MySQL 8 a refusé la table entière — `LAST_VALUE` y est un
+mot réservé depuis 8.0.2 (la fonction de fenêtrage) et ne l'est **pas**
+dans MariaDB. L'instruction passait donc sur le moteur de production, et
+sur ce conteneur qui tourne MariaDB, pour échouer uniquement dans le
+travail `test` de l'intégration continue : dix-neuf erreurs dans une seule
+classe, toutes « syntax error near 'last_value' », après une suite
+complète verte en local.
+
+Renommée en `last_reading` plutôt qu'échappée par des accents graves : un
+mot réservé entre guillemets fonctionne jusqu'au jour où quelqu'un écrit
+le nom de la colonne dans une requête sans les mettre, et il n'y avait
+aucune raison de garder la mine pour une table que rien n'avait encore
+livrée.
+
+`docs/quality-pipeline.md` ne décrivait que l'asymétrie inverse — « juste
+sur MySQL et faux sur MariaDB atteint la production ». Celle-ci ne coûte
+qu'un cycle d'intégration, mais elle est **invisible depuis le conteneur**,
+ce que le document dit maintenant, avec ce cas comme exemple : les listes
+de mots réservés des deux moteurs ne sont pas les mêmes, et un identifiant
+neuf est précisément l'endroit où elles divergent.
+
 **Une interaction relevée au rebasage, à consigner parce qu'elle ne se
 voyait dans aucune des deux itérations prises seule.** `DiskUsageCheck`
 délègue à `StorageUsage::usedPercent()` plutôt que de calculer quoi que ce

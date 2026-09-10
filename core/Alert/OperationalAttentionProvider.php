@@ -78,7 +78,7 @@ final class OperationalAttentionProvider implements AttentionPointProvider
 
     /**
      * The stored reading is what makes this readable — « Espace disque :
-     * 92 % » rather than « Espace disque ». `last_value` is written on
+     * 92 % » rather than « Espace disque ». `last_reading` is written on
      * every pass precisely so this sentence can exist without the page
      * re-running any check.
      */

@@ -63,7 +63,7 @@ class OperationalAlertRepository
         $delete->execute([$alertKey]);
 
         $insert = $this->pdo->prepare(
-            'INSERT INTO operational_alerts (alert_key, state, triggered_at, last_notified_at, last_value) '
+            'INSERT INTO operational_alerts (alert_key, state, triggered_at, last_notified_at, last_reading) '
             . "VALUES (?, 'triggered', ?, ?, ?)"
         );
         $insert->execute([$alertKey, $now, $now, self::truncate($value)]);
@@ -78,7 +78,7 @@ class OperationalAlertRepository
     public function markArmed(string $alertKey, string $value): void
     {
         $stmt = $this->pdo->prepare(
-            "UPDATE operational_alerts SET state = 'armed', triggered_at = NULL, last_value = ? WHERE alert_key = ?"
+            "UPDATE operational_alerts SET state = 'armed', triggered_at = NULL, last_reading = ? WHERE alert_key = ?"
         );
         $stmt->execute([self::truncate($value), $alertKey]);
     }
@@ -93,12 +93,12 @@ class OperationalAlertRepository
      */
     public function recordValue(string $alertKey, string $value): void
     {
-        $stmt = $this->pdo->prepare('UPDATE operational_alerts SET last_value = ? WHERE alert_key = ?');
+        $stmt = $this->pdo->prepare('UPDATE operational_alerts SET last_reading = ? WHERE alert_key = ?');
         $stmt->execute([self::truncate($value), $alertKey]);
     }
 
     /**
-     * `last_value` is a VARCHAR(255) and the readings that reach it are
+     * `last_reading` is a VARCHAR(255) and the readings that reach it are
      * short by construction. Truncating rather than letting the driver
      * refuse keeps a surprising value from turning an alert into an
      * exception — the one moment the site can least afford one.
@@ -118,7 +118,7 @@ class OperationalAlertRepository
             state: (string) $row['state'],
             triggeredAt: $row['triggered_at'] !== null ? (string) $row['triggered_at'] : null,
             lastNotifiedAt: $row['last_notified_at'] !== null ? (string) $row['last_notified_at'] : null,
-            lastValue: $row['last_value'] !== null ? (string) $row['last_value'] : null
+            lastValue: $row['last_reading'] !== null ? (string) $row['last_reading'] : null
         );
     }
 }
