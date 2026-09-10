@@ -3315,7 +3315,7 @@ $frontController->registerController(
         $notificationPreferenceRepo,
         $userAccountRepo,
         $roleResolver,
-        $scoutYearService
+        $authorizationYearService
     )
 );
 $frontController->registerController(

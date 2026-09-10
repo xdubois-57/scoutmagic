@@ -411,6 +411,21 @@ rien et son test dit désormais qu'il redemande.
 `StaffYearEligibilityTest::testTheAnswerFollowsTheAddressWhenAnIdentityAppearsMidRequest`
 fige le cas.
 
+### Deux écrans que le jeu d'années devait suivre, et un qu'il ne doit pas
+
+- **`NotificationPreferenceController::viewerRole()`** résolvait le rôle du
+  lecteur dans l'année date-calculée. Or son propre docblock énonce
+  l'invariant : cette page et le pipeline d'envoi ne doivent jamais être en
+  désaccord. `dispatch()` jugeant désormais sur le jeu, cette page aussi —
+  sans quoi l'animateur entrant se verrait proposer les seuls interrupteurs
+  d'un animé pour des notifications que le pipeline lui envoie comme à un
+  chef.
+- **`RentalConfigController`** (124, 230, 359) reste sur
+  `getCurrentYear()`, et **c'est correct** : il s'en sert pour *lister les
+  gestionnaires d'un bien*, c'est-à-dire pour afficher des lignes, pas pour
+  juger qui appelle. Son plancher de route est ce qui garde la page. C'est
+  de la portée de données, que le document reporte explicitement (D5).
+
 ---
 
 ## Récapitulatif
