@@ -96,7 +96,8 @@ class ResetSettingsHandler implements TaskHandlerInterface
                 $backupRepository,
                 $fileRepository,
                 $context->storagePath,
-                $context->settings
+                $context->settings,
+                \Core\Maintenance\BackupSafetyNet::forPdo($context->connection->getPdo())
             ))->purgeAfterCreating('auto_reset');
 
             RequesterNotice::send(

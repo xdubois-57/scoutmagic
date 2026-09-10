@@ -90,7 +90,8 @@ class CreateBackupHandler implements TaskHandlerInterface
                 $backupRepository,
                 $fileRepository,
                 $context->storagePath,
-                $context->settings
+                $context->settings,
+                \Core\Maintenance\BackupSafetyNet::forPdo($context->connection->getPdo())
             ))->purgeAfterCreating($scope);
 
             $context->journal->log(

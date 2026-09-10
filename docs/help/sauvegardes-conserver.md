@@ -22,11 +22,12 @@ avec leur type, leur date, leur taille et leur état. « Voir plus »
 révèle les lignes au-delà des cinq premières.
 
 Le site en garde **trois de chaque sorte**, comptées séparément : les
-vôtres, les planifiées, celles prises avant une mise à jour ou une
-réinitialisation — une série de mises à jour n'efface donc plus la
-sauvegarde que vous veniez de faire. Une seule archive contenant la
-galerie est gardée, toutes sortes confondues : c'est la plus lourde.
-Ces nombres se règlent dans Configuration › Réglages.
+vôtres et les planifiées — une série de mises à jour n'efface donc plus
+la sauvegarde que vous veniez de faire. Une seule archive contenant la
+galerie est gardée, toutes sortes confondues : c'est la plus lourde. Les
+sauvegardes prises avant une opération contiennent la galerie, donc une
+seule est conservée. Ces nombres se règlent dans Configuration ›
+Réglages.
 
 > Téléchargez régulièrement une copie et gardez-la hors du serveur —
 > une sauvegarde qui vit sur le serveur ne protège pas d'un problème

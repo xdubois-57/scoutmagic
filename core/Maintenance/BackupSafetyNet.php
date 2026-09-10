@@ -54,6 +54,48 @@ final class BackupSafetyNet
     }
 
     /**
+     * For the background handlers, which hold a connection rather than the
+     * two services — one line at each of their wiring sites instead of
+     * three, and one place to change if either dependency moves.
+     */
+    public static function forPdo(\PDO $pdo): self
+    {
+        return new self(
+            new SchedulerService(new \Core\Scheduler\SchedulerRepository($pdo)),
+            new UpdateHistoryRepository($pdo)
+        );
+    }
+
+    /**
+     * Every backup id an operation still in flight depends on.
+     *
+     * The bulk form of {@see reasonToKeep()}, and the two exist for
+     * genuinely different callers rather than by accident: a person
+     * clicking « Supprimer » needs the ONE sentence that says which
+     * operation is holding this backup, while the automatic purge needs
+     * the whole set at once and has nobody to explain itself to. Reading
+     * the two sources once per purge rather than once per candidate row
+     * is the other half of that.
+     *
+     * @return int[]
+     */
+    public function protectedIds(): array
+    {
+        $ids = $this->updates->liveBackupIds();
+
+        foreach ($this->tasks->findLivePayloads() as $task) {
+            foreach (self::REFERENCE_KEYS as $key) {
+                $referenced = $task['payload'][$key] ?? null;
+                if (is_scalar($referenced) && (int) $referenced > 0) {
+                    $ids[] = (int) $referenced;
+                }
+            }
+        }
+
+        return array_values(array_unique($ids));
+    }
+
+    /**
      * A French sentence saying why this backup cannot be deleted right
      * now, or null when nothing holds it.
      *

@@ -151,7 +151,24 @@ from the type and never stored (`Core\Maintenance\BackupFamily`).
 | Pre-operation | `auto_update`, `auto_reset` | `backup_keep_operational` | 3 |
 
 Plus one cap across all families: **a single archive containing the photo
-gallery**, not configurable.
+gallery**, not configurable — and it applies to `full_with_gallery`,
+`auto_update` and `auto_reset` alike.
+
+**Those last two are why the pre-operation quota is an upper bound rather
+than a number an installation observes.** The name of a type says nothing
+about its contents: a pre-operation backup calls `createFileBackup(true)`,
+because the operation it guards against can wipe `storage/gallery/` and
+its safety copy has to hold it. So every pre-operation archive is
+gallery-bearing, the cap of one binds before `backup_keep_operational`
+does, and an installation keeps **one** of them. The setting says so.
+
+This is a divergence from the chantier document, which set the cap on the
+premise that « une `full_with_gallery` peut peser plus que les huit autres
+réunies » — that arithmetic assumes the other eight exclude the gallery,
+and three of them do not. Three gallery-sized safety copies is six GiB
+against the §1 sizing of a two-GiB gallery on shared hosting, so the cap
+is what has to win. Whether an update's safety copy needs the gallery at
+all is a separate question, raised as issue #298.
 
 One number for everything was the previous rule, and it kept the wrong
 backups: the automatic ones outnumber the deliberate ones on any

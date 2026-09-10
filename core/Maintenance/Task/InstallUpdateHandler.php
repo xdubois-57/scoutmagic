@@ -692,7 +692,8 @@ class InstallUpdateHandler implements TaskHandlerInterface
             $backupRepository,
             $fileRepository,
             $context->storagePath,
-            $context->settings
+            $context->settings,
+            \Core\Maintenance\BackupSafetyNet::forPdo($context->connection->getPdo())
         ))->purgeAfterCreating('auto_update');
 
         $this->announce(

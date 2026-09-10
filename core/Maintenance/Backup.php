@@ -25,9 +25,26 @@ class Backup
      * put together, so exactly one of them is kept, across all families
      * ({@see BackupRetention}).
      *
+     * **`auto_update` and `auto_reset` are here, and leaving them out was
+     * a real hole.** The name of a type says nothing about its contents:
+     * these two are recorded by handlers that call
+     * `BackupService::createFileBackup(true)` — `InstallUpdateHandler`,
+     * `ResetSettingsHandler`, `RestoreBackupHandler` — because the
+     * operation they protect against can wipe `storage/gallery/`, so
+     * their safety copy has to hold it. With only `full_with_gallery`
+     * listed, an installation could sit on four gallery-sized archives at
+     * once (one manual plus a family quota of three operational ones) —
+     * exactly the disk the cap exists to defend.
+     *
+     * `FullResetHandler` also takes one, and is deliberately absent: it
+     * records no `backups` row at all (see its own comment about keeping
+     * the file rather than the bookkeeping, for a reset whose point is an
+     * empty database). `GalleryTypeCoverageTest` refuses a new
+     * gallery-bearing call site that nobody has classified.
+     *
      * @var string[]
      */
-    public const GALLERY_TYPES = ['full_with_gallery'];
+    public const GALLERY_TYPES = ['full_with_gallery', 'auto_update', 'auto_reset'];
 
     /**
      * @param int|null $sizeBytes what the backup occupies on disk, both of

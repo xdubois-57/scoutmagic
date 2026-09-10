@@ -119,7 +119,8 @@ class AutoBackupHandler implements TaskHandlerInterface
                 $backupRepository,
                 $fileRepository,
                 $context->storagePath,
-                $context->settings
+                $context->settings,
+                \Core\Maintenance\BackupSafetyNet::forPdo($context->connection->getPdo())
             ))->purgeAfterCreating('auto_backup');
         } catch (\Throwable $e) {
             $context->journal->log('core', 'auto_backup_failed', 'info', 'Échec de la sauvegarde automatique',

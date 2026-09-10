@@ -719,11 +719,10 @@ $settingService->register('backup_auto_last_run', '', 'text', 'Dernière sauvega
 // (Core\Maintenance\BackupFamily) — never a column, which would be a
 // second source of truth for something the type already decides.
 //
-// Dépliés un argument par ligne, contrairement à leurs voisins : c'est du
-// code neuf, et SonarCloud relève l'alignement de la forme repliée
-// (php:S1808) sur les lignes que cette branche écrit. Les voisins gardent
-// la leur — les reformater serait du bruit dans une PR qui ne les touche
-// pas.
+// Unfolded one argument per line, unlike their neighbours: this is new
+// code, and SonarCloud flags the folded form's alignment (php:S1808) on
+// the lines this branch writes. The neighbours keep theirs — reformatting
+// them would be noise in a change that does not otherwise touch them.
 $settingService->register(
     'backup_keep_manual',
     '3',
@@ -754,8 +753,10 @@ $settingService->register(
     '3',
     'number',
     'Sauvegardes avant opération conservées',
-    'Nombre de sauvegardes de sécurité — celles prises juste avant une mise à jour ou une réinitialisation — '
-        . 'que le site garde sur le serveur.',
+    'Nombre maximal de sauvegardes de sécurité — celles prises juste avant une mise à jour ou une '
+        . 'réinitialisation — que le site garde sur le serveur. En pratique une seule est conservée : ces '
+        . 'archives contiennent la galerie photo, et le site n\'en garde qu\'une de ce genre, toutes sortes '
+        . 'confondues.',
     null,
     '^[1-9][0-9]*$',
     null,

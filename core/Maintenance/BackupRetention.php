@@ -55,7 +55,8 @@ final class BackupRetention
         private readonly BackupRepository $backups,
         private readonly FileRepository $files,
         private readonly string $storagePath,
-        private readonly ?SettingService $settings = null
+        private readonly ?SettingService $settings = null,
+        private readonly ?BackupSafetyNet $safetyNet = null
     ) {
     }
 
@@ -80,19 +81,52 @@ final class BackupRetention
         // rule reason about a row the first has already removed.
         $all = $this->backups->findAllNewestFirst();
 
+        // And the safety net once, for the same reason plus a second: it
+        // costs two queries, and asking it per candidate row would pay
+        // that for every eviction rather than for every purge.
+        $protected = $this->safetyNet?->protectedIds() ?? [];
+
         $family = BackupFamily::tryFromType($createdType);
         if ($family !== null) {
             foreach ($this->beyondQuota($all, $family) as $old) {
-                $this->forget($old);
+                $this->forgetUnlessInUse($old, $protected);
             }
             foreach ($this->supersededFailures($all, $family) as $old) {
-                $this->forget($old);
+                $this->forgetUnlessInUse($old, $protected);
             }
         }
 
         foreach ($this->galleryArchivesBeyondCap($all) as $old) {
-            $this->forget($old);
+            $this->forgetUnlessInUse($old, $protected);
         }
+    }
+
+    /**
+     * Evicts a backup unless an operation still in flight would fall back
+     * on it.
+     *
+     * **The automatic purge needs the same refusal the delete button
+     * has**, and it needs it more since IT-04 put `auto_update` and
+     * `auto_reset` under the gallery cap: an install takes a
+     * gallery-bearing safety copy, and one manual gallery backup taken
+     * while that install is running would otherwise evict the only thing
+     * its rollback can start from — silently, with nobody having asked
+     * for anything to be deleted.
+     *
+     * A protected row is **skipped, not deferred**: the cap is exceeded
+     * by one until the operation ends and the next creation purges it.
+     * That overshoot lasts minutes and costs one archive; the alternative
+     * costs an installation its way back.
+     *
+     * @param int[] $protected
+     */
+    private function forgetUnlessInUse(Backup $backup, array $protected): void
+    {
+        if (in_array($backup->id, $protected, true)) {
+            return;
+        }
+
+        $this->forget($backup);
     }
 
     /**

@@ -917,6 +917,63 @@ cette course est une archive à moitié écrite dont plus rien ne garde
 trace. Quatre tests, dont celui qui reproduit le scénario exact du
 constat.
 
+**Deux constats de revue de plus, et le second a rouvert un arbitrage.**
+
+1. **Un commentaire de code en français.** `AGENTS.md` § Language est
+   clair : ce qui est écrit *à propos d'un changement* est en français,
+   le code et ses commentaires en anglais — et un commentaire qui
+   explique une décision de mise en forme est un commentaire de code.
+   Corrigé.
+
+2. **`GALLERY_TYPES` ne listait que `full_with_gallery`**, et le nom d'un
+   type ne dit rien de son contenu. `InstallUpdateHandler`,
+   `ResetSettingsHandler` et `RestoreBackupHandler` appellent tous
+   `createFileBackup(true)` : l'opération dont ils protègent peut effacer
+   `storage/gallery/`, donc leur copie de sécurité doit la contenir. Les
+   archives `auto_update` et `auto_reset` échappaient donc au plafond, et
+   une installation pouvait garder **quatre** archives de la taille de la
+   galerie à la fois — une manuelle plus un quota de famille de trois.
+   C'est exactement le disque que le plafond existe pour défendre.
+
+   `GalleryTypeCoverageTest` lit désormais les **sites d'appel** plutôt
+   que les noms : il énumère tout appel à `createFileBackup()` dont
+   l'argument n'est pas littéralement `false`, en dépouillant les
+   commentaires par le tokenizer (une mention en prose n'est pas un appel,
+   et un cliquet incapable de faire la différence se fait taire au lieu
+   d'être corrigé). Un site d'appel neuf que personne n'a classé casse la
+   compilation. `FullResetHandler` y figure avec la valeur `null` : il
+   n'enregistre volontairement aucune ligne `backups`, une réinitialisation
+   complète vidant la table qui la porterait.
+
+   **Le relecteur avait raison sur la suite aussi** : ajouter les deux
+   types sans plus n'aurait pas suffi, parce que `purgeAfterCreating()` ne
+   consultait pas `BackupSafetyNet`. Une sauvegarde manuelle avec galerie
+   prise pendant qu'une mise à jour tourne aurait évincé la seule chose
+   depuis laquelle son retour en arrière peut repartir — en silence, sans
+   que personne ait demandé la moindre suppression. La purge automatique
+   lit maintenant le filet, une fois par purge et non par candidat, et
+   **saute** une ligne protégée plutôt que de la reporter : le plafond est
+   dépassé d'une archive jusqu'à la fin de l'opération, ce qui dure des
+   minutes et coûte une archive, contre une installation qui perdrait son
+   chemin de retour.
+
+**Un arbitrage rouvert, et une divergence assumée avec le document.** Le
+document fixe le plafond sur la prémisse qu'« une `full_with_gallery` peut
+peser plus que les huit autres réunies » — arithmétique qui suppose que
+les huit autres n'ont pas la galerie, alors que trois d'entre elles l'ont.
+Le plafond s'appliquant à toutes les familles, il mord donc **avant** le
+quota « avant opération » : `backup_keep_operational` vaut 3 par défaut,
+mais une seule sauvegarde avant opération est conservée en pratique.
+
+Le contraire aurait autorisé trois archives de 2 Gio de filet de sécurité
+sur une installation dont le §1 dimensionne la galerie entière à 2 Gio :
+le plafond est ce qui doit gagner. Le réglage le dit dans sa propre
+description plutôt que de promettre trois, §4bis l'explique, et la
+question de fond — une mise à jour remplace du code, son filet a-t-il
+besoin de la galerie ? — part en **issue #298** avec ce qu'il faut vérifier
+avant d'y toucher : si le retour en arrière restaure `storage/` en bloc,
+retirer la galerie de l'archive effacerait les photos au premier rollback.
+
 **Reporté.** Le bloc « Sauvegarde portable » (IT-06) et son avertissement,
 la destination distante (IT-08), la phrase de passe générée (IT-09), l'état
 d'intégrité par ligne et le marqueur « sur Drive » (IT-05, IT-09). La

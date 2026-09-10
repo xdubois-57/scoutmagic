@@ -1509,7 +1509,8 @@ class MaintenanceController extends AbstractController
             $this->backupRepository,
             $this->fileRepository,
             $this->storagePath,
-            $this->settingService
+            $this->settingService,
+            $this->safetyNet()
         );
     }
 }
