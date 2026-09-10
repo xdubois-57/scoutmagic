@@ -168,11 +168,23 @@ final class PortableRestore
      * place a restore must not run out of room. It is removed in a
      * `finally`, whatever happens.
      *
+     * The file entries are vetted FIRST, before the dump is even written.
+     * They used to be vetted where they are used, inside
+     * {@see extractFiles()}, which runs after the database has already been
+     * replaced — so an archive carrying a `..` path, a symlink or a payload
+     * over the ceiling was refused by an installation whose data had just
+     * been overwritten with the origin's. That is the one order this class
+     * promises not to use: the refusals exist so that a bad archive costs
+     * nothing, and `PortableArchive::restorableEntries()` reads the zip's
+     * central directory only, so hoisting it is free.
+     *
      * @param array<string, mixed> $targetOwnedSecrets {@see installSecrets()}
      * @throws BackupException
      */
     public function apply(PortableArchive $archive, BackupService $backupService, array $targetOwnedSecrets): void
     {
+        $entries = $this->plannedEntries($archive);
+
         $dumpPath = $this->writeDump($archive);
 
         try {
@@ -181,7 +193,7 @@ final class PortableRestore
             @unlink($dumpPath);
         }
 
-        $this->extractFiles($archive);
+        $this->extractFiles($archive, $entries);
         $this->installSecrets($archive, $targetOwnedSecrets);
     }
 
@@ -228,14 +240,15 @@ final class PortableRestore
      * afterwards: `ZipArchive::extractTo()` takes the list of entries to
      * write, and there is no un-writing one it has already written.
      *
+     * @param string[]|null $entries the vetted list, when the caller has
+     *        already obtained one — {@see apply()} does so before touching
+     *        the database, so that a refusal costs nothing. Null means vet
+     *        now, for a caller that extracts and nothing else.
      * @throws BackupException
      */
-    public function extractFiles(PortableArchive $archive): void
+    public function extractFiles(PortableArchive $archive, ?array $entries = null): void
     {
-        $entries = $archive->restorableEntries();
-        if ($entries === []) {
-            throw new BackupException('Cette sauvegarde portable ne contient aucun fichier à restaurer.');
-        }
+        $entries ??= $this->plannedEntries($archive);
 
         if (!$archive->handle()->extractTo($this->basePath, $entries)) {
             throw new BackupException(
@@ -243,6 +256,27 @@ final class PortableRestore
                 . 'sur le dossier du site.'
             );
         }
+    }
+
+    /**
+     * The entries this restore will write, refused here or nowhere.
+     *
+     * Separate from the extraction so that it can run before it — the whole
+     * point being that {@see PortableArchive::restorableEntries()} reads
+     * nothing but the zip's central directory, and so can be asked while
+     * the installation being restored onto is still entirely intact.
+     *
+     * @return string[]
+     * @throws BackupException
+     */
+    private function plannedEntries(PortableArchive $archive): array
+    {
+        $entries = $archive->restorableEntries();
+        if ($entries === []) {
+            throw new BackupException('Cette sauvegarde portable ne contient aucun fichier à restaurer.');
+        }
+
+        return $entries;
     }
 
     /**

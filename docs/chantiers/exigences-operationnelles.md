@@ -1500,6 +1500,21 @@ portable fait tomber le test qui distingue un refus tôt d'un refus tard ;
 retirer la garde « site déjà configuré » fait tomber le test
 correspondant de l'assistant.
 
+**Un constat de revue, et c'était le bon.** « Rien n'est écrit avant que
+tout ce qui peut refuser ait refusé » est l'invariant que cette
+fonctionnalité affiche partout — et une moitié ne le tenait pas.
+`restorableEntries()`, la marche qui refuse un chemin en `..`, un lien
+symbolique ou une charge au-delà du plafond de quatre gigaoctets, n'était
+atteinte que par `extractFiles()`, qui s'exécute **après** le
+remplacement de la base. Le refus arrivait bien, à une installation dont
+les données venaient d'être écrasées : l'archive hostile coûtait
+exactement ce qu'elle aurait coûté si elle avait été acceptée. La marche
+ne lit que le répertoire central du zip, donc la remonter en tête
+d'`apply()` ne coûte rien. Le test ajouté n'affirme pas que l'archive est
+refusée — cela n'a jamais fait de doute — mais que la base de la cible
+est intacte quand elle l'est ; en rétablissant l'ordre d'avant, c'est
+exactement lui qui tombe.
+
 **Reporté.** La destination distante (IT-08) et l'envoi récurrent avec
 rétention distante (IT-09). Le téléversement fragmenté de l'assistant ne
 consulte pas le budget disque, faute de base de données où lire un quota

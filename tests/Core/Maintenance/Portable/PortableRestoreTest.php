@@ -338,6 +338,68 @@ final class PortableRestoreTest extends TestCase
     }
 
     /**
+     * **A hostile entry is refused while the target is still intact.**
+     *
+     * `restorableEntries()` is where a `..` path, a symlink or a payload
+     * over the ceiling is caught, and it used to be reached only through
+     * `extractFiles()` — which runs AFTER the database has been replaced.
+     * The refusal still happened, on an installation whose own data was
+     * already gone: the archive cost exactly what it would have cost if it
+     * had been accepted. So what is asserted here is not that the archive
+     * is refused, which was never in doubt, but that the target's database
+     * is untouched when it is.
+     */
+    public function testAHostileEntryIsRefusedBeforeTheDatabaseIsReplaced(): void
+    {
+        $connection = $this->realDbConnection();
+        $service = new BackupService($connection, $this->originBase . '/storage', $this->originBase);
+        if (!$service->supportsZipEncryption()) {
+            $this->markTestSkipped('This PHP build has no AES zip encryption, which this feature refuses without.');
+        }
+
+        // The name the archive's dump carries, so that "the database was
+        // replaced" is a fact about content rather than about a table.
+        $this->seedSetting($connection->getPdo(), 'site_name', 'le site de l\'archive');
+
+        $result = $service->createPortableBackup(self::PASSPHRASE, '2.4.1', self::ORIGIN_ID);
+        $this->zipPath = $result['zipPath'];
+        $this->dbDumpPath = $result['dbDumpPath'];
+
+        $zip = new \ZipArchive();
+        $this->assertTrue($zip->open($this->zipPath) === true);
+        $this->assertTrue($zip->addFromString('storage/../../evil.txt', 'des octets choisis ailleurs'));
+        $zip->close();
+
+        $intact = 'cible-intacte-' . bin2hex(random_bytes(4));
+        $this->seedSetting($connection->getPdo(), 'site_name', $intact);
+
+        $archive = PortableArchive::open($this->zipPath, self::PASSPHRASE);
+
+        try {
+            (new PortableRestore($this->targetBase, $this->targetBase . '/storage'))->apply(
+                $archive,
+                new BackupService($connection, $this->targetBase . '/storage', $this->targetBase),
+                $this->targetOwnedSecrets()
+            );
+            $this->fail('An archive containing a path outside the install root was accepted.');
+        } catch (BackupException $e) {
+            $this->assertStringContainsString('chemin non autorisé', $e->getMessage());
+        } finally {
+            $archive->close();
+        }
+
+        $this->assertSame(
+            $intact,
+            $this->readSetting($connection->getPdo(), 'site_name'),
+            'the target\'s database was replaced before the archive was found to be unusable'
+        );
+        $this->assertFileDoesNotExist(
+            $this->targetBase . '/storage/uploads/tresorerie.pdf',
+            'the archive\'s files landed on a target the restore then refused'
+        );
+    }
+
+    /**
      * **What the safety backup cannot put back.**
      *
      * `BackupService::createFileBackup()` excludes `storage/keys/` and
