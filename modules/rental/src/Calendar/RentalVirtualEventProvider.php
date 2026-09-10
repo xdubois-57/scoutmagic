@@ -195,9 +195,18 @@ class RentalVirtualEventProvider implements VirtualEventProviderInterface
             return [];
         }
 
+        // The years an access question about THIS reader may be asked in.
+        // For a reader with a session that is their own single served
+        // year; for the personal ICS token, which has none, it is the
+        // authorization set — a manager recruited for the year being
+        // prepared must not be handed a busy block where their colleague
+        // gets the booking (Api\VirtualEventViewer::authorizationYearIds()).
         $manageable = array_map(
             static fn(RentalAsset $asset) => $asset->id,
-            $this->authorizationService->listManageableAssets($viewer->email, $viewer->scoutYearId)
+            $this->authorizationService->listManageableAssetsInAnyYear(
+                $viewer->email,
+                $viewer->authorizationYearIds()
+            )
         );
 
         return array_values(array_intersect($assetIds, $manageable));

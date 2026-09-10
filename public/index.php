@@ -3700,7 +3700,12 @@ if ($isEnabled('calendar')) {
         $userAccountRepo,
         $sectionService,
         $calendarRetroLinks,
-        $calendarPresenceSheetLinks
+        $calendarPresenceSheetLinks,
+        // The personal ICS token is the one reader on this site with no
+        // session — nothing has resolved a scout year for them, so an
+        // access question about them is asked over the whole authorization
+        // set rather than in a year picked for them.
+        $authorizationYearService
     );
     $calendarPickerService = new \Modules\Calendar\Service\CalendarPickerService(
         $calendarService, $calendarPersonalFeedService

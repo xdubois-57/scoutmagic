@@ -278,4 +278,158 @@ class RentalAuthorizationServiceTest extends TestCase
 
         $this->assertFalse($service->canManageAssetId('manager@example.org', self::YEAR, 999999));
     }
+
+    // ---------------------------------------------------------------
+    // A caller with no session: the year SET rather than a year
+    // ---------------------------------------------------------------
+
+    /** The year that is ending, and the year being prepared. */
+    private const ENDING_YEAR = 7;
+    private const NEXT_YEAR = 8;
+
+    /**
+     * The same stub, but the Staff d'U answer depends on the year — which
+     * is the whole point of a transition: A is unit staff in the year that
+     * is ending and nobody in the one being prepared, B the other way
+     * round.
+     *
+     * @param array<string, int[]> $membersByEmail
+     * @param array<int, string[]> $unitStaffByYear
+     */
+    private function serviceAcrossYears(array $membersByEmail, array $unitStaffByYear): RentalAuthorizationService
+    {
+        $memberService = new class ($membersByEmail, $unitStaffByYear) extends MemberService {
+            /**
+             * @param array<string, int[]> $membersByEmail
+             * @param array<int, string[]> $unitStaffByYear
+             */
+            public function __construct(
+                private array $membersByEmail,
+                private array $unitStaffByYear
+            ) {
+                // No parent::__construct(), same reason as the stub above.
+            }
+
+            public function getLinkedMembers(string $email, int $scoutYearId): array
+            {
+                return array_map(
+                    fn(int $memberId) => new MemberProfile(
+                        memberYearId: $memberId * 100,
+                        memberId: $memberId,
+                        deskId: 'D' . $memberId,
+                        firstName: 'Prénom',
+                        lastName: 'Nom',
+                        totem: null,
+                        quali: null,
+                        gender: null,
+                        birthDate: null,
+                        phone: null,
+                        mobile: null,
+                        email: $email,
+                        patrol: null,
+                        formationLevel: null,
+                        federationMailConsent: false,
+                        unitMailConsent: false,
+                        addresses: [],
+                        functions: [],
+                        scoutYearLabel: '2025-2026'
+                    ),
+                    $this->membersByEmail[$email] ?? []
+                );
+            }
+
+            public function isUnitChief(string $email, int $scoutYearId): bool
+            {
+                return in_array($email, $this->unitStaffByYear[$scoutYearId] ?? [], true);
+            }
+        };
+
+        return new RentalAuthorizationService($memberService, $this->assetRepository, $this->managerRepository);
+    }
+
+    /**
+     * **During a transition a background caller recognises both of them.**
+     * A is Staff d'U of the year that is ending, B of the year being
+     * prepared, and both walk through the doors on the screens. A
+     * notification job that recognised only A would leave B — who can open
+     * the booking — without a single alert about it.
+     */
+    public function testABackgroundCallerRecognisesBothAnimateursDuringATransition(): void
+    {
+        $service = $this->serviceAcrossYears([], [
+            self::ENDING_YEAR => ['a.leaving@example.org'],
+            self::NEXT_YEAR => ['b.arriving@example.org'],
+        ]);
+        $years = [self::ENDING_YEAR, self::NEXT_YEAR];
+
+        $this->assertTrue($service->isUnitStaffInAnyYear('a.leaving@example.org', $years));
+        $this->assertTrue($service->isUnitStaffInAnyYear('b.arriving@example.org', $years));
+    }
+
+    /**
+     * **Outside a transition the set is one year, and the answer is
+     * exactly what it was before any of this existed.** Written as an
+     * explicit non-regression: the widening must be invisible for the
+     * eleven months of the year when no staff year is configured.
+     */
+    public function testOutsideATransitionTheSetShapedAnswerIsTheOldOne(): void
+    {
+        $hall = $this->createAsset('Local', 'local');
+        $this->managerRepository->grant($hall, 1, false);
+
+        $service = $this->serviceAcrossYears(
+            ['manager@example.org' => [1]],
+            [self::ENDING_YEAR => ['chief@example.org']]
+        );
+        $only = [self::ENDING_YEAR];
+
+        foreach (['manager@example.org', 'chief@example.org', 'stranger@example.org'] as $email) {
+            $this->assertSame(
+                $service->isUnitStaff($email, self::ENDING_YEAR),
+                $service->isUnitStaffInAnyYear($email, $only),
+                "isUnitStaffInAnyYear disagreed with isUnitStaff for {$email}"
+            );
+            $this->assertSame(
+                $service->canManageAssetId($email, self::ENDING_YEAR, $hall),
+                $service->canManageAssetIdInAnyYear($email, $only, $hall),
+                "canManageAssetIdInAnyYear disagreed with canManageAssetId for {$email}"
+            );
+            $this->assertEquals(
+                $service->listManageableAssets($email, self::ENDING_YEAR),
+                $service->listManageableAssetsInAnyYear($email, $only),
+                "listManageableAssetsInAnyYear disagreed with listManageableAssets for {$email}"
+            );
+        }
+    }
+
+    /**
+     * A union of AUTHORITY, never of a year-scoped list: an asset carries
+     * no scout year, so the same asset reached through two years appears
+     * once.
+     */
+    public function testTheAssetListIsDeduplicatedAcrossYears(): void
+    {
+        $hall = $this->createAsset('Local', 'local');
+        $this->managerRepository->grant($hall, 1, false);
+        $service = $this->serviceAcrossYears(['manager@example.org' => [1]], []);
+
+        $assets = $service->listManageableAssetsInAnyYear(
+            'manager@example.org',
+            [self::ENDING_YEAR, self::NEXT_YEAR]
+        );
+
+        $this->assertCount(1, $assets);
+        $this->assertSame($hall, $assets[0]->id);
+    }
+
+    /** An empty set answers no to everything, rather than defaulting open. */
+    public function testAnEmptyYearSetGrantsNothing(): void
+    {
+        $hall = $this->createAsset('Local', 'local');
+        $service = $this->serviceAcrossYears([], [self::ENDING_YEAR => ['chief@example.org']]);
+
+        $this->assertFalse($service->isUnitStaffInAnyYear('chief@example.org', []));
+        $this->assertFalse($service->canManageAssetIdInAnyYear('chief@example.org', [], $hall));
+        $this->assertSame([], $service->listManageableAssetsInAnyYear('chief@example.org', []));
+    }
 }

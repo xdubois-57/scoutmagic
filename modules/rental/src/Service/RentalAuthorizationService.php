@@ -135,6 +135,93 @@ class RentalAuthorizationService
     }
 
     /**
+     * The same three questions, asked over **every year an access decision
+     * may be taken in** (`Core\ScoutYear\AuthorizationYearService`) rather
+     * than in one.
+     *
+     * **For a caller with no session and no dated record to work from**,
+     * and for no other. Everything on a screen holds a session, and asks
+     * in the one year that person is served
+     * (`ScoutYearResolver::getAuthorizationYear()`); everything holding a
+     * record scoped to a year asks in that year. Neither is this.
+     *
+     * The reason a background caller widens rather than picking one year:
+     * during a transition BOTH animateurs walk through the doors on the
+     * screens, so a background job that recognised only the one leaving
+     * would deny the one arriving every notification about screens they
+     * can open — and go on alerting the one leaving about things they can
+     * still see. **The failure modes are not symmetric.** A chief notified
+     * once too often ignores an e-mail; a chief never notified misses a
+     * booking request or a compliance deadline.
+     *
+     * The widening is bounded on every side: the staff year exists only
+     * during a transition, the set is capped at one year past the public
+     * year, a role from a non-public year counts only from `intendant` up,
+     * and there is no session here at all — so there is no preview to
+     * smuggle a year in through.
+     *
+     * `rental_assets` and `rental_bookings` deliberately carry no
+     * `scout_year_id` (see this module's schema.sql, top of file: a
+     * booking from 28 August to 2 September straddles two of them), so no
+     * caller in this module can derive a year from the record it is
+     * judging. That is why they all end up here rather than under the
+     * derive-your-own-year rule.
+     *
+     * @param int[] $scoutYearIds
+     */
+    public function isUnitStaffInAnyYear(?string $email, array $scoutYearIds): bool
+    {
+        foreach ($scoutYearIds as $scoutYearId) {
+            if ($this->isUnitStaff($email, $scoutYearId)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param int[] $scoutYearIds
+     * @see isUnitStaffInAnyYear() for when a caller may use this shape
+     */
+    public function canManageAssetIdInAnyYear(?string $email, array $scoutYearIds, int $assetId): bool
+    {
+        foreach ($scoutYearIds as $scoutYearId) {
+            if ($this->canManageAssetId($email, $scoutYearId, $assetId)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * **A union of AUTHORITY, not of a year-scoped list.** An asset carries
+     * no scout year at all, so this merges nothing: it answers which of the
+     * unit's assets this person may act on, and the answer is one set of
+     * assets whichever year established it. Nothing here contradicts the
+     * rule that no list ever merges two scout years.
+     *
+     * @param int[] $scoutYearIds
+     * @return RentalAsset[] ordered by name, deduplicated by id
+     * @see isUnitStaffInAnyYear() for when a caller may use this shape
+     */
+    public function listManageableAssetsInAnyYear(?string $email, array $scoutYearIds): array
+    {
+        $byId = [];
+        foreach ($scoutYearIds as $scoutYearId) {
+            foreach ($this->listManageableAssets($email, $scoutYearId) as $asset) {
+                $byId[$asset->id] = $asset;
+            }
+        }
+
+        $assets = array_values($byId);
+        usort($assets, static fn(RentalAsset $a, RentalAsset $b): int => strcmp($a->name, $b->name));
+
+        return $assets;
+    }
+
+    /**
      * The asset ids granted to whichever members $email is linked to.
      *
      * An email can be linked to several members (a parent and their

@@ -318,3 +318,56 @@ publique y entrent toujours, seul l'aperçu en sort.
 | Mutation | Tests devenus rouges |
 |---|---|
 | L'éligibilité redevient `$role->hasAccess(Role::INTENDANT)` | `testAIsServedTheYearThatIsEnding`, `testStaffedSectionsAreNonEmptyForBothOfThemInTheirOwnYear`, `testStaffYearRefusedToAnAdminWhoIsNotIntendantInThatYear`, `testStaffYearIgnoredWhenNoEligibilityIsWired`, `testEligibilityIsAskedAboutTheStaffYearItself`, `testEligibilityIsResolvedOncePerYear` |
+
+---
+
+## IT-04 — Les appelants hors requête
+
+**Livré.** `RentalAuthorizationService` gagne trois méthodes en forme de
+jeu (`isUnitStaffInAnyYear`, `canManageAssetIdInAnyYear`,
+`listManageableAssetsInAnyYear`), `VirtualEventViewer` porte désormais les
+années d'autorisation de son lecteur, `PersonalFeedService` les lui donne,
+et `RentalVirtualEventProvider` s'en sert. Tests : cinq cas dans
+`RentalAuthorizationServiceTest` (dont la non-régression explicite), un
+dans `RentalVirtualEventProviderTest`, un dans
+`ScoutYearTransitionAccessTest` pour l'appelant qui dérive son année.
+
+### Les cinq appelants, un par un — et le second point où le document se trompe
+
+Le document les décrit comme « n'ayant ni session ni année effective ».
+**Quatre des cinq en ont une** : ils tournent à l'intérieur d'une requête,
+avec `AuthSession::getEmail()` dans les mains. Ce qu'ils n'avaient pas,
+c'était la *bonne* année — ils prenaient l'année date-calculée, ce qui est
+le défaut d'IT-03 et non un cas hors requête.
+
+| Appelant | Dérive-t-il une année du dossier ? | Verdict |
+|---|---|---|
+| `RentalComplianceOwnershipChecker:58` | Non — un bien ne porte pas d'année scoute | **En requête** (`/files/{id}`, session présente) → année d'autorisation d'IT-03 |
+| `RentalDocumentOwnershipChecker:85` | Non — une réservation non plus | **En requête** → année d'autorisation |
+| `RentalMessageConsumer:653` | Non | **En requête** sur le chemin web ; sur le chemin planifié, les trois dépendances sont nulles et `canRead()` répond `false` sans poser de question |
+| `RentalCommunicationService:284, 349` | Non | **En requête** : l'année leur est passée par `RentalManagementController` |
+| `public/index.php` (audit de réservation) | Non | **En requête** : une fermeture qui lit `AuthSession::getEmail()` |
+| `RentalVirtualEventProvider:200` | Non | **Le seul vrai cas hors requête**, et seulement par un chemin : le jeton ICS personnel (`PersonalFeedService`), qui n'a aucune session. Par `CalendarPublicController`, le lecteur est anonyme et n'obtient jamais le détail |
+
+**Aucun des cinq ne peut dériver une année, et ce n'est pas un hasard** :
+`modules/rental/schema.sql` refuse délibérément `scout_year_id` sur ses
+tables, en écrivant pourquoi — « une réservation du 28 août au 2 septembre
+est à cheval sur deux années scoutes ». L'exception D6 n'a donc aucun cas
+dans ce module, par construction. Elle en a un ailleurs, et il est testé :
+`MemberController`/`MemberSearchController` lisent l'année sur le
+`member_year` qu'ils s'apprêtent à écrire
+(`testACallerDerivingItsYearFromTheRecordIsUnaffectedByTheStaffYear`).
+
+**Le seul élargissement livré est donc le jeton ICS personnel**, et il est
+étroit : `VirtualEventViewer` porte un jeu d'années *d'autorisation*
+distinct de l'année dont il affiche le contenu. Le contenu du flux reste
+sur une seule année, comme toute liste (D5) ; le jeu ne dit que dans
+quelles années un fournisseur peut établir un droit. Sans lui, un
+gestionnaire de bien recruté pour l'année préparée recevrait dans son
+agenda une plage occupée anonyme là où son collègue reçoit la réservation
+— exactement le mode de panne asymétrique que le document décrit.
+
+**La conclusion à retenir**, et elle contredit l'intuition du document :
+sous cette conception, l'élargissement au jeu d'années n'est presque jamais
+nécessaire, parce que presque personne n'est réellement hors requête. Ce
+qui manquait n'était pas de l'ampleur, c'était la bonne année.

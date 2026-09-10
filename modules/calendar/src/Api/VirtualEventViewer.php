@@ -40,8 +40,41 @@ final class VirtualEventViewer
          *
          * @var int[]
          */
-        public readonly array $calendarIds = []
+        public readonly array $calendarIds = [],
+        /**
+         * The years an AUTHORIZATION question about this reader may be
+         * asked in, when there is no session behind the request to
+         * resolve one from — the personal ICS token being the case this
+         * exists for (`Core\ScoutYear\AuthorizationYearService`).
+         *
+         * Defaults to `$scoutYearId` alone, which is what every reader
+         * with a session gets: they are served exactly one year, and it
+         * is the right one. A token holder is not, because nothing
+         * resolved a year for them — so during a transition a provider
+         * asked about them widens rather than picking one year, since the
+         * failure modes are not symmetric: a manager told once too often
+         * ignores an entry, a manager never told misses the booking.
+         *
+         * This is never a licence to merge two years of a LIST: it says
+         * which years may establish that this reader has a right, not
+         * which years' rows to show.
+         *
+         * @var int[]
+         */
+        public readonly array $authorizationYearIds = []
     ) {
+    }
+
+    /**
+     * The years an authorization question about this reader may be asked
+     * in — the explicit set when one was given, this reader's own single
+     * year otherwise.
+     *
+     * @return int[]
+     */
+    public function authorizationYearIds(): array
+    {
+        return $this->authorizationYearIds !== [] ? $this->authorizationYearIds : [$this->scoutYearId];
     }
 
     /** Whether $calendarId is one this reader is looking at. */
