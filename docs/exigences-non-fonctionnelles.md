@@ -139,6 +139,37 @@ Notification and attention point read the same check, run once. The
 notification says "this has just tipped over"; the attention point says
 "this is still true".
 
+## 4bis. Backup retention
+
+How many backups the server keeps, **per family**. The family is deduced
+from the type and never stored (`Core\Maintenance\BackupFamily`).
+
+| Family | Types | Setting | Default |
+|---|---|---|---|
+| Manual | `database`, `full_config`, `full_no_gallery`, `full_with_gallery` | `backup_keep_manual` | 3 |
+| Scheduled | `auto_backup` | `backup_keep_scheduled` | 3 |
+| Pre-operation | `auto_update`, `auto_reset` | `backup_keep_operational` | 3 |
+
+Plus one cap across all families: **a single archive containing the photo
+gallery**, not configurable.
+
+One number for everything was the previous rule, and it kept the wrong
+backups: the automatic ones outnumber the deliberate ones on any
+installation actually being maintained, so three consecutive updates
+evicted the full backup an administrator had taken five minutes earlier.
+A single ordered list keeps the noise and drops the signal.
+
+The gallery cap is the one that decides whether the disk holds. Two
+gallery archives are routinely more than every other backup combined,
+which is also why that one is not a setting: an administrator who wants
+a second copy has somewhere better to put it than the server it is
+meant to survive.
+
+Purging runs **on creation and nowhere else**, and only for the family
+just written. At boot or during a migration, an installation holding
+five backups would watch two of them vanish in the middle of an update
+nobody connected to retention.
+
 ## 5. Technical baseline
 
 | Item | Requirement |

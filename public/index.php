@@ -710,6 +710,25 @@ $settingService->register('backup_auto_frequency', 'weekly', 'select', 'Fréquen
 $settingService->register('backup_auto_last_run', '', 'text', 'Dernière sauvegarde automatique',
     'Horodatage de la dernière sauvegarde automatique effectuée avec succès. Géré automatiquement.',
     null, null, null, false, 119);
+// One quota per family rather than one for everything (D3 of the
+// « Exigences opérationnelles » chantier, ARCHITECTURE.md §8.100). A single
+// list of five, oldest evicted first, let three consecutive updates delete
+// the full backup an administrator had taken five minutes earlier: the
+// automatic ones outnumber the deliberate ones, so the ordered list always
+// kept the noise. The family is deduced from the type
+// (Core\Maintenance\BackupFamily) — never a column, which would be a
+// second source of truth for something the type already decides.
+$settingService->register('backup_keep_manual', '3', 'number', 'Sauvegardes manuelles conservées',
+    'Nombre de sauvegardes créées à la main (base de données, sauvegarde complète) que le site garde sur le '
+        . 'serveur. Au-delà, la plus ancienne est supprimée à la création de la suivante.',
+    null, '^[1-9][0-9]*$', null, true, 129);
+$settingService->register('backup_keep_scheduled', '3', 'number', 'Sauvegardes planifiées conservées',
+    'Nombre de sauvegardes automatiques planifiées que le site garde sur le serveur.',
+    null, '^[1-9][0-9]*$', null, true, 130);
+$settingService->register('backup_keep_operational', '3', 'number', 'Sauvegardes avant opération conservées',
+    'Nombre de sauvegardes de sécurité — celles prises juste avant une mise à jour ou une réinitialisation — '
+        . 'que le site garde sur le serveur.',
+    null, '^[1-9][0-9]*$', null, true, 131);
 // The following 5 settings are managed exclusively from the "Mises à jour
 // automatiques" section of Configuration > Maintenance (Core\Http\
 // Controller\MaintenanceController) — deliberately excluded from the
@@ -2598,6 +2617,14 @@ $router->addRoute('POST', '/config/maintenance/backup/full', MaintenanceControll
 $router->addRoute(
     'POST', '/config/maintenance/backup/auto-frequency', MaintenanceController::class, 'updateAutoBackupFrequency',
     'admin',
+);
+// 'admin', like every other write in the « Sauvegardes » section — the
+// same person who can create a backup and download it can remove one. The
+// dangerous case is not a role: it is deleting the safety net of an
+// operation that is running right now, and that is refused outright by
+// Core\Maintenance\BackupSafetyNet whatever the caller's role.
+$router->addRoute(
+    'POST', '/config/maintenance/backup/{id}/delete', MaintenanceController::class, 'deleteBackup', 'admin'
 );
 $router->addRoute('GET', '/api/maintenance/backup-status/{id}', MaintenanceController::class, 'backupStatus', 'admin');
 $router->addRoute(

@@ -328,6 +328,22 @@ class SchedulerService
      * references without a hundred queries, and a prefix has no key to
      * look up in it. A caller asking this asks about one hand-over.
      */
+    /**
+     * The decoded payload of every queued or running task — see
+     * SchedulerRepository::findLivePayloads() for why it is payloads and
+     * not a targeted query.
+     *
+     * A pass-through so that a caller asking "is anything still using this
+     * thing?" does not have to take a second scheduler dependency
+     * alongside the service it already holds.
+     *
+     * @return array<int, array{module_id: string, task_key: string, payload: array<string, mixed>}>
+     */
+    public function findLivePayloads(): array
+    {
+        return $this->repository->findLivePayloads();
+    }
+
     public function hasLiveStartingWith(string $moduleId, string $taskKey, string $prefix): bool
     {
         return $this->repository->hasLiveStartingWith($moduleId, $taskKey, $prefix);

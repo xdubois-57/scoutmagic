@@ -85,8 +85,11 @@ test('maintenance backups run to completion, the auto-save saves, and the danger
         .getByRole('button', { name: 'Générer' }).click();
     await page.waitForURL('**/config/maintenance', { waitUntil: 'domcontentloaded' });
 
-    const backupsCard = page.locator('#maintenance-backups');
-    await expect(backupsCard.getByRole('cell', { name: 'Base de données seule' }).first()).toBeVisible();
+    // « Sauvegardes récentes » is its own section since IT-04, and its rows
+    // are a list rather than a table — the family badge carries the type
+    // label, so the assertion is on the badge's text, not on a cell.
+    const backupsList = page.locator('#maintenance-backups-list');
+    await expect(backupsList.getByText('Base de données', { exact: true }).first()).toBeVisible();
 
     // ---------------------------------------------------------------
     // Full encrypted backup (configuration-only scope): started by a
@@ -109,7 +112,7 @@ test('maintenance backups run to completion, the auto-save saves, and the danger
     // finished row IS waiting for the poll to have seen 'done'. The
     // ceiling is generous — the job zips core/, modules/ and public/.
     await expect(
-        backupsCard.getByRole('cell', { name: 'Configuration seule' }).first(),
+        backupsList.getByText('Configuration seule', { exact: true }).first(),
         'the background backup must complete and its row appear',
     ).toBeVisible({ timeout: scaled(120_000) });
     await expect(page.locator('#full-backup-error')).toBeHidden();

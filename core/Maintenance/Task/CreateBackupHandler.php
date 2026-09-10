@@ -26,7 +26,6 @@ use Core\Storage\DiskBudget;
  */
 class CreateBackupHandler implements TaskHandlerInterface
 {
-    private const KEEP = 5;
 
     /**
      * @param array<string, mixed> $payload
@@ -87,7 +86,12 @@ class CreateBackupHandler implements TaskHandlerInterface
             );
 
             $backupRepository->markCompleted($backupId, $zipFileId, $dbDumpFileId);
-            $this->purgeBeyondLimit($backupRepository, $fileRepository, $context->storagePath);
+            (new \Core\Maintenance\BackupRetention(
+                $backupRepository,
+                $fileRepository,
+                $context->storagePath,
+                $context->settings
+            ))->purgeAfterCreating($scope);
 
             $context->journal->log(
                 'core',
@@ -141,32 +145,6 @@ class CreateBackupHandler implements TaskHandlerInterface
                     ]
                 );
             }
-        }
-    }
-
-    /**
-     * Deletes (file + row) every backup beyond the KEEP most recent —
-     * module spec's 5-backup cap, enforced after every successful
-     * generation.
-     */
-    private function purgeBeyondLimit(
-        BackupRepository $backupRepository,
-        FileRepository $fileRepository,
-        string $storagePath
-    ): void
-    {
-        foreach ($backupRepository->findBeyond(self::KEEP) as $old) {
-            foreach ([$old->fileId, $old->dbDumpFileId] as $fileId) {
-                if ($fileId === null) {
-                    continue;
-                }
-                $file = $fileRepository->findById($fileId);
-                if ($file !== null) {
-                    @unlink($storagePath . '/' . $file->relativePath);
-                    $fileRepository->delete($fileId);
-                }
-            }
-            $backupRepository->delete($old->id);
         }
     }
 

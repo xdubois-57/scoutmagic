@@ -57,7 +57,6 @@ use Core\Storage\DiskBudget;
  */
 class RestoreBackupHandler implements TaskHandlerInterface
 {
-    private const KEEP_BACKUPS = 5;
 
     private const TYPE_COMPLETED = 'core.restore_completed';
     private const TYPE_FAILED = 'core.restore_failed';
@@ -417,7 +416,12 @@ class RestoreBackupHandler implements TaskHandlerInterface
             $requestedBy
         );
 
-        $this->purgeBeyondLimit($backupRepository, $fileRepository, $context->storagePath);
+        (new \Core\Maintenance\BackupRetention(
+            $backupRepository,
+            $fileRepository,
+            $context->storagePath,
+            $context->settings
+        ))->purgeAfterCreating('auto_reset');
 
         RequesterNotice::send(
             $context,
@@ -556,31 +560,6 @@ class RestoreBackupHandler implements TaskHandlerInterface
         $needsPassword = in_array($backup->type, self::ENCRYPTED_BACKUP_TYPES, true);
 
         return [$dbDumpPath, $filesZipPath, $needsPassword ? $password : null, null];
-    }
-
-    /**
-     * Deletes (file + row) every backup beyond the KEEP_BACKUPS most recent
-     * — same purge as the other background Maintenance tasks.
-     */
-    private function purgeBeyondLimit(
-        BackupRepository $backupRepository,
-        FileRepository $fileRepository,
-        string $storagePath
-    ): void
-    {
-        foreach ($backupRepository->findBeyond(self::KEEP_BACKUPS) as $old) {
-            foreach ([$old->fileId, $old->dbDumpFileId] as $fileId) {
-                if ($fileId === null) {
-                    continue;
-                }
-                $file = $fileRepository->findById($fileId);
-                if ($file !== null) {
-                    @unlink($storagePath . '/' . $file->relativePath);
-                    $fileRepository->delete($fileId);
-                }
-            }
-            $backupRepository->delete($old->id);
-        }
     }
 
     private function relativePath(string $storagePath, string $absolutePath): string

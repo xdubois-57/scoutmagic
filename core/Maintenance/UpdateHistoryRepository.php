@@ -95,6 +95,34 @@ class UpdateHistoryRepository
     }
 
     /**
+     * The `backups.id` of every update that has not finished — queued, or
+     * at any step of running.
+     *
+     * Read by `Core\Maintenance\BackupSafetyNet` to refuse deleting the
+     * backup an update would roll back to. Deliberately NOT built on
+     * findInProgress(), which marks a stalled row failed as a side effect
+     * of being asked: a question about whether a delete button may be
+     * pressed must not change the state of an update while answering.
+     *
+     * 'failed' and 'rolled_back' are excluded on purpose — both mean the
+     * site is back where it started and the net has already done its work
+     * or will never be used.
+     *
+     * @return int[]
+     */
+    public function liveBackupIds(): array
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT backup_id FROM update_history
+             WHERE backup_id IS NOT NULL
+               AND status IN ('pending', 'backing_up', 'downloading', 'installing', 'migrating')"
+        );
+        $stmt->execute();
+
+        return array_map(intval(...), $stmt->fetchAll(\PDO::FETCH_COLUMN) ?: []);
+    }
+
+    /**
      * Every row still merely queued, oldest first — for
      * AbandonedInstallSweeper, the only thing that ever closes a 'pending'
      * row that nothing is going to start. Deliberately not folded into

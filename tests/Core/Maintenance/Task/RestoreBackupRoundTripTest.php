@@ -481,8 +481,13 @@ class RestoreBackupRoundTripTest extends TestCase
         $backups = new BackupRepository($this->pdo());
         $files = new FileRepository($this->pdo());
 
-        // More than the five the purge keeps, each pointing at a file, so
-        // the purge actually reaches for the table.
+        // More than the purge keeps of the family a restore's own purge
+        // touches — 'auto_reset', the safety copy this pass takes — each
+        // pointing at a file, so the purge actually reaches for the table.
+        // The family matters since IT-04: a purge triggered by an
+        // operational backup no longer walks the manual ones, so seven
+        // 'database' rows here would leave the tail with nothing to do and
+        // this test with nothing to observe.
         for ($i = 0; $i < 7; $i++) {
             $fileId = $files->create(
                 'maintenance/vieux_' . $i . '.zip',
@@ -493,7 +498,7 @@ class RestoreBackupRoundTripTest extends TestCase
                 null,
                 null
             );
-            $backups->markCompleted($backups->create('database', null), $fileId, $fileId);
+            $backups->markCompleted($backups->create('auto_reset', null), $fileId, $fileId);
         }
 
         $this->pdo()->exec('SET FOREIGN_KEY_CHECKS = 0');

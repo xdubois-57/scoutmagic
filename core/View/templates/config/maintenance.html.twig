@@ -1,15 +1,65 @@
 {% extends 'base.html.twig' %}
 {% block title %}Maintenance — {{ param('site_name') }}{% endblock %}
 
-{% macro backup_type_label(type) %}
-    {%- if type == 'database' -%}Base de données seule
-    {%- elseif type == 'full_config' -%}Configuration seule
-    {%- elseif type == 'full_no_gallery' -%}Site complet, sans galerie
-    {%- elseif type == 'full_with_gallery' -%}Site complet, avec galerie
-    {%- elseif type == 'auto_update' -%}Automatique (avant mise à jour)
-    {%- elseif type == 'auto_reset' -%}Automatique (avant réinitialisation)
-    {%- elseif type == 'auto_backup' -%}Automatique (planifiée)
-    {%- endif -%}
+{# Une ligne de « Sauvegardes récentes ». Rendue par une macro parce que
+   la liste est coupée en deux — les cinq visibles, puis le reste dans un
+   <details> — et que deux copies de la même ligne divergeraient à la
+   première correction. Toutes les chaînes affichées (libellé du type,
+   libellé et couleur de la famille, taille) arrivent déjà écrites depuis
+   Core\Http\Controller\MaintenanceController::backupList() : un choix
+   pris dans un fichier Twig est un choix que personne ne peut tester, et
+   la confirmation de suppression doit nommer la sauvegarde avec exactement
+   les mêmes mots que la ligne. #}
+{% macro backup_rows(rows) %}
+    <ul class="list-unstyled mb-0">
+        {% for backup in rows %}
+            <li class="d-flex flex-wrap align-items-center gap-2 border-bottom py-2">
+                <div class="flex-grow-1">
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <span class="badge {{ backup.familyClass }}">{{ backup.typeLabel }}</span>
+                        {% if backup.status == 'in_progress' %}
+                            {% include 'partials/status_badge.html.twig' with { status: 'in_progress', label: 'En cours' } only %}
+                        {% elseif backup.status == 'pending' %}
+                            {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'En attente' } only %}
+                        {% elseif backup.status == 'failed' %}
+                            {# title tooltip (error detail) — kept out of the shared partial #}
+                            <span class="badge text-bg-danger" title="{{ backup.errorMessage }}">Échouée</span>
+                        {% endif %}
+                    </div>
+                    <div class="small text-body-secondary mt-1">
+                        {{ backup.createdAt }}{% if backup.sizeLabel %} · {{ backup.sizeLabel }}{% endif %}
+                    </div>
+                </div>
+                {% if backup.status == 'completed' and backup.fileId %}
+                    {% include 'partials/file_link.html.twig' with {
+                        href: '/files/' ~ backup.fileId,
+                        label: 'Télécharger',
+                        classes: 'btn btn-sm btn-outline-secondary',
+                        icon: 'download',
+                    } only %}
+                {% endif %}
+                {# La confirmation est `data-confirm` sur le FORMULAIRE
+                   (design.md §7.5) et nomme la sauvegarde. Pas de mot-clé à
+                   taper : ce niveau-là est réservé aux trois actions de
+                   réinitialisation (§8.18), et le banaliser l'affaiblirait
+                   là où il compte vraiment.
+
+                   Une sauvegarde « avant opération » ajoute une phrase :
+                   c'est celle dont dépend un retour en arrière automatique.
+                   Le refus dur, lui, ne s'applique que si une tâche la
+                   référence et tourne — Core\Maintenance\BackupSafetyNet
+                   le décide côté serveur et dit pourquoi. #}
+                <form method="post" action="/config/maintenance/backup/{{ backup.id }}/delete"
+                      data-confirm="Supprimer la sauvegarde « {{ backup.typeLabel }} » du {{ backup.createdAt }}{% if backup.sizeLabel %} ({{ backup.sizeLabel }}){% endif %} ?{% if backup.isOperational %} C'est la sauvegarde de sécurité d'une opération : tant qu'elle existe, un retour en arrière automatique reste possible.{% endif %}"
+                      data-confirm-label="Supprimer">
+                    {{ csrf_field()|raw }}
+                    <button type="submit" class="btn btn-sm btn-outline-danger">
+                        <i class="bi bi-trash" aria-hidden="true"></i> Supprimer
+                    </button>
+                </form>
+            </li>
+        {% endfor %}
+    </ul>
 {% endmacro %}
 
 {% block content %}
@@ -448,7 +498,14 @@
         </div>
     </div>
 
-    {# ————— Sauvegardes ————— #}
+    {# ————— Sauvegardes —————
+
+       Trois sections <h2 class="h5"> là où il y en avait une, exactement
+       comme la page sépare déjà « Mise à jour » et « Mises à jour
+       automatiques » : une seule boîte portant l'espace disque, la
+       fréquence, trois déclenchements manuels, la liste et la suppression
+       ne se lit plus. Les quatre autres sections de la page ne bougent
+       pas. #}
     <div class="card mb-4" id="maintenance-backups">
         <div class="card-body">
             <h2 class="h5 mb-3">Sauvegardes</h2>
@@ -486,33 +543,14 @@
             {% endif %}
             <p class="small text-body-secondary mb-3">{{ storage_usage.basisSentence }}</p>
 
-            <hr class="my-4">
-
-            <div class="d-flex align-items-center gap-2 flex-wrap mb-1">
-                <label class="form-label small mb-0" for="auto-backup-frequency">Sauvegarde automatique complète (sans galerie)</label>
-                <select class="form-select form-select-sm w-auto" id="auto-backup-frequency">
-                    <option value="none" {{ backup_auto_frequency == 'none' ? 'selected' : '' }}>Aucune</option>
-                    <option value="daily" {{ backup_auto_frequency == 'daily' ? 'selected' : '' }}>Quotidienne</option>
-                    <option value="weekly" {{ backup_auto_frequency == 'weekly' ? 'selected' : '' }}>Hebdomadaire</option>
-                    <option value="biweekly" {{ backup_auto_frequency == 'biweekly' ? 'selected' : '' }}>Toutes les 2 semaines</option>
-                    <option value="monthly" {{ backup_auto_frequency == 'monthly' ? 'selected' : '' }}>Mensuelle</option>
-                </select>
-            </div>
-            <p class="small text-body-secondary mb-3">
-                {% if backup_auto_last_run %}
-                    Dernière sauvegarde automatique : {{ backup_auto_last_run }}.
-                {% else %}
-                    Aucune sauvegarde automatique effectuée pour le moment.
-                {% endif %}
-                Comptée dans les 5 sauvegardes conservées ci-dessous.
-            </p>
-
             {% if not zip_encryption_supported %}
                 <div class="alert alert-warning small">
                     Le serveur ne supporte pas le chiffrement des archives — la sauvegarde complète est indisponible.
                     Contactez votre hébergeur. La sauvegarde de la base de données seule reste utilisable.
                 </div>
             {% endif %}
+
+            <hr class="my-4">
 
             <div class="row g-4">
                 <div class="col-12 col-md-6">
@@ -534,6 +572,8 @@
                     <p class="text-body-secondary small">
                         Archive ZIP protégée par mot de passe, générée en arrière-plan. Vous recevrez une
                         notification lorsqu'elle sera prête.
+                        <strong>Sans les secrets</strong> : elle se restaure sur cette installation, pas sur
+                        une autre.
                     </p>
                     {# Core\Maintenance\BackupService exclut storage/keys et
                        storage/config de l'archive (« secrets never leave the
@@ -591,58 +631,77 @@
                     </form>
                 </div>
             </div>
+        </div>
+    </div>
 
-            <hr class="my-4">
+    {# ————— Sauvegardes automatiques et distantes —————
 
-            <h3 class="h6">Sauvegardes récentes</h3>
+       Ce qui part tout seul, par opposition à ce qu'on déclenche à la main
+       au-dessus. Pour l'instant la seule fréquence ; la destination
+       distante et sa phrase de passe rejoindront cette section. #}
+    <div class="card mb-4" id="maintenance-backups-automatic">
+        <div class="card-body">
+            <h2 class="h5 mb-3">Sauvegardes automatiques et distantes</h2>
+
+            <h3 class="h6">Fréquence</h3>
+            <div class="d-flex align-items-center gap-2 flex-wrap mb-1">
+                <label class="form-label small mb-0" for="auto-backup-frequency">Sauvegarde automatique complète (sans galerie)</label>
+                <select class="form-select form-select-sm w-auto" id="auto-backup-frequency">
+                    <option value="none" {{ backup_auto_frequency == 'none' ? 'selected' : '' }}>Aucune</option>
+                    <option value="daily" {{ backup_auto_frequency == 'daily' ? 'selected' : '' }}>Quotidienne</option>
+                    <option value="weekly" {{ backup_auto_frequency == 'weekly' ? 'selected' : '' }}>Hebdomadaire</option>
+                    <option value="biweekly" {{ backup_auto_frequency == 'biweekly' ? 'selected' : '' }}>Toutes les 2 semaines</option>
+                    <option value="monthly" {{ backup_auto_frequency == 'monthly' ? 'selected' : '' }}>Mensuelle</option>
+                </select>
+            </div>
+            <p class="small text-body-secondary mb-0">
+                {% if backup_auto_last_run %}
+                    Dernière sauvegarde automatique : {{ backup_auto_last_run }}.
+                {% else %}
+                    Aucune sauvegarde automatique effectuée pour le moment.
+                {% endif %}
+                {{ backup_keep_scheduled }} sauvegardes planifiées sont conservées sur le serveur ; elles ne
+                prennent pas la place des sauvegardes que vous créez vous-même.
+            </p>
+        </div>
+    </div>
+
+    {# ————— Sauvegardes récentes —————
+
+       Une seule liste triée par date, familles mélangées : on y cherche
+       « la plus récente », jamais « les planifiées ». La famille est une
+       pastille sur la ligne, pas un regroupement.
+
+       Cinq lignes, puis le reste derrière un « collapse » Bootstrap :
+       exactement le mécanisme que l'historique des mises à jour utilise
+       vingt lignes plus haut, sur cette même page, avec le même
+       collapse-label.js déjà chargé. Deux façons de replier une liste sur
+       un même écran seraient une de trop, et le libellé qui change vient
+       du script parce qu'un swap CSS échoue quand le service worker sert
+       encore l'ancienne feuille (voir ce fichier-là). #}
+    <div class="card mb-4" id="maintenance-backups-list">
+        <div class="card-body">
+            <h2 class="h5 mb-3">Sauvegardes récentes</h2>
+
             {% if backups is empty %}
                 {% include 'partials/empty_state.html.twig' with {
                     message: 'Aucune sauvegarde pour le moment.',
                     compact: true,
                 } only %}
             {% else %}
-                <div class="table-responsive">
-                    <table class="table table-sm align-middle mb-0">
-                        <thead>
-                            <tr>
-                                <th>Type</th>
-                                <th>Date</th>
-                                <th>Statut</th>
-                                <th></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for backup in backups %}
-                                <tr>
-                                    <td class="small">{{ _self.backup_type_label(backup.type) }}</td>
-                                    <td class="small text-nowrap">{{ backup.createdAt }}</td>
-                                    <td>
-                                        {% if backup.status == 'completed' %}
-                                            {% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Terminée' } only %}
-                                        {% elseif backup.status == 'in_progress' %}
-                                            {% include 'partials/status_badge.html.twig' with { status: 'in_progress', label: 'En cours' } only %}
-                                        {% elseif backup.status == 'pending' %}
-                                            {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'En attente' } only %}
-                                        {% elseif backup.status == 'failed' %}
-                                            {# title tooltip (error detail) — kept out of the shared partial #}
-                                            <span class="badge text-bg-danger" title="{{ backup.errorMessage }}">Échouée</span>
-                                        {% endif %}
-                                    </td>
-                                    <td class="text-end">
-                                        {% if backup.status == 'completed' and backup.fileId %}
-                                            {% include 'partials/file_link.html.twig' with {
-                                                href: '/files/' ~ backup.fileId,
-                                                label: 'Télécharger',
-                                                classes: 'btn btn-sm btn-outline-secondary',
-                                                icon: 'download',
-                                            } only %}
-                                        {% endif %}
-                                    </td>
-                                </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
+                {{ _self.backup_rows(backups|slice(0, backups_shown_at_once)) }}
+                {% if backups|length > backups_shown_at_once %}
+                    <div class="collapse" id="backups-more">
+                        {{ _self.backup_rows(backups|slice(backups_shown_at_once)) }}
+                    </div>
+                    <button type="button" class="btn btn-outline-secondary btn-sm mt-2 collapsed"
+                            data-bs-toggle="collapse" data-bs-target="#backups-more"
+                            aria-expanded="false" aria-controls="backups-more"
+                            data-collapse-label-expanded="Réduire">
+                        <span data-collapse-label>Voir plus ({{ backups|length - backups_shown_at_once }})</span>
+                        <i class="bi bi-chevron-down ms-1" aria-hidden="true"></i>
+                    </button>
+                {% endif %}
             {% endif %}
         </div>
     </div>
@@ -710,7 +769,7 @@
                             <select class="form-select form-select-sm" name="backup_id" id="restore-backup-id" {% if backups is empty %}disabled{% endif %}>
                                 {% for backup in backups %}
                                     {% if backup.status == 'completed' %}
-                                        <option value="{{ backup.id }}">{{ _self.backup_type_label(backup.type) }} — {{ backup.createdAt }}</option>
+                                        <option value="{{ backup.id }}">{{ backup.typeLabel }} — {{ backup.createdAt }}</option>
                                     {% endif %}
                                 {% endfor %}
                             </select>

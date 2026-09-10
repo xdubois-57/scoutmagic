@@ -49,7 +49,23 @@ class MaintenanceController extends AbstractController
     /** @var string[] */
     private const FULL_BACKUP_SCOPES = ['full_config', 'full_no_gallery', 'full_with_gallery'];
 
-    private const KEEP_BACKUPS = 5;
+    /**
+     * How many rows « Sauvegardes récentes » shows before « voir plus ».
+     *
+     * Five, as before, but the meaning changed: it used to be how many
+     * backups EXISTED, and it is now only how many are on screen at once.
+     * What exists is decided per family by
+     * `Core\Maintenance\BackupRetention`.
+     */
+    private const BACKUPS_SHOWN_AT_ONCE = 5;
+
+    /**
+     * A belt on the list query. Retention keeps `backups` to a handful of
+     * rows, so this is never reached in practice — it exists so that an
+     * installation whose retention was somehow never enforced renders a
+     * long page instead of trying to render an unbounded one.
+     */
+    private const BACKUPS_LISTED = 100;
 
     /** How many past installations Configuration > Maintenance lists. */
     private const UPDATE_HISTORY_SHOWN = 20;
@@ -200,10 +216,20 @@ class MaintenanceController extends AbstractController
             // by a visitor (Core\Storage\DiskBudget, « Why the measurement
             // is cached »).
             'storage_usage' => $storageUsage,
-            'backups' => $this->backupRepository->findRecent(self::KEEP_BACKUPS),
+            // Every row, not the five the list shows at once: the cap is
+            // retention's business now (per family, Core\Maintenance\
+            // BackupRetention), and the screen's own « voir plus » needs
+            // the rest to have something to reveal. BACKUPS_LISTED is a
+            // safety belt on a table retention already keeps small.
+            'backups' => $this->backupList(),
+            'backups_shown_at_once' => self::BACKUPS_SHOWN_AT_ONCE,
             'gallery_enabled' => in_array('gallery', $this->moduleManager->getEnabledModuleIds(), true),
             'zip_encryption_supported' => $this->backupService->supportsZipEncryption(),
-            'backup_auto_frequency' => (string) ($this->settingService->get('backup_auto_frequency') ?: 'monthly'),
+            // 'weekly' — the registered default since issue #286; a
+            // fallback still spelling 'monthly' would put the select on a
+            // value the installation does not hold.
+            'backup_auto_frequency' => (string) ($this->settingService->get('backup_auto_frequency') ?: 'weekly'),
+            'backup_keep_scheduled' => $this->retention()->quotaFor(\Core\Maintenance\BackupFamily::Scheduled),
             'backup_auto_last_run' => (string) ($this->settingService->get('backup_auto_last_run') ?: ''),
             'auto_update_enabled' => $autoUpdateEnabled,
             'auto_update_level' => $level,
@@ -622,7 +648,7 @@ class MaintenanceController extends AbstractController
                 $userId
             );
             $this->backupRepository->markCompleted($backupId, $fileId, null);
-            $this->purgeBeyondLimit();
+            $this->retention()->purgeAfterCreating('database');
 
             $this->journalService->log(
                 'core', 'backup_completed', 'info', 'Sauvegarde de la base de données générée',
@@ -747,6 +773,117 @@ class MaintenanceController extends AbstractController
         );
 
         return $this->json(['success' => true]);
+    }
+
+    /**
+     * POST /config/maintenance/backup/{id}/delete — removes one backup.
+     *
+     * **The same code path as the automatic purge**, never a second one:
+     * a `backups` row owns two files, and a delete routine that forgot the
+     * database dump would leave an orphan nothing references and only FTP
+     * can reach ({@see \Core\Maintenance\BackupRetention::forget()}).
+     *
+     * **Refused while an operation still needs it.** An `auto_update`
+     * backup is the only thing an automatic rollback can start from, and
+     * the person looking at a list of dates cannot know which one that is
+     * — so the refusal is explicit, with the reason on screen, rather than
+     * a greyed-out button that reads as a bug
+     * ({@see \Core\Maintenance\BackupSafetyNet}).
+     *
+     * Journaled at `security` level: this destroys a means of recovery.
+     * The confirmation is `data-confirm` on the form and names the backup
+     * (design.md §7.5) — deliberately NOT the typed keyword the three
+     * reset actions require (§8.18), because a keyword that appears
+     * everywhere stops being read where it counts.
+     *
+     * @param array<string, string> $params
+     */
+    public function deleteBackup(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, '/config/maintenance')) !== null) {
+            return $guard;
+        }
+
+        $backup = $this->backupRepository->findById((int) ($params['id'] ?? 0));
+        if ($backup === null) {
+            // Already gone — two clicks on the same button, or a purge in
+            // between. Saying so beats a 404 on a page the admin is still
+            // reading.
+            FlashMessage::set('error', 'Cette sauvegarde n\'existe plus.');
+            return $this->redirect('/config/maintenance');
+        }
+
+        $reason = $this->safetyNet()->reasonToKeep($backup->id);
+        if ($reason !== null) {
+            FlashMessage::set('error', $reason);
+            return $this->redirect('/config/maintenance');
+        }
+
+        $this->retention()->forget($backup);
+
+        $this->journalService->log(
+            'core',
+            'backup_deleted',
+            'security',
+            'Sauvegarde supprimée',
+            ['backup_id' => $backup->id, 'type' => $backup->type, 'created_at' => $backup->createdAt],
+            AuthSession::getUserAccountId()
+        );
+        FlashMessage::set(
+            'success',
+            'Sauvegarde supprimée : ' . \Core\Maintenance\Backup::typeLabel($backup->type)
+                . ' du ' . $backup->createdAt . '.'
+        );
+
+        return $this->redirect('/config/maintenance');
+    }
+
+    private function safetyNet(): \Core\Maintenance\BackupSafetyNet
+    {
+        return new \Core\Maintenance\BackupSafetyNet(
+            $this->schedulerService,
+            $this->updateHistoryRepository
+        );
+    }
+
+    /**
+     * The rows « Sauvegardes récentes » renders, already spelled for the
+     * screen.
+     *
+     * Type label, family label and size all come from PHP rather than from
+     * the template, for the reason the disk block above already gives: a
+     * choice made in a Twig file is a choice nobody can test — and the
+     * deletion confirmation has to name the backup with exactly the same
+     * words the row does, or it stops matching the line somebody clicked.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function backupList(): array
+    {
+        $rows = [];
+        foreach ($this->backupRepository->findForList(self::BACKUPS_LISTED) as $backup) {
+            $family = \Core\Maintenance\BackupFamily::tryFromType($backup->type);
+            $rows[] = [
+                'id' => $backup->id,
+                'typeLabel' => \Core\Maintenance\Backup::typeLabel($backup->type),
+                'familyLabel' => $family?->label(),
+                'familyClass' => $family?->badgeClass() ?? 'text-bg-light',
+                // A flag rather than the template comparing the French
+                // label: the extra warning in the deletion confirmation
+                // would vanish silently the day somebody rewords the
+                // badge, and nothing would fail.
+                'isOperational' => $family === \Core\Maintenance\BackupFamily::Operational,
+                'status' => $backup->status,
+                'errorMessage' => $backup->errorMessage,
+                'createdAt' => $backup->createdAt,
+                'fileId' => $backup->fileId,
+                'sizeLabel' => $backup->sizeBytes !== null && $backup->sizeBytes > 0
+                    ? \Core\Storage\ByteFormatter::format($backup->sizeBytes)
+                    : null,
+            ];
+        }
+
+        return $rows;
     }
 
     /**
@@ -1361,25 +1498,18 @@ class MaintenanceController extends AbstractController
     }
 
     /**
-     * Deletes (file + row) every backup beyond the 5 most recent — module
-     * spec's automatic purge, run after every successful synchronous
-     * database-only backup. CreateBackupHandler does the equivalent for
-     * the background full-backup path.
+     * The one retention/deletion path, shared with every background task
+     * that creates a backup — never a second copy of "unlink the files,
+     * delete the row", which is how a `backups` row's SECOND file ends up
+     * orphaned on disk.
      */
-    private function purgeBeyondLimit(): void
+    private function retention(): \Core\Maintenance\BackupRetention
     {
-        foreach ($this->backupRepository->findBeyond(self::KEEP_BACKUPS) as $old) {
-            foreach ([$old->fileId, $old->dbDumpFileId] as $fileId) {
-                if ($fileId === null) {
-                    continue;
-                }
-                $file = $this->fileRepository->findById($fileId);
-                if ($file !== null) {
-                    @unlink($this->storagePath . '/' . $file->relativePath);
-                    $this->fileRepository->delete($fileId);
-                }
-            }
-            $this->backupRepository->delete($old->id);
-        }
+        return new \Core\Maintenance\BackupRetention(
+            $this->backupRepository,
+            $this->fileRepository,
+            $this->storagePath,
+            $this->settingService
+        );
     }
 }
