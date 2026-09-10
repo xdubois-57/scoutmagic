@@ -718,17 +718,50 @@ $settingService->register('backup_auto_last_run', '', 'text', 'Dernière sauvega
 // kept the noise. The family is deduced from the type
 // (Core\Maintenance\BackupFamily) — never a column, which would be a
 // second source of truth for something the type already decides.
-$settingService->register('backup_keep_manual', '3', 'number', 'Sauvegardes manuelles conservées',
+//
+// Dépliés un argument par ligne, contrairement à leurs voisins : c'est du
+// code neuf, et SonarCloud relève l'alignement de la forme repliée
+// (php:S1808) sur les lignes que cette branche écrit. Les voisins gardent
+// la leur — les reformater serait du bruit dans une PR qui ne les touche
+// pas.
+$settingService->register(
+    'backup_keep_manual',
+    '3',
+    'number',
+    'Sauvegardes manuelles conservées',
     'Nombre de sauvegardes créées à la main (base de données, sauvegarde complète) que le site garde sur le '
         . 'serveur. Au-delà, la plus ancienne est supprimée à la création de la suivante.',
-    null, '^[1-9][0-9]*$', null, true, 129);
-$settingService->register('backup_keep_scheduled', '3', 'number', 'Sauvegardes planifiées conservées',
+    null,
+    '^[1-9][0-9]*$',
+    null,
+    true,
+    129
+);
+$settingService->register(
+    'backup_keep_scheduled',
+    '3',
+    'number',
+    'Sauvegardes planifiées conservées',
     'Nombre de sauvegardes automatiques planifiées que le site garde sur le serveur.',
-    null, '^[1-9][0-9]*$', null, true, 130);
-$settingService->register('backup_keep_operational', '3', 'number', 'Sauvegardes avant opération conservées',
+    null,
+    '^[1-9][0-9]*$',
+    null,
+    true,
+    130
+);
+$settingService->register(
+    'backup_keep_operational',
+    '3',
+    'number',
+    'Sauvegardes avant opération conservées',
     'Nombre de sauvegardes de sécurité — celles prises juste avant une mise à jour ou une réinitialisation — '
         . 'que le site garde sur le serveur.',
-    null, '^[1-9][0-9]*$', null, true, 131);
+    null,
+    '^[1-9][0-9]*$',
+    null,
+    true,
+    131
+);
 // The following 5 settings are managed exclusively from the "Mises à jour
 // automatiques" section of Configuration > Maintenance (Core\Http\
 // Controller\MaintenanceController) — deliberately excluded from the
