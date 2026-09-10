@@ -338,6 +338,58 @@ final class PortableRestoreTest extends TestCase
     }
 
     /**
+     * An archive carrying no site data is refused, and refused early.
+     *
+     * It is not a corrupt file — it opens, its digests match, its
+     * database is there — which is exactly why it needs saying: without
+     * this the restore would replace the database with the origin's and
+     * then extract nothing, leaving a site whose data and whose files
+     * disagree.
+     */
+    public function testAnArchiveWithNoSiteFilesIsRefusedBeforeTheDatabaseIsReplaced(): void
+    {
+        $connection = $this->realDbConnection();
+        $service = new BackupService($connection, $this->originBase . '/storage', $this->originBase);
+        if (!$service->supportsZipEncryption()) {
+            $this->markTestSkipped('This PHP build has no AES zip encryption, which this feature refuses without.');
+        }
+
+        $result = $service->createPortableBackup(self::PASSPHRASE, '2.4.1', self::ORIGIN_ID);
+        $this->zipPath = $result['zipPath'];
+        $this->dbDumpPath = $result['dbDumpPath'];
+
+        $zip = new \ZipArchive();
+        $this->assertTrue($zip->open($this->zipPath) === true);
+        for ($i = $zip->numFiles - 1; $i >= 0; $i--) {
+            $stat = $zip->statIndex($i);
+            if ($stat !== false && str_starts_with((string) $stat['name'], 'storage/')) {
+                $this->assertTrue($zip->deleteIndex($i));
+            }
+        }
+        $zip->close();
+
+        $intact = 'cible-intacte-' . bin2hex(random_bytes(4));
+        $this->seedSetting($connection->getPdo(), 'site_name', $intact);
+
+        $archive = PortableArchive::open($this->zipPath, self::PASSPHRASE);
+
+        try {
+            (new PortableRestore($this->targetBase, $this->targetBase . '/storage'))->apply(
+                $archive,
+                new BackupService($connection, $this->targetBase . '/storage', $this->targetBase),
+                $this->targetOwnedSecrets()
+            );
+            $this->fail('An archive with nothing to restore was accepted.');
+        } catch (BackupException $e) {
+            $this->assertStringContainsString('aucun fichier à restaurer', $e->getMessage());
+        } finally {
+            $archive->close();
+        }
+
+        $this->assertSame($intact, $this->readSetting($connection->getPdo(), 'site_name'));
+    }
+
+    /**
      * **A hostile entry is refused while the target is still intact.**
      *
      * `restorableEntries()` is where a `..` path, a symlink or a payload

@@ -126,6 +126,10 @@ beforeEach(() => {
     // The shared confirmation, stubbed: the installer's one destructive
     // button must ask before it empties anything.
     window.ScoutMagicConfirm = { ask: vi.fn(() => Promise.resolve(true)) };
+    // The shared chunked uploader is absent unless a test provides one:
+    // left over from a previous case it would silently reroute another
+    // test's upload.
+    delete window.ScoutMagicChunkedUpload;
 });
 
 describe('setup.js: SMTP fields visibility', () => {
@@ -608,6 +612,81 @@ describe('setup.js: restoring from a portable backup', () => {
         // Nothing left to fill in: the restored site already has its unit,
         // its accounts and its settings.
         expect(document.getElementById('btn-portable-restore').disabled).toBe(true);
+    });
+
+    /**
+     * **The big-archive path**, which is the one this feature actually
+     * needs: a unit's portable backup is routinely larger than a shared
+     * host's `post_max_size`, so the single POST above would never reach
+     * the server at all.
+     *
+     * What is asserted is the hand-off. The shared uploader sends the
+     * archive in fragments and returns an identifier; the restore request
+     * that follows carries no file, only that identifier — and the same
+     * database credentials as the direct path, because the restore keeps
+     * them either way (D5).
+     */
+    it('sends a large archive in fragments and then restores from the upload identifier', async () => {
+        await readyToRestore();
+
+        const uploads = [];
+        window.ScoutMagicChunkedUpload = {
+            CHUNK_THRESHOLD: 1024,
+            uploadInChunks: vi.fn((file, url, options) => {
+                uploads.push({ name: file.name, url, csrfToken: options.csrfToken });
+                options.onProgress(512, 1024);
+
+                return Promise.resolve({ uploadId: 'ab12cd34' });
+            }),
+        };
+        attachFile('portable-file', 'grosse-sauvegarde.zip', 4096);
+        document.getElementById('portable-file').dispatchEvent(new Event('change'));
+
+        const calls = [];
+        global.fetch = vi.fn((url, init) => {
+            calls.push({ url, body: init.body });
+
+            return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true }) });
+        });
+
+        document.getElementById('btn-portable-restore').click();
+        await settle();
+
+        expect(uploads).toHaveLength(1);
+        expect(uploads[0].url).toBe('/setup/restore-portable-chunk');
+        expect(uploads[0].csrfToken).toBe('setup-tok');
+
+        expect(calls).toHaveLength(1);
+        expect(calls[0].url).toBe('/setup/restore-portable');
+        expect(calls[0].body.get('upload_id')).toBe('ab12cd34');
+        // No file in the body: it went up in fragments, and sending it
+        // again is exactly what this path exists to avoid.
+        expect(calls[0].body.get('portable_file')).toBeNull();
+        expect(calls[0].body.get('db_name')).toBe('scoutmagic');
+    });
+
+    /**
+     * A failure during the upload is reported as a failure, not as a
+     * restore that never answers.
+     */
+    it('reports an upload that could not finish', async () => {
+        await readyToRestore();
+
+        window.ScoutMagicChunkedUpload = {
+            CHUNK_THRESHOLD: 1024,
+            uploadInChunks: vi.fn(() => Promise.reject(new Error('Connexion interrompue.'))),
+        };
+        attachFile('portable-file', 'grosse-sauvegarde.zip', 4096);
+        document.getElementById('portable-file').dispatchEvent(new Event('change'));
+
+        global.fetch = vi.fn();
+
+        document.getElementById('btn-portable-restore').click();
+        await settle();
+
+        expect(global.fetch).not.toHaveBeenCalled();
+        expect(document.getElementById('portable-restore-result').textContent).toContain('Connexion interrompue');
+        expect(document.getElementById('btn-portable-restore').disabled).toBe(false);
     });
 
     /**

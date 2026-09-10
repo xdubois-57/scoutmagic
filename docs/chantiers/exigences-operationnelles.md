@@ -1515,6 +1515,16 @@ refusée — cela n'a jamais fait de doute — mais que la base de la cible
 est intacte quand elle l'est ; en rétablissant l'ordre d'avant, c'est
 exactement lui qui tombe.
 
+**Un garde-fou qui n'en était pas un.** `restorableEntries()` filtrait les
+entrées par une liste blanche (`storage/`) *puis* par une liste noire
+(`secrets/`). La seconde ne pouvait jamais s'exécuter : un nom qui
+commence par `storage/` ne commence pas par `secrets/`. Elle a été
+retirée plutôt que couverte — du code inatteignable qui se lit comme une
+protection est pire qu'absent, puisqu'il invite à croire que la
+protection existe à deux endroits. La liste blanche, elle, refuse les
+secrets scellés, le manifeste et le dump de la seule façon qui vaille :
+en n'ayant jamais dit oui.
+
 **Reporté.** La destination distante (IT-08) et l'envoi récurrent avec
 rétention distante (IT-09). Le téléversement fragmenté de l'assistant ne
 consulte pas le budget disque, faute de base de données où lire un quota

@@ -93,6 +93,7 @@ final class SetupPortableRestoreTest extends TestCase
     {
         $_SESSION = [];
         $_POST = [];
+        $_FILES = [];
         foreach ($this->cleanupPaths as $path) {
             if (is_file($path)) {
                 @unlink($path);
@@ -284,6 +285,228 @@ final class SetupPortableRestoreTest extends TestCase
             self::ORIGIN_ID,
             $this->readSetting($connection->getPdo(), InstallationIdentityService::RESTORED_FROM_SETTING)
         );
+    }
+
+    /**
+     * **The upload endpoint doing its job**, which nothing else here
+     * covers: the refusal tests above stop at the gate, and the end-to-end
+     * test reaches the chunk store directly rather than through HTTP.
+     *
+     * What is asserted is the contract the shared uploader depends on —
+     * `public/assets/js/chunked-upload.js` sends `file`, `chunk_offset`
+     * and `last`, and reads `received` back to know where it is. A server
+     * that accepted fragments and reported the wrong total would produce a
+     * client that resumes from the wrong place, which shows up as a
+     * corrupt archive rather than as an upload error.
+     */
+    public function testAFragmentIsStoredAndTheTotalHeldIsReportedBack(): void
+    {
+        $_SESSION['setup_token_verified'] = true;
+        $uploadId = bin2hex(random_bytes(16));
+        $csrf = $this->issueCsrfToken();
+
+        [$status, $body] = $this->postChunk($uploadId, $csrf, 'les premiers octets', 0, false);
+
+        $this->assertSame(200, $status);
+        $this->assertTrue($body['success'] ?? false);
+        $this->assertSame(strlen('les premiers octets'), $body['received'] ?? null);
+
+        [$status, $body] = $this->postChunk($uploadId, $csrf, ' et la suite', strlen('les premiers octets'), true);
+
+        $this->assertSame(200, $status);
+        $this->assertSame(strlen('les premiers octets et la suite'), $body['received'] ?? null);
+    }
+
+    /**
+     * A fragment that does not continue where the file ends is refused
+     * with the real size, not with a bare error.
+     *
+     * That number is the whole point of answering 409 rather than 400: it
+     * is what lets an interrupted upload resume from the right offset
+     * instead of starting a multi-hundred-megabyte archive again.
+     */
+    public function testAFragmentOutOfSequenceIsRefusedWithTheSizeActuallyHeld(): void
+    {
+        $_SESSION['setup_token_verified'] = true;
+        $uploadId = bin2hex(random_bytes(16));
+        $csrf = $this->issueCsrfToken();
+
+        $this->postChunk($uploadId, $csrf, 'les premiers octets', 0, false);
+
+        [$status, $body] = $this->postChunk($uploadId, $csrf, 'la suite, mais trop loin', 9_999, false);
+
+        $this->assertSame(409, $status);
+        $this->assertFalse($body['success'] ?? true);
+        $this->assertSame(strlen('les premiers octets'), $body['received'] ?? null);
+    }
+
+    /**
+     * And when even the identifier is unusable, the answer is still the
+     * shape the uploader expects.
+     *
+     * Asking the store how much it holds fails for the same reason the
+     * append did — there is no such upload — so `received` is zero rather
+     * than the request dying on a second exception nobody catches.
+     */
+    public function testAnUnusableUploadIdentifierIsRefusedWithNothingReceived(): void
+    {
+        $_SESSION['setup_token_verified'] = true;
+
+        [$status, $body] = $this->postChunk('pas-un-identifiant', $this->issueCsrfToken(), 'des octets', 0, false);
+
+        $this->assertSame(409, $status);
+        $this->assertFalse($body['success'] ?? true);
+        $this->assertSame(0, $body['received'] ?? null);
+    }
+
+    /** A request with no file at all is a bad request, not a conflict. */
+    public function testARequestCarryingNoFragmentIsRefused(): void
+    {
+        $_SESSION['setup_token_verified'] = true;
+        $csrf = $this->issueCsrfToken();
+
+        $response = $this->controller()->restorePortableChunk(
+            new Request('POST', '/setup/restore-portable-chunk', [], [
+                '_csrf_token' => $csrf,
+                'upload_id' => bin2hex(random_bytes(16)),
+            ], [], []),
+            []
+        );
+        $body = json_decode($response->getBody(), true);
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertIsArray($body);
+        $this->assertFalse($body['success'] ?? true);
+    }
+
+    /**
+     * One fragment, through the endpoint, the way the browser sends it.
+     *
+     * @return array{0: int, 1: array<string, mixed>}
+     */
+    private function postChunk(
+        string $uploadId,
+        string $csrf,
+        string $contents,
+        int $offset,
+        bool $isLast
+    ): array {
+        $tmp = $this->tempDir . '/fragment_' . bin2hex(random_bytes(4)) . '.bin';
+        file_put_contents($tmp, $contents);
+        $_FILES['file'] = [
+            'name' => 'sauvegarde.zip',
+            'tmp_name' => $tmp,
+            'error' => UPLOAD_ERR_OK,
+            'size' => strlen($contents),
+            'type' => 'application/zip',
+        ];
+
+        try {
+            $response = $this->controller()->restorePortableChunk(
+                new Request('POST', '/setup/restore-portable-chunk', [], [
+                    '_csrf_token' => $csrf,
+                    'upload_id' => $uploadId,
+                    'chunk_offset' => (string) $offset,
+                    'last' => $isLast ? '1' : '0',
+                ], [], []),
+                []
+            );
+        } finally {
+            unset($_FILES['file']);
+            @unlink($tmp);
+        }
+
+        $decoded = json_decode($response->getBody(), true);
+
+        return [$response->getStatusCode(), is_array($decoded) ? $decoded : []];
+    }
+
+    /**
+     * **A refusal leaves the wizard usable**, which is the half that is
+     * easy to get wrong.
+     *
+     * A mistyped passphrase is the ordinary failure here, and it must cost
+     * one retry, not the installation. What would make it cost the
+     * installation is the archive's keys being left on disk: from that
+     * moment `SecretManager::isInitialized()` answers true and the next
+     * attempt is refused as "already configured" — on a site with no
+     * database, no account and no way forward.
+     */
+    #[Group('database')]
+    public function testAWrongPassphraseIsRefusedAndLeavesTheWizardAbleToTryAgain(): void
+    {
+        $connection = $this->realDbConnection();
+        $origin = $this->buildOriginArchive($connection);
+        $this->emptyDatabase($connection->getPdo());
+        $this->migrate($connection);
+
+        $_SESSION['setup_token_verified'] = true;
+        $body = $this->targetCredentials() + [
+            '_csrf_token' => $this->issueCsrfToken(),
+            'upload_id' => $this->assembleUpload($origin['zipPath']),
+            'passphrase' => 'une phrase tout à fait différente',
+        ];
+
+        $response = $this->controller()->restorePortable(
+            new Request('POST', '/setup/restore-portable', [], $body, [], ['HTTP_HOST' => 'nouveau.example']),
+            []
+        );
+        $decoded = json_decode($response->getBody(), true);
+
+        $this->assertIsArray($decoded);
+        $this->assertFalse($decoded['success'] ?? true);
+        $this->assertStringContainsString('phrase de passe', (string) ($decoded['message'] ?? ''));
+
+        // Nothing of the archive stayed behind — and in particular the
+        // site is not now pretending to be configured.
+        $this->assertFileDoesNotExist($this->installRoot . '/storage/keys/master.key');
+        $this->assertFileDoesNotExist($this->installRoot . '/storage/uploads/tresorerie.pdf');
+        $this->assertFalse($this->secretManager->isInitialized());
+    }
+
+    /**
+     * **A database that belongs to somebody is refused**, even though the
+     * wizard would never offer one.
+     *
+     * The interface only enables this button after « Installer la base de
+     * données » has succeeded, so through the UI the credentials are the
+     * ones just tested. But this endpoint takes them from the request:
+     * nothing stops a second attempt from naming a different database, and
+     * a dump laid over a live site's data is a merge nobody asked for.
+     *
+     * The guard asks whether anyone LIVES there, not whether tables exist
+     * — the wizard's own install step has just created some forty of them.
+     */
+    #[Group('database')]
+    public function testADatabaseThatAlreadyHoldsASiteIsRefused(): void
+    {
+        $connection = $this->realDbConnection();
+        $origin = $this->buildOriginArchive($connection);
+        $this->emptyDatabase($connection->getPdo());
+        $this->migrate($connection);
+
+        // One account is enough: somebody lives here.
+        $connection->getPdo()
+            ->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)')
+            ->execute(['enc', hash('sha256', 'setup-portable-occupied-' . uniqid())]);
+
+        $_SESSION['setup_token_verified'] = true;
+        $body = $this->targetCredentials() + [
+            '_csrf_token' => $this->issueCsrfToken(),
+            'upload_id' => $this->assembleUpload($origin['zipPath']),
+            'passphrase' => self::PASSPHRASE,
+        ];
+
+        $response = $this->controller()->restorePortable(
+            new Request('POST', '/setup/restore-portable', [], $body, [], ['HTTP_HOST' => 'nouveau.example']),
+            []
+        );
+        $decoded = json_decode($response->getBody(), true);
+
+        $this->assertIsArray($decoded);
+        $this->assertFalse($decoded['success'] ?? true);
+        $this->assertStringContainsString('contient déjà les données', (string) ($decoded['message'] ?? ''));
+        $this->assertFileDoesNotExist($this->installRoot . '/storage/uploads/tresorerie.pdf');
     }
 
     /** What « Installer la base de données » does: the schema, and no data. */

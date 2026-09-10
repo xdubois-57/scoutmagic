@@ -173,6 +173,139 @@ final class PortableArchiveRefusalTest extends TestCase
         }
     }
 
+    /**
+     * A file that is not a zip at all — the very first thing this reader
+     * touches, and the answer an operator gets when they pick the wrong
+     * file in the wizard.
+     */
+    public function testAFileThatIsNotAZipIsRefusedAsUnreadable(): void
+    {
+        $path = $this->tempPath();
+        file_put_contents($path, 'ceci n\'est pas une archive');
+
+        try {
+            PortableArchive::open($path, self::PASSPHRASE);
+            $this->fail('A file that is not a zip was opened as an archive.');
+        } catch (BackupException $e) {
+            $this->assertStringContainsString('lisible', $e->getMessage());
+        }
+    }
+
+    /**
+     * `looksPortable()` is a ROUTING decision, so it answers rather than
+     * throws — including about a path that is not there at all.
+     */
+    public function testLooksPortableAnswersAboutFilesRatherThanThrowing(): void
+    {
+        $this->assertFalse(PortableArchive::looksPortable($this->tempPath() . '_absent'));
+        $this->assertTrue(PortableArchive::looksPortable($this->buildArchive()));
+    }
+
+    /**
+     * A manifest that declares no members at all.
+     *
+     * The digest check has nothing to check, and "nothing to check"
+     * must not read as "everything checked out" — that is the whole
+     * distance between a verification and a formality.
+     */
+    public function testAManifestDeclaringNoMembersIsRefused(): void
+    {
+        $archive = $this->open(['members' => []]);
+
+        try {
+            $archive->verifyDeclaredMembers();
+            $this->fail('An archive declaring none of its files was accepted.');
+        } catch (BackupException $e) {
+            $this->assertStringContainsString('ne déclare aucun', $e->getMessage());
+        } finally {
+            $archive->close();
+        }
+    }
+
+    /** A member the manifest announces and the archive does not hold. */
+    public function testADeclaredMemberMissingFromTheArchiveIsRefused(): void
+    {
+        $archive = $this->open(['members' => ['secrets/absent.enc' => ['sha256' => str_repeat('0', 64)]]]);
+
+        try {
+            $archive->verifyDeclaredMembers();
+            $this->fail('An archive missing a file it announces was accepted.');
+        } catch (BackupException $e) {
+            $this->assertStringContainsString('absent', $e->getMessage());
+        } finally {
+            $archive->close();
+        }
+    }
+
+    /**
+     * An archive with no database in it is refused where the dump is read,
+     * not where the files are.
+     */
+    public function testAnArchiveWithoutADatabaseIsRefused(): void
+    {
+        $archive = $this->open(['dropDatabase' => true]);
+
+        try {
+            $archive->databaseDump();
+            $this->fail('An archive with no database was accepted.');
+        } catch (BackupException $e) {
+            $this->assertStringContainsString('base de données', $e->getMessage());
+        } finally {
+            $archive->close();
+        }
+    }
+
+    /**
+     * And an archive with no sealed keys is refused for what it is: an
+     * ordinary full backup, which cannot be carried elsewhere.
+     */
+    public function testAnArchiveWithoutTheSealedKeysIsRefused(): void
+    {
+        $archive = $this->open(['dropSecrets' => true]);
+
+        try {
+            $archive->unsealSecrets();
+            $this->fail('An archive carrying no keys was accepted as a portable one.');
+        } catch (BackupException $e) {
+            $this->assertStringContainsString('clés de chiffrement', $e->getMessage());
+        } finally {
+            $archive->close();
+        }
+    }
+
+    /**
+     * A symlink under `storage/` is refused rather than extracted: a later
+     * write would follow the link out of the install root.
+     */
+    public function testASymbolicLinkUnderStorageIsRefused(): void
+    {
+        $archive = $this->open(['symlink' => true]);
+
+        try {
+            $archive->restorableEntries();
+            $this->fail('An archive containing a symbolic link was accepted.');
+        } catch (BackupException $e) {
+            $this->assertStringContainsString('lien symbolique', $e->getMessage());
+        } finally {
+            $archive->close();
+        }
+    }
+
+    /** And a path that leaves `storage/` on its way back in. */
+    public function testAPathThatClimbsOutOfTheSiteIsRefused(): void
+    {
+        $archive = $this->open(['traversal' => true]);
+
+        try {
+            $archive->restorableEntries();
+            $this->fail('An archive naming a path outside the install root was accepted.');
+        } catch (BackupException $e) {
+            $this->assertStringContainsString('chemin non autorisé', $e->getMessage());
+        } finally {
+            $archive->close();
+        }
+    }
+
     /** @param array<string, mixed> $options */
     private function open(array $options = []): PortableArchive
     {
@@ -207,14 +340,32 @@ final class PortableArchiveRefusalTest extends TestCase
                 ? 'des octets substitués'
                 : $sealed;
 
-            $this->addEncrypted($zip, $member, $stored, $password);
+            if (($options['dropSecrets'] ?? false) !== true) {
+                $this->addEncrypted($zip, $member, $stored, $password);
+            }
             // The digest of what the archive CLAIMS to hold, so a corrupted
             // member disagrees with its own manifest.
             $members[$member] = ['sha256' => hash('sha256', $sealed), 'bytes' => strlen($sealed)];
         }
 
-        $this->addEncrypted($zip, 'database.sql', '-- un dump', $password);
+        if (($options['dropDatabase'] ?? false) !== true) {
+            $this->addEncrypted($zip, 'database.sql', '-- un dump', $password);
+        }
         $this->addEncrypted($zip, 'storage/uploads/doc.pdf', 'des octets', $password);
+
+        if (($options['traversal'] ?? false) === true) {
+            $this->assertTrue($zip->addFromString('storage/../../evil.txt', 'des octets choisis ailleurs'));
+        }
+        if (($options['symlink'] ?? false) === true) {
+            // The attribute is what makes it a link, not the name — the
+            // reader has to look at what the entry IS.
+            $this->assertTrue($zip->addFromString('storage/uploads/lien', '/etc/passwd'));
+            $this->assertTrue($zip->setExternalAttributesName(
+                'storage/uploads/lien',
+                \ZipArchive::OPSYS_UNIX,
+                (0xA000 | 0777) << 16
+            ));
+        }
 
         $manifest = [
             'format' => PortableManifest::FORMAT,
@@ -224,7 +375,7 @@ final class PortableArchiveRefusalTest extends TestCase
             'installation_id' => 'aaaabbbbccccddddeeeeffff00001111',
             'includes_gallery' => false,
             'includes_secrets' => array_values(PortableManifest::SECRET_MEMBERS),
-            'members' => $members,
+            'members' => $options['members'] ?? $members,
         ];
         $this->addEncrypted($zip, PortableManifest::MEMBER, (string) json_encode($manifest), $password);
 

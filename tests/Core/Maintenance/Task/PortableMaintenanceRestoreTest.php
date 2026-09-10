@@ -24,6 +24,7 @@ use Core\Mail\MailService;
 use Core\Scheduler\TaskContext;
 use Core\Security\EncryptionService;
 use Core\Security\SecretManager;
+use Core\Statistics\InstallationIdentityService;
 use Core\Security\UserAccountRepository;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
@@ -214,6 +215,79 @@ final class PortableMaintenanceRestoreTest extends TestCase
     }
 
     /**
+     * **The pass that finishes the job**, and the only place D6 actually
+     * happens on this route.
+     *
+     * The restore itself cannot adopt the new identity: at that moment the
+     * database is the ORIGIN's, and an origin running an older ScoutMagic
+     * has no `statistics_restored_from` row to write into. So the flag
+     * travels in the queued payload and the work happens here, after the
+     * migration — which is exactly the arrangement that would go unnoticed
+     * if it broke, because a restore that forgets it finishes cleanly and
+     * simply goes on reporting itself as the site it replaced.
+     *
+     * The resumed pass is run from the payload the previous one queued,
+     * not from a payload written here: a test that composed its own would
+     * agree with itself and prove nothing about what was handed over.
+     */
+    public function testTheResumedPassGivesTheRestoredSiteANewIdentity(): void
+    {
+        // Seeded into the database the archive is about to be made from,
+        // so the dump genuinely carries the origin's identity — the shared
+        // test database holds whatever an earlier run left there, which
+        // would let this test pass on a restore that adopted nothing.
+        $this->seedSetting(InstallationIdentityService::INSTALLATION_ID_SETTING, self::ORIGIN_ID);
+        $this->seedSetting(InstallationIdentityService::RESTORED_FROM_SETTING, '');
+        // Cleared before the archive is made, so the dump carries none and
+        // the one counted at the end can only have been written by the
+        // resumed pass. The journal is never truncated between runs, so an
+        // unscoped count would inherit every earlier run's.
+        $this->pdo->exec("DELETE FROM event_log WHERE event_type = 'portable_restore_completed'");
+
+        $this->handler->handle([
+            'source' => 'upload',
+            'uploaded_temp_path' => $this->buildOriginArchive(),
+            'encrypted_password' => $this->encryptedPassphrase(self::PASSPHRASE),
+            'requested_by_user_account_id' => $this->userId,
+        ], $this->context);
+
+        $rows = $this->pdo->query(
+            "SELECT payload FROM scheduled_actions WHERE task_key = 'restore_backup' ORDER BY id DESC"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertNotSame([], $rows, 'no follow-up pass was queued at all');
+        $resumePayload = json_decode((string) $rows[0]['payload'], true);
+        $this->assertIsArray($resumePayload);
+
+        // The rows the restored database carries at this point are the
+        // ORIGIN's — including its identifier, which is the thing that
+        // must not survive.
+        $this->assertSame(
+            self::ORIGIN_ID,
+            $this->readSetting(InstallationIdentityService::INSTALLATION_ID_SETTING)
+        );
+
+        $this->handler->handle($resumePayload, $this->context);
+
+        $this->assertSame(
+            '',
+            $this->readSetting(InstallationIdentityService::INSTALLATION_ID_SETTING),
+            'the restored site still answers with the identity of the site it came from'
+        );
+        $this->assertSame(
+            self::ORIGIN_ID,
+            $this->readSetting(InstallationIdentityService::RESTORED_FROM_SETTING),
+            'the move reads as an abandonment: nothing records where this site came from'
+        );
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query(
+                "SELECT COUNT(*) FROM event_log WHERE event_type = 'portable_restore_completed'"
+            )->fetchColumn(),
+            'the move was not journalled, so nothing on the site says it happened'
+        );
+    }
+
+    /**
      * A passphrase that opens nothing is refused, and the site is left
      * exactly as it was — no safety copy taken, nothing replaced.
      */
@@ -232,6 +306,23 @@ final class PortableMaintenanceRestoreTest extends TestCase
         $this->assertSame([], $this->journalEntries('backup_restore_failed'));
         $this->assertSame($before, file_get_contents($this->siteBase . '/storage/keys/master.key'));
         $this->assertFileDoesNotExist($this->siteBase . '/storage/uploads/tresorerie.pdf');
+    }
+
+    private function seedSetting(string $key, string $value): void
+    {
+        $this->pdo->prepare('DELETE FROM settings WHERE setting_key = ?')->execute([$key]);
+        $this->pdo->prepare(
+            'INSERT INTO settings (setting_key, setting_value, setting_type, label, description) VALUES (?, ?, ?, ?, ?)'
+        )->execute([$key, $value, 'text', $key, '']);
+    }
+
+    private function readSetting(string $key): ?string
+    {
+        $statement = $this->pdo->prepare('SELECT setting_value FROM settings WHERE setting_key = ?');
+        $statement->execute([$key]);
+        $value = $statement->fetchColumn();
+
+        return $value === false ? null : (string) $value;
     }
 
     /** Builds the origin's archive and puts it where an upload would be. */

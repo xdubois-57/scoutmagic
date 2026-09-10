@@ -71,17 +71,6 @@ final class PortableArchive
      */
     private const RESTORED_TREE = 'storage/';
 
-    /**
-     * Members that must never be extracted over the install root.
-     *
-     * The sealed secrets are unsealed and written deliberately, to the
-     * paths the manifest names; the manifest itself describes the archive
-     * and belongs to no installation; the dump is read straight out of the
-     * archive rather than being dropped in the site root. Extracting the
-     * secrets as ordinary entries would write the SEALED bytes where the
-     * live key belongs.
-     */
-    private const NON_RESTORABLE_PREFIXES = ['secrets/'];
 
     /** @param array<string, mixed> $manifest */
     private function __construct(
@@ -422,14 +411,18 @@ final class PortableArchive
                 throw new BackupException('Archive de sauvegarde illisible.');
             }
 
+            // **An allow-list, and it is the only exclusion there is.**
+            // `secrets/`, the manifest and `database.sql` are outside
+            // `storage/`, so this one line already refuses them — and it
+            // refuses them the way an allow-list does, by never having
+            // said yes, rather than by naming each of them. The sealed
+            // secrets in particular must never land as ordinary entries:
+            // that would write the SEALED bytes where the live key
+            // belongs. They are unsealed and written deliberately, by
+            // {@see PortableRestore::installSecrets()}.
             $name = str_replace('\\', '/', (string) $stat['name']);
             if (!str_starts_with($name, self::RESTORED_TREE)) {
                 continue;
-            }
-            foreach (self::NON_RESTORABLE_PREFIXES as $prefix) {
-                if (str_starts_with($name, $prefix)) {
-                    continue 2;
-                }
             }
 
             // A name that begins with `storage/` still has to BE inside
