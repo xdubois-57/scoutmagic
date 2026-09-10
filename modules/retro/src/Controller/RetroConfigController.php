@@ -9,7 +9,6 @@ declare(strict_types=1);
 namespace Modules\Retro\Controller;
 
 use Core\ScoutYear\ScoutYearResolver;
-use Core\ScoutYear\ScoutYearSession;
 use Core\Config\SettingService;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
@@ -185,10 +184,11 @@ class RetroConfigController extends AbstractController
         // everybody between the 1st of September and the import of the new
         // roster — a fail-closed that locks the real chief out of the
         // configuration of a board they are looking at in another year.
-        $scoutYearId = $this->scoutYearService->getEffectiveYear(
-            ScoutYearSession::getPreviewId(),
-            Role::fromString(AuthSession::getRole())
-        )->id;
+        // Preview excluded: a preview is chosen by the person it would
+        // authorise and accepted for any year that ever existed, so
+        // whoever was Staff d'U in 2019-2020 could preview that year and
+        // get this page back (ARCHITECTURE.md §4 « Scout year »).
+        $scoutYearId = $this->scoutYearService->getAuthorizationYear()->id;
         if ($email === null || !$this->memberService->isUnitChief($email, $scoutYearId)) {
             return (new Response('', 403))->setBody('Forbidden');
         }

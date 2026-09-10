@@ -12,7 +12,10 @@ use Core\Http\Controller\AuthController;
 use Core\Http\Request;
 use Core\Import\MemberYearRepository;
 use Core\Mail\MailService;
+use Core\Badge\MemberBadgeRepository;
 use Core\Member\MemberEmailRepository;
+use Core\Member\SectionService;
+use Core\Member\SectionStaffAuthorizationService;
 use Core\ScoutYear\AuthorizationYears;
 use Core\ScoutYear\AuthorizationYearService;
 use Core\ScoutYear\ScoutYearResolver;
@@ -345,6 +348,178 @@ class ScoutYearTransitionAccessTest extends TestCase
     }
 
     // ---------------------------------------------------------------
+    // The year each of them is SERVED (IT-03)
+    // ---------------------------------------------------------------
+
+    /**
+     * A stays on the year that is ending — the one where they have a
+     * section and animés. Under the old rule their `chief` role, granted
+     * by the public year, sent them into the year being prepared, where
+     * they exist nowhere.
+     */
+    public function testAIsServedTheYearThatIsEnding(): void
+    {
+        $this->setPublicYear($this->endingYear);
+        $this->setStaffYear($this->nextYear);
+
+        $effective = $this->effectiveYearFor(self::A_EMAIL);
+
+        $this->assertSame($this->endingYear, $effective->id);
+        $this->assertNull($effective->overrideType);
+    }
+
+    /** B is served the year they were recruited for. */
+    public function testBIsServedTheYearBeingPrepared(): void
+    {
+        $this->setPublicYear($this->endingYear);
+        $this->setStaffYear($this->nextYear);
+
+        $effective = $this->effectiveYearFor(self::B_EMAIL);
+
+        $this->assertSame($this->nextYear, $effective->id);
+        $this->assertSame('staff', $effective->overrideType);
+    }
+
+    /** A chief present in both years is served the staff year, as before. */
+    public function testAChiefPresentInBothYearsIsServedTheStaffYear(): void
+    {
+        $this->createStaffMember('G_BOTH', 'g.both@test.com', $this->endingYear, 'S1', 'chief');
+        $this->createStaffMember('G_BOTH_NEXT', 'g.both@test.com', $this->nextYear, 'S2', 'chief');
+        $this->userRepo->create('g.both@test.com');
+
+        $this->setPublicYear($this->endingYear);
+        $this->setStaffYear($this->nextYear);
+
+        $effective = $this->effectiveYearFor('g.both@test.com');
+
+        $this->assertSame($this->nextYear, $effective->id);
+        $this->assertSame('staff', $effective->overrideType);
+    }
+
+    /** An ordinary member is served the public year, staff year or not. */
+    public function testAnIdentifiedMemberIsServedThePublicYear(): void
+    {
+        $this->createStaffMember('H_ANIME', 'h.anime@test.com', $this->endingYear, 'S1', 'identified');
+        $this->userRepo->create('h.anime@test.com');
+
+        $this->setPublicYear($this->endingYear);
+        $this->setStaffYear($this->nextYear);
+
+        $effective = $this->effectiveYearFor('h.anime@test.com');
+
+        $this->assertSame($this->endingYear, $effective->id);
+        $this->assertNull($effective->overrideType);
+    }
+
+    /**
+     * **The point of serving one year per person rather than widening
+     * every check downstream.** `SectionStaffAuthorizationService` is
+     * untouched by this whole chantier — it still asks its question in
+     * exactly one scout year — and it answers non-empty for both A and B,
+     * because each of them is served the year where they really staff a
+     * section. Every one of its consumers (the Départs page, the section
+     * documents, the chief calendar) inherits that for free.
+     */
+    public function testStaffedSectionsAreNonEmptyForBothOfThemInTheirOwnYear(): void
+    {
+        $this->setPublicYear($this->endingYear);
+        $this->setStaffYear($this->nextYear);
+
+        $connection = Connection::withPdo($this->pdo);
+        $staffedSections = new SectionStaffAuthorizationService(
+            $connection,
+            $this->encryption,
+            new SectionService($connection, $this->encryption, new MemberBadgeRepository($this->pdo)),
+            new MemberEmailRepository($this->pdo, $this->encryption)
+        );
+
+        $forA = $staffedSections->getStaffedSections(
+            self::A_EMAIL,
+            $this->resolvedRoleOf(self::A_EMAIL),
+            $this->effectiveYearFor(self::A_EMAIL)->id
+        );
+        $forB = $staffedSections->getStaffedSections(
+            self::B_EMAIL,
+            $this->resolvedRoleOf(self::B_EMAIL),
+            $this->effectiveYearFor(self::B_EMAIL)->id
+        );
+
+        $this->assertSame(['S1'], array_column($forA, 'desk_code'));
+        $this->assertSame(['S2'], array_column($forB, 'desk_code'));
+    }
+
+    /**
+     * The preview decides what is displayed and contributes nothing to
+     * the role — so it moves the year served and leaves the role alone.
+     * An admin previewing a year they staff nothing in still gets there,
+     * which is what makes previewing usable at all.
+     */
+    public function testThePreviewMovesTheYearServedWithoutTouchingTheRole(): void
+    {
+        $this->setPublicYear($this->endingYear);
+
+        $role = Role::fromString($this->resolvedRoleOf(self::A_EMAIL));
+        $effective = $this->resolverFor(self::A_EMAIL)->getEffectiveYear($this->nextYear, $role);
+
+        $this->assertSame($this->nextYear, $effective->id);
+        $this->assertSame('session', $effective->overrideType);
+        $this->assertSame('chief', $this->resolvedRoleOf(self::A_EMAIL));
+    }
+
+    /**
+     * **A caller that can derive a year from the record it judges asks in
+     * THAT year, and the staff year changes nothing for it.**
+     * `Core\Http\Controller\MemberController::accountStaffsMemberYear()`
+     * and `MemberSearchController::canEditScoutYearOffset()` both read the
+     * scout year off the `member_year` they are about to write, then ask
+     * whoever animates that section that year. Widening either of them
+     * would be a bug rather than an improvement: the row being written is
+     * the thing that names the year.
+     */
+    public function testACallerDerivingItsYearFromTheRecordIsUnaffectedByTheStaffYear(): void
+    {
+        $this->createStaffMember('I_ANIME_S1', 'i.anime@test.com', $this->endingYear, 'S1', 'identified');
+        $animeMemberYearId = (int) $this->pdo->query('SELECT MAX(id) FROM member_years')->fetchColumn();
+
+        $connection = Connection::withPdo($this->pdo);
+        $memberService = new \Core\Member\MemberService(
+            new MemberYearRepository($this->pdo),
+            $this->encryption,
+            $connection,
+            null,
+            new MemberEmailRepository($this->pdo, $this->encryption)
+        );
+        $staffedSections = new SectionStaffAuthorizationService(
+            $connection,
+            $this->encryption,
+            new SectionService($connection, $this->encryption, new MemberBadgeRepository($this->pdo)),
+            new MemberEmailRepository($this->pdo, $this->encryption)
+        );
+
+        $answers = [];
+        foreach ([false, true] as $staffYearOpen) {
+            $this->setPublicYear($this->endingYear);
+            $this->settingService->setInternal(
+                ScoutYearResolver::SETTING_STAFF_YEAR,
+                $staffYearOpen ? (string) $this->nextYear : '0'
+            );
+
+            // Exactly what the controller does: the year comes off the row.
+            $derivedYear = $memberService->getScoutYearIdForMemberYear($animeMemberYearId);
+            $this->assertSame($this->endingYear, $derivedYear);
+
+            $answers[] = $staffedSections->staffsAnimeMemberYear(
+                self::A_EMAIL,
+                $this->resolvedRoleOf(self::A_EMAIL),
+                (int) $derivedYear,
+                $animeMemberYearId
+            );
+        }
+
+        $this->assertSame([true, true], $answers);
+    }
+
+    // ---------------------------------------------------------------
     // Role boundaries (AGENTS.md § Tests — RBAC coverage)
     // ---------------------------------------------------------------
 
@@ -398,6 +573,34 @@ class ScoutYearTransitionAccessTest extends TestCase
     private function setStaffYear(int $id): void
     {
         $this->settingService->setInternal(ScoutYearResolver::SETTING_STAFF_YEAR, (string) $id);
+    }
+
+    /**
+     * A ScoutYearResolver wired the way public/index.php wires it, for one
+     * named account — the composition root's own closure, minus the
+     * session it reads the address out of.
+     */
+    private function resolverFor(string $email): ScoutYearResolver
+    {
+        $resolver = new ScoutYearResolver(
+            new ScoutYearService($this->pdo),
+            $this->settingService,
+            new MemberYearRepository($this->pdo)
+        );
+        $resolver->setStaffYearEligibility(
+            fn(int $staffYearId): bool => Role::fromString($this->roleResolver->resolve($email, $staffYearId))
+                ->hasAccess(Role::INTENDANT)
+        );
+
+        return $resolver;
+    }
+
+    private function effectiveYearFor(string $email): \Core\ScoutYear\EffectiveScoutYear
+    {
+        return $this->resolverFor($email)->getEffectiveYear(
+            null,
+            Role::fromString($this->resolvedRoleOf($email))
+        );
     }
 
     private function authorizationYearService(): AuthorizationYearService

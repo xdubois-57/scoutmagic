@@ -471,8 +471,12 @@ Annual transition from one scout year to the next, managed through a guided work
 ### 16.2 Effective year resolution
 For each request, the effective year is determined in order of precedence:
 1. Preview year (if set in session by admin)
-2. Staff year (if role is chief/intendant and staff year is configured)
+2. Staff year — for whoever is **staff of the staff year itself**, i.e. reaches `intendant` resolved in that year, and not merely for whoever holds that role in general
 3. Public year (fallback for all other users)
+
+Point 2 is what gives the outgoing and incoming staff opposite answers on the same day (§16.5): each is served the one year where they actually have a section. Nothing merges two years — see §16.5's last paragraph.
+
+**Which year an access decision is taken in is a different question from which year is displayed**, and only the first one matters for permissions. The preview moves what is displayed and never who may see it.
 
 ### 16.3 Transition workflow (Espace chefs d'U > Année scoute)
 

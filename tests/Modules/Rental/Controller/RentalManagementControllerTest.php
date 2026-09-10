@@ -117,6 +117,14 @@ class RentalManagementControllerTest extends TestCase
         // the one the code looks in, and every one of them would resolve to
         // nobody.
         $this->scoutYearId = $scoutYearService->getCurrentYear()['id'];
+        // The controller asks ScoutYearResolver for the year the caller is
+        // SERVED. With no public year configured, that resolver falls back
+        // to the date-computed year — the same one above.
+        $scoutYearResolver = new \Core\ScoutYear\ScoutYearResolver(
+            $scoutYearService,
+            $settingService,
+            new \Core\Import\MemberYearRepository($this->pdo)
+        );
 
         $connection = Connection::withPdo($this->pdo);
         $journal = new JournalService(new JournalRepository($this->pdo));
@@ -216,7 +224,7 @@ class RentalManagementControllerTest extends TestCase
         $this->controller = new RentalManagementController(
             $this->twig,
             new RentalAuthorizationService($memberService, $this->assetRepository, $this->managerRepository),
-            $scoutYearService,
+            $scoutYearResolver,
             $this->assetRepository,
             $this->bookingRepository,
             new \Core\Audit\AuditService(new \Core\Audit\AuditRepository($this->pdo, $this->encryption)),

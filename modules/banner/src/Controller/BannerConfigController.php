@@ -8,7 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Banner\Controller;
 
-use Core\Config\ScoutYearService;
+use Core\ScoutYear\ScoutYearResolver;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
@@ -44,7 +44,7 @@ class BannerConfigController extends AbstractController
         private BannerService $bannerService,
         private JournalService $journalService,
         private MemberService $memberService,
-        private ScoutYearService $scoutYearService
+        private ScoutYearResolver $scoutYearResolver
     ) {
     }
 
@@ -244,7 +244,7 @@ class BannerConfigController extends AbstractController
     private function requireUnitChief(): ?Response
     {
         $email = AuthSession::getEmail();
-        $scoutYearId = $this->scoutYearService->getCurrentYear()['id'];
+        $scoutYearId = $this->scoutYearResolver->getAuthorizationYear()->id;
         if ($email === null || !$this->memberService->isUnitChief($email, $scoutYearId)) {
             return (new Response('', 403))->setBody('Forbidden');
         }

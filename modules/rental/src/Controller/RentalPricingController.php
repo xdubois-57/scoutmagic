@@ -8,7 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Controller;
 
-use Core\Config\ScoutYearService;
+use Core\ScoutYear\ScoutYearResolver;
 use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
@@ -55,7 +55,7 @@ class RentalPricingController extends AbstractController
         private RentalAvailabilityService $availabilityService,
         private RentalAuthorizationService $authorizationService,
         private RentalAssetRepository $assetRepository,
-        private ScoutYearService $scoutYearService,
+        private ScoutYearResolver $scoutYearResolver,
         /**
          * Optional (§6.19): null on an installation without the Finance
          * module, where the payments block explains that instead of
@@ -359,7 +359,7 @@ class RentalPricingController extends AbstractController
 
         return $this->authorizationService->canManageAsset(
             AuthSession::getEmail(),
-            (int) $this->scoutYearService->getCurrentYear()['id'],
+            $this->scoutYearResolver->getAuthorizationYear()->id,
             $asset
         ) ? $asset : null;
     }

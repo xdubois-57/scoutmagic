@@ -5,7 +5,8 @@ declare(strict_types=1);
 namespace Tests\Modules\Banner\Controller;
 
 use Core\Config\AppConfig;
-use Core\Config\ScoutYearService;
+use Core\ScoutYear\EffectiveScoutYear;
+use Core\ScoutYear\ScoutYearResolver;
 use Core\Http\FrontController;
 use Core\Http\Request;
 use Core\Http\Router;
@@ -32,7 +33,7 @@ class BannerConfigControllerTest extends TestCase
     private BannerService $bannerService;
     private Environment $twig;
     private MemberService $memberService;
-    private ScoutYearService $scoutYearService;
+    private ScoutYearResolver $scoutYearService;
 
     protected function setUp(): void
     {
@@ -98,8 +99,11 @@ class BannerConfigControllerTest extends TestCase
         // denial tests further down override this per-instance.
         $this->memberService = $this->createMock(MemberService::class);
         $this->memberService->method('isUnitChief')->willReturn(true);
-        $this->scoutYearService = $this->createMock(ScoutYearService::class);
-        $this->scoutYearService->method('getCurrentYear')->willReturn(['id' => 1, 'label' => '2025-2026', 'start_date' => '2025-09-01', 'end_date' => '2026-08-31']);
+        // The year the CALLER is served, preview excluded — see
+        // ScoutYearResolver::getAuthorizationYear().
+        $this->scoutYearService = $this->createMock(ScoutYearResolver::class);
+        $this->scoutYearService->method('getAuthorizationYear')
+            ->willReturn(new EffectiveScoutYear(1, '2025-2026', null));
 
         $this->controller = new BannerConfigController($this->twig, $this->bannerService, $journalService, $this->memberService, $this->scoutYearService);
 

@@ -232,3 +232,89 @@ effective à chaque requête.
 | Seule l'année publique compte dans `resolveAcrossYears()` | `testStaffYearOpenGivesBothOfThemChiefAccess`, `testIntendantInTheStaffYearDoesElevate`, `testBSurvivesTheRequestAfterSigningIn`, `testBsGrantedRoleClearsChiefAndStopsBelowAdmin` |
 | Seuil supprimé | **aucun** — voir la divergence 3 ci-dessus, c'est le constat, pas un trou de couverture |
 | Borne asymétrique supprimée | `testYearOneBehindThePublicYearIsDiscardedToo`, `testDateComputedYearBehindThePublicYearIsDiscarded`, `testPublicYearSwitchedOverEndsAsAccessAndKeepsBs` |
+
+---
+
+## IT-03 — L'année servie
+
+**Livré.** `ScoutYearResolver` : l'éligibilité à l'année staff se teste sur
+le rôle résolu **dans l'année staff elle-même**
+(`setStaffYearEligibility()`, mémoïsé, câblé par `public/index.php`), le
+docblock de la classe est réécrit, et une nouvelle méthode
+`getAuthorizationYear()` sépare « quelle année afficher » de « dans quelle
+année juger qui est l'appelant ». Six appelants en requête basculent
+dessus. Tests : quatre nouveaux cas dans `ScoutYearResolverTest`, six dans
+`ScoutYearTransitionAccessTest`, `ScoutYearTransitionTest` mis à jour.
+Documentation : `ARCHITECTURE.md` §8.26, `specifications.md` §16.2, un
+sujet d'aide.
+
+**Décisions autonomes.**
+
+1. **Un `callable` injecté par un setter plutôt qu'un paramètre de plus sur
+   `getEffectiveYear()`.** La méthode a une quinzaine d'appelants, tous des
+   contrôleurs ; leur ajouter un argument aurait été quinze occasions d'en
+   oublier un, et un oubli est silencieux — la personne retombe sur l'année
+   publique. `ScoutYearResolver` ne touche jamais la session et ne connaît
+   aucune adresse, donc seul le root de composition peut répondre. Non
+   câblé, aucune année staff n'est servie : c'est le sens fermé, et
+   `testStaffYearIgnoredWhenNoEligibilityIsWired` le fige.
+2. **Mémoïsation par année.** Une page résout l'année effective une dizaine
+   de fois, et la réponse coûte une résolution de rôle, donc plusieurs
+   requêtes SQL. `testEligibilityIsResolvedOncePerYear` le tient.
+3. **Le seuil global disparaît.** `getEffectiveYear()` ne teste plus
+   `$role->hasAccess(Role::INTENDANT)` du tout : c'est le rôle *dans
+   l'année visée* qui décide, et le rôle global n'ajoute rien qu'il ne
+   dirait déjà (un rôle atteignant `intendant` dans l'année staff élève
+   déjà le rôle global, par IT-02).
+4. **`getAuthorizationYear()` ne prend aucun paramètre.** L'aperçu était la
+   seule branche de `getEffectiveYear()` à lire un rôle, et cette méthode
+   ne la prend pas. Zéro plomberie chez les appelants.
+
+### Revue des appelants en requête — le point où le document se trompe
+
+Le document affirme que « les onze sites du module locations continuent de
+poser leur question dans une seule année — la bonne pour celui qui la
+pose », et demande de le vérifier plutôt que de le croire. **Vérifié, et
+c'est faux** : aucun de ces sites ne posait sa question dans l'année
+effective. Ils la posaient dans l'année **date-calculée**
+(`ScoutYearService::getCurrentYear()`), qui n'est ni l'année publique ni
+l'année servie, et qui en plus **crée une ligne** en passant.
+
+| Appelant | Année utilisée avant | Verdict |
+|---|---|---|
+| `RentalManagementController` (259, 500, 531, 2460, 755) | `getCurrentYear()`, via un `scoutYearId()` privé | **Exception réelle, traitée** → `getAuthorizationYear()` |
+| `RentalPricingController:360` | `getCurrentYear()` | **Traitée** → `getAuthorizationYear()` |
+| `RentalPublicController:97, 165` | `getCurrentYear()` | **Traitée** → `getAuthorizationYear()` |
+| `RentalMenuHookService:82` | `getCurrentYear()`, passée par le root | **Traitée** → le root passe `getAuthorizationYear()` |
+| `BannerConfigController:248` | `getCurrentYear()` | **Traitée** → `getAuthorizationYear()` |
+| `RetroConfigController:188`, `RetroBoardController:97` | année effective, **aperçu compris** | **Traitée** → `getAuthorizationYear()` (D1) |
+| `retro` (contenu du board) | année effective | Inchangé : c'est de la portée de **données**, pas d'accès |
+| `SectionStaffAuthorizationService::getStaffedSections` | l'année qu'on lui passe | **Inchangé, et c'est la démonstration** : non vide pour A comme pour B, chacun dans son année, sans une ligne modifiée |
+| `MemberService::isUnitChief` / `getLinkedMembers` | l'année qu'on leur passe | **Inchangés**, même raison |
+| `MemberSearchController:206`, `MemberController:105` | dérivée du `member_year` jugé | **Inchangés** (D6). Les élargir serait un bug |
+
+Pourquoi c'était une exception réelle et non un détail : sans ce
+changement, la promesse du chantier — « B franchit les portes » — n'était
+pas tenue pour le module locations ni pour la bannière. B, chef d'unité de
+l'année préparée, se serait vu répondre `Forbidden` par la configuration de
+la bannière et n'aurait eu aucune entrée « Mes locations ». Et le
+comportement bascule tout entier le 1er septembre : avant cette date
+l'année date-calculée reconnaît A et pas B, après elle reconnaît B et pas
+A, sans que rien sur le site n'ait changé.
+
+**Un trou d'autorisation trouvé en passant, et refermé.** `retro` posait
+déjà sa question dans l'année effective — le module avait identifié le
+problème du 1er septembre avant nous — mais **aperçu compris**. Or
+`isUnitChief()` ouvre les commentaires masqués et la modération : c'est
+une décision d'autorisation, et D1 l'interdit. Un `chief` qui fut Staff
+d'U en 2019-2020 pouvait prévisualiser cette année-là et récupérer la
+configuration de la rétro et de la bannière. `getAuthorizationYear()`
+ferme cela pour les deux modules à la fois, sans rien coûter au cas qui
+avait motivé le passage à l'année effective : l'année staff et l'année
+publique y entrent toujours, seul l'aperçu en sort.
+
+### Vérification que les tests mordent
+
+| Mutation | Tests devenus rouges |
+|---|---|
+| L'éligibilité redevient `$role->hasAccess(Role::INTENDANT)` | `testAIsServedTheYearThatIsEnding`, `testStaffedSectionsAreNonEmptyForBothOfThemInTheirOwnYear`, `testStaffYearRefusedToAnAdminWhoIsNotIntendantInThatYear`, `testStaffYearIgnoredWhenNoEligibilityIsWired`, `testEligibilityIsAskedAboutTheStaffYearItself`, `testEligibilityIsResolvedOncePerYear` |

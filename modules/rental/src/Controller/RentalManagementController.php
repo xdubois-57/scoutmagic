@@ -9,7 +9,7 @@ declare(strict_types=1);
 namespace Modules\Rental\Controller;
 
 use Core\Audit\AuditService;
-use Core\Config\ScoutYearService;
+use Core\ScoutYear\ScoutYearResolver;
 use Core\File\UploadException;
 use Core\File\UploadHandler;
 use Core\Http\Controller\AbstractController;
@@ -138,7 +138,7 @@ class RentalManagementController extends AbstractController
     public function __construct(
         Environment $twig,
         private RentalAuthorizationService $authorizationService,
-        private ScoutYearService $scoutYearService,
+        private ScoutYearResolver $scoutYearResolver,
         private RentalAssetRepository $assetRepository,
         private RentalBookingRepository $bookingRepository,
         private AuditService $audit,
@@ -752,7 +752,7 @@ class RentalManagementController extends AbstractController
             'move_targets' => $this->communicationService?->moveTargets(
                 $booking,
                 AuthSession::getEmail(),
-                (int) $this->scoutYearService->getCurrentYear()['id']
+                $this->scoutYearId()
             ) ?? [],
             'uploadable_types' => DocumentType::uploadable(),
             'billing' => $this->bookingRepository->findBillingIdentity($booking->id),
@@ -2567,9 +2567,17 @@ class RentalManagementController extends AbstractController
         return $members === [] ? null : $members[0]->memberId;
     }
 
+    /**
+     * The year every authorization question on this page is asked in:
+     * the year the caller is SERVED, preview excluded
+     * (ScoutYearResolver::getAuthorizationYear()). It used to be the
+     * date-computed year, which is nobody's year between 1 September and
+     * the day a unit runs its transition, and which answers only one of
+     * the two animateurs of a transition.
+     */
     private function scoutYearId(): int
     {
-        return (int) $this->scoutYearService->getCurrentYear()['id'];
+        return $this->scoutYearResolver->getAuthorizationYear()->id;
     }
 
     /**
