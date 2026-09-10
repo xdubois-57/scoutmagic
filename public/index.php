@@ -6806,7 +6806,11 @@ if ($isEnabled('rental')) {
     // right as reading the booking, so the checker delegates to it.
     $auditAccessResolver->register(
         \Modules\Rental\Audit\BookingAudit::ENTITY_TYPE,
-        static function (int $id) use ($rentalBookingRepository, $rentalAuthorizationService, $rentalCurrentYearId): bool {
+        static function (int $id) use (
+            $rentalBookingRepository,
+            $rentalAuthorizationService,
+            $rentalCurrentYearId
+        ): bool {
             $booking = $rentalBookingRepository->findById($id);
 
             return $booking !== null && $rentalAuthorizationService->canManageAssetId(
