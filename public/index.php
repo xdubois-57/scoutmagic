@@ -7544,7 +7544,7 @@ if ($operationalRequestChecks->due()) {
         $journalService
     ))->run([
         new \Core\Alert\Check\CronSilenceCheck(new \Core\Scheduler\CronHealth($storagePath, $settingService)),
-        new \Core\Alert\Check\HttpsCheck($_SERVER),
+        new \Core\Alert\Check\HttpsCheck($_SERVER, $settingService),
     ]);
 }
 

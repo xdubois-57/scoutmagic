@@ -34,6 +34,23 @@ use Core\Scheduler\CronHealth;
  * wizard refuses to finish without a crontab and says so far more usefully
  * than a notification would, and an installation mid-setup has no
  * super-admin to notify yet.
+ *
+ * **What this alert can and cannot reach, stated because the limit is
+ * structural and not obvious.** When it fires, the in-app notification and
+ * the attention point work normally — and somebody IS on the site, since
+ * that is what made the check run. What does not arrive on time is the
+ * push and the e-mail: `Core\Notification\NotificationService::dispatch()`
+ * never sends either synchronously, it schedules `core/send_notifications`
+ * and `core/send_notification_emails`, and that queue is drained by
+ * `public/cron.php` — the very cron being reported dead. The off-site
+ * channels therefore wait behind the failure they describe and arrive as
+ * old news when it is fixed.
+ *
+ * That is the wrong way round for the one check built for an
+ * administrator who is *not* visiting, and closing it needs a synchronous
+ * delivery path `NotificationService` does not have. Issue #296 carries
+ * it; nothing here works around it, because a second way to send a
+ * notification is exactly the kind of shortcut that outlives its excuse.
  */
 final class CronSilenceCheck implements OperationalCheck
 {

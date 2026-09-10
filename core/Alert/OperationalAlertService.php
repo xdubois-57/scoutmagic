@@ -116,8 +116,19 @@ final class OperationalAlertService
         }
 
         // Between the two thresholds, or simply healthy. The state does
-        // not move; only what it last saw does.
-        $this->repository->recordValue($check->key(), $reading->value);
+        // not move; only what it last saw does — and an INCONCLUSIVE
+        // reading saw nothing.
+        //
+        // `AlertReading::inconclusive()` carries an empty value, so
+        // recording it unconditionally would blank the figure a still-
+        // triggered alert is displaying: the attention point would fall
+        // from « Espace disque : 92 % » back to a bare « Espace disque »
+        // the first time the host stopped reporting, which is the exact
+        // opposite of what that value is stored for. A check that cannot
+        // tell must leave the last thing that could.
+        if ($reading->value !== '') {
+            $this->repository->recordValue($check->key(), $reading->value);
+        }
 
         return false;
     }

@@ -154,6 +154,32 @@ class OperationalAlertServiceTest extends TestCase
         $this->assertSame(1, count($types));
     }
 
+    /**
+     * ...and it must leave the FIGURE alone too, not only the state.
+     *
+     * `AlertReading::inconclusive()` carries an empty value. Recording it
+     * unconditionally blanked what a still-triggered alert was showing, so
+     * the attention point fell from « Espace disque : 92 % » to a bare
+     * « Espace disque » the first time the host stopped answering — the
+     * exact opposite of what that value is stored for, and silent.
+     */
+    public function testAnInconclusiveReadingDoesNotBlankTheFigureStillOnScreen(): void
+    {
+        $types = [];
+        $service = new OperationalAlertService($this->repository, $this->notificationsRecording($types));
+
+        $service->evaluate(self::check(over: true, under: false, value: '92 %'));
+        $this->assertSame('92 %', $this->repository->findOrArmed('probe')->lastValue);
+
+        $service->evaluate(new StubCheck(AlertReading::inconclusive()));
+
+        $this->assertSame(
+            '92 %',
+            $this->repository->findOrArmed('probe')->lastValue,
+            'A check that cannot tell must not erase what the last one could.'
+        );
+    }
+
     /** A healthy site writes no row at all — an absent row and an armed row say the same thing. */
     public function testAHealthySiteLeavesTheTableEmpty(): void
     {

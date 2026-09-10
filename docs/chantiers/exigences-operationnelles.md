@@ -490,6 +490,53 @@ notification, le sujet d'aide `alertes-operationnelles`,
 C'est la PR qui allume l'alerte, donc la seule qui pouvait le faire sans
 livrer une alerte fausse.
 
+**Trois constats de revue, tous réels.**
+
+1. **Une lecture inconclusive effaçait le chiffre affiché.**
+   `AlertReading::inconclusive()` porte une valeur vide, et le
+   `recordValue()` de fin de méthode l'enregistrait sans condition : la
+   première fois que l'hébergeur cessait de répondre, le point d'attention
+   d'une alerte **toujours déclenchée** tombait de « Espace disque : 92 % »
+   à « Espace disque » tout court — l'inverse exact de ce pour quoi cette
+   valeur est stockée, et en silence. Un contrôle qui ne peut pas savoir
+   doit laisser en place ce que le dernier qui savait avait écrit.
+
+2. **`HttpsCheck` n'avait aucun écart.** `overTrigger: !$secure` et
+   `underRearm: $secure` sont deux lectures complémentaires du même booléen
+   de requête, donc un écart de zéro — alors que l'écart *est* le dessin.
+   Rien ici ne force HTTP vers HTTPS (aucune redirection dans
+   `public/.htaccess`, HSTS émis seulement une fois déjà sécurisé), donc un
+   site qui répond sur les deux schémas alterne au gré des visiteurs, et ce
+   contrôle tourne tous les quarts d'heure : déclenché, réarmé, déclenché,
+   avec un courriel à chaque super-administrateur dans les deux sens.
+
+   Les deux directions lisent maintenant **deux faits différents** : une
+   observation vivante (le schéma de cette requête) et une déclaration
+   stockée (`base_url`, l'adresse que l'exploitant a donnée à
+   l'installation). Déclencher exige que les deux disent HTTP, réarmer que
+   les deux disent HTTPS, et leur désaccord est l'écart. C'est un vrai
+   écart plutôt qu'un écart arithmétique, et il ne peut pas se refermer.
+
+   À noter : `DevelopmentModeCheck` a la même forme complémentaire et n'a
+   pas le défaut, parce qu'il lit un **réglage** — qui ne change que quand
+   un administrateur le change, et ne peut donc pas osciller entre deux
+   requêtes. C'est la nature de la source, pas la forme du code, qui
+   décide.
+
+3. **L'alerte « cron muet » ne peut pas atteindre un administrateur
+   absent.** `dispatch()` planifie push et courriel au lieu de les
+   envoyer, et cette file est vidée par le cron — celui dont l'alerte
+   annonce la mort. Les canaux hors site attendent donc derrière la panne
+   qu'ils décrivent. La notification dans l'application et le point
+   d'attention fonctionnent, et quelqu'un *est* sur le site puisque c'est
+   une requête qui a fait tourner le contrôle : l'alerte est dégradée, pas
+   cassée. Fermer le trou demande un chemin d'envoi synchrone que
+   `NotificationService` n'a pas, ce qui n'est pas le sujet de cette
+   itération — **issue #296**, et la limite est écrite dans le docbloc de
+   `CronSilenceCheck` pour que personne ne croie que le courriel part. Le
+   contournement évident, appeler `MailService` depuis `Core\Alert`, est
+   exactement le raccourci qui survit à sa raison d'être.
+
 **Un mot réservé que seul MySQL réserve.** La colonne s'appelait
 `last_value` ; MySQL 8 a refusé la table entière — `LAST_VALUE` y est un
 mot réservé depuis 8.0.2 (la fonction de fenêtrage) et ne l'est **pas**

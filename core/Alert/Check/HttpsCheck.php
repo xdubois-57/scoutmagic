@@ -10,6 +10,7 @@ namespace Core\Alert\Check;
 
 use Core\Alert\AlertReading;
 use Core\Alert\OperationalCheck;
+use Core\Config\SettingService;
 
 /**
  * Is the site being served over plain HTTP?
@@ -37,9 +38,16 @@ final class HttpsCheck implements OperationalCheck
 
     /**
      * @param array<string, mixed> $server normally the Request's own captured `$_SERVER`
+     * @param SettingService|null $settings read for `base_url`, the site's
+     *        declared address — see {@see read()} for why one request's
+     *        scheme is not enough on its own. Null only where no settings
+     *        service exists to read, which makes the check inconclusive
+     *        rather than guessing.
      */
-    public function __construct(private readonly array $server)
-    {
+    public function __construct(
+        private readonly array $server,
+        private readonly ?SettingService $settings = null
+    ) {
     }
 
     public function key(): string
@@ -52,16 +60,55 @@ final class HttpsCheck implements OperationalCheck
         return 'Connexion sécurisée';
     }
 
+    /**
+     * Two facts, and the gap between them is deliberate.
+     *
+     * **One request's scheme cannot be both the trigger and the re-arm.**
+     * Every other check here has genuinely separate thresholds — disk
+     * 85/75, backup age 10/3 days — so a value sitting near a boundary
+     * does not flap; `AlertReading` says that gap is the whole design. A
+     * first version of this check set `overTrigger: !$secure` and
+     * `underRearm: $secure`, two complementary readings of the same
+     * per-request boolean, which is a gap of zero. Nothing in this
+     * codebase forces HTTP to HTTPS — no redirect in `public/.htaccess`,
+     * HSTS emitted only once already secure — so a site answering on both
+     * schemes alternates as visitors arrive, and this check runs every
+     * quarter of an hour: triggered, armed, triggered, e-mailing every
+     * super-admin each way.
+     *
+     * So the two directions read two different facts:
+     *
+     * - **Triggering needs both**: this request arrived over HTTP *and*
+     *   `base_url` — the address the operator declared at setup, used to
+     *   build every link in every e-mail — is not an `https://` one. One
+     *   stray HTTP request against a site declared HTTPS proves a
+     *   misconfiguration worth nobody's night.
+     * - **Re-arming needs both too**: this request arrived over HTTPS
+     *   *and* `base_url` says HTTPS.
+     *
+     * Between them — observed one way, declared the other — neither is
+     * true and the state does not move. That is a real gap rather than an
+     * arithmetic one, and it is built from a live observation and a stored
+     * declaration, which is why it cannot close.
+     */
     public function read(): AlertReading
     {
+        if ($this->settings === null) {
+            return AlertReading::inconclusive();
+        }
+
         // The shared reading, so this agrees with the session cookie flags
         // and the HSTS header rather than forming a second opinion about
         // the same request (Core\Http\RequestScheme).
         $secure = \Core\Http\RequestScheme::isHttps($this->server);
+        $declaredSecure = str_starts_with(
+            strtolower(trim((string) ($this->settings->get('base_url') ?? ''))),
+            'https://'
+        );
 
         return new AlertReading(
-            overTrigger: !$secure,
-            underRearm: $secure,
+            overTrigger: !$secure && !$declaredSecure,
+            underRearm: $secure && $declaredSecure,
             value: $secure ? 'HTTPS' : 'HTTP',
             title: 'Le site est servi en HTTP, sans chiffrement.',
             why: 'Les mots de passe et les données des membres circulent en clair entre le navigateur et '

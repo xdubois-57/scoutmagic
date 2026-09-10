@@ -32,6 +32,9 @@ use Tests\DatabaseTestHelper;
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class ChecksTest extends TestCase
 {
+    private const PLAIN_REQUEST = ['HTTPS' => 'off', 'SERVER_PORT' => '80'];
+    private const SECURE_REQUEST = ['HTTPS' => 'on', 'SERVER_PORT' => '443'];
+
     private \PDO $pdo;
     private string $storagePath;
     private string $installPath;
@@ -260,14 +263,62 @@ class ChecksTest extends TestCase
 
     public function testHttpsAbsentTriggersAndPresentRearms(): void
     {
-        $plain = (new HttpsCheck(['HTTPS' => 'off', 'SERVER_PORT' => '80']))->read();
-        $this->assertTrue($plain->overTrigger);
-        $this->assertSame('HTTP', $plain->value);
+        $plain = new HttpsCheck(self::PLAIN_REQUEST, $this->settings(['base_url' => 'http://exemple.be']));
+        $reading = $plain->read();
+        $this->assertTrue($reading->overTrigger);
+        $this->assertSame('HTTP', $reading->value);
 
-        $secure = (new HttpsCheck(['HTTPS' => 'on', 'SERVER_PORT' => '443']))->read();
-        $this->assertFalse($secure->overTrigger);
-        $this->assertTrue($secure->underRearm);
-        $this->assertSame('HTTPS', $secure->value);
+        $secure = new HttpsCheck(self::SECURE_REQUEST, $this->settings(['base_url' => 'https://exemple.be']));
+        $reading = $secure->read();
+        $this->assertFalse($reading->overTrigger);
+        $this->assertTrue($reading->underRearm);
+        $this->assertSame('HTTPS', $reading->value);
+    }
+
+    /**
+     * A site answering on BOTH schemes must not flap.
+     *
+     * The first version read one request's scheme for both directions —
+     * `overTrigger: !$secure`, `underRearm: $secure` — complementary
+     * values of the same boolean, so a gap of zero. Nothing here forces
+     * HTTP to HTTPS, so such a site alternates as visitors arrive, and
+     * this check runs every quarter of an hour: triggered, armed,
+     * triggered, e-mailing every super-admin each way. Triggering and
+     * re-arming therefore each need the observation AND the declared
+     * `base_url` to agree, and the disagreement between them is the gap.
+     */
+    public function testARequestThatDisagreesWithTheDeclaredAddressMovesNothing(): void
+    {
+        // Declared HTTPS, this request arrived over HTTP: a stray plain
+        // request against a site that says it is secure. Not proof enough.
+        $stray = (new HttpsCheck(self::PLAIN_REQUEST, $this->settings(['base_url' => 'https://exemple.be'])))->read();
+        $this->assertFalse($stray->overTrigger);
+        $this->assertFalse($stray->underRearm);
+
+        // Declared HTTP, this request arrived over HTTPS: secure once, but
+        // the site still says it is not. Not a re-arm either.
+        $partial = (new HttpsCheck(self::SECURE_REQUEST, $this->settings(['base_url' => 'http://exemple.be'])))->read();
+        $this->assertFalse($partial->overTrigger);
+        $this->assertFalse($partial->underRearm);
+    }
+
+    /** No declared address at all is not a declaration of HTTPS. */
+    public function testAnUndeclaredAddressStillTriggersOnAPlainRequest(): void
+    {
+        $reading = (new HttpsCheck(self::PLAIN_REQUEST, $this->settings(['base_url' => ''])))->read();
+
+        $this->assertTrue($reading->overTrigger);
+        $this->assertFalse($reading->underRearm);
+    }
+
+    /** With nothing to read the declaration from, the check declines to guess. */
+    public function testWithNoSettingsToReadTheHttpsCheckIsInconclusive(): void
+    {
+        $reading = (new HttpsCheck(self::PLAIN_REQUEST))->read();
+
+        $this->assertFalse($reading->overTrigger);
+        $this->assertFalse($reading->underRearm);
+        $this->assertSame('', $reading->value);
     }
 
     // ————— Les libellés —————
