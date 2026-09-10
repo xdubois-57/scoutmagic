@@ -1399,9 +1399,22 @@ passe restaurait la base, échouait ensuite sur `secrets/` à l'extraction
 des fichiers, et rejouait le retour en arrière depuis la copie de
 sécurité. Le site s'en remettait, après avoir été remplacé puis
 dé-remplacé pour une opération qui ne pouvait pas aboutir. Le refus est
-maintenant en amont — le contrôleur, le sélecteur qui ne la propose plus,
-et le gestionnaire lui-même parce qu'une tâche reprise porte une charge
-utile écrite avant ces contrôles.
+maintenant en amont : le contrôleur, le sélecteur qui ne la propose plus,
+et le gestionnaire lui-même — **avant sa sauvegarde de sécurité**.
+
+La première correction plaçait ce dernier refus dans `resolveSource()`, et
+une seconde passe de revue a montré que son commentaire décrivait le cycle
+depuis l'intérieur de ce cycle : la copie de sécurité (dump complet plus
+archive avec galerie, des minutes sur une vraie installation) est prise
+*avant*, et tout ce qui est levé ensuite est rattrapé par un vrai retour en
+arrière. Refuser tard, ce n'est pas refuser. La justification invoquée —
+« une tâche reprise porte une charge utile antérieure » — était fausse de
+surcroît : le chemin `resume_migration` rend la main bien avant. Le refus
+est remonté en tête de `handle()`, et un test distingue les deux : refusé
+tôt, le gestionnaire journalise `backup_restore_refused` et rien d'autre ;
+refusé tard, il journalise `backup_restore_failed` comme tous les autres
+cas de cette classe de tests. Vérifié en remettant la garde à l'endroit
+signalé — deux tests tombent.
 
 **Reporté.** Tout ce qui *lit* une archive portable : la restauration, la
 lecture du manifeste, la conservation des identifiants de la cible (D5) et

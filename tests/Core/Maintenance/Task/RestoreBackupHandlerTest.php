@@ -102,6 +102,86 @@ class RestoreBackupHandlerTest extends TestCase
         $this->assertCount(1, $rows);
     }
 
+    /**
+     * **A portable archive is refused before the safety backup is taken.**
+     *
+     * The distinction this test makes is the whole point, and it is
+     * visible precisely because the safety backup fails fast against the
+     * fake connection used here: if the guard ran late — as the first
+     * version did, from inside `resolveSource()` — the handler would have
+     * gone through `ensureRoomForDumpAndArchive()`, `createDatabaseDump()`
+     * and `createFileBackup(true)` first, and would journal
+     * `backup_restore_failed` like every other test in this class. It
+     * journals `backup_restore_refused` instead, and nothing else, which
+     * can only happen if it returned before touching anything.
+     *
+     * On a real installation the difference is minutes of dumping and
+     * zipping, followed by a rollback that restores the database and the
+     * files all over again — for an operation that could never finish.
+     */
+    public function testAPortableBackupIsRefusedBeforeTheSafetyBackupIsEvenAttempted(): void
+    {
+        $backupId = (new \Core\Maintenance\BackupRepository($this->pdo))
+            ->create(\Core\Maintenance\Backup::PORTABLE_TYPE, $this->userId);
+        $this->pdo->prepare("UPDATE backups SET status = 'completed' WHERE id = ?")->execute([$backupId]);
+
+        $this->handler->handle([
+            'source' => 'server',
+            'backup_id' => $backupId,
+            'requested_by_user_account_id' => $this->userId,
+        ], $this->context);
+
+        $refused = $this->pdo->query(
+            "SELECT * FROM event_log WHERE event_type = 'backup_restore_refused'"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertCount(1, $refused, 'the refusal has to be recorded');
+
+        $failed = $this->pdo->query(
+            "SELECT * FROM event_log WHERE event_type = 'backup_restore_failed'"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertCount(
+            0,
+            $failed,
+            'the safety backup was attempted — so the refusal came too late to save anything'
+        );
+    }
+
+    /** And the operator is told what a portable archive is actually for. */
+    public function testTheRefusalTellsTheRequesterWhatToDoInstead(): void
+    {
+        $backupId = (new \Core\Maintenance\BackupRepository($this->pdo))
+            ->create(\Core\Maintenance\Backup::PORTABLE_TYPE, $this->userId);
+        $this->pdo->prepare("UPDATE backups SET status = 'completed' WHERE id = ?")->execute([$backupId]);
+
+        $this->handler->handle([
+            'source' => 'server',
+            'backup_id' => $backupId,
+            'requested_by_user_account_id' => $this->userId,
+        ], $this->context);
+
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $notifications = (new NotificationRepository($this->pdo, $encryption))->findByUserAccountId($this->userId);
+
+        $this->assertCount(1, $notifications);
+        $this->assertSame('Restauration impossible', $notifications[0]->title);
+    }
+
+    /** An ordinary backup is not caught by that guard. */
+    public function testAnOrdinaryBackupStillReachesTheSafetyBackupStep(): void
+    {
+        $backupId = (new \Core\Maintenance\BackupRepository($this->pdo))->create('full_no_gallery', $this->userId);
+        $this->pdo->prepare("UPDATE backups SET status = 'completed' WHERE id = ?")->execute([$backupId]);
+
+        $this->handler->handle(['source' => 'server', 'backup_id' => $backupId], $this->context);
+
+        // It fails there, against this fake connection — which is the
+        // proof that it got that far.
+        $rows = $this->pdo->query(
+            "SELECT * FROM event_log WHERE event_type = 'backup_restore_failed'"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertCount(1, $rows);
+    }
+
     public function testHandleCleansUpTheUploadedTempFileEvenOnFailure(): void
     {
         $tempPath = $this->storagePath . '/uploaded.zip';

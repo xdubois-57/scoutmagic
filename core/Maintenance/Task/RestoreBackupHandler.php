@@ -87,6 +87,42 @@ class RestoreBackupHandler implements TaskHandlerInterface
             return;
         }
 
+        // **Before the safety backup, which is the expensive half.**
+        // A portable archive satisfies every test the restore path
+        // applies — completed, with a database dump — so refusing it late
+        // is not refusing it at all: the safety copy (a full dump plus a
+        // gallery-inclusive archive, minutes of work on a real
+        // installation) is taken FIRST, and any exception thrown after
+        // that point is caught below and answered with a real rollback,
+        // which restores the database and the files all over again. The
+        // site survives, having been replaced and un-replaced for an
+        // operation that could never finish.
+        //
+        // An earlier version of this guard sat in resolveSource(), inside
+        // that try, and its comment claimed to avoid exactly the cycle it
+        // was inside of. A review caught it. Here, nothing has been
+        // written yet, so returning costs nothing.
+        if ($this->isPortable($payload, $backupRepository)) {
+            $context->journal->log(
+                'core',
+                'backup_restore_refused',
+                'warning',
+                'Restauration refusée : une sauvegarde portable ne se restaure pas sur cette installation',
+                ['backup_id' => (int) ($payload['backup_id'] ?? 0)],
+                $requestedBy
+            );
+            RequesterNotice::send(
+                $context,
+                $requestedBy,
+                self::TYPE_FAILED,
+                'Restauration impossible',
+                'Une sauvegarde portable sert à repartir sur une installation neuve, à qui vous la téléversez '
+                . 'avec sa phrase de passe. Rien n\'a été modifié.'
+            );
+
+            return;
+        }
+
         $uploadedTempPath = isset($payload['uploaded_temp_path']) ? (string) $payload['uploaded_temp_path'] : null;
         $extractedUploadDbDump = null;
 
@@ -229,6 +265,25 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 @unlink($extractedUploadDbDump);
             }
         }
+    }
+
+    /**
+     * Whether this payload names a portable archive.
+     *
+     * Only a `server` source can be one: an uploaded file has no
+     * `backups` row to have a type, and IT-07 is what will teach the
+     * upload path to recognise a portable archive by its own header.
+     *
+     * @param array<string, mixed> $payload
+     */
+    private function isPortable(array $payload, BackupRepository $backupRepository): bool
+    {
+        $backupId = (int) ($payload['backup_id'] ?? 0);
+        if ($backupId <= 0) {
+            return false;
+        }
+
+        return $backupRepository->findById($backupId)?->type === Backup::PORTABLE_TYPE;
     }
 
     /**
@@ -569,22 +624,6 @@ class RestoreBackupHandler implements TaskHandlerInterface
         $backup = (new BackupRepository($pdo))->findById($backupId);
         if ($backup === null || $backup->status !== 'completed' || $backup->dbDumpFileId === null) {
             throw new BackupException('Sauvegarde introuvable ou incomplète.');
-        }
-        // **Before the database is touched, not after the files fail.**
-        // A portable archive satisfies every test above — it is completed
-        // and it has a dump — so without this the pass would restore the
-        // database, then throw while extracting `secrets/`, then roll the
-        // whole thing back from the safety copy. The site would survive,
-        // having been replaced and un-replaced for an operation that was
-        // never going to work. The controller refuses this too; the guard
-        // is repeated here because this handler is also reached by a
-        // resumed task, whose payload was written before that check
-        // existed.
-        if ($backup->type === Backup::PORTABLE_TYPE) {
-            throw new BackupException(
-                'Une sauvegarde portable ne se restaure pas depuis cette page : elle sert à repartir sur une '
-                . 'installation neuve, à qui vous la téléversez avec sa phrase de passe.'
-            );
         }
 
         $fileRepository = new FileRepository($pdo);
