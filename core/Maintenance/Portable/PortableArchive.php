@@ -124,6 +124,41 @@ final class PortableArchive
         return new self($zip, $keys, $manifest);
     }
 
+    /**
+     * Whether a file is a portable archive, answered without a passphrase.
+     *
+     * The restore page takes one upload field for every kind of archive,
+     * so something has to decide which path a file goes down before the
+     * operator is asked for anything. The archive comment is the honest
+     * place to ask: it is in clear by necessity, it is written by nothing
+     * else, and a file that lacks it is simply an ordinary backup — which
+     * is why a false answer here is a routing decision and never a
+     * security one. Everything that protects the archive is still checked
+     * afterwards by {@see open()}.
+     */
+    public static function looksPortable(string $path): bool
+    {
+        if (!is_file($path)) {
+            return false;
+        }
+
+        $zip = new \ZipArchive();
+        if ($zip->open($path) !== true) {
+            return false;
+        }
+
+        $comment = $zip->getArchiveComment();
+        $zip->close();
+
+        try {
+            PortableKeys::parseComment($comment);
+
+            return true;
+        } catch (BackupException) {
+            return false;
+        }
+    }
+
     public function close(): void
     {
         $this->zip->close();

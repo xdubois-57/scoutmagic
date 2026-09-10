@@ -18,12 +18,16 @@ use Core\Maintenance\Backup;
 use Core\Maintenance\BackupException;
 use Core\Maintenance\BackupRepository;
 use Core\Maintenance\BackupService;
+use Core\Maintenance\Portable\PortableArchive;
+use Core\Maintenance\Portable\PortableRestore;
 use Core\Maintenance\RequesterNotice;
+use Core\Maintenance\VersionFile;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 use Core\Security\EncryptionService;
+use Core\Security\SecretManager;
 use Core\Storage\DiskBudget;
 
 /**
@@ -88,10 +92,10 @@ class RestoreBackupHandler implements TaskHandlerInterface
         }
 
         // **Before the safety backup, which is the expensive half.**
-        // A portable archive satisfies every test the restore path
-        // applies — completed, with a database dump — so refusing it late
-        // is not refusing it at all: the safety copy (a full dump plus a
-        // gallery-inclusive archive, minutes of work on a real
+        // A portable archive satisfies every test the ordinary restore
+        // path applies — completed, with a database dump — so refusing it
+        // late is not refusing it at all: the safety copy (a full dump
+        // plus a gallery-inclusive archive, minutes of work on a real
         // installation) is taken FIRST, and any exception thrown after
         // that point is caught below and answered with a real rollback,
         // which restores the database and the files all over again. The
@@ -102,6 +106,16 @@ class RestoreBackupHandler implements TaskHandlerInterface
         // that try, and its comment claimed to avoid exactly the cycle it
         // was inside of. A review caught it. Here, nothing has been
         // written yet, so returning costs nothing.
+        //
+        // **What is refused is a portable row of THIS site's own list**,
+        // and that is not the same thing as refusing portable restores.
+        // A portable archive is made to be carried to another
+        // installation and uploaded there with its passphrase; the copy
+        // sitting in this site's own backup list is the one the operator
+        // is told to download and delete. Restoring it here would be a
+        // worse full backup — the same site, minus the gallery. The
+        // upload path below is where a portable archive is genuinely
+        // restored.
         if ($this->isPortable($payload, $backupRepository)) {
             $context->journal->log(
                 'core',
@@ -126,6 +140,25 @@ class RestoreBackupHandler implements TaskHandlerInterface
         $uploadedTempPath = isset($payload['uploaded_temp_path']) ? (string) $payload['uploaded_temp_path'] : null;
         $extractedUploadDbDump = null;
 
+        // **A portable archive announces itself**, so the restore page can
+        // keep one upload field for every kind of backup and still send
+        // this one down a path that shares almost nothing with the other:
+        // its dump lives inside the archive, its trees are extracted
+        // selectively, and its keys are installed rather than restored.
+        // The header this reads is in clear by necessity
+        // ({@see PortableArchive::looksPortable()}), so being wrong here
+        // is a routing mistake and never a security one — everything that
+        // protects the archive is checked afterwards.
+        if ($uploadedTempPath !== null && PortableArchive::looksPortable($uploadedTempPath)) {
+            try {
+                $this->restorePortable($payload, $context, $requestedBy, $uploadedTempPath);
+            } finally {
+                @unlink($uploadedTempPath);
+            }
+
+            return;
+        }
+
         $basePath = dirname($context->storagePath);
         $backupService = new BackupService(
             $context->connection,
@@ -138,63 +171,18 @@ class RestoreBackupHandler implements TaskHandlerInterface
         $safetyZip = null;
 
         try {
-            // Step 1: safety backup of the CURRENT state.
-            // Both writes reserved at once, against the reading they are
-            // both sized on. This safety backup is the only thing the
-            // automatic rollback below can restore from, so a truncated
-            // one is unrecoverable.
-            $backupService->ensureRoomForDumpAndArchive(true);
-
-            $safetyDbDump = $backupService->createDatabaseDump();
-            $safetyZip = $backupService->createFileBackup(true);
-
-            $safetyBackupId = $backupRepository->create('auto_reset', $requestedBy);
-            $safetyZipFileId = $fileRepository->create(
-                $this->relativePath($context->storagePath, $safetyZip),
-                'sauvegarde.zip',
-                'application/zip',
-                (int) filesize($safetyZip),
-                'admin',
-                null,
-                $requestedBy
-            );
-            $safetyDbFileId = $fileRepository->create(
-                $this->relativePath($context->storagePath, $safetyDbDump),
-                'database.sql',
-                'application/sql',
-                (int) filesize($safetyDbDump),
-                'admin',
-                null,
-                $requestedBy
-            );
-            (new \Core\Maintenance\BackupIntegrity(
+            $safety = $this->createSafetyBackup(
+                $context,
+                $backupService,
                 $backupRepository,
                 $fileRepository,
-                $context->storagePath
-            ))->complete($safetyBackupId, $safetyZipFileId, $safetyZip, $safetyDbFileId, $safetyDbDump);
-
-            // Declared in THIS task's payload, not only in the resume one
-            // scheduled much later. Between the line above and the
-            // database being replaced below, the safety copy is a
-            // `completed` row like any other: listed on Configuration >
-            // Maintenance with a working « Supprimer » button, and
-            // invisible to Core\Maintenance\BackupSafetyNet, which reads
-            // live payloads. Building it takes minutes on an installation
-            // with a gallery, and it is the only thing the rollback below
-            // can restore from — so the window in which it could be
-            // deleted is both real and the worst possible one.
-            //
-            // Silent on failure, like every other write on this path: a
-            // declaration that cannot be made leaves the copy as exposed
-            // as it was before, and must not abort a restore that is
-            // otherwise fine.
-            $runningTaskId = (int) ($payload['scheduled_action_id'] ?? 0);
-            if ($runningTaskId > 0) {
-                (new SchedulerRepository($pdo))->rememberInPayload(
-                    $runningTaskId,
-                    ['safety_backup_id' => $safetyBackupId]
-                );
-            }
+                $pdo,
+                $payload,
+                $requestedBy
+            );
+            $safetyBackupId = $safety['id'];
+            $safetyDbDump = $safety['dbDump'];
+            $safetyZip = $safety['zip'];
 
             try {
                 // Steps 2-5: resolve source (validating an uploaded file's
@@ -268,6 +256,347 @@ class RestoreBackupHandler implements TaskHandlerInterface
     }
 
     /**
+     * The portable half of a resume payload, carried from one pass to the
+     * next.
+     *
+     * A migration that does not finish inside its time budget schedules
+     * another pass, and that pass is handed a payload built here rather
+     * than the original one — so anything a portable restore still owes
+     * has to survive the copy. Forgetting it would not fail: the restore
+     * would complete, and the new installation would go on reporting
+     * itself as the old one.
+     *
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
+    private function portablePayload(array $payload): array
+    {
+        if (($payload['portable'] ?? false) !== true) {
+            return [];
+        }
+
+        return [
+            'portable' => true,
+            'portable_origin_installation_id' => $payload['portable_origin_installation_id'] ?? null,
+            'portable_base_url' => $payload['portable_base_url'] ?? null,
+        ];
+    }
+
+    /**
+     * Restores a portable archive uploaded onto THIS installation.
+     *
+     * The order below is the requirement, not a preference. Everything
+     * that can refuse — the passphrase, the format, the version, the
+     * digests of the sealed secrets — is settled while the target is
+     * still untouched, because the target is typically a fresh
+     * installation whose operator has just lost the other one. Only then
+     * is the expensive safety copy taken, and only then does anything get
+     * replaced.
+     *
+     * What is NOT here: the schema migration, and the new identity that
+     * goes with it. Both wait for the resume pass, for the reason spelled
+     * out where the ordinary restore schedules it — the file trees have
+     * just been replaced under a running process, and migrating from here
+     * would run one version's code against another version's.
+     *
+     * @param array<string, mixed> $payload
+     */
+    private function restorePortable(
+        array $payload,
+        TaskContext $context,
+        ?int $requestedBy,
+        string $archivePath
+    ): void {
+        $pdo = $context->connection->getPdo();
+        $basePath = dirname($context->storagePath);
+
+        try {
+            $archive = PortableArchive::open($archivePath, $this->passphraseOf($payload, $context->encryption));
+            $archive->assertRestorableOnto(VersionFile::read($basePath));
+            $archive->verifyDeclaredMembers();
+        } catch (\Throwable $refusal) {
+            // Nothing has been written, and saying so is half the message:
+            // an operator who has just been refused needs to know whether
+            // to go and repair something first.
+            $context->journal->log(
+                'core',
+                'portable_restore_refused',
+                'warning',
+                'Restauration portable refusée avant toute écriture',
+                ['error' => $refusal->getMessage()],
+                $requestedBy
+            );
+            RequesterNotice::send(
+                $context,
+                $requestedBy,
+                self::TYPE_FAILED,
+                'Restauration impossible',
+                $refusal instanceof BackupException
+                    ? $refusal->getMessage() . ' Rien n\'a été modifié.'
+                    : 'Cette archive n\'a pas pu être ouverte. Rien n\'a été modifié.'
+            );
+
+            return;
+        }
+
+        $backupService = new BackupService(
+            $context->connection,
+            $context->storagePath,
+            $basePath,
+            new DiskBudget($context->storagePath, $context->settings)
+        );
+        $backupRepository = new BackupRepository($pdo);
+        $fileRepository = new FileRepository($pdo);
+
+        // Read BEFORE anything is replaced: after the database and the
+        // secrets have been overwritten, these are the origin's values and
+        // there is nothing left to put back (D5).
+        $targetOwnedSecrets = $this->targetOwnedSecrets($context);
+        $targetBaseUrl = $context->settings->get('base_url');
+
+        $dumpPath = null;
+
+        try {
+            $safety = $this->createSafetyBackup(
+                $context,
+                $backupService,
+                $backupRepository,
+                $fileRepository,
+                $pdo,
+                $payload,
+                $requestedBy
+            );
+        } catch (\Throwable $e) {
+            $archive->close();
+            $context->journal->log(
+                'core',
+                'backup_restore_failed',
+                'warning',
+                'Échec de la sauvegarde de sécurité préalable à la restauration portable',
+                ['error' => $e->getMessage()],
+                $requestedBy
+            );
+            RequesterNotice::send(
+                $context,
+                $requestedBy,
+                self::TYPE_FAILED,
+                'Échec de la restauration',
+                'La sauvegarde de sécurité préalable a échoué — aucune modification n\'a été effectuée.'
+            );
+
+            return;
+        }
+
+        try {
+            $dumpPath = $this->extractPortableDump($archive, $context->storagePath);
+
+            $backupService->restoreDatabase($dumpPath);
+
+            $restore = new PortableRestore($basePath, $context->storagePath);
+            $restore->extractFiles($archive);
+            $restore->installSecrets($archive, $targetOwnedSecrets);
+
+            $this->scheduleMigrationResume(
+                $context,
+                $safety['id'],
+                'portable',
+                $requestedBy,
+                $safety['dbDump'],
+                $safety['zip'],
+                [
+                    'portable' => true,
+                    'portable_origin_installation_id' => $archive->originInstallationId(),
+                    'portable_base_url' => $targetBaseUrl,
+                ]
+            );
+        } catch (\Throwable $restoreError) {
+            $this->rollbackToSafetyBackup(
+                $context,
+                $backupService,
+                $safety['dbDump'],
+                $safety['zip'],
+                $requestedBy,
+                $restoreError
+            );
+        } finally {
+            $archive->close();
+            if ($dumpPath !== null) {
+                @unlink($dumpPath);
+            }
+        }
+    }
+
+    /**
+     * The archive's database dump, written out where the restore can read
+     * it.
+     *
+     * Under `storage/` rather than the system temp directory, because it
+     * is the size of the whole database and shared hosting's `/tmp` is
+     * routinely the smallest filesystem on the machine — the one place a
+     * restore must not run out of room.
+     *
+     * @throws BackupException
+     */
+    private function extractPortableDump(PortableArchive $archive, string $storagePath): string
+    {
+        $sql = $archive->handle()->getFromName('database.sql');
+        if ($sql === false) {
+            throw new BackupException('Cette sauvegarde portable ne contient pas de base de données.');
+        }
+
+        $directory = $storagePath . '/temp';
+        if (!is_dir($directory) && !@mkdir($directory, 0755, true) && !is_dir($directory)) {
+            throw new BackupException('Le dossier temporaire du site n\'a pas pu être créé.');
+        }
+
+        $path = $directory . '/portable_restore_' . bin2hex(random_bytes(8)) . '.sql';
+        if (@file_put_contents($path, $sql) === false) {
+            throw new BackupException('La base de données de l\'archive n\'a pas pu être écrite sur le disque.');
+        }
+
+        return $path;
+    }
+
+    /**
+     * This machine's own secrets, the ones a restore must not import (D5).
+     *
+     * An installation that has none — the wizard's path, where the restore
+     * happens before `secrets.enc` is ever written — is not an error here;
+     * that caller passes its values in directly.
+     *
+     * @return array<string, mixed>
+     */
+    private function targetOwnedSecrets(TaskContext $context): array
+    {
+        $manager = new SecretManager(
+            $context->storagePath . '/keys/master.key',
+            $context->storagePath . '/config/secrets.enc'
+        );
+        if (!$manager->isInitialized()) {
+            return [];
+        }
+
+        try {
+            $secrets = $manager->readSecrets();
+        } catch (\Throwable) {
+            return [];
+        }
+
+        $owned = [];
+        foreach (PortableRestore::TARGET_OWNED_SECRETS as $key) {
+            if (array_key_exists($key, $secrets)) {
+                $owned[$key] = $secrets[$key];
+            }
+        }
+
+        return $owned;
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @throws BackupException
+     */
+    private function passphraseOf(array $payload, EncryptionService $encryption): string
+    {
+        $encrypted = isset($payload['encrypted_password']) ? (string) $payload['encrypted_password'] : '';
+        if ($encrypted === '') {
+            throw new BackupException('Une sauvegarde portable ne se restaure qu\'avec sa phrase de passe.');
+        }
+
+        $raw = base64_decode($encrypted, true);
+        if ($raw === false) {
+            throw new BackupException('La phrase de passe transmise est illisible.');
+        }
+
+        return $encryption->decrypt($raw, 'backup_password');
+    }
+
+    /**
+     * The safety copy of the CURRENT state, taken before any restore
+     * writes anything, and the only thing the automatic rollback can
+     * restore from.
+     *
+     * Shared by the ordinary restore and the portable one rather than
+     * copied into each: it reserves disk for both writes at once against
+     * the reading they are sized on, registers the two files, completes
+     * the row through BackupIntegrity, and declares the copy in the
+     * running task's payload — five steps whose ORDER is the whole
+     * correctness, and a second copy of them is a second copy to keep
+     * right.
+     *
+     * @param array<string, mixed> $payload
+     * @return array{id: int, dbDump: string, zip: string}
+     */
+    private function createSafetyBackup(
+        TaskContext $context,
+        BackupService $backupService,
+        BackupRepository $backupRepository,
+        FileRepository $fileRepository,
+        \PDO $pdo,
+        array $payload,
+        ?int $requestedBy
+    ): array {
+        // Step 1: safety backup of the CURRENT state.
+        // Both writes reserved at once, against the reading they are
+        // both sized on. This safety backup is the only thing the
+        // automatic rollback below can restore from, so a truncated
+        // one is unrecoverable.
+        $backupService->ensureRoomForDumpAndArchive(true);
+
+        $safetyDbDump = $backupService->createDatabaseDump();
+        $safetyZip = $backupService->createFileBackup(true);
+
+        $safetyBackupId = $backupRepository->create('auto_reset', $requestedBy);
+        $safetyZipFileId = $fileRepository->create(
+            $this->relativePath($context->storagePath, $safetyZip),
+            'sauvegarde.zip',
+            'application/zip',
+            (int) filesize($safetyZip),
+            'admin',
+            null,
+            $requestedBy
+        );
+        $safetyDbFileId = $fileRepository->create(
+            $this->relativePath($context->storagePath, $safetyDbDump),
+            'database.sql',
+            'application/sql',
+            (int) filesize($safetyDbDump),
+            'admin',
+            null,
+            $requestedBy
+        );
+        (new \Core\Maintenance\BackupIntegrity(
+            $backupRepository,
+            $fileRepository,
+            $context->storagePath
+        ))->complete($safetyBackupId, $safetyZipFileId, $safetyZip, $safetyDbFileId, $safetyDbDump);
+
+        // Declared in THIS task's payload, not only in the resume one
+        // scheduled much later. Between the line above and the
+        // database being replaced below, the safety copy is a
+        // `completed` row like any other: listed on Configuration >
+        // Maintenance with a working « Supprimer » button, and
+        // invisible to Core\Maintenance\BackupSafetyNet, which reads
+        // live payloads. Building it takes minutes on an installation
+        // with a gallery, and it is the only thing the rollback below
+        // can restore from — so the window in which it could be
+        // deleted is both real and the worst possible one.
+        //
+        // Silent on failure, like every other write on this path: a
+        // declaration that cannot be made leaves the copy as exposed
+        // as it was before, and must not abort a restore that is
+        // otherwise fine.
+        $runningTaskId = (int) ($payload['scheduled_action_id'] ?? 0);
+        if ($runningTaskId > 0) {
+            (new SchedulerRepository($pdo))->rememberInPayload(
+                $runningTaskId,
+                ['safety_backup_id' => $safetyBackupId]
+            );
+        }
+        return ['id' => $safetyBackupId, 'dbDump' => $safetyDbDump, 'zip' => $safetyZip];
+    }
+
+    /**
      * Whether this payload names a portable archive.
      *
      * Only a `server` source can be one: an uploaded file has no
@@ -333,9 +662,42 @@ class RestoreBackupHandler implements TaskHandlerInterface
                     $source,
                     $requestedBy,
                     $carriedDbDump,
-                    $carriedZip
+                    $carriedZip,
+                    // Carried forward, or a restore that needed three
+                    // passes would arrive at the end having forgotten it
+                    // was portable — and would leave the new site running
+                    // under the old one's identity.
+                    $this->portablePayload($payload)
                 );
                 return;
+            }
+
+            // **Here, and not a step earlier.** The schema now matches the
+            // code, so every settings row this touches exists — including
+            // the one recording where the site came from, which an origin
+            // running an older ScoutMagic would not have had at all.
+            if (($payload['portable'] ?? false) === true) {
+                // isset() already excludes null here — a payload key that
+                // was written as null reads as absent, which is the same
+                // fact: this restore has no origin identifier to record.
+                $originId = isset($payload['portable_origin_installation_id'])
+                    ? (string) $payload['portable_origin_installation_id']
+                    : null;
+                $baseUrl = isset($payload['portable_base_url'])
+                    ? (string) $payload['portable_base_url']
+                    : null;
+
+                (new PortableRestore($basePath, $context->storagePath))
+                    ->adoptNewIdentity($context->connection->getPdo(), $originId, $baseUrl);
+
+                $context->journal->log(
+                    'core',
+                    'portable_restore_completed',
+                    'security',
+                    'Restauration portable terminée : nouvelle identité d\'installation',
+                    ['restored_from' => $originId],
+                    $requestedBy
+                );
             }
 
             $this->finishRestore($context, $backupRepository, $fileRepository, $source, $requestedBy);
@@ -445,17 +807,23 @@ class RestoreBackupHandler implements TaskHandlerInterface
      * migration left incomplete by the time budget gets another turn
      * shortly — routed back into resumeMigration() next time.
      */
+    /**
+     * @param array<string, mixed> $extraPayload what the resumed pass needs
+     *        and the ordinary one does not — today, everything a portable
+     *        restore has to finish once the schema matches the code.
+     */
     private function scheduleMigrationResume(
         TaskContext $context,
         int $safetyBackupId,
         string $source,
         ?int $requestedBy,
         ?string $safetyDbDump = null,
-        ?string $safetyZip = null
+        ?string $safetyZip = null,
+        array $extraPayload = []
     ): void
     {
         $schedulerService = new SchedulerService(new SchedulerRepository($context->connection->getPdo()));
-        $schedulerService->scheduleAfter('core', 'restore_backup', 0, [
+        $schedulerService->scheduleAfter('core', 'restore_backup', 0, $extraPayload + [
             'resume_migration' => true,
             // **The paths, not only the id.** The restore that just ran
             // replaced the database — `backups` and `files` included — so
