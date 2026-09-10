@@ -34,6 +34,17 @@ use Core\Security\SecretManager;
 class InstallationIdentityService
 {
     public const INSTALLATION_ID_SETTING = 'statistics_installation_id';
+
+    /**
+     * The installation this one was restored from, when it was.
+     *
+     * Lives here rather than with the restore that writes it, because the
+     * `statistics_` prefix is a claim about ownership: this module decides
+     * what its settings are called and what they mean. A portable restore
+     * (`Core\Maintenance\Portable\PortableRestore`) is the only writer,
+     * and writes it exactly once, at the moment it mints a new identity.
+     */
+    public const RESTORED_FROM_SETTING = 'statistics_restored_from';
     public const SECRET_NAME = 'statistics_secret';
 
     private const INSTALLATION_ID_BYTES = 16;

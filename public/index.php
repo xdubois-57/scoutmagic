@@ -961,6 +961,14 @@ $settingService->register('statistics_installation_id', '', 'text', 'Identifiant
     'Identifiant aléatoire attribué une seule fois à cette installation pour reconnaître ses rapports '
         . 'd\'utilisation. Il ne dérive d\'aucune donnée personnelle.',
     null, null, null, false, 282);
+// Set once, by a portable restore, and never cleared: this installation is
+// a continuation of another one, and the receiver needs to be able to say so
+// without merging the two. Empty on every installation that was not restored
+// from an archive, which is nearly all of them.
+$settingService->register('statistics_restored_from', '', 'text', 'Installation d\'origine',
+    'Identifiant de l\'installation dont cette installation a été restaurée, le cas échéant. Permet de relier les '
+        . 'deux sans les confondre. Renseigné automatiquement.',
+    null, null, null, false, 283);
 $settingService->register('support_email', 'support@scoutmagic.be', 'email', 'Adresse du support ScoutMagic',
     'Adresse à laquelle envoyer une archive de support. Affichée sur la page Support.',
     null, null, null, false, 283);

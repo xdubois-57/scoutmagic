@@ -66,7 +66,7 @@ class StatisticsIntakeService
      * @var array<int, string>
      */
     private const KNOWN_TOP_LEVEL_FIELDS = [
-        'statistics_schema_version', 'installation_id', 'instance_url', 'generated_at',
+        'statistics_schema_version', 'installation_id', 'restored_from', 'instance_url', 'generated_at',
         'scoutmagic', 'scout_year', 'usage', 'modules', 'module_usage', 'desk_vocabulary',
         'installation', 'runtime', 'database', 'host', 'security', 'email', 'scheduler', 'updates',
         'lifecycle', 'storage',

@@ -61,14 +61,15 @@ final class PortableRestore
     /**
      * The setting recording where a restored installation came from.
      *
-     * Registered by the composition root like any other, which is why the
-     * write below is an UPDATE that tolerates finding nothing: immediately
-     * after a restore the database is the ORIGIN's, and if the origin ran
-     * an older ScoutMagic the row does not exist yet. It is created on the
-     * next boot, which is why this runs on the resume pass rather than
-     * inline — see `Task\RestoreBackupHandler`.
+     * Named by the statistics module, which owns every `statistics_`
+     * setting; this class is its only writer. The write below is an UPDATE
+     * that tolerates finding nothing, because immediately after a restore
+     * the database is the ORIGIN's, and an origin on an older ScoutMagic
+     * has no such row. It is created on the next boot — which is why this
+     * runs on the resume pass rather than inline, see
+     * `Task\RestoreBackupHandler`.
      */
-    public const RESTORED_FROM_SETTING = 'statistics_restored_from';
+    public const RESTORED_FROM_SETTING = InstallationIdentityService::RESTORED_FROM_SETTING;
 
     public function __construct(
         private readonly string $basePath,

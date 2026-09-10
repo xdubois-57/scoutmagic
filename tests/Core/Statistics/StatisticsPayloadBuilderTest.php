@@ -19,6 +19,7 @@ use Core\Module\ModuleRegistryRepository;
 use Core\Security\Role;
 use Core\Security\SecretManager;
 use Core\Statistics\InstallationDateService;
+use Core\Maintenance\Portable\PortableRestore;
 use Core\Statistics\InstallationIdentityService;
 use Core\Statistics\StatisticsPayloadBuilder;
 use Core\View\MenuBuilder;
@@ -84,6 +85,7 @@ class StatisticsPayloadBuilderTest extends TestCase
         $this->settings->register('auto_update_enabled', '1', 'boolean', 'L', 'D');
         $this->settings->register('auto_update_level', 'minor', 'text', 'L', 'D');
         $this->settings->register(InstallationIdentityService::INSTALLATION_ID_SETTING, '', 'text', 'L', 'D', null, null, null, false);
+        $this->settings->register(PortableRestore::RESTORED_FROM_SETTING, '', 'text', 'L', 'D', null, null, null, false);
         InstallationDateService::register($this->settings);
         $this->settings->clearCache();
     }
@@ -238,6 +240,10 @@ class StatisticsPayloadBuilderTest extends TestCase
         $this->assertSame(1, $payload['statistics_schema_version']);
         $this->assertMatchesRegularExpression('/^[0-9a-f]{32}$/', (string) $payload['installation_id']);
         $this->assertSame('https://unite-exemple.be', $payload['instance_url']);
+        // Null, not '' — an installation that was never restored from an
+        // archive has no origin, and "not reported" is a different fact
+        // from "reported as nothing" everywhere in this payload.
+        $this->assertNull($payload['restored_from']);
         $this->assertMatchesRegularExpression('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00$/', (string) $payload['generated_at']);
         $this->assertSame('1.0.33', $payload['scoutmagic']['version']);
         $this->assertFalse($payload['scoutmagic']['is_dev_build']);
@@ -252,12 +258,36 @@ class StatisticsPayloadBuilderTest extends TestCase
 
         $this->assertSame(
             [
-                'statistics_schema_version', 'installation_id', 'instance_url', 'generated_at',
+                'statistics_schema_version', 'installation_id', 'restored_from', 'instance_url', 'generated_at',
                 'scoutmagic', 'scout_year', 'usage', 'modules', 'module_usage', 'desk_vocabulary',
                 'installation', 'runtime', 'database', 'host', 'security', 'email', 'scheduler',
                 'updates', 'lifecycle', 'storage',
             ],
             array_keys($payload)
+        );
+    }
+
+    /**
+     * A restored installation names the one it came from.
+     *
+     * The receiver otherwise sees one installation go quiet and another
+     * appear, with no way to tell a move from an abandonment — which is
+     * the difference between a unit that changed host and a unit that
+     * needs somebody to call it.
+     */
+    public function testARestoredInstallationReportsWhereItCameFrom(): void
+    {
+        $this->settingRepository->updateValue(null, PortableRestore::RESTORED_FROM_SETTING, 'aaaabbbbccccddddeeeeffff00001111');
+        $this->settings->clearCache();
+        $this->seedScoutYear();
+
+        $payload = $this->builder($this->moduleManager())->build();
+
+        $this->assertSame('aaaabbbbccccddddeeeeffff00001111', $payload['restored_from']);
+        $this->assertNotSame(
+            $payload['restored_from'],
+            $payload['installation_id'],
+            'the restored installation is reporting under the identity of the one it replaced'
         );
     }
 

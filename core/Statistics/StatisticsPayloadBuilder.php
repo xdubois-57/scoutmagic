@@ -105,6 +105,15 @@ class StatisticsPayloadBuilder
         return [
             'statistics_schema_version' => self::STATISTICS_SCHEMA_VERSION,
             'installation_id' => $this->collect(fn(): string => $this->identityService->getInstallationId()),
+            // Where this installation came from, when it came from
+            // somewhere: a portable restore mints a new identifier (D6) and
+            // records the old one here. Without it the receiver sees one
+            // installation fall silent and another appear, and has no way to
+            // tell a move from an abandonment — which is the difference
+            // between a unit that left and a unit that needs help. Null on
+            // every installation that was not restored from an archive,
+            // which is nearly all of them.
+            'restored_from' => $this->collect(fn(): ?string => $this->settingValue(InstallationIdentityService::RESTORED_FROM_SETTING)),
             'instance_url' => $this->collect(fn(): ?string => $this->settingValue('base_url')),
             'generated_at' => (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))
                 ->format(\DateTimeInterface::ATOM),
