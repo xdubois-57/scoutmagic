@@ -168,6 +168,32 @@ class AuthorizationYearServiceTest extends TestCase
     }
 
     /**
+     * The interval is asymmetric: forward one year, backward none. A year
+     * behind the public year means a chef d'unité switched the site over
+     * early, and the animateur who has just left must not get their
+     * access back for the weeks between that switch and 1 September.
+     */
+    public function testYearOneBehindThePublicYearIsDiscardedToo(): void
+    {
+        $this->setPublicYear($this->yearNow);
+        $this->setStaffYear($this->yearMinus1);
+
+        $this->assertSame([$this->yearNow], $this->service()->resolve()->ids());
+    }
+
+    /**
+     * The same rule for the year the calendar is in: the site has already
+     * been switched to the year ahead, so today's date names a year that
+     * has been left behind on purpose.
+     */
+    public function testDateComputedYearBehindThePublicYearIsDiscarded(): void
+    {
+        $this->setPublicYear($this->yearPlus1);
+
+        $this->assertSame([$this->yearPlus1], $this->service()->resolve()->ids());
+    }
+
+    /**
      * The forgotten instance of D2: nobody ever ran the transition, so
      * the public year is two seasons behind what the calendar says. The
      * date-computed year is dropped rather than quietly extending every

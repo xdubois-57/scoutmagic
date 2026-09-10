@@ -14,6 +14,8 @@ use Core\Import\MemberYearRepository;
 use Core\Mail\MailService;
 use Core\Member\MemberEmailRepository;
 use Core\Member\MemberService;
+use Core\ScoutYear\AuthorizationYears;
+use Core\ScoutYear\AuthorizationYearService;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\AuthService;
 use Core\Security\AuthSession;
@@ -130,16 +132,27 @@ class SecondaryEmailLoginIdentityTest extends TestCase
             $memberEmailRepo
         );
 
+        $settingService = new SettingService(new SettingRepository($this->pdo));
+
         $this->controller = new AuthController(
             $twig,
             $this->authService,
             $this->roleResolver,
-            new ScoutYearResolver(
-                new ScoutYearService($this->pdo),
-                new SettingService(new SettingRepository($this->pdo)),
-                $memberYearRepo
-            )
+            new ScoutYearResolver(new ScoutYearService($this->pdo), $settingService, $memberYearRepo),
+            null,
+            new AuthorizationYearService(new ScoutYearService($this->pdo), $settingService)
         );
+    }
+
+    /**
+     * No public year is configured here, so the set falls back to the
+     * date-computed year — which is the one the fixture creates
+     * (DatabaseTestHelper::scoutYear()). One year, and it is the public
+     * one: this test is about an address, not about a transition.
+     */
+    private function authorizationYears(): AuthorizationYears
+    {
+        return new AuthorizationYears($this->scoutYearId, [$this->scoutYearId]);
     }
 
     protected function tearDown(): void
@@ -259,7 +272,7 @@ class SecondaryEmailLoginIdentityTest extends TestCase
         $this->pdo->exec("UPDATE member_emails SET status = 'inactive'");
 
         $revalidator = new SessionRevalidator($this->userRepo, $this->roleResolver);
-        $this->assertFalse($revalidator->revalidate(fn(): int => $this->scoutYearId));
+        $this->assertFalse($revalidator->revalidate(fn(): AuthorizationYears => $this->authorizationYears()));
         $this->assertFalse(AuthSession::isAuthenticated());
 
         // And a fresh link never establishes a session again.

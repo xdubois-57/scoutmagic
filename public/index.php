@@ -1549,6 +1549,15 @@ $memberEmailService = new \Core\Member\MemberEmailService(
 // Scout year resolution (public / staff / session-preview priority)
 $scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepo);
 
+// The years an ACCESS decision may be taken in — the public year, the
+// date-computed year and the staff year, deduplicated and bounded to one
+// year of slack. Distinct from $scoutYearResolver on purpose: that one
+// answers "which year does this request DISPLAY", honours the session
+// preview and may create a year row; this one answers "which years may a
+// question about a person be asked in", never sees a preview and never
+// writes (ARCHITECTURE.md §4 « Scout year »).
+$authorizationYearService = new \Core\ScoutYear\AuthorizationYearService($scoutYearService, $settingService);
+
 $scoutYearAdminService = new ScoutYearAdminService($settingService);
 
 // "Membres par section" (core, role_min intendant) — read-only roster of
@@ -1702,13 +1711,17 @@ $roleLabelMap = [
 // Re-check an existing session against current data BEFORE anything reads
 // the role from it (Core\Security\SessionRevalidator): a password change
 // revokes sessions issued earlier, and the effective role is re-resolved so
-// a demotion doesn't wait out the 30-day session cookie. Uses the current
-// PUBLIC year deliberately — the same basis AuthController::resolveRole()
-// used to grant the role at login, and unlike $effectiveScoutYear below it
-// doesn't itself depend on the role we are about to validate.
+// a demotion doesn't wait out the 30-day session cookie. Judged on the same
+// year SET AuthController::resolveRole() granted the role on — the door and
+// every later request must agree, or an animateur of the year being
+// prepared is signed in and thrown out on their first click. Unlike
+// $effectiveScoutYear below, the set does not depend on the role we are
+// about to validate, and it never honours a preview.
 $sessionRevalidator = new \Core\Security\SessionRevalidator($userAccountRepo, $roleResolver);
 $sessionRevalidator->setJournalService($journalService);
-$sessionRevalidator->revalidate(static fn(): int => (int) $scoutYearResolver->getCurrentPublicYear()['id']);
+$sessionRevalidator->revalidate(
+    static fn(): \Core\ScoutYear\AuthorizationYears => $authorizationYearService->resolve()
+);
 
 // Set Twig globals for auth state (after session is started)
 $currentRole = AuthSession::getRole();
@@ -3250,7 +3263,8 @@ $webAuthnService = new WebAuthnService(
     $webAuthnBaseUrl
 );
 
-$authController = new AuthController($twig, $authService, $roleResolver, $scoutYearResolver, $cookieConsentService);
+$authController = new AuthController($twig, $authService, $roleResolver, $scoutYearResolver,
+    $cookieConsentService, $authorizationYearService);
 $authController->setPasswordAuth($passwordAuthMethod);
 $authController->setWebAuthnService($webAuthnService);
 $authController->setHumanCheck($humanCheckService);

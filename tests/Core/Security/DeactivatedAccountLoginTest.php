@@ -8,6 +8,9 @@ use Core\Http\Controller\AuthController;
 use Core\Http\Request;
 use Core\Import\MemberYearRepository;
 use Core\Database\Connection;
+use Core\ScoutYear\AuthorizationYears;
+use Core\ScoutYear\AuthorizationYearService;
+use Core\ScoutYear\EffectiveScoutYear;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\AuthService;
 use Core\Security\AuthSession;
@@ -44,6 +47,7 @@ class DeactivatedAccountLoginTest extends TestCase
     private UserAccountRepository $userRepo;
     private RoleResolver $roleResolver;
     private ScoutYearResolver $scoutYearResolver;
+    private AuthorizationYearService $authorizationYearService;
     private int $scoutYearId;
     private string $csrfToken;
 
@@ -78,6 +82,17 @@ class DeactivatedAccountLoginTest extends TestCase
             'start_date' => '2025-09-01',
             'end_date' => '2026-08-31',
         ]);
+        // Nobody here is staff of anything, so the year served is the
+        // public one — this test is about a deactivated account, not
+        // about a transition.
+        $this->scoutYearResolver->method('getEffectiveYear')->willReturn(
+            new EffectiveScoutYear($this->scoutYearId, '2025-2026', null)
+        );
+
+        $this->authorizationYearService = $this->createStub(AuthorizationYearService::class);
+        $this->authorizationYearService->method('resolve')->willReturn(
+            new AuthorizationYears($this->scoutYearId, [$this->scoutYearId])
+        );
 
         $this->csrfToken = CsrfGuard::generateToken();
     }
@@ -310,7 +325,14 @@ class DeactivatedAccountLoginTest extends TestCase
         $twig = $this->createStub(Environment::class);
         $twig->method('render')->willReturn('<html></html>');
 
-        return new AuthController($twig, $authService, $this->roleResolver, $this->scoutYearResolver);
+        return new AuthController(
+            $twig,
+            $authService,
+            $this->roleResolver,
+            $this->scoutYearResolver,
+            null,
+            $this->authorizationYearService
+        );
     }
 
     private function passwordAuth(): PasswordAuthMethod

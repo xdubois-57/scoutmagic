@@ -13,6 +13,7 @@ use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Member\TemporaryMemberSession;
+use Core\ScoutYear\AuthorizationYearService;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthService;
@@ -23,6 +24,7 @@ use Core\Security\LastLoginMethodCookie;
 use Core\Security\LoginThrottler;
 use Core\Security\PasswordAuthMethod;
 use Core\Security\PendingMagicLink;
+use Core\Security\Role;
 use Core\Security\RoleResolver;
 use Core\Security\WebAuthnService;
 use Twig\Environment;
@@ -41,7 +43,15 @@ class AuthController extends AbstractController
         private AuthService $authService,
         private ?RoleResolver $roleResolver = null,
         private ?ScoutYearResolver $scoutYearResolver = null,
-        private ?CookieConsentService $cookieConsentService = null
+        private ?CookieConsentService $cookieConsentService = null,
+        /**
+         * The years an access decision may be taken in — the set the
+         * login gate and every later request are both judged on. Null
+         * only in the same degraded wiring the two dependencies above
+         * are null in (no role/member system at all), where the three
+         * private helpers below already answer without asking a year.
+         */
+        private ?AuthorizationYearService $authorizationYearService = null
     ) {
     }
 
@@ -435,9 +445,11 @@ class AuthController extends AbstractController
      */
     private function resolveRole(string $email, ?int $userAccountId = null): string
     {
-        if ($this->roleResolver !== null && $this->scoutYearResolver !== null) {
-            $currentYear = $this->scoutYearResolver->getCurrentPublicYear();
-            return $this->roleResolver->resolve($email, $currentYear['id']);
+        if ($this->roleResolver !== null && $this->authorizationYearService !== null) {
+            return $this->roleResolver->resolveAcrossYears(
+                $email,
+                $this->authorizationYearService->resolve()
+            );
         }
 
         // Fallback for cases without role resolver
@@ -451,12 +463,30 @@ class AuthController extends AbstractController
 
     /**
      * Store linked member years in session.
+     *
+     * **One year, never the set** (see RoleResolver::getLinkedMemberYears()):
+     * this is the list of member records the address reaches, and merging
+     * two years of it would show the same child twice and offer a section
+     * that no longer exists. The year is the one this person is actually
+     * SERVED — their effective year — which under the transition rules is
+     * the single year where they really have members. Resolving it against
+     * the public year instead left the animateur recruited for the year
+     * being prepared with an empty list on a site that had just let them in.
+     *
+     * The role has already been written to the session by the caller, so
+     * getEffectiveYear() is asked with the role this login just granted.
+     * The preview is passed as null rather than read from the session: a
+     * login is not the moment to honour one, and clearing it is what
+     * logging out already does.
      */
     private function storeLinkedMembers(string $email): void
     {
         if ($this->roleResolver !== null && $this->scoutYearResolver !== null) {
-            $currentYear = $this->scoutYearResolver->getCurrentPublicYear();
-            $linked = $this->roleResolver->getLinkedMemberYears($email, $currentYear['id']);
+            $effective = $this->scoutYearResolver->getEffectiveYear(
+                null,
+                Role::fromString(AuthSession::getRole())
+            );
+            $linked = $this->roleResolver->getLinkedMemberYears($email, $effective->id);
             AuthSession::setLinkedMembers($linked);
         }
     }
@@ -484,12 +514,14 @@ class AuthController extends AbstractController
      */
     private function isMemberAuthorized(string $email): bool
     {
-        if ($this->roleResolver === null || $this->scoutYearResolver === null) {
+        if ($this->roleResolver === null || $this->authorizationYearService === null) {
             return true;
         }
 
-        $currentYear = $this->scoutYearResolver->getCurrentPublicYear();
-        return $this->roleResolver->isEmailAuthorizedToLogin($email, $currentYear['id']);
+        return $this->roleResolver->isEmailAuthorizedToLoginAcrossYears(
+            $email,
+            $this->authorizationYearService->resolve()
+        );
     }
 
     /**

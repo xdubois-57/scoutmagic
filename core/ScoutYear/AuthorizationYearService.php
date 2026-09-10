@@ -93,7 +93,7 @@ class AuthorizationYearService
 
         $ids = [];
         foreach ([$publicYear, $dateYear, $staffYear] as $candidate) {
-            if ($candidate === null || !self::isWithinOneYearOf($candidate['label'], $anchorLabel)) {
+            if ($candidate === null || !self::isCandidateFor($candidate['label'], $anchorLabel)) {
                 continue;
             }
             $ids[$candidate['id']] = $candidate['id'];
@@ -117,12 +117,34 @@ class AuthorizationYearService
     }
 
     /**
-     * Scout year labels are `YYYY-YYYY` and their first half orders them,
-     * so « one year apart » is a subtraction rather than a date range.
+     * Whether a candidate year may take part in an access decision, given
+     * the public year: **the public year itself, or the one right after
+     * it**. Scout year labels are `YYYY-YYYY` and their first half orders
+     * them, so this is a subtraction rather than a date range.
+     *
+     * Two years away is out in both directions, which is the forgotten
+     * instance: nobody ran the transition, the public year is two seasons
+     * behind the calendar, and without a bound every chief who left two
+     * years ago would keep their access for as long as that lasts.
+     *
+     * **The interval is asymmetric on purpose, and this is the part that
+     * is easy to get wrong.** A year BEFORE the public year is out too,
+     * one year or two. Both mechanisms that legitimately put a year in
+     * play push it FORWARD — activating the staff year, and 1 September
+     * moving the date-computed year ahead of a public year nobody has
+     * switched yet. A year behind the public year means the opposite
+     * happened: a chef d'unité switched the whole site to the next year
+     * early, which is an explicit act saying « we are on the new year
+     * now ». Keeping the old one as a candidate would hand the animateur
+     * who has just left their access back for every day between that
+     * switch and 1 September — precisely the person the transition was
+     * run to hand over from.
      */
-    private static function isWithinOneYearOf(string $label, string $anchorLabel): bool
+    private static function isCandidateFor(string $label, string $publicLabel): bool
     {
-        return abs(self::startYear($label) - self::startYear($anchorLabel)) <= 1;
+        $distance = self::startYear($label) - self::startYear($publicLabel);
+
+        return $distance >= 0 && $distance <= 1;
     }
 
     private static function startYear(string $label): int
