@@ -626,17 +626,6 @@ declared on the same list, and the prompt says why — there is no later
 turn to schedule. The `spawned` against `completed` comparison remains
 the guard; this only stops the reviewer walking into it.
 
-**And the tell came back under a second name.** Run 34447638775 stopped
-at 7 launched and 3 collected — the 2026-09-08 fingerprint to the digit —
-with `ScheduleWakeup` nowhere in its tool list and `Monitor` in it
-instead. The two tools are one mistake: both are ways of arranging to be
-called back later, and a reviewer that arranges to be called back has
-stopped. Refusing `ScheduleWakeup` by name closed the door it happened to
-use first, which is why the rule has to be stated as the shape rather
-than the name — a run this reviewer does not end is the only thing that
-collects its agents. `Monitor` is on the list now, with that reason, and
-the prompt names it beside `ScheduleWakeup`.
-
 **Then a working reviewer found the ceiling.** #217 took 10 min 47 s
 against a `timeout-minutes: 20` written when a review took a few minutes
 and the number was a formality. Pull request #257 — 185 files, the whole
