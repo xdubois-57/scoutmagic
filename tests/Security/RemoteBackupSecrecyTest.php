@@ -57,6 +57,35 @@ final class RemoteBackupSecrecyTest extends TestCase
     }
 
     /**
+     * **And the journal names none of them either — the account included.**
+     *
+     * It is the e-mail address of a real person, and the journal is read
+     * on screen and travels in the support archive. SECURITY.md sets the
+     * precedent for the mail probe: « the journal counts mailboxes and
+     * names none of them ».
+     */
+    public function testTheJournalNeverCarriesTheConnectedAccount(): void
+    {
+        $source = (string) file_get_contents(
+            dirname(__DIR__, 2) . '/core/Http/Controller/RemoteBackupController.php'
+        );
+
+        $offenders = [];
+        foreach (explode("\n", $source) as $number => $line) {
+            if (str_contains($line, 'account()') && !str_contains($line, '//')) {
+                $offenders[] = ($number + 1) . ': ' . trim($line);
+            }
+        }
+
+        $this->assertSame(
+            [],
+            $offenders,
+            "RemoteBackupController reads the connected account; the journal must never carry it:\n  "
+            . implode("\n  ", $offenders)
+        );
+    }
+
+    /**
      * And nowhere else either: a `setInternal()` naming one of them would
      * create the row the check above forbids declaring.
      */

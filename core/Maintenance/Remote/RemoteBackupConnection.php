@@ -36,7 +36,6 @@ final class RemoteBackupConnection
 {
     public const PROVIDER_SETTING = 'remote_backup_provider';
     public const CLIENT_ID_SETTING = 'remote_backup_client_id';
-    public const ACCOUNT_SETTING = 'remote_backup_account';
     public const FOLDER_SETTING = 'remote_backup_folder_id';
     public const CONNECTED_AT_SETTING = 'remote_backup_connected_at';
     public const STATE_SETTING = 'remote_backup_state';
@@ -50,20 +49,32 @@ final class RemoteBackupConnection
      * that neither name is ever registered as a setting — a rule that only
      * holds if both halves read the same list.
      *
+     * **The account address is one of them, and that is not obvious.**
+     * It is not a credential — but it is the e-mail address of a real
+     * person, and a `settings` row renders in clear on Configuration >
+     * Réglages and travels unredacted in the support diagnostic export.
+     * AGENTS.md's security checklist asks personal data to be encrypted
+     * at rest; here that is `secrets.enc`, which is also where the grant
+     * it belongs to already lives.
+     *
      * @var string[]
      */
-    public const SECRET_KEYS = ['remote_backup_client_secret', 'remote_backup_refresh_token'];
+    public const SECRET_KEYS = [
+        'remote_backup_client_secret',
+        'remote_backup_refresh_token',
+        'remote_backup_account',
+    ];
 
     public const PROVIDER_NONE = 'none';
     public const PROVIDER_GOOGLE_DRIVE = 'google_drive';
 
-    /** Raccordé et utilisable pour autant qu'on sache. */
+    /** Connected, and working as far as anything here knows. */
     public const STATE_CONNECTED = 'connected';
 
-    /** Jamais raccordé, ou déraccordé volontairement. */
+    /** Never connected, or deliberately disconnected. */
     public const STATE_DISCONNECTED = 'disconnected';
 
-    /** Raccordé un jour, mais Google n'accepte plus l'autorisation. */
+    /** Connected once, but Google no longer honours the grant. */
     public const STATE_NEEDS_REAUTH = 'needs_reauth';
 
     /** Where Google sends the browser back. Registered in the project too. */
@@ -92,8 +103,6 @@ final class RemoteBackupConnection
         $settings->register(self::CLIENT_ID_SETTING, '', 'text',
             'Identifiant client OAuth', 'Identifiant du client OAuth du projet Google de l\'unité.',
             null, null, null, false, 301);
-        $settings->register(self::ACCOUNT_SETTING, '', 'text',
-            'Compte distant raccordé', 'L\'adresse du compte Google actuellement raccordé.', null, null, null, false, 302);
         $settings->register(self::FOLDER_SETTING, '', 'text',
             'Dossier distant', 'Le dossier créé par ce site sur le service distant.', null, null, null, false, 303);
         $settings->register(self::CONNECTED_AT_SETTING, '', 'text',
@@ -136,7 +145,7 @@ final class RemoteBackupConnection
 
     public function account(): string
     {
-        return (string) ($this->settings->get(self::ACCOUNT_SETTING) ?: '');
+        return $this->secret('remote_backup_account');
     }
 
     public function folderId(): string
@@ -186,28 +195,39 @@ final class RemoteBackupConnection
         return $this->clientId() !== '' && $this->clientSecret() !== '';
     }
 
+    /**
+     * Secrets first, settings after — everywhere in this class.
+     *
+     * {@see writeSecrets()} refuses to write a `secrets.enc` it could not
+     * read, and says « Rien n'a été modifié ». That sentence is only true
+     * if nothing was: a `settings` row committed before the refusal would
+     * leave the site describing a state its credentials contradict, and
+     * the message would be a lie told by the code that wrote it.
+     */
     public function saveCredentials(string $clientId, string $clientSecret): void
     {
-        $this->settings->setInternal(self::CLIENT_ID_SETTING, trim($clientId));
         $this->writeSecrets(['remote_backup_client_secret' => trim($clientSecret)]);
+        $this->settings->setInternal(self::CLIENT_ID_SETTING, trim($clientId));
     }
 
     /**
      * Records a successful connection.
      *
-     * The refresh token is written LAST of the three, after the account
-     * and the folder: {@see isConnected()} reads it, so a write interrupted
-     * half way leaves a site that knows it is not connected rather than one
-     * that believes it is and cannot say to what.
+     * The encrypted half goes first, and `STATE_SETTING` goes LAST:
+     * {@see isConnected()} reads both, so a write interrupted half way
+     * leaves a site that knows it is not connected rather than one that
+     * believes it is and cannot say to what.
      */
     public function saveConnection(string $refreshToken, string $account, string $folderId): void
     {
+        $this->writeSecrets([
+            'remote_backup_refresh_token' => $refreshToken,
+            'remote_backup_account' => $account,
+        ]);
         $this->settings->setInternal(self::PROVIDER_SETTING, self::PROVIDER_GOOGLE_DRIVE);
-        $this->settings->setInternal(self::ACCOUNT_SETTING, $account);
         $this->settings->setInternal(self::FOLDER_SETTING, $folderId);
         $this->settings->setInternal(self::CONNECTED_AT_SETTING, date('c'));
         $this->settings->setInternal(self::LAST_ERROR_SETTING, '');
-        $this->writeSecrets(['remote_backup_refresh_token' => $refreshToken]);
         $this->settings->setInternal(self::STATE_SETTING, self::STATE_CONNECTED);
     }
 
@@ -222,9 +242,9 @@ final class RemoteBackupConnection
      */
     public function markNeedsReauthorisation(string $reason): void
     {
+        $this->writeSecrets(['remote_backup_refresh_token' => '']);
         $this->settings->setInternal(self::STATE_SETTING, self::STATE_NEEDS_REAUTH);
         $this->settings->setInternal(self::LAST_ERROR_SETTING, $reason);
-        $this->writeSecrets(['remote_backup_refresh_token' => '']);
     }
 
     public function recordFailure(string $reason): void
@@ -247,14 +267,22 @@ final class RemoteBackupConnection
      */
     public function disconnect(): void
     {
+        // First, for the reason {@see saveCredentials()} gives: a refusal
+        // here must leave the site exactly as it was, and seven committed
+        // settings rows would leave it saying « déraccordé » over
+        // credentials that still work — with the button that would undo
+        // that now hidden, and the client id it needs already cleared.
+        $this->writeSecrets([
+            'remote_backup_client_secret' => '',
+            'remote_backup_refresh_token' => '',
+            'remote_backup_account' => '',
+        ]);
         $this->settings->setInternal(self::PROVIDER_SETTING, self::PROVIDER_NONE);
         $this->settings->setInternal(self::STATE_SETTING, self::STATE_DISCONNECTED);
-        $this->settings->setInternal(self::ACCOUNT_SETTING, '');
         $this->settings->setInternal(self::FOLDER_SETTING, '');
         $this->settings->setInternal(self::CONNECTED_AT_SETTING, '');
         $this->settings->setInternal(self::LAST_ERROR_SETTING, '');
         $this->settings->setInternal(self::CLIENT_ID_SETTING, '');
-        $this->writeSecrets(['remote_backup_client_secret' => '', 'remote_backup_refresh_token' => '']);
     }
 
     private function secret(string $key): string

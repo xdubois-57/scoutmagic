@@ -60,14 +60,16 @@ final class GoogleDriveTarget implements RemoteBackupTarget
     /**
      * Writes a witness file and deletes it again.
      *
-     * The deletion is in a `finally`: a test that wrote its witness and
-     * then failed to report would otherwise leave one behind on every
-     * press, and the operator would find a Drive folder filling with
-     * evidence of their own troubleshooting.
+     * Both deletions are in a `finally` — the local temporary file and
+     * the remote witness. A test that wrote its witness and then failed
+     * anywhere after would otherwise leave one behind on every press, and
+     * the operator would find a Drive folder filling with the evidence of
+     * their own troubleshooting.
      */
     public function testConnection(): RemoteConnectionCheck
     {
         $witness = null;
+        $remoteId = null;
 
         try {
             $about = $this->client->about($this->accessToken());
@@ -80,7 +82,6 @@ final class GoogleDriveTarget implements RemoteBackupTarget
             file_put_contents($witness, 'ScoutMagic — test de raccordement ' . date('c') . "\n");
 
             $remoteId = $this->client->uploadFile($this->accessToken(), $folderId, $witness, self::WITNESS_NAME);
-            $this->client->deleteFile($this->accessToken(), $remoteId);
 
             $this->connection->clearFailure();
 
@@ -114,6 +115,20 @@ final class GoogleDriveTarget implements RemoteBackupTarget
         } finally {
             if (is_string($witness)) {
                 @unlink($witness);
+            }
+            // **The remote one too, and here rather than in the `try`.**
+            // A witness uploaded and then not removed — because the token
+            // expired between the two calls, because Google answered 503 —
+            // would stay in the operator's Drive, and every press of the
+            // button would leave another. Guarded, because this method
+            // promises never to throw: a witness left behind is a small
+            // untidiness, an exception out of a diagnostic button is not.
+            if (is_string($remoteId)) {
+                try {
+                    $this->client->deleteFile($this->accessToken(), $remoteId);
+                } catch (\Throwable) {
+                    // Nothing useful to tell the operator about it.
+                }
             }
         }
     }

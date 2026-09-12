@@ -1696,6 +1696,32 @@ chiffrement des colonnes et la clé VAPID y sont avec ceux de Drive. Un
 mauvaise journée en installation irrécupérable. L'écriture refuse
 désormais, et dit pourquoi.
 
+**Cinq constats de revue, tous justes.** Le premier est le plus lourd :
+`disconnect()` et `saveCredentials()` écrivaient les lignes de `settings`
+*avant* l'écriture chiffrée qui, elle, peut refuser en disant « Rien n'a
+été modifié ». Cette phrase aurait donc été un mensonge écrit par le code
+qui la prononce — et un mensonge précis : la page aurait annoncé
+« déraccordé » sur des identifiants encore valides, le bouton qui
+défait cela masqué, et l'identifiant client dont il a besoin déjà effacé.
+L'ordre est inversé partout dans la classe.
+
+Le deuxième : le docbloc promettait que la suppression du fichier témoin
+était dans un `finally`, et seule celle du fichier local y était. Un jeton
+expiré entre l'envoi et la suppression, un 503, et le témoin restait sur
+le Drive de l'opérateur — un de plus à chaque appui sur un bouton dont
+c'est tout le métier.
+
+Le troisième : quatre docblocs en français, manquement à `AGENTS.md`
+§ Langue, à moi. Les quatrième et cinquième vont ensemble : l'adresse du
+compte Google est une donnée personnelle. Elle était écrite en clair dans
+la description d'une entrée de journal — lue à l'écran et emportée dans
+l'archive de diagnostic — et stockée en clair dans une ligne de
+`settings`, donc affichée sur la page générique des Réglages et exportée
+sans caviardage. Elle rejoint `secrets.enc`, le journal ne la nomme plus,
+et un cliquet interdit au contrôleur de l'y remettre. `SECURITY.md`
+posait déjà le précédent pour la sonde courriel : « le journal compte les
+boîtes et n'en nomme aucune ».
+
 **Reporté.** L'envoi récurrent et la rétention distante (IT-09) : rien
 n'appelle encore `upload()` en dehors du fichier témoin du bouton
 « Tester ». Le quota distant n'est pas lu au rendu de la page — cela

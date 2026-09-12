@@ -180,6 +180,76 @@ final class RemoteBackupConnectionTest extends TestCase
     }
 
     /**
+     * **The account address is not a `settings` row either.**
+     *
+     * It is not a credential, but it is the e-mail address of a real
+     * person — and a `settings` row renders in clear on Configuration >
+     * Réglages and travels unredacted in the support diagnostic export.
+     * The client ID stays visible because it is public by construction;
+     * this one has no such excuse.
+     */
+    public function testTheConnectedAccountAddressIsNotStoredInTheClear(): void
+    {
+        $this->connection->saveCredentials('client-id-42', 'client-secret-42');
+        $this->connection->saveConnection('refresh-42', 'tresorier@example.org', 'folder-42');
+
+        $rows = $this->pdo->query('SELECT setting_key, setting_value FROM settings')->fetchAll(\PDO::FETCH_ASSOC);
+
+        $this->assertStringNotContainsString('tresorier@example.org', (string) json_encode($rows));
+        $this->assertStringNotContainsString(
+            'tresorier@example.org',
+            (string) file_get_contents($this->base . '/config/secrets.enc')
+        );
+        // And the screen can still show it, which is the point of keeping
+        // it at all.
+        $this->assertSame('tresorier@example.org', $this->connection->account());
+    }
+
+    /**
+     * **« Rien n'a été modifié » has to be true when it is said.**
+     *
+     * `writeSecrets()` refuses to write a `secrets.enc` it could not read,
+     * with that sentence. Seven `settings` rows committed before the
+     * refusal would make it a lie told by the code that wrote it — and a
+     * specific, unrecoverable one: the page would say « déraccordé » over
+     * credentials that still work, with the button that would undo it now
+     * hidden and the client id it needs already cleared.
+     */
+    public function testARefusedDisconnectLeavesTheSettingsExactlyAsTheyWere(): void
+    {
+        $this->connection->saveCredentials('client-id-42', 'client-secret-42');
+        $this->connection->saveConnection('refresh-42', 'unite@example.org', 'folder-42');
+
+        file_put_contents($this->base . '/config/secrets.enc', 'des octets qui ne veulent rien dire');
+
+        try {
+            $this->connection->disconnect();
+            $this->fail('An unreadable secrets file was overwritten.');
+        } catch (RemoteBackupException) {
+            // Asserted below rather than here.
+        }
+
+        $this->assertSame(RemoteBackupConnection::STATE_CONNECTED, $this->connection->state());
+        $this->assertSame('client-id-42', $this->connection->clientId());
+        $this->assertSame('folder-42', $this->connection->folderId());
+    }
+
+    /** The same discipline when the credentials are being saved. */
+    public function testARefusedCredentialSaveDoesNotLeaveTheClientIdBehind(): void
+    {
+        file_put_contents($this->base . '/config/secrets.enc', 'des octets qui ne veulent rien dire');
+
+        try {
+            $this->connection->saveCredentials('client-id-99', 'client-secret-99');
+            $this->fail('An unreadable secrets file was overwritten.');
+        } catch (RemoteBackupException) {
+            // Asserted below.
+        }
+
+        $this->assertSame('', $this->connection->clientId());
+    }
+
+    /**
      * **And it refuses to write over what it cannot read.**
      *
      * `secrets.enc` is one document holding the SMTP password, the column

@@ -45,13 +45,13 @@ final class GoogleDriveTargetTest extends TestCase
         $secrets->writeSecrets([
             'remote_backup_client_secret' => 'client-secret-1',
             'remote_backup_refresh_token' => 'refresh-1',
+            'remote_backup_account' => 'unite@example.org',
         ]);
 
         $this->settings = new InMemorySettingService([
             RemoteBackupConnection::CLIENT_ID_SETTING => 'client-1',
             RemoteBackupConnection::FOLDER_SETTING => 'folder-1',
             RemoteBackupConnection::STATE_SETTING => RemoteBackupConnection::STATE_CONNECTED,
-            RemoteBackupConnection::ACCOUNT_SETTING => 'unite@example.org',
         ]);
         $this->connection = new RemoteBackupConnection($this->settings, $secrets);
     }
@@ -105,6 +105,78 @@ final class GoogleDriveTargetTest extends TestCase
         $this->assertSame(90, $check->quota->freeBytes());
         $this->assertContains('PUT https://upload.example/s1', $calls, 'nothing was written');
         $this->assertContains('DELETE https://www.googleapis.com/drive/v3/files/witness-1', $calls, 'the witness was left behind');
+    }
+
+    /**
+     * **The witness is removed even when the reporting fails after it.**
+     *
+     * The docblock promised a `finally` and only the local temporary file
+     * was in one; the remote deletion sat in the `try`, so a token that
+     * expired between the upload and the delete, or a 503, would leave the
+     * witness on the operator's Drive — one more on every press of a
+     * button whose whole purpose is troubleshooting.
+     */
+    public function testTheRemoteWitnessIsRemovedEvenWhenSomethingFailsAfterTheUpload(): void
+    {
+        $deleted = [];
+        $target = $this->targetAnswering(function (string $method, string $url) use (&$deleted): array {
+            if (str_contains($url, '/token')) {
+                return ['status' => 200, 'body' => '{"access_token":"ya29.ok","expires_in":3599}'];
+            }
+            if (str_contains($url, '/about')) {
+                return ['status' => 200, 'body' => '{"user":{"emailAddress":"u@e.org"},"storageQuota":{}}'];
+            }
+            if (str_contains($url, '/upload/')) {
+                return ['status' => 200, 'body' => '{}', 'location' => 'https://upload.example/s1'];
+            }
+            if ($method === 'PUT') {
+                return ['status' => 200, 'body' => '{"id":"witness-1"}'];
+            }
+            if ($method === 'DELETE') {
+                $deleted[] = $url;
+
+                return ['status' => 204, 'body' => ''];
+            }
+
+            return ['status' => 200, 'body' => '{"files":[]}'];
+        });
+
+        $target->testConnection();
+
+        $this->assertCount(1, $deleted, 'the witness was left on the Drive');
+        $this->assertStringEndsWith('/files/witness-1', $deleted[0]);
+    }
+
+    /**
+     * And a deletion that itself fails does not turn a diagnostic button
+     * into an error page: the operator still gets the answer they asked
+     * for.
+     */
+    public function testAWitnessThatCannotBeRemovedStillLetsTheTestReport(): void
+    {
+        $target = $this->targetAnswering(function (string $method, string $url): array {
+            if (str_contains($url, '/token')) {
+                return ['status' => 200, 'body' => '{"access_token":"ya29.ok","expires_in":3599}'];
+            }
+            if (str_contains($url, '/about')) {
+                return ['status' => 200, 'body' => '{"user":{"emailAddress":"u@e.org"},"storageQuota":{}}'];
+            }
+            if (str_contains($url, '/upload/')) {
+                return ['status' => 200, 'body' => '{}', 'location' => 'https://upload.example/s1'];
+            }
+            if ($method === 'PUT') {
+                return ['status' => 200, 'body' => '{"id":"witness-1"}'];
+            }
+            if ($method === 'DELETE') {
+                return ['status' => 503, 'body' => '{"error":{"message":"Backend Error"}}'];
+            }
+
+            return ['status' => 200, 'body' => '{"files":[]}'];
+        });
+
+        $check = $target->testConnection();
+
+        $this->assertTrue($check->ok, $check->message);
     }
 
     /**

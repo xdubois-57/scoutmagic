@@ -22,7 +22,8 @@ use Core\Security\SessionStore;
 use Twig\Environment;
 
 /**
- * Raccorder ce site à un espace de stockage distant.
+ * Connecting this site to somewhere off-server that can hold its
+ * backups.
  *
  * **Its own controller, rather than five more methods on
  * `MaintenanceController`.** That class is already past every PHPMD
@@ -190,11 +191,18 @@ final class RemoteBackupController extends AbstractController
             return $this->redirect('/config/maintenance#remote-backup');
         }
 
+        // **Without the address.** It is the e-mail of a real person, and
+        // AGENTS.md's security checklist keeps personal data out of the
+        // journal — which is read on screen and travels in the support
+        // archive. SECURITY.md's mail-probe intake sets the precedent:
+        // « the journal counts mailboxes and names none of them ». The
+        // Maintenance page shows the account to the administrator who
+        // needs it, from a store that is encrypted at rest.
         $this->journalService->log(
             'core',
             'remote_backup_connected',
             'security',
-            'Destination hors site raccordée : ' . $this->connection->account(),
+            'Destination hors site raccordée',
             [],
             AuthSession::getUserAccountId()
         );
@@ -239,8 +247,6 @@ final class RemoteBackupController extends AbstractController
             return $guard;
         }
 
-        $account = $this->connection->account();
-
         try {
             $this->connection->disconnect();
         } catch (RemoteBackupException $e) {
@@ -253,7 +259,7 @@ final class RemoteBackupController extends AbstractController
             'core',
             'remote_backup_disconnected',
             'security',
-            'Destination hors site déraccordée' . ($account !== '' ? ' : ' . $account : ''),
+            'Destination hors site déraccordée',
             [],
             AuthSession::getUserAccountId()
         );

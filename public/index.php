@@ -4011,11 +4011,11 @@ $router->addRoute(
     'admin',
 );
 
-// **La destination hors site.** Les cinq routes sont au plancher `admin`,
-// y compris le rappel : une route de rappel ouverte qui écrit un jeton de
-// rafraîchissement laisserait quiconque sait composer une URL décider vers
-// quel compte Google ce site sauvegarde. Le paramètre `state` vérifié
-// contre la session s'ajoute à ce plancher, il ne le remplace pas.
+// **The off-site destination.** All five routes sit at the `admin` floor,
+// the callback included: an open callback that writes a refresh token
+// would let anybody able to compose a URL decide which Google account
+// this site backs up to. The `state` checked against the session sits on
+// top of that floor; it does not replace it.
 $router->addRoute(
     'POST', '/config/maintenance/remote/credentials', RemoteBackupController::class, 'saveCredentials', 'admin',
 );
