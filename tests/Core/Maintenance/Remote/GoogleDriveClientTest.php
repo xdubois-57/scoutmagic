@@ -30,6 +30,16 @@ use PHPUnit\Framework\TestCase;
  */
 final class GoogleDriveClientTest extends TestCase
 {
+    /** @var string[] */
+    private array $paths = [];
+
+    protected function tearDown(): void
+    {
+        foreach ($this->paths as $path) {
+            @unlink($path);
+        }
+    }
+
     /**
      * **The scope, asserted because it is a security decision and not a
      * detail.**
@@ -277,6 +287,180 @@ final class GoogleDriveClientTest extends TestCase
         } catch (RemoteBackupException $e) {
             $this->assertStringContainsString('Révoquez', $e->getMessage());
         }
+    }
+
+    /**
+     * The listing is what IT-09's remote retention will decide from, so
+     * every field it decides on is read: the id it deletes by, the size
+     * it budgets with, and the remote clock's own timestamp — never
+     * re-parsed into this server's timezone, because a comparison between
+     * two clocks that disagree deletes the wrong file.
+     */
+    public function testAListingCarriesTheFieldsARetentionWouldDecideFrom(): void
+    {
+        $client = $this->clientAnswering(fn (): array => [
+            'status' => 200,
+            'body' => (string) json_encode(['files' => [
+                ['id' => 'f-2', 'name' => 'sauvegarde-2.zip', 'size' => '2048', 'createdTime' => '2026-09-02T03:00:00.000Z'],
+                ['id' => 'f-1', 'name' => 'sauvegarde-1.zip', 'size' => '1024', 'createdTime' => '2026-09-01T03:00:00.000Z'],
+                // Something the API answered that is not a file: skipped
+                // rather than turned into a RemoteFile with an empty id,
+                // which a delete would then aim at nothing.
+                ['name' => 'sans identifiant'],
+            ]]),
+        ]);
+
+        $files = $client->listFiles('token', 'folder-1');
+
+        $this->assertCount(2, $files);
+        $this->assertSame('f-2', $files[0]->id);
+        $this->assertSame('sauvegarde-2.zip', $files[0]->name);
+        $this->assertSame(2048, $files[0]->sizeBytes);
+        $this->assertSame('2026-09-02T03:00:00.000Z', $files[0]->createdAt);
+    }
+
+    public function testTheFolderIsCreatedWhenThisApplicationHasNoneYet(): void
+    {
+        $methods = [];
+        $client = $this->clientAnswering(function (string $method) use (&$methods): array {
+            $methods[] = $method;
+
+            return $method === 'POST'
+                ? ['status' => 200, 'body' => '{"id":"folder-new"}']
+                : ['status' => 200, 'body' => '{"files":[]}'];
+        });
+
+        $this->assertSame('folder-new', $client->ensureFolder('token', 'ScoutMagic'));
+        $this->assertSame(['GET', 'POST'], $methods);
+    }
+
+    public function testAFolderCreationThatAnswersWithoutAnIdentifierIsRefused(): void
+    {
+        $client = $this->clientAnswering(fn (string $method): array => $method === 'POST'
+            ? ['status' => 200, 'body' => '{}']
+            : ['status' => 200, 'body' => '{"files":[]}']);
+
+        $this->expectException(RemoteBackupException::class);
+        $client->ensureFolder('token', 'ScoutMagic');
+    }
+
+    public function testAnUploadGoogleWillNotEvenBeginIsRefusedBeforeAnyByteIsSent(): void
+    {
+        $path = $this->fileOf('x');
+        $client = $this->clientAnswering(fn (): array => ['status' => 403, 'body' => '{"error":{"message":"nope"}}']);
+
+        try {
+            $client->uploadFile('token', 'folder', $path, 'a.zip');
+            $this->fail('An upload Google refused to start was accepted.');
+        } catch (RemoteBackupException $e) {
+            $this->assertStringContainsString('commencer l\'envoi', $e->getMessage());
+        }
+    }
+
+    /**
+     * A session Google opened without saying where to send the bytes.
+     * There is nowhere to `PUT` to, and guessing would be writing to an
+     * address the archive's author could otherwise choose.
+     */
+    public function testAnUploadSessionWithoutAnAddressIsRefused(): void
+    {
+        $path = $this->fileOf('x');
+        $client = $this->clientAnswering(fn (): array => ['status' => 200, 'body' => '{}']);
+
+        try {
+            $client->uploadFile('token', 'folder', $path, 'a.zip');
+            $this->fail('An upload session with no location was accepted.');
+        } catch (RemoteBackupException $e) {
+            $this->assertStringContainsString('où envoyer', $e->getMessage());
+        }
+    }
+
+    public function testAFileThatIsNotThereIsRefusedWithoutContactingGoogle(): void
+    {
+        $calls = 0;
+        $client = $this->clientAnswering(function () use (&$calls): array {
+            $calls++;
+
+            return ['status' => 200, 'body' => '{}'];
+        });
+
+        try {
+            $client->uploadFile('token', 'folder', sys_get_temp_dir() . '/absent_' . uniqid(), 'a.zip');
+            $this->fail('A missing file was sent.');
+        } catch (RemoteBackupException $e) {
+            $this->assertStringContainsString('introuvable', $e->getMessage());
+        }
+        $this->assertSame(0, $calls, 'Google was contacted about a file this server does not have');
+    }
+
+    /**
+     * Google accepting the last piece without naming the file is a
+     * success this application cannot use: IT-09's retention deletes by
+     * identifier, and an empty one would delete nothing while reading as
+     * a completed send.
+     */
+    public function testAnUploadAcceptedWithoutAnIdentifierIsRefused(): void
+    {
+        $path = $this->fileOf('some bytes');
+        $client = $this->clientAnswering(fn (string $method): array => $method === 'POST'
+            ? ['status' => 200, 'body' => '{}', 'location' => 'https://upload.example/s1']
+            : ['status' => 200, 'body' => '{}']);
+
+        try {
+            $client->uploadFile('token', 'folder', $path, 'a.zip');
+            $this->fail('An upload with no identifier was accepted.');
+        } catch (RemoteBackupException $e) {
+            $this->assertStringContainsString('identifiant', $e->getMessage());
+        }
+    }
+
+    public function testAChunkGoogleRefusesStopsTheUpload(): void
+    {
+        $path = $this->fileOf('some bytes');
+        $client = $this->clientAnswering(fn (string $method): array => $method === 'POST'
+            ? ['status' => 200, 'body' => '{}', 'location' => 'https://upload.example/s1']
+            : ['status' => 500, 'body' => '{"error":{"message":"Backend Error"}}']);
+
+        try {
+            $client->uploadFile('token', 'folder', $path, 'a.zip');
+            $this->fail('A refused chunk was accepted.');
+        } catch (RemoteBackupException $e) {
+            $this->assertStringContainsString('envoi vers Google Drive', $e->getMessage());
+        }
+    }
+
+    public function testATokenResponseWithoutAnAccessTokenIsRefused(): void
+    {
+        $client = $this->clientAnswering(fn (): array => ['status' => 200, 'body' => '{"expires_in":3599}']);
+
+        try {
+            $client->refreshAccessToken('c', 's', 'r');
+            $this->fail('A token response with no token was accepted.');
+        } catch (RemoteBackupException $e) {
+            $this->assertStringContainsString('jeton d\'accès', $e->getMessage());
+        }
+    }
+
+    public function testAnUnreadableAnswerIsRefusedRatherThanGuessedAt(): void
+    {
+        $client = $this->clientAnswering(fn (): array => ['status' => 200, 'body' => 'not json at all']);
+
+        try {
+            $client->about('token');
+            $this->fail('An unreadable answer was accepted.');
+        } catch (RemoteBackupException $e) {
+            $this->assertStringContainsString('illisible', $e->getMessage());
+        }
+    }
+
+    private function fileOf(string $contents): string
+    {
+        $path = tempnam(sys_get_temp_dir(), 'sm_gd_');
+        $this->assertIsString($path);
+        file_put_contents($path, $contents);
+        $this->paths[] = $path;
+
+        return $path;
     }
 
     /**

@@ -175,6 +175,102 @@ final class GoogleDriveTargetTest extends TestCase
     }
 
     /**
+     * The four methods IT-09 will actually call, through the same stored
+     * grant.
+     *
+     * Nothing in this iteration sends a backup — but the interface is
+     * what the scheduled send will depend on, and a method that has never
+     * once been exercised is a method whose first run is in production.
+     */
+    public function testTheDestinationCanBeListedWrittenToAndCleanedUp(): void
+    {
+        $path = tempnam(sys_get_temp_dir(), 'sm_tgt_');
+        $this->assertIsString($path);
+        file_put_contents($path, 'des octets');
+
+        $deleted = [];
+        $target = $this->targetAnswering(function (string $method, string $url) use (&$deleted): array {
+            if (str_contains($url, '/token')) {
+                return ['status' => 200, 'body' => '{"access_token":"ya29.ok","expires_in":3599}'];
+            }
+            if (str_contains($url, '/about')) {
+                return ['status' => 200, 'body' => '{"user":{"emailAddress":"u@e.org"},"storageQuota":{"usage":"5","limit":"50"}}'];
+            }
+            if (str_contains($url, '/upload/')) {
+                return ['status' => 200, 'body' => '{}', 'location' => 'https://upload.example/s1'];
+            }
+            if ($method === 'PUT') {
+                return ['status' => 200, 'body' => '{"id":"remote-7"}'];
+            }
+            if ($method === 'DELETE') {
+                $deleted[] = $url;
+
+                return ['status' => 204, 'body' => ''];
+            }
+
+            return ['status' => 200, 'body' => '{"files":[{"id":"remote-7","name":"s.zip","size":"10","createdTime":"2026-09-01T00:00:00Z"}]}'];
+        });
+
+        $this->assertSame('remote-7', $target->upload($path, 'sauvegarde.zip'));
+
+        $listed = $target->list();
+        $this->assertCount(1, $listed);
+        $this->assertSame('remote-7', $listed[0]->id);
+
+        $quota = $target->quota();
+        $this->assertNotNull($quota);
+        $this->assertSame(45, $quota->freeBytes());
+
+        $target->delete('remote-7');
+        $this->assertCount(1, $deleted);
+        $this->assertStringEndsWith('/files/remote-7', $deleted[0]);
+
+        @unlink($path);
+    }
+
+    /**
+     * A site that has never had a folder gets one made, and the access
+     * token is refreshed exactly once for the whole operation rather than
+     * per request.
+     */
+    public function testTheFolderIsCreatedOnFirstUseAndTheTokenIsRefreshedOnlyOnce(): void
+    {
+        $this->settings->values[RemoteBackupConnection::FOLDER_SETTING] = '';
+
+        $refreshes = 0;
+        $target = $this->targetAnswering(function (string $method, string $url) use (&$refreshes): array {
+            if (str_contains($url, '/token')) {
+                $refreshes++;
+
+                return ['status' => 200, 'body' => '{"access_token":"ya29.ok","expires_in":3599}'];
+            }
+            if (str_contains($url, '/about')) {
+                return ['status' => 200, 'body' => '{"user":{"emailAddress":"u@e.org"},"storageQuota":{}}'];
+            }
+            if (str_contains($url, '/upload/')) {
+                return ['status' => 200, 'body' => '{}', 'location' => 'https://upload.example/s1'];
+            }
+            if ($method === 'PUT') {
+                return ['status' => 200, 'body' => '{"id":"witness-1"}'];
+            }
+            if ($method === 'POST') {
+                return ['status' => 200, 'body' => '{"id":"folder-created"}'];
+            }
+            if ($method === 'DELETE') {
+                return ['status' => 204, 'body' => ''];
+            }
+
+            return ['status' => 200, 'body' => '{"files":[]}'];
+        });
+
+        $check = $target->testConnection();
+
+        $this->assertTrue($check->ok, $check->message);
+        $this->assertNull($check->quota, 'an account with no declared limit was given one');
+        $this->assertSame(1, $refreshes, 'the access token was refreshed more than once for one operation');
+    }
+
+    /**
      * @param \Closure(string, string, array<string, string>, ?string): array{status: int, body: string, location?: string} $answer
      */
     private function targetAnswering(\Closure $answer): GoogleDriveTarget
