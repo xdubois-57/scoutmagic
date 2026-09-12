@@ -59,8 +59,10 @@ class DuplicateMemberController extends AbstractController
                 // site knows, newest first.
                 'kept' => $this->identityOf($candidate['kept_member_id'], $years),
                 'duplicate' => $this->identityOf($candidate['duplicate_member_id'], $years),
-                'preview' => $this->mergeService->preview($candidate['kept_member_id'],
-                    $candidate['duplicate_member_id']),
+                'preview' => $this->mergeService->preview(
+                    $candidate['kept_member_id'],
+                    $candidate['duplicate_member_id']
+                ),
             ];
         }
 
@@ -125,8 +127,10 @@ class DuplicateMemberController extends AbstractController
         }
 
         $this->mergeService->markDistinct($candidate['id'], AuthSession::getUserAccountId());
-        FlashMessage::set('success',
-            'Ces deux fiches sont bien deux personnes distinctes. Elles ne seront plus proposées.');
+        FlashMessage::set(
+            'success',
+            'Ces deux fiches sont bien deux personnes distinctes. Elles ne seront plus proposées.'
+        );
 
         return $this->redirect('/admin/doublons');
     }

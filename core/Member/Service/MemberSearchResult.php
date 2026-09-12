@@ -82,16 +82,19 @@ class MemberSearchResult
      */
     public function haystack(): string
     {
-        return implode(' ', array_filter([
-            $this->lastName,
-            $this->firstName,
-            $this->totem,
-            $this->email,
-            $this->phone,
-            $this->mobile,
-            $this->sectionName,
-            $this->functionLabel,
-            $this->addressText,
-        ]));
+        return implode(
+            ' ',
+            array_filter([
+                $this->lastName,
+                $this->firstName,
+                $this->totem,
+                $this->email,
+                $this->phone,
+                $this->mobile,
+                $this->sectionName,
+                $this->functionLabel,
+                $this->addressText,
+            ])
+        );
     }
 }

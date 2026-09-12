@@ -69,8 +69,11 @@ class EmailTemplateRegistry
                 defaultSubject: 'Votre lien de connexion',
                 template: 'email/magic_link.html.twig',
                 variables: [
-                    new EmailTemplateVariable('magic_link_url', 'Lien de connexion',
-                        'https://exemple.be/auth/verify?token=…'),
+                    new EmailTemplateVariable(
+                        'magic_link_url',
+                        'Lien de connexion',
+                        'https://exemple.be/auth/verify?token=…'
+                    ),
                     new EmailTemplateVariable('expiry_minutes', 'Durée de validité (minutes)', '15'),
                 ],
                 editable: false
@@ -82,8 +85,11 @@ class EmailTemplateRegistry
                 defaultSubject: 'Réinitialisation de votre mot de passe',
                 template: 'email/password_reset.html.twig',
                 variables: [
-                    new EmailTemplateVariable('reset_url', 'Lien de réinitialisation',
-                        'https://exemple.be/password-reset/12'),
+                    new EmailTemplateVariable(
+                        'reset_url',
+                        'Lien de réinitialisation',
+                        'https://exemple.be/password-reset/12'
+                    ),
                     new EmailTemplateVariable('expiry_minutes', 'Durée de validité (minutes)', '30'),
                 ],
                 editable: false
@@ -95,8 +101,11 @@ class EmailTemplateRegistry
                 defaultSubject: 'Confirmez votre adresse email',
                 template: 'email/member_email_confirmation.html.twig',
                 variables: [
-                    new EmailTemplateVariable('confirm_url', 'Lien de confirmation',
-                        'https://exemple.be/members/emails/confirm/7'),
+                    new EmailTemplateVariable(
+                        'confirm_url',
+                        'Lien de confirmation',
+                        'https://exemple.be/members/emails/confirm/7'
+                    ),
                     new EmailTemplateVariable('expiry_hours', 'Durée de validité (heures)', '48'),
                 ],
                 editable: false
@@ -132,12 +141,21 @@ class EmailTemplateRegistry
                 template: 'email/notification.html.twig',
                 variables: [
                     new EmailTemplateVariable('title', 'Titre de la notification', 'Sauvegarde terminée'),
-                    new EmailTemplateVariable('body', 'Texte de la notification',
-                        'La sauvegarde que vous avez demandée est prête.'),
-                    new EmailTemplateVariable('url', 'Lien vers la page concernée',
-                        'https://exemple.be/config/maintenance'),
-                    new EmailTemplateVariable('preferences_url', 'Lien vers les préférences',
-                        'https://exemple.be/notifications/preferences'),
+                    new EmailTemplateVariable(
+                        'body',
+                        'Texte de la notification',
+                        'La sauvegarde que vous avez demandée est prête.'
+                    ),
+                    new EmailTemplateVariable(
+                        'url',
+                        'Lien vers la page concernée',
+                        'https://exemple.be/config/maintenance'
+                    ),
+                    new EmailTemplateVariable(
+                        'preferences_url',
+                        'Lien vers les préférences',
+                        'https://exemple.be/notifications/preferences'
+                    ),
                 ]
             ),
             new EmailTemplate(

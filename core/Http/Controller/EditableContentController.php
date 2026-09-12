@@ -86,7 +86,10 @@ class EditableContentController extends AbstractController
         $this->editableContentService->set($key, $value, $type, $userId);
 
         $this->journalService?->log(
-            'core', 'content_updated', 'info', 'Contenu éditable modifié',
+            'core',
+            'content_updated',
+            'info',
+            'Contenu éditable modifié',
             // The address is already event_log.ip_address.
             ['key' => $key, 'type' => $type],
             $userId
@@ -150,7 +153,10 @@ class EditableContentController extends AbstractController
         $this->editableContentService->set($key, $value, $type, $userId);
 
         $this->journalService?->log(
-            'core', 'content_updated', 'info', 'Contenu éditable modifié',
+            'core',
+            'content_updated',
+            'info',
+            'Contenu éditable modifié',
             // The address is already event_log.ip_address.
             ['key' => $key, 'type' => $type],
             $userId

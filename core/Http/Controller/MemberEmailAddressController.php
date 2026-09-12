@@ -56,8 +56,11 @@ class MemberEmailAddressController extends AbstractController
         }
 
         try {
-            $this->memberEmailService->addEmail($memberId, (string) $request->getBody('email', ''),
-                AuthSession::getUserAccountId());
+            $this->memberEmailService->addEmail(
+                $memberId,
+                (string) $request->getBody('email', ''),
+                AuthSession::getUserAccountId()
+            );
             FlashMessage::set('success', 'Adresse ajoutée — un email de confirmation vient de vous être envoyé.');
         } catch (MemberEmailException $e) {
             FlashMessage::set('error', $e->getMessage());
@@ -87,8 +90,11 @@ class MemberEmailAddressController extends AbstractController
         }
 
         try {
-            $this->memberEmailService->resendConfirmation($memberId, (int) $params['email_id'],
-                AuthSession::getUserAccountId());
+            $this->memberEmailService->resendConfirmation(
+                $memberId,
+                (int) $params['email_id'],
+                AuthSession::getUserAccountId()
+            );
             FlashMessage::set('success', 'Email de confirmation renvoyé.');
         } catch (MemberEmailException $e) {
             FlashMessage::set('error', $e->getMessage());
@@ -148,8 +154,11 @@ class MemberEmailAddressController extends AbstractController
         }
 
         try {
-            $this->memberEmailService->reactivateEmail($memberId, (int) $params['email_id'],
-                AuthSession::getUserAccountId());
+            $this->memberEmailService->reactivateEmail(
+                $memberId,
+                (int) $params['email_id'],
+                AuthSession::getUserAccountId()
+            );
             FlashMessage::set('success', 'Adresse réactivée.');
         } catch (MemberEmailException $e) {
             FlashMessage::set('error', $e->getMessage());

@@ -152,11 +152,18 @@ class CreateBackupHandler implements TaskHandlerInterface
             // caught, so anything at all can arrive — the gate keeps a
             // ZipArchive/PDO message off that page while the journal entry
             // just below keeps the real text.
-            $backupRepository->markFailed($backupId, substr(UserFacingMessage::from(
-                $e,
-                'La sauvegarde n\'a pas pu être générée — vérifiez l\'espace disque disponible et les droits '
-                . 'd\'écriture sur storage/, puis relancez-la.'
-            ), 0, 500));
+            $backupRepository->markFailed(
+                $backupId,
+                substr(
+                    UserFacingMessage::from(
+                        $e,
+                        'La sauvegarde n\'a pas pu être générée — vérifiez l\'espace disque disponible et les droits '
+                        . 'd\'écriture sur storage/, puis relancez-la.'
+                    ),
+                    0,
+                    500
+                )
+            );
             $context->journal->log(
                 'core',
                 'backup_failed',

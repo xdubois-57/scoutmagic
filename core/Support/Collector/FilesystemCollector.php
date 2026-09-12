@@ -183,8 +183,16 @@ class FilesystemCollector implements SupportCollectorInterface
 
         $stat = @lstat($path);
         if ($stat === false) {
-            return sprintf('%-4s | %-9s | %-12s | %-12s | %10s | %-19s | %s',
-                '?', '?', '?', '?', '?', '?', $relative);
+            return sprintf(
+                '%-4s | %-9s | %-12s | %-12s | %10s | %-19s | %s',
+                '?',
+                '?',
+                '?',
+                '?',
+                '?',
+                '?',
+                $relative
+            );
         }
 
         $type = is_link($path) ? 'lien' : (is_dir($path) ? 'rép' : 'fich');

@@ -68,9 +68,12 @@ final class SectionRosterService
         $movementByMemberId = $this->movementClassifier->classifyBatch($scoutYearId, $currentRoster);
 
         foreach ($entries as $entry) {
-            $row = $this->buildRow($entry, $memberYearRows[$entry->memberYearId] ?? null,
+            $row = $this->buildRow(
+                $entry,
+                $memberYearRows[$entry->memberYearId] ?? null,
                 $validEmailsByMember[$entry->memberId] ?? [],
-                $movementByMemberId[$entry->memberId] ?? new MemberMovementResult(MemberMovementStatus::UNKNOWN));
+                $movementByMemberId[$entry->memberId] ?? new MemberMovementResult(MemberMovementStatus::UNKNOWN)
+            );
             if ($row === null) {
                 continue;
             }

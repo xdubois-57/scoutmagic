@@ -54,7 +54,10 @@ class FileController extends AbstractController
 
         if ($file === null) {
             $this->journalService?->log(
-                'core', 'file_access_denied', 'security', 'Accès à un fichier refusé',
+                'core',
+                'file_access_denied',
+                'security',
+                'Accès à un fichier refusé',
                 ['file_id' => $id, 'ip' => $_SERVER['REMOTE_ADDR'] ?? ''],
                 AuthSession::getUserAccountId()
             );
@@ -351,7 +354,10 @@ class FileController extends AbstractController
 
         if ($file === null) {
             $this->journalService?->log(
-                'core', 'file_access_denied', 'security', 'Accès à un fichier refusé',
+                'core',
+                'file_access_denied',
+                'security',
+                'Accès à un fichier refusé',
                 ['file_id' => $id, 'ip' => $_SERVER['REMOTE_ADDR'] ?? ''],
                 AuthSession::getUserAccountId()
             );

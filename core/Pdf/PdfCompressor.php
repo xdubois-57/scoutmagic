@@ -132,7 +132,9 @@ class PdfCompressor
         $cmd = sprintf(
             'gs -dSAFER -dBATCH -dNOPAUSE -dQUIET -sDEVICE=pdfwrite -dCompatibilityLevel=1.5 -dPDFSETTINGS=%s '
                 . '-sOutputFile=%s %s',
-            escapeshellarg($pdfSettings), escapeshellarg($output), escapeshellarg($input)
+            escapeshellarg($pdfSettings),
+            escapeshellarg($output),
+            escapeshellarg($input)
         );
 
         return $this->runWithTimeout($cmd);
@@ -142,7 +144,8 @@ class PdfCompressor
     {
         $cmd = sprintf(
             'qpdf --compress-streams=y --recompress-flate --optimize-images %s %s',
-            escapeshellarg($input), escapeshellarg($output)
+            escapeshellarg($input),
+            escapeshellarg($output)
         );
 
         return $this->runWithTimeout($cmd);

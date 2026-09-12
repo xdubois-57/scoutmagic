@@ -86,8 +86,12 @@ class UnitLogoProcessor
             180 => $this->encodePng($this->flattenOpaque($square, self::SIZE_180, 1.0, $backgroundColorHex)),
             192 => $this->encodePng($this->resizeSquare($square, self::SIZE_192)),
             512 => $this->encodePng($this->resizeSquare($square, self::SIZE_512)),
-            '512-maskable' => $this->encodePng($this->flattenOpaque($square, self::SIZE_512, self::MASKABLE_LOGO_RATIO,
-                $backgroundColorHex)),
+            '512-maskable' => $this->encodePng($this->flattenOpaque(
+                $square,
+                self::SIZE_512,
+                self::MASKABLE_LOGO_RATIO,
+                $backgroundColorHex
+            )),
         ];
         $result['ico'] = $this->packIco([
             self::SIZE_FAVICON_16 => $favicon16,

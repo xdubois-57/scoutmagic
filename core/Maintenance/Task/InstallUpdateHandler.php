@@ -128,8 +128,16 @@ class InstallUpdateHandler implements TaskHandlerInterface
         // must never be repeated: installFiles() is not safe to re-run
         // over files that may already reflect the new version.
         if ($history->status === 'migrating') {
-            $this->resumeMigration($historyId, $history, $downloadUrl, $sourceType, $context, $updateHistoryRepository,
-                $backupRepository, $fileRepository);
+            $this->resumeMigration(
+                $historyId,
+                $history,
+                $downloadUrl,
+                $sourceType,
+                $context,
+                $updateHistoryRepository,
+                $backupRepository,
+                $fileRepository
+            );
             return;
         }
 
@@ -431,8 +439,14 @@ class InstallUpdateHandler implements TaskHandlerInterface
 
             $this->refuseUnconvergedMigration($migrationResult);
 
-            $this->finishInstall($historyId, $history, $context, $updateHistoryRepository, $backupRepository,
-                $fileRepository);
+            $this->finishInstall(
+                $historyId,
+                $history,
+                $context,
+                $updateHistoryRepository,
+                $backupRepository,
+                $fileRepository
+            );
         } catch (\Throwable $migrationError) {
             // Unlike the initial attempt, this invocation never created its
             // own backup — reconstruct the safety backup's file paths from

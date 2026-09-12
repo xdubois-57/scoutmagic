@@ -70,22 +70,25 @@ class OpcacheCollector implements SupportCollectorInterface
             $context->addNote('OPcache présent mais désactivé pour ce SAPI');
         }
 
-        $context->addFileFromContent('opcache.json', (string) json_encode(
-            [
-                'enabled' => $status['opcache_enabled'] ?? false,
-                'cache_full' => $status['cache_full'] ?? null,
-                'restart_pending' => $status['restart_pending'] ?? null,
-                'restart_in_progress' => $status['restart_in_progress'] ?? null,
-                'memory' => $status['memory_usage'] ?? null,
-                'interned_strings' => $status['interned_strings_usage'] ?? null,
-                'statistics' => $status['opcache_statistics'] ?? null,
-                'jit' => $status['jit'] ?? null,
-                'key_directives' => self::keyDirectives($directives),
-                'stale_window_seconds' => self::staleWindowSeconds($directives),
-                'note' => self::note($directives),
-            ],
-            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
-        ));
+        $context->addFileFromContent(
+            'opcache.json',
+            (string) json_encode(
+                [
+                    'enabled' => $status['opcache_enabled'] ?? false,
+                    'cache_full' => $status['cache_full'] ?? null,
+                    'restart_pending' => $status['restart_pending'] ?? null,
+                    'restart_in_progress' => $status['restart_in_progress'] ?? null,
+                    'memory' => $status['memory_usage'] ?? null,
+                    'interned_strings' => $status['interned_strings_usage'] ?? null,
+                    'statistics' => $status['opcache_statistics'] ?? null,
+                    'jit' => $status['jit'] ?? null,
+                    'key_directives' => self::keyDirectives($directives),
+                    'stale_window_seconds' => self::staleWindowSeconds($directives),
+                    'note' => self::note($directives),
+                ],
+                JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
+            )
+        );
     }
 
     /**

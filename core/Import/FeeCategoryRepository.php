@@ -30,11 +30,14 @@ class FeeCategoryRepository
             return [];
         }
 
-        return array_map(static fn(array $row) => [
-            'id' => (int) $row['id'],
-            'desk_code' => (string) $row['desk_code'],
-            'label' => (string) $row['label'],
-        ], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+        return array_map(
+            static fn(array $row) => [
+                'id' => (int) $row['id'],
+                'desk_code' => (string) $row['desk_code'],
+                'label' => (string) $row['label'],
+            ],
+            $stmt->fetchAll(\PDO::FETCH_ASSOC)
+        );
     }
 
     /**

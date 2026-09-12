@@ -55,8 +55,10 @@ final class CronStatus
      */
     public function lastSeenAt(): ?int
     {
-        $candidates = array_filter([$this->lastHeartbeatAt, $this->lastFullPassAt],
-            static fn(?int $at): bool => $at !== null);
+        $candidates = array_filter(
+            [$this->lastHeartbeatAt, $this->lastFullPassAt],
+            static fn(?int $at): bool => $at !== null
+        );
 
         return $candidates === [] ? null : max($candidates);
     }
