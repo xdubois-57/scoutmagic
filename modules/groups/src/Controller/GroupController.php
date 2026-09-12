@@ -633,11 +633,14 @@ class GroupController extends AbstractController
         if ($sectionId === 0 && $this->membershipService !== null
             && !$this->membershipService->canCreateAnotherGroup($creatorMemberId)
         ) {
-            FlashMessage::set('error', sprintf(
-                'Vous avez déjà %d groupes ouverts, soit le maximum autorisé. Clôturez-en un avant d\'en créer un '
-                    . 'nouveau.',
-                $this->membershipService->creationQuota()
-            ));
+            FlashMessage::set(
+                'error',
+                sprintf(
+                    'Vous avez déjà %d groupes ouverts, soit le maximum autorisé. Clôturez-en un avant d\'en créer un '
+                        . 'nouveau.',
+                    $this->membershipService->creationQuota()
+                )
+            );
 
             return $this->redirect('/groups');
         }
@@ -856,25 +859,28 @@ class GroupController extends AbstractController
      */
     private function decorate(array $items, GroupSessionContext $context): array
     {
-        return array_map(fn(GroupListItem $item) => [
-            'group' => $item->group,
-            // "Louveteaux (2025-2026)" for a group tied to the year in
-            // effect, the bare name otherwise — one implementation,
-            // Support\GroupLabel.
-            'label' => GroupLabel::withYear(
-                $item->group,
-                $context->effectiveScoutYearId,
-                $context->effectiveScoutYearLabel
-            ),
-            'is_moderator' => $item->isModerator,
-            'is_archived' => $item->isArchived,
-            'section_names' => $this->sectionNames($item->sectionIds),
-            'member_count' => $item->memberCount,
-            // Never on the archives tab: a past-year group is a read-only
-            // archive, so "you have not caught up" is not a call to
-            // action there, just noise on something already finished.
-            'has_unread' => $item->hasUnread && !$item->isArchived,
-        ], $items);
+        return array_map(
+            fn(GroupListItem $item) => [
+                'group' => $item->group,
+                // "Louveteaux (2025-2026)" for a group tied to the year in
+                // effect, the bare name otherwise — one implementation,
+                // Support\GroupLabel.
+                'label' => GroupLabel::withYear(
+                    $item->group,
+                    $context->effectiveScoutYearId,
+                    $context->effectiveScoutYearLabel
+                ),
+                'is_moderator' => $item->isModerator,
+                'is_archived' => $item->isArchived,
+                'section_names' => $this->sectionNames($item->sectionIds),
+                'member_count' => $item->memberCount,
+                // Never on the archives tab: a past-year group is a read-only
+                // archive, so "you have not caught up" is not a call to
+                // action there, just noise on something already finished.
+                'has_unread' => $item->hasUnread && !$item->isArchived,
+            ],
+            $items
+        );
     }
 
     /**

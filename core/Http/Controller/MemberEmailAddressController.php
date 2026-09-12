@@ -65,8 +65,11 @@ class MemberEmailAddressController extends AbstractController
         } catch (MemberEmailException $e) {
             FlashMessage::set('error', $e->getMessage());
         } catch (MailException) {
-            FlashMessage::set('error', "L'adresse a été enregistrée, mais l'email de confirmation n'a pas pu être "
-                . "envoyé. Réessayez avec « Renvoyer ».");
+            FlashMessage::set(
+                'error',
+                "L'adresse a été enregistrée, mais l'email de confirmation n'a pas pu être "
+                    . "envoyé. Réessayez avec « Renvoyer »."
+            );
         }
 
         return $this->redirect('/members/' . $memberYearId);

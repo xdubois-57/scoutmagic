@@ -283,22 +283,25 @@ class RentalPricingController extends AbstractController
                 );
             }
 
-            $this->paymentService->saveManagedSettings($asset->id, new PaymentSettings(
-                enabled: $request->getBody('payments_enabled') !== null,
-                depositMode: DepositMode::tryFrom((string) $request->getBody('deposit_mode', 'none'))
-                    ?? DepositMode::NONE,
-                depositAmountCents: RentalPricingService::parseAmountToCents(
-                    (string) $request->getBody('deposit_amount', '')
-                ),
-                depositPercentage: self::optionalInt($request->getBody('deposit_percentage')),
-                depositDueDays: self::optionalInt($request->getBody('deposit_due_days')),
-                balanceDueDays: self::optionalInt($request->getBody('balance_due_days')),
-                securityDepositEnabled: $request->getBody('security_deposit_enabled') !== null,
-                securityDepositAmountCents: RentalPricingService::parseAmountToCents(
-                    (string) $request->getBody('security_deposit_amount', '')
-                ),
-                securityDepositDueDays: self::optionalInt($request->getBody('security_deposit_due_days'))
-            ));
+            $this->paymentService->saveManagedSettings(
+                $asset->id,
+                new PaymentSettings(
+                    enabled: $request->getBody('payments_enabled') !== null,
+                    depositMode: DepositMode::tryFrom((string) $request->getBody('deposit_mode', 'none'))
+                        ?? DepositMode::NONE,
+                    depositAmountCents: RentalPricingService::parseAmountToCents(
+                        (string) $request->getBody('deposit_amount', '')
+                    ),
+                    depositPercentage: self::optionalInt($request->getBody('deposit_percentage')),
+                    depositDueDays: self::optionalInt($request->getBody('deposit_due_days')),
+                    balanceDueDays: self::optionalInt($request->getBody('balance_due_days')),
+                    securityDepositEnabled: $request->getBody('security_deposit_enabled') !== null,
+                    securityDepositAmountCents: RentalPricingService::parseAmountToCents(
+                        (string) $request->getBody('security_deposit_amount', '')
+                    ),
+                    securityDepositDueDays: self::optionalInt($request->getBody('security_deposit_due_days'))
+                )
+            );
 
             return 'Configuration des paiements enregistrée.';
         });

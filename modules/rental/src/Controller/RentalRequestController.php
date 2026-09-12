@@ -240,14 +240,17 @@ class RentalRequestController extends AbstractController
         // hold at submission, or the unit spends the first email walking a
         // number back. Null means "no price yet", which is the truth.
         $quote = $pricing->hasAnyRate()
-            ? $this->pricingService->quoteWithSettings($pricing, new PricingRequest(
-                arrivalDate: $arrival,
-                departureDate: $departure,
-                persons: $persons,
-                units: $units,
-                rooms: 1,
-                renterCategoryId: $categoryId !== '' ? (int) $categoryId : null
-            ))
+            ? $this->pricingService->quoteWithSettings(
+                $pricing,
+                new PricingRequest(
+                    arrivalDate: $arrival,
+                    departureDate: $departure,
+                    persons: $persons,
+                    units: $units,
+                    rooms: 1,
+                    renterCategoryId: $categoryId !== '' ? (int) $categoryId : null
+                )
+            )
             : null;
 
         try {

@@ -136,11 +136,14 @@ class GalleryController extends AbstractController
         [$unavailable, $unavailableReason] = $this->availability($album);
 
         $mediaRows = $this->mediaRepository->findByAlbumId($album->id);
-        $media = $unavailable ? [] : array_map(fn(Media $m) => [
-            'media' => $m,
-            'thumb_url' => $this->mediaService->resolveUrl($m, $album, 'thumb'),
-            'medium_url' => $this->mediaService->resolveUrl($m, $album, 'medium'),
-        ], $mediaRows);
+        $media = $unavailable ? [] : array_map(
+            fn(Media $m) => [
+                'media' => $m,
+                'thumb_url' => $this->mediaService->resolveUrl($m, $album, 'thumb'),
+                'medium_url' => $this->mediaService->resolveUrl($m, $album, 'medium'),
+            ],
+            $mediaRows
+        );
 
         return $this->render('@gallery/album.html.twig', [
             'album' => $album,

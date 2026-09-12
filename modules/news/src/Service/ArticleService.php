@@ -105,15 +105,18 @@ class ArticleService implements HomeNewsProvider
     {
         $visibilities = $this->listableVisibilities(Role::fromString($role));
 
-        return array_map(fn(Article $article) => [
-            'id' => $article->id,
-            'title' => $article->title,
-            'summary' => $article->summary,
-            // The 192px thumb, not the original: the homepage card renders
-            // this in a 56px box, and originals can weigh several MB.
-            'image_url' => $article->imageFileId !== null ? '/files/' . $article->imageFileId . '/thumb' : null,
-            'created_at' => $article->createdAt,
-        ], $this->articleRepository->findLatestByVisibilities($visibilities, $limit));
+        return array_map(
+            fn(Article $article) => [
+                'id' => $article->id,
+                'title' => $article->title,
+                'summary' => $article->summary,
+                // The 192px thumb, not the original: the homepage card renders
+                // this in a 56px box, and originals can weigh several MB.
+                'image_url' => $article->imageFileId !== null ? '/files/' . $article->imageFileId . '/thumb' : null,
+                'created_at' => $article->createdAt,
+            ],
+            $this->articleRepository->findLatestByVisibilities($visibilities, $limit)
+        );
     }
 
     /**

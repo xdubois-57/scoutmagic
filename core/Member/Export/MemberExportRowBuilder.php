@@ -116,11 +116,14 @@ final class MemberExportRowBuilder
         // Synthetic sectionless entries (buildForMemberYears()) carry
         // sectionId 0 — never fed to the classifier, whose input is a real
         // (section, branch) placement; they fall back to UNKNOWN below.
-        $currentRoster = array_map(fn(SectionRosterEntry $e) => [
-            'member_id' => $e->memberId,
-            'section_id' => $e->sectionId,
-            'age_branch_id' => $e->ageBranchId,
-        ], array_values(array_filter($entries, fn(SectionRosterEntry $e) => $e->sectionId > 0)));
+        $currentRoster = array_map(
+            fn(SectionRosterEntry $e) => [
+                'member_id' => $e->memberId,
+                'section_id' => $e->sectionId,
+                'age_branch_id' => $e->ageBranchId,
+            ],
+            array_values(array_filter($entries, fn(SectionRosterEntry $e) => $e->sectionId > 0))
+        );
         $movementByMemberId = $this->movementClassifier->classifyBatch($scoutYearId, $currentRoster);
 
         $sectionIdsNeeded = array_values(array_filter(array_unique(array_merge(

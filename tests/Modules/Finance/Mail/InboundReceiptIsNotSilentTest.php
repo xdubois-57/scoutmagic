@@ -69,8 +69,14 @@ final class InboundReceiptIsNotSilentTest extends TestCase
         );
         // The closure, not merely the string: an event type in a comment
         // would satisfy the assertion above and report nothing.
+        //
+        // Whitespace-tolerant between the parameters, and only there: on
+        // one line that signature plus its `use` clause is 122 characters
+        // at the indentation it sits at, so php:S103 and php:S1808 leave
+        // it no single-line form. What is pinned is the closure and its
+        // three typed parameters, which is what the reporter is.
         $this->assertMatchesRegularExpression(
-            '/function \(\\\\Throwable \$e, string \$mimeType, int \$attachmentId\)/',
+            '/function \(\s*\\\\Throwable \$e,\s*string \$mimeType,\s*int \$attachmentId\s*\)/',
             $contents,
             $root . ' no longer installs the reporter FinanceMessageConsumer calls'
         );

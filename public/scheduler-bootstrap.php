@@ -549,8 +549,11 @@ function scoutmagicBootstrapScheduler(
                         // throwable's message is not bounded. An id and a
                         // mime type, never the filename — personal data
                         // (§7.9).
-                        static function (\Throwable $e, string $mimeType, int $attachmentId)
-                        use ($journalService): void {
+                        static function (
+                            \Throwable $e,
+                            string $mimeType,
+                            int $attachmentId
+                        ) use ($journalService): void {
                             $journalService->log(
                                 'finance',
                                 'inbound_receipt_not_filed',
