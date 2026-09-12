@@ -113,7 +113,9 @@ class StatisticsPayloadBuilder
             // between a unit that left and a unit that needs help. Null on
             // every installation that was not restored from an archive,
             // which is nearly all of them.
-            'restored_from' => $this->collect(fn(): ?string => $this->settingValue(InstallationIdentityService::RESTORED_FROM_SETTING)),
+            'restored_from' => $this->collect(
+                fn(): ?string => $this->settingValue(InstallationIdentityService::RESTORED_FROM_SETTING)
+            ),
             'instance_url' => $this->collect(fn(): ?string => $this->settingValue('base_url')),
             'generated_at' => (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))
                 ->format(\DateTimeInterface::ATOM),
