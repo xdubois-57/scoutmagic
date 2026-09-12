@@ -147,6 +147,19 @@ class NotificationRegistry
             // NotificationService::dispatch() re-checks each recipient's
             // CURRENT role against role_min, so `superadmin` holds without
             // any hand-filtering at the call site.
+            //
+            // **And it leaves during the dispatch rather than through the
+            // queue** ($deliversImmediately). One of these alerts reports
+            // that the scheduler has stopped, and the queue is drained by
+            // that scheduler: `core/send_notification_emails` waited
+            // behind the very failure it described, so the mail arrived —
+            // when it arrived — as old news about a cron somebody had
+            // already repaired by hand (issue #296). The whole type is
+            // declared this way rather than the one check, because every
+            // alert in it is about the site's own machinery, fires only
+            // on the armed → triggered transition, and goes to
+            // superadmins alone: a handful of messages, at most, on the
+            // rarest event the site has.
             new NotificationType(
                 id: 'core.operational_alert',
                 label: 'Alerte opérationnelle',
@@ -154,7 +167,8 @@ class NotificationRegistry
                     . "sauvegardes trop anciennes, tâche planifiée arrêtée",
                 group: 'Maintenance',
                 roleMin: 'superadmin',
-                channels: ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_on']
+                channels: ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_on'],
+                deliversImmediately: true
             ),
             // The same alert, for the one check that is ABOUT e-mail.
             //
@@ -167,6 +181,15 @@ class NotificationRegistry
             // way to say "this one cannot use that channel", and it shows
             // on the preferences page as a row with no e-mail box, which
             // is exactly true.
+            //
+            // It does NOT deliver immediately, and the asymmetry with its
+            // sibling above is deliberate rather than an oversight. The
+            // check behind it (Core\Alert\Check\MailDeliveryCheck) runs in
+            // the scheduled task, so a site that can raise this alert at
+            // all has a scheduler running to drain the queue — the
+            // deadlock issue #296 describes cannot occur here. Its one
+            // outbound channel is push, and a push that waits for the next
+            // scheduler pass costs a minute.
             new NotificationType(
                 id: 'core.operational_alert_mail',
                 label: 'Alerte opérationnelle — envoi d\'e-mails',

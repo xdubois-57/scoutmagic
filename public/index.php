@@ -2126,7 +2126,12 @@ $notificationService = new NotificationService(
     $userAccountRepo,
     $roleResolver,
     $scoutYearService,
-    $authorizationYearService
+    $authorizationYearService,
+    // How an operational alert reaches an absent administrator while the
+    // scheduler that would have sent its e-mail is the thing being
+    // reported dead (issue #296). Builds nothing until a message is
+    // actually rendered, so an ordinary request pays for one object.
+    new \Core\Notification\NotificationMailerFactory($mailService, $pdo, $settingService, $journalService)
 );
 
 // The one session-aware temporary-member resolver (ARCHITECTURE.md §8.42).

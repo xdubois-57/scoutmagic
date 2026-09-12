@@ -318,7 +318,13 @@ if (VapidKeyPairFactory::isValid(
         // Same set the web path judges on: a dispatch from the real
         // crontab must not filter out an animateur the site itself lets
         // in (ARCHITECTURE.md §4 « Scout year »).
-        $authorizationYearService
+        $authorizationYearService,
+        // Same reasoning one collaborator later: an immediate delivery
+        // wired into one entry point and not the other would send the
+        // alerts raised on a page view and queue the ones raised by this
+        // pass. Costs nothing here — the factory builds Twig only when a
+        // message is actually rendered.
+        new \Core\Notification\NotificationMailerFactory($mailService, $pdo, $settingService, $journalService)
     );
 }
 

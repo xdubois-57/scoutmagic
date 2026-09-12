@@ -51,6 +51,15 @@ use Minishlink\WebPush\WebPush;
  * exactly how `create_backup` once ended up registered in one entry point
  * and not the other (§8.17). The scheduled handler builds it, so web and
  * cron cannot drift.
+ *
+ * $mailerFactory is that same argument answered rather than reversed. An
+ * immediate e-mail (NotificationType::$deliversImmediately, issue #296)
+ * has no task handler to build a mailer for it, so one construction site
+ * had to exist somewhere both entry points reach: Core\Notification\
+ * NotificationMailerFactory is it, the handler asks it too, and nothing
+ * builds a NotificationMailer anywhere else. Twig is still not built
+ * until a message is actually rendered, which is what makes wiring this
+ * into `public/cron.php` free.
  */
 class NotificationService
 {
@@ -105,7 +114,25 @@ class NotificationService
          * this service did before — the documented degradation for a
          * narrow test that wires neither.
          */
-        private ?AuthorizationYearService $authorizationYearService = null
+        private ?AuthorizationYearService $authorizationYearService = null,
+        /**
+         * How an immediate e-mail gets its mailer, for the one kind of
+         * type that cannot use the queue ({@see NotificationType::
+         * $deliversImmediately}).
+         *
+         * A factory rather than a mailer: building one means building
+         * Twig, and an ordinary request raises no alert at all, so
+         * nothing should be constructed until a message actually has to
+         * be rendered. See {@see NotificationMailerFactory} for why that
+         * class exists rather than a fourth argument here.
+         *
+         * Null means "queue it anyway" — the same documented degradation
+         * as $webPush and $roleResolver above, for a narrow test or an
+         * entry point with no mail transport. Never the real composition
+         * roots, and `Tests\Core\Notification\NotificationRoleWiringTest`
+         * pins both of them.
+         */
+        private ?NotificationMailerFactory $mailerFactory = null
     ) {
     }
 
@@ -179,6 +206,36 @@ class NotificationService
      *    §13.3); delaying a mail by up to nine hours would make a
      *    time-sensitive one useless without making anybody's night
      *    quieter.
+     *
+     * **Points 4 and 5 have one exception, and it is declared by the type
+     * rather than chosen at the call site** ({@see NotificationType::
+     * $deliversImmediately}). The queue is drained by `public/cron.php`,
+     * so a notification ABOUT the scheduler having stopped waits behind
+     * the failure it reports — the e-mail arrives, if it arrives, once
+     * somebody has already repaired the cron by hand (issue #296). Such a
+     * type sends in this very call instead: {@see
+     * sendEmailsForNotifications()} and {@see sendPushForNotifications()},
+     * the same two methods the scheduled handlers call, with the same
+     * claim-before-send and the same journal entry on a transport
+     * failure. A send that fails is not retried here either, and for the
+     * reason it is not retried there: a retry cannot tell "never left"
+     * from "left, then the connection dropped", and the notification is
+     * in the recipient's centre either way. What a FAILURE does not get
+     * to do is take the rest of the batch with it — anything the send
+     * never reached goes back to the queue ({@see deliverNow()}).
+     *
+     * Three limits, each deliberate. **Quiet hours still win**: a push
+     * held back to the end of somebody's night is scheduled exactly as
+     * before, because urgency is not a reason to overrule a setting whose
+     * whole subject is what may wake somebody. **A mailer that cannot be
+     * had falls back to the queue** rather than dropping the mail —
+     * whether because no {@see NotificationMailerFactory} was wired (the
+     * documented degradation) or because building one failed; nothing is
+     * claimed at that point, so the next scheduler pass still sends it.
+     * **And a throwing transport never reaches the caller**: this runs
+     * inside whatever raised the alert, and an SMTP timeout must not turn
+     * a page into a 500 or stop the remaining checks from being
+     * evaluated.
      *
      * @param array<int, array{userAccountId: int, memberId: ?int}> $recipients
      * @param array{title: string, body: string, url?: ?string} $payload
@@ -269,6 +326,32 @@ class NotificationService
 
         foreach ($pushBuckets as $bucket) {
             $delaySeconds = max(0, $bucket['runAt']->getTimestamp() - time());
+
+            // Due now AND declared immediate AND there is something to
+            // send with. A bucket held back by quiet hours keeps its
+            // scheduled task whatever the type says — see the docblock.
+            //
+            // The null check is the push twin of {@see
+            // immediateMailer()} returning null, and it has to be HERE
+            // rather than deeper: `sendPushForNotifications()` counts
+            // every id as attempted before `queuePushForAccount()` finds
+            // there is no WebPush to hand them to, so the batch would
+            // come back "all attempted", nothing would be rescheduled,
+            // and the alert's push would be gone with nothing said. A
+            // composition root sets this to null on a VAPID
+            // configuration it could not load (`vapid_construction_failed`
+            // in `public/index.php`), which is a real state on exactly
+            // the installation least able to notice.
+            if ($type->deliversImmediately && $delaySeconds === 0 && $this->webPush !== null) {
+                $this->deliverNow(
+                    $typeId,
+                    'send_notifications',
+                    $bucket['ids'],
+                    fn (): array => $this->sendPushForNotifications($bucket['ids'], static fn (): bool => true)
+                );
+                continue;
+            }
+
             $this->schedulerService->scheduleAfter(
                 'core',
                 'send_notifications',
@@ -277,14 +360,157 @@ class NotificationService
             );
         }
 
-        if ($emailIds !== []) {
-            $this->schedulerService->scheduleAfter(
-                'core',
-                'send_notification_emails',
-                0,
-                ['notification_ids' => $emailIds]
-            );
+        if ($emailIds === []) {
+            return;
         }
+
+        $mailer = $type->deliversImmediately ? $this->immediateMailer($typeId) : null;
+        if ($mailer !== null) {
+            $this->deliverNow(
+                $typeId,
+                'send_notification_emails',
+                $emailIds,
+                fn (): array => $this->sendEmailsForNotifications($emailIds, static fn (): bool => true, $mailer)
+            );
+
+            return;
+        }
+
+        $this->schedulerService->scheduleAfter(
+            'core',
+            'send_notification_emails',
+            0,
+            ['notification_ids' => $emailIds]
+        );
+    }
+
+    /**
+     * The mailer for an immediate send, or null to queue instead.
+     *
+     * Built HERE rather than inside {@see deliverNow()}, and the
+     * difference is what happens when the construction itself fails —
+     * Twig with a cache directory it cannot write, on the full disk
+     * another one of these alerts is about. Nothing has been claimed at
+     * that point, so falling back to the queue loses nothing and the mail
+     * goes out on the next scheduler pass. Once a row is claimed that
+     * fallback no longer exists, which is why the two are not one
+     * try/catch.
+     */
+    private function immediateMailer(string $typeId): ?NotificationMailer
+    {
+        if ($this->mailerFactory === null) {
+            return null;
+        }
+
+        try {
+            return $this->mailerFactory->create();
+        } catch (\Throwable $e) {
+            $this->journalDeliveryFailure($typeId, $e);
+
+            return null;
+        }
+    }
+
+    /**
+     * Writes the failure down, and does not make a second failure of it.
+     *
+     * `JournalRepository::insert()` rethrows a storage failure whenever
+     * the entry carries no user id — which both callers here do, since
+     * nobody asked for an operational alert. So the one line meant to
+     * record that a delivery failed could itself throw, out of a catch
+     * block whose whole promise is that nothing escapes it, and take the
+     * requeue in {@see deliverNow()} with it on the way past.
+     *
+     * The failures this runs inside come in pairs often enough for that
+     * to matter rather than being a theoretical worry: a database that
+     * has gone away mid-request is also a database the journal cannot
+     * write to. Losing the note is the cheapest thing to lose at that
+     * point; losing the reschedule is not.
+     */
+    private function journalDeliveryFailure(string $typeId, \Throwable $failure): void
+    {
+        try {
+            $this->journalService->log(
+                'core',
+                'notification_immediate_delivery_failed',
+                'warning',
+                'Envoi immédiat d\'une notification impossible',
+                ['type_id' => $typeId, 'error' => $failure->getMessage()],
+                null
+            );
+        } catch (\Throwable) {
+            // Nowhere left to report it: the journal IS the reporting.
+        }
+    }
+
+    /**
+     * Runs one immediate delivery, never lets it reach the caller, and
+     * hands whatever it did not attempt back to the queue.
+     *
+     * An immediate send happens inside whatever raised the alert — an
+     * ordinary web request, past `send()` and `session_write_close()`
+     * (`Core\Alert\RequestBoundChecks`), or a scheduler pass running the
+     * other checks. A mail transport that times out, a push library that
+     * throws on a malformed subscription, a Twig template that cannot be
+     * rendered because `storage/` filled up: each is a real possibility
+     * and none of them may become a 500 on somebody's page, or stop the
+     * checks that have not run yet ({@see \Core\Alert\
+     * OperationalAlertService::run()} makes the same promise about a
+     * check that throws).
+     *
+     * **Swallowing the throwable is not the same as swallowing the
+     * batch**, and that distinction is the whole of this method. A
+     * throw aborts the loop inside the send, so every id after it was
+     * never even looked at: dropping them would make an alert with two
+     * recipients reach one and lose the other, silently and for good.
+     * `Task\SendNotificationEmailsHandler` has always rescheduled the
+     * remainder its time budget cut short; this reschedules the remainder
+     * a failure cut short, which is the same promise for the same reason.
+     *
+     * **What comes back is all or nothing, and that is worth being exact
+     * about.** PHP does not partially apply an assignment, so a send that
+     * throws leaves `$attempted` empty however far it had got, and the
+     * budget closure passed from `dispatch()` is always true, so a send
+     * that returns has attempted everything. The reschedule is therefore
+     * the WHOLE batch or none of it — never the partial remainder the
+     * ids would suggest.
+     *
+     * For e-mail that is exactly right: `claimForEmail()` skips the rows
+     * already stamped, so a rescheduled batch resends nothing and the
+     * recipients the failure never reached still get their message. For
+     * push it means a device can receive the alert twice — if the throw
+     * came from the bookkeeping `flushQueuedPush()` does after the
+     * network round trip, the delivered ids go round again. That is the
+     * trade this codebase already takes, and it takes it in this
+     * direction: a duplicate push replaces its predecessor in the tray
+     * (ARCHITECTURE.md §8.24, which is why push has no claim at all),
+     * while an alert about the site's own health that nobody resends is
+     * simply gone.
+     *
+     * The `array_diff` is kept rather than reduced to that either/or: it
+     * states the rule the ids obey rather than the arithmetic of today's
+     * two callers, and a send given a real budget would fall out of it
+     * correctly.
+     *
+     * @param int[] $ids every id this delivery was given
+     * @param \Closure(): int[] $send returns the ids it took on, in order
+     */
+    private function deliverNow(string $typeId, string $taskKey, array $ids, \Closure $send): void
+    {
+        $attempted = [];
+
+        try {
+            $attempted = $send();
+        } catch (\Throwable $e) {
+            $this->journalDeliveryFailure($typeId, $e);
+        }
+
+        $remaining = array_values(array_diff($ids, $attempted));
+        if ($remaining === []) {
+            return;
+        }
+
+        $this->schedulerService->scheduleAfter('core', $taskKey, 0, ['notification_ids' => $remaining]);
     }
 
     /**

@@ -538,6 +538,21 @@ correction du deuxième.**
    contournement évident, appeler `MailService` depuis `Core\Alert`, est
    exactement le raccourci qui survit à sa raison d'être.
 
+   **Fermé depuis, et fermé dans la couche notification.** Un type peut
+   désormais déclarer `NotificationType::$deliversImmediately`, auquel cas
+   `dispatch()` appelle `sendEmailsForNotifications()` et
+   `sendPushForNotifications()` — les deux mêmes méthodes que les
+   gestionnaires planifiés, avec la même réservation de ligne avant envoi
+   — au lieu de planifier. `core.operational_alert` le déclare ; rien dans
+   `Core\Alert` n'envoie quoi que ce soit, donc le raccourci écarté
+   ci-dessus l'est toujours. Trois limites assumées : les heures calmes
+   retiennent encore le push (un réglage dont le sujet est ce qui a le
+   droit de réveiller quelqu'un ne se contourne pas pour cause
+   d'urgence), une fabrique de mailer absente fait retomber sur la file
+   plutôt que de perdre l'envoi, et un transport qui échoue est journalisé
+   sans remonter — l'envoi a lieu dans la requête d'un visiteur, et un
+   SMTP muet n'a pas à devenir une erreur 500.
+
 4. **La correction du constat 2 ne pouvait ni se déclencher ni
    s'éteindre**, et c'est le constat le plus utile des quatre. Exiger que
    `base_url` ne dise **pas** `https://` pour déclencher rendait le
