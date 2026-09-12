@@ -561,8 +561,10 @@ class SupportController extends AbstractController
         } elseif ($result->isSkipped()) {
             FlashMessage::set('warning', self::skipMessage((string) $result->reason));
         } else {
-            FlashMessage::set('error',
-                'Le rapport de test n\'a pas pu être transmis. Motif : ' . (string) $result->reason);
+            FlashMessage::set(
+                'error',
+                'Le rapport de test n\'a pas pu être transmis. Motif : ' . (string) $result->reason
+            );
         }
 
         return $this->redirect('/config/support');

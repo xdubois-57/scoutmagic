@@ -47,14 +47,17 @@ class ConfigModulesController extends AbstractController
         // string on ModuleInfo->manifest->id, one level deeper than that
         // partial looks, so each entry is wrapped here rather than
         // reworking the shared partial around a configurable id path.
-        $moduleItems = array_map(fn($mod) => [
-            'id' => $mod->manifest->id,
-            'info' => $mod,
-            // Whether this module's hard dependencies (manifest "requires")
-            // are all present, valid and enabled — resolved here rather
-            // than in Twig, which has no access to the discovered set.
-            'requirements_met' => $this->moduleManager->areRequirementsSatisfied($mod->manifest->id, $modules),
-        ], $modules);
+        $moduleItems = array_map(
+            fn($mod) => [
+                'id' => $mod->manifest->id,
+                'info' => $mod,
+                // Whether this module's hard dependencies (manifest "requires")
+                // are all present, valid and enabled — resolved here rather
+                // than in Twig, which has no access to the discovered set.
+                'requirements_met' => $this->moduleManager->areRequirementsSatisfied($mod->manifest->id, $modules),
+            ],
+            $modules
+        );
 
         return $this->render('config/modules.html.twig', [
             'modules' => $moduleItems,

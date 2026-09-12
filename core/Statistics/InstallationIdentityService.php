@@ -64,14 +64,32 @@ class InstallationIdentityService
      */
     public static function register(SettingService $settingService): void
     {
-        $settingService->register(self::INSTALLATION_ID_SETTING, '', 'text', 'Identifiant de cette installation',
+        $settingService->register(
+            self::INSTALLATION_ID_SETTING,
+            '',
+            'text',
+            'Identifiant de cette installation',
             'Identifiant aléatoire attribué une seule fois à cette installation pour reconnaître ses rapports '
                 . 'd\'utilisation. Il ne dérive d\'aucune donnée personnelle.',
-            null, null, null, false, 282);
-        $settingService->register(self::RESTORED_FROM_SETTING, '', 'text', 'Installation d\'origine',
+            null,
+            null,
+            null,
+            false,
+            282
+        );
+        $settingService->register(
+            self::RESTORED_FROM_SETTING,
+            '',
+            'text',
+            'Installation d\'origine',
             'Identifiant de l\'installation dont celle-ci a été restaurée, le cas échéant. Permet de relier les '
                 . 'deux sans les confondre. Renseigné automatiquement.',
-            null, null, null, false, 290);
+            null,
+            null,
+            null,
+            false,
+            290
+        );
     }
 
     public function __construct(

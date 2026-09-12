@@ -162,8 +162,10 @@ class EmailTemplateController extends AbstractController
         $payload = json_decode($request->getRawBody(), true);
         $payload = is_array($payload) ? $payload : [];
 
-        if (($guard = $this->guardCsrfJson($request,
-            isset($payload['_csrf_token']) ? (string) $payload['_csrf_token'] : null)) !== null) {
+        if (($guard = $this->guardCsrfJson(
+            $request,
+            isset($payload['_csrf_token']) ? (string) $payload['_csrf_token'] : null
+        )) !== null) {
             return $guard;
         }
 

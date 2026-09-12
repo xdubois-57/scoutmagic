@@ -236,8 +236,10 @@ class SetupController extends AbstractController
         }
 
         if ($this->secretManager->isInitialized()) {
-            return $this->json(['success' => false, 'message' => 'Action indisponible : le site est déjà configuré.'],
-                403);
+            return $this->json(
+                ['success' => false, 'message' => 'Action indisponible : le site est déjà configuré.'],
+                403
+            );
         }
         // setup.js reads `message`, not `error` — keep the key, unify the sentence.
         if (!CsrfGuard::validateRequest()) {
@@ -317,7 +319,10 @@ class SetupController extends AbstractController
             return $gate;
         }
         if ($this->secretManager->isInitialized()) {
-            return $this->json(['success' => false, 'message' => 'Action indisponible : le site est déjà configuré.'], 403);
+            return $this->json(
+                ['success' => false, 'message' => 'Action indisponible : le site est déjà configuré.'],
+                403
+            );
         }
         if (!CsrfGuard::validateRequest()) {
             return $this->json(['success' => false, 'message' => self::SESSION_EXPIRED_MESSAGE], 403);
@@ -396,7 +401,10 @@ class SetupController extends AbstractController
             return $gate;
         }
         if ($this->secretManager->isInitialized()) {
-            return $this->json(['success' => false, 'message' => 'Action indisponible : le site est déjà configuré.'], 403);
+            return $this->json(
+                ['success' => false, 'message' => 'Action indisponible : le site est déjà configuré.'],
+                403
+            );
         }
         if (!CsrfGuard::validateRequest()) {
             return $this->json(['success' => false, 'message' => self::SESSION_EXPIRED_MESSAGE], 403);
@@ -443,7 +451,9 @@ class SetupController extends AbstractController
             // and a restore's statements are the site's own data — the
             // journal is read on screen and travels in a support archive.
             $this->journalService?->log(
-                'core', 'setup_portable_restore_failed', 'security',
+                'core',
+                'setup_portable_restore_failed',
+                'security',
                 'Restauration portable depuis l\'assistant : échec',
                 ['error' => $e instanceof UserFacingException ? $e->getMessage() : $e::class]
             );
@@ -542,7 +552,9 @@ class SetupController extends AbstractController
             $restore->adoptNewIdentity($connection->getPdo(), $archive->originInstallationId(), $baseUrl);
 
             $this->journalService?->log(
-                'core', 'setup_portable_restored', 'security',
+                'core',
+                'setup_portable_restored',
+                'security',
                 'Site restauré depuis une sauvegarde portable par l\'assistant d\'installation',
                 ['restored_from' => $archive->originInstallationId(), 'version' => $archive->version()]
             );
@@ -674,8 +686,10 @@ class SetupController extends AbstractController
         }
 
         if ($this->secretManager->isInitialized()) {
-            return $this->json(['success' => false, 'message' => 'Action indisponible : le site est déjà configuré.'],
-                403);
+            return $this->json(
+                ['success' => false, 'message' => 'Action indisponible : le site est déjà configuré.'],
+                403
+            );
         }
         // setup.js reads `message`, not `error` — keep the key, unify the sentence.
         if (!CsrfGuard::validateRequest()) {
@@ -1109,7 +1123,10 @@ class SetupController extends AbstractController
             SessionStore::remove('setup_token_attempts', 'setup_token_locked_until', 'setup_token_error');
             SessionStore::set('setup_token_verified', true);
             $this->journalService?->log(
-                'core', 'setup_token_verified', 'security', 'Jeton d\'installation vérifié avec succès',
+                'core',
+                'setup_token_verified',
+                'security',
+                'Jeton d\'installation vérifié avec succès',
                 // The address is already in event_log.ip_address (JournalService::log());
                 // a second copy in the JSON stores the same personal datum twice.
                 []
@@ -1133,7 +1150,10 @@ class SetupController extends AbstractController
         }
 
         $this->journalService?->log(
-            'core', 'setup_token_failed', 'security', 'Tentative de jeton d\'installation invalide',
+            'core',
+            'setup_token_failed',
+            'security',
+            'Tentative de jeton d\'installation invalide',
             // Only what event_log.ip_address does not already hold.
             ['attempts' => $attempts]
         );
@@ -1369,8 +1389,13 @@ class SetupController extends AbstractController
             $this->secretManager->writeSecrets($secrets);
 
             // Create initial admin account (base64 keys decoded to match the boot sequence)
-            $this->createAdminAccount($connection, $secrets['encryption_key'], $secrets['blind_index_key'],
-                $data['admin_email'], $data['admin_password']);
+            $this->createAdminAccount(
+                $connection,
+                $secrets['encryption_key'],
+                $secrets['blind_index_key'],
+                $data['admin_email'],
+                $data['admin_password']
+            );
 
             // Record the installation date now, while "now" is genuinely the
             // moment this site came into existence (Core\Statistics\
@@ -1387,11 +1412,20 @@ class SetupController extends AbstractController
             // own register() call, which would otherwise create the row with
             // its default (on) and silently ignore an operator who unchecked
             // the box.
-            $setupSettingService->register('statistics_enabled', '1', 'boolean', 'Envoi automatique des statistiques '
+            $setupSettingService->register(
+                'statistics_enabled',
+                '1',
+                'boolean',
+                'Envoi automatique des statistiques '
                 . 'd\'utilisation',
                 'Autorise l\'envoi quotidien d\'un rapport d\'utilisation agrégé vers ScoutMagic. Le rapport contient '
                     . 'l\'adresse de ce site, jamais de donnée de membre. Géré depuis la page Support.',
-                null, null, null, true, 280);
+                null,
+                null,
+                null,
+                true,
+                280
+            );
             $setupSettingService->setInternal('statistics_enabled', $data['statistics_enabled']);
 
             $tokenDeleted = $this->deleteTokenFileWithWarning();
@@ -1494,7 +1528,10 @@ class SetupController extends AbstractController
             }
 
             $this->journalService?->log(
-                'core', 'setup_completed', 'security', 'Configuration du site enregistrée',
+                'core',
+                'setup_completed',
+                'security',
+                'Configuration du site enregistrée',
                 // Already event_log.ip_address — see above.
                 [],
                 AuthSession::getUserAccountId()
@@ -1639,8 +1676,10 @@ class SetupController extends AbstractController
             if ($data['admin_password'] === '') {
                 $errors['admin_password'] = 'Le mot de passe administrateur est requis.';
             } else {
-                $violation = self::passwordPolicyError($data['admin_password'],
-                    (string) ($data['admin_password_confirm'] ?? ''));
+                $violation = self::passwordPolicyError(
+                    $data['admin_password'],
+                    (string) ($data['admin_password_confirm'] ?? '')
+                );
                 if ($violation !== null) {
                     $errors['admin_password'] = $violation;
                 }
@@ -1652,8 +1691,10 @@ class SetupController extends AbstractController
             }
             // Password is only required when changing admin email to a new address without existing account
             if ($data['admin_password'] !== '') {
-                $violation = self::passwordPolicyError($data['admin_password'],
-                    (string) ($data['admin_password_confirm'] ?? ''));
+                $violation = self::passwordPolicyError(
+                    $data['admin_password'],
+                    (string) ($data['admin_password_confirm'] ?? '')
+                );
                 if ($violation !== null) {
                     $errors['admin_password'] = $violation;
                 }
@@ -1820,7 +1861,9 @@ class SetupController extends AbstractController
         }
 
         $this->journalService?->log(
-            'core', 'setup_token_gate_blocked', 'security',
+            'core',
+            'setup_token_gate_blocked',
+            'security',
             'Accès à un point d\'entrée d\'installation sans jeton vérifié',
             // The address is already in event_log.ip_address (JournalService::log());
             // a second copy in the JSON stores the same personal datum twice.
@@ -1938,7 +1981,9 @@ class SetupController extends AbstractController
         }
 
         $this->journalService?->log(
-            'core', 'setup_token_delete_failed', 'security',
+            'core',
+            'setup_token_delete_failed',
+            'security',
             'Impossible de supprimer token.php après l\'installation — à retirer manuellement via FTP.',
             []
         );

@@ -126,8 +126,14 @@ class MemberEmailService
         $tokenHash = password_hash($rawToken, PASSWORD_DEFAULT);
         $expiresAt = new \DateTimeImmutable('+' . self::CONFIRMATION_EXPIRY_HOURS . ' hours');
 
-        $id = $this->repository->create($memberId, $normalized, MemberEmail::SOURCE_MANUAL, MemberEmail::STATUS_PENDING,
-            $tokenHash, $expiresAt);
+        $id = $this->repository->create(
+            $memberId,
+            $normalized,
+            MemberEmail::SOURCE_MANUAL,
+            MemberEmail::STATUS_PENDING,
+            $tokenHash,
+            $expiresAt
+        );
         $created = $this->repository->findById($id);
         \assert($created !== null);
 
@@ -138,8 +144,12 @@ class MemberEmailService
         // without ever putting the address itself — personal data — in
         // the journal (SECURITY.md §11: "reference member_id only").
         $this->journalService->log(
-            'core', 'member_email_added', 'info', 'Adresse email secondaire ajoutée',
-            ['member_id' => $memberId, 'member_email_id' => $created->id], $actorId
+            'core',
+            'member_email_added',
+            'info',
+            'Adresse email secondaire ajoutée',
+            ['member_id' => $memberId, 'member_email_id' => $created->id],
+            $actorId
         );
 
         return $created;
@@ -163,9 +173,13 @@ class MemberEmailService
         $this->regenerateAndSendConfirmation($row, $actorId);
 
         $this->journalService->log(
-            'core', 'member_email_confirmation_resent', 'info', "Renvoi de la confirmation d'une adresse email "
+            'core',
+            'member_email_confirmation_resent',
+            'info',
+            "Renvoi de la confirmation d'une adresse email "
                 . "secondaire",
-            ['member_id' => $memberId, 'member_email_id' => $emailId], $actorId
+            ['member_id' => $memberId, 'member_email_id' => $emailId],
+            $actorId
         );
 
         $updated = $this->repository->findById($emailId);
@@ -187,8 +201,12 @@ class MemberEmailService
         $this->repository->delete($emailId);
 
         $this->journalService->log(
-            'core', 'member_email_deleted', 'info', 'Adresse email secondaire supprimée',
-            ['member_id' => $memberId, 'member_email_id' => $emailId], $actorId
+            'core',
+            'member_email_deleted',
+            'info',
+            'Adresse email secondaire supprimée',
+            ['member_id' => $memberId, 'member_email_id' => $emailId],
+            $actorId
         );
     }
 
@@ -206,8 +224,12 @@ class MemberEmailService
         $this->repository->reactivate($emailId);
 
         $this->journalService->log(
-            'core', 'member_email_reactivated', 'info', 'Adresse email réactivée',
-            ['member_id' => $memberId, 'member_email_id' => $emailId], $actorId
+            'core',
+            'member_email_reactivated',
+            'info',
+            'Adresse email réactivée',
+            ['member_id' => $memberId, 'member_email_id' => $emailId],
+            $actorId
         );
 
         $updated = $this->repository->findById($emailId);
@@ -245,8 +267,12 @@ class MemberEmailService
         $this->repository->markValid($emailId);
 
         $this->journalService->log(
-            'core', 'member_email_confirmed', 'info', 'Adresse email secondaire confirmée',
-            ['member_id' => $row->memberId, 'member_email_id' => $emailId], null
+            'core',
+            'member_email_confirmed',
+            'info',
+            'Adresse email secondaire confirmée',
+            ['member_id' => $row->memberId, 'member_email_id' => $emailId],
+            null
         );
 
         return true;
@@ -322,8 +348,10 @@ class MemberEmailService
             return;
         }
 
-        $validRows = array_filter($this->repository->findAllByEmail($triggerRow->email),
-            fn(MemberEmail $r) => $r->isValid());
+        $validRows = array_filter(
+            $this->repository->findAllByEmail($triggerRow->email),
+            fn(MemberEmail $r) => $r->isValid()
+        );
         if ($validRows === []) {
             // Already fully unsubscribed everywhere — idempotent no-op,
             // including no duplicate notification emails.
@@ -335,8 +363,12 @@ class MemberEmailService
         foreach ($validRows as $row) {
             $this->repository->markInactive($row->id);
             $this->journalService->log(
-                'core', 'member_email_unsubscribed', 'info', 'Adresse email désinscrite des emails groupés',
-                ['member_id' => $row->memberId, 'member_email_id' => $row->id], null
+                'core',
+                'member_email_unsubscribed',
+                'info',
+                'Adresse email désinscrite des emails groupés',
+                ['member_id' => $row->memberId, 'member_email_id' => $row->id],
+                null
             );
 
             $profile = $this->memberService->findProfileByMemberAndYear($row->memberId, (int) $currentYear['id']);
@@ -441,14 +473,21 @@ class MemberEmailService
         $email = $this->emailTemplateRenderer->render('member_email_confirmation', $context);
 
         try {
-            $this->mailService->send(to: $to, subject: $email->subject, bodyHtml: $email->bodyHtml,
-                bodyText: $email->bodyText);
+            $this->mailService->send(
+                to: $to,
+                subject: $email->subject,
+                bodyHtml: $email->bodyHtml,
+                bodyText: $email->bodyText
+            );
         } catch (MailException $e) {
             $reason = str_replace($to, '[adresse]', $e->getMessage());
             $this->journalService->log(
-                'core', 'member_email_confirmation_send_failed', 'info',
+                'core',
+                'member_email_confirmation_send_failed',
+                'info',
                 "Échec de l'envoi de l'email de confirmation d'une adresse email secondaire",
-                ['member_id' => $memberId, 'member_email_id' => $emailId, 'error' => $reason], $actorId
+                ['member_id' => $memberId, 'member_email_id' => $emailId, 'error' => $reason],
+                $actorId
             );
             throw $e;
         }

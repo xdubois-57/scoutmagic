@@ -128,8 +128,16 @@ class InstallUpdateHandler implements TaskHandlerInterface
         // must never be repeated: installFiles() is not safe to re-run
         // over files that may already reflect the new version.
         if ($history->status === 'migrating') {
-            $this->resumeMigration($historyId, $history, $downloadUrl, $sourceType, $context, $updateHistoryRepository,
-                $backupRepository, $fileRepository);
+            $this->resumeMigration(
+                $historyId,
+                $history,
+                $downloadUrl,
+                $sourceType,
+                $context,
+                $updateHistoryRepository,
+                $backupRepository,
+                $fileRepository
+            );
             return;
         }
 
@@ -210,14 +218,32 @@ class InstallUpdateHandler implements TaskHandlerInterface
             // cleanly: it leaves a half-copied install over a running
             // site, which is the failure a rollback is least able to
             // recover from.
-            $backupService->ensureRoomForDumpAndArchive(true, self::UPDATE_WORKSPACE_ESTIMATE_BYTES);
+            $backupService->ensureRoomForDumpAndArchive(false, self::UPDATE_WORKSPACE_ESTIMATE_BYTES);
 
             // Step 1: mandatory safety backup — the only thing an automatic
             // rollback can restore from, so it must be a genuine, restorable
-            // backup (DB dump + full file tree, gallery included).
+            // backup (DB dump + full file tree).
+            //
+            // WITHOUT THE GALLERY, and that is the one difference with the
+            // three other safety copies this codebase takes. A reset or a
+            // restore can wipe `storage/gallery/`, so their archive has to
+            // hold it; an update replaces code, and nothing in its path
+            // writes a photo — a migration only ever touches the database
+            // schema. What settles it is not what the update does but what
+            // the rollback undoes: {@see BackupService::restoreFiles()}
+            // extracts over the live tree and deletes nothing absent from
+            // the archive, so a gallery left out is a gallery left exactly
+            // as it stands on disk. The price of including it was 2 GiB per
+            // archive on the reference installation and, through the
+            // gallery cap, a `backup_keep_operational` of 3 that kept 1
+            // (issue #298, `docs/exigences-non-fonctionnelles.md` §4bis).
+            //
+            // The estimate above says `false` for the same reason it names
+            // its own trees: what the archive writes and what the estimate
+            // measures are one list, or they eventually disagree.
             $updateHistoryRepository->setStatus($historyId, 'backing_up');
             $dbDumpPath = $backupService->createDatabaseDump();
-            $filesZipPath = $backupService->createFileBackup(true);
+            $filesZipPath = $backupService->createFileBackup(false);
 
             $backupId = $backupRepository->create('auto_update', $history->requestedBy);
             $zipFileId = $fileRepository->create(
@@ -413,8 +439,14 @@ class InstallUpdateHandler implements TaskHandlerInterface
 
             $this->refuseUnconvergedMigration($migrationResult);
 
-            $this->finishInstall($historyId, $history, $context, $updateHistoryRepository, $backupRepository,
-                $fileRepository);
+            $this->finishInstall(
+                $historyId,
+                $history,
+                $context,
+                $updateHistoryRepository,
+                $backupRepository,
+                $fileRepository
+            );
         } catch (\Throwable $migrationError) {
             // Unlike the initial attempt, this invocation never created its
             // own backup — reconstruct the safety backup's file paths from

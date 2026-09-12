@@ -386,8 +386,11 @@ class LogsCollector implements SupportCollectorInterface
             // 203.0.113.1 - - [20/Aug/2026:03:00:00 +0200] — access log
             '/\[(\d{2}\/[A-Za-z]{3}\/\d{4}):(\d{2}:\d{2}:\d{2}) ([+\-]\d{4})\]/' => static fn(
                 array $m
-            ): string => str_replace('/',
-                ' ', $m[1]) . ' ' . $m[2] . ' ' . $m[3],
+            ): string => str_replace(
+                '/',
+                ' ',
+                $m[1]
+            ) . ' ' . $m[2] . ' ' . $m[3],
             // 2026-08-20T03:00:00+00:00 or 2026-08-20 03:00:00
             '/^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[+\-]\d{2}:?\d{2}|Z)?)/' => static fn(
                 array $m

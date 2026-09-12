@@ -130,8 +130,14 @@ class SectionDocumentController extends AbstractController
 
         try {
             $this->service->upload(
-                $sectionId, $scoutYearId, $content, $mimeType, (string) $file['name'],
-                $title, $description !== '' ? $description : null, AuthSession::getUserAccountId()
+                $sectionId,
+                $scoutYearId,
+                $content,
+                $mimeType,
+                (string) $file['name'],
+                $title,
+                $description !== '' ? $description : null,
+                AuthSession::getUserAccountId()
             );
             FlashMessage::set('success', 'Document ajouté.');
         } catch (SectionDocumentException $e) {
@@ -164,7 +170,10 @@ class SectionDocumentController extends AbstractController
 
         try {
             $this->service->updateTitleAndDescription(
-                $id, (string) ($data['title'] ?? ''), $data['description'] ?? null, AuthSession::getUserAccountId()
+                $id,
+                (string) ($data['title'] ?? ''),
+                $data['description'] ?? null,
+                AuthSession::getUserAccountId()
             );
         } catch (SectionDocumentException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 400);

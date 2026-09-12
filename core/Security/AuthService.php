@@ -96,8 +96,12 @@ class AuthService
             } catch (\Throwable $e) {
                 $reason = str_replace($normalizedEmail, '[adresse]', $e->getMessage());
                 $this->journalService?->log(
-                    'core', 'magic_link_send_failed', 'info', "Échec de l'envoi de l'email de lien magique",
-                    ['error' => $reason, 'via_secondary_email' => $viaSecondaryEmail], $user?->id
+                    'core',
+                    'magic_link_send_failed',
+                    'info',
+                    "Échec de l'envoi de l'email de lien magique",
+                    ['error' => $reason, 'via_secondary_email' => $viaSecondaryEmail],
+                    $user?->id
                 );
 
                 return new MagicLinkResult(
@@ -108,8 +112,12 @@ class AuthService
             }
 
             $this->journalService?->log(
-                'core', 'magic_link_email_sent', 'info', 'Email de lien magique envoyé',
-                ['via_secondary_email' => $viaSecondaryEmail], $user?->id
+                'core',
+                'magic_link_email_sent',
+                'info',
+                'Email de lien magique envoyé',
+                ['via_secondary_email' => $viaSecondaryEmail],
+                $user?->id
             );
         } else {
             // No enumeration in the response (still returns success below)
@@ -118,14 +126,20 @@ class AuthService
             // to tell "no account matched at all" apart from "matched but
             // the send failed" apart from "sent fine, check spam".
             $this->journalService?->log(
-                'core', 'magic_link_no_account_found', 'info',
+                'core',
+                'magic_link_no_account_found',
+                'info',
                 'Demande de lien magique pour une adresse sans compte correspondant',
-                [], null
+                [],
+                null
             );
         }
 
         $this->journalService?->log(
-            'core', 'magic_link_requested', 'info', 'Demande de lien magique',
+            'core',
+            'magic_link_requested',
+            'info',
+            'Demande de lien magique',
             // No `ip` here: JournalService::log() already writes the
             // address into `event_log.ip_address`. A second copy in the
             // JSON is the same personal datum stored twice in one row
@@ -204,9 +218,12 @@ class AuthService
         }
 
         $this->journalService?->log(
-            'core', 'account_created_for_secondary_email', 'security',
+            'core',
+            'account_created_for_secondary_email',
+            'security',
             'Compte créé pour une adresse email secondaire confirmée',
-            [], $created->id
+            [],
+            $created->id
         );
 
         return $created;
@@ -257,7 +274,10 @@ class AuthService
         $this->userRepo->updateLastLogin($user->id);
 
         $this->journalService?->log(
-            'core', 'login_success', 'security', 'Connexion par lien magique',
+            'core',
+            'login_success',
+            'security',
+            'Connexion par lien magique',
             // No `ip` here: JournalService::log() already writes the
             // address into `event_log.ip_address`. A second copy in the
             // JSON is the same personal datum stored twice in one row

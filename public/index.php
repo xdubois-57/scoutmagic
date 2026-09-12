@@ -761,9 +761,9 @@ $settingService->register(
     '3',
     'number',
     'Sauvegardes avant opération conservées',
-    'Nombre maximal de sauvegardes de sécurité — celles prises juste avant une mise à jour ou une '
-        . 'réinitialisation — que le site garde sur le serveur. En pratique une seule est conservée : ces '
-        . 'archives contiennent la galerie photo, et le site n\'en garde qu\'une de ce genre, toutes sortes '
+    'Nombre de sauvegardes de sécurité — celles prises juste avant une mise à jour ou une '
+        . 'réinitialisation — que le site garde sur le serveur. Celles prises avant une réinitialisation '
+        . 'contiennent la galerie photo, et le site n\'en garde qu\'une de ce genre, toutes sortes '
         . 'confondues.',
     null,
     '^[1-9][0-9]*$',

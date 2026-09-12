@@ -94,7 +94,10 @@ class CompressSectionDocumentHandler implements TaskHandlerInterface
         if ($compressed === null) {
             $documentRepository->markSkipped($documentId);
             $context->journal->log(
-                'core', 'section_document_compression_skipped', 'info', "Compression du document de section ignorée "
+                'core',
+                'section_document_compression_skipped',
+                'info',
+                "Compression du document de section ignorée "
                     . "(pas de gain ou échec)",
                 ['section_document_id' => $documentId]
             );
@@ -105,7 +108,10 @@ class CompressSectionDocumentHandler implements TaskHandlerInterface
         $documentRepository->markCompressed($documentId, strlen($compressed));
 
         $context->journal->log(
-            'core', 'section_document_compressed', 'info', 'Document de section compressé',
+            'core',
+            'section_document_compressed',
+            'info',
+            'Document de section compressé',
             [
                 'section_document_id' => $documentId,
                 'size_before' => strlen($content),

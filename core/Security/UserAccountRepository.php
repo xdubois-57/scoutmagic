@@ -621,14 +621,18 @@ class UserAccountRepository
 
         $passwordChangedAt = null;
         if (!empty($row['password_changed_at'])) {
-            $passwordChangedAt = DateInput::requireFromStorage((string) $row['password_changed_at'],
-                'password_changed_at');
+            $passwordChangedAt = DateInput::requireFromStorage(
+                (string) $row['password_changed_at'],
+                'password_changed_at'
+            );
         }
 
         $sessionsValidFrom = null;
         if (!empty($row['sessions_valid_from'])) {
-            $sessionsValidFrom = DateInput::requireFromStorage((string) $row['sessions_valid_from'],
-                'sessions_valid_from');
+            $sessionsValidFrom = DateInput::requireFromStorage(
+                (string) $row['sessions_valid_from'],
+                'sessions_valid_from'
+            );
         }
 
         return new UserAccount(

@@ -68,7 +68,10 @@ class PasswordAuthMethod
         $lockout = $this->throttler->getLockoutRemaining($blindIndex, $ip);
         if ($lockout > 0) {
             $this->journalService?->log(
-                'core', 'login_lockout', 'security', 'Compte temporairement verrouillé (trop de tentatives)',
+                'core',
+                'login_lockout',
+                'security',
+                'Compte temporairement verrouillé (trop de tentatives)',
                 // The address is already event_log.ip_address; only the
                 // lockout length is not.
                 ['locked_seconds' => $lockout]
@@ -98,7 +101,10 @@ class PasswordAuthMethod
         $this->throttler->clearFailures($blindIndex);
 
         $this->journalService?->log(
-            'core', 'login_success', 'security', 'Connexion par mot de passe',
+            'core',
+            'login_success',
+            'security',
+            'Connexion par mot de passe',
             [],
             $account->id
         );

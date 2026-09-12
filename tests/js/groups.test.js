@@ -1702,3 +1702,60 @@ describe('groups.js moderation suggestion panel', () => {
         });
     });
 });
+
+describe('groups.js « Vu par » dialog', () => {
+    // The dialog is one fetch and one innerHTML, and everything that can
+    // go wrong on the way lands on the same sentence rather than on a
+    // spinner nobody can stop: a refused request, a dropped connection,
+    // or — the case this suite is here for — a 200 whose payload is not
+    // the HTML fragment the dialog expects.
+    beforeEach(() => {
+        document.body.innerHTML = `
+            <div id="groups-detail-modal">
+                <h5 id="groups-detail-modal-title"></h5>
+                <div id="groups-detail-modal-body"></div>
+            </div>
+            <button class="groups-seen-by" data-url="/groupes/messages/12/vu-par"
+                    data-dialog-title="Vu par">3 personnes</button>
+        `;
+        // Bootstrap's modal, reduced to what the code calls on it: the
+        // real one needs a layout jsdom does not have.
+        window.bootstrap = { Modal: { getOrCreateInstance: () => ({ show: vi.fn() }) } };
+    });
+
+    afterEach(() => {
+        delete window.bootstrap;
+    });
+
+    function modalBody() {
+        return document.getElementById('groups-detail-modal-body');
+    }
+
+    it('puts the fragment the server sent into the dialog', async () => {
+        await loadGroups();
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ html: '<ul><li>Alice</li></ul>' }),
+        }));
+
+        document.querySelector('.groups-seen-by').click();
+
+        await vi.waitFor(() => expect(modalBody().innerHTML).toBe('<ul><li>Alice</li></ul>'));
+        expect(document.getElementById('groups-detail-modal-title').textContent).toBe('Vu par');
+    });
+
+    it('says the list could not be shown when the payload carries no fragment', async () => {
+        await loadGroups();
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ seen_by: ['Alice'] }),
+        }));
+
+        document.querySelector('.groups-seen-by').click();
+
+        await vi.waitFor(() => expect(modalBody().textContent).toBe('Impossible de charger la liste.'));
+        // textContent, never innerHTML: nothing from that payload is put
+        // on the page as markup.
+        expect(modalBody().querySelector('*')).toBeNull();
+    });
+});

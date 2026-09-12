@@ -393,8 +393,10 @@ class TwigFactory
                     ) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '" style="' . $imgStyle . '">';
                 } else {
                     $img = '<div class="d-flex align-items-center justify-content-center bg-light rounded '
-                        . htmlspecialchars($cssClass,
-                        ENT_QUOTES) . '" style="' . $imgStyle . '">'
+                        . htmlspecialchars(
+                            $cssClass,
+                            ENT_QUOTES
+                        ) . '" style="' . $imgStyle . '">'
                         . '<span class="text-muted"><i class="bi bi-image"></i> Cliquer pour ajouter la photo du '
                         . 'staff</span></div>';
                 }

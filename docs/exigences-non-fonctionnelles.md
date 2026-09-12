@@ -183,24 +183,28 @@ entitled to more. This one carries `master.key`: the second copy is a
 second liability sitting on the very server the backup exists to survive.
 
 Plus one cap across all families: **a single archive containing the photo
-gallery**, not configurable — and it applies to `full_with_gallery`,
-`auto_update` and `auto_reset` alike.
+gallery**, not configurable — and it applies to `full_with_gallery` and
+`auto_reset` alike.
 
-**Those last two are why the pre-operation quota is an upper bound rather
-than a number an installation observes.** The name of a type says nothing
-about its contents: a pre-operation backup calls `createFileBackup(true)`,
-because the operation it guards against can wipe `storage/gallery/` and
-its safety copy has to hold it. So every pre-operation archive is
-gallery-bearing, the cap of one binds before `backup_keep_operational`
-does, and an installation keeps **one** of them. The setting says so.
+**`auto_reset` is on that list and `auto_update` is not**, which is the
+one thing here that cannot be read off the names. A reset or a restore
+can wipe `storage/gallery/`, so its safety copy calls
+`createFileBackup(true)` and has to hold the photos. An update replaces
+code — and what settles it is not what the update does but what the
+rollback undoes: `BackupService::restoreFiles()` extracts over the live
+tree and deletes nothing the archive omits, so a gallery left out of the
+archive is a gallery left exactly as it stands (issue #298).
 
-This is a divergence from the chantier document, which set the cap on the
-premise that « une `full_with_gallery` peut peser plus que les huit autres
-réunies » — that arithmetic assumes the other eight exclude the gallery,
-and three of them do not. Three gallery-sized safety copies is six GiB
-against the §1 sizing of a two-GiB gallery on shared hosting, so the cap
-is what has to win. Whether an update's safety copy needs the gallery at
-all is a separate question, raised as issue #298.
+The consequence is worth stating because it was true the other way round
+for one iteration. A run of **resets** still reaches the cap of one before
+`backup_keep_operational`: those archives are gallery-bearing, and the cap
+is what has to win — three of them is six GiB against the §1 sizing of a
+two-GiB gallery on shared hosting. A run of **updates** reaches the quota
+instead, so `backup_keep_operational` is three archives and not an upper
+bound nothing touches. That is also what makes the chantier document's
+premise — « une `full_with_gallery` peut peser plus que les huit autres
+réunies » — true again for the update path, which was the arithmetic it
+assumed.
 
 One number for everything was the previous rule, and it kept the wrong
 backups: the automatic ones outnumber the deliberate ones on any

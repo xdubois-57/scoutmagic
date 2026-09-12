@@ -220,11 +220,17 @@ class AuditRepository
 
         $changed = 0;
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $haystack = implode("\n", array_filter([
-                $this->decryptNullable($row['from_value'], 'entity_changes.value'),
-                $this->decryptNullable($row['to_value'], 'entity_changes.value'),
-                $this->decryptNullable($row['summary'], 'entity_changes.value'),
-            ], static fn(?string $v): bool => $v !== null));
+            $haystack = implode(
+                "\n",
+                array_filter(
+                    [
+                        $this->decryptNullable($row['from_value'], 'entity_changes.value'),
+                        $this->decryptNullable($row['to_value'], 'entity_changes.value'),
+                        $this->decryptNullable($row['summary'], 'entity_changes.value'),
+                    ],
+                    static fn(?string $v): bool => $v !== null
+                )
+            );
             if ($haystack === '') {
                 continue;
             }

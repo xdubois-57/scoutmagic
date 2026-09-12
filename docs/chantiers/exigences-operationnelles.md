@@ -974,6 +974,19 @@ besoin de la galerie ? — part en **issue #298** avec ce qu'il faut vérifier
 avant d'y toucher : si le retour en arrière restaure `storage/` en bloc,
 retirer la galerie de l'archive effacerait les photos au premier rollback.
 
+**Réponse, depuis : non.** La vérification demandée a été faite et le
+retour en arrière ne remplace pas `storage/` — `BackupService::
+restoreFiles()` extrait par-dessus l'arbre vivant et ne supprime rien de
+ce que l'archive ne contient pas, donc une galerie absente de l'archive
+est une galerie laissée telle quelle sur le disque — un test de
+`BackupServiceTest` restaure désormais une archive sans galerie
+par-dessus l'arbre dont elle a été tirée et vérifie que les photos y sont
+toujours. `InstallUpdateHandler` demande
+`createFileBackup(false)`, `auto_update` a quitté `GALLERY_TYPES` avec sa
+galerie, et l'arbitrage ci-dessus ne vaut plus que pour les copies avant
+**réinitialisation** : une série de mises à jour atteint désormais le
+quota de 3, une série de réinitialisations toujours le plafond de 1.
+
 **Un troisième constat de revue : la copie de sécurité de la restauration
 n'était pas protégée pendant la restauration.** `BackupSafetyNet` lit la
 charge utile des tâches vivantes, or une charge utile est écrite au moment

@@ -116,8 +116,13 @@ class AutoBackupHandler implements TaskHandlerInterface
 
             $context->settings->setInternal('backup_auto_last_run', (new \DateTimeImmutable())->format('Y-m-d H:i:s'));
 
-            $context->journal->log('core', 'auto_backup_completed', 'info', 'Sauvegarde automatique effectuée',
-                ['backup_id' => $backupId]);
+            $context->journal->log(
+                'core',
+                'auto_backup_completed',
+                'info',
+                'Sauvegarde automatique effectuée',
+                ['backup_id' => $backupId]
+            );
 
             (new \Core\Maintenance\BackupRetention(
                 $backupRepository,
@@ -127,8 +132,13 @@ class AutoBackupHandler implements TaskHandlerInterface
                 \Core\Maintenance\BackupSafetyNet::forPdo($context->connection->getPdo())
             ))->purgeAfterCreating('auto_backup');
         } catch (\Throwable $e) {
-            $context->journal->log('core', 'auto_backup_failed', 'info', 'Échec de la sauvegarde automatique',
-                ['error' => $e->getMessage()]);
+            $context->journal->log(
+                'core',
+                'auto_backup_failed',
+                'info',
+                'Échec de la sauvegarde automatique',
+                ['error' => $e->getMessage()]
+            );
         }
     }
 

@@ -134,7 +134,7 @@
     wireBackupForm('portable-backup', '/config/maintenance/backup/portable', function () {
         var field = portablePassphrase;
         var passphrase = field.value;
-        var minimum = parseInt(field.getAttribute('minlength') || '0', 10) || 0;
+        var minimum = Number.parseInt(field.getAttribute('minlength') || '0', 10) || 0;
 
         // Code points, not UTF-16 units: the server counts with
         // mb_strlen(), and `.length` counts an emoji as two. Eight of them

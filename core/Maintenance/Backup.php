@@ -36,16 +36,24 @@ class Backup
      * put together, so exactly one of them is kept, across all families
      * ({@see BackupRetention}).
      *
-     * **`auto_update` and `auto_reset` are here, and leaving them out was
-     * a real hole.** The name of a type says nothing about its contents:
-     * these two are recorded by handlers that call
-     * `BackupService::createFileBackup(true)` — `InstallUpdateHandler`,
+     * **`auto_reset` is here, and leaving it out was a real hole.** The
+     * name of a type says nothing about its contents: it is recorded by
+     * handlers that call `BackupService::createFileBackup(true)` —
      * `ResetSettingsHandler`, `RestoreBackupHandler` — because the
      * operation they protect against can wipe `storage/gallery/`, so
      * their safety copy has to hold it. With only `full_with_gallery`
      * listed, an installation could sit on four gallery-sized archives at
      * once (one manual plus a family quota of three operational ones) —
      * exactly the disk the cap exists to defend.
+     *
+     * **`auto_update` was here too, and left when its archive did.** An
+     * update replaces code; its rollback extracts over the live tree and
+     * deletes nothing the archive omits, so the photos survive a safety
+     * copy that never held them (issue #298). `InstallUpdateHandler` asks
+     * for `createFileBackup(false)` since, and a type whose archive no
+     * longer carries the gallery must not spend the one slot the cap
+     * has — that would evict a real gallery archive to protect a disk
+     * nothing is filling.
      *
      * **`portable` is deliberately absent too**, and for the opposite
      * reason to a name being unreliable: this one is decided by
@@ -61,7 +69,7 @@ class Backup
      *
      * @var string[]
      */
-    public const GALLERY_TYPES = ['full_with_gallery', 'auto_update', 'auto_reset'];
+    public const GALLERY_TYPES = ['full_with_gallery', 'auto_reset'];
 
     /**
      * @param int|null $sizeBytes what the backup occupies on disk, both of

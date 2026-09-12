@@ -103,8 +103,10 @@ class SectionStaffAuthorizationService
                AND mf.section_id IS NOT NULL'
         );
         $stmt->execute([$blindIndex, ...$memberIds, $scoutYearId]);
-        $sectionIds = array_map(static fn(array $row): int => (int) $row['section_id'],
-            $stmt->fetchAll(\PDO::FETCH_ASSOC));
+        $sectionIds = array_map(
+            static fn(array $row): int => (int) $row['section_id'],
+            $stmt->fetchAll(\PDO::FETCH_ASSOC)
+        );
 
         $sections = [];
         foreach ($sectionIds as $sectionId) {
