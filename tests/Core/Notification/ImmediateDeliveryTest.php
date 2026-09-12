@@ -68,6 +68,14 @@ final class ImmediateDeliveryTest extends TestCase
     /** @var \ArrayObject<int, string> every address a message actually left for */
     private \ArrayObject $sent;
 
+    /**
+     * The recording transport, built once per test.
+     *
+     * One instance, deliberately: a second mock would record into nothing,
+     * and a test that sends through it would pass whatever the code did.
+     */
+    private ?MailService $mailService = null;
+
     protected function setUp(): void
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
@@ -96,17 +104,7 @@ final class ImmediateDeliveryTest extends TestCase
         bool $withMailerFactory = true,
         ?NotificationMailerFactory $mailerFactory = null
     ): NotificationService {
-        $mailService = $this->createMock(MailService::class);
-        $expectation = $mailService->method('send');
-        if ($transportFails !== null) {
-            $expectation->willThrowException($transportFails);
-        } else {
-            $sent = $this->sent;
-            $expectation->willReturnCallback(static function (string $to) use ($sent): void {
-                $sent[] = $to;
-            });
-        }
-
+        $mailService = $this->recordingTransport($transportFails);
         $journal = new JournalService($this->journalRepository);
 
         $service = new NotificationService(
@@ -136,6 +134,37 @@ final class ImmediateDeliveryTest extends TestCase
         ]]);
 
         return $service;
+    }
+
+    /**
+     * The one mail transport of this test, appending every address it is
+     * handed to {@see $sent} — or throwing, when the test is about what
+     * happens then.
+     *
+     * Memoised, so a second mailer built later in the same test records
+     * into the same list. It did not use to be, and the test that watched
+     * a claimed row not being sent twice was handing the second pass a
+     * fresh, unconfigured mock: its `send()` returned null into nothing,
+     * so the assertion held whether or not the claim existed at all.
+     */
+    private function recordingTransport(?\Throwable $fails = null): MailService
+    {
+        if ($this->mailService !== null) {
+            return $this->mailService;
+        }
+
+        $mailService = $this->createMock(MailService::class);
+        $expectation = $mailService->method('send');
+        if ($fails !== null) {
+            $expectation->willThrowException($fails);
+        } else {
+            $sent = $this->sent;
+            $expectation->willReturnCallback(static function (string $to) use ($sent): void {
+                $sent[] = $to;
+            });
+        }
+
+        return $this->mailService = $mailService;
     }
 
     private function createUserAccount(): int
@@ -200,11 +229,14 @@ final class ImmediateDeliveryTest extends TestCase
         $this->dispatchAlert($service, $admin);
         $notificationId = $this->notifications->findByUserAccountId($admin)[0]->id;
 
+        // The SAME transport the dispatch above sent through — a second
+        // mock would record into nothing and this would pass with the
+        // claim deleted.
         $service->sendEmailsForNotifications(
             [$notificationId],
             static fn (): bool => true,
             (new NotificationMailerFactory(
-                $this->createMock(MailService::class),
+                $this->recordingTransport(),
                 $this->pdo,
                 $this->settings,
                 new JournalService($this->journalRepository)
@@ -338,6 +370,43 @@ final class ImmediateDeliveryTest extends TestCase
             0,
             $this->journalRepository->countEventsSince('core', 'notification_email_failed', '1970-01-01 00:00:00'),
             'A send that failed left no trace at all.'
+        );
+    }
+
+    /**
+     * A throw is not the same as a failed send, and the difference is a
+     * whole batch.
+     *
+     * `NotificationMailer::send()` answers false for a transport that
+     * refused — the test above — and the loop moves to the next
+     * recipient. Anything it does NOT catch (a template that will not
+     * render on a full disk, a repository that cannot reach the database)
+     * aborts the loop where it stands, so every recipient after that one
+     * was never even looked at. Dropping them would make an alert with
+     * three superadmins reach one and lose two, silently and for good.
+     *
+     * So the remainder goes back to the queue, exactly as
+     * `Task\SendNotificationEmailsHandler` has always done with whatever
+     * its time budget cut short. Late is bad; gone is worse.
+     */
+    public function testAThrowingSendHandsTheRestOfTheBatchBackToTheQueue(): void
+    {
+        $admins = [$this->createUserAccount(), $this->createUserAccount(), $this->createUserAccount()];
+
+        $this->service(new \RuntimeException('Twig could not write the compiled template'))->dispatch(
+            OperationalAlertService::TYPE_DEFAULT,
+            array_map(static fn (int $id): array => ['userAccountId' => $id, 'memberId' => null], $admins),
+            ['title' => 'Disque presque plein', 'body' => 'Il reste 4 %.', 'url' => '/config/maintenance']
+        );
+
+        $queued = $this->queuedEmailTasks();
+        $this->assertCount(1, $queued, 'The recipients the send never reached were dropped rather than requeued.');
+
+        $payload = json_decode((string) $queued[0]['payload'], true);
+        $this->assertCount(
+            3,
+            $payload['notification_ids'],
+            'The queue must carry every id, claimed or not: claimForEmail() is what skips the ones already stamped.'
         );
     }
 }

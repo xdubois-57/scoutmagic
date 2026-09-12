@@ -220,7 +220,9 @@ class NotificationService
      * failure. A send that fails is not retried here either, and for the
      * reason it is not retried there: a retry cannot tell "never left"
      * from "left, then the connection dropped", and the notification is
-     * in the recipient's centre either way.
+     * in the recipient's centre either way. What a FAILURE does not get
+     * to do is take the rest of the batch with it — anything the send
+     * never reached goes back to the queue ({@see deliverNow()}).
      *
      * Three limits, each deliberate. **Quiet hours still win**: a push
      * held back to the end of somebody's night is scheduled exactly as
@@ -325,6 +327,8 @@ class NotificationService
             if ($type->deliversImmediately && $delaySeconds === 0) {
                 $this->deliverNow(
                     $typeId,
+                    'send_notifications',
+                    $bucket['ids'],
                     fn (): array => $this->sendPushForNotifications($bucket['ids'], static fn (): bool => true)
                 );
                 continue;
@@ -342,6 +346,8 @@ class NotificationService
         if ($mailer !== null) {
             $this->deliverNow(
                 $typeId,
+                'send_notification_emails',
+                $emailIds,
                 fn (): array => $this->sendEmailsForNotifications($emailIds, static fn (): bool => true, $mailer)
             );
 
@@ -387,29 +393,44 @@ class NotificationService
     }
 
     /**
-     * Runs one immediate delivery, and never lets it reach the caller.
+     * Runs one immediate delivery, never lets it reach the caller, and
+     * hands whatever it did not attempt back to the queue.
      *
      * An immediate send happens inside whatever raised the alert — an
      * ordinary web request, past `send()` and `session_write_close()`
      * (`Core\Alert\RequestBoundChecks`), or a scheduler pass running the
      * other checks. A mail transport that times out, a push library that
      * throws on a malformed subscription, a Twig template that cannot be
-     * compiled because `storage/` filled up: each is a real possibility
+     * rendered because `storage/` filled up: each is a real possibility
      * and none of them may become a 500 on somebody's page, or stop the
      * checks that have not run yet ({@see \Core\Alert\
      * OperationalAlertService::run()} makes the same promise about a
      * check that throws).
      *
-     * So the failure is journaled and the dispatch continues. The
-     * notification is in the recipient's centre regardless, which is what
-     * makes swallowing this defensible rather than quiet.
+     * **Swallowing the throwable is not the same as swallowing the
+     * batch**, and that distinction is the whole of this method. A
+     * throw aborts the loop inside the send, so every id after it was
+     * never even looked at: dropping them would make an alert with two
+     * recipients reach one and lose the other, silently and for good.
+     * `Task\SendNotificationEmailsHandler` has always rescheduled the
+     * remainder its time budget cut short; this reschedules the remainder
+     * a failure cut short, which is the same promise for the same reason.
      *
-     * @param \Closure(): int[] $send
+     * The ids that WERE attempted are not resent. For e-mail that is what
+     * the `email_sent_at` claim already guarantees on its own — a
+     * reschedule of the whole batch would be skipped row by row — but
+     * naming them here is what makes the push path safe too, where there
+     * is no claim and a second pass would genuinely send twice.
+     *
+     * @param int[] $ids every id this delivery was given
+     * @param \Closure(): int[] $send returns the ids it took on, in order
      */
-    private function deliverNow(string $typeId, \Closure $send): void
+    private function deliverNow(string $typeId, string $taskKey, array $ids, \Closure $send): void
     {
+        $attempted = [];
+
         try {
-            $send();
+            $attempted = $send();
         } catch (\Throwable $e) {
             $this->journalService->log(
                 'core',
@@ -420,6 +441,15 @@ class NotificationService
                 null
             );
         }
+
+        // Empty on every ordinary run: the budget closure above is always
+        // true, so a send that returns has attempted everything.
+        $remaining = array_values(array_diff($ids, $attempted));
+        if ($remaining === []) {
+            return;
+        }
+
+        $this->schedulerService->scheduleAfter('core', $taskKey, 0, ['notification_ids' => $remaining]);
     }
 
     /**
