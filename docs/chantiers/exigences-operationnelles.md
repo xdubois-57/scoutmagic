@@ -1711,7 +1711,7 @@ chiffrement des colonnes et la clé VAPID y sont avec ceux de Drive. Un
 mauvaise journée en installation irrécupérable. L'écriture refuse
 désormais, et dit pourquoi.
 
-**Cinq constats de revue, tous justes.** Le premier est le plus lourd :
+**Six constats de revue, tous justes.** Le premier est le plus lourd :
 `disconnect()` et `saveCredentials()` écrivaient les lignes de `settings`
 *avant* l'écriture chiffrée qui, elle, peut refuser en disant « Rien n'a
 été modifié ». Cette phrase aurait donc été un mensonge écrit par le code
@@ -1736,6 +1736,19 @@ sans caviardage. Elle rejoint `secrets.enc`, le journal ne la nomme plus,
 et un cliquet interdit au contrôleur de l'y remettre. `SECURITY.md`
 posait déjà le précédent pour la sonde courriel : « le journal compte les
 boîtes et n'en nomme aucune ».
+
+Le sixième dit quelque chose sur la manière dont un test peut passer au
+vert au-dessus d'un défaut. « Aucun jeton de rafraîchissement » et
+« l'autorisation a été retirée » levaient la même exception : tester un
+site jamais raccordé enregistrait donc une révocation qui n'avait jamais
+eu lieu, et tester un site déjà en attente de reconnexion remplaçait le
+motif que Google avait donné par un « aucun compte » générique. Le test
+existant n'assertait que le message rendu — jamais l'état écrit à côté —
+et c'est exactement l'écart par lequel le défaut est passé. Le bouton
+Tester répond maintenant avant de toucher à quoi que ce soit quand rien
+n'est raccordé, la levée « jamais raccordé » n'est plus marquée « à
+ré-autoriser », et le test lit l'état, le dernier motif et le nombre
+d'appels à Google.
 
 **Reporté.** L'envoi récurrent et la rétention distante (IT-09) : rien
 n'appelle encore `upload()` en dehors du fichier témoin du bouton
