@@ -68,14 +68,29 @@ final class GoogleDriveTarget implements RemoteBackupTarget
      */
     public function testConnection(): RemoteConnectionCheck
     {
-        // **Before anything is recorded.** A site that was never connected
-        // is not a site whose grant was withdrawn, and the two must not
-        // produce the same entry: this route is reachable whenever an
-        // administrator is, so testing an unconnected site would otherwise
-        // write « à reconnecter » about a connection that never existed —
-        // and, on a site genuinely waiting to be reconnected, overwrite
-        // Google's own reason with a generic one.
-        if (!$this->connection->isConnected()) {
+        // **Before anything is recorded, and the two silences are not one
+        // silence.** This route is reachable whenever an administrator is,
+        // so a test with no usable grant must answer rather than write.
+        // What makes the call impossible is the missing refresh token —
+        // not the label stored beside it — so that is what is read here;
+        // the state only decides which of the two sentences is true.
+        //
+        // Keeping them apart is the whole point. A site that was never
+        // connected would otherwise be recorded as « à reconnecter » about
+        // a connection that never existed, and a site genuinely waiting to
+        // be reconnected — whose token `markNeedsReauthorisation()` has
+        // deliberately dropped — would have Google's own reason replaced
+        // by « aucun compte », with the flag that tells the page to reload
+        // itself left false.
+        if ($this->connection->refreshToken() === '') {
+            if ($this->connection->state() === RemoteBackupConnection::STATE_NEEDS_REAUTH) {
+                $reason = $this->connection->lastError();
+
+                return RemoteConnectionCheck::revoked($reason !== ''
+                    ? $reason
+                    : 'Google n\'accepte plus l\'autorisation de ce site : il faut le reconnecter.');
+            }
+
             return RemoteConnectionCheck::failure('Aucun compte Google Drive n\'est raccordé à ce site.');
         }
 

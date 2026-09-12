@@ -268,7 +268,16 @@ final class GoogleDriveTargetTest extends TestCase
 
     /**
      * And a site already waiting to be reconnected keeps the reason
-     * Google gave, rather than having it replaced by a generic one.
+     * Google gave — in the journal AND in what it answers.
+     *
+     * **The answer is the half that matters.** `markNeedsReauthorisation()`
+     * drops the refresh token on purpose, so such a site has no grant left
+     * either; a refusal that only looked at whether a grant exists would
+     * tell the operator « aucun compte » about the account they are being
+     * asked to reconnect, and would come back with
+     * `needsReauthorisation` false — which is the flag the page reloads
+     * itself on. Asserting only `lastError()` passes in both worlds,
+     * because this path writes nothing in either.
      */
     public function testASiteWaitingToBeReconnectedKeepsGooglesOwnReason(): void
     {
@@ -277,12 +286,45 @@ final class GoogleDriveTargetTest extends TestCase
         $secrets = new SecretManager($this->base . '/keys/master.key', $this->base . '/config/secrets.enc');
         $secrets->writeSecrets(['remote_backup_client_secret' => 'client-secret-1']);
 
-        $this->targetAnswering(fn (): array => ['status' => 200, 'body' => '{}'])->testConnection();
+        $calls = 0;
+        $check = $this->targetAnswering(function () use (&$calls): array {
+            $calls++;
 
+            return ['status' => 200, 'body' => '{}'];
+        })->testConnection();
+
+        $this->assertFalse($check->ok);
+        $this->assertTrue($check->needsReauthorisation, 'the page was not told this site has to be reconnected');
+        $this->assertSame('Google n\'accepte plus l\'autorisation de ce site.', $check->message);
         $this->assertSame(
             'Google n\'accepte plus l\'autorisation de ce site.',
             $this->connection->lastError()
         );
+        $this->assertSame(
+            RemoteBackupConnection::STATE_NEEDS_REAUTH,
+            $this->connection->state()
+        );
+        $this->assertSame(0, $calls, 'Google was contacted about a grant that was withdrawn');
+    }
+
+    /**
+     * The same site, with nothing recorded about why.
+     *
+     * A reason can be absent — a row cleared by hand, an installation
+     * restored from a dump taken between the two writes — and an empty
+     * sentence would be a dialog saying nothing at all. The fallback is
+     * what the state itself means.
+     */
+    public function testASiteWaitingToBeReconnectedWithNoRecordedReasonStillSaysWhatToDo(): void
+    {
+        $this->settings->values[RemoteBackupConnection::STATE_SETTING] = RemoteBackupConnection::STATE_NEEDS_REAUTH;
+        $secrets = new SecretManager($this->base . '/keys/master.key', $this->base . '/config/secrets.enc');
+        $secrets->writeSecrets(['remote_backup_client_secret' => 'client-secret-1']);
+
+        $check = $this->targetAnswering(fn (): array => ['status' => 200, 'body' => '{}'])->testConnection();
+
+        $this->assertTrue($check->needsReauthorisation);
+        $this->assertStringContainsString('reconnecter', $check->message);
     }
 
     /**
