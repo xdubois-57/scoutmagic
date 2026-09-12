@@ -327,10 +327,22 @@ class NotificationService
         foreach ($pushBuckets as $bucket) {
             $delaySeconds = max(0, $bucket['runAt']->getTimestamp() - time());
 
-            // Due now AND declared immediate: send it here. A bucket held
-            // back by quiet hours keeps its scheduled task whatever the
-            // type says — see the docblock.
-            if ($type->deliversImmediately && $delaySeconds === 0) {
+            // Due now AND declared immediate AND there is something to
+            // send with. A bucket held back by quiet hours keeps its
+            // scheduled task whatever the type says — see the docblock.
+            //
+            // The null check is the push twin of {@see
+            // immediateMailer()} returning null, and it has to be HERE
+            // rather than deeper: `sendPushForNotifications()` counts
+            // every id as attempted before `queuePushForAccount()` finds
+            // there is no WebPush to hand them to, so the batch would
+            // come back "all attempted", nothing would be rescheduled,
+            // and the alert's push would be gone with nothing said. A
+            // composition root sets this to null on a VAPID
+            // configuration it could not load (`vapid_construction_failed`
+            // in `public/index.php`), which is a real state on exactly
+            // the installation least able to notice.
+            if ($type->deliversImmediately && $delaySeconds === 0 && $this->webPush !== null) {
                 $this->deliverNow(
                     $typeId,
                     'send_notifications',

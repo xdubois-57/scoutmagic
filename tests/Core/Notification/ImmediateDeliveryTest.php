@@ -103,7 +103,8 @@ final class ImmediateDeliveryTest extends TestCase
         ?\Throwable $transportFails = null,
         bool $withMailerFactory = true,
         ?NotificationMailerFactory $mailerFactory = null,
-        ?PushSubscriptionRepository $subscriptions = null
+        ?PushSubscriptionRepository $subscriptions = null,
+        bool $withWebPush = true
     ): NotificationService {
         $mailService = $this->recordingTransport($transportFails);
         $journal = new JournalService($this->journalRepository);
@@ -112,7 +113,7 @@ final class ImmediateDeliveryTest extends TestCase
             $this->notifications,
             $subscriptions ?? new PushSubscriptionRepository($this->pdo, $this->encryption),
             $this->preferences,
-            $this->createMock(WebPush::class),
+            $withWebPush ? $this->createMock(WebPush::class) : null,
             $this->settings,
             $journal,
             new SchedulerService($this->scheduler),
@@ -447,6 +448,32 @@ final class ImmediateDeliveryTest extends TestCase
             [$this->notifications->findByUserAccountId($admin)[0]->id],
             $payload['notification_ids']
         );
+    }
+
+    /**
+     * The push twin of "no mailer means the queue".
+     *
+     * A composition root sets `$webPush` to null when it could not load
+     * the VAPID configuration (`vapid_construction_failed` in
+     * `public/index.php`), and `sendPushForNotifications()` counts every
+     * id as attempted before discovering there is nothing to send with.
+     * Taken at face value that reads as "all delivered", so nothing would
+     * be rescheduled and the alert's push would be gone in silence — on
+     * exactly the installation least able to notice. Before immediate
+     * delivery existed the bucket was simply scheduled, and it still is.
+     */
+    public function testWithNoWebPushAtAllTheBucketIsScheduledRatherThanSwallowed(): void
+    {
+        $admin = $this->createUserAccount();
+
+        $this->dispatchAlert($this->service(withWebPush: false), $admin);
+
+        $this->assertCount(
+            1,
+            $this->scheduler->findByModuleAndTaskKey('core', 'send_notifications', 10),
+            'The push was reported delivered by a service that has no way to deliver one.'
+        );
+        $this->assertCount(1, $this->sent, 'The e-mail half is unaffected and still goes now.');
     }
 
     /**
