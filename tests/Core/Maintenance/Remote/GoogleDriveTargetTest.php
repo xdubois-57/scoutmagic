@@ -115,9 +115,18 @@ final class GoogleDriveTargetTest extends TestCase
      * expired between the upload and the delete, or a 503, would leave the
      * witness on the operator's Drive — one more on every press of a
      * button whose whole purpose is troubleshooting.
+     *
+     * **Something therefore has to actually fail here**, or the test is
+     * the happy path under another name and passes with the deletion
+     * back inside the `try`. The failure injected is the write that comes
+     * between the upload and the return — `clearFailure()`, which touches
+     * `settings` — because that is the real shape of the accident: the
+     * upload worked, and the site fell over while writing down that it
+     * had.
      */
     public function testTheRemoteWitnessIsRemovedEvenWhenSomethingFailsAfterTheUpload(): void
     {
+        $this->settings->refuseWrites = true;
         $deleted = [];
         $target = $this->targetAnswering(function (string $method, string $url) use (&$deleted): array {
             if (str_contains($url, '/token')) {
@@ -141,8 +150,11 @@ final class GoogleDriveTargetTest extends TestCase
             return ['status' => 200, 'body' => '{"files":[]}'];
         });
 
-        $target->testConnection();
+        // Never throws, whatever happened: this is a diagnostic button.
+        $check = $target->testConnection();
 
+        $this->assertFalse($check->ok, 'a site that could not record the result reported success');
+        $this->assertFalse($check->needsReauthorisation, 'this site\'s own failure was blamed on the Google account');
         $this->assertCount(1, $deleted, 'the witness was left on the Drive');
         $this->assertStringEndsWith('/files/witness-1', $deleted[0]);
     }
@@ -453,8 +465,18 @@ final class InMemorySettingService extends SettingService
         return $this->values[$key] ?? $default;
     }
 
+    /**
+     * Makes every write fail, for the tests that need something to go
+     * wrong AFTER the network part has already succeeded.
+     */
+    public bool $refuseWrites = false;
+
     public function setInternal(string $key, string $value, ?string $moduleId = null): void
     {
+        if ($this->refuseWrites) {
+            throw new \RuntimeException('the settings table is unavailable');
+        }
+
         $this->values[$key] = $value;
     }
 }

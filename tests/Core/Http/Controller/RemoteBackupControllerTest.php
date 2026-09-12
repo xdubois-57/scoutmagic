@@ -41,6 +41,7 @@ final class RemoteBackupControllerTest extends TestCase
     private string $base;
     private RemoteBackupConnection $connection;
     private RemoteBackupSettingsDouble $settings;
+    private RecordingJournalRepository $journal;
 
     protected function setUp(): void
     {
@@ -215,6 +216,18 @@ final class RemoteBackupControllerTest extends TestCase
         $this->assertSame('unite@example.org', $this->connection->account());
         $this->assertSame('folder-1', $this->connection->folderId());
         $this->assertSame(RemoteBackupConnection::STATE_CONNECTED, $this->connection->state());
+
+        // **And the journal names nobody.** The address is a real
+        // person's, so the entry says what happened and not who it
+        // happened to — the precedent SECURITY.md sets for the mail
+        // probe, « le journal compte les boîtes et n'en nomme aucune ».
+        // Asserted on the entry itself, not only on the ratchet that
+        // forbids the controller to read `account()`: the ratchet closes
+        // the door this address came through, this closes the room.
+        $this->assertStringNotContainsString(
+            'unite@example.org',
+            $this->journal->textOf('remote_backup_connected')
+        );
     }
 
     /**
@@ -316,10 +329,12 @@ final class RemoteBackupControllerTest extends TestCase
 
     private function controller(?GoogleDriveClient $client = null): RemoteBackupController
     {
+        $this->journal = new RecordingJournalRepository();
+
         return new RemoteBackupController(
             new Environment(new ArrayLoader([])),
             $this->connection,
-            new JournalService(new SilentJournalRepository()),
+            new JournalService($this->journal),
             $client ?? new GoogleDriveClient(fn (): array => ['status' => 500, 'body' => '{}'])
         );
     }
@@ -402,14 +417,22 @@ final class RemoteBackupSettingsDouble extends SettingService
 }
 
 /**
- * A journal that writes nowhere.
+ * A journal that writes to an array.
  *
- * The controller journals a security event on every outcome, and what is
- * under test is the outcome and not the entry — `JournalService` has its
- * own suite.
+ * **It used to write nowhere, and that was a hole.** The controller
+ * journals a security event on every outcome, and one rule about those
+ * entries is a rule about personal data: the connected Google account is
+ * the e-mail address of a real person, so it belongs in `secrets.enc`
+ * and nowhere near a journal line that is read on screen and carried
+ * into a diagnostic archive. A repository that discarded its arguments
+ * asserted that rule by never looking — so the entries are kept, and the
+ * test reads them.
  */
-final class SilentJournalRepository extends JournalRepository
+final class RecordingJournalRepository extends JournalRepository
 {
+    /** @var list<array{type: string, description: string, context: string}> */
+    public array $entries = [];
+
     public function __construct()
     {
         parent::__construct(new \PDO('sqlite::memory:'));
@@ -424,5 +447,19 @@ final class SilentJournalRepository extends JournalRepository
         ?int $userId,
         ?string $ipAddress = null
     ): void {
+        $this->entries[] = ['type' => $type, 'description' => $description, 'context' => (string) $contextJson];
+    }
+
+    /** Everything one entry could show a human, in one string. */
+    public function textOf(string $type): string
+    {
+        $text = '';
+        foreach ($this->entries as $entry) {
+            if ($entry['type'] === $type) {
+                $text .= $entry['description'] . ' ' . $entry['context'];
+            }
+        }
+
+        return $text;
     }
 }

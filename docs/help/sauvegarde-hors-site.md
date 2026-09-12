@@ -44,10 +44,14 @@ au bout de **sept jours**. Les sauvegardes s'arrêteraient sans rien
 dire, et vous le découvririez le jour où vous en auriez besoin. C'est la
 première cause de panne silencieuse de ce genre de raccordement.
 
-Publier ne déclenche **aucune vérification** de Google tant que
+Publier ne déclenche **aucun examen de sécurité** de Google tant que
 l'application se limite aux fichiers qu'elle a créés — ce que fait ce
-site. Un avertissement **application non vérifiée** peut s'afficher au
-raccordement : vous en êtes l'auteur, passez outre.
+site. C'est l'examen coûteux, réservé aux accès larges, et vous y
+échappez. Reste la vérification d'identité, celle qui fait apparaître
+votre nom et votre logo sur l'écran d'accord : vous pouvez très bien
+vous en passer. Un avertissement **application non vérifiée**
+s'affichera alors au raccordement — vous en êtes l'auteur, et vous êtes
+le seul utilisateur, donc passez outre.
 
 ## Sur le site
 

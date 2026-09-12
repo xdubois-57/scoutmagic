@@ -99,6 +99,9 @@ final class GoogleDriveClient
     /** Each `PUT` of a resumable upload. Google requires a multiple of 256 KiB. */
     private const UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024;
 
+    /** How many entries one page of a folder listing asks for. */
+    private const LIST_PAGE_SIZE = 100;
+
     /**
      * Which of Google's two endpoints refused, for {@see errorFor()}.
      *
@@ -267,35 +270,54 @@ final class GoogleDriveClient
     }
 
     /**
+     * Everything this application has left in the folder, newest first.
+     *
+     * **Every page of it.** Drive answers a listing one page at a time and
+     * says so with `nextPageToken`; a caller that reads only the first
+     * page sees the hundred newest files and believes that is all there
+     * is. The caller this exists for is the retention purge, and for a
+     * purge that belief is the worst possible one: the files it would
+     * never see are precisely the oldest — the ones it exists to delete —
+     * so an account past a hundred archives would fill up while the purge
+     * reported nothing to do. Ordering newest-first makes the blind spot
+     * land exactly where it does the most damage.
+     *
      * @return RemoteFile[]
      * @throws RemoteBackupException
      */
     public function listFiles(string $accessToken, string $folderId): array
     {
         $query = sprintf("'%s' in parents and trashed=false", str_replace("'", "\\'", $folderId));
-        $decoded = $this->apiJson(
-            'GET',
-            self::API_BASE . '/files?' . http_build_query([
-                'q' => $query,
-                'fields' => 'files(id,name,size,createdTime)',
-                'orderBy' => 'createdTime desc',
-                'pageSize' => 100,
-            ]),
-            $accessToken
-        );
-
         $files = [];
-        foreach (is_array($decoded['files'] ?? null) ? $decoded['files'] : [] as $entry) {
-            if (!is_array($entry) || !isset($entry['id'])) {
-                continue;
+        $pageToken = '';
+
+        do {
+            $parameters = [
+                'q' => $query,
+                'fields' => 'nextPageToken,files(id,name,size,createdTime)',
+                'orderBy' => 'createdTime desc',
+                'pageSize' => self::LIST_PAGE_SIZE,
+            ];
+            if ($pageToken !== '') {
+                $parameters['pageToken'] = $pageToken;
             }
-            $files[] = new RemoteFile(
-                (string) $entry['id'],
-                (string) ($entry['name'] ?? ''),
-                (int) ($entry['size'] ?? 0),
-                (string) ($entry['createdTime'] ?? '')
-            );
-        }
+
+            $decoded = $this->apiJson('GET', self::API_BASE . '/files?' . http_build_query($parameters), $accessToken);
+
+            foreach (is_array($decoded['files'] ?? null) ? $decoded['files'] : [] as $entry) {
+                if (!is_array($entry) || !isset($entry['id'])) {
+                    continue;
+                }
+                $files[] = new RemoteFile(
+                    (string) $entry['id'],
+                    (string) ($entry['name'] ?? ''),
+                    (int) ($entry['size'] ?? 0),
+                    (string) ($entry['createdTime'] ?? '')
+                );
+            }
+
+            $pageToken = is_string($decoded['nextPageToken'] ?? null) ? $decoded['nextPageToken'] : '';
+        } while ($pageToken !== '');
 
         return $files;
     }

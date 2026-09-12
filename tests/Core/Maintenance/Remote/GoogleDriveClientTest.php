@@ -193,10 +193,11 @@ final class GoogleDriveClientTest extends TestCase
      */
     public function testALargeUploadIsSentInPiecesAndTheContinueStatusIsNotAFailure(): void
     {
-        $path = tempnam(sys_get_temp_dir(), 'sm_up_');
-        $this->assertIsString($path);
         // Two chunks and a bit: the chunk size is eight mebibytes.
-        file_put_contents($path, str_repeat('x', 20 * 1024 * 1024));
+        // Through fileOf(), so tearDown() removes the twenty mebibytes
+        // whatever happens — an upload that throws half way would
+        // otherwise leave them behind on every failing run.
+        $path = $this->fileOf(str_repeat('x', 20 * 1024 * 1024));
 
         $ranges = [];
         $client = $this->clientAnswering(function (string $method, string $url, array $headers, ?string $body) use (&$ranges): array {
@@ -212,7 +213,6 @@ final class GoogleDriveClientTest extends TestCase
         });
 
         $id = $client->uploadFile('token', 'folder-1', $path, 'sauvegarde.zip');
-        @unlink($path);
 
         $this->assertSame('drive-file-9', $id);
         $this->assertSame([
@@ -317,6 +317,42 @@ final class GoogleDriveClientTest extends TestCase
         $this->assertSame('sauvegarde-2.zip', $files[0]->name);
         $this->assertSame(2048, $files[0]->sizeBytes);
         $this->assertSame('2026-09-02T03:00:00.000Z', $files[0]->createdAt);
+    }
+
+    /**
+     * **A listing is every page of it, and the reason is the purge.**
+     *
+     * Drive answers a folder one page at a time and says so with
+     * `nextPageToken`. A caller reading only the first page sees the
+     * hundred newest files and takes that for the whole folder — and
+     * because the listing is ordered newest-first, the files it never
+     * sees are exactly the oldest ones, which is precisely what IT-09's
+     * retention exists to delete. The account would fill up while the
+     * purge found nothing to remove.
+     */
+    public function testAListingFollowsEveryPageRatherThanStoppingAtTheFirst(): void
+    {
+        $urls = [];
+        $client = $this->clientAnswering(function (string $method, string $url) use (&$urls): array {
+            $urls[] = $url;
+
+            return str_contains($url, 'pageToken=suite')
+                ? ['status' => 200, 'body' => (string) json_encode(['files' => [
+                    ['id' => 'vieux-1', 'name' => 'a.zip', 'size' => '1', 'createdTime' => '2025-01-01T00:00:00.000Z'],
+                ]])]
+                : ['status' => 200, 'body' => (string) json_encode([
+                    'nextPageToken' => 'suite',
+                    'files' => [
+                        ['id' => 'recent-1', 'name' => 'b.zip', 'size' => '2', 'createdTime' => '2026-09-01T00:00:00.000Z'],
+                    ],
+                ])];
+        });
+
+        $files = $client->listFiles('token', 'folder-1');
+
+        $this->assertCount(2, $urls, 'the second page was never asked for');
+        $this->assertStringContainsString('pageToken=suite', $urls[1]);
+        $this->assertSame(['recent-1', 'vieux-1'], array_map(static fn ($file) => $file->id, $files));
     }
 
     public function testTheFolderIsCreatedWhenThisApplicationHasNoneYet(): void

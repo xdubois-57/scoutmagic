@@ -138,6 +138,24 @@ final class GoogleDriveTarget implements RemoteBackupTarget
             }
 
             return RemoteConnectionCheck::failure($e->getMessage());
+        } catch (\Throwable) {
+            // **The contract is "never throws", and only this makes it
+            // true.** Everything above that talks to Google raises
+            // `RemoteBackupException`, but the calls that write down what
+            // happened talk to this site's own `settings`, and a database
+            // that has gone away raises something else entirely. Without
+            // this branch, pressing a diagnostic button on a site with a
+            // sick database answers with a stack trace instead of a
+            // diagnosis — and the witness on the operator's Drive would
+            // survive the request that created it.
+            //
+            // The site's own failure is not reported as Google's: nothing
+            // here says the account is at fault, and no state is written,
+            // because writing state is the very thing that just failed.
+            return RemoteConnectionCheck::failure(
+                'Le test n\'a pas pu être mené à son terme sur ce serveur. Le raccordement n\'est pas en cause ; '
+                . 'consultez le journal du site.'
+            );
         } finally {
             if (is_string($witness)) {
                 @unlink($witness);
