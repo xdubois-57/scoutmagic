@@ -41,8 +41,10 @@ class MemberLookupRepository
      */
     public function resolveIds(array $memberIds): array
     {
-        $ids = array_values(array_unique(array_filter(array_map('intval', $memberIds),
-            static fn(int $id): bool => $id > 0)));
+        $ids = array_values(array_unique(array_filter(
+            array_map('intval', $memberIds),
+            static fn(int $id): bool => $id > 0
+        )));
         if ($ids === []) {
             return [];
         }

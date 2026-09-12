@@ -67,10 +67,21 @@ class ConfigRuleController extends AbstractController
                     return $this->json(['success' => false, 'error' => 'Catégorie invalide.'], 400);
                 }
                 $priority = count($this->ruleRepository->findAllOrderedByPriority());
-                $id = $this->ruleRepository->create($categoryId, $priority, $keywordPattern,
-                    $counterpartyAccountPattern, $amountRange);
-                $this->journalService->log('finance', 'rule_created', 'info', 'Règle de catégorisation créée',
-                    ['rule_id' => $id], AuthSession::getUserAccountId());
+                $id = $this->ruleRepository->create(
+                    $categoryId,
+                    $priority,
+                    $keywordPattern,
+                    $counterpartyAccountPattern,
+                    $amountRange
+                );
+                $this->journalService->log(
+                    'finance',
+                    'rule_created',
+                    'info',
+                    'Règle de catégorisation créée',
+                    ['rule_id' => $id],
+                    AuthSession::getUserAccountId()
+                );
                 return $this->json(['success' => true, 'rule_id' => $id]);
             }
 
@@ -98,10 +109,21 @@ class ConfigRuleController extends AbstractController
                     return $this->json(['success' => false, 'error' => 'Catégorie invalide.'], 400);
                 }
 
-                $this->ruleRepository->update($ruleId, $categoryId, $keywordPattern, $counterpartyAccountPattern,
-                    $amountRange);
-                $this->journalService->log('finance', 'rule_updated', 'info', 'Règle de catégorisation modifiée',
-                    ['rule_id' => $ruleId], AuthSession::getUserAccountId());
+                $this->ruleRepository->update(
+                    $ruleId,
+                    $categoryId,
+                    $keywordPattern,
+                    $counterpartyAccountPattern,
+                    $amountRange
+                );
+                $this->journalService->log(
+                    'finance',
+                    'rule_updated',
+                    'info',
+                    'Règle de catégorisation modifiée',
+                    ['rule_id' => $ruleId],
+                    AuthSession::getUserAccountId()
+                );
                 return $this->json(['success' => true]);
             }
 
@@ -132,8 +154,14 @@ class ConfigRuleController extends AbstractController
                     return $blocked;
                 }
                 $this->ruleRepository->delete($ruleId);
-                $this->journalService->log('finance', 'rule_deleted', 'info', 'Règle de catégorisation supprimée',
-                    ['rule_id' => $ruleId], AuthSession::getUserAccountId());
+                $this->journalService->log(
+                    'finance',
+                    'rule_deleted',
+                    'info',
+                    'Règle de catégorisation supprimée',
+                    ['rule_id' => $ruleId],
+                    AuthSession::getUserAccountId()
+                );
                 return $this->json(['success' => true]);
             }
 
@@ -156,8 +184,14 @@ class ConfigRuleController extends AbstractController
 
             case 'reset_defaults':
                 $this->financeService->resetDefaultCategoryRules();
-                $this->journalService->log('finance', 'rules_reset_to_defaults', 'info',
-                    'Règles de catégorisation par défaut réinitialisées', [], AuthSession::getUserAccountId());
+                $this->journalService->log(
+                    'finance',
+                    'rules_reset_to_defaults',
+                    'info',
+                    'Règles de catégorisation par défaut réinitialisées',
+                    [],
+                    AuthSession::getUserAccountId()
+                );
                 return $this->json(['success' => true]);
 
             case 'set_ai_enabled':
@@ -174,9 +208,12 @@ class ConfigRuleController extends AbstractController
                     return $this->json(['success' => false, 'error' => 'Une exécution est déjà en cours.'], 400);
                 }
                 $this->journalService->log(
-                    'finance', 'rules_run_on_uncategorized_started', 'info',
+                    'finance',
+                    'rules_run_on_uncategorized_started',
+                    'info',
                     'Exécution des règles de catégorisation sur les mouvements non catégorisés lancée en arrière-plan',
-                    [], AuthSession::getUserAccountId()
+                    [],
+                    AuthSession::getUserAccountId()
                 );
                 return $this->json(['success' => true]);
             }
@@ -244,8 +281,10 @@ class ConfigRuleController extends AbstractController
 
         if ($keywordPattern !== null) {
             if (!CategoryRuleEngine::isValidKeywordPattern($keywordPattern)) {
-                return $this->json(['success' => false, 'error' => 'Expression régulière invalide pour le mot-clé.'],
-                    400);
+                return $this->json(
+                    ['success' => false, 'error' => 'Expression régulière invalide pour le mot-clé.'],
+                    400
+                );
             }
             $keywordPattern = mb_strtolower($keywordPattern);
         }
@@ -256,8 +295,10 @@ class ConfigRuleController extends AbstractController
                 IbanNormalizer::looksLikeFullIban($counterpartyAccountPattern)
                 && !IbanNormalizer::isValidFullIban($counterpartyAccountPattern)
             ) {
-                return $this->json(['success' => false, 'error' => "Le compte contrepartie n'est pas un IBAN valide."],
-                    400);
+                return $this->json(
+                    ['success' => false, 'error' => "Le compte contrepartie n'est pas un IBAN valide."],
+                    400
+                );
             }
         }
 

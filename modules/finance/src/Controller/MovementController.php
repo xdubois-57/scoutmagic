@@ -93,13 +93,20 @@ class MovementController extends AbstractController
             // cannot happen in SQL (same split as the receipts list,
             // AttachmentRepository::findFilteredForAccount()).
             $totalCount = $this->transactionRepository->countFiltered(
-                $account->id, $fiscalYearId, $categoryId, $uncategorizedOnly
+                $account->id,
+                $fiscalYearId,
+                $categoryId,
+                $uncategorizedOnly
             );
             $totalPages = max(1, (int) ceil($totalCount / self::PER_PAGE));
             $page = min($page, $totalPages);
             $movements = $this->transactionRepository->findFilteredPage(
-                $account->id, $fiscalYearId, $categoryId, $uncategorizedOnly,
-                self::PER_PAGE, ($page - 1) * self::PER_PAGE
+                $account->id,
+                $fiscalYearId,
+                $categoryId,
+                $uncategorizedOnly,
+                self::PER_PAGE,
+                ($page - 1) * self::PER_PAGE
             );
         } else {
             $allMatches = $this->transactionRepository->findFiltered(
@@ -216,8 +223,12 @@ class MovementController extends AbstractController
         );
 
         $this->journalService->log(
-            'finance', 'movements_exported', 'info', 'Export des mouvements en XLSX',
-            ['account_id' => $account->id, 'count' => count($movements)], (int) AuthSession::getUserAccountId()
+            'finance',
+            'movements_exported',
+            'info',
+            'Export des mouvements en XLSX',
+            ['account_id' => $account->id, 'count' => count($movements)],
+            (int) AuthSession::getUserAccountId()
         );
 
         return \Core\Http\SpreadsheetResponse::download($spreadsheet, 'mouvements.xlsx');
@@ -255,8 +266,11 @@ class MovementController extends AbstractController
             // into a live formula in the treasurer's export.
             $sheet->setCellValueExplicit([1, $rowNum], $movement->transactionDate, DataType::TYPE_STRING);
             $sheet->setCellValueExplicit([2, $rowNum], $movement->label, DataType::TYPE_STRING);
-            $sheet->setCellValueExplicit([3, $rowNum],
-                MovementPresenter::counterparty($movement, $firstReceipt, $accountName), DataType::TYPE_STRING);
+            $sheet->setCellValueExplicit(
+                [3, $rowNum],
+                MovementPresenter::counterparty($movement, $firstReceipt, $accountName),
+                DataType::TYPE_STRING
+            );
             $sheet->setCellValueExplicit([4, $rowNum], (string) $movement->amount, DataType::TYPE_NUMERIC);
             $sheet->setCellValueExplicit([5, $rowNum], $category?->name ?? '', DataType::TYPE_STRING);
             $sheet->setCellValueExplicit([6, $rowNum], $movement->comment ?? '', DataType::TYPE_STRING);
@@ -414,8 +428,10 @@ class MovementController extends AbstractController
 
         $files = $request->getFiles('receipt');
         if ($files === []) {
-            return $this->json(['success' => false, 'error' => 'Aucun fichier fourni ou erreur lors du téléversement.'],
-                400);
+            return $this->json(
+                ['success' => false, 'error' => 'Aucun fichier fourni ou erreur lors du téléversement.'],
+                400
+            );
         }
         $file = $files[0];
         if ($file['error'] !== UPLOAD_ERR_OK) {
@@ -438,8 +454,15 @@ class MovementController extends AbstractController
         $mimeType = $detected !== false ? $detected : 'application/octet-stream';
 
         try {
-            $attachment = $this->receiptService->upload($content, $mimeType, $file['name'], $account->id, null, null,
-                AuthSession::getUserAccountId());
+            $attachment = $this->receiptService->upload(
+                $content,
+                $mimeType,
+                $file['name'],
+                $account->id,
+                null,
+                null,
+                AuthSession::getUserAccountId()
+            );
             $this->receiptService->associate($attachment->id, [$id]);
         } catch (FinanceException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 400);
@@ -447,8 +470,12 @@ class MovementController extends AbstractController
 
         // Queued by Service\ReceiptService::store() itself — see there.
         $this->journalService->log(
-            'finance', 'receipt_uploaded', 'info', 'Reçu ajouté et associé depuis la page des mouvements',
-            ['attachment_id' => $attachment->id, 'transaction_id' => $id], AuthSession::getUserAccountId()
+            'finance',
+            'receipt_uploaded',
+            'info',
+            'Reçu ajouté et associé depuis la page des mouvements',
+            ['attachment_id' => $attachment->id, 'transaction_id' => $id],
+            AuthSession::getUserAccountId()
         );
 
         return $this->json(['success' => true, 'attachment_id' => $attachment->id]);
@@ -519,9 +546,11 @@ class MovementController extends AbstractController
                 'label' => $transaction->label,
                 'amount' => $transaction->amount,
                 'counterparty' => MovementPresenter::counterparty(
-                    $transaction, $firstReceipts[
+                    $transaction,
+                    $firstReceipts[
                         $transaction->id
-                    ] ?? null, $accountNamesById[$transaction->accountId] ?? ''
+                    ] ?? null,
+                    $accountNamesById[$transaction->accountId] ?? ''
                 ),
                 'description' => MovementPresenter::description($transaction, $firstReceipts[$transaction->id] ?? null),
             ], $matches),

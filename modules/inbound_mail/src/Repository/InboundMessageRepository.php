@@ -2029,10 +2029,13 @@ class InboundMessageRepository
     ): InboundMessage {
         $toEmails = [];
         if ($row['to_emails_encrypted'] !== null) {
-            $toEmails = array_values(array_filter(explode(
-                "\n",
-                $this->encryption->decrypt((string) $row['to_emails_encrypted'], 'inbound_messages.to_emails')
-            ), static fn(string $email) => $email !== ''));
+            $toEmails = array_values(array_filter(
+                explode(
+                    "\n",
+                    $this->encryption->decrypt((string) $row['to_emails_encrypted'], 'inbound_messages.to_emails')
+                ),
+                static fn(string $email) => $email !== ''
+            ));
         }
 
         return new InboundMessage(

@@ -56,8 +56,11 @@ class SendBatchHandler implements TaskHandlerInterface
         $mergeRenderer = new MergeRenderer();
         $massMailService = $this->buildMassMailService($context);
 
-        $batchSize = (int) $context->settings->get(self::SETTING_BATCH_SIZE, 'mass_mail',
-            (string) self::DEFAULT_BATCH_SIZE);
+        $batchSize = (int) $context->settings->get(
+            self::SETTING_BATCH_SIZE,
+            'mass_mail',
+            (string) self::DEFAULT_BATCH_SIZE
+        );
         if ($batchSize <= 0) {
             $batchSize = self::DEFAULT_BATCH_SIZE;
         }
@@ -227,8 +230,12 @@ class SendBatchHandler implements TaskHandlerInterface
 
         if ($batch !== []) {
             $context->journal->log(
-                'mass_mail', 'batch_sent', 'info', 'Lot d\'emails de masse envoyé',
-                ['sent' => $sentCount, 'errors' => $errorCount, 'batch_size' => $batchSize], null
+                'mass_mail',
+                'batch_sent',
+                'info',
+                'Lot d\'emails de masse envoyé',
+                ['sent' => $sentCount, 'errors' => $errorCount, 'batch_size' => $batchSize],
+                null
             );
         }
 
@@ -272,8 +279,10 @@ class SendBatchHandler implements TaskHandlerInterface
         }
 
         $pdo = $context->connection->getPdo();
-        $memberYear = (new MemberYearRepository($pdo))->findByMemberAndYear($recipient->memberId,
-            $recipient->scoutYearId);
+        $memberYear = (new MemberYearRepository($pdo))->findByMemberAndYear(
+            $recipient->memberId,
+            $recipient->scoutYearId
+        );
         $url = $memberYear !== null ? '/members/' . $memberYear['id'] . '/emails/' . $recipient->id : null;
 
         $context->notifications->dispatch('mass_mail.email_received', [
@@ -331,7 +340,9 @@ class SendBatchHandler implements TaskHandlerInterface
         }
 
         $intervalMinutes = (int) $context->settings->get(
-            self::SETTING_BATCH_INTERVAL_MINUTES, 'mass_mail', (string) self::DEFAULT_BATCH_INTERVAL_MINUTES
+            self::SETTING_BATCH_INTERVAL_MINUTES,
+            'mass_mail',
+            (string) self::DEFAULT_BATCH_INTERVAL_MINUTES
         );
         if ($intervalMinutes <= 0) {
             $intervalMinutes = self::DEFAULT_BATCH_INTERVAL_MINUTES;
@@ -352,8 +363,11 @@ class SendBatchHandler implements TaskHandlerInterface
             new \Core\Badge\MemberBadgeRepository($pdo)
         );
 
-        $memberService = new \Core\Member\MemberService(new \Core\Import\MemberYearRepository($pdo),
-            $context->encryption, $context->connection);
+        $memberService = new \Core\Member\MemberService(
+            new \Core\Import\MemberYearRepository($pdo),
+            $context->encryption,
+            $context->connection
+        );
         $scoutYearService = new \Core\Config\ScoutYearService($pdo);
 
         // No module namespace needed — Core\Member\MemberEmailService only

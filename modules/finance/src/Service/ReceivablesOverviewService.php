@@ -343,8 +343,11 @@ class ReceivablesOverviewService
 
     private function instanceLabel(string $sourceModule, int $referenceId): string
     {
-        $named = $this->describe($sourceModule, static fn(ReceivableSourceDescriberInterface $d): ?string
-            => $d->describeInstance($referenceId));
+        $named = $this->describe(
+            $sourceModule,
+            static fn(ReceivableSourceDescriberInterface $d): ?string
+                => $d->describeInstance($referenceId)
+        );
 
         if ($named !== null && $named !== '') {
             return $named;
@@ -363,8 +366,11 @@ class ReceivablesOverviewService
      */
     private function sourceLabel(string $sourceModule): string
     {
-        $named = $this->describe($sourceModule, static fn(ReceivableSourceDescriberInterface $d): string
-            => $d->sourceLabel());
+        $named = $this->describe(
+            $sourceModule,
+            static fn(ReceivableSourceDescriberInterface $d): string
+                => $d->sourceLabel()
+        );
 
         return $named !== null && $named !== '' ? $named : ucfirst($sourceModule);
     }

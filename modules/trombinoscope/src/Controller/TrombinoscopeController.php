@@ -195,8 +195,10 @@ class TrombinoscopeController extends AbstractController
 
         return (new Response($pdf))
             ->setHeader('Content-Type', 'application/pdf')
-            ->setHeader('Content-Disposition',
-                'attachment; filename="' . $this->pdfService->fileName($effectiveYear->label) . '"')
+            ->setHeader(
+                'Content-Disposition',
+                'attachment; filename="' . $this->pdfService->fileName($effectiveYear->label) . '"'
+            )
             // A document of names and portraits is never kept by a shared
             // cache, and never restored into another session's back
             // button — the header the section roster already sets.

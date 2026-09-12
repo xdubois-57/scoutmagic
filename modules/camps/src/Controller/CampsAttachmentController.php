@@ -183,13 +183,16 @@ class CampsAttachmentController extends AbstractController
         }
 
         $result = $this->contactService->anonymise($contact, AuthSession::getUserAccountId());
-        FlashMessage::set('success', sprintf(
-            'Contact anonymisé : %d fiche%s de contact et l\'historique de %d séjour%s.',
-            $result['contacts'],
-            $result['contacts'] > 1 ? 's' : '',
-            $result['camps'],
-            $result['camps'] > 1 ? 's' : ''
-        ));
+        FlashMessage::set(
+            'success',
+            sprintf(
+                'Contact anonymisé : %d fiche%s de contact et l\'historique de %d séjour%s.',
+                $result['contacts'],
+                $result['contacts'] > 1 ? 's' : '',
+                $result['camps'],
+                $result['camps'] > 1 ? 's' : ''
+            )
+        );
 
         return $this->redirect('/chefs/camps/sejours/' . $contact->campId);
     }
@@ -424,9 +427,12 @@ class CampsAttachmentController extends AbstractController
         $albumId = $this->albumId($camp, $place?->name);
         $file = $request->getFile('photo');
         if ($albumId === null || $file === null) {
-            FlashMessage::set('error', $albumId === null
-                ? 'Les photos ne sont pas disponibles pour ce séjour.'
-                : 'Choisissez une photo à envoyer.');
+            FlashMessage::set(
+                'error',
+                $albumId === null
+                    ? 'Les photos ne sont pas disponibles pour ce séjour.'
+                    : 'Choisissez une photo à envoyer.'
+            );
 
             return $this->redirect($target);
         }

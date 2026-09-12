@@ -345,16 +345,28 @@ class FeeAccuracyController extends AbstractController
                     $sheet->setCellValueExplicit([1, $rowNum], $tab, DataType::TYPE_STRING);
                     $sheet->setCellValueExplicit([2, $rowNum], $review->addressLabel, DataType::TYPE_STRING);
                     $sheet->setCellValueExplicit([3, $rowNum], (string) $review->deskSize, DataType::TYPE_NUMERIC);
-                    $sheet->setCellValueExplicit([4, $rowNum], HouseholdCategoryLabel::for($review->expectedCategory),
-                        DataType::TYPE_STRING);
-                    $sheet->setCellValueExplicit([5, $rowNum], trim($member->firstName . ' ' . $member->lastName),
-                        DataType::TYPE_STRING);
-                    $sheet->setCellValueExplicit([6, $rowNum], $member->encodedFeeCategoryLabel ?? '',
-                        DataType::TYPE_STRING);
+                    $sheet->setCellValueExplicit(
+                        [4, $rowNum],
+                        HouseholdCategoryLabel::for($review->expectedCategory),
+                        DataType::TYPE_STRING
+                    );
+                    $sheet->setCellValueExplicit(
+                        [5, $rowNum],
+                        trim($member->firstName . ' ' . $member->lastName),
+                        DataType::TYPE_STRING
+                    );
+                    $sheet->setCellValueExplicit(
+                        [6, $rowNum],
+                        $member->encodedFeeCategoryLabel ?? '',
+                        DataType::TYPE_STRING
+                    );
                     $sheet->setCellValueExplicit([7, $rowNum], self::verdict($review, $member), DataType::TYPE_STRING);
                     if ($review->differenceCents !== null) {
-                        $sheet->setCellValueExplicit([8, $rowNum], (string) ($review->differenceCents / 100),
-                            DataType::TYPE_NUMERIC);
+                        $sheet->setCellValueExplicit(
+                            [8, $rowNum],
+                            (string) ($review->differenceCents / 100),
+                            DataType::TYPE_NUMERIC
+                        );
                     }
                     $sheet->setCellValueExplicit([9, $rowNum], self::trigger($review), DataType::TYPE_STRING);
                     $rowNum++;

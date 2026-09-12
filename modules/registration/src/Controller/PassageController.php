@@ -78,13 +78,18 @@ class PassageController extends AbstractController
         $referenceMonthDay = $this->slotService->referenceMonthDay();
 
         $newRegistrations = $this->passageService->getNewRegistrations(
-            (int) $targetYear['id'], (string) $targetYear['label'], $referenceMonthDay, (int) $publicYear['id']
+            (int) $targetYear['id'],
+            (string) $targetYear['label'],
+            $referenceMonthDay,
+            (int) $publicYear['id']
         );
         // Read-only: assigning the obvious single-option destinations is
         // Task\AutoAssignPassageHandler's job now. Doing it here meant a
         // plain GET wrote to the database on every display of the page.
         $branchChanges = $this->passageService->getBranchChanges(
-            (int) $publicYear['id'], (string) $publicYear['label'], (int) $targetYear['id']
+            (int) $publicYear['id'],
+            (string) $publicYear['label'],
+            (int) $targetYear['id']
         );
 
         // IT-17 — what the families answered, beside the decision each
@@ -226,8 +231,11 @@ class PassageController extends AbstractController
             ]);
         }
 
-        $allowedSectionIds = $this->arrivalSectionIdsForMember($memberId, (int) $publicYear['id'],
-            (string) $publicYear['label']);
+        $allowedSectionIds = $this->arrivalSectionIdsForMember(
+            $memberId,
+            (int) $publicYear['id'],
+            (string) $publicYear['label']
+        );
         if (!in_array($submittedSectionId, $allowedSectionIds, true)) {
             return $this->json(
                 ['success' => false, 'error' => "Cette section n'appartient pas à la branche d'arrivée de ce membre."],
@@ -281,8 +289,11 @@ class PassageController extends AbstractController
         $sectionId = (int) ($data['preferred_section_id'] ?? 0);
 
         if ($sectionId !== 0) {
-            $allowed = $this->arrivalSectionIdsForMember($memberId, (int) $publicYear['id'],
-                (string) $publicYear['label']);
+            $allowed = $this->arrivalSectionIdsForMember(
+                $memberId,
+                (int) $publicYear['id'],
+                (string) $publicYear['label']
+            );
             if (!in_array($sectionId, $allowed, true)) {
                 return $this->json(
                     ['success' => false, 'error' => "Cette section n'appartient pas à la branche d'arrivée de ce "

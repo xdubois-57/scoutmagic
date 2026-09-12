@@ -83,12 +83,18 @@ class LeadershipController extends AbstractController
             $context['today']
         );
 
-        return $this->render('@leadership/index.html.twig', $this->withFooter($context, [
-            'training_count' => count($toConvince) + count($toFinish),
-            'obligations_count' => count($birthdays) + count($candidates),
-            'stewards_count' => count($stewards),
-            'summer_regime' => $this->stewardService->isSummerRegime($context['today']),
-        ]));
+        return $this->render(
+            '@leadership/index.html.twig',
+            $this->withFooter(
+                $context,
+                [
+                    'training_count' => count($toConvince) + count($toFinish),
+                    'obligations_count' => count($birthdays) + count($candidates),
+                    'stewards_count' => count($stewards),
+                    'summer_regime' => $this->stewardService->isSummerRegime($context['today']),
+                ]
+            )
+        );
     }
 
     /**
@@ -101,53 +107,59 @@ class LeadershipController extends AbstractController
     {
         $context = $this->context();
 
-        return $this->render('@leadership/training.html.twig', $this->withFooter($context, [
-            // FormationMappingController sends the visitor back here with
-            // this flag: a fragment cannot open a collapsed block, because
-            // a fragment never reaches the server.
-            'mapping_open' => $request->getQuery('mapping') === '1',
-            'unit_note_key' => self::UNIT_NOTE_KEY,
-            'unit_note' => $this->editableContentService->get(self::UNIT_NOTE_KEY),
-            'to_convince' => $this->trainingService->toConvince(
-                $context['staff'],
-                $context['scout_year_id'],
-                $context['scout_year_label'],
-                $context['previous_scout_year_id'],
-                // So somebody who arrives with a T1 already behind them is
-                // on "à terminer" and not on "à convaincre de commencer".
-                $context['resolver']
-            ),
-            // With a single imported year there is nothing to compare
-            // against, so the first-year half of the list cannot be
-            // computed at all. An empty list would read as "nobody to
-            // convince", which is a different and wrong statement.
-            'history_too_short' => $context['previous_scout_year_id'] === null,
-            'to_finish' => $this->trainingService->toFinish($context['staff'], $context['resolver']),
-            'section_situations' => $this->trainingService->sectionSituations(
-                $context['staff'],
-                $context['scout_year_id'],
-                $context['resolver']
-            ),
-            // Above the ratio rather than beside it: the number these
-            // people stopped counting towards is the one a chief reads
-            // first (roadmap IT-20).
-            'unspecified_brevets' => $this->trainingService->unspecifiedBrevetCount(
-                $context['staff'],
-                $context['resolver']
-            ),
-            'unresolved_levels' => $this->trainingService->unresolvedLevels(
-                $context['scout_year_id'],
-                $context['resolver']
-            ),
-            'decided_levels' => $this->trainingService->decidedLevels(
-                $this->mappingRepository->findAllRows(),
-                $context['scout_year_id']
-            ),
-            'assignable_steps' => array_map(
-                static fn (FormationStep $step): array => ['value' => $step->value, 'label' => $step->label()],
-                FormationStep::assignable()
-            ),
-        ]));
+        return $this->render(
+            '@leadership/training.html.twig',
+            $this->withFooter(
+                $context,
+                [
+                    // FormationMappingController sends the visitor back here with
+                    // this flag: a fragment cannot open a collapsed block, because
+                    // a fragment never reaches the server.
+                    'mapping_open' => $request->getQuery('mapping') === '1',
+                    'unit_note_key' => self::UNIT_NOTE_KEY,
+                    'unit_note' => $this->editableContentService->get(self::UNIT_NOTE_KEY),
+                    'to_convince' => $this->trainingService->toConvince(
+                        $context['staff'],
+                        $context['scout_year_id'],
+                        $context['scout_year_label'],
+                        $context['previous_scout_year_id'],
+                        // So somebody who arrives with a T1 already behind them is
+                        // on "à terminer" and not on "à convaincre de commencer".
+                        $context['resolver']
+                    ),
+                    // With a single imported year there is nothing to compare
+                    // against, so the first-year half of the list cannot be
+                    // computed at all. An empty list would read as "nobody to
+                    // convince", which is a different and wrong statement.
+                    'history_too_short' => $context['previous_scout_year_id'] === null,
+                    'to_finish' => $this->trainingService->toFinish($context['staff'], $context['resolver']),
+                    'section_situations' => $this->trainingService->sectionSituations(
+                        $context['staff'],
+                        $context['scout_year_id'],
+                        $context['resolver']
+                    ),
+                    // Above the ratio rather than beside it: the number these
+                    // people stopped counting towards is the one a chief reads
+                    // first (roadmap IT-20).
+                    'unspecified_brevets' => $this->trainingService->unspecifiedBrevetCount(
+                        $context['staff'],
+                        $context['resolver']
+                    ),
+                    'unresolved_levels' => $this->trainingService->unresolvedLevels(
+                        $context['scout_year_id'],
+                        $context['resolver']
+                    ),
+                    'decided_levels' => $this->trainingService->decidedLevels(
+                        $this->mappingRepository->findAllRows(),
+                        $context['scout_year_id']
+                    ),
+                    'assignable_steps' => array_map(
+                        static fn (FormationStep $step): array => ['value' => $step->value, 'label' => $step->label()],
+                        FormationStep::assignable()
+                    ),
+                ]
+            )
+        );
     }
 
     /**
@@ -160,16 +172,23 @@ class LeadershipController extends AbstractController
     {
         $context = $this->context();
 
-        return $this->render('@leadership/obligations.html.twig', $this->withFooter($context, [
-            'birthdays' => $this->obligationsService->upcomingAdultBirthdays($context['staff'], $context['today']),
-            'candidates' => $this->obligationsService->candidates($context['staff'], $context['today']),
-            // An empty birthday block means "nobody turns 20 soon" only
-            // when every birth date is known; this is how many people it
-            // could say nothing about.
-            'without_birth_date' => $this->obligationsService->countWithoutBirthDate($context['staff']),
-            'alert_weeks' => LeadershipRules::ADULT_AGE_ALERT_WEEKS,
-            'adult_age' => LeadershipRules::ADULT_AGE,
-        ]));
+        return $this->render(
+            '@leadership/obligations.html.twig',
+            $this->withFooter(
+                $context,
+                [
+                    'birthdays' => $this->obligationsService
+                        ->upcomingAdultBirthdays($context['staff'], $context['today']),
+                    'candidates' => $this->obligationsService->candidates($context['staff'], $context['today']),
+                    // An empty birthday block means "nobody turns 20 soon" only
+                    // when every birth date is known; this is how many people it
+                    // could say nothing about.
+                    'without_birth_date' => $this->obligationsService->countWithoutBirthDate($context['staff']),
+                    'alert_weeks' => LeadershipRules::ADULT_AGE_ALERT_WEEKS,
+                    'adult_age' => LeadershipRules::ADULT_AGE,
+                ]
+            )
+        );
     }
 
     /**
@@ -183,19 +202,25 @@ class LeadershipController extends AbstractController
         $context = $this->context();
         $summer = $this->stewardService->isSummerRegime($context['today']);
 
-        return $this->render('@leadership/stewards.html.twig', $this->withFooter($context, [
-            'summer_regime' => $summer,
-            'registrations' => $this->stewardService->registrations(
-                $context['staff'],
-                $context['scout_year_id'],
-                $context['today']
-            ),
-            'under_age' => $this->stewardService->underAgeStewards($context['staff'], $context['today']),
-            'free_days' => LeadershipRules::STEWARD_FREE_DAYS,
-            'warning_days' => LeadershipRules::STEWARD_WARNING_DAYS,
-            'critical_days' => LeadershipRules::STEWARD_CRITICAL_DAYS,
-            'min_age' => LeadershipRules::STEWARD_MIN_AGE,
-        ]));
+        return $this->render(
+            '@leadership/stewards.html.twig',
+            $this->withFooter(
+                $context,
+                [
+                    'summer_regime' => $summer,
+                    'registrations' => $this->stewardService->registrations(
+                        $context['staff'],
+                        $context['scout_year_id'],
+                        $context['today']
+                    ),
+                    'under_age' => $this->stewardService->underAgeStewards($context['staff'], $context['today']),
+                    'free_days' => LeadershipRules::STEWARD_FREE_DAYS,
+                    'warning_days' => LeadershipRules::STEWARD_WARNING_DAYS,
+                    'critical_days' => LeadershipRules::STEWARD_CRITICAL_DAYS,
+                    'min_age' => LeadershipRules::STEWARD_MIN_AGE,
+                ]
+            )
+        );
     }
 
     /**

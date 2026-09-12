@@ -51,13 +51,21 @@ class ProcessPhotoHandler implements TaskHandlerInterface
         // Never write renditions into a location a migration is in the middle
         // of moving away from — see Task\MediaProcessingGate.
         if ($album !== null && $album->isMigrating()) {
-            if ((new MediaProcessingGate())->deferWhileMigrating('process_photo', $mediaId, $album->id, $payload,
-                $context)) {
+            if ((new MediaProcessingGate())->deferWhileMigrating(
+                'process_photo',
+                $mediaId,
+                $album->id,
+                $payload,
+                $context
+            )) {
                 return;
             }
             $mediaRepository->markFailed($mediaId);
             $context->journal->log(
-                'gallery', 'photo_processing_failed', 'info', 'Échec du traitement d\'une photo',
+                'gallery',
+                'photo_processing_failed',
+                'info',
+                'Échec du traitement d\'une photo',
                 ['media_id' => $mediaId, 'album_id' => $media->albumId, 'error' => 'Migration de stockage toujours en '
                     . 'cours.']
             );
@@ -87,7 +95,10 @@ class ProcessPhotoHandler implements TaskHandlerInterface
             $storageLocationRepository = new StorageLocationRepository($pdo, $context->encryption);
             $storageBackendFactory = new StorageBackendFactory($storageLocationRepository, $context->storagePath);
             $storageLocationService = $this->storageLocationService(
-                $context, $storageLocationRepository, $albumRepository, $storageBackendFactory
+                $context,
+                $storageLocationRepository,
+                $albumRepository,
+                $storageBackendFactory
             );
             $location = $storageLocationService->resolveLocationForAlbum($album);
             if ($location === null) {
@@ -102,8 +113,14 @@ class ProcessPhotoHandler implements TaskHandlerInterface
             $storage->put($mediumKey, $result['medium'], 'image/jpeg');
             $storage->put($largeKey, $result['large'], 'image/jpeg');
 
-            $mediaRepository->markPhotoDone($mediaId, $thumbKey, $mediumKey, $largeKey, $result['width'],
-                $result['height']);
+            $mediaRepository->markPhotoDone(
+                $mediaId,
+                $thumbKey,
+                $mediumKey,
+                $largeKey,
+                $result['width'],
+                $result['height']
+            );
 
             // Disk savings (module spec) — the derived sizes above are the
             // only ones ever served for a photo; the files-table metadata
@@ -113,7 +130,10 @@ class ProcessPhotoHandler implements TaskHandlerInterface
         } catch (\Throwable $e) {
             $mediaRepository->markFailed($mediaId);
             $context->journal->log(
-                'gallery', 'photo_processing_failed', 'info', 'Échec du traitement d\'une photo',
+                'gallery',
+                'photo_processing_failed',
+                'info',
+                'Échec du traitement d\'une photo',
                 ['media_id' => $mediaId, 'album_id' => $media->albumId, 'error' => $e->getMessage()]
             );
         }

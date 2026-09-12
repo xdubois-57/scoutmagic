@@ -77,8 +77,11 @@ class PurgeCampaignFilesHandler implements TaskHandlerInterface
 
             $campaigns = new CampaignRepository($pdo);
             $rows = new CampaignRowRepository($pdo, $context->encryption);
-            $storage = new EncryptedFileStorageService(new FileRepository($pdo), $context->encryption,
-                $context->storagePath);
+            $storage = new EncryptedFileStorageService(
+                new FileRepository($pdo),
+                $context->encryption,
+                $context->storagePath
+            );
 
             $forgotten = 0;
             foreach ($expiredYears as $scoutYearId) {

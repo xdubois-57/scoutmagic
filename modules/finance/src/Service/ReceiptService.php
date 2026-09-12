@@ -159,8 +159,16 @@ class ReceiptService
             throw new FinanceException('Compte introuvable.');
         }
 
-        return $this->store($account, $content, $mimeType, $originalFilename, $suggestedAmount, $suggestedDate,
-            $uploadedBy, $reuseIdentical);
+        return $this->store(
+            $account,
+            $content,
+            $mimeType,
+            $originalFilename,
+            $suggestedAmount,
+            $suggestedDate,
+            $uploadedBy,
+            $reuseIdentical
+        );
     }
 
     /**
@@ -258,7 +266,13 @@ class ReceiptService
         // already perform.
         try {
             $id = $this->attachmentRepository->create(
-                $account?->id, $fileId, $mimeType, $originalFilename, $suggestedAmount, $suggestedDate, null,
+                $account?->id,
+                $fileId,
+                $mimeType,
+                $originalFilename,
+                $suggestedAmount,
+                $suggestedDate,
+                null,
                 $uploadedBy,
                 $suggestedSource,
                 $contentHash
@@ -416,7 +430,14 @@ class ReceiptService
         $transferred = false;
         try {
             $newId = $this->attachmentRepository->create(
-                $old->accountId, $fileId, $mimeType, $originalFilename, null, null, $attachmentId, $uploadedBy
+                $old->accountId,
+                $fileId,
+                $mimeType,
+                $originalFilename,
+                null,
+                null,
+                $attachmentId,
+                $uploadedBy
             );
 
             $this->transactionAttachmentRepository->transferAttachment($attachmentId, $newId);

@@ -56,8 +56,11 @@ class DeparturesController extends AbstractController
         $email = AuthSession::getEmail() ?? '';
         $effectiveYear = $this->publicYear();
 
-        $staffedSections = $this->sectionStaffAuthorizationService->getStaffedSections($email, AuthSession::getRole(),
-            $effectiveYear->id);
+        $staffedSections = $this->sectionStaffAuthorizationService->getStaffedSections(
+            $email,
+            AuthSession::getRole(),
+            $effectiveYear->id
+        );
 
         if ($staffedSections === []) {
             return $this->render('@registration/departures.html.twig', [

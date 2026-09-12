@@ -75,8 +75,10 @@ class RegistrationSecondaryEmailRepository
 
     public function findByRequestAndEmail(int $registrationRequestId, string $email): ?RegistrationSecondaryEmail
     {
-        $blindIndex = $this->encryption->blindIndex(RegistrationRequestRepository::normalizeEmail($email),
-            'registration_email');
+        $blindIndex = $this->encryption->blindIndex(
+            RegistrationRequestRepository::normalizeEmail($email),
+            'registration_email'
+        );
         $stmt = $this->pdo->prepare(
             'SELECT * FROM registration_secondary_emails WHERE registration_request_id = ? AND email_blind_index = ?'
         );

@@ -180,8 +180,17 @@ class AlbumService
         $this->assertValidLength($title, self::MAX_TITLE_LENGTH, 'Le titre');
 
         $scoutYearId = $this->resolveScoutYearId($albumDate, $effectiveScoutYearId);
-        $id = $this->albumRepository->create($type, $title, $subtitle, $albumDate, $sectionId, $scoutYearId,
-            $externalUrl, $storageLocationId, $createdBy);
+        $id = $this->albumRepository->create(
+            $type,
+            $title,
+            $subtitle,
+            $albumDate,
+            $sectionId,
+            $scoutYearId,
+            $externalUrl,
+            $storageLocationId,
+            $createdBy
+        );
 
         if ($ogTags !== null) {
             $ogImageFileId = $this->cacheOgImage($id, $ogTags['image'], $createdBy);
@@ -485,8 +494,13 @@ class AlbumService
         }
 
         $this->albumRepository->startMigration($albumId, $target->id);
-        $this->schedulerService->scheduleAfter('gallery', 'migrate_album_storage', 0, ['album_id' => $albumId],
-            'album_migration_' . $albumId);
+        $this->schedulerService->scheduleAfter(
+            'gallery',
+            'migrate_album_storage',
+            0,
+            ['album_id' => $albumId],
+            'album_migration_' . $albumId
+        );
     }
 
     /**
@@ -534,8 +548,12 @@ class AlbumService
             file_put_contents($tmpPath, $bytes);
             return $this->uploadHandler->handle(
                 ['tmp_name' => $tmpPath, 'size' => strlen($bytes), 'error' => UPLOAD_ERR_OK, 'name' => 'og_image'],
-                "gallery/{$albumId}/og", self::OG_IMAGE_ALLOWED_MIMES, self::OG_IMAGE_MAX_BYTES, 'identified',
-                'gallery', $createdBy
+                "gallery/{$albumId}/og",
+                self::OG_IMAGE_ALLOWED_MIMES,
+                self::OG_IMAGE_MAX_BYTES,
+                'identified',
+                'gallery',
+                $createdBy
             );
         } catch (UploadException) {
             // Best-effort — an unsupported/oversized image just leaves the

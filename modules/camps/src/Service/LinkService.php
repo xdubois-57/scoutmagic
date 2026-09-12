@@ -66,8 +66,15 @@ class LinkService
 
         $recorded = $preview !== null && $preview->title !== null ? $preview->title : $url;
         $this->audit->record(
-            CampService::ENTITY_TYPE, $campId, 'link', null,
-            $recorded, AuditSource::Human, 'Lien ajouté', null, $actorUserAccountId
+            CampService::ENTITY_TYPE,
+            $campId,
+            'link',
+            null,
+            $recorded,
+            AuditSource::Human,
+            'Lien ajouté',
+            null,
+            $actorUserAccountId
         );
 
         return $id;
@@ -78,8 +85,15 @@ class LinkService
         $this->links->delete($link->id);
 
         $this->audit->record(
-            CampService::ENTITY_TYPE, $link->campId, 'link', $link->heading(), null,
-            AuditSource::Human, 'Lien retiré', null, $actorUserAccountId
+            CampService::ENTITY_TYPE,
+            $link->campId,
+            'link',
+            $link->heading(),
+            null,
+            AuditSource::Human,
+            'Lien retiré',
+            null,
+            $actorUserAccountId
         );
     }
 

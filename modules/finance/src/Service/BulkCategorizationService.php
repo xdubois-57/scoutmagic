@@ -76,9 +76,17 @@ class BulkCategorizationService
 
     public function setAiRuleEnabled(bool $enabled): void
     {
-        $this->settingService->register(self::AI_ENABLED_SETTING_KEY, '0', 'boolean',
-            'Règle de catégorisation IA activée', 'Indicateur interne — ne pas modifier.', 'finance', null, null, false
-            );
+        $this->settingService->register(
+            self::AI_ENABLED_SETTING_KEY,
+            '0',
+            'boolean',
+            'Règle de catégorisation IA activée',
+            'Indicateur interne — ne pas modifier.',
+            'finance',
+            null,
+            null,
+            false
+        );
         $this->settingService->setInternal(self::AI_ENABLED_SETTING_KEY, $enabled ? '1' : '0', 'finance');
     }
 
@@ -145,9 +153,17 @@ class BulkCategorizationService
 
     private function registerRunningSetting(): void
     {
-        $this->settingService->register(self::RUNNING_SETTING_KEY, '0', 'number',
-            'Exécution des règles en cours depuis', 'Indicateur interne — ne pas modifier.', 'finance', null, null,
-            false);
+        $this->settingService->register(
+            self::RUNNING_SETTING_KEY,
+            '0',
+            'number',
+            'Exécution des règles en cours depuis',
+            'Indicateur interne — ne pas modifier.',
+            'finance',
+            null,
+            null,
+            false
+        );
     }
 
     /**

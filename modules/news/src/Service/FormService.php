@@ -135,18 +135,34 @@ class FormService
 
         if ($existing === null) {
             $formId = $this->formRepository->create(
-                $articleId, $access, $responseLimit, $settings['opens_at'], $settings['closes_at'],
-                $settings['is_force_closed'], $responseRoleMin, $settings['daily_digest_enabled'],
+                $articleId,
+                $access,
+                $responseLimit,
+                $settings['opens_at'],
+                $settings['closes_at'],
+                $settings['is_force_closed'],
+                $responseRoleMin,
+                $settings['daily_digest_enabled'],
                 $settings['finance_account_id'],
-                $issuesTicket, $eventDate, $eventLocation
+                $issuesTicket,
+                $eventDate,
+                $eventLocation
             );
         } else {
             $formId = $existing->id;
             $this->formRepository->update(
-                $formId, $access, $responseLimit, $settings['opens_at'], $settings['closes_at'],
-                $settings['is_force_closed'], $responseRoleMin, $settings['daily_digest_enabled'],
+                $formId,
+                $access,
+                $responseLimit,
+                $settings['opens_at'],
+                $settings['closes_at'],
+                $settings['is_force_closed'],
+                $responseRoleMin,
+                $settings['daily_digest_enabled'],
                 $settings['finance_account_id'],
-                $issuesTicket, $eventDate, $eventLocation
+                $issuesTicket,
+                $eventDate,
+                $eventLocation
             );
         }
 
@@ -277,14 +293,30 @@ class FormService
 
             if ($field['id'] !== null && in_array($field['id'], $existingIds, true)) {
                 $this->fieldRepository->update(
-                    $field['id'], $index, $field['field_type'], $label, $isRequired,
-                    $optionsSource, $optionsManual, $capacityMax, $pricePerUnit, $confirmationText
+                    $field['id'],
+                    $index,
+                    $field['field_type'],
+                    $label,
+                    $isRequired,
+                    $optionsSource,
+                    $optionsManual,
+                    $capacityMax,
+                    $pricePerUnit,
+                    $confirmationText
                 );
                 $incomingIds[] = $field['id'];
             } else {
                 $incomingIds[] = $this->fieldRepository->create(
-                    $formId, $index, $field['field_type'], $label, $isRequired,
-                    $optionsSource, $optionsManual, $capacityMax, $pricePerUnit, $confirmationText
+                    $formId,
+                    $index,
+                    $field['field_type'],
+                    $label,
+                    $isRequired,
+                    $optionsSource,
+                    $optionsManual,
+                    $capacityMax,
+                    $pricePerUnit,
+                    $confirmationText
                 );
             }
         }
@@ -296,10 +328,12 @@ class FormService
 
     private function normalizeResponseLimit(string $value): string
     {
-        return in_array($value,
+        return in_array(
+            $value,
             [NewsForm::RESPONSE_LIMIT_UNLIMITED, NewsForm::RESPONSE_LIMIT_ONE_PER_ACCOUNT,
                 NewsForm::RESPONSE_LIMIT_ONE_PER_MEMBER],
-            true)
+            true
+        )
             ? $value
             : NewsForm::RESPONSE_LIMIT_UNLIMITED;
     }

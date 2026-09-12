@@ -63,8 +63,15 @@ class ExpectedReceivableService implements ExpectedReceivableInterface
             throw new FinanceException('La communication doit contenir au moins un chiffre.');
         }
 
-        $id = $this->repository->create($sourceModule, $sourceReferenceId, $accountId, $amountCents, $communication,
-            $label, $memberId);
+        $id = $this->repository->create(
+            $sourceModule,
+            $sourceReferenceId,
+            $accountId,
+            $amountCents,
+            $communication,
+            $label,
+            $memberId
+        );
 
         // The payment can predate the receivable — a rental's security
         // deposit routinely arrives before the booking is confirmed — and

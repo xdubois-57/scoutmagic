@@ -97,12 +97,15 @@ class CampsMergeController extends AbstractController
             return $this->redirect('/chefs/camps/lieux/' . $place->id . '/fusionner');
         }
 
-        FlashMessage::set('success', sprintf(
-            '%d séjour%s repris. « %s » est archivé.',
-            $moved,
-            $moved > 1 ? 's' : '',
-            $place->name
-        ));
+        FlashMessage::set(
+            'success',
+            sprintf(
+                '%d séjour%s repris. « %s » est archivé.',
+                $moved,
+                $moved > 1 ? 's' : '',
+                $place->name
+            )
+        );
 
         return $this->redirect('/chefs/camps/lieux/' . $target->id);
     }
@@ -224,9 +227,12 @@ class CampsMergeController extends AbstractController
             return $this->redirect('/chefs/camps/sejours/' . $camp->id . '/fusionner');
         }
 
-        FlashMessage::set('success', $lost === []
-            ? 'Séjours fusionnés.'
-            : 'Séjours fusionnés. Les valeurs remplacées ont été ajoutées à la note.');
+        FlashMessage::set(
+            'success',
+            $lost === []
+                ? 'Séjours fusionnés.'
+                : 'Séjours fusionnés. Les valeurs remplacées ont été ajoutées à la note.'
+        );
 
         return $this->redirect('/chefs/camps/sejours/' . $target->id);
     }

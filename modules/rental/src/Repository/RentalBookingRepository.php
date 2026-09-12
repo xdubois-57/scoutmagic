@@ -872,8 +872,10 @@ class RentalBookingRepository
             renterName: $this->encryption->decrypt((string) $row['renter_name_encrypted'], self::CTX_NAME),
             renterEmail: $this->encryption->decrypt((string) $row['renter_email_encrypted'], self::CTX_EMAIL),
             renterPhone: $this->decryptOptional($row['renter_phone_encrypted'] ?? null, self::CTX_PHONE),
-            renterOrganisation: $this->decryptOptional($row['renter_organisation_encrypted'] ?? null,
-                self::CTX_ORGANISATION),
+            renterOrganisation: $this->decryptOptional(
+                $row['renter_organisation_encrypted'] ?? null,
+                self::CTX_ORGANISATION
+            ),
             purpose: $this->decryptOptional($row['purpose_encrypted'] ?? null, self::CTX_PURPOSE),
             renterComment: $this->decryptOptional($row['renter_comment_encrypted'] ?? null, self::CTX_COMMENT),
             status: BookingStatus::tryFrom((string) $row['status']) ?? BookingStatus::RECEIVED,

@@ -250,18 +250,21 @@ class RecipientRepository
         );
         $stmt->execute([$memberId]);
 
-        return array_map(fn(array $row) => [
-            'id' => (int) $row['id'],
-            'subject' => (string) $row['subject'],
-            'sent_at' => (string) $row['sent_at'],
-            'section_name' => (string) $row['section_name'],
-            // The stored subject is the TEMPLATE — `{{Prenom}}` and all —
-            // for a publipostage. These two say which line's values put it
-            // back the way this member read it; Service\MassMailQueryService
-            // does that, since substitution is not a repository's job.
-            'list_type' => (string) $row['list_type'],
-            'audience_row_id' => $row['audience_row_id'] !== null ? (int) $row['audience_row_id'] : null,
-        ], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+        return array_map(
+            fn(array $row) => [
+                'id' => (int) $row['id'],
+                'subject' => (string) $row['subject'],
+                'sent_at' => (string) $row['sent_at'],
+                'section_name' => (string) $row['section_name'],
+                // The stored subject is the TEMPLATE — `{{Prenom}}` and all —
+                // for a publipostage. These two say which line's values put it
+                // back the way this member read it; Service\MassMailQueryService
+                // does that, since substitution is not a repository's job.
+                'list_type' => (string) $row['list_type'],
+                'audience_row_id' => $row['audience_row_id'] !== null ? (int) $row['audience_row_id'] : null,
+            ],
+            $stmt->fetchAll(\PDO::FETCH_ASSOC)
+        );
     }
 
     /**

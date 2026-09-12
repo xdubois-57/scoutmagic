@@ -112,8 +112,12 @@ class AiCategorizationService
             ));
         } catch (LlmException $e) {
             $this->journalService->log(
-                'finance', 'ai_categorization_failed', 'info',
-                "Catégorisation IA échouée : {$e->getMessage()}", ['transaction_id' => $transaction->id], null
+                'finance',
+                'ai_categorization_failed',
+                'info',
+                "Catégorisation IA échouée : {$e->getMessage()}",
+                ['transaction_id' => $transaction->id],
+                null
             );
             return null;
         }

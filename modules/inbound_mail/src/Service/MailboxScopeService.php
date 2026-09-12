@@ -129,11 +129,14 @@ class MailboxScopeService
             $id = $consumer->consumerId();
             $answer = $answers[$id] ?? ['analyze' => false, 'read' => ReadMode::NONE->value];
 
-            $this->mailboxRepository->saveScope($mailboxId, new MailboxScope(
-                $id,
-                $answer['analyze'],
-                ReadMode::fromString($answer['read'])
-            ));
+            $this->mailboxRepository->saveScope(
+                $mailboxId,
+                new MailboxScope(
+                    $id,
+                    $answer['analyze'],
+                    ReadMode::fromString($answer['read'])
+                )
+            );
         }
     }
 

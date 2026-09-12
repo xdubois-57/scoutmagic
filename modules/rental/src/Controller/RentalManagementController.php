@@ -735,7 +735,10 @@ class RentalManagementController extends AbstractController
             // /api/audit/{type}/{id}, which is why the entity type has to be
             // registered in AuditAccessResolver.
             'audit_page' => $this->audit->page(
-                BookingAudit::ENTITY_TYPE, $booking->id, 1, AuditService::DEFAULT_PER_PAGE
+                BookingAudit::ENTITY_TYPE,
+                $booking->id,
+                1,
+                AuditService::DEFAULT_PER_PAGE
             ),
             'audit_labels' => BookingAudit::FIELD_LABELS,
             'change_requests' => $this->changeRequestRepository->findForBooking($booking->id),

@@ -144,8 +144,10 @@ class MassMailController extends AbstractController
             return $this->notFound();
         }
 
-        return $this->render('@mass_mail/compose.html.twig',
-            $this->buildComposeContext($email, $this->formFromEmail($email), null));
+        return $this->render(
+            '@mass_mail/compose.html.twig',
+            $this->buildComposeContext($email, $this->formFromEmail($email), null)
+        );
     }
 
     /**
@@ -719,8 +721,11 @@ class MassMailController extends AbstractController
         $audienceId = $form['audience_id'] !== null ? (int) $form['audience_id'] : null;
         if ($audienceId !== null) {
             try {
-                $summary = $this->massMailService->getAudienceSummary($audienceId, AuthSession::getUserAccountId(),
-                    $authorization);
+                $summary = $this->massMailService->getAudienceSummary(
+                    $audienceId,
+                    AuthSession::getUserAccountId(),
+                    $authorization
+                );
                 $audience = $summary['audience'];
                 $audienceSample = $summary['sample'];
             } catch (MassMailException) {
@@ -742,8 +747,10 @@ class MassMailController extends AbstractController
             'forced_section_id' => $authorization->forcedSenderSectionId,
             'list_options' => $this->buildListOptions($authorization, (string) $form['list']),
             'scout_years' => $this->buildScoutYearOptions(),
-            'previous_year_cutoff' => (string) ($this->settingService->get(self::SETTING_PREVIOUS_YEAR_CUTOFF,
-                'mass_mail') ?: self::DEFAULT_PREVIOUS_YEAR_CUTOFF),
+            'previous_year_cutoff' => (string) ($this->settingService->get(
+                self::SETTING_PREVIOUS_YEAR_CUTOFF,
+                'mass_mail'
+            ) ?: self::DEFAULT_PREVIOUS_YEAR_CUTOFF),
             'audience' => $audience,
             'audience_sample' => $audienceSample,
             'attachments' => $attachments,
@@ -1078,8 +1085,11 @@ class MassMailController extends AbstractController
 
         $userSectionIds = $this->massMailAccessService->getUserSectionIds($email, $currentYearId);
         $linkedMembers = $this->memberService->getLinkedMembers($email, $currentYearId);
-        $forcedSectionId = SectionPickerHelper::resolveDefault(null, $linkedMembers,
-            $this->sectionService->getAllWithBranches());
+        $forcedSectionId = SectionPickerHelper::resolveDefault(
+            null,
+            $linkedMembers,
+            $this->sectionService->getAllWithBranches()
+        );
 
         return new SenderAuthorization(false, $userSectionIds, $forcedSectionId);
     }

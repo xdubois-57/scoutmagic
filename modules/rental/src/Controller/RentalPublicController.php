@@ -121,15 +121,18 @@ class RentalPublicController extends AbstractController
             $selection
         );
 
-        return $this->render('@rental/public/show.html.twig', array_merge(
-            $this->fragmentContext($asset, $request, $today),
-            [
-                'can_manage' => $canManage,
-                'breadcrumb_current' => $asset->name,
-                'constraints' => $constraints,
-                'editable_prefix' => 'rental_asset_' . $asset->id,
-            ]
-        ));
+        return $this->render(
+            '@rental/public/show.html.twig',
+            array_merge(
+                $this->fragmentContext($asset, $request, $today),
+                [
+                    'can_manage' => $canManage,
+                    'breadcrumb_current' => $asset->name,
+                    'constraints' => $constraints,
+                    'editable_prefix' => 'rental_asset_' . $asset->id,
+                ]
+            )
+        );
     }
 
     /**

@@ -116,9 +116,15 @@ class ReviewService
         $this->reviews->delete($camp->id);
         $this->places?->markSummaryStale($camp->placeId);
         $this->audit->record(
-            CampService::ENTITY_TYPE, $camp->id, 'review',
-            $this->describe($before->rating, $before->comment), null,
-            AuditSource::Human, 'Avis supprimé', null, $actorUserAccountId
+            CampService::ENTITY_TYPE,
+            $camp->id,
+            'review',
+            $this->describe($before->rating, $before->comment),
+            null,
+            AuditSource::Human,
+            'Avis supprimé',
+            null,
+            $actorUserAccountId
         );
     }
 

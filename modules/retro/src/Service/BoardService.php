@@ -125,8 +125,12 @@ class BoardService implements RetroEventLinkLookupInterface
         $windowStart = $today->modify('-' . self::EVENT_WINDOW_DAYS_BEFORE . ' days');
         $windowEnd = $today->modify('+' . self::EVENT_WINDOW_DAYS_AFTER . ' days');
 
-        return $this->calendarEventLookup->findEventsInWindow($windowStart, $windowEnd, $isAdmin ? null : $sectionId,
-            $viewerRole);
+        return $this->calendarEventLookup->findEventsInWindow(
+            $windowStart,
+            $windowEnd,
+            $isAdmin ? null : $sectionId,
+            $viewerRole
+        );
     }
 
     /**
@@ -151,7 +155,12 @@ class BoardService implements RetroEventLinkLookupInterface
     ): Board {
         $title = $this->resolveTitle($calendarEventId, $title, $viewerRole);
         [$title, $voteBudget, $maxCommentLength] = $this->validateCommon(
-            $title, $voteMode, $antiDuplicateMode, $maxCommentLength, $autoCloseDelay, $voteBudget
+            $title,
+            $voteMode,
+            $antiDuplicateMode,
+            $maxCommentLength,
+            $autoCloseDelay,
+            $voteBudget
         );
         $linkVisibility = $this->validateLinkVisibility($linkVisibility);
 
@@ -165,17 +174,37 @@ class BoardService implements RetroEventLinkLookupInterface
         $autoCloseAt = $this->computeAutoCloseAt($autoCloseDelay);
 
         $id = $this->boardRepository->create(
-            $title, $boardDate, $calendarEventId, $token, $shortCode, $listed, $voteMode, $voteBudget,
-            $votesVisible, $antiDuplicateMode, $maxCommentLength, $autoCloseDelay, $autoCloseAt, $createdBy,
-            $closeNotifyEnabled, $this->normalizeEmail($closeNotifyEmail), $linkVisibility
+            $title,
+            $boardDate,
+            $calendarEventId,
+            $token,
+            $shortCode,
+            $listed,
+            $voteMode,
+            $voteBudget,
+            $votesVisible,
+            $antiDuplicateMode,
+            $maxCommentLength,
+            $autoCloseDelay,
+            $autoCloseAt,
+            $createdBy,
+            $closeNotifyEnabled,
+            $this->normalizeEmail($closeNotifyEmail),
+            $linkVisibility
         );
 
         if ($autoCloseAt !== null) {
             $this->scheduleAutoClose($id, $autoCloseAt);
         }
 
-        $this->journalService->log('retro', 'board_created', 'info', 'Rétrospective créée', ['board_id' => $id],
-            $createdBy);
+        $this->journalService->log(
+            'retro',
+            'board_created',
+            'info',
+            'Rétrospective créée',
+            ['board_id' => $id],
+            $createdBy
+        );
 
         $board = $this->boardRepository->findById($id);
         \assert($board !== null);
@@ -211,7 +240,12 @@ class BoardService implements RetroEventLinkLookupInterface
 
         $title = $this->resolveTitle($calendarEventId, $title, $viewerRole);
         [$title, $voteBudget, $maxCommentLength] = $this->validateCommon(
-            $title, $voteMode, $antiDuplicateMode, $maxCommentLength, $autoCloseDelay, $voteBudget
+            $title,
+            $voteMode,
+            $antiDuplicateMode,
+            $maxCommentLength,
+            $autoCloseDelay,
+            $voteBudget
         );
         $linkVisibility = $this->validateLinkVisibility($linkVisibility);
         $boardDate = $this->resolveBoardDate($calendarEventId, $manualDate, $viewerRole);
@@ -223,9 +257,21 @@ class BoardService implements RetroEventLinkLookupInterface
         $autoCloseAt = $this->computeAutoCloseAt($autoCloseDelay);
 
         $this->boardRepository->update(
-            $id, $title, $boardDate, $calendarEventId, $listed, $voteMode, $voteBudget,
-            $votesVisible, $antiDuplicateMode, $maxCommentLength, $autoCloseDelay, $autoCloseAt,
-            $closeNotifyEnabled, $this->normalizeEmail($closeNotifyEmail), $linkVisibility
+            $id,
+            $title,
+            $boardDate,
+            $calendarEventId,
+            $listed,
+            $voteMode,
+            $voteBudget,
+            $votesVisible,
+            $antiDuplicateMode,
+            $maxCommentLength,
+            $autoCloseDelay,
+            $autoCloseAt,
+            $closeNotifyEnabled,
+            $this->normalizeEmail($closeNotifyEmail),
+            $linkVisibility
         );
 
         if ($existing->isOpen()) {
@@ -256,8 +302,14 @@ class BoardService implements RetroEventLinkLookupInterface
 
         $this->boardRepository->close($id);
         $this->schedulerService->cancelPending('retro', 'auto_close_board', 'board_' . $id);
-        $this->journalService->log('retro', 'board_closed', 'info', 'Rétrospective clôturée', ['board_id' => $id],
-            $closedBy);
+        $this->journalService->log(
+            'retro',
+            'board_closed',
+            'info',
+            'Rétrospective clôturée',
+            ['board_id' => $id],
+            $closedBy
+        );
 
         $visible = array_values(array_filter(
             $this->commentRepository->findByBoardId($id),
@@ -307,8 +359,14 @@ class BoardService implements RetroEventLinkLookupInterface
             $this->scheduleAutoClose($id, $autoCloseAt);
         }
 
-        $this->journalService->log('retro', 'board_reopened', 'info', 'Rétrospective réouverte', ['board_id' => $id],
-            $reopenedBy);
+        $this->journalService->log(
+            'retro',
+            'board_reopened',
+            'info',
+            'Rétrospective réouverte',
+            ['board_id' => $id],
+            $reopenedBy
+        );
 
         $refreshed = $this->boardRepository->findById($id);
         \assert($refreshed !== null);
@@ -330,8 +388,14 @@ class BoardService implements RetroEventLinkLookupInterface
         }
 
         $this->boardRepository->archive($id);
-        $this->journalService->log('retro', 'board_archived', 'info', 'Rétrospective archivée', ['board_id' => $id],
-            $archivedBy);
+        $this->journalService->log(
+            'retro',
+            'board_archived',
+            'info',
+            'Rétrospective archivée',
+            ['board_id' => $id],
+            $archivedBy
+        );
 
         $refreshed = $this->boardRepository->findById($id);
         \assert($refreshed !== null);
@@ -353,8 +417,14 @@ class BoardService implements RetroEventLinkLookupInterface
         }
 
         $this->boardRepository->unarchive($id);
-        $this->journalService->log('retro', 'board_unarchived', 'info', 'Rétrospective désarchivée',
-            ['board_id' => $id], $unarchivedBy);
+        $this->journalService->log(
+            'retro',
+            'board_unarchived',
+            'info',
+            'Rétrospective désarchivée',
+            ['board_id' => $id],
+            $unarchivedBy
+        );
 
         $refreshed = $this->boardRepository->findById($id);
         \assert($refreshed !== null);
@@ -379,8 +449,14 @@ class BoardService implements RetroEventLinkLookupInterface
         $shortCode = $this->tryCreateShortLink($token, $regeneratedBy);
         $this->boardRepository->regenerateLink($id, $token, $shortCode);
 
-        $this->journalService->log('retro', 'board_link_regenerated', 'info', 'Lien de rétrospective régénéré',
-            ['board_id' => $id], $regeneratedBy);
+        $this->journalService->log(
+            'retro',
+            'board_link_regenerated',
+            'info',
+            'Lien de rétrospective régénéré',
+            ['board_id' => $id],
+            $regeneratedBy
+        );
 
         $refreshed = $this->boardRepository->findById($id);
         \assert($refreshed !== null);
