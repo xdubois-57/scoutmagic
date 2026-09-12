@@ -113,7 +113,22 @@
     // Test DB connection
     var dbTestPassed = form.dataset.initialized === '1';
 
+    /**
+     * Refreshes the portable-restore button, when that block exists.
+     *
+     * A hook rather than five call sites: every path that flips
+     * `dbTestPassed` already calls updateSaveState(), so hanging this off
+     * it means a future branch cannot forget one. The first version did
+     * forget — the button stayed disabled after a successful database
+     * install whenever the operator had filled the archive and passphrase
+     * first, because the only refresh was a timer fired at click time,
+     * before the request had settled.
+     */
+    var refreshPortableState = function () {};
+
     function updateSaveState() {
+        refreshPortableState();
+
         var blockedByDb = !dbTestPassed;
         var blockedByCron = isFirstRun && !cronActive;
 
@@ -553,4 +568,121 @@
                 dnsRecords.innerHTML = '<p class="text-danger small">Erreur lors de la v\u00e9rification DNS.</p>';
             });
     });
+
+    // ------------------------------------------------------------------
+    // Restoring from a portable backup.
+    //
+    // The day a portable backup is needed is the day there is no site left:
+    // no database, no Maintenance page, no login. So this branch lives
+    // here, immediately after the database step — the only thing it needs.
+    // ------------------------------------------------------------------
+    var portableFile = /** @type {HTMLInputElement} */ (document.getElementById('portable-file'));
+    var portablePassphrase = /** @type {HTMLInputElement} */ (document.getElementById('portable-passphrase'));
+    var btnPortable = /** @type {HTMLButtonElement} */ (document.getElementById('btn-portable-restore'));
+    var portableSpinner = document.getElementById('portable-spinner');
+    var portableResult = document.getElementById('portable-restore-result');
+    var portableProgress = document.getElementById('portable-progress');
+
+    if (portableFile && portablePassphrase && btnPortable) {
+        function updatePortableState() {
+            // The database has to be installed first: the restore writes
+            // over it, and the operator must have seen that it was empty.
+            btnPortable.disabled = !(dbTestPassed && portableFile.files.length > 0
+                && portablePassphrase.value !== '');
+        }
+
+        portableFile.addEventListener('change', updatePortableState);
+        portablePassphrase.addEventListener('input', updatePortableState);
+        // And whenever the database step settles, which is the other half
+        // of this button's condition.
+        refreshPortableState = updatePortableState;
+
+        function portableCredentials() {
+            return {
+                db_host: /** @type {HTMLInputElement} */ (document.getElementById('db_host')).value,
+                db_port: /** @type {HTMLInputElement} */ (document.getElementById('db_port')).value,
+                db_name: /** @type {HTMLInputElement} */ (document.getElementById('db_name')).value,
+                db_user: /** @type {HTMLInputElement} */ (document.getElementById('db_user')).value,
+                db_password: /** @type {HTMLInputElement} */ (document.getElementById('db_password')).value,
+                passphrase: portablePassphrase.value
+            };
+        }
+
+        function finishPortable(json) {
+            portableSpinner.classList.add('d-none');
+            portableProgress.classList.add('d-none');
+            if (json && json.success) {
+                // Nothing left to fill in: the restored site already has its
+                // unit, its accounts and its settings. All that remains is
+                // to log into it.
+                portableResult.innerHTML = '<span class="text-success">✓ Site restauré.</span>';
+                // `migrated` says whether the schema finished being brought
+                // forward inside this request. When it did not, the site is
+                // restored and usable, but the first pages will show the
+                // update screen while it finishes — saying so beats letting
+                // the operator meet it without warning.
+                portableProgress.textContent = json.migrated === false
+                    ? 'La restauration est faite, la mise à jour du schéma se termine en arrière-plan : les premières pages peuvent afficher un écran de mise à jour. Vous pourrez ensuite vous connecter avec vos identifiants habituels.'
+                    : 'Vous pouvez maintenant vous connecter avec vos identifiants habituels.';
+                portableProgress.classList.remove('d-none');
+                btnPortable.disabled = true;
+                return;
+            }
+            portableResult.innerHTML = '<span class="text-danger">✗ '
+                + escapeHtml((json && json.message) || 'La restauration a échoué.') + '</span>';
+            btnPortable.disabled = false;
+        }
+
+        /**
+         * @param {Object<string, string>} fields the request body's fields
+         * @param {File|null} file the archive, or null when it was already sent in chunks
+         * @returns {Promise<void>}
+         */
+        function postPortable(fields, file) {
+            var data = new FormData();
+            data.append('_csrf_token', form.elements['_csrf_token'].value);
+            Object.keys(fields).forEach(function (key) { data.append(key, fields[key]); });
+            if (file) { data.append('portable_file', file); }
+
+            return fetch('/setup/restore-portable', { method: 'POST', body: data })
+                .then(function (r) { return r.json(); })
+                .then(finishPortable)
+                .catch(function () { finishPortable({ success: false, message: 'Erreur réseau.' }); });
+        }
+
+        btnPortable.addEventListener('click', function () {
+            var file = portableFile.files[0];
+            if (!file) { return; }
+
+            btnPortable.disabled = true;
+            portableResult.textContent = '';
+            portableSpinner.classList.remove('d-none');
+
+            var chunker = window.ScoutMagicChunkedUpload;
+            if (chunker && file.size > chunker.CHUNK_THRESHOLD) {
+                portableProgress.classList.remove('d-none');
+                portableProgress.textContent = 'Envoi de l’archive…';
+                chunker.uploadInChunks(file, '/setup/restore-portable-chunk', {
+                    csrfToken: form.elements['_csrf_token'].value,
+                    onProgress: function (sent, total) {
+                        portableProgress.textContent = 'Envoi de l’archive… '
+                            + Math.round((sent / total) * 100) + ' %';
+                    }
+                }).then(function (res) {
+                    portableProgress.textContent = 'Restauration en cours… ne fermez pas cette page.';
+                    var fields = portableCredentials();
+                    fields.upload_id = res.uploadId;
+                    return postPortable(fields, null);
+                }).catch(function (err) {
+                    finishPortable({ success: false, message: (err && err.message) || 'Le téléversement a échoué.' });
+                });
+                return;
+            }
+
+            portableProgress.classList.remove('d-none');
+            portableProgress.textContent = 'Restauration en cours… ne fermez pas cette page.';
+            postPortable(portableCredentials(), file);
+        });
+    }
+
 })();

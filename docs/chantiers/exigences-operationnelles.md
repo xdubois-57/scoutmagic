@@ -1421,3 +1421,202 @@ lecture du manifeste, la conservation des identifiants de la cible (D5) et
 le nouvel `installation_id` (D6) sont IT-07. Le champ `installation_id` du
 manifeste est écrit mais rien ne le relit encore. La destination distante
 (IT-08) et l'envoi récurrent (IT-09) non plus.
+
+## IT-07 — La restauration portable
+
+La moitié lecture d'IT-06, et celle où les erreurs sont destructrices
+plutôt que simplement inutiles.
+
+**Ce qui a été livré.** `PortableArchive` ouvre et authentifie une
+archive : commentaire en clair, dérivation des deux clés, manifeste
+chiffré, empreintes des membres déclarés — dans cet ordre, et entièrement
+avant la première écriture. `PortableRestore` applique le résultat :
+extraction, installation des clés, conservation des identifiants de la
+machine (D5), nouvelle identité (D6), abonnements push vidés.
+`RestoreBackupHandler` route vers ce chemin une archive téléversée qui
+s'annonce dans son en-tête, et `SetupController` offre la même chose
+depuis l'assistant, avec téléversement fragmenté. La charge de
+statistiques porte `restored_from`. Un sujet d'aide décrit la marche à
+suivre complète.
+
+**Décision autonome, et la plus lourde : le code n'est jamais restauré.**
+L'archive porte `core/`, `modules/` et `public/`, et la restauration les
+ignore. Cela ressemble à jeter la majeure partie du fichier, donc voici
+le raisonnement en entier. La règle de version n'autorise que deux cas.
+Sur la même version, extraire `core/` réécrit des milliers de fichiers
+pour rien. Sur une installation **plus récente**, c'est une
+rétrogradation silencieuse — et elle contredit l'étape suivante, la
+migration de schéma n'existant que pour amener un dump ancien vers du
+code récent : il faut donc que le code récent soit encore là. Le
+troisième cas, une installation plus ancienne, n'existe pas ici puisque
+l'archive est refusée avant. Cela supprime en outre un danger au lieu de
+le gérer : extraire `core/` remplacerait le code du processus en train de
+tourner, le mélange qui a coûté six retours en arrière consécutifs en
+production. C'est ce qui permet à l'assistant de migrer dans la même
+requête. Les entrées restent **dans** l'archive : c'est un seul zip, et
+qui veut l'arborescence d'origine peut l'ouvrir.
+
+**Décision autonome : une ligne portable de la liste de ce site reste
+refusée.** IT-06 la refusait « en attendant IT-07 » ; elle le reste, mais
+pour une raison qui tient debout seule. Une archive portable est faite
+pour être emportée et téléversée ailleurs ; la restaurer sur le site qui
+l'a produite, c'est une sauvegarde complète en moins bien — le même site,
+sans la galerie. Le chemin réel est donc le téléversement, depuis
+Maintenance ou depuis l'assistant.
+
+**Décision autonome : une version de développement n'est ordonnée contre
+rien.** `version_compare()` classe `dev-a1b2c3d` sous toute release, ce
+qui laisserait passer une archive de développement sur une release et
+refuserait l'inverse — deux réponses obtenues par accident. Quand l'un
+des deux côtés est un build de développement, ou qu'une version est
+inconnue, la comparaison s'abstient. Le trou est délibéré et de la bonne
+taille : un build de développement est une copie de travail, pas une
+installation dont une unité dépend.
+
+**Divergence entre le document et le dépôt.** Le document demande la
+section correspondante dans `specifications.md` ; ce fichier décrit les
+menus et n'a pas de section consacrée à l'assistant d'installation. La
+ligne « Maintenance » du tableau a donc été complétée, et rien n'a été
+inventé autour.
+
+**Le manifeste n'énumère pas les arborescences**, décision d'IT-06 que
+IT-07 hérite : « empreintes vérifiées avant extraction » porte donc sur
+les membres déclarés, c'est-à-dire les deux secrets scellés — ceux dont
+la corruption est silencieuse. Le CRC par entrée du format zip couvre le
+reste, et c'est lui qui attrape la corruption qui arrive réellement à une
+archive transportée sur une clé USB.
+
+**Réparation en passant.** `ARCHITECTURE.md` plaçait §8.100 à §8.102 —
+IT-04, IT-05 et IT-06 — après le titre « ## 9. Installation / bootstrap »,
+donc dans la mauvaise section. §8.103 s'y ajoutait naturellement, ce qui
+aurait fait quatre. Les quatre sont remontées dans la section 8, dans
+l'ordre numérique ; le diff se limite au déplacement du titre de la
+section 9 et au texte neuf.
+
+**Ce que les gardes prouvent.** Chacune a été vérifiée en réinjectant
+exactement le défaut qu'elle interdit : retirer la remise en place des
+identifiants fait tomber le test D5 et lui seul ; neutraliser le routage
+portable fait tomber le test qui distingue un refus tôt d'un refus tard ;
+retirer la garde « site déjà configuré » fait tomber le test
+correspondant de l'assistant.
+
+**Un constat de revue, et c'était le bon.** « Rien n'est écrit avant que
+tout ce qui peut refuser ait refusé » est l'invariant que cette
+fonctionnalité affiche partout — et une moitié ne le tenait pas.
+`restorableEntries()`, la marche qui refuse un chemin en `..`, un lien
+symbolique ou une charge au-delà du plafond de quatre gigaoctets, n'était
+atteinte que par `extractFiles()`, qui s'exécute **après** le
+remplacement de la base. Le refus arrivait bien, à une installation dont
+les données venaient d'être écrasées : l'archive hostile coûtait
+exactement ce qu'elle aurait coûté si elle avait été acceptée. La marche
+ne lit que le répertoire central du zip, donc la remonter en tête
+d'`apply()` ne coûte rien. Le test ajouté n'affirme pas que l'archive est
+refusée — cela n'a jamais fait de doute — mais que la base de la cible
+est intacte quand elle l'est ; en rétablissant l'ordre d'avant, c'est
+exactement lui qui tombe.
+
+**Un plafond qui ne plafonnait que le disque.** Le refus « archive trop
+volumineuse une fois décompressée » est fixé à quatre gigaoctets — or
+aucun hébergement n'a quatre gigaoctets de `memory_limit`. Tant que le
+code lisait les membres avec `getFromName()`, un dump *parfaitement
+ordinaire* d'un gros site suffisait à faire mourir la restauration au
+moment de la vérification des empreintes, bien avant que le plafond soit
+consulté. Ce n'était donc pas un cas hostile mais le cas courant. Les
+empreintes se calculent désormais par flux (`hash_update_stream()`) et le
+dump est recopié sur le disque par `stream_copy_to_stream()` : la mémoire
+maximale d'une restauration ne dépend plus de la taille du site restauré.
+Le test le mesure sur le pic et non sur le niveau — une chaîne allouée
+puis libérée laisse le niveau où il était, ce qui est exactement la faute
+en question.
+
+**Un tableau vide qui voulait dire le contraire de ce qu'il disait.**
+`targetOwnedSecrets()` renvoyait `[]` quand les secrets du site ne
+pouvaient pas être lus. Mais `[]` signifie « cette machine n'a aucun
+identifiant à conserver », et `installSecrets()` ne remplace que les clés
+qu'on lui donne : un `secrets.enc` illisible se terminait donc avec
+l'hôte, le nom et le mot de passe de la base de **l'origine** en place —
+précisément D5, atteint par une panne que personne ne verrait. Le refus
+ne coûte rien, puisqu'il précède la sauvegarde de sécurité.
+
+**Une photo des clés qui ne survivait pas au processus qui l'a prise.**
+Sur le chemin Maintenance la migration est différée : une restauration
+peut donc échouer sur une passe qui s'exécute des heures plus tard, dans
+un autre processus, alors que la photo en mémoire a disparu depuis
+longtemps. Le retour en arrière y restaure la base et l'arborescence
+depuis une archive de sécurité qui, par construction, ne contient ni
+`storage/keys/` ni `storage/config/` : le site revenait donc avec sa
+propre base et la clé de l'archive, pendant que le journal annonçait une
+récupération propre. Les clés sont désormais mises de côté sur le disque
+sous `storage/temp` — le seul arbre qu'un retour en arrière ne touche
+pas, qu'aucune archive ne contient et qu'une sauvegarde portable n'a plus
+le droit d'écrire — et c'est le *chemin* qui voyage dans la charge du
+planificateur, jamais la matière chiffrante, qui se retrouverait sinon
+dans une ligne de base lisible par tout ce qui lit la file.
+
+**Un plafond de quatre gigaoctets n'est pas un plafond pour une clé.**
+Les deux secrets scellés sont les seuls membres lus d'un bloc plutôt
+qu'en flux — ils sont descellés, pas recopiés — et ils recevaient le
+plafond générique, qui admet une taille qu'aucun hébergement ne peut
+tenir en mémoire. Or `unsealSecrets()` s'exécute en dernier, après le
+remplacement de la base et de l'arborescence, et une fatale de
+`memory_limit` n'est pas une `Throwable` : le retour en arrière ne se
+serait donc jamais exécuté. Ils ont leur propre plafond, vérifié aussi
+dans `verifyDeclaredMembers()`, c'est-à-dire avant la première écriture.
+
+**Un manifeste peut aussi mentir par omission.** Vérifier les empreintes
+de ce qu'un manifeste énumère ne dit rien de ce qu'il tait : une archive
+qui ne déclarait tout simplement pas ses deux secrets scellés passait
+tous les refus d'avant-écriture et n'était attrapée que par
+`unsealSecrets()`, après le remplacement de la base et de
+l'arborescence. Leur présence dans la liste déclarée est désormais exigée
+là où les autres refus se font.
+
+**Et une comparaison sensible à la casse là où le système de fichiers ne
+l'est pas.** `storage/Temp/twig_cache/intrus.php` franchissait la liste
+noire et atterrissait dans `storage/temp/` sur Windows ou un volume macOS
+par défaut. Une garde dont le sujet est « où ce fichier va finir » doit
+raisonner sur l'idée de « pareil » du système de fichiers, pas sur celle
+de PHP. La liste blanche, elle, reste sensible à la casse : `Storage/...`
+n'est pas admis du tout, donc rien n'est extrait.
+
+**Une taille annoncée n'est pas une taille.** Le plafond se lit dans le
+répertoire central du zip, c'est-à-dire chez celui qui a écrit l'archive.
+Une entrée peut annoncer quelques kilo-octets et se décompresser en
+gigaoctets — les taux DEFLATE au-delà de 1000:1 sont ordinaires — et
+`PortableRestore` n'a pas de budget disque à lui. La taille annoncée
+borne donc désormais la *recopie* elle-même, au lieu d'être comparée
+après coup à un disque déjà plein. Et borner seul ne suffisait pas : une
+charge plus longue que son propre en-tête serait alors silencieusement
+tronquée, or un dump coupé sur une frontière d'instruction se restaure
+sans protester. Un octet est donc lu au-delà du plafond, et sa présence
+refuse l'archive. Le test forge l'archive à la main — `ZipArchive` ne
+sait pas produire un fichier qui ment sur lui-même, et un fichier qui
+ment sur lui-même est tout le sujet.
+
+**Sous `storage/` n'est pas la même chose que « des données ».** La liste
+blanche `storage/` laissait passer `storage/temp/twig_cache/`, où vivent
+les gabarits compilés que le rendu suivant fait `include` : une archive
+capable d'y déposer un fichier était une archive capable d'exécuter du
+code sur le site qui la restaure — et le modèle de menace de cette
+fonctionnalité, c'est précisément l'archive qu'un inconnu remet avec sa
+phrase de passe. Les sous-arbres que l'écrivain ne produit jamais
+(`keys`, `config`, `temp`, `maintenance`) sont désormais refusés à la
+lecture, et la liste est la sienne
+(`BackupService::NON_ARCHIVED_STORAGE_SUBDIRS`) plutôt qu'une seconde à
+tenir à jour. La galerie n'y est pas : elle est exclue par périmètre, pas
+par nature.
+
+**Un garde-fou qui n'en était pas un.** `restorableEntries()` filtrait les
+entrées par une liste blanche (`storage/`) *puis* par une liste noire
+(`secrets/`). La seconde ne pouvait jamais s'exécuter : un nom qui
+commence par `storage/` ne commence pas par `secrets/`. Elle a été
+retirée plutôt que couverte — du code inatteignable qui se lit comme une
+protection est pire qu'absent, puisqu'il invite à croire que la
+protection existe à deux endroits. La liste blanche, elle, refuse les
+secrets scellés, le manifeste et le dump de la seule façon qui vaille :
+en n'ayant jamais dit oui.
+
+**Reporté.** La destination distante (IT-08) et l'envoi récurrent avec
+rétention distante (IT-09). Le téléversement fragmenté de l'assistant ne
+consulte pas le budget disque, faute de base de données où lire un quota
+à ce moment-là ; le magasin de fragments applique son propre plafond.

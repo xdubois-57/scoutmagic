@@ -3578,8 +3578,6 @@ The project observed very well and alerted about nothing. Sixteen support collec
 
 One behaviour change ships with this: `backup_auto_frequency` now defaults to **`weekly`** rather than `monthly` (issue #286). A monthly default authorises four times the data loss §3 accepts, and it would have left the backup-age alert permanently triggered on a default installation — an alert that cries two-thirds of the time is switched off within days, which is the very extinction this design exists to prevent.
 
-## 9. Installation / bootstrap
-
 ### 8.100 Backup retention, per family (`Core\Maintenance\BackupRetention`)
 
 Retention used to be one number — five backups, all kinds mixed, oldest deleted first — and it kept the wrong ones. The automatic backups outnumber the deliberate ones on any installation that is actually being maintained, so three consecutive updates evicted the full backup an administrator had taken five minutes earlier. A single ordered list always keeps the noise and drops the signal.
@@ -3643,6 +3641,40 @@ The operator still types one phrase, so D4 — one zip, one password — holds w
 **Three consequences on the rest of the system, each a guard rather than a note.** Retention gives `portable` its own family with a quota of one and **no setting key at all** (§4bis), so no `settings` row can raise it — every other family's number is an administrator's to choose because those are copies of the site; this one is a copy of the keys. The passphrase floor of 16 characters is enforced server-side (`PortablePassphrase`), a length rule and deliberately nothing else, since character-class rules produce `Scout2026!` and length is what actually costs an attacker something. And `Core\Alert\Check\PortableBackupLingerCheck` is the only alert on this installation whose subject is a **success**: an archive that was produced perfectly and left in `storage/` is the site's encryption-at-rest sitting in a file beside the database it protects, on the server the backup exists to outlive.
 
 `SECURITY.md` §5 and §12 carry the same exception with its five conditions, because a guarantee stated there and quietly broken here is how the next security review reads a promise that no longer holds.
+
+### 8.103 The portable restore (`Core\Maintenance\Portable\PortableRestore`, `Task\RestoreBackupHandler`, `SetupController::restorePortable()`)
+
+The reading half of §8.102, and the half where the mistakes are destructive rather than merely useless.
+
+**Everything that can refuse, refuses before anything is written.** `PortableArchive::open()` reads the archive comment (in clear, necessarily — the archive password is derived from it), stretches the passphrase, then reads the *encrypted* manifest and checks the declared digests. A wrong passphrase, a foreign zip, an archive from a newer ScoutMagic, a sealed secret that does not match its digest: each is answered while the target installation is still untouched, and each with a different sentence, because "this is not one of our files" and "this is not the right passphrase" send an operator to two different places. This ordering is the requirement, not a preference: the installation being restored onto is typically a fresh one belonging to somebody having a very bad day. The same applies to the file list: `PortableRestore::apply()` asks for `restorableEntries()` — the walk that refuses a `..` path, a symlink or a payload over the four-gigabyte ceiling — *before* the dump is written, not where those entries are used. It reads the zip's central directory and nothing else, so there is no cost to asking early, and the alternative is a refusal delivered to an installation whose own data has already been replaced. Being under `storage/` is not the same as being data, either: `storage/temp/twig_cache/` holds compiled templates the next render `include`s, and `storage/keys` and `storage/config` are the live encryption material — so the reader refuses as ordinary entries exactly the sub-trees the writer never produces, reading that list from `BackupService::NON_ARCHIVED_STORAGE_SUBDIRS` rather than restating it. The declared size bounds the copy rather than being checked against it afterwards — it comes from the zip's central directory, which is to say from whoever wrote the archive — and one byte is read past the cap, because capping alone would turn a payload longer than its own header into a silent truncation. The ceiling itself is a bound on the disk, not on memory: nothing on this path holds a member as a string — the declared members are hashed through `hash_update_stream()` and the dump is copied to disk with `stream_copy_to_stream()` — because four gigabytes is above any host's `memory_limit`, and a restore whose peak memory grew with the size of the site being restored would fail on exactly the large installations it matters for.
+
+**Two entry points.** Configuration > Maintenance, by upload, for a site that already runs; and the installation wizard, `POST /setup/restore-portable`, for the case the feature actually exists for — the day the old host is gone, there is no database, no Maintenance page and no account to log into. The wizard's branch sits immediately after the database step because that is all it needs: an empty database, and the credentials reaching it. Offering it only from inside a working site would mean completing the whole wizard — a unit name, an administrator, an email configuration — in order to overwrite all of it seconds later.
+
+An archive that is a `portable` row in *this* site's own backup list is still refused, and that is not a contradiction: such an archive is meant to be carried elsewhere and uploaded there. Restoring it here would be a full backup minus the gallery.
+
+**What is restored, and what is deliberately kept (D5).**
+
+| Element | Behaviour |
+|---|---|
+| `master.key`, `encryption_key`, `blind_index_key` | Restored — the entire point |
+| SMTP, GitHub webhook secret, VAPID keys | Restored |
+| Database credentials | **The target's, always** — never the archive's |
+| `base_url` | The target's; the wizard uses the address the operator reached it at |
+| `installation_id` | **Regenerated** (D6), with the origin's recorded as `restored_from` |
+| `push_subscriptions` | **Emptied** |
+| `core/`, `modules/`, `public/` | **Never restored**, though the archive carries them |
+
+The credentials line is the one that bricks installations. Writing the origin's `secrets.enc` wholesale hands the new site the old site's database host, name and password: either they are wrong and it will not start, or they are right and it is quietly writing into a database that still belongs to somebody else. So the key is written, then the blob, then the blob is immediately reopened with that key and the machine's own credentials put back — one method, `installSecrets()`, because the interval between those steps is exactly the window in which the installation points at a stranger's database.
+
+**Why the code trees are not restored.** The version rule allows only two cases, and code is unwanted in both. Onto the same version, extracting `core/` rewrites thousands of files to no effect. Onto a **newer** installation it is a silent downgrade — and it contradicts the very next step, since the schema migration exists to bring an older dump forward and needs the newer code to bring it forward *to*. (Onto an older installation nothing happens at all: that archive was refused.) It also removes a hazard instead of managing one, because extracting `core/` would replace the running process's own code mid-request — the mixture behind six consecutive production rollbacks, and the reason the ordinary restore defers its migration to a later scheduler pass. A restore that never touches code has nothing to defer, which is why the wizard migrates in the same request.
+
+The target's own `master.key` and `secrets.enc` are held aside under `storage/temp` before anything is replaced, and the resume payload carries that file's *path* — never the key material, which would then sit in a scheduler row. A restore can fail on a pass that runs hours later in another process, and the rollback there restores the database and the file tree from a safety archive that structurally cannot contain those two files; without the hold-aside the site would come back with its own database and the archive's key, while the journal reported a clean recovery.
+
+**The new identity waits for the resume pass** on the Maintenance path, and runs inline in the wizard. Both for the same reason: `statistics_restored_from` must exist as a row before it can be written, and immediately after a restore the database is the *origin's* — an origin on an older ScoutMagic never had that row. The scheduler's pass runs under a booted application that has registered it; the wizard registers it itself, through `InstallationIdentityService::register()`, which exists so that declaration is written once rather than twice.
+
+**Push subscriptions go** because a service worker is bound to its origin. Carried to a new domain every endpoint is already dead, and each send would spend a request collecting a 410 before pruning it. Emptying the table follows the precedent of the notification migration's `TRUNCATE` (§8.24): this is ephemeral operational state, never a register.
+
+## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php
 

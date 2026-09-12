@@ -157,6 +157,53 @@
         </div>
     </div>
 
+    {# Section 2bis: restoring from a portable backup.
+
+       Here and nowhere else: the day a portable backup is needed is the day
+       there is no site left. Offering it only from the Maintenance page
+       would mean finishing the whole wizard — inventing a unit name, an
+       administrator, an email configuration — in order to overwrite all of
+       it seconds later.
+
+       Immediately after the database step, because that is all it needs: an
+       empty database to fill, and the credentials reaching it — the one
+       thing the archive must not bring with it. #}
+    {% if not is_initialized %}
+    <div class="card mb-4" id="portable-restore-card">
+        <div class="card-body">
+            <h2 class="card-title h5 mb-3">Repartir d'une sauvegarde portable</h2>
+            <p class="text-muted small">
+                Si vous déménagez ce site ou le remontez après un sinistre, vous n'avez pas besoin de remplir la
+                suite : téléversez la sauvegarde portable de l'ancienne installation avec sa phrase de passe. Les
+                données, les documents et les clés de chiffrement de l'unité sont remis en place, et vous vous
+                reconnecterez avec vos identifiants habituels.
+            </p>
+            <div class="alert alert-secondary small">
+                Installez d'abord la base de données ci-dessus. Elle doit être vide : la restauration écrit par-dessus.
+                Les identifiants de base de données que vous venez de saisir sont conservés — jamais ceux de
+                l'ancien hébergeur.
+            </div>
+
+            <div class="mb-3">
+                <label for="portable-file" class="form-label">Archive portable (.zip)</label>
+                <input type="file" class="form-control" id="portable-file" accept=".zip">
+            </div>
+            <div class="mb-3">
+                <label for="portable-passphrase" class="form-label">Phrase de passe de l'archive</label>
+                <input type="password" class="form-control" id="portable-passphrase" autocomplete="off">
+                <div class="form-text">Celle que vous avez notée en créant la sauvegarde portable. Sans elle,
+                    l'archive est définitivement illisible.</div>
+            </div>
+            <button type="button" class="btn btn-outline-primary" id="btn-portable-restore" disabled>
+                <output class="spinner-border spinner-border-sm d-none" id="portable-spinner"></output>
+                Restaurer cette sauvegarde
+            </button>
+            <span id="portable-restore-result" class="ms-2"></span>
+            <output class="d-none d-block mt-2 small text-muted" id="portable-progress"></output>
+        </div>
+    </div>
+    {% endif %}
+
     {# Section 3: Email settings #}
     <div class="card mb-4">
         <div class="card-body">
@@ -464,6 +511,11 @@
 {# The admin password's live rules and its confirmation check — see
    partials/password_field.html.twig. Nothing on this page wires them. #}
 <script type="module" src="{{ asset('/assets/js/password-field.js') }}"></script>
+{# Before setup.js, which uses it: a unit's portable archive is routinely
+   larger than a shared host's post_max_size, and this is the one page where
+   "upload it from Maintenance instead" is not an answer — there is no site
+   yet. #}
+<script src="{{ asset('/assets/js/chunked-upload.js') }}"></script>
 <script src="{{ asset('/assets/js/setup.js') }}"></script>
 {% if is_initialized and unit_logo_is_custom %}
 <script src="{{ asset('/assets/js/unit-logo.js') }}" defer></script>

@@ -826,9 +826,16 @@
                             <input type="file" class="form-control form-control-sm" name="backup_file" id="restore-backup-file" accept=".zip" aria-label="Fichier de sauvegarde">
                         </div>
                         <div class="mb-2">
+                            {# One field for both: the password of an
+                               encrypted full backup, or the passphrase of a
+                               portable one. The site tells which it received
+                               from the archive's own header, so asking the
+                               same thing twice in two fields would only make
+                               the operator choose between them. #}
                             {% include 'partials/form_field.html.twig' with {
                                 field_id: 'restore-backup-password', field_name: 'password',
-                                type: 'password', label: "Mot de passe de l'archive (si chiffrée)",
+                                type: 'password', label: "Mot de passe ou phrase de passe de l'archive",
+                                help: "Nécessaire pour une sauvegarde complète chiffrée, et pour une sauvegarde portable venue d'une autre installation. Laissez vide sinon.",
                                 size: 'sm', wrapper_class: '',
                             } only %}
                         </div>

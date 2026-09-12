@@ -16,7 +16,9 @@ use Core\Database\SchemaIntrospector;
 use Core\Database\SqlParser;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
+use Core\Exception\UserFacingException;
 use Core\Exception\UserFacingMessage;
+use Core\File\ChunkedUploadStore;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
@@ -24,6 +26,11 @@ use Core\Journal\JournalService;
 use Core\Mail\DkimManager;
 use Core\Mail\DnsVerifier;
 use Core\Mail\MailServiceFactory;
+use Core\Maintenance\BackupException;
+use Core\Maintenance\BackupService;
+use Core\Maintenance\Portable\PortableArchive;
+use Core\Maintenance\Portable\PortableRestore;
+use Core\Maintenance\VersionFile;
 use Core\Photo\UnitLogoService;
 use Core\Scheduler\CronHealth;
 use Core\Security\AuthSession;
@@ -33,6 +40,7 @@ use Core\Security\PasswordPolicy;
 use Core\Security\SecretManager;
 use Core\Security\SessionStore;
 use Core\Statistics\InstallationDateService;
+use Core\Statistics\InstallationIdentityService;
 use Twig\Environment;
 
 class SetupController extends AbstractController
@@ -45,6 +53,16 @@ class SetupController extends AbstractController
     // real UnitLogoService against — see index()'s own is_initialized
     // gating of the logo block, which never renders while this stays null.
     private ?UnitLogoService $unitLogoService = null;
+
+    /**
+     * The assembled portable archive's ceiling.
+     *
+     * A unit's site without its gallery: the database, the documents, the
+     * member photos. Two gigabytes is well past what that has ever been
+     * and still small enough to be a refusal rather than a disk filling up
+     * silently on a shared host.
+     */
+    private const PORTABLE_UPLOAD_MAX_BYTES = 2 * 1024 * 1024 * 1024;
 
     public function __construct(
         protected Environment $twig,
@@ -274,6 +292,369 @@ class SetupController extends AbstractController
             'statements_executed' => count($migrationResult->executedStatements),
             'warnings' => $migrationResult->warnings,
         ]);
+    }
+
+    /**
+     * POST /setup/restore-portable-chunk — one chunk of a portable archive
+     * on its way in, before the restore below consumes it.
+     *
+     * The same mechanism the Maintenance page uses, for the same reason: a
+     * unit's archive is routinely larger than the `post_max_size` a shared
+     * host allows, and this is the one page where "upload it from the
+     * Maintenance screen instead" is not an answer — there is no site yet.
+     *
+     * The chunk store takes no disk budget here, and that is correct
+     * rather than a shortcut: the budget reads a quota out of `settings`,
+     * and at this point in the wizard there is no database to read it
+     * from. The store still enforces its own ceiling.
+     *
+     * @param array<string, string> $params
+     */
+    public function restorePortableChunk(Request $request, array $params): Response
+    {
+        $gate = $this->denyUnlessTokenVerified();
+        if ($gate !== null) {
+            return $gate;
+        }
+        if ($this->secretManager->isInitialized()) {
+            return $this->json(['success' => false, 'message' => 'Action indisponible : le site est déjà configuré.'], 403);
+        }
+        if (!CsrfGuard::validateRequest()) {
+            return $this->json(['success' => false, 'message' => self::SESSION_EXPIRED_MESSAGE], 403);
+        }
+
+        // Field names and response shape are the shared uploader's, not
+        // this endpoint's invention: public/assets/js/chunked-upload.js
+        // sends `file`/`chunk_offset`/`last` and resumes from `received`
+        // on a 409. One contract, two servers.
+        $uploadId = (string) $request->getBody('upload_id', '');
+        $chunk = $request->getFile('file');
+        if ($chunk === null || empty($chunk['tmp_name'])) {
+            return $this->json(['success' => false, 'error' => 'Aucun fragment envoyé.'], 400);
+        }
+
+        $store = new ChunkedUploadStore($this->storageRoot());
+
+        try {
+            $store->appendChunk(
+                $uploadId,
+                session_id(),
+                (int) $request->getBody('chunk_offset', '0'),
+                (string) $chunk['tmp_name'],
+                (string) $request->getBody('last', '0') === '1',
+                self::PORTABLE_UPLOAD_MAX_BYTES
+            );
+        } catch (\Core\File\UploadException $e) {
+            try {
+                $received = $store->receivedBytes($uploadId, session_id());
+            } catch (\Core\File\UploadException) {
+                $received = 0;
+            }
+
+            return $this->json([
+                'success' => false,
+                'error' => UserFacingMessage::from(
+                    $e,
+                    'Ce fragment de l\'archive n\'a pas pu être enregistré — relancez l\'envoi.'
+                ),
+                'received' => $received,
+            ], 409);
+        }
+
+        return $this->json(['success' => true, 'received' => $store->receivedBytes($uploadId, session_id())]);
+    }
+
+    /**
+     * POST /setup/restore-portable — the other way to finish this wizard.
+     *
+     * **Why this exists here at all**, rather than only on the Maintenance
+     * page: the day a portable backup is needed is the day there is no
+     * site. No database, no Maintenance page, no login. Offering the
+     * restore only from inside a working installation would mean
+     * completing the whole wizard first — inventing a unit name, an
+     * administrator, an email configuration — and then overwriting every
+     * bit of it seconds later.
+     *
+     * It sits immediately after the database step because that is
+     * everything it needs: an empty database to fill, and the credentials
+     * reaching it, which are the one thing the archive must NOT bring
+     * (D5).
+     *
+     * Unlike the scheduled restore, this one migrates in the same request.
+     * It can, because a portable restore never replaces the code it is
+     * running under — see `PortableArchive::RESTORED_TREE`. There is no
+     * safety backup either, and nothing to roll back to: the database this
+     * writes into was empty a moment ago, which is checked rather than
+     * assumed.
+     *
+     * @param array<string, string> $params
+     */
+    public function restorePortable(Request $request, array $params): Response
+    {
+        $gate = $this->denyUnlessTokenVerified();
+        if ($gate !== null) {
+            return $gate;
+        }
+        if ($this->secretManager->isInitialized()) {
+            return $this->json(['success' => false, 'message' => 'Action indisponible : le site est déjà configuré.'], 403);
+        }
+        if (!CsrfGuard::validateRequest()) {
+            return $this->json(['success' => false, 'message' => self::SESSION_EXPIRED_MESSAGE], 403);
+        }
+
+        $credentials = [
+            'db_host' => (string) $request->getBody('db_host', 'localhost'),
+            'db_port' => (int) $request->getBody('db_port', 3306),
+            'db_name' => (string) $request->getBody('db_name', ''),
+            'db_user' => (string) $request->getBody('db_user', ''),
+            'db_password' => (string) $request->getBody('db_password', ''),
+        ];
+
+        $connection = new Connection(
+            $credentials['db_host'],
+            $credentials['db_port'],
+            $credentials['db_name'],
+            $credentials['db_user'],
+            $credentials['db_password']
+        );
+        $connectionResult = $connection->testConnection();
+        if ($connectionResult !== true) {
+            return $this->json(['success' => false, 'message' => $connectionResult]);
+        }
+
+        $archivePath = $this->assembledPortableUpload($request);
+        if ($archivePath === null) {
+            return $this->json(['success' => false, 'message' => 'Archive introuvable — recommencez l\'envoi.'], 400);
+        }
+
+        $passphrase = (string) $request->getBody('passphrase', '');
+        $baseUrl = $this->resolveDefaultBaseUrl($request);
+
+        try {
+            $result = $this->applyPortableArchive($connection, $archivePath, $passphrase, $credentials, $baseUrl);
+        } catch (\Throwable $e) {
+            // Nothing partial is left behind on the refusal path, because
+            // everything that can refuse does so before the first write —
+            // see PortableArchive. A failure after that point is a genuine
+            // half-restore, and saying so plainly beats a reassurance the
+            // code cannot back up.
+            // The class, not the message, unless the message was written
+            // for a human. A PDOException carries the failing statement,
+            // and a restore's statements are the site's own data — the
+            // journal is read on screen and travels in a support archive.
+            $this->journalService?->log(
+                'core', 'setup_portable_restore_failed', 'security',
+                'Restauration portable depuis l\'assistant : échec',
+                ['error' => $e instanceof UserFacingException ? $e->getMessage() : $e::class]
+            );
+
+            return $this->json([
+                'success' => false,
+                'message' => UserFacingMessage::from(
+                    $e,
+                    'La restauration a échoué. Consultez le journal du serveur pour le détail.'
+                ),
+            ]);
+        } finally {
+            @unlink($archivePath);
+        }
+
+        return $this->json($result);
+    }
+
+    /**
+     * The restore itself, once the archive is on disk and the database
+     * answers.
+     *
+     * @param array<string, mixed> $credentials
+     * @return array<string, mixed>
+     * @throws \Throwable
+     */
+    private function applyPortableArchive(
+        Connection $connection,
+        string $archivePath,
+        string $passphrase,
+        array $credentials,
+        string $baseUrl
+    ): array {
+        $installRoot = $this->installRoot();
+        $storageRoot = $this->storageRoot();
+
+        $archive = PortableArchive::open($archivePath, $passphrase);
+        $restore = new PortableRestore($installRoot, $storageRoot);
+        // Empty on a fresh installation, which is the point: restoring the
+        // snapshot on failure DELETES the archive's secrets rather than
+        // leaving the site looking configured — see below.
+        $secretsBefore = $restore->secretsSnapshot();
+
+        try {
+            $archive->assertRestorableOnto(VersionFile::read($installRoot));
+            $archive->verifyDeclaredMembers();
+
+            // **Empty of DATA, not of tables**, and the difference is the
+            // whole guard. By the time the operator can reach this button
+            // the wizard has just run `installDatabase()`, which migrates
+            // the schema — so roughly forty tables exist, and refusing on
+            // their presence would refuse every honest restore while
+            // looking like caution. `installDatabase()` is also what
+            // already refuses a database that had tables of its own before
+            // the wizard touched it, so that half is covered.
+            //
+            // What is left to refuse is a database that belongs to a
+            // working site. This endpoint takes its credentials from the
+            // request, so nothing guarantees they are the ones the wizard
+            // just tested; a dump laid over a live site's data is a merge
+            // nobody asked for. One account is enough to say a site lives
+            // here — a freshly migrated schema has none.
+            if ($this->holdsExistingSiteData($connection->getPdo())) {
+                throw new BackupException(
+                    'Cette base de données contient déjà les données d\'un site. Choisissez une base vide, '
+                    . 'puis recommencez la restauration.'
+                );
+            }
+
+            // `base_url` travels with the credentials: at this point in the
+            // wizard the operator has not been asked for one, so the address
+            // they reached this page at is the honest answer — and certainly
+            // better than the previous host's, which is what the archive
+            // carries.
+            $restore->apply(
+                $archive,
+                new BackupService($connection, $storageRoot, $installRoot),
+                $credentials + ['base_url' => $baseUrl]
+            );
+
+            // The dump is the ORIGIN's, so its schema may be older than this
+            // code. Same job as after an update, same runner.
+            $migration = (new MigrationRunner(
+                $connection,
+                new SchemaIntrospector($connection->getPdo()),
+                new SchemaComparator(),
+                new SqlParser()
+            ))->migrate($this->schemaFileSet());
+
+            // Declared before it is written: an origin on an older
+            // ScoutMagic has no such row, and the identifier of the site
+            // being left behind would go nowhere.
+            $settings = new SettingService(new SettingRepository($connection->getPdo()));
+            InstallationIdentityService::register($settings);
+
+            $restore->adoptNewIdentity($connection->getPdo(), $archive->originInstallationId(), $baseUrl);
+
+            $this->journalService?->log(
+                'core', 'setup_portable_restored', 'security',
+                'Site restauré depuis une sauvegarde portable par l\'assistant d\'installation',
+                ['restored_from' => $archive->originInstallationId(), 'version' => $archive->version()]
+            );
+
+            return [
+                'success' => true,
+                'migrated' => $migration->complete,
+                'restored_from_version' => $archive->version(),
+            ];
+        } catch (\Throwable $failure) {
+            // There is no safety backup here — the database was empty a
+            // moment ago, so there is nothing to roll it back to. What
+            // there IS to undo is the secrets: left behind, they make
+            // SecretManager::isInitialized() answer true, and the next
+            // attempt is refused as "already configured" on a site with no
+            // database, no account and no way forward.
+            $restore->restoreSecretsSnapshot($secretsBefore);
+
+            throw $failure;
+        } finally {
+            $archive->close();
+        }
+    }
+
+    /**
+     * Whether this database already holds a working site's data.
+     *
+     * Read as "is somebody living here", never as "is this schema
+     * complete": a `user_accounts` table that does not exist yet, or is
+     * empty, both mean the same thing — nobody is. The query is guarded
+     * because the table's absence is an ordinary state at this point in
+     * the wizard, not an error.
+     */
+    private function holdsExistingSiteData(\PDO $pdo): bool
+    {
+        if (!in_array('user_accounts', (new SchemaIntrospector($pdo))->getTables(), true)) {
+            return false;
+        }
+
+        $statement = $pdo->query('SELECT COUNT(*) FROM user_accounts');
+        if ($statement === false) {
+            return false;
+        }
+
+        $count = $statement->fetchColumn();
+
+        return is_numeric($count) && (int) $count > 0;
+    }
+
+    /**
+     * The uploaded archive, however it arrived.
+     *
+     * Chunked when the operator's browser could do it, a plain multipart
+     * upload otherwise — a small archive on a permissive host has no need
+     * of the ceremony, and refusing it would be refusing the easy case to
+     * protect the hard one.
+     */
+    private function assembledPortableUpload(Request $request): ?string
+    {
+        $uploadId = (string) $request->getBody('upload_id', '');
+        if ($uploadId !== '') {
+            try {
+                return (new ChunkedUploadStore($this->storageRoot()))->assembledPath($uploadId, session_id());
+            } catch (\Core\File\UploadException) {
+                // An identifier this store will not accept names no upload,
+                // which is the same fact as an upload that is not there —
+                // and the caller's answer to that is already the right one.
+                // Letting it out would leave this endpoint, alone among
+                // its siblings, answering an HTML error page to a request
+                // whose caller can only read JSON.
+                return null;
+            }
+        }
+
+        $file = $request->getFile('portable_file');
+        if ($file === null || $file['error'] !== UPLOAD_ERR_OK) {
+            return null;
+        }
+        // The same ceiling the chunked path enforces. A host whose
+        // post_max_size exceeds it would otherwise let this branch through
+        // with an archive the constant exists to refuse.
+        if ((int) $file['size'] > self::PORTABLE_UPLOAD_MAX_BYTES) {
+            return null;
+        }
+
+        $destination = $this->storageRoot() . '/temp/setup_portable_' . bin2hex(random_bytes(8)) . '.zip';
+        if (!is_dir(dirname($destination))) {
+            @mkdir(dirname($destination), 0755, true);
+        }
+
+        return move_uploaded_file((string) $file['tmp_name'], $destination) ? $destination : null;
+    }
+
+    /**
+     * The installation root — the directory `public/` sits in.
+     *
+     * The fallback matches `schemaFileSet()`'s own reading: `$schemaPath`
+     * is `<root>/schema/core.sql`, so the root is two levels up, not one.
+     * Both production call sites pass a `publicDir`, so the fallback is
+     * reached only by a caller that constructs this controller without
+     * one — where being one directory short would anchor `storage/` inside
+     * `schema/`.
+     */
+    private function installRoot(): string
+    {
+        return $this->publicDir !== '' ? dirname($this->publicDir) : dirname(dirname($this->schemaPath));
+    }
+
+    /** Where this installation keeps its data, derived from the install root. */
+    private function storageRoot(): string
+    {
+        return $this->installRoot() . '/storage';
     }
 
     /**

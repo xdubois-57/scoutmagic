@@ -27,17 +27,10 @@ class InstallationIdentityServiceTest extends TestCase
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         $this->settingRepository = new SettingRepository($this->pdo);
         $this->settings = new SettingService($this->settingRepository);
-        $this->settings->register(
-            InstallationIdentityService::INSTALLATION_ID_SETTING,
-            '',
-            'text',
-            'Identifiant de cette installation',
-            'Identifiant aléatoire.',
-            null,
-            null,
-            null,
-            false
-        );
+        // The service's own declaration, not a hand-copy of it. A second
+        // copy here would keep passing on the day the real one changed —
+        // and it is the real one that every caller depends on.
+        InstallationIdentityService::register($this->settings);
 
         $this->tempDir = sys_get_temp_dir() . '/scoutmagic-identity-' . bin2hex(random_bytes(6));
         mkdir($this->tempDir . '/keys', 0700, true);
@@ -45,6 +38,48 @@ class InstallationIdentityServiceTest extends TestCase
         $this->secretManager = new SecretManager(
             $this->tempDir . '/keys/master.key',
             $this->tempDir . '/config/secrets.enc'
+        );
+    }
+
+    /**
+     * Both rows, declared by the service that owns them.
+     *
+     * They are registered together because they are written together: a
+     * portable restore mints a new identifier and records the old one in
+     * the same breath, and the installation wizard has to make this same
+     * declaration itself — the database it just restored is the origin's,
+     * and an origin on an older ScoutMagic never had the second row.
+     */
+    public function testItDeclaresBothOfTheSettingsItOwns(): void
+    {
+        foreach ([
+            InstallationIdentityService::INSTALLATION_ID_SETTING,
+            InstallationIdentityService::RESTORED_FROM_SETTING,
+        ] as $key) {
+            $row = $this->settingRepository->findByModuleAndKey(null, $key);
+            $this->assertIsArray($row, $key . ' is not registered, so nothing can write to it.');
+            $this->assertSame('', $row['setting_value'], $key . ' does not start empty.');
+            // Neither is a per-unit choice, and neither belongs on the
+            // generic Réglages page.
+            $this->assertSame(0, (int) $row['editable'], $key . ' is offered for editing.');
+        }
+    }
+
+    /** Registering twice is what every boot does, and must change nothing. */
+    public function testRegisteringAgainDoesNotDisturbAValueAlreadyRecorded(): void
+    {
+        $this->settingRepository->updateValue(
+            null,
+            InstallationIdentityService::RESTORED_FROM_SETTING,
+            'aaaabbbbccccddddeeeeffff00001111'
+        );
+
+        InstallationIdentityService::register($this->settings);
+        $this->settings->clearCache();
+
+        $this->assertSame(
+            'aaaabbbbccccddddeeeeffff00001111',
+            $this->settings->get(InstallationIdentityService::RESTORED_FROM_SETTING)
         );
     }
 
