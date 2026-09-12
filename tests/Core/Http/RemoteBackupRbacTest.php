@@ -109,7 +109,7 @@ final class RemoteBackupRbacTest extends TestCase
     public function testEveryRouteIsDeclaredAtTheAdministratorFloorInTheApplicationItself(): void
     {
         $declared = [];
-        foreach (\authz_core_routes() as $route) {
+        foreach (\authzCoreRoutes() as $route) {
             $declared[$route['method'] . ' ' . $route['path']] = $route['role_min'];
         }
 
