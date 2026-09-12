@@ -102,14 +102,15 @@ final class ImmediateDeliveryTest extends TestCase
     private function service(
         ?\Throwable $transportFails = null,
         bool $withMailerFactory = true,
-        ?NotificationMailerFactory $mailerFactory = null
+        ?NotificationMailerFactory $mailerFactory = null,
+        ?PushSubscriptionRepository $subscriptions = null
     ): NotificationService {
         $mailService = $this->recordingTransport($transportFails);
         $journal = new JournalService($this->journalRepository);
 
         $service = new NotificationService(
             $this->notifications,
-            new PushSubscriptionRepository($this->pdo, $this->encryption),
+            $subscriptions ?? new PushSubscriptionRepository($this->pdo, $this->encryption),
             $this->preferences,
             $this->createMock(WebPush::class),
             $this->settings,
@@ -407,6 +408,44 @@ final class ImmediateDeliveryTest extends TestCase
             3,
             $payload['notification_ids'],
             'The queue must carry every id, claimed or not: claimForEmail() is what skips the ones already stamped.'
+        );
+    }
+
+    /**
+     * The same for push, where the trade is the other way round and taken
+     * deliberately.
+     *
+     * A throw leaves no record of how far the send got — PHP does not
+     * partially apply the assignment — so the whole bucket goes back to
+     * `core/send_notifications`. Push has no claim (ARCHITECTURE.md
+     * §8.24: a duplicate push replaces its predecessor in the tray, which
+     * is why it never needed one), so a device that had already received
+     * the alert may see it again. That is the accepted cost; an alert
+     * about the site's own health that nobody resends is simply gone.
+     */
+    public function testAThrowingPushSendsTheBucketBackToTheQueueRatherThanDroppingIt(): void
+    {
+        $admin = $this->createUserAccount();
+
+        // The database going away mid-request, which is one of the ways
+        // the push half can throw: a malformed subscription is already
+        // isolated per device inside queuePushForAccount().
+        $failing = new class ($this->pdo, $this->encryption) extends PushSubscriptionRepository {
+            public function findByUserAccountId(int $userAccountId): array
+            {
+                throw new \RuntimeException('SQLSTATE[HY000]: server has gone away');
+            }
+        };
+
+        $this->dispatchAlert($this->service(subscriptions: $failing), $admin);
+
+        $queued = $this->scheduler->findByModuleAndTaskKey('core', 'send_notifications', 10);
+        $this->assertCount(1, $queued, 'A push that threw was dropped instead of being handed back to the queue.');
+
+        $payload = json_decode((string) $queued[0]['payload'], true);
+        $this->assertSame(
+            [$this->notifications->findByUserAccountId($admin)[0]->id],
+            $payload['notification_ids']
         );
     }
 }

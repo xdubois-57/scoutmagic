@@ -416,11 +416,30 @@ class NotificationService
      * remainder its time budget cut short; this reschedules the remainder
      * a failure cut short, which is the same promise for the same reason.
      *
-     * The ids that WERE attempted are not resent. For e-mail that is what
-     * the `email_sent_at` claim already guarantees on its own — a
-     * reschedule of the whole batch would be skipped row by row — but
-     * naming them here is what makes the push path safe too, where there
-     * is no claim and a second pass would genuinely send twice.
+     * **What comes back is all or nothing, and that is worth being exact
+     * about.** PHP does not partially apply an assignment, so a send that
+     * throws leaves `$attempted` empty however far it had got, and the
+     * budget closure passed from `dispatch()` is always true, so a send
+     * that returns has attempted everything. The reschedule is therefore
+     * the WHOLE batch or none of it — never the partial remainder the
+     * ids would suggest.
+     *
+     * For e-mail that is exactly right: `claimForEmail()` skips the rows
+     * already stamped, so a rescheduled batch resends nothing and the
+     * recipients the failure never reached still get their message. For
+     * push it means a device can receive the alert twice — if the throw
+     * came from the bookkeeping `flushQueuedPush()` does after the
+     * network round trip, the delivered ids go round again. That is the
+     * trade this codebase already takes, and it takes it in this
+     * direction: a duplicate push replaces its predecessor in the tray
+     * (ARCHITECTURE.md §8.24, which is why push has no claim at all),
+     * while an alert about the site's own health that nobody resends is
+     * simply gone.
+     *
+     * The `array_diff` is kept rather than reduced to that either/or: it
+     * states the rule the ids obey rather than the arithmetic of today's
+     * two callers, and a send given a real budget would fall out of it
+     * correctly.
      *
      * @param int[] $ids every id this delivery was given
      * @param \Closure(): int[] $send returns the ids it took on, in order
@@ -442,8 +461,6 @@ class NotificationService
             );
         }
 
-        // Empty on every ordinary run: the budget closure above is always
-        // true, so a send that returns has attempted everything.
         $remaining = array_values(array_diff($ids, $attempted));
         if ($remaining === []) {
             return;
