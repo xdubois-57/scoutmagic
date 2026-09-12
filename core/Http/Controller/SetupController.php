@@ -651,6 +651,7 @@ class SetupController extends AbstractController
         return $this->publicDir !== '' ? dirname($this->publicDir) : dirname(dirname($this->schemaPath));
     }
 
+    /** Where this installation keeps its data, derived from the install root. */
     private function storageRoot(): string
     {
         return $this->installRoot() . '/storage';

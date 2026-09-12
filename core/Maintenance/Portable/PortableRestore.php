@@ -72,6 +72,13 @@ final class PortableRestore
      */
     public const RESTORED_FROM_SETTING = InstallationIdentityService::RESTORED_FROM_SETTING;
 
+    /**
+     * @param string $basePath the install root everything is written
+     *        relative to — never the repository, and never derived from
+     *        anything the archive says
+     * @param string $storagePath this installation's `storage/`, where the
+     *        dump and the held-aside secrets are written
+     */
     public function __construct(
         private readonly string $basePath,
         private readonly string $storagePath

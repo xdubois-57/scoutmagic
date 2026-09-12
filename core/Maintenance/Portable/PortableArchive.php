@@ -208,6 +208,13 @@ final class PortableArchive
         }
     }
 
+    /**
+     * Releases the zip handle.
+     *
+     * Every caller does this in a `finally`: a restore that failed half
+     * way is exactly when a descriptor is easiest to leak, and the archive
+     * is typically hundreds of megabytes of mapped file.
+     */
     public function close(): void
     {
         $this->zip->close();
@@ -233,6 +240,15 @@ final class PortableArchive
         return is_string($value) && $value !== '' ? $value : null;
     }
 
+    /**
+     * Whether the archive carries the photo gallery.
+     *
+     * Always false for archives this version writes — the gallery is what
+     * would make a portable backup too heavy to leave the building, which
+     * is the whole point of the format. The manifest records it anyway, so
+     * that a reader meeting a future archive that does carry one can say
+     * so rather than guess.
+     */
     public function includesGallery(): bool
     {
         return (bool) ($this->manifest['includes_gallery'] ?? false);
