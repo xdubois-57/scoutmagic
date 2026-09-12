@@ -80,18 +80,20 @@ final class BackupRetentionTest extends TestCase
     }
 
     /**
-     * Each family keeps its own — and the pre-operation one keeps ONE,
-     * which is the gallery cap binding before its quota does.
+     * Each family keeps its own — and the pre-operation one keeps ONE
+     * when what it keeps is a pre-RESET copy, which is the gallery cap
+     * binding before its quota does.
      *
-     * Every pre-operation archive carries the photo gallery
+     * A pre-reset archive carries the photo gallery
      * (`createFileBackup(true)`: the operation it protects against can
      * wipe `storage/gallery/`, so its safety copy has to hold it), and
      * the cap on gallery-bearing archives is one across all families. So
-     * `backup_keep_operational` is an upper bound that nothing reaches
-     * today rather than a number an installation observes — stated here
-     * because it is surprising, and written into the setting's own
-     * description and `docs/exigences-non-fonctionnelles.md` §4bis for
-     * the same reason.
+     * a run of resets reaches one rather than `backup_keep_operational` —
+     * stated here because it is surprising, and written into the
+     * setting's own description and
+     * `docs/exigences-non-fonctionnelles.md` §4bis for the same reason.
+     *
+     * A run of UPDATES does not: see the test below, and issue #298.
      */
     public function testEachFamilyKeepsItsOwnQuotaAndTheGalleryCapBindsFirst(): void
     {
@@ -112,6 +114,42 @@ final class BackupRetentionTest extends TestCase
         $this->assertSame(
             ['manual' => 3, 'operational' => BackupRetention::KEEP_GALLERY, 'scheduled' => 3],
             $byFamily
+        );
+    }
+
+    /**
+     * What issue #298 bought: three safety copies before an update, which
+     * is what `backup_keep_operational` promised all along.
+     *
+     * The quota was an upper bound nothing reached while `auto_update`
+     * carried the gallery — the cap of one bound first and an
+     * installation kept a single pre-operation archive whatever the
+     * setting said. An update's safety copy leaves the gallery on disk
+     * now, so nothing about it is gallery-sized and the number in the
+     * setting is the number of archives.
+     */
+    public function testAnUpdatesSafetyCopyNoLongerSpendsTheGallerySlot(): void
+    {
+        $this->assertNotContains(
+            'auto_update',
+            Backup::GALLERY_TYPES,
+            'An update archive is back under the gallery cap, so the quota below is unreachable again.'
+        );
+
+        $gallery = $this->completed('full_with_gallery');
+        for ($i = 0; $i < 4; $i++) {
+            $this->completed('auto_update');
+            $this->retention()->purgeAfterCreating('auto_update');
+        }
+
+        $surviving = $this->backups->findAllNewestFirst();
+        $updates = array_filter($surviving, static fn(Backup $b): bool => $b->type === 'auto_update');
+
+        $this->assertCount(3, $updates, 'The pre-operation quota is a real number now, not an upper bound.');
+        $this->assertContains(
+            $gallery,
+            array_map(static fn(Backup $b): int => $b->id, $surviving),
+            'An update archive that holds no gallery must not evict the one that does.'
         );
     }
 
@@ -394,19 +432,20 @@ final class BackupRetentionTest extends TestCase
     }
 
     /**
-     * A pre-operation archive counts towards the gallery cap, because it
-     * holds the gallery — the name of a type says nothing about its
-     * contents.
+     * A pre-RESET archive counts towards the gallery cap, because it holds
+     * the gallery — the name of a type says nothing about its contents.
      *
-     * With `auto_update` and `auto_reset` left out of the cap, an
-     * installation could hold four gallery-sized archives at once: one
-     * manual, plus a pre-operation family quota of three. That is the
-     * exact disk the cap exists to defend.
+     * With `auto_reset` left out of the cap, an installation could hold
+     * four gallery-sized archives at once: one manual, plus a
+     * pre-operation family quota of three. That is the exact disk the cap
+     * exists to defend. Its sibling `auto_update` is deliberately not this
+     * test's subject any more — that archive stopped carrying a gallery
+     * with issue #298, and the test above is what pins the consequence.
      */
     public function testAPreOperationArchiveCountsTowardsTheGalleryCap(): void
     {
         $manualGallery = $this->completed('full_with_gallery', archive: 'manual.zip');
-        $operationalGallery = $this->completed('auto_update', archive: 'safety.zip');
+        $operationalGallery = $this->completed('auto_reset', archive: 'safety.zip');
 
         $this->completed('database');
         $this->retention()->purgeAfterCreating('database');
@@ -417,15 +456,22 @@ final class BackupRetentionTest extends TestCase
     }
 
     /**
-     * And the cap must not become a way to delete the net of an operation
-     * that is running — the exact deletion the manual path refuses.
+     * And retention must not become a way to delete the net of an
+     * operation that is running — the exact deletion the manual path
+     * refuses.
      *
-     * Before the safety net reached the automatic purge, one manual
-     * gallery backup taken while an install was running would have
-     * evicted the only thing that install's rollback can start from:
-     * silently, with nobody having asked for anything to be deleted.
+     * Before the safety net reached the automatic purge, a backup taken
+     * while an install was running would have evicted the only thing that
+     * install's rollback can start from: silently, with nobody having
+     * asked for anything to be deleted.
+     *
+     * The eviction pressure here is the pre-operation family quota rather
+     * than the gallery cap, which is the pressure an `auto_update` archive
+     * actually feels since it stopped carrying a gallery (issue #298).
+     * The refusal is the same one either way: it is about the row being in
+     * use, never about what the row weighs.
      */
-    public function testTheCapNeverEvictsTheNetOfARunningOperation(): void
+    public function testRetentionNeverEvictsTheNetOfARunningOperation(): void
     {
         $inUse = $this->completed('auto_update', archive: 'net.zip');
         $updates = new UpdateHistoryRepository($this->pdo);
@@ -433,17 +479,19 @@ final class BackupRetentionTest extends TestCase
         $updates->setBackupId($historyId, $inUse);
         $updates->setStatus($historyId, 'installing');
 
-        $newer = $this->completed('full_with_gallery', archive: 'newer.zip');
-        $this->retention(null, $this->safetyNet())->purgeAfterCreating('full_with_gallery');
+        // Three newer ones: the oldest of four is over a quota of three.
+        for ($i = 0; $i < 3; $i++) {
+            $this->completed('auto_update');
+        }
+        $this->retention(null, $this->safetyNet())->purgeAfterCreating('auto_update');
 
         $surviving = array_map(fn($b) => $b->id, $this->backups->findAllNewestFirst());
         $this->assertContains($inUse, $surviving, 'An install still running must keep the backup it rolls back to.');
-        $this->assertContains($newer, $surviving);
         $this->assertFileExists($this->storagePath . '/maintenance/net.zip');
     }
 
-    /** Once the operation finishes, the cap applies to it like anything else. */
-    public function testTheCapCatchesUpOnceTheOperationIsOver(): void
+    /** Once the operation finishes, retention applies to it like anything else. */
+    public function testRetentionCatchesUpOnceTheOperationIsOver(): void
     {
         $wasInUse = $this->completed('auto_update', archive: 'net.zip');
         $updates = new UpdateHistoryRepository($this->pdo);
@@ -451,8 +499,10 @@ final class BackupRetentionTest extends TestCase
         $updates->setBackupId($historyId, $wasInUse);
         $updates->markCompleted($historyId);
 
-        $this->completed('full_with_gallery', archive: 'newer.zip');
-        $this->retention(null, $this->safetyNet())->purgeAfterCreating('full_with_gallery');
+        for ($i = 0; $i < 3; $i++) {
+            $this->completed('auto_update');
+        }
+        $this->retention(null, $this->safetyNet())->purgeAfterCreating('auto_update');
 
         $surviving = array_map(fn($b) => $b->id, $this->backups->findAllNewestFirst());
         $this->assertNotContains($wasInUse, $surviving);

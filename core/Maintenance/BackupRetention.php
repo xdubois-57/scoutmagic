@@ -106,12 +106,15 @@ final class BackupRetention
      * on it.
      *
      * **The automatic purge needs the same refusal the delete button
-     * has**, and it needs it more since IT-04 put `auto_update` and
-     * `auto_reset` under the gallery cap: an install takes a
-     * gallery-bearing safety copy, and one manual gallery backup taken
-     * while that install is running would otherwise evict the only thing
-     * its rollback can start from — silently, with nobody having asked
-     * for anything to be deleted.
+     * has**, and it needs it more since IT-04 put `auto_reset` under the
+     * gallery cap: a restore takes a gallery-bearing safety copy, and one
+     * manual gallery backup taken while that restore is running would
+     * otherwise evict the only thing its rollback can start from —
+     * silently, with nobody having asked for anything to be deleted. The
+     * refusal is not about the gallery, though, and outlived the case
+     * that motivated it: an `auto_update` copy holds no gallery since
+     * issue #298 and is still protected, because the family quota can
+     * evict just as quietly.
      *
      * A protected row is **skipped, not deferred**: the cap is exceeded
      * by one until the operation ends and the next creation purges it.
