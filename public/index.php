@@ -3208,13 +3208,13 @@ if (AuthSession::isAuthenticated()) {
             $member->getDisplayName(),
             '/members/' . $member->memberYearId,
             'identified',
-            10 + $index,
             // order: members first
-                true,
+            10 + $index,
             // isDynamic = true (renders with the avatar-circle styling)
-                $member->getMainSectionName(),
+            true,
             // subtitle
-                MenuBuilder::SORT_GROUP_DYNAMIC,
+            $member->getMainSectionName(),
+            MenuBuilder::SORT_GROUP_DYNAMIC,
             null,
             // The persistent member id, never member_years.id: the avatar
             // draws this member's photo for the year in effect, and
