@@ -202,7 +202,7 @@
             if (needle === '') {
                 return true;
             }
-            return (fold(address.name) + ' ' + fold(address.email)).indexOf(needle) !== -1;
+            return (fold(address.name) + ' ' + fold(address.email)).includes(needle);
         });
     }
 
@@ -341,6 +341,20 @@
     }
 
     /**
+     * The « s » a French plural takes, or nothing.
+     *
+     * The sentence below is a dozen counts long and each one carries its
+     * own agreement; written inline, the ternaries are what a reader has
+     * to look past to see the sentence at all.
+     *
+     * @param {number} count
+     * @returns {string}
+     */
+    function plural(count) {
+        return count > 1 ? 's' : '';
+    }
+
+    /**
      * The sentence the chief confirms — the counts, in the order that
      * matters to somebody about to lose rows: what arrives, what stays,
      * what goes, and what is kept because it asked to be left alone.
@@ -350,16 +364,15 @@
      */
     function summarySentence(summary, duplicates) {
         var parts = [
-            summary.added + ' adresse' + (summary.added > 1 ? 's' : '') + ' ajoutée'
-                + (summary.added > 1 ? 's' : ''),
-            summary.unchanged + ' inchangée' + (summary.unchanged > 1 ? 's' : ''),
-            summary.removed + ' supprimée' + (summary.removed > 1 ? 's' : '')
+            summary.added + ' adresse' + plural(summary.added) + ' ajoutée' + plural(summary.added),
+            summary.unchanged + ' inchangée' + plural(summary.unchanged),
+            summary.removed + ' supprimée' + plural(summary.removed)
         ];
         if (summary.kept_unsubscribed > 0) {
             parts.push(
-                summary.kept_unsubscribed + ' désinscrite' + (summary.kept_unsubscribed > 1 ? 's' : '')
-                    + ' — conservée' + (summary.kept_unsubscribed > 1 ? 's' : '')
-                    + ', toujours exclue' + (summary.kept_unsubscribed > 1 ? 's' : '') + ' des envois'
+                summary.kept_unsubscribed + ' désinscrite' + plural(summary.kept_unsubscribed)
+                    + ' — conservée' + plural(summary.kept_unsubscribed)
+                    + ', toujours exclue' + plural(summary.kept_unsubscribed) + ' des envois'
             );
         }
 
@@ -369,8 +382,8 @@
             // « 280 ajoutées » with no explanation of the twenty missing,
             // which reads as a loss.
             parts.push(
-                duplicates + ' ligne' + (duplicates > 1 ? 's' : '')
-                    + ' en double dans le fichier, fondue' + (duplicates > 1 ? 's' : '')
+                duplicates + ' ligne' + plural(duplicates)
+                    + ' en double dans le fichier, fondue' + plural(duplicates)
                     + ' dans la précédente'
             );
         }
@@ -404,7 +417,7 @@
     }
 
     importInput.addEventListener('change', async function () {
-        var file = importInput.files && importInput.files[0];
+        var file = importInput.files?.[0];
         if (!file || listId === null) {
             return;
         }
@@ -426,9 +439,9 @@
         if (stale(token)) {
             return;
         }
-        if (!data || !data.success) {
+        if (!data?.success) {
             hideImportPreview();
-            showError((data && data.errors ? data.errors.join(' ') : null)
+            showError((data?.errors ? data.errors.join(' ') : null)
                 || 'Erreur : réponse serveur invalide.');
             return;
         }

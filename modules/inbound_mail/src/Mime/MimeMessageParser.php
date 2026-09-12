@@ -141,7 +141,7 @@ class MimeMessageParser
                 )) ?: 'application/octet-stream',
                 bytes: self::decodeBody($headers, $body),
                 isInline: $disposition === 'inline',
-                contentId: self::nullIfEmpty(trim(self::header($headers, 'content-id'), '<> ')) 
+                contentId: self::nullIfEmpty(trim(self::header($headers, 'content-id'), '<> '))
             );
 
             return;

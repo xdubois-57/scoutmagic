@@ -231,7 +231,9 @@ describe('maintenance.js: portable-backup-form + its poller', () => {
             el(`<form id="portable-backup-form">
                 <button type="submit" id="portable-backup-submit"></button>
             </form>`),
-            el(`<input id="portable-backup-passphrase" minlength="${minlength}" value="">`),
+            el(minlength === null
+                ? '<input id="portable-backup-passphrase" value="">'
+                : `<input id="portable-backup-passphrase" minlength="${minlength}" value="">`),
             el('<div id="portable-backup-progress" class="d-none"></div>'),
             el('<div id="portable-backup-error" class="d-none"></div>'),
         );
@@ -309,6 +311,18 @@ describe('maintenance.js: portable-backup-form + its poller', () => {
 
         expect(field.validationMessage).toBe('');
         expect(field.checkValidity()).toBe(true);
+    });
+
+    // The minimum is the field's own, read from the DOM rather than
+    // repeated here — so a template that stops declaring one leaves this
+    // guard with nothing to enforce, and the server's rule stands alone.
+    // Worth pinning because the fallback is silent: a missing attribute
+    // reads as zero, never as « refuse everything ».
+    it('enforces no minimum when the field declares none', async () => {
+        buildDom(null);
+        global.fetch = vi.fn(() => jsonResponse({}));
+        await submit('court');
+        await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
     });
 
     it('accepts sixteen accented characters, which are more than sixteen bytes', async () => {

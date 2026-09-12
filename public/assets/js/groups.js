@@ -2283,7 +2283,7 @@
             }
             var data = await response.json();
             if (typeof data.html !== 'string') {
-                throw new Error('unexpected payload');
+                throw new TypeError('unexpected payload');
             }
             modalBody.innerHTML = data.html;
         } catch {

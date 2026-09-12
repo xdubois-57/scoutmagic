@@ -14,6 +14,7 @@ import {
     estimateUrl,
     fragmentUrl,
     nextSelection,
+    refresh,
     selectionUrl,
     wireCalendar,
 } from '../../public/assets/js/rental-calendar.js';
@@ -261,6 +262,68 @@ describe('estimateUrl and estimateReady', () => {
         expect(estimateReady(buildForm({ arrival: '2027-07-17', departure: '' }))).toBe(false);
         expect(estimateReady(buildForm({ arrival: '', departure: '2027-07-20' }))).toBe(false);
         expect(estimateReady(buildForm({ persons: '20' }))).toBe(false);
+    });
+});
+
+describe('refresh', () => {
+    beforeEach(() => {
+        document.body.innerHTML = '';
+    });
+
+    /**
+     * The two fragments the swap replaces, plus a capture of the plain
+     * navigation the fallback performs — jsdom refuses a real one.
+     *
+     * @returns {string[]} the URLs assigned to window.location
+     */
+    function buildFragments() {
+        const assigned = [];
+        ['rental-calendar-fragment', 'rental-estimate-fragment'].forEach((id) => {
+            const node = document.createElement('div');
+            node.id = id;
+            document.body.appendChild(node);
+        });
+        delete (/** @type {any} */ (window)).location;
+        (/** @type {any} */ (window)).location = { href: 'https://unite.test/locations/local' };
+        Object.defineProperty(window.location, 'href', {
+            get: () => 'https://unite.test/locations/local',
+            set: (value) => assigned.push(value),
+            configurable: true,
+        });
+
+        return assigned;
+    }
+
+    it('swaps both fragments in and leaves the page where it is', async () => {
+        const assigned = buildFragments();
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ calendar: '<p>juillet</p>', estimate: '<p>420 €</p>' }),
+        }));
+
+        // A same-origin path: replaceState() refuses a cross-origin URL,
+        // and the page only ever hands refresh() one of its own links.
+        await refresh('/locations/local?month=2027-07');
+
+        expect(document.getElementById('rental-calendar-fragment').innerHTML).toBe('<p>juillet</p>');
+        expect(document.getElementById('rental-estimate-fragment').innerHTML).toBe('<p>420 €</p>');
+        expect(assigned).toHaveLength(0);
+    });
+
+    // The fragment endpoint answering something else — a login page after
+    // a session expired, an error document — must not leave the visitor
+    // with a calendar frozen on `aria-busy`. The plain navigation is the
+    // fallback, and it gets them the page they asked for.
+    it('falls back to a plain navigation when the payload is not the two fragments', async () => {
+        const assigned = buildFragments();
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ calendar: '<p>juillet</p>', estimate: null }),
+        }));
+
+        await refresh('/locations/local?month=2027-07');
+
+        expect(assigned).toEqual(['/locations/local?month=2027-07']);
     });
 });
 
