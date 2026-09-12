@@ -103,7 +103,7 @@ const DESK_FIXTURE = path.join(
  *
  * `FONCTION` is the column DeskCsvParser reads as the function code, and
  * `E2E-CDU` is the admin-role function scripts/e2e-support.php already
- * seeds (e2e_seed_unit_chief_function_for_admin). Section is left EMPTY on
+ * seeds (e2eSeedUnitChiefFunctionForAdmin). Section is left EMPTY on
  * purpose: UnitStaffSectionService::syncMembership() is what puts every
  * admin-role function with no section into « Staff d'U », which is exactly
  * how a real chief lands there.

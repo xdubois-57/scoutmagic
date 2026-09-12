@@ -36,7 +36,7 @@
 //     rejects an IP-literal one outright — on the 127.0.0.1 this harness
 //     used to serve, no passkey could be registered or used at all, in
 //     any browser. The instance now calls itself http://localhost:<port>
-//     (see e2e_base_url() in scripts/e2e-support.php).
+//     (see e2eBaseUrl() in scripts/e2e-support.php).
 //
 // Nothing else is arranged. Every login below goes through the real
 // CsrfGuard, the real HumanCheck barriers (waited out, never disabled —

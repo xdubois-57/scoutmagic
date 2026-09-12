@@ -97,7 +97,7 @@ rm -f "${ARTIFACT}"
 # finance receipts, section documents, local backups, etc.) on a live or
 # local dev install — publishing any of it in a public artifact would be
 # a real personal-data leak. Neither InstallUpdateHandler::installFiles()
-# nor bootstrap.php's bootstrap_copy_tree() ever reads storage/ from the
+# nor bootstrap.php's bootstrapCopyTree() ever reads storage/ from the
 # artifact anyway (both explicitly skip it as a top-level entry when
 # installing/updating), so there is nothing lost by excluding it
 # entirely — the 5 empty subdirs are created fresh by the installer/

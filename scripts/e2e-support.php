@@ -30,10 +30,10 @@ declare(strict_types=1);
  *                              Build the throwaway application instance
  *                              at <instance> and its database, ready to
  *                              be served on localhost:<port> (see
- *                              e2e_base_url() for why a name and not the
+ *                              e2eBaseUrl() for why a name and not the
  *                              loopback address), with EVERY module the
  *                              repository ships activated — see
- *                              e2e_activate_all_modules() for why all of
+ *                              e2eActivateAllModules() for why all of
  *                              them and not just the default three.
  *   teardown-db                Drop every table of the E2E database and
  *                              the database itself.
@@ -54,7 +54,7 @@ declare(strict_types=1);
 // with bootstrap/bootstrap.php: the pure helpers below are worth testing,
 // and the command dispatcher must not run when they are.
 if (!defined('E2E_SUPPORT_TEST')) {
-    e2e_support_main($argv);
+    e2eSupportMain($argv);
 }
 
 /**
@@ -64,7 +64,7 @@ if (!defined('E2E_SUPPORT_TEST')) {
  *
  * @param string[] $argv
  */
-function e2e_support_main(array $argv): void
+function e2eSupportMain(array $argv): void
 {
     if (PHP_SAPI !== 'cli') {
         fwrite(STDERR, "e2e-support.php is a CLI script.\n");
@@ -77,7 +77,7 @@ function e2e_support_main(array $argv): void
 
     switch ($command) {
         case 'free-port':
-            echo e2e_free_port(), "\n";
+            echo e2eFreePort(), "\n";
             exit(0);
 
         case 'wait-http':
@@ -87,7 +87,7 @@ function e2e_support_main(array $argv): void
                 fwrite(STDERR, "Usage: e2e-support.php wait-http <url> <timeout-seconds>\n");
                 exit(1);
             }
-            exit(e2e_wait_http($url, $timeoutSeconds) ? 0 : 1);
+            exit(e2eWaitHttp($url, $timeoutSeconds) ? 0 : 1);
 
         case 'provision':
             $instanceDir = $argv[2] ?? '';
@@ -97,8 +97,8 @@ function e2e_support_main(array $argv): void
                 exit(1);
             }
             require_once $repoRoot . '/vendor/autoload.php';
-            e2e_apply_application_clock();
-            e2e_provision($repoRoot, $instanceDir, $port);
+            e2eApplyApplicationClock();
+            e2eProvision($repoRoot, $instanceDir, $port);
             exit(0);
 
         case 'run-scheduler':
@@ -107,12 +107,12 @@ function e2e_support_main(array $argv): void
                 fwrite(STDERR, "Usage: e2e-support.php run-scheduler <instance-dir>\n");
                 exit(1);
             }
-            exit(e2e_run_scheduler($instanceDir));
+            exit(e2eRunScheduler($instanceDir));
 
         case 'teardown-db':
             require_once $repoRoot . '/vendor/autoload.php';
-            e2e_apply_application_clock();
-            e2e_teardown_database();
+            e2eApplyApplicationClock();
+            e2eTeardownDatabase();
             exit(0);
 
         case 'merge-coverage':
@@ -123,7 +123,7 @@ function e2e_support_main(array $argv): void
                 exit(1);
             }
             require_once $repoRoot . '/vendor/autoload.php';
-            exit(e2e_merge_coverage($repoRoot, $coverageDir, $outputPath) ? 0 : 1);
+            exit(e2eMergeCoverage($repoRoot, $coverageDir, $outputPath) ? 0 : 1);
 
         default:
             fwrite(STDERR, "Unknown command: '{$command}'. See this file's header for the command list.\n");
@@ -139,7 +139,7 @@ function e2e_support_main(array $argv): void
  * a fresh port rather than by pre-reserving one, which no portable shell
  * can do anyway.
  */
-function e2e_free_port(): int
+function e2eFreePort(): int
 {
     $socket = @stream_socket_server('tcp://127.0.0.1:0', $errno, $errstr);
     if ($socket === false) {
@@ -223,7 +223,7 @@ function e2e_free_port(): int
  * nothing is listening on. Unset — `npm run e2e` and every existing
  * caller — the value is byte-identical to what it always was.
  */
-function e2e_base_url(int $port): string
+function e2eBaseUrl(int $port): string
 {
     $scheme = ((string) getenv('E2E_BASE_SCHEME')) ?: 'http';
     if ($scheme !== 'http' && $scheme !== 'https') {
@@ -242,7 +242,7 @@ function e2e_base_url(int $port): string
  * config/app.php). Off unless E2E_TRUST_FORWARDED_PROTO says otherwise,
  * so `npm run e2e` is unaffected.
  */
-function e2e_trust_forwarded_proto(): bool
+function e2eTrustForwardedProto(): bool
 {
     return ((string) getenv('E2E_TRUST_FORWARDED_PROTO')) === '1';
 }
@@ -252,7 +252,7 @@ function e2e_trust_forwarded_proto(): bool
  * sleep. 100 ms between attempts: fast enough that a server that is
  * already up costs nothing, slow enough not to spin.
  */
-function e2e_wait_http(string $url, int $timeoutSeconds): bool
+function e2eWaitHttp(string $url, int $timeoutSeconds): bool
 {
     $deadline = microtime(true) + $timeoutSeconds;
 
@@ -283,7 +283,7 @@ function e2e_wait_http(string $url, int $timeoutSeconds): bool
 /**
  * @return array{host: string, port: int, name: string, user: string, password: string}
  */
-function e2e_database_config(): array
+function e2eDatabaseConfig(): array
 {
     $name = (string) getenv('E2E_DB_NAME');
     if ($name === '') {
@@ -304,9 +304,9 @@ function e2e_database_config(): array
  * Server-level PDO connection (no database selected) — used to create and
  * drop the E2E database itself.
  */
-function e2e_server_pdo(): PDO
+function e2eServerPdo(): PDO
 {
-    $config = e2e_database_config();
+    $config = e2eDatabaseConfig();
 
     return new PDO(
         sprintf('mysql:host=%s;port=%d;charset=utf8mb4', $config['host'], $config['port']),
@@ -349,23 +349,23 @@ function e2e_server_pdo(): PDO
  * page load deterministic: index.php serves its migration-progress page,
  * not the requested route, while a migration is pending.
  */
-function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
+function e2eProvision(string $repoRoot, string $instanceDir, int $port): void
 {
-    $config = e2e_database_config();
+    $config = e2eDatabaseConfig();
 
     // --- Database: create it if needed, then empty it completely. ---
-    $serverPdo = e2e_server_pdo();
+    $serverPdo = e2eServerPdo();
     $serverPdo->exec(sprintf(
         'CREATE DATABASE IF NOT EXISTS `%s` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci',
-        e2e_quote_identifier($config['name'])
+        e2eQuoteIdentifier($config['name'])
     ));
-    e2e_drop_all_tables();
+    e2eDropAllTables();
 
     // --- Instance tree. ---
     if (is_dir($instanceDir)) {
-        e2e_remove_tree($instanceDir);
+        e2eRemoveTree($instanceDir);
     }
-    e2e_mkdir($instanceDir);
+    e2eMkdir($instanceDir);
 
     // --- Compiled Twig templates: dropped, every run. ---
     //
@@ -391,9 +391,9 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
     // of its own, regenerated on the next request that needs a template,
     // which is why it is not treated the way the stray migration backups
     // in scripts/e2e.sh are (those could be a developer's real dumps).
-    e2e_remove_tree($repoRoot . '/storage/temp/twig_cache');
+    e2eRemoveTree($repoRoot . '/storage/temp/twig_cache');
 
-    e2e_copy_public($repoRoot . '/public', $instanceDir . '/public');
+    e2eCopyPublic($repoRoot . '/public', $instanceDir . '/public');
     symlink($repoRoot . '/public/assets', $instanceDir . '/public/assets');
 
     // docs/ is part of a real install (scripts/release.sh does not exclude
@@ -406,10 +406,10 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
     }
 
     foreach (['keys', 'config', 'core', 'modules', 'temp'] as $storageSubdir) {
-        e2e_mkdir($instanceDir . '/storage/' . $storageSubdir);
+        e2eMkdir($instanceDir . '/storage/' . $storageSubdir);
     }
 
-    e2e_mkdir($instanceDir . '/config');
+    e2eMkdir($instanceDir . '/config');
     file_put_contents(
         $instanceDir . '/config/app.php',
         "<?php\n\n"
@@ -419,7 +419,7 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
         . "return [\n"
         . "    'debug' => false,\n"
         . "    'site_name' => 'Unité de test E2E',\n"
-        . "    'base_url' => '" . e2e_base_url($port) . "',\n"
+        . "    'base_url' => '" . e2eBaseUrl($port) . "',\n"
         // Off for `npm run e2e`, which is served in cleartext and must
         // keep behaving exactly as it always has. On only for
         // scripts/dast.sh, whose instance sits behind
@@ -428,7 +428,7 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
         // precisely the deployment shape SECURITY.md § 9 says the opt-in
         // is for. Without it the scan would see a site emitting neither
         // Secure cookies nor HSTS and would be right to say so.
-        . "    'trust_forwarded_proto' => " . (e2e_trust_forwarded_proto() ? 'true' : 'false') . ",\n"
+        . "    'trust_forwarded_proto' => " . (e2eTrustForwardedProto() ? 'true' : 'false') . ",\n"
         . "];\n"
     );
 
@@ -448,7 +448,7 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
 
     $vapidKeys = Core\Notification\VapidKeyPairFactory::createValid();
 
-    $adminEmail = e2e_admin_email();
+    $adminEmail = e2eAdminEmail();
     $encryptionKey = base64_encode(random_bytes(32));
     $blindIndexKey = base64_encode(random_bytes(32));
 
@@ -482,7 +482,7 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
         'vapid_private_key' => $vapidKeys['privateKey'],
         'site_name' => 'Unité de test E2E',
         'short_name' => 'E2E',
-        'base_url' => e2e_base_url($port),
+        'base_url' => e2eBaseUrl($port),
         'mail_from_address' => 'e2e@example.invalid',
         'mail_from_name' => 'Unité de test E2E',
         'dkim_selector' => 's2026',
@@ -593,7 +593,7 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
     // without any matching member row (Core\Security\RoleResolver), which
     // is what lets a scenario reach `role_min: admin` pages on an
     // otherwise empty install.
-    e2e_create_super_admin($connection, $encryptionKey, $blindIndexKey, $adminEmail, e2e_admin_password());
+    e2eCreateSuperAdmin($connection, $encryptionKey, $blindIndexKey, $adminEmail, e2eAdminPassword());
 
     // --- The one member fixture the suite needs, and no more. ---
     //
@@ -605,7 +605,7 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
     // REASON_INCOMPLETE_PROFILE). Both are provisioned here, once, so the
     // scenario that drives the composer spends its time on the composer
     // rather than on re-importing a Desk export to obtain an identity.
-    e2e_seed_member_for_admin($connection, $encryptionKey, $blindIndexKey, $adminEmail);
+    e2eSeedMemberForAdmin($connection, $encryptionKey, $blindIndexKey, $adminEmail);
 
     // --- A second person, so the suite can cover what one person cannot.
     //
@@ -616,7 +616,7 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
     // no super-admin flag, no function, so Core\Security\RoleResolver
     // resolves them to `identified` — which is also the role most of a
     // unit actually has.
-    e2e_seed_ordinary_member($connection, $encryptionKey, $blindIndexKey);
+    e2eSeedOrdinaryMember($connection, $encryptionKey, $blindIndexKey);
 
     // --- One section, with both of them in it. ---
     //
@@ -627,7 +627,7 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
     // rows. That is the path worth exercising, and it is the only one that
     // puts two people in a group without a scenario having to invite one
     // through the interface first.
-    e2e_seed_section_with_both_members($connection);
+    e2eSeedSectionWithBothMembers($connection);
 
     // --- The super-admin is also the unit's chef d'unité. ---
     //
@@ -638,8 +638,8 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
     // than Role::ADMIN, see RetroBoardController). In a real unit the
     // site's super-admin usually IS the chef d'unité, so the fixture
     // mirrors that instead of leaving those behaviours unreachable.
-    e2e_seed_unit_chief_function_for_admin($connection);
-    e2e_seed_mobile_for_admin($connection, $encryptionKey, $blindIndexKey);
+    e2eSeedUnitChiefFunctionForAdmin($connection);
+    e2eSeedMobileForAdmin($connection, $encryptionKey, $blindIndexKey);
 
     // --- One account per remaining rung of the role ladder. ---
     //
@@ -648,14 +648,14 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
     // authorization scan that cannot log in as a role proves nothing
     // about that role (scripts/dast.sh). They live in a hidden section of
     // their own so no existing scenario's fixture shape moves — see
-    // e2e_seed_role_members() for the full reasoning, including why the
+    // e2eSeedRoleMembers() for the full reasoning, including why the
     // Staff d'U sweep leaves the admin's function where it is put.
-    e2e_seed_role_members($connection, $encryptionKey, $blindIndexKey);
+    e2eSeedRoleMembers($connection, $encryptionKey, $blindIndexKey);
 
     // Fail closed if any of the five does not actually resolve to the
     // role it is supposed to carry: a fixture that silently degrades to
     // `identified` would produce a clean-looking, worthless matrix.
-    e2e_assert_resolved_roles($connection, $encryptionKey, $blindIndexKey, $adminEmail);
+    e2eAssertResolvedRoles($connection, $encryptionKey, $blindIndexKey, $adminEmail);
 
     // --- Every module, activated the way an admin activates one. ---
     //
@@ -677,7 +677,7 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
     $settingService = new Core\Config\SettingService(new Core\Config\SettingRepository($connection->getPdo()));
     $settingService->register(
         'statistics_destination',
-        e2e_base_url($port),
+        e2eBaseUrl($port),
         'url',
         'Destination des statistiques',
         "Adresse du site qui reçoit les rapports d'utilisation. Pointée sur cette instance elle-même "
@@ -689,7 +689,7 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
         281
     );
 
-    e2e_warn_if_near_scout_year_boundary();
+    e2eWarnIfNearScoutYearBoundary();
 
     // Pin the public scout year, so a run cannot be moved by the calendar
     // underneath it.
@@ -773,11 +773,11 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
         297
     );
 
-    $activated = e2e_activate_all_modules(
+    $activated = e2eActivateAllModules(
         $repoRoot,
         $connection,
         $settingService,
-        e2e_base_url($port)
+        e2eBaseUrl($port)
     );
 
     echo "E2E instance provisioned at {$instanceDir} (database '{$config['name']}', port {$port}).\n";
@@ -804,7 +804,7 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
  *
  * "Every module" means every module this installation can SEE — which is
  * every directory under modules/, receiver-only ones included, because
- * e2e_provision() makes the instance the statistics receiver precisely so
+ * e2eProvision() makes the instance the statistics receiver precisely so
  * that ModuleManager stops hiding them (see its own comment there).
  *
  * Fails closed: a module that cannot be activated aborts provisioning
@@ -813,7 +813,7 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
  *
  * @return string[] the module ids activated, in the order they were
  */
-function e2e_activate_all_modules(
+function e2eActivateAllModules(
     string $repoRoot,
     Core\Database\Connection $connection,
     Core\Config\SettingService $settingService,
@@ -868,7 +868,7 @@ function e2e_activate_all_modules(
         $requirements[$moduleId] = $module->manifest->requires;
     }
 
-    $order = e2e_module_activation_order($requirements);
+    $order = e2eModuleActivationOrder($requirements);
     if ($order === null) {
         fwrite(
             STDERR,
@@ -912,7 +912,7 @@ function e2e_activate_all_modules(
  * @param array<string, string[]> $requirements module id => required module ids
  * @return string[]|null
  */
-function e2e_module_activation_order(array $requirements): ?array
+function e2eModuleActivationOrder(array $requirements): ?array
 {
     $pending = $requirements;
     $order = [];
@@ -945,7 +945,7 @@ function e2e_module_activation_order(array $requirements): ?array
  * scenarios reference it only through E2E_ADMIN_EMAIL, and .invalid is
  * reserved by RFC 6761 so this can never reach a real mailbox.
  */
-function e2e_admin_email(): string
+function e2eAdminEmail(): string
 {
     return ((string) getenv('E2E_ADMIN_EMAIL')) ?: 'admin@example.invalid';
 }
@@ -956,7 +956,7 @@ function e2e_admin_email(): string
  * literal in the repository, and never reused between runs (the database
  * holding its hash is dropped at teardown either way).
  */
-function e2e_admin_password(): string
+function e2eAdminPassword(): string
 {
     $password = (string) getenv('E2E_ADMIN_PASSWORD');
     if ($password === '') {
@@ -976,7 +976,7 @@ function e2e_admin_password(): string
  * tests/e2e/specs/scout-year-transition.spec.js goes through the real
  * Core\Security\AuthService, which reads it back.
  */
-function e2e_create_super_admin(
+function e2eCreateSuperAdmin(
     Core\Database\Connection $connection,
     string $encodedEncryptionKey,
     string $encodedBlindIndexKey,
@@ -1033,11 +1033,11 @@ function e2e_create_super_admin(
  *
  * Applying the same clock is the fix, not a workaround: a harness that
  * seeds data for an application has no business disagreeing with it about
- * what day it is. The scout-year pin in e2e_provision() is the belt to
+ * what day it is. The scout-year pin in e2eProvision() is the belt to
  * this one's braces — this makes the two agree at the start, that keeps
  * them agreeing if the run crosses midnight.
  */
-function e2e_apply_application_clock(): void
+function e2eApplyApplicationClock(): void
 {
     Core\Config\AppClock::apply();
 }
@@ -1057,7 +1057,7 @@ function e2e_apply_application_clock(): void
  * NOT: it was written while chasing the 2026-09-01 outage and it did not
  * fix it — re-running the seven failing specs with only this change left
  * all seven red. The cause was the clock (see
- * e2e_apply_application_clock() above). Keeping it anyway, because a
+ * e2eApplyApplicationClock() above). Keeping it anyway, because a
  * membership dated before the year it belongs to is wrong whatever else
  * is true, and a fixture that states something impossible is a bad
  * foundation for a test that asserts on it.
@@ -1067,7 +1067,7 @@ function e2e_apply_application_clock(): void
  *
  * @param array{id: int, label: string, start_date: string, end_date: string} $scoutYear
  */
-function e2e_fixture_start_date(array $scoutYear): string
+function e2eFixtureStartDate(array $scoutYear): string
 {
     // Both are Y-m-d, so a string comparison is a date comparison.
     return max(date('Y-m-d', strtotime('-1 month')), $scoutYear['start_date']);
@@ -1097,7 +1097,7 @@ function e2e_fixture_start_date(array $scoutYear): string
  * an hour before — every signal pointing at a flake, and none at the
  * calendar.
  */
-function e2e_warn_if_near_scout_year_boundary(?DateTimeImmutable $now = null): bool
+function e2eWarnIfNearScoutYearBoundary(?DateTimeImmutable $now = null): bool
 {
     $now ??= new DateTimeImmutable('now', new DateTimeZone(Core\Config\AppClock::TIMEZONE));
     $now = $now->setTimezone(new DateTimeZone(Core\Config\AppClock::TIMEZONE));
@@ -1109,18 +1109,21 @@ function e2e_warn_if_near_scout_year_boundary(?DateTimeImmutable $now = null): b
         return false;
     }
 
-    fwrite(STDERR, sprintf(
-        "E2E WARNING: the scout year turns over in %d minute(s) (%s, %s).\n"
-        . "            Fixtures are seeded into %s and a run crossing that instant will ask for\n"
-        . "            them in the next year. Expect « element(s) not found » on scout-year-scoped\n"
-        . "            rows, on specs that were green an hour ago. This is the calendar, not a flake.\n"
-        . "            Re-run after %s for a result worth reading.\n",
-        max($minutesAway, 0),
-        $boundary->format('Y-m-d H:i'),
-        Core\Config\AppClock::TIMEZONE,
-        Core\Config\ScoutYearService::labelForDate($now),
-        $boundary->format('H:i')
-    ));
+    fwrite(
+        STDERR,
+        sprintf(
+            "E2E WARNING: the scout year turns over in %d minute(s) (%s, %s).\n"
+            . "            Fixtures are seeded into %s and a run crossing that instant will ask for\n"
+            . "            them in the next year. Expect « element(s) not found » on scout-year-scoped\n"
+            . "            rows, on specs that were green an hour ago. This is the calendar, not a flake.\n"
+            . "            Re-run after %s for a result worth reading.\n",
+            max($minutesAway, 0),
+            $boundary->format('Y-m-d H:i'),
+            Core\Config\AppClock::TIMEZONE,
+            Core\Config\ScoutYearService::labelForDate($now),
+            $boundary->format('H:i')
+        )
+    );
 
     return true;
 }
@@ -1165,7 +1168,7 @@ function e2e_warn_if_near_scout_year_boundary(?DateTimeImmutable $now = null): b
  * is why the groups scenario runs before it, which Playwright's
  * alphabetical file ordering already guarantees.
  */
-function e2e_seed_member_for_admin(
+function e2eSeedMemberForAdmin(
     Core\Database\Connection $connection,
     string $encodedEncryptionKey,
     string $encodedBlindIndexKey,
@@ -1214,7 +1217,7 @@ function e2e_seed_member_for_admin(
 
 /**
  * A second, ordinary member with a password account of their own —
- * everything e2e_seed_member_for_admin() provisions for the super-admin,
+ * everything e2eSeedMemberForAdmin() provisions for the super-admin,
  * minus the super-admin flag.
  *
  * Their address and names are invented and land in the same
@@ -1227,14 +1230,14 @@ function e2e_seed_member_for_admin(
  * only way somebody joins a group in this module (there is no directory,
  * no self-join and no join request).
  */
-function e2e_seed_ordinary_member(
+function e2eSeedOrdinaryMember(
     Core\Database\Connection $connection,
     string $encodedEncryptionKey,
     string $encodedBlindIndexKey
 ): void {
     $pdo = $connection->getPdo();
     $encryptionService = Core\Security\EncryptionService::fromEncodedKeys($encodedEncryptionKey, $encodedBlindIndexKey);
-    $email = e2e_member_email();
+    $email = e2eMemberEmail();
     $blindIndex = $encryptionService->blindIndex($email, 'email');
     $scoutYear = (new Core\Config\ScoutYearService($pdo))->getCurrentYear();
     $scoutYearId = $scoutYear['id'];
@@ -1259,7 +1262,7 @@ function e2e_seed_ordinary_member(
 
     $userAccountRepository = new Core\Security\UserAccountRepository($pdo, $encryptionService);
     $account = $userAccountRepository->create($email, false);
-    $userAccountRepository->updatePasswordHash($account->id, password_hash(e2e_member_password(), PASSWORD_DEFAULT));
+    $userAccountRepository->updatePasswordHash($account->id, password_hash(e2eMemberPassword(), PASSWORD_DEFAULT));
     $userAccountRepository->updateProfile($account->id, 'Kaa', 'Serpent');
 }
 
@@ -1303,7 +1306,7 @@ function e2e_seed_ordinary_member(
  * so no age-derived count changes, and 10 still sorts ahead of the
  * hidden roles branch at 90.
  */
-function e2e_seed_section_with_both_members(Core\Database\Connection $connection): void
+function e2eSeedSectionWithBothMembers(Core\Database\Connection $connection): void
 {
     $pdo = $connection->getPdo();
     $scoutYear = (new Core\Config\ScoutYearService($pdo))->getCurrentYear();
@@ -1322,7 +1325,7 @@ function e2e_seed_section_with_both_members(Core\Database\Connection $connection
         . ' SELECT id, ?, ?, ?, NULL FROM members WHERE desk_id = ?'
     );
     foreach (['E2E-ADMIN', 'E2E-MEMBER'] as $deskId) {
-        $statement->execute([$sectionId, $scoutYearId, e2e_fixture_start_date($scoutYear), $deskId]);
+        $statement->execute([$sectionId, $scoutYearId, e2eFixtureStartDate($scoutYear), $deskId]);
     }
 
     // role 'identified' — see this function's docblock: the function exists
@@ -1344,7 +1347,7 @@ function e2e_seed_section_with_both_members(Core\Database\Connection $connection
             $functionId,
             $sectionId,
             $ageBranchId,
-            e2e_fixture_start_date($scoutYear),
+            e2eFixtureStartDate($scoutYear),
             $deskId,
             $scoutYearId,
         ]);
@@ -1368,7 +1371,7 @@ function e2e_seed_section_with_both_members(Core\Database\Connection $connection
  * is unit-tested directly — see Tests\Core\System\E2eRoleAccountsTest.
  *
  * The function codes deliberately do NOT start with `E2E-FCT`, the code
- * e2e_seed_section_with_both_members() already uses. Config Desk labels
+ * e2eSeedSectionWithBothMembers() already uses. Config Desk labels
  * each role select "Rôle pour <desk code>", and Playwright's getByLabel()
  * matches on a SUBSTRING: `E2E-FCT-INT` made
  * tests/e2e/specs/config-desk.spec.js's `getByLabel('Rôle pour E2E-FCT')`
@@ -1394,7 +1397,7 @@ function e2e_seed_section_with_both_members(Core\Database\Connection $connection
  *     role: Core\Security\Role
  * }>
  */
-function e2e_role_accounts(): array
+function e2eRoleAccounts(): array
 {
     return [
         [
@@ -1436,7 +1439,7 @@ function e2e_role_accounts(): array
 /**
  * The Desk codes of the section and age branch the role accounts live in.
  *
- * Like the function codes in e2e_role_accounts(), these must not merely
+ * Like the function codes in e2eRoleAccounts(), these must not merely
  * be UNIQUE — they must not be a PREFIX of, or prefixed by, a code an
  * existing fixture already uses. Config Desk labels each control
  * "Nom de la section <desk code>" / "Rôle pour <desk code>", and
@@ -1447,7 +1450,7 @@ function e2e_role_accounts(): array
  *
  * @return array{section: string, age_branch: string}
  */
-function e2e_role_fixture_codes(): array
+function e2eRoleFixtureCodes(): array
 {
     return [
         'section' => 'E2E-ROLES-SEC',
@@ -1458,7 +1461,7 @@ function e2e_role_fixture_codes(): array
 /**
  * @param array{env_prefix: string, default_email: string, ...} $account
  */
-function e2e_role_account_email(array $account): string
+function e2eRoleAccountEmail(array $account): string
 {
     return strtolower(trim(((string) getenv($account['env_prefix'] . '_EMAIL')) ?: $account['default_email']));
 }
@@ -1466,7 +1469,7 @@ function e2e_role_account_email(array $account): string
 /**
  * @param array{env_prefix: string, ...} $account
  */
-function e2e_role_account_password(array $account): string
+function e2eRoleAccountPassword(array $account): string
 {
     $variable = $account['env_prefix'] . '_PASSWORD';
     $password = (string) getenv($variable);
@@ -1479,14 +1482,14 @@ function e2e_role_account_password(array $account): string
 }
 
 /**
- * Provision the three role-bearing accounts of e2e_role_accounts(), each
+ * Provision the three role-bearing accounts of e2eRoleAccounts(), each
  * with a members row, a member_years row for the current scout year, a
  * member_functions row pointing at a function whose `role` IS the target
  * role, and a password account of their own.
  *
  * ## Why their own section, and why it is hidden
  *
- * e2e_seed_section_with_both_members() deliberately avoids chief, admin
+ * e2eSeedSectionWithBothMembers() deliberately avoids chief, admin
  * and intendant functions — its own docblock says why: those are exactly
  * the roles Core\Member\SectionService::getSectionStaff() selects on, so
  * putting these three in "Meute E2E" would change the trombinoscope, the
@@ -1511,7 +1514,7 @@ function e2e_role_account_password(array $account): string
  * section's id and the sweep passes over it — which is the rule working
  * as designed, not a workaround. That matters: the super-admin already
  * holds a main function in Staff d'U for the retro module's sake
- * (e2e_seed_unit_chief_function_for_admin(), and Core\Member\
+ * (e2eSeedUnitChiefFunctionForAdmin(), and Core\Member\
  * MemberService::isUnitChief() reads it), and a second admin landing
  * there would change what tests/e2e/specs/retro-board.spec.js is offered.
  *
@@ -1519,7 +1522,7 @@ function e2e_role_account_password(array $account): string
  * the other two members, because that is what a real Desk import writes
  * and what derived group membership resolves from.
  */
-function e2e_seed_role_members(
+function e2eSeedRoleMembers(
     Core\Database\Connection $connection,
     string $encodedEncryptionKey,
     string $encodedBlindIndexKey
@@ -1532,7 +1535,7 @@ function e2e_seed_role_members(
     // sort_order 90 puts this branch last everywhere branches are
     // ordered, so nothing that reads "the first section" on a page picks
     // it up ahead of the fixture the browser suite already knows.
-    $codes = e2e_role_fixture_codes();
+    $codes = e2eRoleFixtureCodes();
 
     $pdo->prepare('INSERT INTO age_branches (desk_code, label, sort_order) VALUES (?, ?, 90)')
         ->execute([$codes['age_branch'], 'Branche rôles E2E']);
@@ -1543,10 +1546,10 @@ function e2e_seed_role_members(
     $sectionId = (int) $pdo->lastInsertId();
 
     $userAccountRepository = new Core\Security\UserAccountRepository($pdo, $encryptionService);
-    $startDate = e2e_fixture_start_date($scoutYear);
+    $startDate = e2eFixtureStartDate($scoutYear);
 
-    foreach (e2e_role_accounts() as $account) {
-        $email = e2e_role_account_email($account);
+    foreach (e2eRoleAccounts() as $account) {
+        $email = e2eRoleAccountEmail($account);
         $blindIndex = $encryptionService->blindIndex($email, 'email');
 
         $pdo->prepare('INSERT INTO members (desk_id) VALUES (?)')->execute([$account['desk_id']]);
@@ -1592,7 +1595,7 @@ function e2e_seed_role_members(
         $userAccount = $userAccountRepository->create($email, false);
         $userAccountRepository->updatePasswordHash(
             $userAccount->id,
-            password_hash(e2e_role_account_password($account), PASSWORD_DEFAULT)
+            password_hash(e2eRoleAccountPassword($account), PASSWORD_DEFAULT)
         );
         $userAccountRepository->updateProfile($userAccount->id, $account['first_name'], $account['last_name']);
     }
@@ -1615,7 +1618,7 @@ function e2e_seed_role_members(
  * Built exactly the way public/index.php builds it, secondary-address
  * repository included, so what is asserted is what a real login resolves.
  */
-function e2e_assert_resolved_roles(
+function e2eAssertResolvedRoles(
     Core\Database\Connection $connection,
     string $encodedEncryptionKey,
     string $encodedBlindIndexKey,
@@ -1635,10 +1638,10 @@ function e2e_assert_resolved_roles(
 
     $expected = [
         $adminEmail => Core\Security\Role::SUPERADMIN->value,
-        e2e_member_email() => Core\Security\Role::IDENTIFIED->value,
+        e2eMemberEmail() => Core\Security\Role::IDENTIFIED->value,
     ];
-    foreach (e2e_role_accounts() as $account) {
-        $expected[e2e_role_account_email($account)] = $account['role']->value;
+    foreach (e2eRoleAccounts() as $account) {
+        $expected[e2eRoleAccountEmail($account)] = $account['role']->value;
     }
 
     $failures = [];
@@ -1668,14 +1671,14 @@ function e2e_assert_resolved_roles(
  * The section itself comes from the real Core\Member\
  * UnitStaffSectionService (the same code a Desk import runs), never a
  * hand-rolled copy of its rows. The 'Animé' function
- * e2e_seed_section_with_both_members() gave the admin stays, demoted to a
+ * e2eSeedSectionWithBothMembers() gave the admin stays, demoted to a
  * secondary function: the admin remains a member of the shared section
  * (their member_section_periods row is untouched), so every fixture the
  * groups scenarios rely on holds exactly as before. The account's
  * resolved role was already `superadmin` through its flag, so a
  * role-'admin' function moves nothing there.
  */
-function e2e_seed_unit_chief_function_for_admin(Core\Database\Connection $connection): void
+function e2eSeedUnitChiefFunctionForAdmin(Core\Database\Connection $connection): void
 {
     $pdo = $connection->getPdo();
     $scoutYear = (new Core\Config\ScoutYearService($pdo))->getCurrentYear();
@@ -1708,7 +1711,7 @@ function e2e_seed_unit_chief_function_for_admin(Core\Database\Connection $connec
         $functionId,
         $staffSectionId,
         $staffBranchId,
-        e2e_fixture_start_date($scoutYear),
+        e2eFixtureStartDate($scoutYear),
         'E2E-ADMIN',
         $scoutYearId,
     ]);
@@ -1721,7 +1724,7 @@ function e2e_seed_unit_chief_function_for_admin(Core\Database\Connection $connec
  * on-call surface is unreachable. A reserved fictitious Belgian mobile,
  * encrypted with the same context MemberService reads it back with.
  */
-function e2e_seed_mobile_for_admin(
+function e2eSeedMobileForAdmin(
     Core\Database\Connection $connection,
     string $encodedEncryptionKey,
     string $encodedBlindIndexKey
@@ -1744,15 +1747,15 @@ function e2e_seed_mobile_for_admin(
 
 /**
  * The ordinary member's address and password, both handed down by
- * scripts/e2e.sh exactly like the admin's — see e2e_admin_email() and
- * e2e_admin_password() for why neither is a literal in the repository.
+ * scripts/e2e.sh exactly like the admin's — see e2eAdminEmail() and
+ * e2eAdminPassword() for why neither is a literal in the repository.
  */
-function e2e_member_email(): string
+function e2eMemberEmail(): string
 {
     return strtolower(trim(((string) getenv('E2E_MEMBER_EMAIL')) ?: 'kaa@example.invalid'));
 }
 
-function e2e_member_password(): string
+function e2eMemberPassword(): string
 {
     $password = (string) getenv('E2E_MEMBER_PASSWORD');
     if ($password === '') {
@@ -1775,7 +1778,7 @@ function e2e_member_password(): string
  *
  * @return list<string>
  */
-function e2e_coverage_source_files(string $repoRoot): array
+function e2eCoverageSourceFiles(string $repoRoot): array
 {
     $facade = new SebastianBergmann\FileIterator\Facade();
 
@@ -1823,7 +1826,7 @@ function e2e_coverage_source_files(string $repoRoot): array
  * a reporting problem rewrite a green run into a red one, nor a red one
  * into a green one.
  */
-function e2e_merge_coverage(string $repoRoot, string $coverageDir, string $outputPath): bool
+function e2eMergeCoverage(string $repoRoot, string $coverageDir, string $outputPath): bool
 {
     if (!class_exists(SebastianBergmann\CodeCoverage\CodeCoverage::class)) {
         fwrite(STDERR, "E2E coverage: php-code-coverage is not installed (a --no-dev vendor/?), nothing merged.\n");
@@ -1841,7 +1844,7 @@ function e2e_merge_coverage(string $repoRoot, string $coverageDir, string $outpu
 
     try {
         $filter = new SebastianBergmann\CodeCoverage\Filter();
-        $filter->includeFiles(e2e_coverage_source_files($repoRoot));
+        $filter->includeFiles(e2eCoverageSourceFiles($repoRoot));
 
         $coverage = new SebastianBergmann\CodeCoverage\CodeCoverage(
             (new SebastianBergmann\CodeCoverage\Driver\Selector())->forLineCoverage($filter),
@@ -1917,7 +1920,7 @@ function e2e_merge_coverage(string $repoRoot, string $coverageDir, string $outpu
  * Same four options scripts/e2e.sh gives `php -S`, for the same reasons —
  * see its coverage block for why pcov.directory has to be `/`.
  */
-function e2e_scheduler_command(string $instanceDir, ?string $coverageDir): string
+function e2eSchedulerCommand(string $instanceDir, ?string $coverageDir): string
 {
     // The same maildrop redirection scripts/e2e.sh gives the web server
     // (its `-d sendmail_path=...` on `php -S`): a task handler that sends
@@ -1961,10 +1964,10 @@ function e2e_scheduler_command(string $instanceDir, ?string $coverageDir): strin
  * inside this process would inherit the repository's own bootstrap
  * instead.
  */
-function e2e_run_scheduler(string $instanceDir): int
+function e2eRunScheduler(string $instanceDir): int
 {
     $coverageDir = getenv('E2E_COVERAGE_DIR');
-    $command = e2e_scheduler_command(
+    $command = e2eSchedulerCommand(
         $instanceDir,
         is_string($coverageDir) && $coverageDir !== '' && is_dir($coverageDir) ? $coverageDir : null
     ) . ' 2>&1';
@@ -1981,13 +1984,13 @@ function e2e_run_scheduler(string $instanceDir): int
     return $exitCode;
 }
 
-function e2e_teardown_database(): void
+function e2eTeardownDatabase(): void
 {
-    $config = e2e_database_config();
+    $config = e2eDatabaseConfig();
 
     try {
-        e2e_drop_all_tables();
-        e2e_server_pdo()->exec(sprintf('DROP DATABASE IF EXISTS `%s`', e2e_quote_identifier($config['name'])));
+        e2eDropAllTables();
+        e2eServerPdo()->exec(sprintf('DROP DATABASE IF EXISTS `%s`', e2eQuoteIdentifier($config['name'])));
     } catch (Throwable $e) {
         // Teardown runs from scripts/e2e.sh's cleanup trap, including after
         // a failure that may itself be "the database went away". Report it,
@@ -2001,9 +2004,9 @@ function e2e_teardown_database(): void
  * tests use (tests/Core/Database/MigrationRunnerTest.php) — a curated DROP
  * list drifts out of sync with the schema, an unconditional sweep cannot.
  */
-function e2e_drop_all_tables(): void
+function e2eDropAllTables(): void
 {
-    $config = e2e_database_config();
+    $config = e2eDatabaseConfig();
 
     $pdo = new PDO(
         sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4', $config['host'], $config['port'], $config['name']),
@@ -2016,7 +2019,7 @@ function e2e_drop_all_tables(): void
     /** @var list<string> $tables */
     $tables = $pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);
     foreach ($tables as $table) {
-        $pdo->exec('DROP TABLE IF EXISTS `' . e2e_quote_identifier($table) . '`');
+        $pdo->exec('DROP TABLE IF EXISTS `' . e2eQuoteIdentifier($table) . '`');
     }
     $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
 }
@@ -2027,7 +2030,7 @@ function e2e_drop_all_tables(): void
  * here come from the environment and from SHOW TABLES, never from user
  * input, but neither can be bound as a prepared-statement parameter.
  */
-function e2e_quote_identifier(string $identifier): string
+function e2eQuoteIdentifier(string $identifier): string
 {
     return str_replace('`', '``', $identifier);
 }
@@ -2037,9 +2040,9 @@ function e2e_quote_identifier(string $identifier): string
  * by the caller — it is 2+ MB of static vendored CSS/JS/fonts that only
  * ever gets served as plain files).
  */
-function e2e_copy_public(string $source, string $destination): void
+function e2eCopyPublic(string $source, string $destination): void
 {
-    e2e_mkdir($destination);
+    e2eMkdir($destination);
 
     /** @var list<string> $entries */
     $entries = array_values(array_diff((array) scandir($source), ['.', '..', 'assets']));
@@ -2048,7 +2051,7 @@ function e2e_copy_public(string $source, string $destination): void
         $destinationPath = $destination . '/' . $entry;
 
         if (is_dir($sourcePath)) {
-            e2e_copy_tree($sourcePath, $destinationPath);
+            e2eCopyTree($sourcePath, $destinationPath);
             continue;
         }
 
@@ -2056,9 +2059,9 @@ function e2e_copy_public(string $source, string $destination): void
     }
 }
 
-function e2e_copy_tree(string $source, string $destination): void
+function e2eCopyTree(string $source, string $destination): void
 {
-    e2e_mkdir($destination);
+    e2eMkdir($destination);
 
     /** @var list<string> $entries */
     $entries = array_values(array_diff((array) scandir($source), ['.', '..']));
@@ -2067,7 +2070,7 @@ function e2e_copy_tree(string $source, string $destination): void
         $destinationPath = $destination . '/' . $entry;
 
         if (is_dir($sourcePath)) {
-            e2e_copy_tree($sourcePath, $destinationPath);
+            e2eCopyTree($sourcePath, $destinationPath);
             continue;
         }
 
@@ -2075,7 +2078,7 @@ function e2e_copy_tree(string $source, string $destination): void
     }
 }
 
-function e2e_remove_tree(string $path): void
+function e2eRemoveTree(string $path): void
 {
     /** @var list<string> $entries */
     $entries = array_values(array_diff((array) scandir($path), ['.', '..']));
@@ -2091,7 +2094,7 @@ function e2e_remove_tree(string $path): void
         }
 
         if (is_dir($entryPath)) {
-            e2e_remove_tree($entryPath);
+            e2eRemoveTree($entryPath);
             continue;
         }
 
@@ -2101,7 +2104,7 @@ function e2e_remove_tree(string $path): void
     rmdir($path);
 }
 
-function e2e_mkdir(string $path): void
+function e2eMkdir(string $path): void
 {
     if (is_dir($path)) {
         return;

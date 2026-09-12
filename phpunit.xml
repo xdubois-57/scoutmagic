@@ -66,6 +66,28 @@
                 untested one.
             -->
             <directory>scripts</directory>
+            <!--
+                bootstrap/ for exactly the same reason, and it had exactly
+                the same symptom: tests/Bootstrap/BootstrapTest.php
+                `require`s bootstrap/bootstrap.php at the top of the file
+                and exercises it in-process test after test, yet SonarQube
+                Cloud read the installer as 0% covered — 634 lines to
+                cover, 634 uncovered — because no report ever mentioned it.
+                Nothing here is newly tested; what changes is that the
+                coverage the suite already had stops being invisible.
+
+                It is not complete coverage, and the gap is structural: the
+                request handlers (bootstrapHandleStepRequest() and its
+                two siblings) read php://input, which no CLI SAPI
+                populates, and answer through bootstrapSendJson(), which
+                closes every output buffer including the runner's own. Both
+                are why those three are driven through a real `php -S` in a
+                subprocess, and a subprocess is precisely what a coverage
+                driver cannot see. Everything they call is reachable in
+                process and is tested there — tests/Bootstrap/
+                BootstrapStepsTest.php walks the step functions themselves.
+            -->
+            <directory>bootstrap</directory>
         </include>
     </source>
 </phpunit>

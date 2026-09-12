@@ -44,7 +44,7 @@ use Core\View\MenuBuilder;
  * The activation ORDER is a topological sort of the modules' `requires`
  * declarations, because `activate()` refuses a module whose hard dependencies
  * are not enabled yet (groups requires gallery). This mirrors
- * `scripts/e2e-support.php`'s `e2e_module_activation_order()`, which does the
+ * `scripts/e2e-support.php`'s `e2eModuleActivationOrder()`, which does the
  * same job for the browser harness — deliberately re-stated here rather than
  * required from a CLI script that is not in `phpstan.neon`'s paths and would
  * have to be loaded behind a constant to keep it from running its own

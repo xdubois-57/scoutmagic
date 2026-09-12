@@ -69,7 +69,7 @@ class HtaccessExpiresTest extends TestCase
     public function testRootSourcesCarryNoExpiresRules(string $kind, string $path): void
     {
         $source = $kind === 'generated'
-            ? \bootstrap_htaccess_content()
+            ? \bootstrapHtaccessContent()
             : (string) file_get_contents(dirname(__DIR__, 2) . '/' . $path);
 
         $this->assertStringNotContainsString('ExpiresByType', $source);

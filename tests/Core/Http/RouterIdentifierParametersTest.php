@@ -46,8 +46,8 @@ class RouterIdentifierParametersTest extends TestCase
     {
         $cases = [];
 
-        foreach (\authz_routes() as $route) {
-            foreach (\authz_placeholders($route['path']) as $name) {
+        foreach (\authzRoutes() as $route) {
+            foreach (\authzPlaceholders($route['path']) as $name) {
                 if (!self::isIdentifierName($name)) {
                     continue;
                 }
@@ -86,7 +86,7 @@ class RouterIdentifierParametersTest extends TestCase
         $router->addRoute('GET', $path, \Tests\Core\Http\RouteMatchStub::class, 'index', 'public');
 
         $values = [];
-        foreach (\authz_placeholders($path) as $placeholder) {
+        foreach (\authzPlaceholders($path) as $placeholder) {
             $values[$placeholder] = '1';
         }
 
@@ -149,14 +149,14 @@ class RouterIdentifierParametersTest extends TestCase
     public function testTheHelpTopicIsNotNamedLikeAnIdentifier(): void
     {
         $helpRoutes = array_filter(
-            \authz_routes(),
+            \authzRoutes(),
             static fn (array $route): bool => str_starts_with($route['path'], '/aide/')
         );
 
         $this->assertNotEmpty($helpRoutes);
 
         foreach ($helpRoutes as $route) {
-            foreach (\authz_placeholders($route['path']) as $name) {
+            foreach (\authzPlaceholders($route['path']) as $name) {
                 $this->assertFalse(
                     self::isIdentifierName($name),
                     "{$route['path']} names a slug like a row identifier, so the router now refuses every real"

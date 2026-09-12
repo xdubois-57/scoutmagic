@@ -107,7 +107,7 @@ const AUTHZ_ROLES = ['public', 'identified', 'intendant', 'chief', 'admin', 'sup
 // they are. Both constants above are declared first because `const` at
 // file scope is evaluated in order, and main() reaches them.
 if (!defined('AUTHZ_SUPPORT_TEST')) {
-    authz_main($argv);
+    authzMain($argv);
 }
 
 /**
@@ -116,7 +116,7 @@ if (!defined('AUTHZ_SUPPORT_TEST')) {
  *
  * @param string[] $argv
  */
-function authz_main(array $argv): void
+function authzMain(array $argv): void
 {
     if (PHP_SAPI !== 'cli') {
         fwrite(STDERR, "authz-support.php is a CLI script.\n");
@@ -127,12 +127,12 @@ function authz_main(array $argv): void
 
     switch ($command) {
         case 'routes':
-            $groups = authz_fixtures();
+            $groups = authzFixtures();
             $out = [];
-            foreach (authz_routes() as $route) {
+            foreach (authzRoutes() as $route) {
                 $out[] = $route + [
-                    'placeholders' => authz_placeholders($route['path']),
-                    'concrete_path' => authz_concrete_path($route['path'], $groups),
+                    'placeholders' => authzPlaceholders($route['path']),
+                    'concrete_path' => authzConcretePath($route['path'], $groups),
                 ];
             }
             echo json_encode($out, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), "\n";
@@ -145,7 +145,7 @@ function authz_main(array $argv): void
                 fwrite(STDERR, "Usage: authz-support.php matrix <base-url> <report-path>\n");
                 exit(1);
             }
-            exit(authz_matrix($baseUrl, $reportPath));
+            exit(authzMatrix($baseUrl, $reportPath));
 
         default:
             fwrite(STDERR, "authz-support.php: unknown subcommand '{$command}'.\n");
@@ -156,7 +156,7 @@ function authz_main(array $argv): void
 /**
  * Whether $role satisfies $roleMin, by position on the ladder above.
  */
-function authz_has_access(string $role, string $roleMin): bool
+function authzHasAccess(string $role, string $roleMin): bool
 {
     $have = array_search($role, AUTHZ_ROLES, true);
     $need = array_search($roleMin, AUTHZ_ROLES, true);
@@ -175,9 +175,9 @@ function authz_has_access(string $role, string $roleMin): bool
  *
  * @return list<array{method: string, path: string, role_min: string, source: string}>
  */
-function authz_routes(): array
+function authzRoutes(): array
 {
-    return [...authz_core_routes(), ...authz_module_routes()];
+    return [...authzCoreRoutes(), ...authzModuleRoutes()];
 }
 
 /**
@@ -193,7 +193,7 @@ function authz_routes(): array
  *
  * @return list<array{method: string, path: string, role_min: string, source: string}>
  */
-function authz_core_routes(): array
+function authzCoreRoutes(): array
 {
     $file = AUTHZ_REPO_ROOT . '/public/index.php';
     $source = (string) file_get_contents($file);
@@ -213,13 +213,16 @@ function authz_core_routes(): array
     );
 
     if ($matched !== $present) {
-        fwrite(STDERR, sprintf(
-            "authz: public/index.php has %d addRoute() calls but only %d parsed.\n"
-            . "       A route written in an unfamiliar shape would be invisible to the matrix,\n"
-            . "       so this refuses to run rather than audit an incomplete list.\n",
-            $present,
-            $matched
-        ));
+        fwrite(
+            STDERR,
+            sprintf(
+                "authz: public/index.php has %d addRoute() calls but only %d parsed.\n"
+                . "       A route written in an unfamiliar shape would be invisible to the matrix,\n"
+                . "       so this refuses to run rather than audit an incomplete list.\n",
+                $present,
+                $matched
+            )
+        );
         exit(1);
     }
 
@@ -244,7 +247,7 @@ function authz_core_routes(): array
  *
  * @return list<array{method: string, path: string, role_min: string, source: string}>
  */
-function authz_module_routes(): array
+function authzModuleRoutes(): array
 {
     $routes = [];
 
@@ -282,7 +285,7 @@ function authz_module_routes(): array
  *
  * @return list<string>
  */
-function authz_placeholders(string $path): array
+function authzPlaceholders(string $path): array
 {
     preg_match_all('/\{([a-zA-Z_]+)\}/', $path, $matches);
 
@@ -294,7 +297,7 @@ function authz_placeholders(string $path): array
  *
  * @return array<string, array<string, string>>
  */
-function authz_fixtures(): array
+function authzFixtures(): array
 {
     $path = AUTHZ_REPO_ROOT . '/tests/dast/authz-fixtures.json';
     $decoded = json_decode((string) @file_get_contents($path), true);
@@ -323,7 +326,7 @@ function authz_fixtures(): array
  * @param array<string, array<string, string>> $groups
  * @return array<string, string>|null
  */
-function authz_fixture_group(string $routePath, array $groups): ?array
+function authzFixtureGroup(string $routePath, array $groups): ?array
 {
     $best = null;
     $bestLength = -1;
@@ -347,14 +350,14 @@ function authz_fixture_group(string $routePath, array $groups): ?array
  *
  * @param array<string, array<string, string>> $groups
  */
-function authz_concrete_path(string $routePath, array $groups): ?string
+function authzConcretePath(string $routePath, array $groups): ?string
 {
-    $placeholders = authz_placeholders($routePath);
+    $placeholders = authzPlaceholders($routePath);
     if ($placeholders === []) {
         return $routePath;
     }
 
-    $values = authz_fixture_group($routePath, $groups);
+    $values = authzFixtureGroup($routePath, $groups);
     if ($values === null) {
         return null;
     }
@@ -377,7 +380,7 @@ function authz_concrete_path(string $routePath, array $groups): ?string
  * **A silent request carries no verdict, and a retry cannot manufacture
  * one.** This gate replays 3,516 (route, role) pairs through one
  * single-worker `php -S`, and one of them once came back with a header
- * block that held no status line — which authz_http_once() reports as
+ * block that held no status line — which authzHttpOnce() reports as
  * "no answer" and which the caller then counts as UNREACHABLE, never as
  * "reached". Retrying it is therefore not a way of getting past a
  * refusal: a route that reliably kills the connection stays silent on
@@ -392,11 +395,11 @@ function authz_concrete_path(string $routePath, array $groups): ?string
  * @return array{status: int, content_type: string, location: string, cookie: ?string}|null
  *         null on a transport failure (including a timeout), on both tries
  */
-function authz_http(string $url, string $method, ?string $cookie, ?string $jsonBody = null, int $timeout = 15): ?array
+function authzHttp(string $url, string $method, ?string $cookie, ?string $jsonBody = null, int $timeout = 15): ?array
 {
-    $response = authz_http_once($url, $method, $cookie, $jsonBody, $timeout);
+    $response = authzHttpOnce($url, $method, $cookie, $jsonBody, $timeout);
 
-    return $response ?? authz_http_once($url, $method, $cookie, $jsonBody, $timeout);
+    return $response ?? authzHttpOnce($url, $method, $cookie, $jsonBody, $timeout);
 }
 
 /**
@@ -409,7 +412,7 @@ function authz_http(string $url, string $method, ?string $cookie, ?string $jsonB
  * @return array{status: int, content_type: string, location: string, cookie: ?string}|null
  *         null on a transport failure (including a timeout)
  */
-function authz_http_once(
+function authzHttpOnce(
     string $url,
     string $method,
     ?string $cookie,
@@ -480,7 +483,7 @@ function authz_http_once(
     }
 
     // No status line means no answer, exactly like a refused connection.
-    // It used to fall through as status 0, which authz_was_denied() reads
+    // It used to fall through as status 0, which authzWasDenied() reads
     // as "not denied" and the caller then prints as REACHED BY A ROLE
     // THAT MAY NOT — the loudest line this tool has, for a route that had
     // in fact said nothing at all. A verdict is a status code or it is
@@ -503,7 +506,7 @@ function authz_http_once(
  * without it and would otherwise fail here for a reason that looks like
  * a wrong password.
  */
-function authz_login(string $baseUrl, string $email, string $password): ?string
+function authzLogin(string $baseUrl, string $email, string $password): ?string
 {
     $context = stream_context_create([
         'http' => ['method' => 'GET', 'timeout' => 15, 'ignore_errors' => true, 'follow_location' => 0],
@@ -525,12 +528,17 @@ function authz_login(string $baseUrl, string $email, string $password): ?string
         return null;
     }
 
-    $response = authz_http($baseUrl . '/login/password', 'POST', $cookie, json_encode([
-        'email' => $email,
-        'password' => $password,
-        'rgpd_consent' => true,
-        '_csrf_token' => $m[1],
-    ]) ?: '');
+    $response = authzHttp(
+        $baseUrl . '/login/password',
+        'POST',
+        $cookie,
+        json_encode([
+            'email' => $email,
+            'password' => $password,
+            'rgpd_consent' => true,
+            '_csrf_token' => $m[1],
+        ]) ?: ''
+    );
 
     if ($response === null) {
         return null;
@@ -556,7 +564,7 @@ function authz_login(string $baseUrl, string $email, string $password): ?string
  *
  * @param array{status: int, content_type: string, location: string, cookie: ?string} $response
  */
-function authz_was_denied(array $response): bool
+function authzWasDenied(array $response): bool
 {
     if ($response['status'] === 302) {
         return preg_match('#(^|//[^/]*)/login(\?|$)#', $response['location']) === 1;
@@ -573,7 +581,7 @@ function authz_was_denied(array $response): bool
  *
  * @return array<string, array{email: string, password: string}>
  */
-function authz_credentials(): array
+function authzCredentials(): array
 {
     $prefixes = [
         'identified' => 'E2E_MEMBER',
@@ -612,7 +620,7 @@ function authz_credentials(): array
  *
  * @return array<string, ?string> role => session cookie (null for public)
  */
-function authz_sessions(string $baseUrl): array
+function authzSessions(string $baseUrl): array
 {
     // One route per role that the role below it may NOT reach. Chosen
     // from the inventory rather than invented: each is a real page whose
@@ -627,21 +635,24 @@ function authz_sessions(string $baseUrl): array
 
     $sessions = ['public' => null];
 
-    foreach (authz_credentials() as $role => $credentials) {
-        $cookie = authz_login($baseUrl, $credentials['email'], $credentials['password']);
+    foreach (authzCredentials() as $role => $credentials) {
+        $cookie = authzLogin($baseUrl, $credentials['email'], $credentials['password']);
         if ($cookie === null) {
             fwrite(STDERR, "authz: could not sign in as '{$role}' ({$credentials['email']}).\n");
             exit(1);
         }
 
-        $response = authz_http($baseUrl . $proof[$role], 'GET', $cookie);
-        if ($response === null || authz_was_denied($response)) {
-            fwrite(STDERR, sprintf(
-                "authz: signed in as '%s' but %s was refused — the session does not carry that role.\n"
-                . "       A matrix run from here would check nothing and still come back green.\n",
-                $role,
-                $proof[$role]
-            ));
+        $response = authzHttp($baseUrl . $proof[$role], 'GET', $cookie);
+        if ($response === null || authzWasDenied($response)) {
+            fwrite(
+                STDERR,
+                sprintf(
+                    "authz: signed in as '%s' but %s was refused — the session does not carry that role.\n"
+                    . "       A matrix run from here would check nothing and still come back green.\n",
+                    $role,
+                    $proof[$role]
+                )
+            );
             exit(1);
         }
 
@@ -656,14 +667,14 @@ function authz_sessions(string $baseUrl): array
  *
  * @return int the process exit code
  */
-function authz_matrix(string $baseUrl, string $reportPath): int
+function authzMatrix(string $baseUrl, string $reportPath): int
 {
     $baseUrl = rtrim($baseUrl, '/');
-    $groups = authz_fixtures();
-    $routes = authz_routes();
+    $groups = authzFixtures();
+    $routes = authzRoutes();
 
     echo "authz: signing in as each role.\n";
-    $sessions = authz_sessions($baseUrl);
+    $sessions = authzSessions($baseUrl);
 
     echo 'authz: replaying ' . count($routes) . ' routes as ' . count($sessions) . " roles.\n";
 
@@ -673,7 +684,7 @@ function authz_matrix(string $baseUrl, string $reportPath): int
     $checked = 0;
 
     foreach ($routes as $route) {
-        $path = authz_concrete_path($route['path'], $groups);
+        $path = authzConcretePath($route['path'], $groups);
         if ($path === null) {
             // Cannot happen with a green AuthorizationMatrixInventoryTest,
             // and is fatal rather than skipped if it ever does: a route
@@ -684,7 +695,7 @@ function authz_matrix(string $baseUrl, string $reportPath): int
         }
 
         foreach ($sessions as $role => $cookie) {
-            $response = authz_http(
+            $response = authzHttp(
                 $baseUrl . $path,
                 $route['method'],
                 $cookie,
@@ -697,8 +708,8 @@ function authz_matrix(string $baseUrl, string $reportPath): int
             }
 
             $checked++;
-            $reached = !authz_was_denied($response);
-            $shouldReach = authz_has_access($role, $route['role_min']);
+            $reached = !authzWasDenied($response);
+            $shouldReach = authzHasAccess($role, $route['role_min']);
 
             if ($reached && !$shouldReach) {
                 $overPermissive[] = sprintf(

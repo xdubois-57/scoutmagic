@@ -76,7 +76,7 @@ RewriteRule ^ index.php [QSA,L]
 # semantics — their types (image/webp, application/pdf, video/*) are
 # deliberately absent from this list.
 #
-# The type list is pinned to bootstrap_htaccess_content()'s copy by
+# The type list is pinned to bootstrapHtaccessContent()'s copy by
 # Tests\Bootstrap\HtaccessCompressionTest so the two cannot drift.
 # mod_deflate is not universal on shared hosting, so this degrades
 # silently when it is absent, like the rest of this file.

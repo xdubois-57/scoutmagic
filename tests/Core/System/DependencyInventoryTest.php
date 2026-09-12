@@ -42,13 +42,13 @@ class DependencyInventoryTest extends TestCase
             ],
         ];
 
-        $rows = \inventory_composer_packages($lock, 'packages');
+        $rows = \inventoryComposerPackages($lock, 'packages');
 
         $this->assertSame(['alpha/lib', 'no/licence', 'zeta/lib'], array_keys($rows), 'sorted by name, malformed entry dropped');
         $this->assertSame('1.2.3', $rows['alpha/lib']['version']);
         $this->assertSame('LGPL-2.1 / MIT', $rows['alpha/lib']['licence']);
         $this->assertSame('**non déclarée**', $rows['no/licence']['licence']);
-        $this->assertSame([], \inventory_composer_packages($lock, 'packages-dev'));
+        $this->assertSame([], \inventoryComposerPackages($lock, 'packages-dev'));
     }
 
     public function testNpmPackagesAreOnlyTheOnesTheManifestAsksFor(): void
@@ -59,7 +59,7 @@ class DependencyInventoryTest extends TestCase
             'node_modules/transitive' => ['version' => '9.9.9', 'license' => 'MIT'],
         ]];
 
-        $rows = \inventory_npm_packages($manifest, $lock);
+        $rows = \inventoryNpmPackages($manifest, $lock);
 
         $this->assertSame(['ghost', 'vitest'], array_keys($rows), 'the transitive tree is not listed');
         $this->assertSame('3.2.7', $rows['vitest']['version']);
@@ -78,7 +78,7 @@ class DependencyInventoryTest extends TestCase
      */
     public function testEveryVendoredLibraryInTheRepositoryIsDeclaredAndReadable(): void
     {
-        $rows = \inventory_vendored_libraries(self::repoRoot() . '/public/assets/vendor');
+        $rows = \inventoryVendoredLibraries(self::repoRoot() . '/public/assets/vendor');
 
         $this->assertNotSame([], $rows);
         foreach ($rows as $name => $row) {
@@ -99,7 +99,7 @@ class DependencyInventoryTest extends TestCase
         file_put_contents($dir . '/leaflet/leaflet.js', "/* @preserve\n * Leaflet 1.9.4, a JS library\n */\n!function(){}");
 
         try {
-            $rows = \inventory_vendored_libraries($dir);
+            $rows = \inventoryVendoredLibraries($dir);
         } finally {
             unlink($dir . '/leaflet/leaflet.js');
             rmdir($dir . '/leaflet');
@@ -120,12 +120,12 @@ class DependencyInventoryTest extends TestCase
         try {
             $this->assertSame(
                 '**version illisible dans la bannière**',
-                \inventory_banner_version($file, '/Chart\.js v([0-9]+\.[0-9]+\.[0-9]+)/')
+                \inventoryBannerVersion($file, '/Chart\.js v([0-9]+\.[0-9]+\.[0-9]+)/')
             );
         } finally {
             unlink($file);
         }
-        $this->assertStringContainsString('introuvable', \inventory_banner_version('/nonexistent/chart.js', '/x/'));
+        $this->assertStringContainsString('introuvable', \inventoryBannerVersion('/nonexistent/chart.js', '/x/'));
     }
 
     /**
@@ -137,7 +137,7 @@ class DependencyInventoryTest extends TestCase
      */
     public function testEveryLicenceActuallyShippedHasAWrittenVerdict(): void
     {
-        $output = \inventory_render(self::repoRoot());
+        $output = \inventoryRender(self::repoRoot());
 
         $this->assertStringNotContainsString('À examiner', $output, 'a licence in composer.lock, package-lock.json or a vendored banner has no entry in INVENTORY_LICENCE_COMPATIBILITY');
         $this->assertStringNotContainsString('non déclarée', $output, 'a shipped package declares no licence');
@@ -146,7 +146,7 @@ class DependencyInventoryTest extends TestCase
 
     public function testAnUnknownLicenceIsFlaggedInTheCompatibilityTable(): void
     {
-        $table = \inventory_compatibility_table([
+        $table = \inventoryCompatibilityTable([
             'a/b' => ['version' => '1', 'licence' => 'MIT'],
             'c/d' => ['version' => '1', 'licence' => 'MIT / WTFPL'],
             'e/f' => ['version' => '1', 'licence' => '**non déclarée**'],
@@ -167,22 +167,22 @@ class DependencyInventoryTest extends TestCase
      */
     public function testAnSpdxChoiceTakesAnOperandAndSaysWhichOne(): void
     {
-        $verdict = \inventory_licence_verdict('MIT OR Apache-2.0');
+        $verdict = \inventoryLicenceVerdict('MIT OR Apache-2.0');
 
         $this->assertStringContainsString('Au choix', $verdict);
         $this->assertStringContainsString('**MIT**', $verdict, 'the operand taken is named, because taking one is a decision');
         $this->assertStringNotContainsString('À examiner', $verdict);
 
         // One acceptable operand is enough — that is what OR means.
-        $this->assertStringContainsString('**MIT**', \inventory_licence_verdict('MIT OR NoSuchLicence-1.0'));
-        $this->assertStringContainsString('**MIT**', \inventory_licence_verdict('NoSuchLicence-1.0 OR MIT'));
+        $this->assertStringContainsString('**MIT**', \inventoryLicenceVerdict('MIT OR NoSuchLicence-1.0'));
+        $this->assertStringContainsString('**MIT**', \inventoryLicenceVerdict('NoSuchLicence-1.0 OR MIT'));
         // None acceptable is still unknown.
-        $this->assertStringContainsString('À examiner', \inventory_licence_verdict('NoSuchLicence-1.0 OR OtherUnknown-2.0'));
+        $this->assertStringContainsString('À examiner', \inventoryLicenceVerdict('NoSuchLicence-1.0 OR OtherUnknown-2.0'));
     }
 
     public function testAnSpdxConjunctionNeedsEveryOperandClassified(): void
     {
-        $both = \inventory_licence_verdict('(MIT AND ISC)');
+        $both = \inventoryLicenceVerdict('(MIT AND ISC)');
 
         $this->assertStringContainsString('Toutes les conditions', $both);
         $this->assertStringContainsString('**MIT**', $both);
@@ -191,7 +191,7 @@ class DependencyInventoryTest extends TestCase
 
         // One unknown operand makes the whole obligation unknown: AND
         // imposes every one of them at once.
-        $this->assertStringContainsString('À examiner', \inventory_licence_verdict('MIT AND NoSuchLicence-1.0'));
+        $this->assertStringContainsString('À examiner', \inventoryLicenceVerdict('MIT AND NoSuchLicence-1.0'));
     }
 
     /**
@@ -201,7 +201,7 @@ class DependencyInventoryTest extends TestCase
      */
     public function testAMixedSpdxExpressionIsRaisedRatherThanGuessedAt(): void
     {
-        $verdict = \inventory_licence_verdict('(MIT OR GPL-3.0-only) AND ISC');
+        $verdict = \inventoryLicenceVerdict('(MIT OR GPL-3.0-only) AND ISC');
 
         $this->assertStringContainsString('À examiner', $verdict);
         $this->assertStringContainsString('composée', $verdict);
@@ -214,7 +214,7 @@ class DependencyInventoryTest extends TestCase
      */
     public function testTheRenderedInventoryCoversEverySurface(): void
     {
-        $output = \inventory_render(self::repoRoot());
+        $output = \inventoryRender(self::repoRoot());
 
         $this->assertStringStartsWith('## Dépendances livrées', $output);
         $this->assertMatchesRegularExpression('/### PHP — production \(\d+\)/', $output);
@@ -234,7 +234,7 @@ class DependencyInventoryTest extends TestCase
     public function testAMissingLockFileRefusesRatherThanPrintingAPartialInventory(): void
     {
         $this->expectException(\RuntimeException::class);
-        \inventory_render(sys_get_temp_dir() . '/no-such-repository-' . bin2hex(random_bytes(4)));
+        \inventoryRender(sys_get_temp_dir() . '/no-such-repository-' . bin2hex(random_bytes(4)));
     }
 
     /**
@@ -250,7 +250,7 @@ class DependencyInventoryTest extends TestCase
         try {
             $this->expectException(\RuntimeException::class);
             $this->expectExceptionMessage('is not valid JSON');
-            \inventory_read_json($file);
+            \inventoryReadJson($file);
         } finally {
             unlink($file);
         }
@@ -264,8 +264,8 @@ class DependencyInventoryTest extends TestCase
      */
     public function testAnAbsentOrMalformedComposerSectionIsEmptyRatherThanFatal(): void
     {
-        $this->assertSame([], \inventory_composer_packages([], 'packages-dev'));
-        $this->assertSame([], \inventory_composer_packages(['packages' => 'not-a-list'], 'packages'));
+        $this->assertSame([], \inventoryComposerPackages([], 'packages-dev'));
+        $this->assertSame([], \inventoryComposerPackages(['packages' => 'not-a-list'], 'packages'));
     }
 
     /**
@@ -274,10 +274,10 @@ class DependencyInventoryTest extends TestCase
      */
     public function testAnEmptyTableSaysSoRatherThanRenderingAHeaderWithNoRows(): void
     {
-        $this->assertSame("_Aucune._\n", \inventory_table([], '_Aucune._'));
+        $this->assertSame("_Aucune._\n", \inventoryTable([], '_Aucune._'));
         $this->assertStringContainsString(
             '| `a/b` | 1.0.0 | MIT |',
-            \inventory_table(['a/b' => ['version' => '1.0.0', 'licence' => 'MIT']], '_Aucune._')
+            \inventoryTable(['a/b' => ['version' => '1.0.0', 'licence' => 'MIT']], '_Aucune._')
         );
     }
 

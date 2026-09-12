@@ -8,15 +8,11 @@ declare(strict_types=1);
 
 namespace Core\Notification\Task;
 
-use Core\Mail\Template\EmailTemplateOverrideRepository;
-use Core\Mail\Template\EmailTemplateRegistry;
-use Core\Mail\Template\EmailTemplateRenderer;
-use Core\Notification\NotificationMailer;
+use Core\Notification\NotificationMailerFactory;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
-use Core\View\TwigFactory;
 
 /**
  * Fan-out for the email half of Core\Notification\NotificationService::
@@ -52,28 +48,21 @@ class SendNotificationEmailsHandler implements TaskHandlerInterface
             return;
         }
 
-        // Built here rather than injected, so `public/index.php` and
-        // `public/cron.php` cannot end up with different answers — the
-        // same reason Modules\Calendar's reminder handler builds its own
-        // (§8.17's create_backup lesson). Core templates only: a
-        // notification's email body is core's, whatever module declared
-        // the type.
-        // The renderer is built here too, and deliberately with the CORE
-        // registry only: a notification's e-mail body is core's, whatever
-        // module declared the type, so there is no module manifest to
-        // aggregate on this path. A customisation of it is still honoured
-        // — that lives in the database, not in a manifest.
-        $mailer = new NotificationMailer(
+        // Asked for rather than built, and the reason it was built here
+        // survives the change: `public/index.php` and `public/cron.php`
+        // must not end up with different answers (§8.17's create_backup
+        // lesson). What guarantees that is ONE construction site, not
+        // this particular one — and an immediate e-mail (issue #296)
+        // needs a mailer where no handler is running, so the site moved
+        // into Core\Notification\NotificationMailerFactory, which that
+        // path and this one both ask. Its docblock carries the rest,
+        // including why the renderer knows the core registry only.
+        $mailer = (new NotificationMailerFactory(
             $context->mailService,
-            new EmailTemplateRenderer(
-                TwigFactory::create(dirname(__DIR__, 3) . '/core/View/templates'),
-                new EmailTemplateRegistry(),
-                new EmailTemplateOverrideRepository($context->connection->getPdo()),
-                $context->journal
-            ),
-            (string) ($context->settings->get('site_name') ?: 'Unité scoute'),
-            (string) ($context->settings->get('base_url') ?? '')
-        );
+            $context->connection->getPdo(),
+            $context->settings,
+            $context->journal
+        ))->create();
 
         $deadline = microtime(true) + self::TIME_BUDGET_SECONDS;
         $attempted = $context->notifications->sendEmailsForNotifications(

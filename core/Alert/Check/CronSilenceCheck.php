@@ -35,22 +35,29 @@ use Core\Scheduler\CronHealth;
  * than a notification would, and an installation mid-setup has no
  * super-admin to notify yet.
  *
- * **What this alert can and cannot reach, stated because the limit is
- * structural and not obvious.** When it fires, the in-app notification and
- * the attention point work normally — and somebody IS on the site, since
- * that is what made the check run. What does not arrive on time is the
- * push and the e-mail: `Core\Notification\NotificationService::dispatch()`
- * never sends either synchronously, it schedules `core/send_notifications`
- * and `core/send_notification_emails`, and that queue is drained by
- * `public/cron.php` — the very cron being reported dead. The off-site
- * channels therefore wait behind the failure they describe and arrive as
- * old news when it is fixed.
+ * **This is also the check that could not reach anybody off-site, and the
+ * limit was structural.** `Core\Notification\NotificationService::
+ * dispatch()` used to queue push and e-mail without exception —
+ * `core/send_notifications` and `core/send_notification_emails` — and that
+ * queue is drained by `public/cron.php`, the very cron being reported
+ * dead. The two channels that exist for an administrator who is NOT
+ * visiting waited behind the failure they described, and arrived, if at
+ * all, as old news about a cron somebody had already repaired by hand.
  *
- * That is the wrong way round for the one check built for an
- * administrator who is *not* visiting, and closing it needs a synchronous
- * delivery path `NotificationService` does not have. Issue #296 carries
- * it; nothing here works around it, because a second way to send a
- * notification is exactly the kind of shortcut that outlives its excuse.
+ * Closed by issue #296, and closed in the notification layer rather than
+ * here: `core.operational_alert` declares
+ * `NotificationType::$deliversImmediately`, so this alert's push and mail
+ * leave during the dispatch itself. Nothing in `Core\Alert` sends
+ * anything — a second way to send a notification, outside the registry
+ * that decides channels and recipients, is exactly the kind of shortcut
+ * that outlives its excuse.
+ *
+ * What that buys is bounded, and worth stating. The e-mail leaves from
+ * the request that ran this check, so it needs a working mail transport
+ * and nothing else; a push held back by the recipient's quiet hours is
+ * still scheduled, and still waits for the cron. The in-app notification
+ * and the attention point work throughout — and somebody IS on the site,
+ * since that is what made the check run.
  */
 final class CronSilenceCheck implements OperationalCheck
 {

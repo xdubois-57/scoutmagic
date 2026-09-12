@@ -23,7 +23,7 @@ require_once dirname(__DIR__, 2) . '/bootstrap/bootstrap.php';
  *     root, so `public/.htaccess` IS the root one.
  *   - Layout B ("single-tree") keeps everything under one root and
  *     bootstrap.php writes its own `.htaccess` there
- *     (`bootstrap_htaccess_content()`), which is what forwards a static
+ *     (`bootstrapHtaccessContent()`), which is what forwards a static
  *     request into `public/`.
  *
  * Miss either and half the installed base is uncovered, which is exactly
@@ -58,7 +58,7 @@ class StaticAssetHeadersTest extends TestCase
     private function source(string $kind, string $path): string
     {
         if ($kind === 'generated') {
-            return \bootstrap_htaccess_content();
+            return \bootstrapHtaccessContent();
         }
 
         return (string) file_get_contents(dirname(__DIR__, 2) . '/' . $path);

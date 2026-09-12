@@ -85,4 +85,28 @@ class NotificationRoleWiringTest extends TestCase
             . ' and silently drops the staff of the year being prepared.'
         );
     }
+
+    /**
+     * The same §8.17 failure mode, one collaborator later again — and
+     * this one degrades in the direction nobody would notice.
+     *
+     * Without the factory, dispatch() cannot send an e-mail during the
+     * call and falls back to the queue, which is correct for every type
+     * but the one that declares itself immediate: an operational alert
+     * (issue #296) would go back to waiting behind the cron it is
+     * reporting dead. The entry point missing it would keep working
+     * perfectly in every other respect, and the symptom would be an
+     * e-mail that arrives late on some alerts and not others depending
+     * on whether a page view or the crontab raised them.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('entryPoints')]
+    public function testBothEntryPointsGiveItTheMailerFactory(string $file): void
+    {
+        $this->assertStringContainsString(
+            'NotificationMailerFactory',
+            self::notificationServiceConstruction($file),
+            $file . ' must pass a NotificationMailerFactory, or an alert that declares immediate delivery'
+            . ' silently queues its e-mail behind the scheduler it exists to report on.'
+        );
+    }
 }
