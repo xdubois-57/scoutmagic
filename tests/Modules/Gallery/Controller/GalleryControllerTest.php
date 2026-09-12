@@ -23,7 +23,7 @@ use Modules\Gallery\Controller\GalleryController;
 use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\MediaRepository;
-use Modules\Gallery\Repository\S3SecretRepository;
+use Modules\Gallery\Repository\ObjectStorageSecretRepository;
 use Modules\Gallery\Repository\StorageLocation;
 use Modules\Gallery\Repository\StorageLocationRepository;
 use Modules\Gallery\Api\DelegatedAlbumAccessChecker;
@@ -88,7 +88,7 @@ class GalleryControllerTest extends TestCase
         $this->storageBackendFactory = $this->createMock(StorageBackendFactory::class);
         $this->storageLocationService = new StorageLocationService(
             $this->storageLocationRepository, $this->albumRepository, $this->storageBackendFactory, $settingService,
-            new S3SecretRepository($this->pdo, $encryption), sys_get_temp_dir()
+            new ObjectStorageSecretRepository($this->pdo, $encryption), sys_get_temp_dir()
         );
 
         $uploadHandler = new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir());
@@ -337,7 +337,7 @@ class GalleryControllerTest extends TestCase
      * is world-readable and defeats the access control. That invariant was
      * only enforced at creation time — a superadmin adding an s3_public_url
      * to the location afterwards silently turned the short-lived presign
-     * into a permanent, unauthenticated link (S3StorageBackend::url()
+     * into a permanent, unauthenticated link (ObjectStorageBackend::url()
      * ignores the TTL when a public URL is set). Re-asserted where the bytes
      * are handed out.
      */
@@ -387,7 +387,7 @@ class GalleryControllerTest extends TestCase
     public function testServeMediaOnDelegatedAlbumUsesAShorterPresignTtlThanTheOrdinaryDefault(): void
     {
         // Module spec: the delegated TTL must be short — distinct from and
-        // shorter than S3StorageBackend::url()'s ordinary +1 hour default.
+        // shorter than ObjectStorageBackend::url()'s ordinary +1 hour default.
         $locationId = $this->createPrivateS3Location();
         $albumId = $this->createDelegatedAlbum($locationId);
         $mediaId = $this->createDoneMedia($albumId);

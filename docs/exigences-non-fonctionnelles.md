@@ -47,9 +47,9 @@ cross-family cap. The 2 GiB row above assumes that cap holds.
 point rather than an oversight: a unit keeping five years of gallery
 online needs a plan sized for it, or it keeps fewer years online, or it
 moves the gallery to object storage
-(`Modules\Gallery\Service\Storage\S3StorageBackend`). Saying so is what
-makes the disk block on Configuration > Maintenance worth reading — and
-the declared quota worth filling in.
+(`Modules\Gallery\Service\Storage\ObjectStorageBackend`). Saying so is
+what makes the disk block on Configuration > Maintenance worth reading —
+and the declared quota worth filling in.
 
 Past the ceiling the site is not expected to fail — it is expected to get
 slow in the way §2 describes, and that is the signal to revisit the search

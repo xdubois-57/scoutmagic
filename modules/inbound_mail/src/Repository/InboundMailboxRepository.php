@@ -264,7 +264,7 @@ class InboundMailboxRepository
      * `INSERT ... ON DUPLICATE KEY UPDATE`, which SQLite does not
      * understand and which would make this the one repository its own tests
      * could not exercise. Same convention as
-     * `Modules\Gallery\Repository\S3SecretRepository`.
+     * `Modules\Gallery\Repository\ObjectStorageSecretRepository`.
      */
     public function saveCursor(FolderCursor $cursor): void
     {

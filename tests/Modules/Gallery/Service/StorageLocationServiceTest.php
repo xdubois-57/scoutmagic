@@ -9,7 +9,7 @@ use Core\Config\SettingService;
 use Core\Security\EncryptionService;
 use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
-use Modules\Gallery\Repository\S3SecretRepository;
+use Modules\Gallery\Repository\ObjectStorageSecretRepository;
 use Modules\Gallery\Repository\StorageLocation;
 use Modules\Gallery\Repository\StorageLocationRepository;
 use Modules\Gallery\Service\Storage\StorageBackendFactory;
@@ -28,7 +28,7 @@ class StorageLocationServiceTest extends TestCase
     private StorageLocationRepository $storageLocationRepository;
     private AlbumRepository $albumRepository;
     private SettingService $settingService;
-    private S3SecretRepository $legacyS3SecretRepository;
+    private ObjectStorageSecretRepository $legacyS3SecretRepository;
     private StorageLocationService $service;
     private string $storagePath;
     private int $scoutYearId;
@@ -43,7 +43,7 @@ class StorageLocationServiceTest extends TestCase
         $this->storageLocationRepository = new StorageLocationRepository($this->pdo, $encryption);
         $this->albumRepository = new AlbumRepository($this->pdo);
         $this->settingService = new SettingService(new SettingRepository($this->pdo));
-        $this->legacyS3SecretRepository = new S3SecretRepository($this->pdo, $encryption);
+        $this->legacyS3SecretRepository = new ObjectStorageSecretRepository($this->pdo, $encryption);
         $this->storagePath = sys_get_temp_dir() . '/gallery_storage_location_test_' . uniqid();
         mkdir($this->storagePath, 0755, true);
         $storageBackendFactory = new StorageBackendFactory($this->storageLocationRepository, $this->storagePath);
@@ -133,7 +133,7 @@ class StorageLocationServiceTest extends TestCase
 
     /**
      * `lastCheckError` is rendered on the gallery configuration page, and
-     * checkNow() used to store S3StorageBackend::testConnection()'s return
+     * checkNow() used to store ObjectStorageBackend::testConnection()'s return
      * value straight from the AWS SDK — "Error executing \"HeadBucket\" …
      * AWS HTTP error: cURL error 7", endpoint and request id included.
      */

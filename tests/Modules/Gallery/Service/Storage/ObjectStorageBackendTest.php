@@ -10,12 +10,12 @@ use Aws\MockHandler;
 use Aws\Result;
 use Aws\S3\S3Client;
 use GuzzleHttp\Psr7\Utils;
-use Modules\Gallery\Service\Storage\S3StorageBackend;
+use Modules\Gallery\Service\Storage\ObjectStorageBackend;
 use PHPUnit\Framework\TestCase;
 
-class S3StorageBackendTest extends TestCase
+class ObjectStorageBackendTest extends TestCase
 {
-    private function backendWithMockClient(MockHandler $mock): S3StorageBackend
+    private function backendWithMockClient(MockHandler $mock): ObjectStorageBackend
     {
         $client = new S3Client([
             'version' => 'latest',
@@ -24,7 +24,7 @@ class S3StorageBackendTest extends TestCase
             'handler' => $mock,
         ]);
 
-        return new S3StorageBackend(
+        return new ObjectStorageBackend(
             'https://s3.example.org', 'us-east-1', 'scoutmagic', 'access', 'secret', null, $client
         );
     }
@@ -217,7 +217,7 @@ class S3StorageBackendTest extends TestCase
         // own "Endpoint" — pasting it verbatim (instead of the account/
         // region-level endpoint) must not end up referencing the bucket
         // twice once path-style addressing appends it again.
-        $backend = new S3StorageBackend(
+        $backend = new ObjectStorageBackend(
             'https://scoutmagic.s3.fr-par.scw.cloud',
             'fr-par',
             'scoutmagic',
@@ -238,7 +238,7 @@ class S3StorageBackendTest extends TestCase
      */
     public function testStableUrlIsIdenticalAcrossMintsAndDiffersFromFreshMints(): void
     {
-        $backend = new S3StorageBackend(
+        $backend = new ObjectStorageBackend(
             'https://s3.fr-par.scw.cloud',
             'fr-par',
             'scoutmagic',
@@ -263,7 +263,7 @@ class S3StorageBackendTest extends TestCase
 
     public function testStableUrlUsesThePublicUrlWhenOneIsConfigured(): void
     {
-        $backend = new S3StorageBackend(
+        $backend = new ObjectStorageBackend(
             'https://s3.fr-par.scw.cloud',
             'fr-par',
             'scoutmagic',
@@ -280,7 +280,7 @@ class S3StorageBackendTest extends TestCase
 
     public function testUrlKeepsARegionLevelEndpointUnchanged(): void
     {
-        $backend = new S3StorageBackend(
+        $backend = new ObjectStorageBackend(
             'https://s3.fr-par.scw.cloud',
             'fr-par',
             'scoutmagic',
@@ -297,21 +297,21 @@ class S3StorageBackendTest extends TestCase
     {
         // Must match what url() actually renders in an <img src> exactly —
         // this is what gets allowed in the CSP img-src directive.
-        $origin = S3StorageBackend::servingOrigin('https://scoutmagic.s3.fr-par.scw.cloud', 'scoutmagic', null);
+        $origin = ObjectStorageBackend::servingOrigin('https://scoutmagic.s3.fr-par.scw.cloud', 'scoutmagic', null);
 
         $this->assertSame('https://s3.fr-par.scw.cloud', $origin);
     }
 
     public function testServingOriginPrefersThePublicUrlWhenConfigured(): void
     {
-        $origin = S3StorageBackend::servingOrigin('https://s3.fr-par.scw.cloud', 'scoutmagic', 'https://cdn.example.org/photos');
+        $origin = ObjectStorageBackend::servingOrigin('https://s3.fr-par.scw.cloud', 'scoutmagic', 'https://cdn.example.org/photos');
 
         $this->assertSame('https://cdn.example.org', $origin);
     }
 
     public function testServingOriginReturnsNullForAnUnparseableEndpoint(): void
     {
-        $origin = S3StorageBackend::servingOrigin('', 'scoutmagic', null);
+        $origin = ObjectStorageBackend::servingOrigin('', 'scoutmagic', null);
 
         $this->assertNull($origin);
     }

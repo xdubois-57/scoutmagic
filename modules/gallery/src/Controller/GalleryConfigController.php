@@ -24,9 +24,9 @@ use Modules\Gallery\Service\AlbumService;
 use Modules\Gallery\Service\DelegatedAlbumDescriberRegistry;
 use Modules\Gallery\Service\FfmpegAvailability;
 use Modules\Gallery\Api\GalleryException;
-use Modules\Gallery\Service\S3ErrorExplainerService;
-use Modules\Gallery\Service\S3TestFailure;
-use Modules\Gallery\Service\Storage\S3StorageBackend;
+use Modules\Gallery\Service\ObjectStorageErrorExplainerService;
+use Modules\Gallery\Service\ObjectStorageTestFailure;
+use Modules\Gallery\Service\Storage\ObjectStorageBackend;
 use Modules\Gallery\Service\StorageLocationService;
 use Twig\Environment;
 
@@ -63,7 +63,7 @@ class GalleryConfigController extends AbstractController
         private SettingService $settingService,
         private FfmpegAvailability $ffmpegAvailability,
         private JournalService $journalService,
-        private S3ErrorExplainerService $s3ErrorExplainerService,
+        private ObjectStorageErrorExplainerService $s3ErrorExplainerService,
         private StorageLocationService $storageLocationService,
         private StorageLocationRepository $storageLocationRepository,
         private AlbumService $albumService,
@@ -215,7 +215,7 @@ class GalleryConfigController extends AbstractController
                 . 'publique.'], 422);
         }
 
-        $backend = new S3StorageBackend(
+        $backend = new ObjectStorageBackend(
             $endpoint,
             (string) ($data['region'] ?? ''),
             (string) ($data['bucket'] ?? ''),
@@ -225,7 +225,7 @@ class GalleryConfigController extends AbstractController
 
         $error = $backend->testConnection();
         if ($error === null) {
-            S3TestFailure::forget();
+            ObjectStorageTestFailure::forget();
 
             return $this->json(['success' => true]);
         }
@@ -243,7 +243,7 @@ class GalleryConfigController extends AbstractController
             ['bucket' => (string) ($data['bucket'] ?? ''), 'sdk_error' => $backend->lastTechnicalError()],
             (int) AuthSession::getUserAccountId()
         );
-        S3TestFailure::remember($summary, $backend->lastTechnicalError());
+        ObjectStorageTestFailure::remember($summary, $backend->lastTechnicalError());
 
         return $this->json(['success' => false, 'error' => $summary], 422);
     }
@@ -268,7 +268,7 @@ class GalleryConfigController extends AbstractController
         // diagnose — and a string the browser supplies is a string that
         // goes into a model's prompt having been through a page the admin
         // can edit.
-        $failure = S3TestFailure::read();
+        $failure = ObjectStorageTestFailure::read();
         if ($failure === null) {
             return $this->json([
                 'success' => false,

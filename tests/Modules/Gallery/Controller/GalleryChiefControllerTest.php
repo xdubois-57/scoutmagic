@@ -22,7 +22,7 @@ use Modules\Gallery\Controller\GalleryChiefController;
 use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\MediaRepository;
-use Modules\Gallery\Repository\S3SecretRepository;
+use Modules\Gallery\Repository\ObjectStorageSecretRepository;
 use Modules\Gallery\Repository\StorageLocation;
 use Modules\Gallery\Repository\StorageLocationRepository;
 use Modules\Gallery\Service\AlbumService;
@@ -87,7 +87,7 @@ class GalleryChiefControllerTest extends TestCase
         $storageBackendFactory = $this->createMock(StorageBackendFactory::class);
         $storageLocationService = new StorageLocationService(
             $storageLocationRepository, $this->albumRepository, $storageBackendFactory, $settingService,
-            new S3SecretRepository($this->pdo, $encryption), sys_get_temp_dir()
+            new ObjectStorageSecretRepository($this->pdo, $encryption), sys_get_temp_dir()
         );
 
         $schedulerService = new SchedulerService(new SchedulerRepository($this->pdo));

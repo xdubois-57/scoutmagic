@@ -231,8 +231,8 @@
                 // only ever had the French summary, which says « vérifiez
                 // vos identifiants » for half a dozen distinct mistakes;
                 // the provider's own words are what diagnose it, and they
-                // stay server-side (Service\S3TestFailure) rather than
-                // being handed to the page and handed back.
+                // stay server-side (Service\ObjectStorageTestFailure)
+                // rather than being handed to the page and handed back.
             }).then(function (res) {
                 explainBtn.disabled = false;
                 if (isNetworkFailure(res)) {

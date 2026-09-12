@@ -80,7 +80,7 @@ class FormationLevelMappingRepository
 
         // Portable insert-or-update: no MySQL-only ON DUPLICATE KEY, since
         // this repository is exercised against SQLite in the tests (same
-        // reason as Modules\Gallery\Repository\S3SecretRepository::set()).
+        // reason as Modules\Gallery\Repository\ObjectStorageSecretRepository::set()).
         $exists = $pdo->prepare('SELECT 1 FROM leadership_formation_levels WHERE raw_value_key = ?');
         $exists->execute([$key]);
 

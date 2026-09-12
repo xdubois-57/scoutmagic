@@ -17,7 +17,7 @@ use Core\Security\Role;
 use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\MediaRepository;
-use Modules\Gallery\Repository\S3SecretRepository;
+use Modules\Gallery\Repository\ObjectStorageSecretRepository;
 use Modules\Gallery\Repository\StorageLocationRepository;
 use Modules\Gallery\Service\FfmpegAvailability;
 use Modules\Gallery\Service\GalleryAccessService;
@@ -62,7 +62,7 @@ class GalleryMemberQueryServiceTest extends TestCase
         $settingService->method('get')->willReturnCallback(fn($key, $module, $default) => $default);
         $storageLocationService = new StorageLocationService(
             $storageLocationRepository, $this->albumRepository, $storageBackendFactory, $settingService,
-            new S3SecretRepository($this->pdo, $encryption), sys_get_temp_dir()
+            new ObjectStorageSecretRepository($this->pdo, $encryption), sys_get_temp_dir()
         );
         $mediaService = new MediaService(
             $mediaRepository, $this->albumRepository, new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir()),

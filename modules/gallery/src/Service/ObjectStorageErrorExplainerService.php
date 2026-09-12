@@ -22,7 +22,7 @@ use Modules\LlmConnector\Api\LlmTier;
  * about credential-shaped mistakes (e.g. a truncated or swapped key)
  * without ever exposing the actual secret to a third-party API.
  */
-class S3ErrorExplainerService
+class ObjectStorageErrorExplainerService
 {
     public function __construct(private ?LlmConnectorInterface $llmConnector = null)
     {

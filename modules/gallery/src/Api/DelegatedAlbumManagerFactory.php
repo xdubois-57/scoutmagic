@@ -21,7 +21,7 @@ use Core\Scheduler\TaskContext;
 use Core\Import\MemberYearRepository;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\MediaRepository;
-use Modules\Gallery\Repository\S3SecretRepository;
+use Modules\Gallery\Repository\ObjectStorageSecretRepository;
 use Modules\Gallery\Repository\StorageLocationRepository;
 use Modules\Gallery\Service\DelegatedAlbumService;
 use Modules\Gallery\Service\FfmpegAvailability;
@@ -74,7 +74,7 @@ final class DelegatedAlbumManagerFactory
             $albumRepository,
             $storageBackendFactory,
             $context->settings,
-            new S3SecretRepository($pdo, $context->encryption),
+            new ObjectStorageSecretRepository($pdo, $context->encryption),
             $context->storagePath
         );
 

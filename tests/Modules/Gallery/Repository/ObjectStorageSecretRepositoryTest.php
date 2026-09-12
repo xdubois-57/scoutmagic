@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Tests\Modules\Gallery\Repository;
 
 use Core\Security\EncryptionService;
-use Modules\Gallery\Repository\S3SecretRepository;
+use Modules\Gallery\Repository\ObjectStorageSecretRepository;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Gallery\GalleryTestHelper;
@@ -14,16 +14,16 @@ use Tests\Modules\Gallery\GalleryTestHelper;
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
-class S3SecretRepositoryTest extends TestCase
+class ObjectStorageSecretRepositoryTest extends TestCase
 {
-    private S3SecretRepository $repository;
+    private ObjectStorageSecretRepository $repository;
 
     protected function setUp(): void
     {
         $pdo = DatabaseTestHelper::createTestDatabase();
         GalleryTestHelper::createTables($pdo);
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
-        $this->repository = new S3SecretRepository($pdo, $encryption);
+        $this->repository = new ObjectStorageSecretRepository($pdo, $encryption);
     }
 
     public function testGetReturnsNullWhenNeverSet(): void
