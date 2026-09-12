@@ -213,8 +213,10 @@ class ReactionController extends AbstractController
                 return null;
             }
 
-            return $this->reactorListService?->forReply($reply->id,
-                $group->scoutYearId ?? $context->effectiveScoutYearId) ?? [];
+            return $this->reactorListService?->forReply(
+                $reply->id,
+                $group->scoutYearId ?? $context->effectiveScoutYearId
+            ) ?? [];
         });
     }
 

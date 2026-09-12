@@ -469,8 +469,14 @@ class PostController extends AbstractController
 
                 $edited = $this->postRepository->findById($post->id);
                 if ($edited !== null) {
-                    $this->notifyMentions($group, $edited->id, $edited->body, $edited->isHidden(), $context,
-                        $alreadyMentioned);
+                    $this->notifyMentions(
+                        $group,
+                        $edited->id,
+                        $edited->body,
+                        $edited->isHidden(),
+                        $context,
+                        $alreadyMentioned
+                    );
                 }
             }
 

@@ -258,13 +258,16 @@ class GeneralMailboxService
             // did not, so a consumer that files something « only ever by a
             // person » (Finance's receipts) saw nobody and took the
             // unattended route on every confirmation made here.
-            $consumer->onLinked($message, new \Modules\InboundMail\Api\MessageLink(
-                $candidate->consumerId,
-                $candidate->businessReference,
-                LinkOrigin::MANUAL,
-                $candidate->attachmentId,
-                $userAccountId
-            ));
+            $consumer->onLinked(
+                $message,
+                new \Modules\InboundMail\Api\MessageLink(
+                    $candidate->consumerId,
+                    $candidate->businessReference,
+                    LinkOrigin::MANUAL,
+                    $candidate->attachmentId,
+                    $userAccountId
+                )
+            );
         } catch (\Throwable) {
             // The association is already written. One module's bookkeeping
             // throwing must not undo a decision a person just made, nor

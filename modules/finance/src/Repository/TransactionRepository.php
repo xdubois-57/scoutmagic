@@ -265,13 +265,16 @@ class TransactionRepository
         );
         $stmt->execute([$accountId, $fiscalYearId]);
 
-        return array_map(fn(array $row) => [
-            'category_id' => $row['category_id'] !== null ? (int) $row['category_id'] : null,
-            'category_name' => $row['category_name'] !== null ? (string) $row['category_name'] : null,
-            'income' => (float) $row['income'],
-            'expense' => (float) $row['expense'],
-            'total' => (float) $row['total'],
-        ], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+        return array_map(
+            fn(array $row) => [
+                'category_id' => $row['category_id'] !== null ? (int) $row['category_id'] : null,
+                'category_name' => $row['category_name'] !== null ? (string) $row['category_name'] : null,
+                'income' => (float) $row['income'],
+                'expense' => (float) $row['expense'],
+                'total' => (float) $row['total'],
+            ],
+            $stmt->fetchAll(\PDO::FETCH_ASSOC)
+        );
     }
 
     /**

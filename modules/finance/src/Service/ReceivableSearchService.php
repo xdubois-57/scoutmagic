@@ -108,8 +108,11 @@ class ReceivableSearchService
         if ($needle !== '') {
             $rows = array_values(array_filter($rows, static fn(array $row): bool => self::matches($row, $needle)));
         } elseif ($nearAmountCents !== null) {
-            usort($rows, static fn(array $a, array $b): int => abs($a['remaining_cents'] - $nearAmountCents)
-                <=> abs($b['remaining_cents'] - $nearAmountCents));
+            usort(
+                $rows,
+                static fn(array $a, array $b): int => abs($a['remaining_cents'] - $nearAmountCents)
+                    <=> abs($b['remaining_cents'] - $nearAmountCents)
+            );
 
             return array_slice($rows, 0, self::LIMIT);
         }

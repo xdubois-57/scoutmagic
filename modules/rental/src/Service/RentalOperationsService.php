@@ -730,14 +730,17 @@ class RentalOperationsService
      */
     private function quoteFor(RentalBooking $booking, RentalAsset $asset): PriceQuote
     {
-        return $this->pricingService->quoteForAsset($asset->id, new PricingRequest(
-            arrivalDate: $booking->arrivalDate,
-            departureDate: $booking->departureDate,
-            persons: $booking->estimatedPersons ?? 0,
-            units: $booking->units,
-            rooms: 1,
-            renterCategoryId: $booking->renterCategoryId
-        ));
+        return $this->pricingService->quoteForAsset(
+            $asset->id,
+            new PricingRequest(
+                arrivalDate: $booking->arrivalDate,
+                departureDate: $booking->departureDate,
+                persons: $booking->estimatedPersons ?? 0,
+                units: $booking->units,
+                rooms: 1,
+                renterCategoryId: $booking->renterCategoryId
+            )
+        );
     }
 
     /**

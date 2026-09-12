@@ -190,14 +190,26 @@ class MergeService
             $this->places->archive($from->id, true);
 
             $this->audit->record(
-                PlaceService::ENTITY_TYPE, $to->id, 'name', null, $to->name, AuditSource::Human,
+                PlaceService::ENTITY_TYPE,
+                $to->id,
+                'name',
+                null,
+                $to->name,
+                AuditSource::Human,
                 sprintf('Fusion : %d séjour(s) repris depuis « %s »', $moved, $from->name),
-                null, $actorUserAccountId
+                null,
+                $actorUserAccountId
             );
             $this->audit->record(
-                PlaceService::ENTITY_TYPE, $from->id, 'name', $from->name, $to->name, AuditSource::Human,
+                PlaceService::ENTITY_TYPE,
+                $from->id,
+                'name',
+                $from->name,
+                $to->name,
+                AuditSource::Human,
                 'Lieu fusionné dans un autre et archivé',
-                null, $actorUserAccountId
+                null,
+                $actorUserAccountId
             );
 
             // What the AI wrote about either place describes stays that
@@ -260,9 +272,15 @@ class MergeService
             $this->camps->delete($from->id);
 
             $this->audit->record(
-                CampService::ENTITY_TYPE, $to->id, 'camp', null, null, AuditSource::Human,
+                CampService::ENTITY_TYPE,
+                $to->id,
+                'camp',
+                null,
+                null,
+                AuditSource::Human,
                 'Séjour fusionné depuis un autre — les valeurs remplacées sont reprises dans la note',
-                null, $actorUserAccountId
+                null,
+                $actorUserAccountId
             );
 
             // The place has one stay fewer, and the surviving one carries

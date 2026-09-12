@@ -124,22 +124,31 @@ class InvoiceController extends AbstractController
 
         $file = $request->getFile('invoice');
         if ($file === null || (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
-            return $this->render('@fees/invoice_import.html.twig', $this->formContext([
-                'upload_error' => 'Aucun fichier fourni, ou une erreur est survenue pendant le téléversement.',
-            ]));
+            return $this->render(
+                '@fees/invoice_import.html.twig',
+                $this->formContext([
+                    'upload_error' => 'Aucun fichier fourni, ou une erreur est survenue pendant le téléversement.',
+                ])
+            );
         }
 
         if ((int) ($file['size'] ?? 0) > self::MAX_BYTES) {
-            return $this->render('@fees/invoice_import.html.twig', $this->formContext([
-                'upload_error' => 'Ce fichier dépasse la taille maximale autorisée (20 Mo).',
-            ]));
+            return $this->render(
+                '@fees/invoice_import.html.twig',
+                $this->formContext([
+                    'upload_error' => 'Ce fichier dépasse la taille maximale autorisée (20 Mo).',
+                ])
+            );
         }
 
         $content = @file_get_contents((string) ($file['tmp_name'] ?? ''));
         if ($content === false) {
-            return $this->render('@fees/invoice_import.html.twig', $this->formContext([
-                'upload_error' => "Le fichier envoyé n'a pas pu être lu.",
-            ]));
+            return $this->render(
+                '@fees/invoice_import.html.twig',
+                $this->formContext([
+                    'upload_error' => "Le fichier envoyé n'a pas pu être lu.",
+                ])
+            );
         }
 
         $year = $this->effectiveYear();
@@ -205,10 +214,13 @@ class InvoiceController extends AbstractController
                 AuthSession::getUserAccountId()
             );
         } catch (\Throwable $e) {
-            FlashMessage::set('warning', UserFacingMessage::from(
-                $e,
-                "La facture a bien été importée, mais le PDF n'a pas pu être conservé dans Finances."
-            ));
+            FlashMessage::set(
+                'warning',
+                UserFacingMessage::from(
+                    $e,
+                    "La facture a bien été importée, mais le PDF n'a pas pu être conservé dans Finances."
+                )
+            );
         }
     }
 

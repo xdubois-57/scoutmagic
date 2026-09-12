@@ -729,8 +729,10 @@ class GroupController extends AbstractController
             GroupSessionContext $context
         ): Response {
             $this->membershipService?->close($group, $context->userAccountId);
-            FlashMessage::set('success',
-                'Le groupe est clôturé : il reste consultable, mais n\'accepte plus de nouvelle publication.');
+            FlashMessage::set(
+                'success',
+                'Le groupe est clôturé : il reste consultable, mais n\'accepte plus de nouvelle publication.'
+            );
 
             return $this->redirect('/groups/' . $group->id);
         });

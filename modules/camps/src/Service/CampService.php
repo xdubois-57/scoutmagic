@@ -113,8 +113,15 @@ class CampService
         // sections were set from the fact that no line ever set them.
         if ($values['section_ids'] !== []) {
             $this->audit->record(
-                self::ENTITY_TYPE, $id, 'sections', null, $describeSections($values['section_ids']),
-                $source, null, null, $actorUserAccountId
+                self::ENTITY_TYPE,
+                $id,
+                'sections',
+                null,
+                $describeSections($values['section_ids']),
+                $source,
+                null,
+                null,
+                $actorUserAccountId
             );
         }
 
@@ -150,29 +157,62 @@ class CampService
 
         $this->markPlaceSummaryStale($camp->placeId);
 
-        $this->recordChange($camp->id, 'stay_type',
-            CampLabels::stayType($camp->stayType), CampLabels::stayType($values['stay_type']),
-            $source, $actorUserAccountId);
-        $this->recordChange($camp->id, 'dates',
+        $this->recordChange(
+            $camp->id,
+            'stay_type',
+            CampLabels::stayType($camp->stayType),
+            CampLabels::stayType($values['stay_type']),
+            $source,
+            $actorUserAccountId
+        );
+        $this->recordChange(
+            $camp->id,
+            'dates',
             CampLabels::dateRange($camp->startDate, $camp->endDate, $camp->yearOnly),
             CampLabels::dateRange($values['start_date'], $values['end_date'], $values['year_only']),
-            $source, $actorUserAccountId);
-        $this->recordChange($camp->id, 'status',
-            CampLabels::status($camp->status), CampLabels::status($values['status']),
-            $source, $actorUserAccountId);
-        $this->recordChange($camp->id, 'price',
-            CampLabels::money($camp->priceCents), CampLabels::money($values['price_cents']),
-            $source, $actorUserAccountId);
-        $this->recordChange($camp->id, 'participants',
+            $source,
+            $actorUserAccountId
+        );
+        $this->recordChange(
+            $camp->id,
+            'status',
+            CampLabels::status($camp->status),
+            CampLabels::status($values['status']),
+            $source,
+            $actorUserAccountId
+        );
+        $this->recordChange(
+            $camp->id,
+            'price',
+            CampLabels::money($camp->priceCents),
+            CampLabels::money($values['price_cents']),
+            $source,
+            $actorUserAccountId
+        );
+        $this->recordChange(
+            $camp->id,
+            'participants',
             $camp->participantCount !== null ? (string) $camp->participantCount : null,
             $values['participant_count'] !== null ? (string) $values['participant_count'] : null,
-            $source, $actorUserAccountId);
-        $this->recordChange($camp->id, 'booked_by',
-            $camp->bookedByName, $values['booked_by_name'],
-            $source, $actorUserAccountId);
-        $this->recordChange($camp->id, 'sections',
-            $describeSections($camp->sectionIds), $describeSections($values['section_ids']),
-            $source, $actorUserAccountId);
+            $source,
+            $actorUserAccountId
+        );
+        $this->recordChange(
+            $camp->id,
+            'booked_by',
+            $camp->bookedByName,
+            $values['booked_by_name'],
+            $source,
+            $actorUserAccountId
+        );
+        $this->recordChange(
+            $camp->id,
+            'sections',
+            $describeSections($camp->sectionIds),
+            $describeSections($values['section_ids']),
+            $source,
+            $actorUserAccountId
+        );
     }
 
     /**

@@ -106,8 +106,11 @@ class OnCallService
         $lastOfMonth = $firstOfMonth->modify('last day of this month');
 
         $assignments = array_map(
-            fn(array $cell) => new OnCallAssignment((int) $cell['member_id'], (string) $cell['date'],
-                (string) $cell['state']),
+            fn(array $cell) => new OnCallAssignment(
+                (int) $cell['member_id'],
+                (string) $cell['date'],
+                (string) $cell['state']
+            ),
             $cells
         );
         $this->repository->replaceRange($firstOfMonth->format('Y-m-d'), $lastOfMonth->format('Y-m-d'), $assignments);
@@ -224,8 +227,10 @@ class OnCallService
         $lastOfMonth = $firstOfMonth->modify('last day of this month');
         $prevMonthLastDay = $firstOfMonth->modify('-1 day');
 
-        $monthAssignments = $this->repository->findForRange($firstOfMonth->format('Y-m-d'),
-            $lastOfMonth->format('Y-m-d'));
+        $monthAssignments = $this->repository->findForRange(
+            $firstOfMonth->format('Y-m-d'),
+            $lastOfMonth->format('Y-m-d')
+        );
         $byDate = [];
         foreach ($monthAssignments as $assignment) {
             $byDate[$assignment->date][] = $assignment;

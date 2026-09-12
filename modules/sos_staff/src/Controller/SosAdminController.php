@@ -438,8 +438,11 @@ class SosAdminController extends AbstractController
             if (!is_array($cell) || !isset($cell['member_id'], $cell['date'], $cell['state'])) {
                 continue;
             }
-            if (!in_array((string) $cell['state'],
-                [OnCallAssignment::STATE_ONCALL, OnCallAssignment::STATE_UNAVAILABLE], true)) {
+            if (!in_array(
+                (string) $cell['state'],
+                [OnCallAssignment::STATE_ONCALL, OnCallAssignment::STATE_UNAVAILABLE],
+                true
+            )) {
                 continue;
             }
 

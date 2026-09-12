@@ -330,8 +330,12 @@ class ReceivableAllocationService
         }
 
         if ($existing !== null) {
-            $this->allocationRepository->update($existing->id, $amountCents, ReceivableAllocation::SOURCE_MANUAL,
-                $actorUserAccountId);
+            $this->allocationRepository->update(
+                $existing->id,
+                $amountCents,
+                ReceivableAllocation::SOURCE_MANUAL,
+                $actorUserAccountId
+            );
             return;
         }
 
@@ -408,8 +412,12 @@ class ReceivableAllocationService
 
         $existing = $this->allocationRepository->findPair($transactionId, $receivableId);
         if ($existing !== null) {
-            $this->allocationRepository->update($existing->id, -$amountCents, ReceivableAllocation::SOURCE_MANUAL,
-                $actorUserAccountId);
+            $this->allocationRepository->update(
+                $existing->id,
+                -$amountCents,
+                ReceivableAllocation::SOURCE_MANUAL,
+                $actorUserAccountId
+            );
             return;
         }
 
@@ -805,8 +813,10 @@ class ReceivableAllocationService
         // Same predicate as every other finance page (Service\
         // AccountVisibility): section treasurers are partitioned here as
         // everywhere else, or the partition leaks through this door.
-        if (!$this->accountVisibility->isVisibleTo($this->accountRepository->findById($receivable->accountId),
-            $viewerRole)) {
+        if (!$this->accountVisibility->isVisibleTo(
+            $this->accountRepository->findById($receivable->accountId),
+            $viewerRole
+        )) {
             throw new FinanceException("Cette créance n'existe pas.");
         }
 

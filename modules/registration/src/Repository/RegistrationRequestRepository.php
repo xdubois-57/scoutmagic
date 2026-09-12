@@ -59,8 +59,12 @@ class RegistrationRequestRepository
             $fields['birth_date']
         ), 'registration_name_dob');
 
-        $addressNormalized = AddressNormalizer::normalize($fields['street'], $fields['number'], null,
-            $fields['postal_code']);
+        $addressNormalized = AddressNormalizer::normalize(
+            $fields['street'],
+            $fields['number'],
+            null,
+            $fields['postal_code']
+        );
         $addressBlind = $addressNormalized !== '' ? $this->encryption->blindIndex($addressNormalized, 'address') : null;
 
         // The request row and its sibling links are one single unit of work:
@@ -484,8 +488,10 @@ class RegistrationRequestRepository
     public function updateInternalNotes(int $id, ?string $notes): void
     {
         $stmt = $this->pdo->prepare('UPDATE registration_requests SET internal_notes_encrypted = ? WHERE id = ?');
-        $stmt->execute([$notes !== null && $notes !== '' ? $this->encryption->encrypt($notes,
-            'registration_requests.internal_notes') : null,
+        $stmt->execute([$notes !== null && $notes !== '' ? $this->encryption->encrypt(
+            $notes,
+            'registration_requests.internal_notes'
+        ) : null,
             $id]);
     }
 
@@ -613,10 +619,14 @@ class RegistrationRequestRepository
             id: (int) $row['id'],
             scoutYearId: (int) $row['scout_year_id'],
             parentName: $this->encryption->decrypt($row['parent_name_encrypted'], 'registration_requests.parent_name'),
-            childLastName: $this->encryption->decrypt($row['child_last_name_encrypted'],
-                'registration_requests.child_last_name'),
-            childFirstName: $this->encryption->decrypt($row['child_first_name_encrypted'],
-                'registration_requests.child_first_name'),
+            childLastName: $this->encryption->decrypt(
+                $row['child_last_name_encrypted'],
+                'registration_requests.child_last_name'
+            ),
+            childFirstName: $this->encryption->decrypt(
+                $row['child_first_name_encrypted'],
+                'registration_requests.child_first_name'
+            ),
             gender: $this->encryption->decrypt($row['gender_encrypted'], 'registration_requests.gender'),
             birthDate: $this->encryption->decrypt($row['birth_date_encrypted'], 'registration_requests.birth_date'),
             street: $this->encryption->decrypt($row['street_encrypted'], 'registration_requests.street'),

@@ -68,8 +68,12 @@ class MailFieldCompletionService
                     $filled[] = 'dates';
                 } else {
                     $this->proposals->save(
-                        $camp->id, 'dates', $current, $incoming,
-                        $range['start'] . '|' . $range['end'], $sourceReference
+                        $camp->id,
+                        'dates',
+                        $current,
+                        $incoming,
+                        $range['start'] . '|' . $range['end'],
+                        $sourceReference
                     );
                     $proposed[] = 'dates';
                 }
@@ -135,10 +139,15 @@ class MailFieldCompletionService
         // a proposal that cannot be applied is not worth offering twice.
         if (!$written) {
             $this->audit->record(
-                CampService::ENTITY_TYPE, $camp->id, $proposal->fieldKey,
-                $proposal->currentValue, $proposal->currentValue,
-                AuditSource::System, "Information du message inapplicable — proposition retirée",
-                $proposal->sourceReference, $actorUserAccountId
+                CampService::ENTITY_TYPE,
+                $camp->id,
+                $proposal->fieldKey,
+                $proposal->currentValue,
+                $proposal->currentValue,
+                AuditSource::System,
+                "Information du message inapplicable — proposition retirée",
+                $proposal->sourceReference,
+                $actorUserAccountId
             );
             $this->proposals->delete($proposal->id);
 
@@ -146,10 +155,15 @@ class MailFieldCompletionService
         }
 
         $this->audit->record(
-            CampService::ENTITY_TYPE, $camp->id, $proposal->fieldKey,
-            $proposal->currentValue, $proposal->proposedValue,
-            AuditSource::Email, 'Information du message acceptée',
-            $proposal->sourceReference, $actorUserAccountId
+            CampService::ENTITY_TYPE,
+            $camp->id,
+            $proposal->fieldKey,
+            $proposal->currentValue,
+            $proposal->proposedValue,
+            AuditSource::Email,
+            'Information du message acceptée',
+            $proposal->sourceReference,
+            $actorUserAccountId
         );
         $this->proposals->delete($proposal->id);
     }
@@ -162,10 +176,15 @@ class MailFieldCompletionService
     public function dismiss(FieldProposal $proposal, ?int $actorUserAccountId): void
     {
         $this->audit->record(
-            CampService::ENTITY_TYPE, $proposal->campId, $proposal->fieldKey,
-            $proposal->proposedValue, $proposal->currentValue,
-            AuditSource::Human, 'Information du message ignorée',
-            $proposal->sourceReference, $actorUserAccountId
+            CampService::ENTITY_TYPE,
+            $proposal->campId,
+            $proposal->fieldKey,
+            $proposal->proposedValue,
+            $proposal->currentValue,
+            AuditSource::Human,
+            'Information du message ignorée',
+            $proposal->sourceReference,
+            $actorUserAccountId
         );
         $this->proposals->delete($proposal->id);
     }
@@ -179,10 +198,15 @@ class MailFieldCompletionService
         $this->write($camp, ['start_date' => $range['start'], 'end_date' => $range['end'], 'year_only' => null]);
 
         $this->audit->record(
-            CampService::ENTITY_TYPE, $camp->id, 'dates',
+            CampService::ENTITY_TYPE,
+            $camp->id,
+            'dates',
             $before !== '' ? $before : null,
             CampLabels::dateRange($range['start'], $range['end'], null),
-            AuditSource::Email, 'Dates complétées depuis un message reçu', $sourceReference, null
+            AuditSource::Email,
+            'Dates complétées depuis un message reçu',
+            $sourceReference,
+            null
         );
     }
 
@@ -191,8 +215,15 @@ class MailFieldCompletionService
         $this->write($camp, ['price_cents' => $cents]);
 
         $this->audit->record(
-            CampService::ENTITY_TYPE, $camp->id, 'price', null, $formatted,
-            AuditSource::Email, 'Prix complété depuis un message reçu', $sourceReference, null
+            CampService::ENTITY_TYPE,
+            $camp->id,
+            'price',
+            null,
+            $formatted,
+            AuditSource::Email,
+            'Prix complété depuis un message reçu',
+            $sourceReference,
+            null
         );
     }
 

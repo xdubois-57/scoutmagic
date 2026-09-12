@@ -181,8 +181,10 @@ class ReenrollmentCampaignHandler implements TaskHandlerInterface
             $context->encryption,
             new \Core\Badge\MemberBadgeRepository($pdo)
         );
-        $requestRepository = new \Modules\Registration\Repository\RegistrationRequestRepository($pdo,
-            $context->encryption);
+        $requestRepository = new \Modules\Registration\Repository\RegistrationRequestRepository(
+            $pdo,
+            $context->encryption
+        );
 
         return new ReenrollmentCampaignService(
             $context->settings,

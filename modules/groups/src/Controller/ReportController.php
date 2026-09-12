@@ -342,9 +342,12 @@ class ReportController extends AbstractController
      */
     private function hideAction(Request $request, array $params, string $idKey, callable $hide): Response
     {
-        if (($guard = $this->guardCsrf($request, $request->getBody('return_to') === 'reports'
-            ? '/groups/' . (int) ($params['id'] ?? 0) . '/reports'
-            : '/groups/' . (int) ($params['id'] ?? 0))) !== null) {
+        if (($guard = $this->guardCsrf(
+            $request,
+            $request->getBody('return_to') === 'reports'
+                ? '/groups/' . (int) ($params['id'] ?? 0) . '/reports'
+                : '/groups/' . (int) ($params['id'] ?? 0)
+        )) !== null) {
             return $guard;
         }
 

@@ -48,8 +48,15 @@ class PlaceService
         );
 
         $this->audit->record(
-            self::ENTITY_TYPE, $id, 'name', null, $name, $source,
-            'Lieu créé', null, $actorUserAccountId
+            self::ENTITY_TYPE,
+            $id,
+            'name',
+            null,
+            $name,
+            $source,
+            'Lieu créé',
+            null,
+            $actorUserAccountId
         );
 
         return $id;
@@ -141,9 +148,15 @@ class PlaceService
 
         $this->places->setManualCoordinates($place->id, $latitude, $longitude);
         $this->audit->record(
-            self::ENTITY_TYPE, $place->id, 'coordinates', $before, $after, $source,
+            self::ENTITY_TYPE,
+            $place->id,
+            'coordinates',
+            $before,
+            $after,
+            $source,
             'Coordonnées saisies à la main — le géocodage automatique ne touchera plus ce lieu',
-            null, $actorUserAccountId
+            null,
+            $actorUserAccountId
         );
     }
 
@@ -202,8 +215,17 @@ class PlaceService
             return;
         }
 
-        $this->audit->record(self::ENTITY_TYPE, $placeId, $fieldKey, $from, $to, $source, null, null,
-            $actorUserAccountId);
+        $this->audit->record(
+            self::ENTITY_TYPE,
+            $placeId,
+            $fieldKey,
+            $from,
+            $to,
+            $source,
+            null,
+            null,
+            $actorUserAccountId
+        );
     }
 
     /**

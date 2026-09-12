@@ -192,10 +192,13 @@ class CampsMessageConsumer implements
         // what the chief's screen requires before it files anything.
         $campId = self::campIdFromReference(trim($query));
         if ($campId !== null && $this->camps->findById($campId) !== null) {
-            array_unshift($suggestions, new ReferenceSuggestion(
-                self::referenceFor($campId),
-                $this->describeReference(self::referenceFor($campId)) ?? self::referenceFor($campId)
-            ));
+            array_unshift(
+                $suggestions,
+                new ReferenceSuggestion(
+                    self::referenceFor($campId),
+                    $this->describeReference(self::referenceFor($campId)) ?? self::referenceFor($campId)
+                )
+            );
         }
 
         return array_slice($suggestions, 0, max(1, $limit));

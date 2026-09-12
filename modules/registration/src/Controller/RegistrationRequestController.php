@@ -378,8 +378,10 @@ class RegistrationRequestController extends AbstractController
         $linkedMemberYearId = null;
         if ($registrationRequest->linkedMemberId !== null) {
             $publicYear = $this->scoutYearResolver->getCurrentPublicYear();
-            $memberYear = $this->memberYearRepository->findByMemberAndYear($registrationRequest->linkedMemberId,
-                (int) $publicYear['id']);
+            $memberYear = $this->memberYearRepository->findByMemberAndYear(
+                $registrationRequest->linkedMemberId,
+                (int) $publicYear['id']
+            );
             $linkedMemberYearId = $memberYear['id'] ?? null;
         }
 

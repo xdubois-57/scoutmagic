@@ -167,8 +167,10 @@ class CampaignRowRepository
     {
         $mergeData = [];
         if (($row['merge_data'] ?? null) !== null) {
-            $decoded = json_decode($this->encryption->decrypt($row['merge_data'], 'finance_campaign_rows.merge_data'),
-                true);
+            $decoded = json_decode(
+                $this->encryption->decrypt($row['merge_data'], 'finance_campaign_rows.merge_data'),
+                true
+            );
             if (is_array($decoded)) {
                 foreach ($decoded as $header => $value) {
                     $mergeData[(string) $header] = (string) $value;

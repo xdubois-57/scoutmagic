@@ -25,13 +25,16 @@ class FinanceAccountService implements FinanceAccountInterface
             fn(Account $account) => $account->status === Account::STATUS_ACTIVE
         );
 
-        return array_values(array_map(fn(Account $account) => [
-            'id' => $account->id,
-            'name' => $account->name,
-            'iban' => $account->iban,
-            'holder_name' => $account->holderName,
-            'section_id' => $account->sectionId,
-        ], $accounts));
+        return array_values(array_map(
+            fn(Account $account) => [
+                'id' => $account->id,
+                'name' => $account->name,
+                'iban' => $account->iban,
+                'holder_name' => $account->holderName,
+                'section_id' => $account->sectionId,
+            ],
+            $accounts
+        ));
     }
 
     public function getDefaultAccountForSection(int $sectionId): ?int

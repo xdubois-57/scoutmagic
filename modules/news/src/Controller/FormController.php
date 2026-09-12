@@ -186,25 +186,48 @@ class FormController extends AbstractController
             (string) $request->getServer('REMOTE_ADDR', '')
         );
         if ($humanCheckResult !== null && !$humanCheckResult->accepted) {
-            return $this->rerenderFormWithError($request, $article, $form, $fields, $email, $scoutYearId,
-                'Une erreur est survenue. Veuillez réessayer.');
+            return $this->rerenderFormWithError(
+                $request,
+                $article,
+                $form,
+                $fields,
+                $email,
+                $scoutYearId,
+                'Une erreur est survenue. Veuillez réessayer.'
+            );
         }
 
         try {
             $response = $this->responseService->submit(
-                $article, $form, $fields, $accountId, $email, $scoutYearId,
+                $article,
+                $form,
+                $fields,
+                $accountId,
+                $email,
+                $scoutYearId,
                 (string) $request->getBody('contact_email', ''),
                 $this->extractAnswers($request, $fields),
                 $memberYearId
             );
         } catch (NewsException $e) {
-            return $this->rerenderFormWithError($request, $article, $form, $fields, $email, $scoutYearId,
-                $e->getMessage());
+            return $this->rerenderFormWithError(
+                $request,
+                $article,
+                $form,
+                $fields,
+                $email,
+                $scoutYearId,
+                $e->getMessage()
+            );
         }
 
         $this->journalService->log(
-            'news', 'form_response_submitted', 'info', "Réponse soumise pour l'article « {$article->title} »",
-            ['article_id' => $article->id, 'form_id' => $form->id, 'response_id' => $response->id], $accountId
+            'news',
+            'form_response_submitted',
+            'info',
+            "Réponse soumise pour l'article « {$article->title} »",
+            ['article_id' => $article->id, 'form_id' => $form->id, 'response_id' => $response->id],
+            $accountId
         );
 
         // Post/Redirect/Get. This used to RENDER the confirmation, so the
@@ -567,8 +590,10 @@ class FormController extends AbstractController
         $responses = array_map(
             static fn (array $row) => $row['response'],
             self::applyAudience(
-                self::applyFilter($this->filterableRows($form),
-                    self::normalizeFilter((string) $request->getBody('filter', self::FILTER_ALL))),
+                self::applyFilter(
+                    $this->filterableRows($form),
+                    self::normalizeFilter((string) $request->getBody('filter', self::FILTER_ALL))
+                ),
                 $audience
             )
         );
@@ -710,13 +735,18 @@ class FormController extends AbstractController
         // the list above it would be worse than no filter at all.
         $responses = array_map(
             static fn (array $row) => $row['response'],
-            self::applyFilter($this->filterableRows($form),
-                self::normalizeFilter((string) $request->getQuery('filter', self::FILTER_ALL)))
+            self::applyFilter(
+                $this->filterableRows($form),
+                self::normalizeFilter((string) $request->getQuery('filter', self::FILTER_ALL))
+            )
         );
         $xlsx = $this->buildXlsx($fields, $responses, $form);
 
         $this->journalService->log(
-            'news', 'form_responses_exported', 'info', "Export des réponses de l'article « {$article->title} »",
+            'news',
+            'form_responses_exported',
+            'info',
+            "Export des réponses de l'article « {$article->title} »",
             ['article_id' => $article->id, 'form_id' => $form->id, 'response_count' => count($responses)],
             (int) AuthSession::getUserAccountId()
         );
@@ -776,9 +806,10 @@ class FormController extends AbstractController
      */
     public function updateResponse(Request $request, array $params): Response
     {
-        if (($guard = $this->guardCsrf($request,
+        if (($guard = $this->guardCsrf(
+            $request,
             '/news/' . (int) ($params['id'] ?? 0) . '/form/responses/' . (int) ($params['response_id'] ?? 0) . '/edit'
-            )) !== null) {
+        )) !== null) {
             return $guard;
         }
 
@@ -799,10 +830,13 @@ class FormController extends AbstractController
 
         try {
             $this->responseService->update(
-                $response, $form, $fields,
+                $response,
+                $form,
+                $fields,
                 (string) $request->getBody('contact_email', ''),
                 $this->extractAnswers($request, $fields),
-                AuthSession::getEmail(), $scoutYearId
+                AuthSession::getEmail(),
+                $scoutYearId
             );
         } catch (NewsException $e) {
             $memberOptions = $form->access === NewsForm::ACCESS_IDENTIFIED
@@ -821,8 +855,12 @@ class FormController extends AbstractController
         }
 
         $this->journalService->log(
-            'news', 'form_response_updated', 'info', "Réponse modifiée pour l'article « {$article->title} »",
-            ['article_id' => $article->id, 'form_id' => $form->id, 'response_id' => $response->id], $accountId
+            'news',
+            'form_response_updated',
+            'info',
+            "Réponse modifiée pour l'article « {$article->title} »",
+            ['article_id' => $article->id, 'form_id' => $form->id, 'response_id' => $response->id],
+            $accountId
         );
 
         return $this->redirect('/news/' . $article->id);
@@ -942,8 +980,10 @@ class FormController extends AbstractController
             if ($field->isNonInput()) {
                 continue;
             }
-            $answers[$field->id] = $request->getBody('field_' . $field->id,
-                $field->fieldType === FormField::TYPE_CHECKBOX ? [] : '');
+            $answers[$field->id] = $request->getBody(
+                'field_' . $field->id,
+                $field->fieldType === FormField::TYPE_CHECKBOX ? [] : ''
+            );
         }
         return $answers;
     }

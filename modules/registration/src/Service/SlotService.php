@@ -82,8 +82,11 @@ class SlotService
         $seeded = 0;
         foreach ($this->ageBracketRepository->findAllOrdered() as $bracket) {
             for ($yearInBranch = 1; $yearInBranch <= $bracket->durationYears; $yearInBranch++) {
-                if ($this->slotCapacityRepository->insertIfMissing($bracket->ageBranchId, $yearInBranch,
-                    self::DEFAULT_CAPACITY)) {
+                if ($this->slotCapacityRepository->insertIfMissing(
+                    $bracket->ageBranchId,
+                    $yearInBranch,
+                    self::DEFAULT_CAPACITY
+                )) {
                     $seeded++;
                 }
             }
@@ -136,10 +139,16 @@ class SlotService
         int $currentScoutYearId
     ): array
     {
-        $availableThreshold = (float) $this->settingService->get('registration_waitlist_threshold_available',
-            'registration', '0.5');
-        $limitedThreshold = (float) $this->settingService->get('registration_waitlist_threshold_limited',
-            'registration', '0.1');
+        $availableThreshold = (float) $this->settingService->get(
+            'registration_waitlist_threshold_available',
+            'registration',
+            '0.5'
+        );
+        $limitedThreshold = (float) $this->settingService->get(
+            'registration_waitlist_threshold_limited',
+            'registration',
+            '0.1'
+        );
 
         $brackets = $this->ageBracketRepository->findAllOrdered();
         $capacities = $this->slotCapacityRepository->findAllAsMap();
@@ -278,10 +287,16 @@ class SlotService
         int $currentScoutYearId
     ): array
     {
-        $availableThreshold = (float) $this->settingService->get('registration_waitlist_threshold_available',
-            'registration', '0.5');
-        $limitedThreshold = (float) $this->settingService->get('registration_waitlist_threshold_limited',
-            'registration', '0.1');
+        $availableThreshold = (float) $this->settingService->get(
+            'registration_waitlist_threshold_available',
+            'registration',
+            '0.5'
+        );
+        $limitedThreshold = (float) $this->settingService->get(
+            'registration_waitlist_threshold_limited',
+            'registration',
+            '0.1'
+        );
 
         $brackets = $this->ageBracketRepository->findAllOrdered();
         $capacities = $this->slotCapacityRepository->findAllAsMap();
@@ -311,8 +326,12 @@ class SlotService
                     'projected' => $projectedCount,
                     'accepted' => $acceptedCount,
                     'remaining' => $remaining,
-                    'tier' => SlotMath::tierForRemaining($capacity, $remaining ?? 0, $availableThreshold,
-                        $limitedThreshold),
+                    'tier' => SlotMath::tierForRemaining(
+                        $capacity,
+                        $remaining ?? 0,
+                        $availableThreshold,
+                        $limitedThreshold
+                    ),
                 ];
             }
         }

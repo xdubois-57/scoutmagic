@@ -284,10 +284,16 @@ class ForecastService
                     ? $this->encryption->decrypt($row['birth_date_encrypted'], 'member_years.birth_date')
                     : null
             );
-            $currentAge = $this->memberYearService->getEffectiveAge($birthYear, (int) $row['scout_year_offset'],
-                $currentReferenceYear);
-            $projectedAge = $this->memberYearService->getEffectiveAge($birthYear, (int) $row['scout_year_offset'],
-                $targetReferenceYear);
+            $currentAge = $this->memberYearService->getEffectiveAge(
+                $birthYear,
+                (int) $row['scout_year_offset'],
+                $currentReferenceYear
+            );
+            $projectedAge = $this->memberYearService->getEffectiveAge(
+                $birthYear,
+                (int) $row['scout_year_offset'],
+                $targetReferenceYear
+            );
 
             // The decisive question is where they land NEXT year, never
             // where they sit today — a member held back by scout_year_offset
@@ -365,8 +371,12 @@ class ForecastService
         // section prévue (or "non attribués" when none is chosen). Never
         // 'encoded' requests (see class docblock) — the double-counting
         // guard is structural, not a runtime check.
-        $newRegistrations = $this->passageService->getNewRegistrations($targetYearId, $targetYearLabel,
-            $referenceMonthDay, $currentYearId);
+        $newRegistrations = $this->passageService->getNewRegistrations(
+            $targetYearId,
+            $targetYearLabel,
+            $referenceMonthDay,
+            $currentYearId
+        );
         foreach ($newRegistrations as $row) {
             $request = $row['request'];
 
@@ -471,8 +481,10 @@ class ForecastService
      */
     private function resolveBranchColorBySortOrder(int $sortOrder, array $allSections): string
     {
-        $branchSections = array_values(array_filter($allSections,
-            static fn(array $s) => $s['branch_sort_order'] === $sortOrder));
+        $branchSections = array_values(array_filter(
+            $allSections,
+            static fn(array $s) => $s['branch_sort_order'] === $sortOrder
+        ));
         if ($branchSections === []) {
             return MemberYearService::colorForBranchSortOrder($sortOrder);
         }
@@ -670,8 +682,11 @@ class ForecastService
             if ($row['birth_year'] !== null) {
                 $pyramid[$row['birth_year']] ??= ['male' => 0, 'female' => 0, 'other' => 0];
                 $pyramid[$row['birth_year']][$row['gender']]++;
-                $pyramidMax = max($pyramidMax, $pyramid[$row['birth_year']]['male'],
-                    $pyramid[$row['birth_year']]['female']);
+                $pyramidMax = max(
+                    $pyramidMax,
+                    $pyramid[$row['birth_year']]['male'],
+                    $pyramid[$row['birth_year']]['female']
+                );
             }
 
             // Every row that cannot land in a real section row is tallied

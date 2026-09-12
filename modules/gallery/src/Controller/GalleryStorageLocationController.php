@@ -89,7 +89,13 @@ class GalleryStorageLocationController extends AbstractController
                     StorageLocation::TYPE_LOCAL,
                     $label,
                     $this->normalizeSubdir($request->getBody('subdir')),
-                    null, null, null, null, null, null, null
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null
                 );
             }
         } catch (GalleryException $e) {
@@ -104,8 +110,12 @@ class GalleryStorageLocationController extends AbstractController
         }
 
         $this->journalService->log(
-            'gallery', 'storage_location_created', 'info', "Emplacement de stockage « {$label} » créé",
-            [], (int) AuthSession::getUserAccountId()
+            'gallery',
+            'storage_location_created',
+            'info',
+            "Emplacement de stockage « {$label} » créé",
+            [],
+            (int) AuthSession::getUserAccountId()
         );
 
         return $this->redirect('/config/gallery');
@@ -176,8 +186,16 @@ class GalleryStorageLocationController extends AbstractController
                 );
             } else {
                 $this->storageLocationRepository->update(
-                    $location->id, $label, $this->normalizeSubdir($request->getBody('subdir')),
-                    null, null, null, null, null, null, null
+                    $location->id,
+                    $label,
+                    $this->normalizeSubdir($request->getBody('subdir')),
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null
                 );
             }
         } catch (GalleryException $e) {
@@ -192,8 +210,12 @@ class GalleryStorageLocationController extends AbstractController
         }
 
         $this->journalService->log(
-            'gallery', 'storage_location_updated', 'info', "Emplacement de stockage « {$label} » modifié",
-            [], (int) AuthSession::getUserAccountId()
+            'gallery',
+            'storage_location_updated',
+            'info',
+            "Emplacement de stockage « {$label} » modifié",
+            [],
+            (int) AuthSession::getUserAccountId()
         );
 
         return $this->redirect('/config/gallery');
@@ -224,8 +246,12 @@ class GalleryStorageLocationController extends AbstractController
         }
 
         $this->journalService->log(
-            'gallery', 'storage_location_deleted', 'info', "Emplacement de stockage « {$location->label} » supprimé",
-            [], (int) AuthSession::getUserAccountId()
+            'gallery',
+            'storage_location_deleted',
+            'info',
+            "Emplacement de stockage « {$location->label} » supprimé",
+            [],
+            (int) AuthSession::getUserAccountId()
         );
 
         return $this->json(['success' => true]);
@@ -252,9 +278,13 @@ class GalleryStorageLocationController extends AbstractController
         $this->storageLocationRepository->setDefault($location->id);
 
         $this->journalService->log(
-            'gallery', 'storage_location_default_changed', 'info', "Emplacement de stockage « {$location->label} » "
+            'gallery',
+            'storage_location_default_changed',
+            'info',
+            "Emplacement de stockage « {$location->label} » "
                 . "défini par défaut",
-            [], (int) AuthSession::getUserAccountId()
+            [],
+            (int) AuthSession::getUserAccountId()
         );
 
         return $this->json(['success' => true]);

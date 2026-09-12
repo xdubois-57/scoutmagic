@@ -153,10 +153,13 @@ class IcsBuilder implements \Modules\Calendar\Api\IcsFeedBuilderInterface
         // (Core\Config\AppClock) — read as such and then converted, rather
         // than relabelled as UTC, which would put LAST-MODIFIED an hour or
         // two ahead of the change it describes.
-        $lines[] = $this->property('LAST-MODIFIED', $this->formatUtc(
-            $this->read($event->updatedAt, AppClock::zone())
-                ->setTimezone(new \DateTimeZone('UTC'))
-        ));
+        $lines[] = $this->property(
+            'LAST-MODIFIED',
+            $this->formatUtc(
+                $this->read($event->updatedAt, AppClock::zone())
+                    ->setTimezone(new \DateTimeZone('UTC'))
+            )
+        );
 
         $lines[] = 'END:VEVENT';
 
@@ -228,9 +231,12 @@ class IcsBuilder implements \Modules\Calendar\Api\IcsFeedBuilderInterface
         // the following week.
         $lines[] = $this->property('STATUS', $event->icsStatus());
         $lines[] = $this->property('SEQUENCE', (string) $event->sequence);
-        $lines[] = $this->property('LAST-MODIFIED', $this->formatUtc(
-            ($event->updatedAt ?? new \DateTimeImmutable('now'))->setTimezone(new \DateTimeZone('UTC'))
-        ));
+        $lines[] = $this->property(
+            'LAST-MODIFIED',
+            $this->formatUtc(
+                ($event->updatedAt ?? new \DateTimeImmutable('now'))->setTimezone(new \DateTimeZone('UTC'))
+            )
+        );
 
         $lines[] = 'END:VEVENT';
 

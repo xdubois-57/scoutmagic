@@ -557,14 +557,17 @@ class RentalBookingMailService
         array $context
     ): RenderedEmail
     {
-        $email = $this->emailTemplateRenderer->render($templateId, $context + [
-            'reference' => $booking->reference,
-            'asset_name' => $asset->name,
-            'renter_name' => $booking->renterName,
-            'arrival_date' => self::dateFr($booking->arrivalDate),
-            'departure_date' => self::dateFr($booking->departureDate),
-            'site_name' => $this->settingService->get('site_name') ?: 'Notre unité',
-        ]);
+        $email = $this->emailTemplateRenderer->render(
+            $templateId,
+            $context + [
+                'reference' => $booking->reference,
+                'asset_name' => $asset->name,
+                'renter_name' => $booking->renterName,
+                'arrival_date' => self::dateFr($booking->arrivalDate),
+                'departure_date' => self::dateFr($booking->departureDate),
+                'site_name' => $this->settingService->get('site_name') ?: 'Notre unité',
+            ]
+        );
 
         return new RenderedEmail(
             subject: $this->subjectFor($booking, $email->subject),

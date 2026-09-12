@@ -77,7 +77,10 @@ class SecondaryEmailService
         $this->sendConfirmationEmail($created->id, $normalized, $rawToken);
 
         $this->journalService->log(
-            'registration', 'registration_secondary_email_added', 'info', 'Adresse email secondaire ajoutée',
+            'registration',
+            'registration_secondary_email_added',
+            'info',
+            'Adresse email secondaire ajoutée',
             ['request_id' => $requestId, 'secondary_email_id' => $created->id]
         );
 
@@ -93,7 +96,10 @@ class SecondaryEmailService
         $this->repository->delete($emailId);
 
         $this->journalService->log(
-            'registration', 'registration_secondary_email_removed', 'info', 'Adresse email secondaire supprimée',
+            'registration',
+            'registration_secondary_email_removed',
+            'info',
+            'Adresse email secondaire supprimée',
             ['request_id' => $requestId, 'secondary_email_id' => $emailId]
         );
     }
@@ -123,7 +129,10 @@ class SecondaryEmailService
         $this->repository->markValid($emailId);
 
         $this->journalService->log(
-            'registration', 'registration_secondary_email_confirmed', 'info', 'Adresse email secondaire confirmée',
+            'registration',
+            'registration_secondary_email_confirmed',
+            'info',
+            'Adresse email secondaire confirmée',
             ['request_id' => $row->registrationRequestId, 'secondary_email_id' => $emailId]
         );
 
@@ -189,8 +198,12 @@ class SecondaryEmailService
         $email = $this->emailTemplateRenderer->render('registration.secondary_email_confirmation', $context);
 
         try {
-            $this->mailService->send(to: $to, subject: $email->subject, bodyHtml: $email->bodyHtml,
-                bodyText: $email->bodyText);
+            $this->mailService->send(
+                to: $to,
+                subject: $email->subject,
+                bodyHtml: $email->bodyHtml,
+                bodyText: $email->bodyText
+            );
         } catch (MailException) {
             // Best-effort, same rationale as the module's other emails —
             // the row is kept either way so the parent can be re-sent one.

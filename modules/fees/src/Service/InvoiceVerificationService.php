@@ -64,8 +64,11 @@ class InvoiceVerificationService
         $sectionLabels = $this->sectionLabels();
 
         return array_map(
-            fn(StoredInvoiceLine $line): ReconstitutedLine => $this->reconstitute($line, $snapshotMembers,
-                $sectionLabels),
+            fn(StoredInvoiceLine $line): ReconstitutedLine => $this->reconstitute(
+                $line,
+                $snapshotMembers,
+                $sectionLabels
+            ),
             $this->invoices->findLines($invoice->id)
         );
     }

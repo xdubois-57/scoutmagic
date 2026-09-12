@@ -115,10 +115,13 @@ class ImportController extends AbstractController
      */
     private function renderResult(array $context): Response
     {
-        return $this->render('@finance/import/result.html.twig', $context + [
-            'breadcrumb_trail' => [
-                ['label' => 'Importer', 'url' => '/finance/import'],
-            ],
-        ]);
+        return $this->render(
+            '@finance/import/result.html.twig',
+            $context + [
+                'breadcrumb_trail' => [
+                    ['label' => 'Importer', 'url' => '/finance/import'],
+                ],
+            ]
+        );
     }
 }

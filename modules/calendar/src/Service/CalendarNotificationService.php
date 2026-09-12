@@ -327,8 +327,11 @@ class CalendarNotificationService
 
     public function cancelActivityReminderForEvent(int $eventId): void
     {
-        $existing = $this->schedulerService->find(self::MODULE_ID, self::REMINDER_TASK_KEY,
-            $this->reminderReferenceFor($eventId));
+        $existing = $this->schedulerService->find(
+            self::MODULE_ID,
+            self::REMINDER_TASK_KEY,
+            $this->reminderReferenceFor($eventId)
+        );
         if ($existing !== null && $existing['status'] === 'pending') {
             $this->schedulerService->cancel((int) $existing['id']);
         }

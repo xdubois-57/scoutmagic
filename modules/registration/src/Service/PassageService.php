@@ -93,8 +93,10 @@ class PassageService
             $siblings = $siblingsByRequest[$request->id] ?? [];
 
             $sectionsInBranch = $slot !== null
-                ? array_values(array_filter($sections,
-                    static fn(array $s) => $s['age_branch_id'] === $slot['age_branch_id']))
+                ? array_values(array_filter(
+                    $sections,
+                    static fn(array $s) => $s['age_branch_id'] === $slot['age_branch_id']
+                ))
                 : [];
 
             $rows[] = [
@@ -168,8 +170,11 @@ class PassageService
                     ? $this->encryption->decrypt($row['birth_date_encrypted'], 'member_years.birth_date')
                     : null
             );
-            $effectiveAge = $memberYearService->getEffectiveAge($birthYear, (int) $row['scout_year_offset'],
-                $referenceYear);
+            $effectiveAge = $memberYearService->getEffectiveAge(
+                $birthYear,
+                (int) $row['scout_year_offset'],
+                $referenceYear
+            );
 
             // Only the last rank of a branch changes branch at all (and a
             // last-year Pionnier "ne passe nulle part") — one single

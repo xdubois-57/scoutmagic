@@ -295,8 +295,11 @@ class NewsController extends AbstractController
             // The form is no longer optional (usability review: "only the
             // form, with by default a bloc de texte") — every article
             // always gets one, saved together in this same POST.
-            $this->formService->save($article->id, $this->extractFormSettings($request, $visibility),
-                $this->extractFields($request));
+            $this->formService->save(
+                $article->id,
+                $this->extractFormSettings($request, $visibility),
+                $this->extractFields($request)
+            );
         } catch (NewsException $e) {
             return $this->render(
                 '@news/editor.html.twig',
@@ -305,8 +308,12 @@ class NewsController extends AbstractController
         }
 
         $this->journalService->log(
-            'news', 'article_created', 'info', "Article « {$article->title} » créé",
-            ['article_id' => $article->id], $accountId
+            'news',
+            'article_created',
+            'info',
+            "Article « {$article->title} » créé",
+            ['article_id' => $article->id],
+            $accountId
         );
 
         return $this->redirect('/news/' . $article->id . '/gerer');
@@ -365,8 +372,10 @@ class NewsController extends AbstractController
         // form starts issuing tickets, and only that direction. Lowering
         // the switch needs nothing — the tickets already issued stay
         // valid and stay scannable.
-        $startsIssuingTickets = $this->formService->willStartIssuingTickets($article->id,
-            (bool) $formSettings['issues_ticket']);
+        $startsIssuingTickets = $this->formService->willStartIssuingTickets(
+            $article->id,
+            (bool) $formSettings['issues_ticket']
+        );
 
         try {
             $imageFileId = $this->resolveUploadedImageFileId($request, $visibility, $accountId);
@@ -384,13 +393,19 @@ class NewsController extends AbstractController
 
             $form = $this->formService->save($article->id, $formSettings, $this->extractFields($request));
         } catch (NewsException $e) {
-            return $this->render('@news/editor.html.twig',
-                $this->editorErrorContext($article, $request, $e->getMessage()))->setStatusCode(422);
+            return $this->render(
+                '@news/editor.html.twig',
+                $this->editorErrorContext($article, $request, $e->getMessage())
+            )->setStatusCode(422);
         }
 
         $this->journalService->log(
-            'news', 'article_updated', 'info', "Article « {$article->title} » modifié",
-            ['article_id' => $article->id], $accountId
+            'news',
+            'article_updated',
+            'info',
+            "Article « {$article->title} » modifié",
+            ['article_id' => $article->id],
+            $accountId
         );
 
         if ($startsIssuingTickets) {
@@ -426,8 +441,12 @@ class NewsController extends AbstractController
         $this->articleService->delete($article->id);
 
         $this->journalService->log(
-            'news', 'article_deleted', 'info', "Article « {$article->title} » supprimé",
-            ['article_id' => $article->id], $accountId
+            'news',
+            'article_deleted',
+            'info',
+            "Article « {$article->title} » supprimé",
+            ['article_id' => $article->id],
+            $accountId
         );
 
         return $this->json(['success' => true]);
@@ -462,7 +481,11 @@ class NewsController extends AbstractController
         // the list card and social-share description, and short enough
         // that Core\Pdf\PosterPdfService's own truncation never kicks in.
         $pdf = $this->posterPdfService->generate(
-            $article->title, (string) $article->summary, $qrUrl, $shortName, $this->buildImageDataUri(
+            $article->title,
+            (string) $article->summary,
+            $qrUrl,
+            $shortName,
+            $this->buildImageDataUri(
                 $article->imageFileId
             )
         );
@@ -512,8 +535,10 @@ class NewsController extends AbstractController
                 ? $this->responseService->resolveMemberOptions($email, $scoutYearId)
                 : [];
             if ($form->responseLimit === NewsForm::RESPONSE_LIMIT_ONE_PER_MEMBER) {
-                $alreadyResponded = $this->responseService->hasAlreadyRespondedForAllMembers($form,
-                    array_keys($memberOptions));
+                $alreadyResponded = $this->responseService->hasAlreadyRespondedForAllMembers(
+                    $form,
+                    array_keys($memberOptions)
+                );
             } else {
                 $alreadyResponded = $this->responseService->hasAlreadyResponded($form, $accountId, null);
             }
@@ -886,8 +911,16 @@ class NewsController extends AbstractController
         $legacyBodyHtml = $fields === [] && $article !== null ? $this->articleService->getBodyHtml($article->id) : '';
 
         $draft = new FormField(
-            id: 0, formId: 0, sortOrder: 0, fieldType: FormField::TYPE_TEXT, label: null, isRequired: false,
-            optionsSource: null, optionsManual: null, capacityMax: null, pricePerUnit: null,
+            id: 0,
+            formId: 0,
+            sortOrder: 0,
+            fieldType: FormField::TYPE_TEXT,
+            label: null,
+            isRequired: false,
+            optionsSource: null,
+            optionsManual: null,
+            capacityMax: null,
+            pricePerUnit: null,
             confirmationText: $legacyBodyHtml !== '' ? $legacyBodyHtml : null
         );
 
@@ -1010,7 +1043,9 @@ class NewsController extends AbstractController
         );
 
         $this->journalService->log(
-            'news', 'tickets_backfilled', 'info',
+            'news',
+            'tickets_backfilled',
+            'info',
             'Billets générés pour les réponses déjà enregistrées d\'un formulaire',
             ['form_id' => $form->id, 'count' => count($issued)],
             $accountId

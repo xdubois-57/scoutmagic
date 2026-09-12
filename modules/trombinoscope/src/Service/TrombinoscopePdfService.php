@@ -185,19 +185,25 @@ class TrombinoscopePdfService
         $layout = (string) realpath(__DIR__ . '/../Pdf/TrombinoscopeHtmlBuilder.php');
         $layoutStat = $layout !== '' ? @stat($layout) : false;
 
-        $signature = hash('sha256', json_encode([
-            $scoutYearId,
-            $yearLabel,
-            $unitName,
-            $siteUrl,
-            $showContacts,
-            array_map(static fn(array $s): array => [
-                (int) $s['id'], $s['name'] ?? null, $s['desk_code'] ?? null, $s['branch_name'] ?? null,
-                $s['color'] ?? null, $s['email'] ?? null, $s['sort_order'] ?? null,
-            ], $sections),
-            $people,
-            $layoutStat !== false ? [$layoutStat['mtime'], $layoutStat['size']] : null,
-        ]));
+        $signature = hash(
+            'sha256',
+            json_encode([
+                $scoutYearId,
+                $yearLabel,
+                $unitName,
+                $siteUrl,
+                $showContacts,
+                array_map(
+                    static fn(array $s): array => [
+                        (int) $s['id'], $s['name'] ?? null, $s['desk_code'] ?? null, $s['branch_name'] ?? null,
+                        $s['color'] ?? null, $s['email'] ?? null, $s['sort_order'] ?? null,
+                    ],
+                    $sections
+                ),
+                $people,
+                $layoutStat !== false ? [$layoutStat['mtime'], $layoutStat['size']] : null,
+            ])
+        );
 
         return $this->cacheDirectory . '/trombinoscope/' . $scoutYearId . '-' . $signature . '.pdf';
     }

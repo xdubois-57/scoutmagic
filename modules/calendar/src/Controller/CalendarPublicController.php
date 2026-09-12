@@ -102,8 +102,12 @@ class CalendarPublicController extends AbstractController
 
         [$year, $month] = $this->resolveRequestedMonth($request->getQuery('month'));
 
-        $calendarIds = $this->calendarPickerService->resolveCalendarIdsForGrid($selectedCalendarId, $eligibleCalendars,
-            $email, $effectiveYear->id);
+        $calendarIds = $this->calendarPickerService->resolveCalendarIdsForGrid(
+            $selectedCalendarId,
+            $eligibleCalendars,
+            $email,
+            $effectiveYear->id
+        );
 
         $events = $this->calendarService->getEventsForGrid($year, $month, $calendarIds);
         $weeks = $this->monthGridBuilder->build($year, $month, $this->calendarService->toGridEvents($events));

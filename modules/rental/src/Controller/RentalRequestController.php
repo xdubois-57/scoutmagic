@@ -364,8 +364,10 @@ class RentalRequestController extends AbstractController
      */
     public function requestChange(Request $request, array $params): Response
     {
-        if (($guard = $this->guardCsrf($request,
-            '/locations/suivi/' . (int) ($params['id'] ?? 0) . '/' . (string) ($params['token'] ?? ''))) !== null) {
+        if (($guard = $this->guardCsrf(
+            $request,
+            '/locations/suivi/' . (int) ($params['id'] ?? 0) . '/' . (string) ($params['token'] ?? '')
+        )) !== null) {
             return $guard;
         }
 
@@ -420,8 +422,10 @@ class RentalRequestController extends AbstractController
      */
     public function decideProposal(Request $request, array $params): Response
     {
-        if (($guard = $this->guardCsrf($request,
-            '/locations/suivi/' . (int) ($params['id'] ?? 0) . '/' . (string) ($params['token'] ?? ''))) !== null) {
+        if (($guard = $this->guardCsrf(
+            $request,
+            '/locations/suivi/' . (int) ($params['id'] ?? 0) . '/' . (string) ($params['token'] ?? '')
+        )) !== null) {
             return $guard;
         }
 

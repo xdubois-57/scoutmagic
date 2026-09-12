@@ -124,8 +124,15 @@ class CampAlbumService
         }
 
         $this->audit->record(
-            CampService::ENTITY_TYPE, $camp->id, 'photos', null, null,
-            AuditSource::Human, 'Photo ajoutée', null, $accountId
+            CampService::ENTITY_TYPE,
+            $camp->id,
+            'photos',
+            null,
+            null,
+            AuditSource::Human,
+            'Photo ajoutée',
+            null,
+            $accountId
         );
     }
 
@@ -142,8 +149,15 @@ class CampAlbumService
         }
 
         $this->audit->record(
-            CampService::ENTITY_TYPE, $camp->id, 'photos', null, null,
-            AuditSource::Human, 'Photo supprimée', null, $accountId
+            CampService::ENTITY_TYPE,
+            $camp->id,
+            'photos',
+            null,
+            null,
+            AuditSource::Human,
+            'Photo supprimée',
+            null,
+            $accountId
         );
     }
 
