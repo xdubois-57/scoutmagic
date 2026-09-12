@@ -283,14 +283,17 @@ class CalendarService implements
         );
         $labels = $this->labelsByCalendarId();
 
-        return array_map(fn(CalendarEvent $e) => new EventSummary(
-            id: $e->id,
-            title: $e->title,
-            calendarName: $labels[$e->calendarId] ?? 'Calendrier',
-            startDate: $e->startDate,
-            endDate: $e->endDate ?? $e->startDate,
-            description: $e->description
-        ), $events);
+        return array_map(
+            fn(CalendarEvent $e) => new EventSummary(
+                id: $e->id,
+                title: $e->title,
+                calendarName: $labels[$e->calendarId] ?? 'Calendrier',
+                startDate: $e->startDate,
+                endDate: $e->endDate ?? $e->startDate,
+                description: $e->description
+            ),
+            $events
+        );
     }
 
     /**

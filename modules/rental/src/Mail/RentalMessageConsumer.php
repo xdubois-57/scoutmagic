@@ -371,8 +371,11 @@ class RentalMessageConsumer implements
         }
         $picked = $this->modelChoice?->choose($message->subject . "\n" . $message->bodyText, $options);
         if ($picked !== null) {
-            usort($shortlist, static fn(RentalBooking $a, RentalBooking $b): int
-                => ($a->reference === $picked ? 0 : 1) <=> ($b->reference === $picked ? 0 : 1));
+            usort(
+                $shortlist,
+                static fn(RentalBooking $a, RentalBooking $b): int
+                    => ($a->reference === $picked ? 0 : 1) <=> ($b->reference === $picked ? 0 : 1)
+            );
         }
 
         $candidates = [];

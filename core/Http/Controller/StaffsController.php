@@ -243,8 +243,11 @@ class StaffsController extends AbstractController
 
         // Intendant: filter to linked sections only
         $linkedSectionCodes = $this->getLinkedSectionCodes($linkedMembers);
-        return array_values(array_filter($allSections, fn(array $s) =>
-            in_array($s['desk_code'], $linkedSectionCodes, true)));
+        return array_values(array_filter(
+            $allSections,
+            fn(array $s) =>
+                in_array($s['desk_code'], $linkedSectionCodes, true)
+        ));
     }
 
     /**

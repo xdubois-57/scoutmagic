@@ -186,8 +186,11 @@ class SupportDashboardService
             ];
         }
 
-        usort($modules, static fn(array $a, array $b): int =>
-            $b['enabled'] <=> $a['enabled'] ?: ($b['used'] <=> $a['used'] ?: strcmp($a['id'], $b['id'])));
+        usort(
+            $modules,
+            static fn(array $a, array $b): int =>
+                $b['enabled'] <=> $a['enabled'] ?: ($b['used'] <=> $a['used'] ?: strcmp($a['id'], $b['id']))
+        );
 
         // The actionable finding, isolated: enabled somewhere, measured
         // somewhere, opened nowhere. A module nobody measures is NOT in
@@ -484,12 +487,18 @@ class SupportDashboardService
             // label. Deliberately NOT email: there is no email anywhere in
             // a report, so offering the search would promise a capability
             // that cannot exist.
-            $haystack = mb_strtolower(implode(' ', array_filter([
-                $row['instance_url'],
-                $row['installation_id'],
-                $row['version_label'],
-                $row['scout_year_label'],
-            ], static fn(mixed $value): bool => is_string($value))));
+            $haystack = mb_strtolower(implode(
+                ' ',
+                array_filter(
+                    [
+                        $row['instance_url'],
+                        $row['installation_id'],
+                        $row['version_label'],
+                        $row['scout_year_label'],
+                    ],
+                    static fn(mixed $value): bool => is_string($value)
+                )
+            ));
 
             if (!str_contains($haystack, mb_strtolower($filters->search))) {
                 return false;

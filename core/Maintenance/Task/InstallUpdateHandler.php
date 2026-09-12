@@ -356,11 +356,14 @@ class InstallUpdateHandler implements TaskHandlerInterface
             // it goes through the gate: \Throwable is caught, and a
             // ZipArchive/PDO/filesystem message must not reach that page.
             // The journal entry immediately below keeps the real text.
-            $updateHistoryRepository->markFailed($historyId, UserFacingMessage::from(
-                $e,
-                'La sauvegarde de sécurité préalable a échoué — aucune modification n\'a été effectuée. '
-                . 'Vérifiez l\'espace disque et les droits d\'écriture sur storage/, puis relancez la mise à jour.'
-            ));
+            $updateHistoryRepository->markFailed(
+                $historyId,
+                UserFacingMessage::from(
+                    $e,
+                    'La sauvegarde de sécurité préalable a échoué — aucune modification n\'a été effectuée. '
+                    . 'Vérifiez l\'espace disque et les droits d\'écriture sur storage/, puis relancez la mise à jour.'
+                )
+            );
             $context->journal->log(
                 'core',
                 'update_failed',
@@ -847,11 +850,14 @@ class InstallUpdateHandler implements TaskHandlerInterface
             $backupService->restoreFiles($filesZipPath);
             // Same write-site rule as markFailed() above: this string is
             // rendered as a title="" tooltip on the maintenance page.
-            $updateHistoryRepository->markRolledBack($historyId, UserFacingMessage::from(
-                $error,
-                'L\'installation de la mise à jour a échoué — la version précédente a été restaurée '
-                . 'automatiquement. Le détail est dans le journal des événements.'
-            ));
+            $updateHistoryRepository->markRolledBack(
+                $historyId,
+                UserFacingMessage::from(
+                    $error,
+                    'L\'installation de la mise à jour a échoué — la version précédente a été restaurée '
+                    . 'automatiquement. Le détail est dans le journal des événements.'
+                )
+            );
             // The technical detail goes HERE and nowhere else. The
             // user-facing message above deliberately says only "the detail
             // is in the event journal" (UserFacingMessage's rule: no class

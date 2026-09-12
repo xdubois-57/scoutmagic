@@ -53,11 +53,14 @@ class RegistrationRequestRepository
         $trackingToken = CapabilityToken::generate();
         $trackingTokenHash = password_hash($trackingToken, PASSWORD_DEFAULT);
 
-        $nameDobBlind = $this->encryption->blindIndex(self::normalizeForNameDobBlindIndex(
-            $fields['child_last_name'],
-            $fields['child_first_name'],
-            $fields['birth_date']
-        ), 'registration_name_dob');
+        $nameDobBlind = $this->encryption->blindIndex(
+            self::normalizeForNameDobBlindIndex(
+                $fields['child_last_name'],
+                $fields['child_first_name'],
+                $fields['birth_date']
+            ),
+            'registration_name_dob'
+        );
 
         $addressNormalized = AddressNormalizer::normalize(
             $fields['street'],
