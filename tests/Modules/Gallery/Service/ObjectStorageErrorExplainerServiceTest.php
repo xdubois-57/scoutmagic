@@ -5,17 +5,17 @@ declare(strict_types=1);
 namespace Tests\Modules\Gallery\Service;
 
 use Modules\Gallery\Api\GalleryException;
-use Modules\Gallery\Service\S3ErrorExplainerService;
+use Modules\Gallery\Service\ObjectStorageErrorExplainerService;
 use Modules\LlmConnector\Api\LlmConnectorInterface;
 use Modules\LlmConnector\Api\LlmException;
 use Modules\LlmConnector\Api\LlmResponse;
 use PHPUnit\Framework\TestCase;
 
-class S3ErrorExplainerServiceTest extends TestCase
+class ObjectStorageErrorExplainerServiceTest extends TestCase
 {
     public function testIsAvailableIsFalseWithoutAConnector(): void
     {
-        $service = new S3ErrorExplainerService();
+        $service = new ObjectStorageErrorExplainerService();
 
         $this->assertFalse($service->isAvailable());
     }
@@ -24,14 +24,14 @@ class S3ErrorExplainerServiceTest extends TestCase
     {
         $llmConnector = $this->createMock(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(false);
-        $service = new S3ErrorExplainerService($llmConnector);
+        $service = new ObjectStorageErrorExplainerService($llmConnector);
 
         $this->assertFalse($service->isAvailable());
     }
 
     public function testExplainThrowsWhenUnavailable(): void
     {
-        $service = new S3ErrorExplainerService();
+        $service = new ObjectStorageErrorExplainerService();
 
         $this->expectException(GalleryException::class);
         $service->explain('scaleway', 'https://s3.fr-par.scw.cloud', 'fr-par', 'bucket', 'AK123', 18, '403 Forbidden');
@@ -50,7 +50,7 @@ class S3ErrorExplainerServiceTest extends TestCase
             $this->assertStringContainsString('scaleway', $request->prompt);
             return true;
         }))->willReturn(new LlmResponse('Diagnostic.', null, 5, 5));
-        $service = new S3ErrorExplainerService($llmConnector);
+        $service = new ObjectStorageErrorExplainerService($llmConnector);
 
         $result = $service->explain(
             'scaleway', 'https://scoutmagic.s3.fr-par.scw.cloud', 'fr-par', 'scoutmagic', 'AK123', 15, '403 Forbidden'
@@ -64,7 +64,7 @@ class S3ErrorExplainerServiceTest extends TestCase
         $llmConnector = $this->createMock(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('complete')->willThrowException(new LlmException('Provider timeout.'));
-        $service = new S3ErrorExplainerService($llmConnector);
+        $service = new ObjectStorageErrorExplainerService($llmConnector);
 
         $this->expectException(GalleryException::class);
         $service->explain('custom', 'https://example.com', '', 'bucket', 'AK', 10, 'error');
@@ -80,7 +80,7 @@ class S3ErrorExplainerServiceTest extends TestCase
         $llmConnector = $this->createMock(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('complete')->willThrowException($technical);
-        $service = new S3ErrorExplainerService($llmConnector);
+        $service = new ObjectStorageErrorExplainerService($llmConnector);
 
         try {
             $service->explain('custom', 'https://example.com', '', 'bucket', 'AK', 10, 'error');

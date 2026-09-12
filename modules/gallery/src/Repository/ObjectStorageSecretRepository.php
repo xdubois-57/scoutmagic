@@ -16,7 +16,7 @@ use Core\Security\EncryptionService;
  * api_key column. Kept out of the generic settings system, which stores
  * plain-text values.
  */
-class S3SecretRepository
+class ObjectStorageSecretRepository
 {
     public function __construct(
         private \PDO $pdo,

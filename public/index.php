@@ -6945,7 +6945,7 @@ if ($isEnabled('gallery')) {
     // Service\StorageLocationService::ensureLegacyLocationBackfilled(), to
     // carry an existing installation's S3 secret into the new per-location
     // gallery_storage_locations table the very first time it runs.
-    $galleryS3SecretRepo = new \Modules\Gallery\Repository\S3SecretRepository($pdo, $encryptionService);
+    $galleryS3SecretRepo = new \Modules\Gallery\Repository\ObjectStorageSecretRepository($pdo, $encryptionService);
     $galleryStorageLocationRepo = new \Modules\Gallery\Repository\StorageLocationRepository($pdo, $encryptionService);
     // The gallery's S3 storage as declared sub-processors (§7.4) — the
     // module's own reading of its own tables, so the RGPD prompt states
@@ -6977,7 +6977,9 @@ if ($isEnabled('gallery')) {
     // Optional dependency on the llm_connector module (ARCHITECTURE.md
     // §7.5), same reused instance as RGPD content generation above — the
     // "Expliquer avec l'IA" button is simply hidden when it's unavailable.
-    $galleryS3ErrorExplainerService = new \Modules\Gallery\Service\S3ErrorExplainerService($llmConnectorForOthers);
+    $galleryS3ErrorExplainerService = new \Modules\Gallery\Service\ObjectStorageErrorExplainerService(
+        $llmConnectorForOthers
+    );
     // Reclaims the `files` row + bytes behind a media's staging original and
     // an external album's cached og:image once nothing references them.
     $galleryStoredFileCleaner = new \Modules\Gallery\Service\StoredFileCleaner($fileRepository, $storagePath);
@@ -9832,7 +9834,7 @@ if (isset($galleryStorageLocationRepo)) {
         if (!$galleryLocationForCsp->isS3()) {
             continue;
         }
-        $s3OriginForCsp = \Modules\Gallery\Service\Storage\S3StorageBackend::servingOrigin(
+        $s3OriginForCsp = \Modules\Gallery\Service\Storage\ObjectStorageBackend::servingOrigin(
             (string) ($galleryLocationForCsp->s3Endpoint ?? ''),
             (string) ($galleryLocationForCsp->s3Bucket ?? ''),
             $galleryLocationForCsp->s3PublicUrl

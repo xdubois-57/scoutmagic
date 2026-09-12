@@ -14,10 +14,10 @@ use Core\Security\EncryptionService;
 use Modules\Gallery\Controller\GalleryStorageLocationController;
 use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
-use Modules\Gallery\Repository\S3SecretRepository;
+use Modules\Gallery\Repository\ObjectStorageSecretRepository;
 use Modules\Gallery\Repository\StorageLocation;
 use Modules\Gallery\Repository\StorageLocationRepository;
-use Modules\Gallery\Service\S3ErrorExplainerService;
+use Modules\Gallery\Service\ObjectStorageErrorExplainerService;
 use Modules\Gallery\Service\Storage\StorageBackendFactory;
 use Modules\Gallery\Service\StorageLocationService;
 use PHPUnit\Framework\TestCase;
@@ -52,7 +52,7 @@ class GalleryStorageLocationControllerTest extends TestCase
         $storageBackendFactory = new StorageBackendFactory($this->storageLocationRepository, sys_get_temp_dir());
         $storageLocationService = new StorageLocationService(
             $this->storageLocationRepository, $this->albumRepository, $storageBackendFactory, $settingService,
-            new S3SecretRepository($this->pdo, $encryption), sys_get_temp_dir()
+            new ObjectStorageSecretRepository($this->pdo, $encryption), sys_get_temp_dir()
         );
         $journalService = new JournalService(new JournalRepository($this->pdo));
 
@@ -77,7 +77,7 @@ class GalleryStorageLocationControllerTest extends TestCase
         $twig->addFunction(new TwigFunction('file_url', fn() => ''));
 
         $this->controller = new GalleryStorageLocationController(
-            $twig, $this->storageLocationRepository, $storageLocationService, $journalService, new S3ErrorExplainerService()
+            $twig, $this->storageLocationRepository, $storageLocationService, $journalService, new ObjectStorageErrorExplainerService()
         );
 
         if (session_status() === PHP_SESSION_NONE) {

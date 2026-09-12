@@ -11,10 +11,10 @@ namespace Modules\Gallery\Service;
 use Core\Config\SettingService;
 use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
-use Modules\Gallery\Repository\S3SecretRepository;
+use Modules\Gallery\Repository\ObjectStorageSecretRepository;
 use Modules\Gallery\Repository\StorageLocation;
 use Modules\Gallery\Repository\StorageLocationRepository;
-use Modules\Gallery\Service\Storage\S3StorageBackend;
+use Modules\Gallery\Service\Storage\ObjectStorageBackend;
 use Modules\Gallery\Service\Storage\StorageBackendFactory;
 
 class StorageLocationService
@@ -32,7 +32,7 @@ class StorageLocationService
         private AlbumRepository $albumRepository,
         private StorageBackendFactory $storageBackendFactory,
         private SettingService $settingService,
-        private S3SecretRepository $legacyS3SecretRepository,
+        private ObjectStorageSecretRepository $legacyS3SecretRepository,
         private string $storagePath
     ) {
     }
@@ -159,7 +159,7 @@ class StorageLocationService
 
     /**
      * Runs an actual connectivity check (filesystem stat for local,
-     * S3StorageBackend::testConnection() for s3) and persists the result —
+     * ObjectStorageBackend::testConnection() for s3) and persists the result —
      * only called from checkFresh() below (TTL-gated) or an admin's
      * explicit "Tester" click, never on a plain page view.
      */
@@ -189,7 +189,7 @@ class StorageLocationService
         }
 
         $backend = $this->storageBackendFactory->create($location);
-        $error = $backend instanceof S3StorageBackend ? $backend->testConnection() : null;
+        $error = $backend instanceof ObjectStorageBackend ? $backend->testConnection() : null;
         $this->storageLocationRepository->recordCheckResult($location->id, $error === null, $error);
     }
 
