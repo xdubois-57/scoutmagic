@@ -160,9 +160,18 @@ $settingService = new SettingService(new SettingRepository($pdo));
 // Core\Scheduler\CronHealth reads it beside the heartbeat and the ring
 // buffer — a crontab is a requirement now, and this is one of the three
 // traces that says whether the installation actually has one.
-$settingService->register('cron_last_run', '0', 'number', 'Dernier passage du cron réel',
+$settingService->register(
+    'cron_last_run',
+    '0',
+    'number',
+    'Dernier passage du cron réel',
     'Horodatage (timestamp Unix) du dernier passage complet de public/cron.php — écrit par lui seul. Lecture seule.',
-    null, null, null, false, 999);
+    null,
+    null,
+    null,
+    false,
+    999
+);
 $cronSettingRepository = new SettingRepository($pdo);
 $cronSettingRepository->updateValue(null, 'cron_last_run', (string) time());
 
