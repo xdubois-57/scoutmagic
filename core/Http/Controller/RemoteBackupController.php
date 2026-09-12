@@ -180,10 +180,15 @@ final class RemoteBackupController extends AbstractController
                 'remote_backup_connect_failed',
                 'warning',
                 'Raccordement de la destination hors site refusé',
-                // A user-facing sentence by construction: RemoteBackupException
-                // is a UserFacingException and the provider's own words
-                // travel as the cause.
-                ['error' => $e->getMessage()],
+                // Two halves, and both are needed. `error` is the French
+                // sentence the operator was shown, so the journal and the
+                // screen agree; `detail` is Google's own answer, which
+                // `UserFacingException` forbids displaying and which
+                // travels as the cause for exactly this purpose. Without
+                // it the entry cannot tell a mistyped client secret from
+                // a withdrawn authorisation — the one distinction this
+                // feature turns on.
+                ['error' => $e->getMessage(), 'detail' => (string) $e->getPrevious()?->getMessage()],
                 AuthSession::getUserAccountId()
             );
             FlashMessage::set('error', $e->getMessage());
@@ -224,6 +229,26 @@ final class RemoteBackupController extends AbstractController
         }
 
         $check = (new GoogleDriveTarget($this->connection, $this->client))->testConnection();
+
+        // **A failed test leaves a trace, a successful one does not.** The
+        // button can be pressed any number of times and a journal full of
+        // « le test a réussi » is a journal nobody reads. A failure is the
+        // opposite: it is what the operator will be looking for later, and
+        // `GoogleDriveTarget` writes no entry of its own — so if this does
+        // not, « consultez le journal du site » points at nothing.
+        //
+        // Nobody is named: `$check->account` is only populated on success,
+        // and this branch never runs then.
+        if (!$check->ok) {
+            $this->journalService->log(
+                'core',
+                'remote_backup_test_failed',
+                'warning',
+                'Test de la destination hors site échoué',
+                ['error' => $check->message, 'detail' => $check->detail],
+                AuthSession::getUserAccountId()
+            );
+        }
 
         return $this->json([
             'success' => $check->ok,

@@ -20,6 +20,14 @@ namespace Core\Maintenance\Remote;
  * actually do something about — the grant is gone, so reconnect — from
  * everything else, which is a matter of waiting or of looking at the
  * journal.
+ *
+ * **`$detail` is the half the operator never reads.** `$message` is
+ * French and written for a person; the provider's own words — Google's
+ * English error body, a cURL diagnostic naming TLS internals — travel
+ * here instead, for the caller to journal. It exists because the
+ * distinction this feature turns on (`invalid_client`, a mistyped secret,
+ * versus `invalid_grant`, a withdrawn authorisation) is invisible in the
+ * French sentence, and « consultez le journal » has to lead somewhere.
  */
 final class RemoteConnectionCheck
 {
@@ -28,7 +36,8 @@ final class RemoteConnectionCheck
         public readonly string $message,
         public readonly bool $needsReauthorisation = false,
         public readonly ?RemoteQuota $quota = null,
-        public readonly string $account = ''
+        public readonly string $account = '',
+        public readonly string $detail = ''
     ) {
     }
 
@@ -37,13 +46,13 @@ final class RemoteConnectionCheck
         return new self(true, 'La connexion fonctionne : un fichier témoin a été écrit puis supprimé.', false, $quota, $account);
     }
 
-    public static function failure(string $message): self
+    public static function failure(string $message, string $detail = ''): self
     {
-        return new self(false, $message);
+        return new self(false, $message, false, null, '', $detail);
     }
 
-    public static function revoked(string $message): self
+    public static function revoked(string $message, string $detail = ''): self
     {
-        return new self(false, $message, true);
+        return new self(false, $message, true, null, '', $detail);
     }
 }

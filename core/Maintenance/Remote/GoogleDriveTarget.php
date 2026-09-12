@@ -58,6 +58,21 @@ final class GoogleDriveTarget implements RemoteBackupTarget
     }
 
     /**
+     * The provider's own words, for the journal and never for the screen.
+     *
+     * `UserFacingException` forbids showing them — they are English and
+     * name internals — so they travel as the exception's cause. Reading
+     * them back is what turns that cause from decoration into a
+     * diagnosis: the difference between a mistyped client secret and a
+     * withdrawn authorisation is invisible in the French sentence, and it
+     * is the difference this feature turns on.
+     */
+    private function detailOf(\Throwable $error): string
+    {
+        return (string) $error->getPrevious()?->getMessage();
+    }
+
+    /**
      * Writes a witness file and deletes it again.
      *
      * Both deletions are in a `finally` — the local temporary file and
@@ -128,7 +143,7 @@ final class GoogleDriveTarget implements RemoteBackupTarget
                     // The answer below is the deliverable, not the bookkeeping.
                 }
 
-                return RemoteConnectionCheck::revoked($e->getMessage());
+                return RemoteConnectionCheck::revoked($e->getMessage(), $this->detailOf($e));
             }
 
             try {
@@ -137,8 +152,8 @@ final class GoogleDriveTarget implements RemoteBackupTarget
                 // Same.
             }
 
-            return RemoteConnectionCheck::failure($e->getMessage());
-        } catch (\Throwable) {
+            return RemoteConnectionCheck::failure($e->getMessage(), $this->detailOf($e));
+        } catch (\Throwable $e) {
             // **The contract is "never throws", and only this makes it
             // true.** Everything above that talks to Google raises
             // `RemoteBackupException`, but the calls that write down what
@@ -154,7 +169,11 @@ final class GoogleDriveTarget implements RemoteBackupTarget
             // because writing state is the very thing that just failed.
             return RemoteConnectionCheck::failure(
                 'Le test n\'a pas pu être mené à son terme sur ce serveur. Le raccordement n\'est pas en cause ; '
-                . 'consultez le journal du site.'
+                . 'consultez le journal du site.',
+                // Bound and carried, because the sentence above sends the
+                // operator to the journal: a message promising an entry
+                // that nobody writes is worse than no message.
+                $e->getMessage()
             );
         } finally {
             if (is_string($witness)) {

@@ -321,6 +321,60 @@ final class RemoteBackupControllerTest extends TestCase
         $this->assertSame('https://neuf.example/config/maintenance/remote/callback', $uri);
     }
 
+    /**
+     * **« Consultez le journal du site » has to lead somewhere.**
+     *
+     * Google's own answer is forbidden on screen — `UserFacingException`
+     * keeps English internals away from the operator — so it travels as
+     * the exception's cause. Nothing read it back: the cause was built,
+     * attached, and dropped. A broken connection therefore produced one
+     * generic French sentence and no record at all of what Google said,
+     * in a feature whose whole logic turns on telling `invalid_client`
+     * from `invalid_grant`.
+     */
+    public function testAFailedTestRecordsWhatGoogleActuallySaid(): void
+    {
+        $this->connectSite();
+
+        $client = new GoogleDriveClient(fn (): array => [
+            'status' => 401,
+            'body' => '{"error":"invalid_client","error_description":"The OAuth client was not found."}',
+        ]);
+        $this->controller($client)->test($this->jsonRequest(), []);
+
+        $recorded = $this->journal->textOf('remote_backup_test_failed');
+        $this->assertNotSame('', $recorded, 'the operator was sent to a journal entry nobody wrote');
+        $this->assertStringContainsString('invalid_client', $recorded);
+    }
+
+    /** And a test that works writes nothing: the button is pressable at will. */
+    public function testASuccessfulTestDoesNotFillTheJournal(): void
+    {
+        $this->connectSite();
+
+        $this->controller($this->googleAnsweringHappily())->test($this->jsonRequest(), []);
+
+        $this->assertSame('', $this->journal->textOf('remote_backup_test_failed'));
+    }
+
+    /**
+     * The same, on the raccordement path — where the consequence is
+     * sharper still, since a wrong reading there deletes a valid grant.
+     */
+    public function testARefusedCallbackRecordsWhatGoogleActuallySaid(): void
+    {
+        $this->connection->saveCredentials('client-1', 'secret-1');
+        SessionStore::set('remote_backup_oauth_state', 'st4te');
+
+        $client = new GoogleDriveClient(fn (): array => ['status' => 400, 'body' => '{"error":"invalid_grant"}']);
+        $this->controller($client)->callback($this->callbackRequest('st4te', 'code-1'), []);
+
+        $this->assertStringContainsString(
+            'invalid_grant',
+            $this->journal->textOf('remote_backup_connect_failed')
+        );
+    }
+
     private function connectSite(): void
     {
         $this->connection->saveCredentials('client-1', 'secret-1');
