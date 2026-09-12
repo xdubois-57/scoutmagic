@@ -29,6 +29,12 @@ use PHPUnit\Framework\TestCase;
  * The name of a type is not evidence of its contents. The call site is.
  * So this reads the call sites, and a new one nobody has classified fails
  * the build rather than silently escaping the cap.
+ *
+ * It catches the movement in the other direction too, which is what
+ * issue #298 turned out to be: `auto_update` stopped carrying a gallery
+ * the day `InstallUpdateHandler` stopped asking for one, and a type left
+ * on the list after that would spend the single slot the cap has without
+ * anything in it to defend.
  */
 final class GalleryTypeCoverageTest extends TestCase
 {
@@ -40,7 +46,13 @@ final class GalleryTypeCoverageTest extends TestCase
      * @var array<string, string|null>
      */
     private const GALLERY_CALL_SITES = [
-        'core/Maintenance/Task/InstallUpdateHandler.php' => 'auto_update',
+        // `InstallUpdateHandler` is deliberately NOT here: an update
+        // replaces code, and its rollback extracts over the live tree
+        // rather than replacing it, so its safety copy leaves the gallery
+        // where it stands (issue #298). Should that call go back to
+        // `createFileBackup(true)`, this list stops matching and the build
+        // stops with it — which is the whole point of reading the call
+        // sites rather than the names.
         'core/Maintenance/Task/ResetSettingsHandler.php' => 'auto_reset',
         'core/Maintenance/Task/RestoreBackupHandler.php' => 'auto_reset',
         // Keeps the file, not the bookkeeping: a full reset empties every

@@ -379,6 +379,51 @@ class BackupServiceTest extends TestCase
         $this->removeDirectory($dest);
     }
 
+    /**
+     * The one thing that had to be true before an update's safety copy
+     * could stop carrying the gallery (issue #298).
+     *
+     * The fear was precise and worth the test: if a rollback REPLACED
+     * `storage/` with the archive's copy of it, dropping the gallery from
+     * the archive would delete every photo the first time an update failed
+     * — an inefficiency turned into data loss. It does not. The single
+     * extraction point below writes the archive's entries over the live
+     * tree and touches nothing else, so what the archive never held stays
+     * exactly where it was.
+     *
+     * Restoring into the tree it was taken from, rather than into an empty
+     * directory, is the whole point: an empty destination would prove the
+     * extraction works and say nothing about what it leaves behind.
+     */
+    public function testAGalleryFreeArchiveRestoresWithoutTouchingThePhotosOnDisk(): void
+    {
+        $zipPath = $this->service->createFileBackup(false);
+
+        // The failed update: code overwritten, photos added since the
+        // safety copy was taken.
+        file_put_contents($this->basePath . '/core/App.php', '<?php // half-installed next version');
+        $this->makeFile('storage/gallery/2/later.jpg', 'uploaded-after-the-backup');
+
+        $this->service->restoreFiles($zipPath);
+
+        $this->assertSame(
+            '<?php // app',
+            file_get_contents($this->basePath . '/core/App.php'),
+            'the rollback did not put the previous version back'
+        );
+        $this->assertSame(
+            'fake-jpeg-bytes',
+            file_get_contents($this->basePath . '/storage/gallery/1/photo.jpg'),
+            'a photo absent from the archive was overwritten by the rollback'
+        );
+        $this->assertFileExists(
+            $this->basePath . '/storage/gallery/2/later.jpg',
+            'a photo uploaded after the safety copy was deleted by the rollback'
+        );
+
+        unlink($zipPath);
+    }
+
     public function testRestoreFilesRejectsAnEntryThatEscapesTheInstallRoot(): void
     {
         $zipPath = $this->maliciousZip(fn(\ZipArchive $z) => $z->addFromString('../evil.php', '<?php'));
