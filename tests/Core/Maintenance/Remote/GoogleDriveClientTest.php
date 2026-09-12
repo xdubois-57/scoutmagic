@@ -453,6 +453,87 @@ final class GoogleDriveClientTest extends TestCase
         }
     }
 
+    /**
+     * **A 401 from the TOKEN endpoint is not a revocation**, and reading
+     * it as one destroys the grant.
+     *
+     * RFC 6749 §5.2 spends 401 on `invalid_client` — a client secret that
+     * is wrong, or that was rotated in the Google console — while a
+     * refresh token that is genuinely dead comes back as 400
+     * `invalid_grant`. `GoogleDriveTarget` answers a revocation by calling
+     * `markNeedsReauthorisation()`, which deletes the refresh token: so
+     * conflating the two means a mistyped secret erases a grant that was
+     * still good, through the very button pressed to diagnose it.
+     *
+     * The sentence has to say which of the two it is, too. « Reconnectez
+     * le compte » sends the operator through a full Google consent screen
+     * that will not help; the secret is what is wrong.
+     */
+    public function testAWrongClientSecretIsNotReadAsAWithdrawnAuthorisation(): void
+    {
+        $client = $this->clientAnswering(fn (): array => [
+            'status' => 401,
+            'body' => '{"error":"invalid_client","error_description":"The OAuth client was not found."}',
+        ]);
+
+        try {
+            $client->refreshAccessToken('client-id', 'wrong-secret', 'refresh-token');
+            $this->fail('A refused client secret was accepted.');
+        } catch (RemoteBackupException $e) {
+            $this->assertFalse(
+                $e->needsReauthorisation,
+                'a wrong client secret would have deleted the refresh token it never invalidated'
+            );
+            $this->assertStringContainsString('secret client', $e->getMessage());
+        }
+    }
+
+    /**
+     * And a 401 on the API still means exactly what it used to.
+     *
+     * The pair matters more than either case alone: the fix above must
+     * not have bought its precision by making the API side blind.
+     */
+    public function testA401OnTheApiIsStillAWithdrawnAuthorisation(): void
+    {
+        $client = $this->clientAnswering(fn (): array => ['status' => 401, 'body' => '{"error":{"message":"Invalid Credentials"}}']);
+
+        try {
+            $client->about('token');
+            $this->fail('A 401 was accepted.');
+        } catch (RemoteBackupException $e) {
+            $this->assertTrue($e->needsReauthorisation);
+        }
+    }
+
+    /**
+     * **A request's time budget is sized on the request.**
+     *
+     * A flat cap on the whole transfer is a bet on the site's upstream,
+     * and the number it used to bet on — thirty seconds for a chunk of
+     * eight mebibytes — needed 2 Mbps sustained. That is above an
+     * ordinary domestic ADSL upstream, which is the link
+     * `uploadFile()`'s own docblock names as the case the resumable
+     * upload exists for: every chunk of every backup would have timed out
+     * on the one code path built to survive that link.
+     *
+     * The closure around this cannot be exercised — it opens a socket —
+     * which is exactly why the rule it applies lives in a method that
+     * can.
+     */
+    public function testTheTimeAllowedForARequestGrowsWithWhatItCarries(): void
+    {
+        $this->assertSame(30, GoogleDriveClient::transferCeilingSeconds(null));
+        $this->assertSame(30, GoogleDriveClient::transferCeilingSeconds('{"name":"sauvegarde.zip"}'));
+
+        $chunk = str_repeat('x', 8 * 1024 * 1024);
+        $this->assertGreaterThanOrEqual(
+            512,
+            GoogleDriveClient::transferCeilingSeconds($chunk),
+            'a backup chunk was given less time than the slowest link this client claims to support needs'
+        );
+    }
+
     private function fileOf(string $contents): string
     {
         $path = tempnam(sys_get_temp_dir(), 'sm_gd_');

@@ -70,10 +70,44 @@ final class GoogleDriveClient
     private const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
     private const API_BASE = 'https://www.googleapis.com/drive/v3';
     private const UPLOAD_BASE = 'https://www.googleapis.com/upload/drive/v3';
+    /**
+     * The floor under every request's total budget, in seconds.
+     *
+     * Enough for any of the small calls — a token, an `about`, a folder
+     * lookup, a delete — and never the cap on an upload, which
+     * {@see transferCeilingSeconds()} sizes on what is actually being
+     * sent.
+     */
     private const TIMEOUT = 30;
+
+    /** How long to wait for the connection itself, in seconds. */
+    private const CONNECT_TIMEOUT = 15;
+
+    /**
+     * The slowest upstream this client is willing to call working, in
+     * bytes per second, and how long it tolerates worse before giving up.
+     *
+     * 16 KiB/s is about 128 kbps — below any link a site is actually
+     * served over, and well below the domestic upstream this class was
+     * written for. It is not a performance target: it is the line under
+     * which a transfer is presumed dead rather than slow, and the number
+     * the per-request ceiling is computed from.
+     */
+    private const MIN_UPLOAD_BYTES_PER_SECOND = 16 * 1024;
+    private const STALL_SECONDS = 30;
 
     /** Each `PUT` of a resumable upload. Google requires a multiple of 256 KiB. */
     private const UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024;
+
+    /**
+     * Which of Google's two endpoints refused, for {@see errorFor()}.
+     *
+     * A 401 means something different on each, and telling them apart is
+     * the difference between « vérifiez votre secret » and a refresh
+     * token deleted for nothing.
+     */
+    private const ENDPOINT_API = 'api';
+    private const ENDPOINT_TOKEN = 'token';
 
     /**
      * @param (\Closure(string, string, array<string, string>, ?string): array{status: int, body: string})|null $transport
@@ -390,7 +424,7 @@ final class GoogleDriveClient
         );
 
         if ($response['status'] < 200 || $response['status'] >= 300) {
-            throw $this->errorFor($response, 'Google a refusé la demande de jeton.');
+            throw $this->errorFor($response, 'Google a refusé la demande de jeton.', self::ENDPOINT_TOKEN);
         }
 
         $decoded = json_decode($response['body'], true);
@@ -441,16 +475,35 @@ final class GoogleDriveClient
      * token is no longer honoured. Both mean the same thing to the
      * operator.
      *
+     * **Which endpoint answered therefore has to be known here**, and
+     * that is what `$endpoint` carries. A 401 does NOT mean the same
+     * thing in both places: on the token endpoint RFC 6749 §5.2 spends it
+     * on `invalid_client` — a client secret that is wrong, or that was
+     * rotated in the Google console — while the refresh token itself is
+     * refused with 400 `invalid_grant`. Reading the first as a revocation
+     * would be worse than a wrong sentence: `GoogleDriveTarget` answers a
+     * revocation by calling `markNeedsReauthorisation()`, which drops the
+     * refresh token, so a mistyped secret would destroy a grant that was
+     * still perfectly good — through the one button an operator presses
+     * to find out what is wrong.
+     *
      * The provider's own body never reaches the message — it is English,
      * it names internals, and `UserFacingException` forbids it. It travels
      * as the cause, to the journal.
      *
      * @param array{status: int, body: string, location?: string} $response
      */
-    private function errorFor(array $response, string $fallback): RemoteBackupException
+    private function errorFor(array $response, string $fallback, string $endpoint = self::ENDPOINT_API): RemoteBackupException
     {
         $detail = new \RuntimeException('Google responded ' . $response['status'] . ': ' . substr($response['body'], 0, 500));
 
+        if ($endpoint === self::ENDPOINT_TOKEN && $response['status'] === 401) {
+            return RemoteBackupException::of(
+                'Google a refusé les identifiants du client OAuth de ce site. Vérifiez l\'identifiant et le '
+                . 'secret client enregistrés ci-dessus — le compte raccordé, lui, n\'est pas en cause.',
+                $detail
+            );
+        }
         if ($response['status'] === 401 || str_contains($response['body'], 'invalid_grant')) {
             return RemoteBackupException::revoked(
                 'Google n\'accepte plus l\'autorisation de ce site. Reconnectez le compte Drive depuis cette page.',
@@ -477,6 +530,30 @@ final class GoogleDriveClient
         $transport = $this->transport ?? self::defaultTransport();
 
         return $transport($method, $url, $headers, $body);
+    }
+
+    /**
+     * How long one request is allowed to take in total, in seconds.
+     *
+     * **Sized on the request, because a flat number is a bet on the
+     * site's upstream.** A call carrying nothing gets the floor; a chunk
+     * of a backup gets the time that chunk needs at
+     * MIN_UPLOAD_BYTES_PER_SECOND, which is slower than any link this
+     * runs on. What stops a genuinely dead transfer is not this ceiling
+     * but cURL's low-speed guard, set alongside it.
+     *
+     * Public because it is the one part of {@see defaultTransport()} that
+     * can be asserted at all: the closure around it talks to the network
+     * and is exercised nowhere, which is precisely why the transport is
+     * injectable.
+     */
+    public static function transferCeilingSeconds(?string $body): int
+    {
+        if ($body === null) {
+            return self::TIMEOUT;
+        }
+
+        return max(self::TIMEOUT, (int) ceil(strlen($body) / self::MIN_UPLOAD_BYTES_PER_SECOND));
     }
 
     /**
@@ -507,7 +584,24 @@ final class GoogleDriveClient
                 CURLOPT_CUSTOMREQUEST => $method,
                 CURLOPT_HTTPHEADER => $headerLines,
                 CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_TIMEOUT => self::TIMEOUT,
+                CURLOPT_CONNECTTIMEOUT => self::CONNECT_TIMEOUT,
+                // **Not a fixed cap on the whole transfer.** `CURLOPT_TIMEOUT`
+                // covers connect, TLS, request body and response together, so
+                // a single flat number is a bet on how fast the site's
+                // upstream is — and thirty seconds bets on 2 Mbps, which is
+                // exactly the link this class's resumable upload was written
+                // NOT to assume. Every chunk of every backup would have timed
+                // out on an ordinary ADSL line, on the one code path built to
+                // survive it.
+                //
+                // So the ceiling is sized on what is being sent, and the real
+                // guard is the pair below: a transfer moving under
+                // MIN_UPLOAD_BYTES_PER_SECOND for STALL_SECONDS is dead, and
+                // cURL abandons it without waiting for the ceiling. Slow is
+                // tolerated; stalled is not.
+                CURLOPT_TIMEOUT => self::transferCeilingSeconds($body),
+                CURLOPT_LOW_SPEED_LIMIT => self::MIN_UPLOAD_BYTES_PER_SECOND,
+                CURLOPT_LOW_SPEED_TIME => self::STALL_SECONDS,
                 CURLOPT_HEADERFUNCTION => static function ($_handle, string $header) use (&$location): int {
                     if (stripos($header, 'location:') === 0) {
                         $location = trim(substr($header, 9));
