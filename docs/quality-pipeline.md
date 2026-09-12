@@ -626,6 +626,31 @@ declared on the same list, and the prompt says why — there is no later
 turn to schedule. The `spawned` against `completed` comparison remains
 the guard; this only stops the reviewer walking into it.
 
+**Then it happened again under another name, which is the lesson rather
+than the repeat.** Run 34447638775 (pull request #299) stopped at 7 agents
+launched and 3 finished — the September figures to the digit — and
+`ScheduleWakeup` appears nowhere in its tool list. `Monitor` does, refused,
+the only refusal of that run outside the decided list (issue #300).
+Refusing a tool *by name* had closed the door taken first, not the
+behaviour behind it: « arrange to be called back later », which a one-shot
+run cannot do whatever it is spelled. `Monitor` is on the list now and the
+prompt names both, but the list is still an enumeration, and an
+enumeration only covers the spellings somebody has already met. **A third
+name on a truncated pass is the signal to stop enumerating** — that is
+written beside the list itself, so whoever meets it does not simply add a
+fourth line. What makes the enumeration survivable meanwhile is that the
+launched-against-finished guard catches the truncation every time; the
+cost of a new name is a review to re-run, not a diff nobody read.
+
+The fix has a delivery problem of its own, and it is this file's §
+Reading a green result in miniature: the action refuses to run Claude when
+`.github/workflows/claude-review.yml` differs from the copy on `main`, and
+it exits `success`. So **the pull request that repairs this file gets
+« Green without a review » and a red `Claude review status`**, which is a
+REQUIRED check — it cannot merge on its own. That is how #262's fix
+landed, and it needs the maintainer to merge with the required check
+knowingly bypassed.
+
 **Then a working reviewer found the ceiling.** #217 took 10 min 47 s
 against a `timeout-minutes: 20` written when a review took a few minutes
 and the number was a formality. Pull request #257 — 185 files, the whole
