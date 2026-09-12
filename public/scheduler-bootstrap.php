@@ -273,8 +273,10 @@ function scoutmagic_bootstrap_scheduler(
                         $moduleManager,
                         $enabledModuleIds
                     ): \Core\View\RgpdContentService {
-                        $providerRepository = new \Modules\LlmConnector\Repository\ProviderRepository($pdo,
-                            $encryptionService);
+                        $providerRepository = new \Modules\LlmConnector\Repository\ProviderRepository(
+                            $pdo,
+                            $encryptionService
+                        );
                         $modelRepository = new \Modules\LlmConnector\Repository\ProviderModelRepository($pdo);
                         $hasLlm = in_array('llm_connector', $enabledModuleIds, true);
 
@@ -292,8 +294,10 @@ function scoutmagic_bootstrap_scheduler(
 
                         if ($hasLlm) {
                             $service->addSubProcessorProvider(
-                                new \Modules\LlmConnector\Service\LlmSubProcessorService($providerRepository,
-                                    $modelRepository)
+                                new \Modules\LlmConnector\Service\LlmSubProcessorService(
+                                    $providerRepository,
+                                    $modelRepository
+                                )
                             );
                         }
 
@@ -366,8 +370,10 @@ function scoutmagic_bootstrap_scheduler(
                 }
 
                 if ($inboundMail !== null && in_array('rental', $enabledModuleIds, true)) {
-                    $rentalBookingRepository = new \Modules\Rental\Repository\RentalBookingRepository($pdo,
-                        $encryptionService);
+                    $rentalBookingRepository = new \Modules\Rental\Repository\RentalBookingRepository(
+                        $pdo,
+                        $encryptionService
+                    );
                     // No ActorAccountResolver on the scheduled path:
                     // every change is the application acting on its own,
                     // which Core\Audit renders as an automatic entry.
@@ -426,8 +432,10 @@ function scoutmagic_bootstrap_scheduler(
                 // file nothing at all.
                 if ($inboundMail !== null && in_array('finance', $enabledModuleIds, true)) {
                     $financeScoutYearId = (new \Core\Config\ScoutYearService($pdo))->getCurrentYear()['id'];
-                    $financeAccountRepository = new \Modules\Finance\Repository\AccountRepository($pdo,
-                        $encryptionService);
+                    $financeAccountRepository = new \Modules\Finance\Repository\AccountRepository(
+                        $pdo,
+                        $encryptionService
+                    );
                     $financeTreasurerScope = new \Modules\Finance\Service\TreasurerScopeService(
                         \Core\Database\Connection::withPdo($pdo),
                         new \Core\Badge\BadgeRepository($pdo),
@@ -710,8 +718,10 @@ function scoutmagic_bootstrap_scheduler(
                 );
 
                 $registry = $inboundConsumerRegistry($context);
-                $inboundMailboxes = new \Modules\InboundMail\Repository\InboundMailboxRepository($pdo,
-                    $encryptionService);
+                $inboundMailboxes = new \Modules\InboundMail\Repository\InboundMailboxRepository(
+                    $pdo,
+                    $encryptionService
+                );
                 // What each box lets each module do (IT-05). Built from
                 // the SAME registry the handler gets, so the modules the
                 // screen scopes and the modules the sync asks cannot be
