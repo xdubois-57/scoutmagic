@@ -231,19 +231,58 @@ final class GoogleDriveTargetTest extends TestCase
 
     /**
      * A site nobody has connected answers « nothing is connected », not
-     * an uncaught exception on a page an administrator opened.
+     * an uncaught exception on a page an administrator opened — **and
+     * records nothing**.
+     *
+     * The second half is the one that was missing, and its absence let a
+     * real defect pass: « was never connected » and « the grant was
+     * withdrawn » are different facts, and writing the second about the
+     * first tells an operator to reconnect an account that never existed.
+     * On a site genuinely waiting to be reconnected it was worse — the
+     * generic message overwrote Google's own reason.
      */
-    public function testASiteWithNoConnectionAnswersRatherThanThrows(): void
+    public function testASiteWithNoConnectionAnswersWithoutRecordingARevocation(): void
     {
         $this->settings->values[RemoteBackupConnection::STATE_SETTING] = RemoteBackupConnection::STATE_DISCONNECTED;
         $secrets = new SecretManager($this->base . '/keys/master.key', $this->base . '/config/secrets.enc');
         $secrets->writeSecrets(['remote_backup_client_secret' => 'client-secret-1']);
 
-        $check = $this->targetAnswering(fn (): array => ['status' => 200, 'body' => '{}'])->testConnection();
+        $calls = 0;
+        $check = $this->targetAnswering(function () use (&$calls): array {
+            $calls++;
+
+            return ['status' => 200, 'body' => '{}'];
+        })->testConnection();
 
         $this->assertFalse($check->ok);
-        $this->assertTrue($check->needsReauthorisation);
+        $this->assertFalse($check->needsReauthorisation);
         $this->assertStringContainsString('Aucun compte', $check->message);
+        $this->assertSame(
+            RemoteBackupConnection::STATE_DISCONNECTED,
+            $this->connection->state(),
+            'a site that was never connected was recorded as needing reconnection'
+        );
+        $this->assertSame('', $this->connection->lastError(), 'a failure was recorded about a connection that never existed');
+        $this->assertSame(0, $calls, 'Google was contacted about a site with no grant to use');
+    }
+
+    /**
+     * And a site already waiting to be reconnected keeps the reason
+     * Google gave, rather than having it replaced by a generic one.
+     */
+    public function testASiteWaitingToBeReconnectedKeepsGooglesOwnReason(): void
+    {
+        $this->settings->values[RemoteBackupConnection::STATE_SETTING] = RemoteBackupConnection::STATE_NEEDS_REAUTH;
+        $this->settings->values[RemoteBackupConnection::LAST_ERROR_SETTING] = 'Google n\'accepte plus l\'autorisation de ce site.';
+        $secrets = new SecretManager($this->base . '/keys/master.key', $this->base . '/config/secrets.enc');
+        $secrets->writeSecrets(['remote_backup_client_secret' => 'client-secret-1']);
+
+        $this->targetAnswering(fn (): array => ['status' => 200, 'body' => '{}'])->testConnection();
+
+        $this->assertSame(
+            'Google n\'accepte plus l\'autorisation de ce site.',
+            $this->connection->lastError()
+        );
     }
 
     /**

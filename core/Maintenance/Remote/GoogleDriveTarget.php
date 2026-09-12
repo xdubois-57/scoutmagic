@@ -68,6 +68,17 @@ final class GoogleDriveTarget implements RemoteBackupTarget
      */
     public function testConnection(): RemoteConnectionCheck
     {
+        // **Before anything is recorded.** A site that was never connected
+        // is not a site whose grant was withdrawn, and the two must not
+        // produce the same entry: this route is reachable whenever an
+        // administrator is, so testing an unconnected site would otherwise
+        // write « à reconnecter » about a connection that never existed —
+        // and, on a site genuinely waiting to be reconnected, overwrite
+        // Google's own reason with a generic one.
+        if (!$this->connection->isConnected()) {
+            return RemoteConnectionCheck::failure('Aucun compte Google Drive n\'est raccordé à ce site.');
+        }
+
         $witness = null;
         $remoteId = null;
 
@@ -163,7 +174,10 @@ final class GoogleDriveTarget implements RemoteBackupTarget
 
         $refreshToken = $this->connection->refreshToken();
         if ($refreshToken === '') {
-            throw RemoteBackupException::revoked(
+            // `of()`, not `revoked()`: nothing was withdrawn. Marking this
+            // as a revocation would have a caller record a state the site
+            // was never in — see {@see testConnection()}.
+            throw RemoteBackupException::of(
                 'Aucun compte Google Drive n\'est raccordé à ce site.'
             );
         }
