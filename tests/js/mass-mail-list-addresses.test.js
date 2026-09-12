@@ -516,6 +516,39 @@ describe('mass-mail-list-addresses.js', () => {
             importInput().dispatchEvent(new Event('change'));
         }
 
+        // A cancelled file picker fires `change` too, with an empty
+        // FileList — and a browser that has not materialised one at all
+        // leaves the property null. Neither is a file to analyse, and the
+        // round trip must not start on one.
+        it('does nothing when the change event carries no file', async () => {
+            serve([]);
+            await boot();
+            await open();
+
+            global.fetch = vi.fn();
+            Object.defineProperty(importInput(), 'files', { configurable: true, value: null });
+            importInput().dispatchEvent(new Event('change'));
+            await settle();
+
+            expect(fetch).not.toHaveBeenCalled();
+        });
+
+        // An analysis that answers HTML — a session that expired into the
+        // login page, a 500 — must say so rather than leave the dialog
+        // showing the file it just sent as if it had been read.
+        it('says so when the analysis answers something that is not JSON', async () => {
+            serve([]);
+            await boot();
+            await open();
+
+            global.fetch = vi.fn(() => htmlErrorResponse());
+            chooseFile();
+            await settle();
+
+            expect(errorEl().textContent).toBe('Erreur : réponse serveur invalide.');
+            expect(importPreview().classList.contains('d-none')).toBe(true);
+        });
+
         it('offers the export as a plain link, pointed at the list the dialog is on', async () => {
             serve([]);
             await boot();
