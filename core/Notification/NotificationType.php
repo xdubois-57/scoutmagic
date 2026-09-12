@@ -33,6 +33,7 @@ class NotificationType
      * } $channels each value one of "on"/"off"/"default_on"/"default_off"
      * @param ?string $defaultOnRoleMin role at or above which a "default_on" channel actually starts on — see
      *     defaultsOnForRole()
+     * @param bool $deliversImmediately see the property's own note below
      */
     public function __construct(
         public readonly string $id,
@@ -41,7 +42,34 @@ class NotificationType
         public readonly string $group,
         public readonly string $roleMin,
         public readonly array $channels,
-        public readonly ?string $defaultOnRoleMin = null
+        public readonly ?string $defaultOnRoleMin = null,
+        /**
+         * Whether push and e-mail leave during the dispatch itself
+         * instead of being queued for `public/cron.php` to send.
+         *
+         * **False for everything but an alert about the site's own
+         * machinery**, and the default is what makes that true. A
+         * mailing to a section is hundreds of SMTP round trips, which is
+         * exactly why the queue exists; a type that opts out of it is
+         * asking to pay those in the request that raised it.
+         *
+         * The one type that must (issue #296) is the operational alert.
+         * `Core\Alert\Check\CronSilenceCheck` fires when the real cron
+         * has been silent for 48 h — and the queue is drained by that
+         * same cron, so its e-mail waited behind the failure it was
+         * describing and arrived as old news once somebody had fixed it
+         * by hand. The channel that exists for an administrator who is
+         * NOT looking at the site was the one channel that could not
+         * reach them.
+         *
+         * A module cannot declare this: `registerModuleTypes()` builds
+         * from a `module.json` shape that has no such key, so it stays a
+         * core decision. Nothing about that is a technical limit — it is
+         * that "send this one in the visitor's request" is a judgement
+         * about the site's own health, and a module asking for it is
+         * usually asking for something else.
+         */
+        public readonly bool $deliversImmediately = false
     ) {
     }
 
