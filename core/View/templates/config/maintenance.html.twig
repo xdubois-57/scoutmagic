@@ -746,6 +746,107 @@
         </div>
     </div>
 
+    {# ————— Sauvegarde hors site —————
+
+       Its own card rather than a fourth heading inside « Sauvegardes »:
+       what it configures is a conversation with a third party — an
+       account, a consent screen, a grant that can be withdrawn — and
+       nothing in the three sections above has that shape. #}
+    <div class="card mb-4" id="remote-backup">
+        <div class="card-body">
+            <h2 class="h5 mb-3">Sauvegarde hors site</h2>
+
+            <p class="text-body-secondary small">
+                Une sauvegarde qui dort sur le même serveur que le site ne protège de rien le jour où c'est
+                le serveur qui disparaît. Raccordez un compte Google Drive : ce site pourra y déposer des
+                sauvegardes portables.
+                <a href="/aide/sauvegarde-hors-site">Comment créer le projet Google, pas à pas.</a>
+            </p>
+
+            {# The seven-day trap, said in full and said first. A refresh
+               token issued by a project whose consent screen is still in
+               « Test » dies after a week, silently: the backups stop and
+               nobody finds out until the day they are needed. It is the
+               single most common way this kind of integration fails. #}
+            <div class="alert alert-warning small" role="alert" id="remote-backup-testing-warning">
+                <strong>Publiez l'écran de consentement de votre projet Google.</strong>
+                Tant qu'il reste en statut « Test », Google fait expirer l'autorisation au bout de
+                {{ remote_backup_testing_token_days }} jours : les sauvegardes s'arrêteraient sans prévenir, et
+                vous ne le découvririez que le jour où vous en auriez besoin. La publication ne demande
+                aucune vérification de Google tant que ce site se limite aux fichiers qu'il a lui-même créés,
+                ce qu'il fait.
+            </div>
+
+            <h3 class="h6">État</h3>
+            {% if remote_backup_state == 'connected' %}
+                <p class="small mb-3">
+                    <span class="badge text-bg-success">Raccordé</span>
+                    {{ remote_backup_account }}
+                    {% if remote_backup_connected_at %}
+                        <span class="text-body-secondary">— depuis le {{ remote_backup_connected_at|date('d/m/Y') }}</span>
+                    {% endif %}
+                    {% if remote_backup_quota_free is not null %}
+                        <br><span class="text-body-secondary">{{ remote_backup_quota_free }} libres sur ce compte</span>
+                    {% endif %}
+                </p>
+            {% elseif remote_backup_state == 'needs_reauth' %}
+                <div class="alert alert-danger small" role="alert">
+                    <strong>Google n'accepte plus l'autorisation de ce site.</strong>
+                    Le compte {{ remote_backup_account }} était raccordé ; il faut le reconnecter.
+                    {% if remote_backup_last_error %}<br>{{ remote_backup_last_error }}{% endif %}
+                </div>
+            {% else %}
+                <p class="small mb-3"><span class="badge text-bg-secondary">Non raccordé</span></p>
+            {% endif %}
+
+            <h3 class="h6">Identifiants du client OAuth</h3>
+            <p class="small text-body-secondary">
+                Ils viennent du projet que vous créez dans la console Google. Le secret n'est jamais affiché
+                ensuite : il est chiffré avec la clé de ce site, comme le mot de passe SMTP.
+            </p>
+            <p class="small">
+                Adresse de redirection à déclarer dans le projet Google, au caractère près :<br>
+                <code class="user-select-all">{{ remote_backup_redirect_uri }}</code>
+            </p>
+            <form method="post" action="/config/maintenance/remote/credentials" class="mb-3">
+                {{ csrf_field()|raw }}
+                <div class="mb-2" style="max-width:480px;">
+                    <label class="form-label small" for="remote-backup-client-id">Identifiant client</label>
+                    <input type="text" class="form-control form-control-sm" id="remote-backup-client-id"
+                           name="client_id" value="{{ remote_backup_client_id }}" autocomplete="off">
+                </div>
+                <div class="mb-2" style="max-width:480px;">
+                    <label class="form-label small" for="remote-backup-client-secret">Secret client</label>
+                    <input type="password" class="form-control form-control-sm" id="remote-backup-client-secret"
+                           name="client_secret" autocomplete="new-password"
+                           placeholder="{{ remote_backup_has_secret ? 'Enregistré — saisissez-le à nouveau pour le remplacer' : '' }}">
+                </div>
+                <button type="submit" class="btn btn-outline-primary btn-sm">Enregistrer les identifiants</button>
+            </form>
+
+            <h3 class="h6">Raccordement</h3>
+            {% if remote_backup_has_credentials %}
+                <a class="btn btn-primary btn-sm" href="/config/maintenance/remote/connect" id="remote-backup-connect">
+                    {{ remote_backup_state == 'disconnected' ? 'Raccorder un compte Google Drive' : 'Reconnecter le compte' }}
+                </a>
+            {% else %}
+                <p class="small text-body-secondary mb-2">Enregistrez d'abord les identifiants ci-dessus.</p>
+            {% endif %}
+
+            {% if remote_backup_state != 'disconnected' %}
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="remote-backup-test">
+                    Tester
+                </button>
+                <output class="ms-2 small d-none d-inline-block" id="remote-backup-test-result"></output>
+                <form method="post" action="/config/maintenance/remote/disconnect" class="d-inline"
+                      data-confirm="Déraccorder le compte ? Ce site ne pourra plus écrire chez Google, et les identifiants du client OAuth seront effacés.">
+                    {{ csrf_field()|raw }}
+                    <button type="submit" class="btn btn-outline-danger btn-sm">Déraccorder</button>
+                </form>
+            {% endif %}
+        </div>
+    </div>
+
     {# ————— Réinitialisation ————— #}
     <div class="card mb-4 border-danger" id="maintenance-reset">
         <div class="card-body">

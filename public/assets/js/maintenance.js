@@ -690,6 +690,36 @@
         }
     }
 
+    // ——— Off-site destination: the "Tester" button ———
+    //
+    // The whole point of this button is that it comes back with bad news
+    // when there is bad news, so the failure branch is the one that has to
+    // be right: a revoked grant reads differently from a network hiccup,
+    // because only one of the two is something the operator can act on.
+    var remoteTestBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('remote-backup-test'));
+    var remoteTestResult = document.getElementById('remote-backup-test-result');
+    if (remoteTestBtn && remoteTestResult) {
+        remoteTestBtn.addEventListener('click', function () {
+            remoteTestBtn.disabled = true;
+            remoteTestResult.classList.remove('d-none', 'text-success', 'text-danger');
+            remoteTestResult.textContent = 'Test en cours…';
+
+            window.ScoutMagicApi.postJson('/config/maintenance/remote/test', {}).then(function (res) {
+                var data = res.data || {};
+                remoteTestBtn.disabled = false;
+                remoteTestResult.textContent = data.message || 'Le test a échoué.';
+                remoteTestResult.classList.add(data.success ? 'text-success' : 'text-danger');
+                // The page's own status block is now stale — it was
+                // rendered before this answer existed, and an operator
+                // reading « reconnectez le compte » under a green
+                // « Raccordé » badge would not know which to believe.
+                if (data.needs_reauthorisation) {
+                    window.setTimeout(function () { window.location.reload(); }, 2500);
+                }
+            });
+        });
+    }
+
     // Resume polling after the classic-form restore redirect.
     var restoreIdMatch = /[?&]restore_id=(\d+)/.exec(window.location.search);
     if (restoreIdMatch) {

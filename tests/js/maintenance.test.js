@@ -1311,3 +1311,85 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
         });
     });
 });
+
+/**
+ * The off-site destination's « Tester » button.
+ *
+ * Its whole purpose is to come back with bad news when there is bad news,
+ * so the failure branches are what is worth pinning: a refused grant does
+ * not read like a refused request, because only one of the two is
+ * something the operator can act on.
+ */
+describe('maintenance.js: the off-site connection test', () => {
+    function buildDom() {
+        appendAll(
+            el('<button type="button" id="remote-backup-test">Tester</button>'),
+            el('<output id="remote-backup-test-result" class="d-none"></output>'),
+        );
+    }
+
+    it('reports a working connection in the operator\'s own words', async () => {
+        buildDom();
+        global.fetch = vi.fn(() => jsonResponse({
+            success: true,
+            message: 'La connexion fonctionne : un fichier témoin a été écrit puis supprimé.',
+        }));
+        await boot();
+
+        vi.useFakeTimers();
+        document.getElementById('remote-backup-test').click();
+        await vi.advanceTimersByTimeAsync(100);
+
+        const result = document.getElementById('remote-backup-test-result');
+        expect(fetch).toHaveBeenCalledWith('/config/maintenance/remote/test', expect.anything());
+        expect(result.textContent).toContain('fichier témoin');
+        expect(result.classList.contains('text-success')).toBe(true);
+        expect(document.getElementById('remote-backup-test').disabled).toBe(false);
+    });
+
+    it('shows a refusal in red and leaves the page alone', async () => {
+        buildDom();
+        vi.useFakeTimers();
+        global.fetch = vi.fn(() => jsonResponse({
+            success: false,
+            message: 'Le compte Google Drive raccordé n\'a plus assez d\'espace libre.',
+            needs_reauthorisation: false,
+        }));
+        Object.defineProperty(window, 'location', { configurable: true, value: { reload: vi.fn(), href: '' } });
+        await boot();
+
+        document.getElementById('remote-backup-test').click();
+        await vi.advanceTimersByTimeAsync(5000);
+
+        const result = document.getElementById('remote-backup-test-result');
+        expect(result.textContent).toContain('espace libre');
+        expect(result.classList.contains('text-danger')).toBe(true);
+        // An ordinary failure does not invalidate what the page says about
+        // the connection, so nothing is reloaded out from under the reader.
+        expect(window.location.reload).not.toHaveBeenCalled();
+    });
+
+    /**
+     * A withdrawn grant makes the status block above stale: it was
+     * rendered before this answer existed, and an operator reading
+     * « reconnectez le compte » under a green « Raccordé » badge has two
+     * answers and no way to choose.
+     */
+    it('reloads the page when the grant turns out to be gone', async () => {
+        buildDom();
+        vi.useFakeTimers();
+        global.fetch = vi.fn(() => jsonResponse({
+            success: false,
+            message: 'Google n\'accepte plus l\'autorisation de ce site. Reconnectez le compte Drive depuis cette page.',
+            needs_reauthorisation: true,
+        }));
+        Object.defineProperty(window, 'location', { configurable: true, value: { reload: vi.fn(), href: '' } });
+        await boot();
+
+        document.getElementById('remote-backup-test').click();
+        await vi.advanceTimersByTimeAsync(3000);
+
+        expect(document.getElementById('remote-backup-test-result').textContent).toContain('Reconnectez');
+        expect(window.location.reload).toHaveBeenCalled();
+    });
+});

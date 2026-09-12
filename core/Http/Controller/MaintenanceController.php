@@ -163,6 +163,11 @@ class MaintenanceController extends AbstractController
 
         $cronStatus = (new CronHealth($this->storagePath, $this->settingService))->status();
 
+        $remoteBackup = new \Core\Maintenance\Remote\RemoteBackupConnection(
+            $this->settingService,
+            $this->secretManager
+        );
+
         // The most recent ATTEMPT, not the most recent success: a channel
         // whose last three installs all rolled back still has a perfectly
         // good "dernière mise à jour réussie" date, and reading only that
@@ -216,6 +221,26 @@ class MaintenanceController extends AbstractController
             // by a visitor (Core\Storage\DiskBudget, « Why the measurement
             // is cached »).
             'storage_usage' => $storageUsage,
+            // ——— Bloc « Sauvegarde hors site » ———
+            // Read here rather than in a second controller because this is
+            // the page that renders it, and a screen that had to ask two
+            // controllers what state it is in would be a screen where the
+            // two can disagree. The QUOTA is deliberately not read: it
+            // costs a request to Google on every page view, and the answer
+            // an operator needs is « ça marche », which the Tester button
+            // gives them on demand.
+            'remote_backup_state' => $remoteBackup->state(),
+            'remote_backup_account' => $remoteBackup->account(),
+            'remote_backup_connected_at' => $remoteBackup->connectedAt(),
+            'remote_backup_last_error' => $remoteBackup->lastError(),
+            'remote_backup_client_id' => $remoteBackup->clientId(),
+            'remote_backup_has_secret' => $remoteBackup->clientSecret() !== '',
+            'remote_backup_has_credentials' => $remoteBackup->hasCredentials(),
+            'remote_backup_redirect_uri' => $remoteBackup->redirectUri(),
+            'remote_backup_quota_free' => null,
+            // The number the warning quotes comes from the client that
+            // suffers it, so the screen and the code cannot drift.
+            'remote_backup_testing_token_days' => \Core\Maintenance\Remote\GoogleDriveClient::TESTING_TOKEN_LIFETIME_DAYS,
             // Every row, not the five the list shows at once: the cap is
             // retention's business now (per family, Core\Maintenance\
             // BackupRetention), and the screen's own « voir plus » needs

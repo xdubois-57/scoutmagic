@@ -3674,6 +3674,30 @@ The target's own `master.key` and `secrets.enc` are held aside under `storage/te
 
 **Push subscriptions go** because a service worker is bound to its origin. Carried to a new domain every endpoint is already dead, and each send would spend a request collecting a 410 before pruning it. Emptying the table follows the precedent of the notification migration's `TRUNCATE` (§8.24): this is ephemeral operational state, never a register.
 
+### 8.104 The off-site destination (`Core\Maintenance\Remote\`, `RemoteBackupController`)
+
+A backup that sleeps on the server it protects is a backup that dies with it. This is the connection to somewhere else — and only the connection: nothing here sends a backup yet.
+
+**No Composer dependency.** What Google Drive needs from this application is a form-encoded `POST` to refresh a token, `PUT`s carrying a `Content-Range`, and three `GET`s. `google/apiclient` brings Guzzle, PSR-7, PSR-18 and a service-definition generator to reach that. §1 asks a dependency to justify itself, and this codebase already answers the same question three times: `GitHubReleaseClient`, `Modules\SosStaff\Provider\Ovh\OvhApiClient` and the Anthropic provider in `llm_connector` are all hand-written HTTP clients. `GoogleDriveClient` is the fourth, with the same injectable transport closure `OvhApiClient` established — because none of this can be exercised against the real service in a test suite, which would need a Google account, a project and a published consent screen.
+
+**Two decisions that are not preferences.**
+
+The OAuth scope is `drive.file` and never `drive`. `drive.file` reaches only files this application created: a unit connecting a personal Google account is handing over a key, and this is the difference between a key to one drawer and a key to the house. It is also a *non-sensitive* scope, so Google does not demand the verification procedure — an annual security assessment costing thousands of euros, which no scout unit will undergo. Asking for `drive` would make the feature far more dangerous and simultaneously unusable.
+
+There is no service account. A service account has no Drive quota of its own, so on a consumer Google account every upload fails. The unit creates its own project and enters its own client ID and secret, exactly as the SOS module has the unit enter its OVH credentials — a shared client would put a secret in a public repository.
+
+**Where the three values live.** The refresh token and the client secret go to `secrets.enc` through `SecretManager`, beside the SMTP password and the VAPID private key: a `settings` row would render them as plain text on Configuration > Settings and carry them into the support archive. The client ID stays in `settings`, deliberately — it travels in the authorisation URL the operator's own browser follows, so it is public by construction, and keeping it visible lets them check they pasted the right one. `tests/Security/RemoteBackupSecrecyTest.php` is the ratchet on both halves.
+
+`RemoteBackupConnection::writeSecrets()` refuses to write a `secrets.enc` it could not read first. That file is one JSON document holding every secret the site has; replacing an unreadable one with a fresh document containing a cleared Drive token would turn a bad day into an unrecoverable installation.
+
+**Every route is at the `admin` floor, the callback included.** It is the only one a browser reaches from elsewhere, and the only one that writes a refresh token: left open it would be a route where anybody able to compose a URL decides which Google account a site backs up to. The single-use `state` checked against the session sits on top of that floor rather than replacing it.
+
+**The seven-day trap, on the screen in as many words.** A refresh token issued by a project whose consent screen is still in "Testing" expires after seven days, silently — the backups stop and nobody finds out until the day they are needed. It is the most common way this kind of integration dies. `GoogleDriveClient::TESTING_TOKEN_LIFETIME_DAYS` is where the number lives, and the template reads it rather than restating it.
+
+**A withdrawn grant is a state, not an error to retry.** Google says so as `invalid_grant` on the token endpoint and as a bare 401 on the API; both mean the operator has to come back and reconnect. `RemoteBackupException::$needsReauthorisation` carries that distinction, `markNeedsReauthorisation()` records it, and the account and folder are kept while the dead token is dropped — "reconnectez le compte" is an instruction nobody can follow if the page no longer says which one.
+
+**`testConnection()` writes and deletes a witness file** rather than merely reading `about`. A destination that answers happily may still refuse every write — a full account, a folder that is gone, a grant narrowed behind the operator's back — and an operator who saw a green tick would learn otherwise the night their server burned down.
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php
