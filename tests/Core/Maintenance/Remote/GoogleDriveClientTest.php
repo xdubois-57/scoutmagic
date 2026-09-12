@@ -223,6 +223,98 @@ final class GoogleDriveClientTest extends TestCase
     }
 
     /**
+     * **Where to continue from is Google's to say.**
+     *
+     * A 308 is allowed to report fewer bytes committed than were sent,
+     * in a `Range: bytes=0-N` header. Advancing by the length this client
+     * happened to write assumes an answer instead of reading it — and a
+     * short commit would then leave a hole that every later chunk widens.
+     * The archive uploads, Google accepts it, and it is unreadable on the
+     * day somebody needs it: the worst failure shape a backup has, which
+     * is silence.
+     */
+    public function testAShortCommitIsResumedFromWhereGoogleSaysRatherThanFromWhatWasSent(): void
+    {
+        $path = $this->fileOf(str_repeat('x', 12 * 1024 * 1024));
+
+        $ranges = [];
+        $answered = 0;
+        $client = $this->clientAnswering(function (string $method, string $url, array $headers) use (&$ranges, &$answered): array {
+            if ($method === 'POST') {
+                return ['status' => 200, 'body' => '{}', 'location' => 'https://upload.example/session-1'];
+            }
+            $ranges[] = $headers['Content-Range'] ?? '';
+            $answered++;
+
+            // The first chunk carries 8 MiB; Google keeps only the first
+            // mebibyte of it and says so.
+            return $answered === 1
+                ? ['status' => 308, 'body' => '', 'range' => 'bytes=0-1048575']
+                : ['status' => 200, 'body' => '{"id":"drive-file-7"}'];
+        });
+
+        $id = $client->uploadFile('token', 'folder-1', $path, 'sauvegarde.zip');
+
+        $this->assertSame('drive-file-7', $id);
+        $this->assertSame([
+            'bytes 0-8388607/12582912',
+            // Resumed at 1 MiB — what Google kept — and not at 8 MiB,
+            // which is what this client had sent.
+            'bytes 1048576-9437183/12582912',
+        ], $ranges);
+    }
+
+    /**
+     * And with no `Range` at all — some intermediaries strip it — the
+     * client's own reckoning stands, which is right whenever Google kept
+     * everything it was given.
+     */
+    public function testAContinueWithoutARangeHeaderFallsBackToWhatWasSent(): void
+    {
+        $path = $this->fileOf(str_repeat('x', 12 * 1024 * 1024));
+
+        $ranges = [];
+        $client = $this->clientAnswering(function (string $method, string $url, array $headers) use (&$ranges): array {
+            if ($method === 'POST') {
+                return ['status' => 200, 'body' => '{}', 'location' => 'https://upload.example/session-1'];
+            }
+            $ranges[] = $headers['Content-Range'] ?? '';
+
+            return count($ranges) === 1
+                ? ['status' => 308, 'body' => '']
+                : ['status' => 200, 'body' => '{"id":"drive-file-8"}'];
+        });
+
+        $client->uploadFile('token', 'folder-1', $path, 'sauvegarde.zip');
+
+        $this->assertSame([
+            'bytes 0-8388607/12582912',
+            'bytes 8388608-12582911/12582912',
+        ], $ranges);
+    }
+
+    /**
+     * A 308 that reports no progress at all would otherwise loop for
+     * ever, re-sending the same chunk against a server that keeps none
+     * of it.
+     */
+    public function testAContinueThatCommittedNothingIsRefusedRatherThanRetriedForEver(): void
+    {
+        $path = $this->fileOf(str_repeat('x', 12 * 1024 * 1024));
+
+        $client = $this->clientAnswering(fn (string $method): array => $method === 'POST'
+            ? ['status' => 200, 'body' => '{}', 'location' => 'https://upload.example/session-1']
+            : ['status' => 308, 'body' => '', 'range' => 'bytes=0-0']);
+
+        try {
+            $client->uploadFile('token', 'folder-1', $path, 'sauvegarde.zip');
+            $this->fail('An upload making no progress was accepted.');
+        } catch (RemoteBackupException $e) {
+            $this->assertStringContainsString('aucun octet', $e->getMessage());
+        }
+    }
+
+    /**
      * Deleting something that is already gone is a success: the caller
      * asked for it not to be there.
      */

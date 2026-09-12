@@ -342,13 +342,22 @@ final class GoogleDriveClient
     /**
      * Sends a local file in pieces and answers with its Drive id.
      *
-     * **Resumable, and streamed from disk.** A portable backup is the size
+     * **Chunked and streamed from disk.** A portable backup is the size
      * of the whole site; holding it in a PHP string to post it would make
      * the peak memory of a send depend on how much the unit has stored,
-     * on exactly the shared hosting this feature is for. Google's
-     * resumable protocol is also the only one that survives a connection
-     * dropped halfway, which over a domestic upstream link is the ordinary
-     * case rather than the exception.
+     * on exactly the shared hosting this feature is for.
+     *
+     * **What "resumable" does and does not mean here.** The protocol is
+     * the one that MAKES resumption possible — the session URI outlives a
+     * dropped connection, and Google will say how far it got when asked.
+     * This method does not yet use that: one call sends the whole file in
+     * one pass, and a connection lost half way propagates out rather than
+     * picking up where it stopped. Keeping the session URI and the offset
+     * across scheduler runs, and asking `bytes * / total` after a failure,
+     * is IT-09's work — the iteration that actually sends backups, under a
+     * time budget, over the domestic upstream link this was chosen for.
+     * Saying so plainly is the point: a docblock promising resilience the
+     * code does not implement is how the gap survives review.
      *
      * @throws RemoteBackupException
      */
@@ -408,8 +417,29 @@ final class GoogleDriveClient
                 // 308 is Google saying "keep going" — the ordinary answer
                 // to every piece but the last, and emphatically not an
                 // error despite being outside the 2xx range.
+                //
+                // **Where to continue FROM is Google's to say, not ours.**
+                // The protocol allows it to commit fewer bytes than were
+                // sent and to report how many in a `Range` header;
+                // advancing by the length we happened to write assumes an
+                // answer instead of reading it, and a short commit would
+                // leave a hole in the middle of a backup that every later
+                // chunk widens. The archive would upload, be accepted, and
+                // be unreadable on the day it was needed.
                 if ($response['status'] === 308) {
-                    $offset += $length;
+                    $committed = $this->committedOffset($response, $offset + $length);
+                    if ($committed <= $offset) {
+                        throw RemoteBackupException::of(
+                            'Google Drive n\'a retenu aucun octet de la dernière tranche envoyée.'
+                        );
+                    }
+                    $offset = $committed;
+                    // Re-seek rather than read on: after a short commit the
+                    // handle sits further forward than Google does.
+                    if (fseek($handle, $offset) !== 0) {
+                        throw RemoteBackupException::of('La reprise de la lecture du fichier à envoyer a échoué.');
+                    }
+
                     continue;
                 }
                 if ($response['status'] >= 200 && $response['status'] < 300) {
@@ -429,6 +459,26 @@ final class GoogleDriveClient
         }
 
         throw RemoteBackupException::of('L\'envoi vers Google Drive s\'est terminé sans confirmation.');
+    }
+
+    /**
+     * How far Google says it has actually got, in bytes.
+     *
+     * The header is `Range: bytes=0-N`, N being the last byte COMMITTED —
+     * so the next chunk starts at N+1. Absent (some intermediaries strip
+     * it) the caller's own reckoning stands, which is the old behaviour
+     * and correct whenever Google kept everything it was sent.
+     *
+     * @param array{status: int, body: string, location?: string, range?: string} $response
+     */
+    private function committedOffset(array $response, int $sentThrough): int
+    {
+        $range = $response['range'] ?? '';
+        if ($range === '' || preg_match('/bytes=0-(\d+)/i', $range, $matches) !== 1) {
+            return $sentThrough;
+        }
+
+        return (int) $matches[1] + 1;
     }
 
     /**
@@ -513,7 +563,7 @@ final class GoogleDriveClient
      * it names internals, and `UserFacingException` forbids it. It travels
      * as the cause, to the journal.
      *
-     * @param array{status: int, body: string, location?: string} $response
+     * @param array{status: int, body: string, location?: string, range?: string} $response
      */
     private function errorFor(array $response, string $fallback, string $endpoint = self::ENDPOINT_API): RemoteBackupException
     {
@@ -544,7 +594,7 @@ final class GoogleDriveClient
 
     /**
      * @param array<string, string> $headers
-     * @return array{status: int, body: string, location?: string}
+     * @return array{status: int, body: string, location?: string, range?: string}
      * @throws RemoteBackupException
      */
     private function send(string $method, string $url, array $headers, ?string $body = null): array
@@ -586,7 +636,7 @@ final class GoogleDriveClient
      * resumable-session response, and a 308 that the stream wrapper
      * reports as a failure rather than as a status.
      *
-     * @return \Closure(string, string, array<string, string>, ?string): array{status: int, body: string, location?: string}
+     * @return \Closure(string, string, array<string, string>, ?string): array{status: int, body: string, location?: string, range?: string}
      */
     public static function defaultTransport(): \Closure
     {
@@ -602,6 +652,12 @@ final class GoogleDriveClient
             }
 
             $location = '';
+            // **`Range` as well as `Location`, and it is not decoration.**
+            // A 308 carries how many bytes Google actually COMMITTED,
+            // which it is entitled to make fewer than were sent. A client
+            // that cannot read this header cannot know that, and resumes
+            // from the wrong place — see putChunks().
+            $range = '';
             $options = [
                 CURLOPT_CUSTOMREQUEST => $method,
                 CURLOPT_HTTPHEADER => $headerLines,
@@ -624,9 +680,12 @@ final class GoogleDriveClient
                 CURLOPT_TIMEOUT => self::transferCeilingSeconds($body),
                 CURLOPT_LOW_SPEED_LIMIT => self::MIN_UPLOAD_BYTES_PER_SECOND,
                 CURLOPT_LOW_SPEED_TIME => self::STALL_SECONDS,
-                CURLOPT_HEADERFUNCTION => static function ($_handle, string $header) use (&$location): int {
+                CURLOPT_HEADERFUNCTION => static function ($_handle, string $header) use (&$location, &$range): int {
                     if (stripos($header, 'location:') === 0) {
                         $location = trim(substr($header, 9));
+                    }
+                    if (stripos($header, 'range:') === 0) {
+                        $range = trim(substr($header, 6));
                     }
 
                     return strlen($header);
@@ -654,7 +713,7 @@ final class GoogleDriveClient
             $status = (int) curl_getinfo($handle, CURLINFO_HTTP_CODE);
             curl_close($handle);
 
-            return ['status' => $status, 'body' => $responseBody, 'location' => $location];
+            return ['status' => $status, 'body' => $responseBody, 'location' => $location, 'range' => $range];
         };
     }
 }
