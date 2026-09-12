@@ -481,7 +481,14 @@ relue à chaque envoi individuel) puis conservée chiffrée dans une table dédi
 d'expédition (From) utilisée est celle de la section expéditrice choisie pour l'email, et non l'adresse d'expédition
 générale du site ; (c) qu'il n'existe à ce jour aucune purge automatique dédiée aux anciens envois — ils sont
 conservés au même titre que le reste des données actives de l'unité (section 3.1), à l'exception des données importées
-d'un publipostage (voir d) ; (c bis) conserver intégralement le paragraphe « Adresses propres à une liste » : une liste personnalisée peut contenir des adresses de personnes extérieures à l'unité (commune, paroisse, propriétaire d'un terrain, ancien membre) saisies par un chef d'unité, dont le nom facultatif et l'adresse sont chiffrés au repos, accompagnés d'une empreinte irréversible de l'adresse servant uniquement au dédoublonnage dans la liste et à la propagation de la désinscription ; que ces adresses appartiennent à la liste et qu'il n'existe aucun carnet d'adresses global ; que la désinscription vaut en revanche pour toutes les listes à la fois ; et qu'une adresse désinscrite est conservée, marquée, définitivement exclue des envois et non réabonnable depuis le site ; (d) conserver intégralement le paragraphe « Publipostage depuis un fichier Excel » : un
+d'un publipostage (voir d) ; (c bis) conserver intégralement le paragraphe « Adresses propres à une liste » : une
+liste personnalisée peut contenir des adresses de personnes extérieures à l'unité (commune, paroisse, propriétaire
+d'un terrain, ancien membre) saisies par un chef d'unité, dont le nom facultatif et l'adresse sont chiffrés au repos,
+accompagnés d'une empreinte irréversible de l'adresse servant uniquement au dédoublonnage dans la liste et à la
+propagation de la désinscription ; que ces adresses appartiennent à la liste et qu'il n'existe aucun carnet d'adresses
+global ; que la désinscription vaut en revanche pour toutes les listes à la fois ; et qu'une adresse désinscrite est
+conservée, marquée, définitivement exclue des envois et non réabonnable depuis le site ; (d) conserver intégralement
+le paragraphe « Publipostage depuis un fichier Excel » : un
 animateur peut importer un fichier Excel dont chaque ligne définit un email (membre identifié par son numéro Desk «
 Tiers » ou adresse libre de la colonne « Email », y compris hors de l'unité), toutes les valeurs importées sont
 chiffrées au repos, le fichier est supprimé dès sa lecture, les données importées sont purgées automatiquement et

@@ -168,7 +168,7 @@
         var wanted = ids.map(String);
         container.querySelectorAll('.select-bar-item').forEach(function (item) {
             var id = /** @type {HTMLElement} */ (item).dataset.id || '';
-            window.SelectBar.setSelected(pickerId, id, wanted.indexOf(id) !== -1);
+            window.SelectBar.setSelected(pickerId, id, wanted.includes(id));
         });
     }
 

@@ -195,7 +195,7 @@ export function refresh(pageUrl) {
         })
         .then(function (payload) {
             if (typeof payload.calendar !== 'string' || typeof payload.estimate !== 'string') {
-                throw new Error('fragment');
+                throw new TypeError('fragment');
             }
 
             calendar.innerHTML = payload.calendar;
