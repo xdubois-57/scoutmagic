@@ -82,6 +82,7 @@ use Core\Http\Controller\OfflineController;
 use Core\Http\Controller\PageController;
 use Core\Http\Controller\PlaceholderController;
 use Core\Http\Controller\PushSubscriptionController;
+use Core\Http\Controller\RemoteBackupController;
 use Core\Http\Controller\ScheduledActionsController;
 use Core\Http\Controller\ScoutYearController;
 use Core\Http\Controller\SettingsController;
@@ -1450,6 +1451,7 @@ $settingService->register(
 // the same declaration after a portable restore, and two copies of it would
 // be two copies to keep right.
 \Core\Statistics\InstallationIdentityService::register($settingService);
+\Core\Maintenance\Remote\RemoteBackupConnection::register($settingService);
 $settingService->register(
     'support_email',
     'support@scoutmagic.be',
@@ -4013,6 +4015,21 @@ $router->addRoute(
     'generateWebhookSecret',
     'admin',
 );
+
+// **The off-site destination.** All five routes sit at the `admin` floor,
+// the callback included: an open callback that writes a refresh token
+// would let anybody able to compose a URL decide which Google account
+// this site backs up to. The `state` checked against the session sits on
+// top of that floor; it does not replace it.
+$router->addRoute(
+    'POST', '/config/maintenance/remote/credentials', RemoteBackupController::class, 'saveCredentials', 'admin',
+);
+$router->addRoute('GET', '/config/maintenance/remote/connect', RemoteBackupController::class, 'connect', 'admin');
+$router->addRoute('GET', '/config/maintenance/remote/callback', RemoteBackupController::class, 'callback', 'admin');
+$router->addRoute('POST', '/config/maintenance/remote/test', RemoteBackupController::class, 'test', 'admin');
+$router->addRoute(
+    'POST', '/config/maintenance/remote/disconnect', RemoteBackupController::class, 'disconnect', 'admin',
+);
 // The only public, CSRF-free route in the codebase — GitHub is a machine
 // caller with no session; the HMAC-SHA256 signature (Core\Maintenance\
 // GitHubWebhookService::verifySignature()) is what authenticates it
@@ -4745,6 +4762,14 @@ $frontController->registerController(
         $mailService,
         new \Core\Mail\Template\EmailTestSendThrottler($pdo)
     )
+);
+// One connection object for the whole request: it is the only thing that
+// knows where the remote destination's credentials live, and two of them
+// would be two answers to that question.
+$remoteBackupConnection = new \Core\Maintenance\Remote\RemoteBackupConnection($settingService, $secretManager);
+$frontController->registerController(
+    RemoteBackupController::class,
+    new RemoteBackupController($twig, $remoteBackupConnection, $journalService)
 );
 $frontController->registerController(
     MaintenanceController::class,
