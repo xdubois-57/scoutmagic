@@ -43,17 +43,27 @@ class DiskBudgetWiringTest extends TestCase
     ];
 
     /**
-     * The one construction that legitimately has no budget, with the
-     * reason it cannot have one.
+     * The constructions that legitimately have no budget, with the reason
+     * each cannot have one.
      *
-     * `SetupController::reinstall()` dumps the database **before** the
-     * application exists: there is no `SettingService` to read a declared
-     * quota from, and this dump is the rescue copy taken ahead of a
-     * reinstall — refusing it on a reading nobody can make would destroy
-     * the data the dump was there to save.
+     * Both are in the installation wizard, and both for the same root
+     * cause: a `DiskBudget` reads its declared quota out of `settings`,
+     * and this controller runs while there is no database to read it from.
+     *
+     * - `BackupService` — `SetupController` dumps the database **before**
+     *   the application exists, as the rescue copy taken ahead of a
+     *   reinstall. Refusing it on a reading nobody can make would destroy
+     *   the data the dump was there to save.
+     * - `ChunkedUploadStore` — the portable restore accepts an archive in
+     *   fragments at a point in the wizard where the operator has not yet
+     *   reached a working site. The store still enforces its own
+     *   `PORTABLE_UPLOAD_MAX_BYTES` ceiling on the assembled file, so this
+     *   is an unmeasured write and not an unbounded one.
+     *
+     * @var array<string, string[]>
      */
     private const EXEMPT = [
-        'core/Http/Controller/SetupController.php' => 'BackupService',
+        'core/Http/Controller/SetupController.php' => ['BackupService', 'ChunkedUploadStore'],
     ];
 
     public function testEveryProductionConstructionPassesADiskBudget(): void
@@ -69,7 +79,7 @@ class DiskBudgetWiringTest extends TestCase
                     if (str_contains($construction, 'DiskBudget') || str_contains($construction, 'diskBudget')) {
                         continue;
                     }
-                    if ((self::EXEMPT[$relative] ?? null) === $class) {
+                    if (in_array($class, self::EXEMPT[$relative] ?? [], true)) {
                         continue;
                     }
                     $offenders[] = $relative . ' → new ' . $class;
@@ -87,14 +97,17 @@ class DiskBudgetWiringTest extends TestCase
     /** The exemption has to name something real, or it is silently excusing nothing. */
     public function testTheExemptionStillPointsAtAnExistingConstruction(): void
     {
-        foreach (self::EXEMPT as $relative => $class) {
+        foreach (self::EXEMPT as $relative => $classes) {
             $path = dirname(__DIR__, 3) . '/' . $relative;
             $this->assertFileExists($path, $relative . ' no longer exists — drop its exemption.');
-            $this->assertNotSame(
-                [],
-                $this->constructionsOf((string) file_get_contents($path), $class),
-                $relative . ' no longer constructs ' . $class . ' — drop its exemption.',
-            );
+
+            foreach ($classes as $class) {
+                $this->assertNotSame(
+                    [],
+                    $this->constructionsOf((string) file_get_contents($path), $class),
+                    $relative . ' no longer constructs ' . $class . ' — drop its exemption.',
+                );
+            }
         }
     }
 

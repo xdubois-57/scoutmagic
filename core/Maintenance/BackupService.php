@@ -36,6 +36,30 @@ class BackupService implements BackupServiceInterface
 {
     private const STAGING_SUBDIR = 'maintenance';
 
+    /**
+     * The `storage/` sub-trees a backup archive never contains, named
+     * relative to `storage/` itself.
+     *
+     * Public because the READER needs the same list, and needs it to be
+     * the same one. `PortableArchive::restorableEntries()` refuses these
+     * as ordinary entries, and the reason is sharper than symmetry:
+     * `storage/temp/twig_cache/` holds compiled templates that the next
+     * page render `include`s. An archive that could plant a file there —
+     * and a portable archive is, by this feature's own threat model,
+     * something a stranger may hand over together with its passphrase —
+     * would be an archive that could run code on the site restoring it.
+     * `keys` and `config` are the live encryption material, written
+     * deliberately from the sealed members and never extracted as
+     * ordinary files.
+     *
+     * The gallery is deliberately NOT here: it is data, it is excluded by
+     * scope rather than by nature, and a `full_with_gallery` archive
+     * legitimately carries it.
+     *
+     * @var string[]
+     */
+    public const NON_ARCHIVED_STORAGE_SUBDIRS = ['keys', 'config', 'temp', self::STAGING_SUBDIR];
+
     /** @var string[] */
     private const CONFIG_ONLY_TABLES = ['settings', 'module_registry'];
 
@@ -865,12 +889,10 @@ class BackupService implements BackupServiceInterface
      */
     private function excludedArchivePrefixes(bool $includeGallery): array
     {
-        $excluded = [
-            $this->storagePath . '/keys',
-            $this->storagePath . '/config',
-            $this->storagePath . '/temp',
-            $this->storagePath . '/' . self::STAGING_SUBDIR,
-        ];
+        $excluded = [];
+        foreach (self::NON_ARCHIVED_STORAGE_SUBDIRS as $subdir) {
+            $excluded[] = $this->storagePath . '/' . $subdir;
+        }
         if (!$includeGallery) {
             $excluded[] = $this->storagePath . '/gallery';
         }

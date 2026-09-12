@@ -798,7 +798,7 @@ toute installation ScoutMagic. Conserve-les TOUJOURS, indépendamment de {$modul
 Conserve en particulier : (a) que l'envoi des statistiques est optionnel, activable et désactivable par l'unité depuis
 la page Configuration > Support ; (b) que ce rapport **n'est pas anonyme**, puisqu'il contient l'adresse du site — ne
 le décris jamais comme anonyme ou anonymisé ; (c) qu'il ne contient aucune donnée de membre (ni nom, ni email, ni
-photo, ni contenu), uniquement des compteurs agrégés et des informations techniques sur le logiciel et l'hébergement ;
+photo, ni contenu), uniquement des compteurs agrégés et des informations techniques sur le logiciel et l'hébergement ; (c bis) que si le site a été remonté ailleurs depuis une sauvegarde emportée, le rapport porte en plus l'identifiant technique de l'installation d'origine, pour qu'un déménagement ne soit pas compté comme deux unités — c'est un identifiant de site, jamais une donnée de personne, et il n'apparaît que sur une installation effectivement restaurée ;
 (d) que l'archive de diagnostic reste sur le serveur et n'est **jamais transmise automatiquement** (ni tâche
 planifiée, ni courriel, ni envoi décidé par le site), mais qu'un administrateur peut la transmettre lui-même au
 support ScoutMagic en la joignant à un ticket, après avoir vu son contenu et sa taille et coché explicitement qu'il

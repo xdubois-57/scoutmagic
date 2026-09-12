@@ -90,7 +90,27 @@ function buildDom(options = {}) {
             <div id="save-hint">Testez d'abord la connexion.</div>
             <div id="cron-save-hint" class="d-none">Aucune tâche cron n'a encore été détectée.</div>
         </form>
+        <div id="portable-restore-card">
+            <input type="file" id="portable-file">
+            <input type="password" id="portable-passphrase" value="">
+            <button type="button" id="btn-portable-restore" disabled>Restaurer cette sauvegarde</button>
+            <span id="portable-spinner" class="d-none"></span>
+            <span id="portable-restore-result"></span>
+            <output id="portable-progress" class="d-none"></output>
+        </div>
     `;
+}
+
+/**
+ * Puts a file on the (read-only) file input, the way the browser would.
+ */
+function attachFile(id, name, size) {
+    const file = new File(['x'], name, { type: 'application/zip' });
+    Object.defineProperty(file, 'size', { value: size });
+    Object.defineProperty(document.getElementById(id), 'files', {
+        value: [file],
+        configurable: true,
+    });
 }
 
 async function boot(options) {
@@ -106,6 +126,10 @@ beforeEach(() => {
     // The shared confirmation, stubbed: the installer's one destructive
     // button must ask before it empties anything.
     window.ScoutMagicConfirm = { ask: vi.fn(() => Promise.resolve(true)) };
+    // The shared chunked uploader is absent unless a test provides one:
+    // left over from a previous case it would silently reroute another
+    // test's upload.
+    delete window.ScoutMagicChunkedUpload;
 });
 
 describe('setup.js: SMTP fields visibility', () => {
@@ -478,5 +502,234 @@ describe('setup.js: copy buttons', () => {
 
         expect(execCommand).toHaveBeenCalledWith('copy');
         expect(button.textContent).toBe('Copié !');
+    });
+});
+
+describe('setup.js: restoring from a portable backup', () => {
+    // The database has to be installed first: the restore writes over it,
+    // and the operator must have seen that it was empty. So the button
+    // stays inert until that step has actually succeeded.
+    it('leaves the button disabled until the database step has passed', async () => {
+        await boot({ installAction: '/setup/install-database' });
+
+        attachFile('portable-file', 'sauvegarde.zip', 1024);
+        document.getElementById('portable-file').dispatchEvent(new Event('change'));
+        document.getElementById('portable-passphrase').value = 'quatre mots parfaitement ordinaires';
+        document.getElementById('portable-passphrase').dispatchEvent(new Event('input'));
+
+        expect(document.getElementById('btn-portable-restore').disabled).toBe(true);
+    });
+
+    /**
+     * **The sequence that was broken: fill the form, THEN install.**
+     *
+     * The first version refreshed this button from a timer fired at click
+     * time, before the database request had settled. An operator who chose
+     * the archive and typed the passphrase first therefore watched a
+     * successful install leave the restore button disabled, with nothing
+     * to do but touch an input again.
+     */
+    it('enables the restore button when the archive was chosen before the database was installed', async () => {
+        await boot({ installAction: '/setup/install-database' });
+
+        attachFile('portable-file', 'sauvegarde.zip', 1024);
+        document.getElementById('portable-file').dispatchEvent(new Event('change'));
+        document.getElementById('portable-passphrase').value = 'quatre mots parfaitement ordinaires';
+        document.getElementById('portable-passphrase').dispatchEvent(new Event('input'));
+
+        expect(document.getElementById('btn-portable-restore').disabled).toBe(true);
+
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, migrated: true, table_count: 40, statements_executed: 40 }),
+        }));
+        document.getElementById('btn-test-db').click();
+        await settle();
+
+        expect(document.getElementById('btn-portable-restore').disabled).toBe(false);
+    });
+
+    async function readyToRestore() {
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, migrated: true, table_count: 40, statements_executed: 40 }),
+        }));
+        await boot({ installAction: '/setup/install-database' });
+
+        document.getElementById('btn-test-db').click();
+        await settle();
+
+        attachFile('portable-file', 'sauvegarde.zip', 1024);
+        document.getElementById('portable-file').dispatchEvent(new Event('change'));
+        document.getElementById('portable-passphrase').value = 'quatre mots parfaitement ordinaires';
+        document.getElementById('portable-passphrase').dispatchEvent(new Event('input'));
+    }
+
+    it('enables the button once the database is installed and both fields are filled', async () => {
+        await readyToRestore();
+
+        expect(document.getElementById('btn-portable-restore').disabled).toBe(false);
+    });
+
+    /**
+     * The database credentials travel with the request, and that is the
+     * whole point: they are the ones the restore keeps (D5), against the
+     * ones the archive carries.
+     */
+    it('posts the passphrase and the database credentials of THIS machine', async () => {
+        await readyToRestore();
+
+        const calls = [];
+        global.fetch = vi.fn((url, init) => {
+            calls.push({ url, body: init.body });
+            return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true }) });
+        });
+
+        document.getElementById('btn-portable-restore').click();
+        await settle();
+
+        expect(calls).toHaveLength(1);
+        expect(calls[0].url).toBe('/setup/restore-portable');
+        expect(calls[0].body.get('passphrase')).toBe('quatre mots parfaitement ordinaires');
+        expect(calls[0].body.get('db_name')).toBe('scoutmagic');
+        expect(calls[0].body.get('db_password')).toBe('secret');
+        expect(calls[0].body.get('_csrf_token')).toBe('setup-tok');
+    });
+
+    it('tells the operator to log in with their usual credentials once it succeeds', async () => {
+        await readyToRestore();
+
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true }),
+        }));
+
+        document.getElementById('btn-portable-restore').click();
+        await settle();
+
+        expect(document.getElementById('portable-restore-result').textContent).toContain('restauré');
+        expect(document.getElementById('portable-progress').textContent).toContain('identifiants habituels');
+        // Nothing left to fill in: the restored site already has its unit,
+        // its accounts and its settings.
+        expect(document.getElementById('btn-portable-restore').disabled).toBe(true);
+    });
+
+    /**
+     * **The big-archive path**, which is the one this feature actually
+     * needs: a unit's portable backup is routinely larger than a shared
+     * host's `post_max_size`, so the single POST above would never reach
+     * the server at all.
+     *
+     * What is asserted is the hand-off. The shared uploader sends the
+     * archive in fragments and returns an identifier; the restore request
+     * that follows carries no file, only that identifier — and the same
+     * database credentials as the direct path, because the restore keeps
+     * them either way (D5).
+     */
+    it('sends a large archive in fragments and then restores from the upload identifier', async () => {
+        await readyToRestore();
+
+        const uploads = [];
+        window.ScoutMagicChunkedUpload = {
+            CHUNK_THRESHOLD: 1024,
+            uploadInChunks: vi.fn((file, url, options) => {
+                uploads.push({ name: file.name, url, csrfToken: options.csrfToken });
+                options.onProgress(512, 1024);
+
+                return Promise.resolve({ uploadId: 'ab12cd34' });
+            }),
+        };
+        attachFile('portable-file', 'grosse-sauvegarde.zip', 4096);
+        document.getElementById('portable-file').dispatchEvent(new Event('change'));
+
+        const calls = [];
+        global.fetch = vi.fn((url, init) => {
+            calls.push({ url, body: init.body });
+
+            return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true }) });
+        });
+
+        document.getElementById('btn-portable-restore').click();
+        await settle();
+
+        expect(uploads).toHaveLength(1);
+        expect(uploads[0].url).toBe('/setup/restore-portable-chunk');
+        expect(uploads[0].csrfToken).toBe('setup-tok');
+
+        expect(calls).toHaveLength(1);
+        expect(calls[0].url).toBe('/setup/restore-portable');
+        expect(calls[0].body.get('upload_id')).toBe('ab12cd34');
+        // No file in the body: it went up in fragments, and sending it
+        // again is exactly what this path exists to avoid.
+        expect(calls[0].body.get('portable_file')).toBeNull();
+        expect(calls[0].body.get('db_name')).toBe('scoutmagic');
+    });
+
+    /**
+     * A failure during the upload is reported as a failure, not as a
+     * restore that never answers.
+     */
+    it('reports an upload that could not finish', async () => {
+        await readyToRestore();
+
+        window.ScoutMagicChunkedUpload = {
+            CHUNK_THRESHOLD: 1024,
+            uploadInChunks: vi.fn(() => Promise.reject(new Error('Connexion interrompue.'))),
+        };
+        attachFile('portable-file', 'grosse-sauvegarde.zip', 4096);
+        document.getElementById('portable-file').dispatchEvent(new Event('change'));
+
+        global.fetch = vi.fn();
+
+        document.getElementById('btn-portable-restore').click();
+        await settle();
+
+        expect(global.fetch).not.toHaveBeenCalled();
+        expect(document.getElementById('portable-restore-result').textContent).toContain('Connexion interrompue');
+        expect(document.getElementById('btn-portable-restore').disabled).toBe(false);
+    });
+
+    /**
+     * A restore whose schema migration has not converged yet is still a
+     * success, and says so differently.
+     *
+     * `migrated: false` is not a failure — the runner stopped on its time
+     * budget and resumes on the next request — but the operator is about
+     * to meet the update screen, and meeting it unwarned reads as a
+     * restore that went wrong.
+     */
+    it('warns that the schema is still catching up when the migration has not converged', async () => {
+        await readyToRestore();
+
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, migrated: false }),
+        }));
+
+        document.getElementById('btn-portable-restore').click();
+        await settle();
+
+        expect(document.getElementById('portable-restore-result').textContent).toContain('restauré');
+        expect(document.getElementById('portable-progress').textContent).toContain('arrière-plan');
+        expect(document.getElementById('btn-portable-restore').disabled).toBe(true);
+    });
+
+    /**
+     * A refusal is reversible: the operator may simply have mistyped the
+     * passphrase, and must be able to try again without reloading.
+     */
+    it('shows the refusal and lets the operator try again', async () => {
+        await readyToRestore();
+
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: false, message: 'La phrase de passe ne correspond pas.' }),
+        }));
+
+        document.getElementById('btn-portable-restore').click();
+        await settle();
+
+        expect(document.getElementById('portable-restore-result').textContent).toContain('phrase de passe');
+        expect(document.getElementById('btn-portable-restore').disabled).toBe(false);
     });
 });

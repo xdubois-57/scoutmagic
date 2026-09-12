@@ -34,10 +34,45 @@ use Core\Security\SecretManager;
 class InstallationIdentityService
 {
     public const INSTALLATION_ID_SETTING = 'statistics_installation_id';
+
+    /**
+     * The installation this one was restored from, when it was.
+     *
+     * Lives here rather than with the restore that writes it, because the
+     * `statistics_` prefix is a claim about ownership: this module decides
+     * what its settings are called and what they mean. A portable restore
+     * (`Core\Maintenance\Portable\PortableRestore`) is the only writer,
+     * and writes it exactly once, at the moment it mints a new identity.
+     */
+    public const RESTORED_FROM_SETTING = 'statistics_restored_from';
     public const SECRET_NAME = 'statistics_secret';
 
     private const INSTALLATION_ID_BYTES = 16;
     private const SECRET_BYTES = 32;
+
+    /**
+     * Declares both settings this service owns.
+     *
+     * One call site rather than two `register()` lines in the composition
+     * root, because the wizard needs to make the same declaration: a
+     * portable restore replaces the database with the ORIGIN's, and an
+     * origin running an older ScoutMagic has no `statistics_restored_from`
+     * row at all — so the identifier of the site being left behind would
+     * be written into a row that does not exist and lost without a sound.
+     * A second copy of the declaration would drift; this is the same
+     * shape `InstallationDateService::register()` already uses.
+     */
+    public static function register(SettingService $settingService): void
+    {
+        $settingService->register(self::INSTALLATION_ID_SETTING, '', 'text', 'Identifiant de cette installation',
+            'Identifiant aléatoire attribué une seule fois à cette installation pour reconnaître ses rapports '
+                . 'd\'utilisation. Il ne dérive d\'aucune donnée personnelle.',
+            null, null, null, false, 282);
+        $settingService->register(self::RESTORED_FROM_SETTING, '', 'text', 'Installation d\'origine',
+            'Identifiant de l\'installation dont celle-ci a été restaurée, le cas échéant. Permet de relier les '
+                . 'deux sans les confondre. Renseigné automatiquement.',
+            null, null, null, false, 290);
+    }
 
     public function __construct(
         private SettingService $settingService,

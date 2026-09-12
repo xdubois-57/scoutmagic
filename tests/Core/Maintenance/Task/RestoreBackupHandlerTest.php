@@ -9,6 +9,7 @@ use Core\Config\SettingService;
 use Core\Database\Connection;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Maintenance\Portable\PortableKeys;
 use Core\Maintenance\Task\RestoreBackupHandler;
 use Core\Mail\MailService;
 use Core\Notification\NotificationPreferenceRepository;
@@ -190,5 +191,81 @@ class RestoreBackupHandlerTest extends TestCase
         $this->handler->handle(['source' => 'upload', 'uploaded_temp_path' => $tempPath], $this->context);
 
         $this->assertFileDoesNotExist($tempPath);
+    }
+
+    /**
+     * **A portable archive with the wrong passphrase is refused before the
+     * safety backup**, which is the expensive half.
+     *
+     * The distinction this asserts is not cosmetic. Refusing late would
+     * mean taking a full dump and a gallery-inclusive archive — minutes of
+     * work on a real installation — for an operation that could never
+     * finish, and the ordinary failure path would then answer the
+     * exception with a real rollback, replacing and un-replacing the site.
+     * Refused early, the journal carries `portable_restore_refused` and
+     * nothing else; refused late it would carry `backup_restore_failed`
+     * like every other failure in this class, which is exactly how the two
+     * placements are told apart here.
+     */
+    public function testAPortableUploadWithTheWrongPassphraseIsRefusedBeforeAnythingIsWritten(): void
+    {
+        $tempPath = $this->portableLookingArchive();
+
+        $this->handler->handle([
+            'source' => 'upload',
+            'uploaded_temp_path' => $tempPath,
+            'encrypted_password' => $this->encryptedPassphrase('une phrase qui n\'ouvre rien'),
+            'requested_by_user_account_id' => $this->userId,
+        ], $this->context);
+
+        $refusals = $this->pdo->query(
+            "SELECT * FROM event_log WHERE event_type = 'portable_restore_refused'"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertCount(1, $refusals, 'the portable archive was not routed to the portable path at all');
+
+        $failures = $this->pdo->query(
+            "SELECT * FROM event_log WHERE event_type = 'backup_restore_failed'"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertSame([], $failures, 'the safety backup was attempted for an archive that was going to be refused');
+    }
+
+    /** And the archive does not survive the refusal on disk. */
+    public function testARefusedPortableUploadIsDeletedFromDiskToo(): void
+    {
+        $tempPath = $this->portableLookingArchive();
+
+        $this->handler->handle([
+            'source' => 'upload',
+            'uploaded_temp_path' => $tempPath,
+            'encrypted_password' => $this->encryptedPassphrase('une phrase qui n\'ouvre rien'),
+        ], $this->context);
+
+        $this->assertFileDoesNotExist($tempPath);
+    }
+
+    /**
+     * A zip carrying a genuine portable header and nothing else.
+     *
+     * The header is written by `PortableKeys` itself rather than typed out
+     * here: what this test needs is a file the router really does
+     * recognise, and a hand-written comment would be a second opinion
+     * about the format that could agree with nothing.
+     */
+    private function portableLookingArchive(): string
+    {
+        $path = $this->storagePath . '/portable.zip';
+
+        $zip = new \ZipArchive();
+        $this->assertTrue($zip->open($path, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) === true);
+        $zip->addFromString('database.sql', '-- pas vraiment un dump');
+        $this->assertTrue($zip->setArchiveComment(PortableKeys::comment(PortableKeys::newDerivation())));
+        $zip->close();
+
+        return $path;
+    }
+
+    private function encryptedPassphrase(string $passphrase): string
+    {
+        return base64_encode($this->context->encryption->encrypt($passphrase, 'backup_password'));
     }
 }

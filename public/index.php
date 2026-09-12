@@ -270,6 +270,13 @@ if (!$isInitialized) {
         $response = $setupController->testDatabase($request, []);
     } elseif ($request->getMethod() === 'POST' && $request->getPath() === '/setup/install-database') {
         $response = $setupController->installDatabase($request, []);
+    } elseif ($request->getMethod() === 'POST' && $request->getPath() === '/setup/restore-portable-chunk') {
+        $response = $setupController->restorePortableChunk($request, []);
+    } elseif ($request->getMethod() === 'POST' && $request->getPath() === '/setup/restore-portable') {
+        // Only reachable while the site is NOT initialized — this whole
+        // block is. Once it is, /setup is a superadmin page and a restore
+        // belongs to Configuration > Maintenance.
+        $response = $setupController->restorePortable($request, []);
     } elseif ($request->getMethod() === 'POST' && $request->getPath() === '/setup/backup-and-empty-db') {
         $response = $setupController->backupAndEmptyDatabase($request, []);
     } elseif ($request->getMethod() === 'GET' && $request->getPath() === '/setup/download-backup') {
@@ -957,10 +964,10 @@ $settingService->register('statistics_destination', 'https://www.scoutmagic.be',
     'Adresse du site qui reçoit les rapports d\'utilisation. Fait de niveau projet, modifiable uniquement lors du '
         . 'déploiement d\'une installation réceptrice.',
     null, null, null, false, 281);
-$settingService->register('statistics_installation_id', '', 'text', 'Identifiant de cette installation',
-    'Identifiant aléatoire attribué une seule fois à cette installation pour reconnaître ses rapports '
-        . 'd\'utilisation. Il ne dérive d\'aucune donnée personnelle.',
-    null, null, null, false, 282);
+// Both declared by the service that owns them: the setup wizard has to make
+// the same declaration after a portable restore, and two copies of it would
+// be two copies to keep right.
+\Core\Statistics\InstallationIdentityService::register($settingService);
 $settingService->register('support_email', 'support@scoutmagic.be', 'email', 'Adresse du support ScoutMagic',
     'Adresse à laquelle envoyer une archive de support. Affichée sur la page Support.',
     null, null, null, false, 283);

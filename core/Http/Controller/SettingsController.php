@@ -40,7 +40,7 @@ class SettingsController extends AbstractController
     private const EXCLUDED_FROM_GENERIC_PAGE = [
         'auto_update_enabled', 'auto_update_level', 'auto_update_day', 'auto_update_time',
         'dev_update_branch',
-        'statistics_enabled', 'statistics_destination', 'statistics_installation_id',
+        'statistics_enabled', 'statistics_destination', 'statistics_installation_id', 'statistics_restored_from',
         'support_email', 'installed_at',
         'statistics_last_success_at', 'statistics_last_failure_at', 'statistics_last_failure_reason',
         'support_package_file_id', 'support_package_generated_at',
