@@ -61,8 +61,11 @@ class CampsConfigController extends AbstractController
             return $guard;
         }
 
-        $this->settings->set('camps_default_country', trim((string) $request->getBody('camps_default_country', '')),
-            self::MODULE);
+        $this->settings->set(
+            'camps_default_country',
+            trim((string) $request->getBody('camps_default_country', '')),
+            self::MODULE
+        );
 
         // Clamped rather than rejected: this is a display convenience, and
         // an out-of-range value here should not stop an administrator

@@ -142,8 +142,11 @@ class MaintenanceController extends AbstractController
         $latestVersion = (string) ($this->settingService->get('update_latest_version') ?: '');
         $installedVersion = VersionFile::read(dirname($this->storagePath));
         $level = (string) ($this->settingService->get('auto_update_level') ?: 'minor');
-        $updateAvailable = $latestVersion !== '' && VersionFile::isNewerThan($latestVersion, $installedVersion,
-            $level === 'dev');
+        $updateAvailable = $latestVersion !== '' && VersionFile::isNewerThan(
+            $latestVersion,
+            $installedVersion,
+            $level === 'dev'
+        );
 
         $autoUpdateEnabled = (bool) ((int) ($this->settingService->get('auto_update_enabled') ?: '0'));
         $webhookConfigured = $this->webhookSecret() !== '';
@@ -295,8 +298,12 @@ class MaintenanceController extends AbstractController
 
         $dependenciesChanged = (bool) ((int) ($this->settingService->get('update_dependencies_changed') ?: '0'));
 
-        $historyId = $this->updateHistoryRepository->create($installedVersion, $latestVersion, $dependenciesChanged,
-            $userId);
+        $historyId = $this->updateHistoryRepository->create(
+            $installedVersion,
+            $latestVersion,
+            $dependenciesChanged,
+            $userId
+        );
 
         $this->schedulerService->scheduleAfter(
             'core',
@@ -308,8 +315,12 @@ class MaintenanceController extends AbstractController
         );
 
         $this->journalService->log(
-            'core', 'update_requested', 'info', 'Installation de mise à jour demandée',
-            ['history_id' => $historyId, 'version_from' => $installedVersion, 'version_to' => $latestVersion], $userId
+            'core',
+            'update_requested',
+            'info',
+            'Installation de mise à jour demandée',
+            ['history_id' => $historyId, 'version_from' => $installedVersion, 'version_to' => $latestVersion],
+            $userId
         );
 
         return $this->json(['success' => true, 'history_id' => $historyId]);
@@ -401,8 +412,12 @@ class MaintenanceController extends AbstractController
         );
 
         $this->journalService->log(
-            'core', 'update_requested', 'info', 'Installation de mise à jour demandée (mode développement)',
-            ['history_id' => $historyId, 'version_from' => $installedVersion, 'version_to' => $versionTo], $userId
+            'core',
+            'update_requested',
+            'info',
+            'Installation de mise à jour demandée (mode développement)',
+            ['history_id' => $historyId, 'version_from' => $installedVersion, 'version_to' => $versionTo],
+            $userId
         );
 
         return $this->json(['success' => true, 'history_id' => $historyId]);
@@ -656,8 +671,12 @@ class MaintenanceController extends AbstractController
             $this->retention()->purgeAfterCreating('database');
 
             $this->journalService->log(
-                'core', 'backup_completed', 'info', 'Sauvegarde de la base de données générée',
-                ['backup_id' => $backupId], $userId
+                'core',
+                'backup_completed',
+                'info',
+                'Sauvegarde de la base de données générée',
+                ['backup_id' => $backupId],
+                $userId
             );
             FlashMessage::set('success', 'Sauvegarde de la base de données générée.');
         } catch (BackupException | \Core\Storage\InsufficientDiskSpaceException $e) {
@@ -681,8 +700,12 @@ class MaintenanceController extends AbstractController
             );
             $this->backupRepository->markFailed($backupId, substr($message, 0, 500));
             $this->journalService->log(
-                'core', 'backup_failed', 'info', 'Échec de la génération d\'une sauvegarde de base de données',
-                ['backup_id' => $backupId, 'error' => $e->getMessage()], $userId
+                'core',
+                'backup_failed',
+                'info',
+                'Échec de la génération d\'une sauvegarde de base de données',
+                ['backup_id' => $backupId, 'error' => $e->getMessage()],
+                $userId
             );
             FlashMessage::set('error', $message);
         }
@@ -741,8 +764,12 @@ class MaintenanceController extends AbstractController
         );
 
         $this->journalService->log(
-            'core', 'backup_requested', 'info', 'Sauvegarde complète demandée',
-            ['backup_id' => $backupId, 'scope' => $scope], $userId
+            'core',
+            'backup_requested',
+            'info',
+            'Sauvegarde complète demandée',
+            ['backup_id' => $backupId, 'scope' => $scope],
+            $userId
         );
 
         return $this->json(['success' => true, 'backup_id' => $backupId]);
@@ -849,8 +876,12 @@ class MaintenanceController extends AbstractController
         $this->settingService->set('backup_auto_frequency', $frequency);
 
         $this->journalService->log(
-            'core', 'setting_changed', 'info', 'Fréquence de sauvegarde automatique modifiée',
-            ['key' => 'backup_auto_frequency', 'new_value' => $frequency], $userId
+            'core',
+            'setting_changed',
+            'info',
+            'Fréquence de sauvegarde automatique modifiée',
+            ['key' => 'backup_auto_frequency', 'new_value' => $frequency],
+            $userId
         );
 
         return $this->json(['success' => true]);
@@ -1018,8 +1049,14 @@ class MaintenanceController extends AbstractController
         $userId = AuthSession::getUserAccountId();
         $actionId = $this->schedulerService->scheduleAfter('core', 'reset_settings', 0, [], null, $userId);
 
-        $this->journalService->log('core', 'settings_reset_requested', 'security',
-            'Réinitialisation des paramètres par défaut demandée', [], $userId);
+        $this->journalService->log(
+            'core',
+            'settings_reset_requested',
+            'security',
+            'Réinitialisation des paramètres par défaut demandée',
+            [],
+            $userId
+        );
 
         return $this->json(['success' => true, 'action_id' => $actionId]);
     }
@@ -1048,8 +1085,14 @@ class MaintenanceController extends AbstractController
         $userId = AuthSession::getUserAccountId();
         $actionId = $this->schedulerService->scheduleAfter('core', 'full_reset', 0, [], null, $userId);
 
-        $this->journalService->log('core', 'full_reset_requested', 'security', 'Réinitialisation complète demandée', [],
-            $userId);
+        $this->journalService->log(
+            'core',
+            'full_reset_requested',
+            'security',
+            'Réinitialisation complète demandée',
+            [],
+            $userId
+        );
 
         return $this->json(['success' => true, 'action_id' => $actionId]);
     }
@@ -1160,8 +1203,14 @@ class MaintenanceController extends AbstractController
 
         $actionId = $this->schedulerService->scheduleAfter('core', 'restore_backup', 0, $payload, null, $userId);
 
-        $this->journalService->log('core', 'backup_restore_requested', 'security',
-            'Restauration de sauvegarde demandée', ['source' => $source], $userId);
+        $this->journalService->log(
+            'core',
+            'backup_restore_requested',
+            'security',
+            'Restauration de sauvegarde demandée',
+            ['source' => $source],
+            $userId
+        );
 
         return $this->redirect('/config/maintenance?restore_id=' . $actionId);
     }
@@ -1323,9 +1372,12 @@ class MaintenanceController extends AbstractController
             $this->reconcilePendingScheduledInstall($enabled, $level, null, null, $userId);
 
             $this->journalService->log(
-                'core', 'auto_update_settings_changed', 'security',
+                'core',
+                'auto_update_settings_changed',
+                'security',
                 'Préférences de mise à jour automatique modifiées (mode développement)',
-                ['enabled' => $enabled, 'level' => $level, 'branch' => $branch], $userId
+                ['enabled' => $enabled, 'level' => $level, 'branch' => $branch],
+                $userId
             );
 
             return $this->json(['success' => true]);
@@ -1349,8 +1401,12 @@ class MaintenanceController extends AbstractController
         $this->reconcilePendingScheduledInstall($enabled, $level, $day, $time, $userId);
 
         $this->journalService->log(
-            'core', 'auto_update_settings_changed', 'info', 'Préférences de mise à jour automatique modifiées',
-            ['enabled' => $enabled, 'level' => $level, 'day' => $day, 'time' => $time], $userId
+            'core',
+            'auto_update_settings_changed',
+            'info',
+            'Préférences de mise à jour automatique modifiées',
+            ['enabled' => $enabled, 'level' => $level, 'day' => $day, 'time' => $time],
+            $userId
         );
 
         return $this->json(['success' => true]);
@@ -1375,8 +1431,11 @@ class MaintenanceController extends AbstractController
         ?int $userId
     ): void
     {
-        $pending = $this->schedulerService->find('core', 'install_update',
-            GitHubWebhookService::SCHEDULED_INSTALL_REFERENCE);
+        $pending = $this->schedulerService->find(
+            'core',
+            'install_update',
+            GitHubWebhookService::SCHEDULED_INSTALL_REFERENCE
+        );
         if ($pending === null) {
             return;
         }
@@ -1423,9 +1482,12 @@ class MaintenanceController extends AbstractController
         }
 
         $this->journalService->log(
-            'core', 'auto_update_canceled', 'info',
+            'core',
+            'auto_update_canceled',
+            'info',
             'Installation automatique planifiée annulée suite au changement des préférences',
-            ['history_id' => $historyId], $userId
+            ['history_id' => $historyId],
+            $userId
         );
     }
 

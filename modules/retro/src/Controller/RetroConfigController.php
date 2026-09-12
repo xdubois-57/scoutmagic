@@ -126,8 +126,12 @@ class RetroConfigController extends AbstractController
         $this->settingService->set('retro_moderation_mode', $moderationMode, 'retro');
 
         $this->journalService->log(
-            'retro', 'config_updated', 'info', 'Configuration des rétrospectives modifiée',
-            [], (int) AuthSession::getUserAccountId()
+            'retro',
+            'config_updated',
+            'info',
+            'Configuration des rétrospectives modifiée',
+            [],
+            (int) AuthSession::getUserAccountId()
         );
 
         return $this->redirect('/config/retro');
@@ -160,14 +164,18 @@ class RetroConfigController extends AbstractController
                 'retro_role_min_close_board',
                 'retro'
             ) ?: 'chief'),
-            'retro_default_max_comment_length' => (int) ($this->settingService->get('retro_default_max_comment_length',
-                'retro') ?: 140),
+            'retro_default_max_comment_length' => (int) ($this->settingService->get(
+                'retro_default_max_comment_length',
+                'retro'
+            ) ?: 140),
             'retro_default_vote_budget' => (int) ($this->settingService->get(
                 'retro_default_vote_budget',
                 'retro'
             ) ?: 5),
-            'retro_polling_interval_seconds' => (int) ($this->settingService->get('retro_polling_interval_seconds',
-                'retro') ?: 8),
+            'retro_polling_interval_seconds' => (int) ($this->settingService->get(
+                'retro_polling_interval_seconds',
+                'retro'
+            ) ?: 8),
             'retro_moderation_mode' => (string) ($this->settingService->get(
                 'retro_moderation_mode',
                 'retro'

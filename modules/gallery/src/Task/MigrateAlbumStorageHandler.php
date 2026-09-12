@@ -64,8 +64,10 @@ class MigrateAlbumStorageHandler implements TaskHandlerInterface
         $albumRepository = new AlbumRepository($pdo);
         $mediaRepository = new MediaRepository($pdo);
         $storageLocationRepository = new StorageLocationRepository($pdo, $context->encryption);
-        $storageBackendFactory = $this->storageBackendFactory ?? new StorageBackendFactory($storageLocationRepository,
-            $context->storagePath);
+        $storageBackendFactory = $this->storageBackendFactory ?? new StorageBackendFactory(
+            $storageLocationRepository,
+            $context->storagePath
+        );
 
         $album = $albumRepository->findById($albumId);
         if (
@@ -134,7 +136,9 @@ class MigrateAlbumStorageHandler implements TaskHandlerInterface
         $albumRepository->completeMigration($albumId, $targetLocation->id);
 
         $context->journal->log(
-            'gallery', 'album_storage_migrated', 'info',
+            'gallery',
+            'album_storage_migrated',
+            'info',
             "Album #{$albumId} migré de « {$sourceLocation->label} » vers « {$targetLocation->label} »",
             ['album_id' => $albumId, 'from_location_id' => $sourceLocation->id, 'to_location_id' => $targetLocation->id]
         );

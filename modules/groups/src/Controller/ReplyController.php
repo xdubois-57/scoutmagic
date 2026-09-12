@@ -199,8 +199,14 @@ class ReplyController extends AbstractController
         }
 
         try {
-            $replyId = $this->replyService->create($group, $post->id, $context->userAccountId, $authorMemberId, $body,
-                $mediaId);
+            $replyId = $this->replyService->create(
+                $group,
+                $post->id,
+                $context->userAccountId,
+                $authorMemberId,
+                $body,
+                $mediaId
+            );
         } catch (GroupsException $e) {
             // The image was uploaded before the reply row existed, so a
             // refusal here has to take it back out again — otherwise a

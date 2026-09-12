@@ -132,8 +132,11 @@ class ResponseService
         }
 
         $qrPng = $this->sepaQrCode->generatePng(
-            $account['holder_name'] ?? $this->siteName, $account['iban'], null,
-            (int) round($total * 100), $response->structuredCommunication
+            $account['holder_name'] ?? $this->siteName,
+            $account['iban'],
+            null,
+            (int) round($total * 100),
+            $response->structuredCommunication
         );
 
         return [
@@ -373,14 +376,23 @@ class ResponseService
             if ($total > 0.0 && $form->financeAccountId !== null && $this->isPaymentAvailable()) {
                 $structuredCommunication = $this->structuredCommunication->generate();
                 $receivableId = $this->expectedReceivable->createReceivable(
-                    'news', $form->id, $form->financeAccountId, (int) round($total * 100),
-                    $structuredCommunication, $contactEmail
+                    'news',
+                    $form->id,
+                    $form->financeAccountId,
+                    (int) round($total * 100),
+                    $structuredCommunication,
+                    $contactEmail
                 );
             }
 
             $responseId = $this->responseRepository->create(
-                $form->id, $userAccountId, $memberYearId, $contactEmail,
-                $normalizedAnswers, $structuredCommunication, $receivableId
+                $form->id,
+                $userAccountId,
+                $memberYearId,
+                $contactEmail,
+                $normalizedAnswers,
+                $structuredCommunication,
+                $receivableId
             );
 
             foreach ($fields as $field) {
@@ -409,7 +421,9 @@ class ResponseService
                 $this->ticketService->issueFor($this->responseRepository->findById($responseId));
             } catch (NewsException $e) {
                 $this->journalService?->log(
-                    'news', 'ticket_reference_failed', 'info',
+                    'news',
+                    'ticket_reference_failed',
+                    'info',
                     'Échec de la génération de la référence de billet pour une réponse de formulaire',
                     ['article_id' => $article->id, 'form_id' => $form->id, 'response_id' => $responseId],
                     $userAccountId
@@ -431,7 +445,9 @@ class ResponseService
             $this->journalService?->log(
                 // 'warning' isn't a valid event_log.level (only 'info'/
                 // 'security' — see JournalService::log()'s docblock).
-                'news', 'confirmation_email_failed', 'info',
+                'news',
+                'confirmation_email_failed',
+                'info',
                 'Échec de l\'envoi de l\'email de confirmation pour une réponse de formulaire',
                 ['article_id' => $article->id, 'form_id' => $form->id, 'response_id' => $response->id],
                 $response->userAccountId
@@ -572,13 +588,17 @@ class ResponseService
             // submission, but the server is the only check that actually
             // matters (a JS-disabled or scripted client bypasses HTML5
             // validation entirely).
-            if ($field->fieldType === FormField::TYPE_EMAIL && $value !== '' && !filter_var($value,
-                FILTER_VALIDATE_EMAIL)) {
+            if ($field->fieldType === FormField::TYPE_EMAIL && $value !== '' && !filter_var(
+                $value,
+                FILTER_VALIDATE_EMAIL
+            )) {
                 throw new NewsException('Le champ "' . $field->label . '" doit être une adresse email valide.');
             }
 
-            if ($field->fieldType === FormField::TYPE_PHONE && $value !== '' && !preg_match('/^\+?[0-9 .\-()]{6,20}$/',
-                $value)) {
+            if ($field->fieldType === FormField::TYPE_PHONE && $value !== '' && !preg_match(
+                '/^\+?[0-9 .\-()]{6,20}$/',
+                $value
+            )) {
                 throw new NewsException('Le champ "' . $field->label . '" doit être un numéro de téléphone valide.');
             }
 
@@ -688,8 +708,12 @@ class ResponseService
         // the standalone ticket cannot disagree about it.
         if ($ticket !== null && $this->ticketMail !== null) {
             $this->ticketMail->sendWithIcs(
-                $article, $form, $response->contactEmail,
-                $email->subject, $email->bodyHtml, $email->bodyText
+                $article,
+                $form,
+                $response->contactEmail,
+                $email->subject,
+                $email->bodyHtml,
+                $email->bodyText
             );
 
             return;

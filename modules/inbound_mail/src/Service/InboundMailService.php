@@ -133,13 +133,16 @@ class InboundMailService implements InboundMailInterface
 
         $stored = $this->messageRepository->findOneForReference($consumerId, $businessReference, $messageId);
         if ($stored !== null) {
-            $this->notifyLinked($stored, new MessageLink(
-                $consumerId,
-                $businessReference,
-                LinkOrigin::MANUAL,
-                0,
-                $userAccountId
-            ));
+            $this->notifyLinked(
+                $stored,
+                new MessageLink(
+                    $consumerId,
+                    $businessReference,
+                    LinkOrigin::MANUAL,
+                    0,
+                    $userAccountId
+                )
+            );
         }
 
         return true;
@@ -257,13 +260,16 @@ class InboundMailService implements InboundMailInterface
             // The author travels with the link. Finance files a receipt
             // « only ever by a person », and the person was being dropped
             // right here — the row named them, the callback did not.
-            $this->notifyLinked($stored, new MessageLink(
-                $consumerId,
-                $candidate->businessReference,
-                LinkOrigin::MANUAL,
-                $candidate->attachmentId,
-                $userAccountId
-            ));
+            $this->notifyLinked(
+                $stored,
+                new MessageLink(
+                    $consumerId,
+                    $candidate->businessReference,
+                    LinkOrigin::MANUAL,
+                    $candidate->attachmentId,
+                    $userAccountId
+                )
+            );
         }
 
         return true;

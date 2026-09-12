@@ -165,8 +165,15 @@ class ReconciliationService
                 continue;
             }
 
-            $proposal = $this->splitProposal($credit, $remainder, $allocatedReceivableIds, $receivables, $settlements,
-                $householdByMemberId, $identities);
+            $proposal = $this->splitProposal(
+                $credit,
+                $remainder,
+                $allocatedReceivableIds,
+                $receivables,
+                $settlements,
+                $householdByMemberId,
+                $identities
+            );
             if ($proposal !== null) {
                 $split[] = $proposal;
             }
@@ -178,12 +185,24 @@ class ReconciliationService
             if ($settlement === null || $settlement->amountOverpaidCents <= 0) {
                 continue;
             }
-            $overpaid[] = $this->overpaidRow($receivable, $settlement, $identities, $householdByMemberId, $receivables,
-                $settlements);
+            $overpaid[] = $this->overpaidRow(
+                $receivable,
+                $settlement,
+                $identities,
+                $householdByMemberId,
+                $receivables,
+                $settlements
+            );
         }
 
-        $crossAccount = $this->crossAccount($account, $receivables, $settlements, $credits, $allocationsByTransaction,
-            $identities);
+        $crossAccount = $this->crossAccount(
+            $account,
+            $receivables,
+            $settlements,
+            $credits,
+            $allocationsByTransaction,
+            $identities
+        );
 
         return [
             'account' => $account,

@@ -176,17 +176,20 @@ class StaySearchService
         // screen shows (place, French dates, kind of stay, status) AND the
         // stored dates, so « 2026-09 » and « 18/09/2026 » work for the
         // people who think in dates rather than in months.
-        $haystack = TextNormalizerService::fold(implode(' ', array_filter([
-            $placeName,
-            $label,
-            CampLabels::stayType($camp->stayType),
-            CampLabels::status($camp->status),
-            $camp->startDate,
-            $camp->endDate,
-            self::slashed($camp->startDate),
-            self::slashed($camp->endDate),
-            $camp->yearOnly !== null ? (string) $camp->yearOnly : null,
-        ])));
+        $haystack = TextNormalizerService::fold(implode(
+            ' ',
+            array_filter([
+                $placeName,
+                $label,
+                CampLabels::stayType($camp->stayType),
+                CampLabels::status($camp->status),
+                $camp->startDate,
+                $camp->endDate,
+                self::slashed($camp->startDate),
+                self::slashed($camp->endDate),
+                $camp->yearOnly !== null ? (string) $camp->yearOnly : null,
+            ])
+        ));
 
         foreach ($terms as $term) {
             if (!str_contains($haystack, $term)) {

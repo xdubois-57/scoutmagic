@@ -84,10 +84,13 @@ class TicketMailService
             return;
         }
 
-        $email = $this->emailTemplateRenderer->render('news.ticket', array_merge(
-            ['site_name' => $this->siteName, 'article_title' => $article->title],
-            $this->ticketVariables($form, (string) $response->ticketReference)
-        ));
+        $email = $this->emailTemplateRenderer->render(
+            'news.ticket',
+            array_merge(
+                ['site_name' => $this->siteName, 'article_title' => $article->title],
+                $this->ticketVariables($form, (string) $response->ticketReference)
+            )
+        );
 
         $this->sendWithIcs(
             $article,

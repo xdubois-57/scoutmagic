@@ -315,8 +315,10 @@ class SectionService
         $profiles = array_values($this->hydrateMemberProfiles($memberYearIds));
 
         // Sort by display name
-        usort($profiles, fn(MemberProfile $a, MemberProfile $b) =>
-            strcasecmp($a->getDisplayName(), $b->getDisplayName()));
+        usort(
+            $profiles,
+            fn(MemberProfile $a, MemberProfile $b) => strcasecmp($a->getDisplayName(), $b->getDisplayName())
+        );
 
         return $profiles;
     }
@@ -348,8 +350,10 @@ class SectionService
 
         $profiles = array_values($this->hydrateMemberProfiles($memberYearIds));
 
-        usort($profiles, fn(MemberProfile $a, MemberProfile $b) =>
-            strcasecmp($a->getDisplayName(), $b->getDisplayName()));
+        usort(
+            $profiles,
+            fn(MemberProfile $a, MemberProfile $b) => strcasecmp($a->getDisplayName(), $b->getDisplayName())
+        );
 
         return $profiles;
     }

@@ -107,7 +107,9 @@ class SessionRevalidator
         $freshRole = $this->roleResolver->resolveAcrossYears($account->email, $years);
         if ($freshRole !== AuthSession::getRole()) {
             $this->journalService?->log(
-                'core', 'session_role_refreshed', 'security',
+                'core',
+                'session_role_refreshed',
+                'security',
                 'Rôle de session actualisé',
                 ['from' => AuthSession::getRole(), 'to' => $freshRole],
                 $userAccountId
@@ -143,8 +145,12 @@ class SessionRevalidator
     private function revoke(string $reason, int $userAccountId): void
     {
         $this->journalService?->log(
-            'core', 'session_revoked', 'security', 'Session invalidée',
-            ['reason' => $reason], $userAccountId
+            'core',
+            'session_revoked',
+            'security',
+            'Session invalidée',
+            ['reason' => $reason],
+            $userAccountId
         );
 
         AuthSession::logout();

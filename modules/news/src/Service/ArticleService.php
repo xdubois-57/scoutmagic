@@ -237,8 +237,16 @@ class ArticleService implements HomeNewsProvider
             $seoStopDate
         ] = $this->enforceSeoRules($visibility, $isIndexed, $seoKeywords, $seoStopDate);
 
-        $id = $this->articleRepository->create($title, $visibility, $isIndexed, $seoKeywords, $seoStopDate, $createdBy,
-            $summary, $imageFileId);
+        $id = $this->articleRepository->create(
+            $title,
+            $visibility,
+            $isIndexed,
+            $seoKeywords,
+            $seoStopDate,
+            $createdBy,
+            $summary,
+            $imageFileId
+        );
 
         $code = $this->shortUrlService->createShortUrl('/news/' . $id, $createdBy);
         $this->articleRepository->setShortUrlCode($id, $code);
@@ -274,8 +282,16 @@ class ArticleService implements HomeNewsProvider
             $seoStopDate
         ] = $this->enforceSeoRules($visibility, $isIndexed, $seoKeywords, $seoStopDate);
 
-        $this->articleRepository->update($id, $title, $visibility, $isIndexed, $seoKeywords, $seoStopDate, $summary,
-            $imageFileId);
+        $this->articleRepository->update(
+            $id,
+            $title,
+            $visibility,
+            $isIndexed,
+            $seoKeywords,
+            $seoStopDate,
+            $summary,
+            $imageFileId
+        );
 
         $updated = $this->articleRepository->findById($id);
         $this->syncCoverImageAccess($updated?->imageFileId, $visibility);

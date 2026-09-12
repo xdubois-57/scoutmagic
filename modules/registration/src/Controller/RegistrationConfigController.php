@@ -571,10 +571,16 @@ class RegistrationConfigController extends AbstractController
                 'registration',
                 '0'
             ) === '1',
-            'scheduled_open_at' => (string) $this->settingService->get('registration_scheduled_open_at', 'registration',
-                ''),
-            'scheduled_close_at' => (string) $this->settingService->get('registration_scheduled_close_at',
-                'registration', ''),
+            'scheduled_open_at' => (string) $this->settingService->get(
+                'registration_scheduled_open_at',
+                'registration',
+                ''
+            ),
+            'scheduled_close_at' => (string) $this->settingService->get(
+                'registration_scheduled_close_at',
+                'registration',
+                ''
+            ),
 
             // Waitlist management, surfaced inside the capacity box rather
             // than hidden away in Configuration > Réglages. When it is off,
@@ -586,10 +592,16 @@ class RegistrationConfigController extends AbstractController
                 'registration',
                 '1'
             ) === '1',
-            'threshold_available' => (string) $this->settingService->get(self::SETTING_THRESHOLD_AVAILABLE,
-                'registration', '0.5'),
-            'threshold_limited' => (string) $this->settingService->get(self::SETTING_THRESHOLD_LIMITED, 'registration',
-                '0.1'),
+            'threshold_available' => (string) $this->settingService->get(
+                self::SETTING_THRESHOLD_AVAILABLE,
+                'registration',
+                '0.5'
+            ),
+            'threshold_limited' => (string) $this->settingService->get(
+                self::SETTING_THRESHOLD_LIMITED,
+                'registration',
+                '0.1'
+            ),
             'default_capacity' => SlotService::DEFAULT_CAPACITY,
 
             'selectable_years' => $years['selectable'],

@@ -237,13 +237,16 @@ class ScoutYearController extends AbstractController
                 ['blocking_request_count' => $count],
                 AuthSession::getUserAccountId()
             );
-            FlashMessage::set('error', sprintf(
-                "Impossible de basculer : %d demande(s) d'inscription ne sont pas encore clôturées, toutes années "
-                    . "confondues. "
-                . 'Traitez-les depuis la page de gestion des inscriptions avant de poursuivre — le traitement en masse '
-                . "(« tout refuser », « tout retirer ») y est disponible.",
-                $count
-            ));
+            FlashMessage::set(
+                'error',
+                sprintf(
+                    "Impossible de basculer : %d demande(s) d'inscription ne sont pas encore clôturées, toutes "
+                    . "années confondues. "
+                    . 'Traitez-les depuis la page de gestion des inscriptions avant de poursuivre — le traitement '
+                    . "en masse (« tout refuser », « tout retirer ») y est disponible.",
+                    $count
+                )
+            );
             return $this->redirect('/admin/scout-year');
         }
 

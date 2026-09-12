@@ -107,8 +107,11 @@ class CampaignExportService
                 DataType::TYPE_NUMERIC
             );
             $sheet->setCellValueExplicit([8, $line], self::euros($row['amount_overpaid'] ?? 0), DataType::TYPE_NUMERIC);
-            $sheet->setCellValueExplicit([9, $line], self::STATUS_LABELS[$row['status'] ?? ''] ?? '',
-                DataType::TYPE_STRING);
+            $sheet->setCellValueExplicit(
+                [9, $line],
+                self::STATUS_LABELS[$row['status'] ?? ''] ?? '',
+                DataType::TYPE_STRING
+            );
             $sheet->setCellValueExplicit([10, $line], (string) ($row['note'] ?? ''), DataType::TYPE_STRING);
             $sheet->setCellValueExplicit([11, $line], (string) ($row['note_author'] ?? ''), DataType::TYPE_STRING);
             $sheet->setCellValueExplicit([12, $line], (string) ($row['note_updated_at'] ?? ''), DataType::TYPE_STRING);

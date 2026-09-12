@@ -139,10 +139,13 @@ class BatchController extends AbstractController
             $this->verification->assignMember($batchId, $lineId, $memberId);
             FlashMessage::set('success', 'Attestation rattachée.');
         } catch (\Throwable $e) {
-            FlashMessage::set('error', UserFacingMessage::from(
-                $e,
-                'Le rattachement a échoué. Rechargez la page et réessayez.'
-            ));
+            FlashMessage::set(
+                'error',
+                UserFacingMessage::from(
+                    $e,
+                    'Le rattachement a échoué. Rechargez la page et réessayez.'
+                )
+            );
         }
 
         return $this->redirect($path);
@@ -187,18 +190,24 @@ class BatchController extends AbstractController
 
         try {
             $result = $this->publication->publish($batchId, $selected, AuthSession::getUserAccountId());
-            FlashMessage::set('success', sprintf(
-                '%d attestation(s) publiée(s)%s.',
-                $result['published'],
-                $result['discarded'] === 0
-                    ? ''
-                    : sprintf(', %d écartée(s) et supprimée(s)', $result['discarded'])
-            ));
+            FlashMessage::set(
+                'success',
+                sprintf(
+                    '%d attestation(s) publiée(s)%s.',
+                    $result['published'],
+                    $result['discarded'] === 0
+                        ? ''
+                        : sprintf(', %d écartée(s) et supprimée(s)', $result['discarded'])
+                )
+            );
         } catch (\Throwable $e) {
-            FlashMessage::set('error', UserFacingMessage::from(
-                $e,
-                'La publication a échoué. Rechargez la page et réessayez.'
-            ));
+            FlashMessage::set(
+                'error',
+                UserFacingMessage::from(
+                    $e,
+                    'La publication a échoué. Rechargez la page et réessayez.'
+                )
+            );
         }
 
         return $this->redirect($path);
@@ -232,10 +241,13 @@ class BatchController extends AbstractController
                 'Envoi lancé. Les messages partent par petits groupes ; revenez sur cette page pour suivre.'
             );
         } catch (\Throwable $e) {
-            FlashMessage::set('error', UserFacingMessage::from(
-                $e,
-                'L\'envoi n\'a pas pu être lancé. Rechargez la page et réessayez.'
-            ));
+            FlashMessage::set(
+                'error',
+                UserFacingMessage::from(
+                    $e,
+                    'L\'envoi n\'a pas pu être lancé. Rechargez la page et réessayez.'
+                )
+            );
         }
 
         return $this->redirect($path);
@@ -269,16 +281,22 @@ class BatchController extends AbstractController
 
         try {
             $result = $this->reset->reset($batchId, AuthSession::getUserAccountId());
-            FlashMessage::set('success', sprintf(
-                'Lot repris : %d document(s) retiré(s) des pages des membres. '
-                . 'Les e-mails déjà partis, eux, ne reviennent pas.',
-                $result['documents']
-            ));
+            FlashMessage::set(
+                'success',
+                sprintf(
+                    'Lot repris : %d document(s) retiré(s) des pages des membres. '
+                    . 'Les e-mails déjà partis, eux, ne reviennent pas.',
+                    $result['documents']
+                )
+            );
         } catch (\Throwable $e) {
-            FlashMessage::set('error', UserFacingMessage::from(
-                $e,
-                'La reprise a échoué. Rechargez la page et réessayez.'
-            ));
+            FlashMessage::set(
+                'error',
+                UserFacingMessage::from(
+                    $e,
+                    'La reprise a échoué. Rechargez la page et réessayez.'
+                )
+            );
 
             return $this->redirect(AttestationsController::PATH . '/' . $batchId);
         }

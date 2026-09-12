@@ -62,8 +62,11 @@ class MemberStatsService
         $rows = $this->repository->getMemberBranchData($scoutYearId);
         foreach ($rows as $row) {
             $birthYear = MemberYearService::extractBirthYear($row['birth_date']);
-            $effectiveAge = $this->memberYearService->getEffectiveAge($birthYear, $row['scout_year_offset'],
-                $referenceYear);
+            $effectiveAge = $this->memberYearService->getEffectiveAge(
+                $birthYear,
+                $row['scout_year_offset'],
+                $referenceYear
+            );
 
             if (!$effectiveAge->isInKnownBranch()) {
                 continue; // no usable birth year, or effective age outside the four animés branches

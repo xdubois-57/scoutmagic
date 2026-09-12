@@ -88,15 +88,18 @@ class GalleryChiefController extends AbstractController
             ? $this->albumService->findAllForManage()
             : $this->albumService->findForManageByScoutYears($this->recentScoutYearIds());
 
-        $albums = array_map(fn(Album $a) => [
-            'album' => $a,
-            'can_edit' => $this->accessService->canManageAlbum($role, $a->sectionId, $email),
-            // The list used to render a hardcoded "Section spécifique" for
-            // every scoped album, so it never told a chief WHICH section.
-            'section_label' => $a->sectionId !== null
-                ? ($sectionLabels[$a->sectionId] ?? 'Section inconnue')
-                : null,
-        ], $albumRows);
+        $albums = array_map(
+            fn(Album $a) => [
+                'album' => $a,
+                'can_edit' => $this->accessService->canManageAlbum($role, $a->sectionId, $email),
+                // The list used to render a hardcoded "Section spécifique" for
+                // every scoped album, so it never told a chief WHICH section.
+                'section_label' => $a->sectionId !== null
+                    ? ($sectionLabels[$a->sectionId] ?? 'Section inconnue')
+                    : null,
+            ],
+            $albumRows
+        );
 
         $this->storageLocationService->ensureLegacyLocationBackfilled();
 
@@ -550,10 +553,13 @@ class GalleryChiefController extends AbstractController
             'max_media_per_album' => (int) $this->settingService->get('gallery_max_media_per_album', 'gallery', 200),
             'locations' => $locations,
             'default_location_id' => $defaultLocation?->id,
-            'media' => $album !== null ? array_map(fn(Media $m) => [
-                'media' => $m,
-                'thumb_url' => $this->mediaService->resolveUrl($m, $album, 'thumb'),
-            ], $media) : [],
+            'media' => $album !== null ? array_map(
+                fn(Media $m) => [
+                    'media' => $m,
+                    'thumb_url' => $this->mediaService->resolveUrl($m, $album, 'thumb'),
+                ],
+                $media
+            ) : [],
             'csrf_token' => CsrfGuard::generateToken(),
         ];
     }

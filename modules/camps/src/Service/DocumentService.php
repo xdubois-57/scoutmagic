@@ -88,8 +88,15 @@ class DocumentService
         }
 
         $this->audit->record(
-            CampService::ENTITY_TYPE, $campId, 'document', null, $title,
-            AuditSource::Human, 'Document ajouté', null, $actorUserAccountId
+            CampService::ENTITY_TYPE,
+            $campId,
+            'document',
+            null,
+            $title,
+            AuditSource::Human,
+            'Document ajouté',
+            null,
+            $actorUserAccountId
         );
 
         return $id;
@@ -110,8 +117,15 @@ class DocumentService
         $id = $this->documents->create($campId, $title, $fileId, Document::SOURCE_EMAIL, $sourceReference);
 
         $this->audit->record(
-            CampService::ENTITY_TYPE, $campId, 'document', null, $title,
-            AuditSource::Email, 'Pièce jointe rattachée depuis un message', $sourceReference, $actorUserAccountId
+            CampService::ENTITY_TYPE,
+            $campId,
+            'document',
+            null,
+            $title,
+            AuditSource::Email,
+            'Pièce jointe rattachée depuis un message',
+            $sourceReference,
+            $actorUserAccountId
         );
 
         return $id;
@@ -149,12 +163,22 @@ class DocumentService
     public function delete(Document $document, ?int $actorUserAccountId): void
     {
         $this->fileRemover->remove(
-            $this->documents, $document->id, $document->fileId, $document->ownsItsFile()
+            $this->documents,
+            $document->id,
+            $document->fileId,
+            $document->ownsItsFile()
         );
 
         $this->audit->record(
-            CampService::ENTITY_TYPE, $document->campId, 'document', $document->title, null,
-            AuditSource::Human, 'Document supprimé', null, $actorUserAccountId
+            CampService::ENTITY_TYPE,
+            $document->campId,
+            'document',
+            $document->title,
+            null,
+            AuditSource::Human,
+            'Document supprimé',
+            null,
+            $actorUserAccountId
         );
     }
 

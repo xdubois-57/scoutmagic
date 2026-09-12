@@ -233,11 +233,14 @@ class RentalConfigController extends AbstractController
             $scoutYearId
         );
 
-        return $this->json(array_map(static fn(MemberDirectoryEntry $entry) => [
-            'id' => $entry->memberId,
-            'label' => $entry->label(),
-            'sublabel' => $entry->sublabel(),
-        ], $matches));
+        return $this->json(array_map(
+            static fn(MemberDirectoryEntry $entry) => [
+                'id' => $entry->memberId,
+                'label' => $entry->label(),
+                'sublabel' => $entry->sublabel(),
+            ],
+            $matches
+        ));
     }
 
     /**

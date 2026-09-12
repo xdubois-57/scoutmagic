@@ -168,8 +168,10 @@ class HouseholdDetailRepository
                 number: $this->nullIfEmpty($this->decrypt($row['number_encrypted'], 'member_addresses.number')),
                 box: $this->nullIfEmpty($this->decrypt($row['box_encrypted'], 'member_addresses.box')),
                 complement: null,
-                postalCode: $this->nullIfEmpty($this->decrypt($row['postal_code_encrypted'],
-                    'member_addresses.postal_code')),
+                postalCode: $this->nullIfEmpty($this->decrypt(
+                    $row['postal_code_encrypted'],
+                    'member_addresses.postal_code'
+                )),
                 city: $this->nullIfEmpty($this->decrypt($row['city_encrypted'], 'member_addresses.city')),
                 country: null,
             );

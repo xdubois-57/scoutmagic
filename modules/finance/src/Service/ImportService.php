@@ -138,8 +138,12 @@ class ImportService
                         }
                     }
 
-                    $this->checkpointRepository->create($account->id, $checkpointDate, $balance,
-                        BalanceCheckpoint::SOURCE_IMPORT);
+                    $this->checkpointRepository->create(
+                        $account->id,
+                        $checkpointDate,
+                        $balance,
+                        BalanceCheckpoint::SOURCE_IMPORT
+                    );
                 }
 
                 $statementImportId = $this->statementImportRepository->create(

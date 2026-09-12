@@ -149,12 +149,13 @@ final class MemberExportRowBuilder
             );
         }
 
-        usort($rows,
+        usort(
+            $rows,
             fn(
                 MemberExportRow $a,
                 MemberExportRow $b
             ) => [$a->sectionName, $a->lastName, $a->firstName] <=> [$b->sectionName, $b->lastName, $b->firstName]
-            );
+        );
 
         return $rows;
     }

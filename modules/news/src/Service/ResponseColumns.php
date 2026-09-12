@@ -85,8 +85,12 @@ class ResponseColumns
 
         if ($this->hasPayment($fields)) {
             $columns[] = new ResponseColumn(self::AMOUNT_DUE, 'amount_due', null, ResponseColumn::KIND_AMOUNT_DUE);
-            $columns[] = new ResponseColumn(self::AMOUNT_RECEIVED, 'amount_received', null,
-                ResponseColumn::KIND_AMOUNT_RECEIVED);
+            $columns[] = new ResponseColumn(
+                self::AMOUNT_RECEIVED,
+                'amount_received',
+                null,
+                ResponseColumn::KIND_AMOUNT_RECEIVED
+            );
             $columns[] = new ResponseColumn(self::STRUCTURED_COMMUNICATION, 'structured_communication');
             $columns[] = new ResponseColumn(self::PAYMENT_STATUS, 'payment_status');
         }

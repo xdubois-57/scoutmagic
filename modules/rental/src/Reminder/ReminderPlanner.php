@@ -73,11 +73,16 @@ class ReminderPlanner
         // ── While the request is still being handled ──────────────────
         if ($booking->status === BookingStatus::RECEIVED) {
             if ($booking->receivedAt <= $today->modify('-' . self::UNANSWERED_AFTER_DAYS . ' days')) {
-                $due[] = $this->booking($booking, $asset, ReminderKind::UNANSWERED_REQUEST, sprintf(
-                    'La demande %s attend une réponse depuis %d jours.',
-                    $booking->reference,
-                    self::UNANSWERED_AFTER_DAYS
-                ));
+                $due[] = $this->booking(
+                    $booking,
+                    $asset,
+                    ReminderKind::UNANSWERED_REQUEST,
+                    sprintf(
+                        'La demande %s attend une réponse depuis %d jours.',
+                        $booking->reference,
+                        self::UNANSWERED_AFTER_DAYS
+                    )
+                );
             }
         }
 
@@ -88,10 +93,15 @@ class ReminderPlanner
             && $booking->holdUntil !== null
             && $booking->holdUntil <= $today->modify('+' . self::HOLD_EXPIRING_WITHIN_HOURS . ' hours')
         ) {
-            $due[] = $this->booking($booking, $asset, ReminderKind::HOLD_EXPIRING, sprintf(
-                'Le blocage des dates de %s expire bientôt : les dates redeviendront libres.',
-                $booking->reference
-            ));
+            $due[] = $this->booking(
+                $booking,
+                $asset,
+                ReminderKind::HOLD_EXPIRING,
+                sprintf(
+                    'Le blocage des dates de %s expire bientôt : les dates redeviendront libres.',
+                    $booking->reference
+                )
+            );
         }
 
         if ($booking->status !== BookingStatus::CONFIRMED && $booking->status !== BookingStatus::CLOSED) {
@@ -107,41 +117,66 @@ class ReminderPlanner
             && $arrival <= $midnight->modify('+' . self::CONTRACT_MISSING_DAYS_BEFORE . ' days')
             && $arrival >= $midnight
         ) {
-            $due[] = $this->booking($booking, $asset, ReminderKind::CONTRACT_MISSING, sprintf(
-                "Aucun contrat n'a encore été établi pour %s, dont le séjour approche.",
-                $booking->reference
-            ));
+            $due[] = $this->booking(
+                $booking,
+                $asset,
+                ReminderKind::CONTRACT_MISSING,
+                sprintf(
+                    "Aucun contrat n'a encore été établi pour %s, dont le séjour approche.",
+                    $booking->reference
+                )
+            );
         }
 
         // The renter's own reminder — email, never the notification centre
         // (§6.29). Sent from the day it comes into range rather than
         // exactly on J-7, so a scheduler that missed a day still sends it.
         if ($arrival <= $midnight->modify('+' . self::PRACTICAL_INFO_DAYS_BEFORE . ' days') && $arrival >= $midnight) {
-            $due[] = $this->booking($booking, $asset, ReminderKind::PRACTICAL_INFO, sprintf(
-                'Votre séjour à %s approche.',
-                $asset->name
-            ));
+            $due[] = $this->booking(
+                $booking,
+                $asset,
+                ReminderKind::PRACTICAL_INFO,
+                sprintf(
+                    'Votre séjour à %s approche.',
+                    $asset->name
+                )
+            );
         }
 
         if (!$inventory['arrival'] && $midnight >= $arrival && $midnight <= $departure) {
-            $due[] = $this->booking($booking, $asset, ReminderKind::ARRIVAL_INVENTORY, sprintf(
-                "L'état des lieux d'entrée de %s n'a pas été enregistré.",
-                $booking->reference
-            ));
+            $due[] = $this->booking(
+                $booking,
+                $asset,
+                ReminderKind::ARRIVAL_INVENTORY,
+                sprintf(
+                    "L'état des lieux d'entrée de %s n'a pas été enregistré.",
+                    $booking->reference
+                )
+            );
         }
 
         if (!$inventory['departure'] && $midnight > $departure) {
-            $due[] = $this->booking($booking, $asset, ReminderKind::DEPARTURE_INVENTORY, sprintf(
-                "L'état des lieux de sortie de %s n'a pas été enregistré.",
-                $booking->reference
-            ));
+            $due[] = $this->booking(
+                $booking,
+                $asset,
+                ReminderKind::DEPARTURE_INVENTORY,
+                sprintf(
+                    "L'état des lieux de sortie de %s n'a pas été enregistré.",
+                    $booking->reference
+                )
+            );
         }
 
         if (!$hasSettlement && $midnight >= $departure->modify('+' . self::SETTLEMENT_AFTER_DAYS . ' days')) {
-            $due[] = $this->booking($booking, $asset, ReminderKind::SETTLEMENT_DUE, sprintf(
-                'Le décompte final de %s reste à établir.',
-                $booking->reference
-            ));
+            $due[] = $this->booking(
+                $booking,
+                $asset,
+                ReminderKind::SETTLEMENT_DUE,
+                sprintf(
+                    'Le décompte final de %s reste à établir.',
+                    $booking->reference
+                )
+            );
         }
 
         return $due;
@@ -167,18 +202,28 @@ class ReminderPlanner
 
         $depositDue = self::dateOrNull($payment['deposit_due_date'] ?? null);
         if ($depositDue !== null && $depositDue < $midnight && ($payment['deposit_received'] ?? false) !== true) {
-            $due[] = $this->booking($booking, $asset, ReminderKind::DEPOSIT_MISSING, sprintf(
-                "L'acompte de %s n'a pas été reçu à la date prévue.",
-                $booking->reference
-            ));
+            $due[] = $this->booking(
+                $booking,
+                $asset,
+                ReminderKind::DEPOSIT_MISSING,
+                sprintf(
+                    "L'acompte de %s n'a pas été reçu à la date prévue.",
+                    $booking->reference
+                )
+            );
         }
 
         $balanceDue = self::dateOrNull($payment['balance_due_date'] ?? null);
         if ($balanceDue !== null && $balanceDue < $midnight && ($payment['fully_paid'] ?? false) !== true) {
-            $due[] = $this->booking($booking, $asset, ReminderKind::BALANCE_MISSING, sprintf(
-                "Le solde de %s n'a pas été reçu à la date prévue.",
-                $booking->reference
-            ));
+            $due[] = $this->booking(
+                $booking,
+                $asset,
+                ReminderKind::BALANCE_MISSING,
+                sprintf(
+                    "Le solde de %s n'a pas été reçu à la date prévue.",
+                    $booking->reference
+                )
+            );
         }
 
         $security = is_array($payment['security_deposit'] ?? null) ? $payment['security_deposit'] : [];
@@ -191,10 +236,15 @@ class ReminderPlanner
             && $securityAmount !== null
             && $securityReceived < (int) $securityAmount
         ) {
-            $due[] = $this->booking($booking, $asset, ReminderKind::SECURITY_DEPOSIT_MISSING, sprintf(
-                "La caution de %s n'a pas été reçue à la date prévue.",
-                $booking->reference
-            ));
+            $due[] = $this->booking(
+                $booking,
+                $asset,
+                ReminderKind::SECURITY_DEPOSIT_MISSING,
+                sprintf(
+                    "La caution de %s n'a pas été reçue à la date prévue.",
+                    $booking->reference
+                )
+            );
         }
 
         // A security deposit still held some time after the stay. The
@@ -205,10 +255,15 @@ class ReminderPlanner
             && ($security['returned_at'] ?? null) === null
             && $midnight >= $departure->modify('+' . self::DEPOSIT_RETURN_AFTER_DAYS . ' days')
         ) {
-            $due[] = $this->booking($booking, $asset, ReminderKind::SECURITY_DEPOSIT_TO_RETURN, sprintf(
-                'La caution de %s est toujours détenue par l\'unité.',
-                $booking->reference
-            ));
+            $due[] = $this->booking(
+                $booking,
+                $asset,
+                ReminderKind::SECURITY_DEPOSIT_TO_RETURN,
+                sprintf(
+                    'La caution de %s est toujours détenue par l\'unité.',
+                    $booking->reference
+                )
+            );
         }
 
         return $due;

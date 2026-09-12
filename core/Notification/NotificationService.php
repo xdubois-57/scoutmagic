@@ -284,8 +284,14 @@ class NotificationService
             // apply as declared.
             $defaultsOn = $role === null || $type->defaultsOnForRole($role);
 
-            $notificationId = $this->notificationRepository->create($userAccountId, $memberId, $typeId, $title, $body,
-                $url);
+            $notificationId = $this->notificationRepository->create(
+                $userAccountId,
+                $memberId,
+                $typeId,
+                $title,
+                $body,
+                $url
+            );
 
             $this->journalService->log(
                 'core',
@@ -334,8 +340,12 @@ class NotificationService
                 continue;
             }
 
-            $this->schedulerService->scheduleAfter('core', 'send_notifications', $delaySeconds,
-                ['notification_ids' => $bucket['ids']]);
+            $this->schedulerService->scheduleAfter(
+                'core',
+                'send_notifications',
+                $delaySeconds,
+                ['notification_ids' => $bucket['ids']]
+            );
         }
 
         if ($emailIds === []) {
@@ -354,8 +364,12 @@ class NotificationService
             return;
         }
 
-        $this->schedulerService->scheduleAfter('core', 'send_notification_emails', 0,
-            ['notification_ids' => $emailIds]);
+        $this->schedulerService->scheduleAfter(
+            'core',
+            'send_notification_emails',
+            0,
+            ['notification_ids' => $emailIds]
+        );
     }
 
     /**
@@ -476,8 +490,14 @@ class NotificationService
      */
     public function notify(int $userAccountId, string $title, string $body, ?string $url = null): void
     {
-        $notificationId = $this->notificationRepository->create($userAccountId, null, self::SYSTEM_TYPE_ID, $title,
-            $body, $url);
+        $notificationId = $this->notificationRepository->create(
+            $userAccountId,
+            null,
+            self::SYSTEM_TYPE_ID,
+            $title,
+            $body,
+            $url
+        );
 
         $record = new NotificationRecord(
             id: $notificationId,

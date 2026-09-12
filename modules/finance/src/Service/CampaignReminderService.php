@@ -109,8 +109,12 @@ class CampaignReminderService
         foreach ($recipients as $email => $recipient) {
             $rows[] = [
                 'email' => (string) $email,
-                'values' => $this->valuesFor($recipient, $maxBlocks, $account->holderName ?? $account->name,
-                    IbanNormalizer::format(IbanNormalizer::normalize($account->iban))),
+                'values' => $this->valuesFor(
+                    $recipient,
+                    $maxBlocks,
+                    $account->holderName ?? $account->name,
+                    IbanNormalizer::format(IbanNormalizer::normalize($account->iban))
+                ),
             ];
         }
 

@@ -90,8 +90,14 @@ class FeeAccuracyService
                 $ignoredEntry = null;
             }
 
-            $review = $this->review($household, $blindIndex, $memberRows, $addressLabels, $feeCategoryLabels,
-                $ignoredEntry);
+            $review = $this->review(
+                $household,
+                $blindIndex,
+                $memberRows,
+                $addressLabels,
+                $feeCategoryLabels,
+                $ignoredEntry
+            );
 
             if ($ignoredEntry !== null) {
                 $setAside[] = $review;

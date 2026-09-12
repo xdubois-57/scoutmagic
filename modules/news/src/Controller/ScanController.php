@@ -207,12 +207,15 @@ class ScanController extends AbstractController
         return $this->json([
             'success' => true,
             'verdict' => null,
-            'matches' => array_map(static fn (array $m) => [
-                'response_id' => $m['response']->id,
-                'label' => $m['label'],
-                'seat_total' => $m['seat_total'],
-                'used_at' => $m['used_at'],
-            ], $matches),
+            'matches' => array_map(
+                static fn (array $m) => [
+                    'response_id' => $m['response']->id,
+                    'label' => $m['label'],
+                    'seat_total' => $m['seat_total'],
+                    'used_at' => $m['used_at'],
+                ],
+                $matches
+            ),
         ]);
     }
 

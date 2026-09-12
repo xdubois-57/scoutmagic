@@ -114,8 +114,14 @@ class CampaignImportService
         $seenMemberIds = [];
 
         foreach ($dataRows as $row) {
-            $memberId = $this->resolveMember($row['data'], $memberIdColumn, $deskIdColumn, $resolvedIds,
-                $resolvedDeskIds, $problem);
+            $memberId = $this->resolveMember(
+                $row['data'],
+                $memberIdColumn,
+                $deskIdColumn,
+                $resolvedIds,
+                $resolvedDeskIds,
+                $problem
+            );
             if ($memberId === null) {
                 $problems[] = [
                     'line' => $row['line'],

@@ -60,9 +60,15 @@ class PlaceArchiveService
 
         $this->places->archive($place->id, true);
         $this->audit->record(
-            PlaceService::ENTITY_TYPE, $place->id, 'archived', null, 'Archivé', AuditSource::Human,
+            PlaceService::ENTITY_TYPE,
+            $place->id,
+            'archived',
+            null,
+            'Archivé',
+            AuditSource::Human,
             'Lieu retiré des écrans courants — rien n\'est supprimé',
-            null, $actorUserAccountId
+            null,
+            $actorUserAccountId
         );
     }
 
@@ -70,8 +76,15 @@ class PlaceArchiveService
     {
         $this->places->archive($place->id, false);
         $this->audit->record(
-            PlaceService::ENTITY_TYPE, $place->id, 'archived', 'Archivé', null, AuditSource::Human,
-            'Lieu restauré', null, $actorUserAccountId
+            PlaceService::ENTITY_TYPE,
+            $place->id,
+            'archived',
+            'Archivé',
+            null,
+            AuditSource::Human,
+            'Lieu restauré',
+            null,
+            $actorUserAccountId
         );
     }
 

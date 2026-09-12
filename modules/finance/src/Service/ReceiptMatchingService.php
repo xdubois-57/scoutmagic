@@ -120,8 +120,12 @@ class ReceiptMatchingService
 
         $match = $this->findRuleBasedMatch($receipt, $candidates);
         if ($match !== null) {
-            $this->associate($receipt, $match, 'receipt_auto_matched',
-                'Reçu associé automatiquement à un mouvement (règles, sans IA)');
+            $this->associate(
+                $receipt,
+                $match,
+                'receipt_auto_matched',
+                'Reçu associé automatiquement à un mouvement (règles, sans IA)'
+            );
             return;
         }
 

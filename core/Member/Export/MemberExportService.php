@@ -159,8 +159,11 @@ final class MemberExportService
 
             case MemberExportField::TYPE_TEXT:
             default:
-                $sheet->setCellValueExplicit([$column, $row], $value === null ? '' : (string) $value,
-                    DataType::TYPE_STRING);
+                $sheet->setCellValueExplicit(
+                    [$column, $row],
+                    $value === null ? '' : (string) $value,
+                    DataType::TYPE_STRING
+                );
                 return;
         }
     }

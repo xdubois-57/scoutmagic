@@ -468,7 +468,10 @@ class RentalDocumentService
     public function delete(RentalDocument $document, ?int $actorMemberId = null): void
     {
         $this->fileRemover->remove(
-            $this->documentRepository, $document->id, $document->fileId, $document->ownsItsFile()
+            $this->documentRepository,
+            $document->id,
+            $document->fileId,
+            $document->ownsItsFile()
         );
 
         $this->journal->log(

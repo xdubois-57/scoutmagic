@@ -175,7 +175,13 @@ class SectionDocumentService
         // (chicken-and-egg with file_id) — stored ownerless, then
         // FileRepository::updateOwner() right after.
         $fileId = $this->fileStorage->store(
-            $content, $mimeType, $originalFilename, self::STORAGE_SUBDIRECTORY, 'identified', 'core', $uploadedBy
+            $content,
+            $mimeType,
+            $originalFilename,
+            self::STORAGE_SUBDIRECTORY,
+            'identified',
+            'core',
+            $uploadedBy
         );
 
         // store() wrote the encrypted file and its `files` row; the two
@@ -186,8 +192,15 @@ class SectionDocumentService
         // CampaignService::createFromFile(), Core\Import\DeskImportService
         // ::import(), Modules\Finance\Service\BatchDepositService::deposit()).
         try {
-            $documentId = $this->repository->create($sectionId, $scoutYearId, $fileId, $title, $description,
-                strlen($content), $uploadedBy);
+            $documentId = $this->repository->create(
+                $sectionId,
+                $scoutYearId,
+                $fileId,
+                $title,
+                $description,
+                strlen($content),
+                $uploadedBy
+            );
             $this->fileRepository->updateOwner($fileId, 'section_document', $documentId);
         } catch (\Throwable $e) {
             $this->fileStorage->delete($fileId);
@@ -196,12 +209,16 @@ class SectionDocumentService
         }
 
         $this->journalService->log(
-            'core', 'section_document_added', 'info', 'Document de section ajouté',
+            'core',
+            'section_document_added',
+            'info',
+            'Document de section ajouté',
             [
                 'section_id' => $sectionId,
                 'scout_year_id' => $scoutYearId,
                 'section_document_id' => $documentId
-            ], $uploadedBy
+            ],
+            $uploadedBy
         );
 
         // Background compression (Core\Member\Task\CompressSectionDocumentHandler)
@@ -213,8 +230,12 @@ class SectionDocumentService
             $mimeType === 'application/pdf'
             && $this->settingService->get('section_document_compression_enabled') !== '0'
         ) {
-            $this->schedulerService->scheduleAfter('core', 'compress_section_document', 0,
-                ['section_document_id' => $documentId]);
+            $this->schedulerService->scheduleAfter(
+                'core',
+                'compress_section_document',
+                0,
+                ['section_document_id' => $documentId]
+            );
         }
 
         $document = $this->repository->findById($documentId);
@@ -233,16 +254,23 @@ class SectionDocumentService
         }
         $document = $this->requireDocument($documentId);
 
-        $this->repository->updateTitleAndDescription($documentId, $cleanTitle,
-            $description !== null && trim($description) !== '' ? trim($description) : null);
+        $this->repository->updateTitleAndDescription(
+            $documentId,
+            $cleanTitle,
+            $description !== null && trim($description) !== '' ? trim($description) : null
+        );
 
         $this->journalService->log(
-            'core', 'section_document_renamed', 'info', 'Document de section renommé',
+            'core',
+            'section_document_renamed',
+            'info',
+            'Document de section renommé',
             [
                 'section_id' => $document->sectionId,
                 'scout_year_id' => $document->scoutYearId,
                 'section_document_id' => $documentId
-            ], $actorId
+            ],
+            $actorId
         );
     }
 
@@ -278,12 +306,16 @@ class SectionDocumentService
         $this->repository->delete($documentId);
 
         $this->journalService->log(
-            'core', 'section_document_deleted', 'info', 'Document de section supprimé',
+            'core',
+            'section_document_deleted',
+            'info',
+            'Document de section supprimé',
             [
                 'section_id' => $document->sectionId,
                 'scout_year_id' => $document->scoutYearId,
                 'section_document_id' => $documentId
-            ], $actorId
+            ],
+            $actorId
         );
     }
 

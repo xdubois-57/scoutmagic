@@ -73,8 +73,10 @@ class CampaignOverviewService
         $summaries = [];
 
         foreach ($this->campaigns->findByScoutYear($scoutYearId) as $campaign) {
-            if (!$this->accountVisibility->isVisibleTo($this->accountRepository->findById($campaign->accountId),
-                $viewerRole)) {
+            if (!$this->accountVisibility->isVisibleTo(
+                $this->accountRepository->findById($campaign->accountId),
+                $viewerRole
+            )) {
                 continue;
             }
 

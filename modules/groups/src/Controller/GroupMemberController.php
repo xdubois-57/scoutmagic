@@ -180,10 +180,13 @@ class GroupMemberController extends AbstractController
         $shown = array_slice($matches, 0, 10);
         $accountLabels = $this->accountLabels($shown, $scoutYearId);
 
-        return $this->json(array_map(fn(MemberProfile $p) => [
-            'id' => $p->memberId,
-            'label' => $this->searchLabel($p, $accountLabels[$p->memberId] ?? ''),
-        ], $shown));
+        return $this->json(array_map(
+            fn(MemberProfile $p) => [
+                'id' => $p->memberId,
+                'label' => $this->searchLabel($p, $accountLabels[$p->memberId] ?? ''),
+            ],
+            $shown
+        ));
     }
 
     /**
@@ -274,8 +277,11 @@ class GroupMemberController extends AbstractController
                 // group must keep a moderator of its own, and revoking the
                 // last one is refused rather than performed.
                 if (!$done) {
-                    FlashMessage::set('error', 'Ce compte est le dernier modérateur de ce groupe : désignez '
-                        . 'd\'abord un autre modérateur avant de lui retirer la modération.');
+                    FlashMessage::set(
+                        'error',
+                        'Ce compte est le dernier modérateur de ce groupe : désignez '
+                            . 'd\'abord un autre modérateur avant de lui retirer la modération.'
+                    );
                 }
             }
 
@@ -290,18 +296,25 @@ class GroupMemberController extends AbstractController
      */
     public function removeMember(Request $request, array $params): Response
     {
-        return $this->moderatorAction($request, $params, function (DiscussionGroup $group) use ($request) {
-            $memberId = (int) $request->getBody('member_id', 0);
-            if ($memberId > 0 && !$this->groupService->removeMember($group, $memberId)) {
-                // Same protection as a voluntary departure: the last
-                // moderator cannot be removed either, or the group would
-                // be left with nobody of its own in charge.
-                FlashMessage::set('error', 'Ce membre est le dernier modérateur de ce groupe : désignez '
-                    . 'd\'abord un autre modérateur avant de le retirer.');
+        return $this->moderatorAction(
+            $request,
+            $params,
+            function (DiscussionGroup $group) use ($request) {
+                $memberId = (int) $request->getBody('member_id', 0);
+                if ($memberId > 0 && !$this->groupService->removeMember($group, $memberId)) {
+                    // Same protection as a voluntary departure: the last
+                    // moderator cannot be removed either, or the group would
+                    // be left with nobody of its own in charge.
+                    FlashMessage::set(
+                        'error',
+                        'Ce membre est le dernier modérateur de ce groupe : désignez '
+                            . 'd\'abord un autre modérateur avant de le retirer.'
+                    );
+                }
+    
+                return $this->redirect('/groups/' . $group->id . '/members');
             }
-
-            return $this->redirect('/groups/' . $group->id . '/members');
-        });
+        );
     }
 
     /**
@@ -454,10 +467,13 @@ class GroupMemberController extends AbstractController
                     // Labelled here rather than in the template so the
                     // plain dropdown and the search box that replaces it
                     // can never word the same person differently.
-                    'members' => array_map(fn(MemberProfile $p) => [
-                        'id' => $p->memberId,
-                        'label' => $this->searchLabel($p, $accountLabels[$p->memberId] ?? ''),
-                    ], $candidates),
+                    'members' => array_map(
+                        fn(MemberProfile $p) => [
+                            'id' => $p->memberId,
+                            'label' => $this->searchLabel($p, $accountLabels[$p->memberId] ?? ''),
+                        ],
+                        $candidates
+                    ),
                 ];
             }
         }

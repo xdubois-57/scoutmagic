@@ -233,8 +233,12 @@ class GitHubWebhookService
         $time = (string) ($this->settings->get('auto_update_time') ?: '03:00');
         $runAt = self::nextOccurrence($day, $time, new \DateTimeImmutable());
 
-        $historyId = $this->updateHistoryRepository->create($installedVersion, $latestVersion, $dependenciesChanged,
-            null);
+        $historyId = $this->updateHistoryRepository->create(
+            $installedVersion,
+            $latestVersion,
+            $dependenciesChanged,
+            null
+        );
 
         // A later release arriving before the previous one's slot fires
         // replaces it — only the newest known release should ever be
