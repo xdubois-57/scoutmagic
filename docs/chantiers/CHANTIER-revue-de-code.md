@@ -661,7 +661,7 @@ rôle, les pages des objets semés (`/news` et chaque article, `/sections`,
 - La première passe de cron : 24 tâches exécutées sans échec ; la reprise des vignettes fait son travail (#210) ; `purge_desk_imports` supprime l'import de 2024-2025 au premier passage — `import_retention_scout_years = 2`, c'est la règle, mais le README ne dit pas que l'historique des imports d'une instance de référence commence à A2.
 
 **Non vérifiable, et pourquoi** :
-- Le décalage de **date** de #214 (un build entre 22 h et minuit UTC) : la construction a eu lieu à 19:55 UTC ; seul le décalage de deux heures a été observé, la conséquence sur les dates l'a été par le harnais E2E (`e2e_apply_application_clock()`), pas ici.
+- Le décalage de **date** de #214 (un build entre 22 h et minuit UTC) : la construction a eu lieu à 19:55 UTC ; seul le décalage de deux heures a été observé, la conséquence sur les dates l'a été par le harnais E2E (`e2eApplyApplicationClock()`), pas ici.
 - La face « produit » de #215 par le bouton de Configuration › Inscriptions : reproduite par le builder, qui écrit le même réglage au même endroit, pas par le clic.
 - La construction sur une installation faite par l'assistant d'installation plutôt que par `e2e-support.php provision` : #212 et #213 en dépendent (`current_scout_year_id` épinglé par le provisionnement, `module_registry` épargné) ; leur forme sur un vrai `SetupController` est déduite du code, pas observée.
 - Les deux extras que le README §8.3 déclare non couverts (documents de section, groupes de discussion) : rien à confronter.

@@ -68,8 +68,8 @@ class CronEntryPointTest extends TestCase
         $this->assertNotFalse($bootstrap);
         $this->assertStringContainsString('CoreTaskHandlers::registerAll(', $bootstrap);
 
-        $this->assertStringContainsString('scoutmagic_bootstrap_scheduler(', $this->index);
-        $this->assertStringContainsString('scoutmagic_bootstrap_scheduler(', $this->cron);
+        $this->assertStringContainsString('scoutmagicBootstrapScheduler(', $this->index);
+        $this->assertStringContainsString('scoutmagicBootstrapScheduler(', $this->cron);
 
         $this->assertDoesNotMatchRegularExpression(
             "/registerHandler\(\s*'core'/",

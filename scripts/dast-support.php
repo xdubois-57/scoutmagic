@@ -43,7 +43,7 @@ if (PHP_SAPI !== 'cli') {
  */
 const DAST_RISK_ORDER = ['Informational', 'Low', 'Medium', 'High'];
 
-function dast_fail(string $message): never
+function dastFail(string $message): never
 {
     fwrite(STDERR, "DAST: {$message}\n");
     exit(1);
@@ -57,7 +57,7 @@ function dast_fail(string $message): never
  *
  * @return array{status: int, body: string}|null null on a transport failure
  */
-function dast_http_get(string $url, int $timeoutSeconds = 30): ?array
+function dastHttpGet(string $url, int $timeoutSeconds = 30): ?array
 {
     $context = stream_context_create([
         'http' => [
@@ -94,7 +94,7 @@ function dast_http_get(string $url, int $timeoutSeconds = 30): ?array
 /**
  * Call a ZAP API endpoint and decode its JSON answer, or return null.
  *
- * Separate from dast_zap_api() because one caller — polling a plan's
+ * Separate from dastZapApi() because one caller — polling a plan's
  * progress — must survive a transient failure that the others should
  * die on. `automation/action/runPlan` hands back a planId before the
  * plan object is registered, so a `planProgress` call landing in that
@@ -106,12 +106,12 @@ function dast_http_get(string $url, int $timeoutSeconds = 30): ?array
  * @param array<string, string> $parameters
  * @return array<string, mixed>|null null on any failure, without exiting
  */
-function dast_zap_api_soft(string $baseUrl, string $apiKey, string $path, array $parameters = []): ?array
+function dastZapApiSoft(string $baseUrl, string $apiKey, string $path, array $parameters = []): ?array
 {
     $query = http_build_query(['apikey' => $apiKey] + $parameters);
     $url = rtrim($baseUrl, '/') . '/JSON/' . trim($path, '/') . '/?' . $query;
 
-    $response = dast_http_get($url, 120);
+    $response = dastHttpGet($url, 120);
     if ($response === null) {
         return null;
     }
@@ -131,23 +131,23 @@ function dast_zap_api_soft(string $baseUrl, string $apiKey, string $path, array 
  * @param array<string, string> $parameters
  * @return array<string, mixed>
  */
-function dast_zap_api(string $baseUrl, string $apiKey, string $path, array $parameters = []): array
+function dastZapApi(string $baseUrl, string $apiKey, string $path, array $parameters = []): array
 {
     $query = http_build_query(['apikey' => $apiKey] + $parameters);
     $url = rtrim($baseUrl, '/') . '/JSON/' . trim($path, '/') . '/?' . $query;
 
-    $response = dast_http_get($url, 120);
+    $response = dastHttpGet($url, 120);
     if ($response === null) {
-        dast_fail("the ZAP API did not answer at {$baseUrl} (path {$path}).");
+        dastFail("the ZAP API did not answer at {$baseUrl} (path {$path}).");
     }
 
     $decoded = json_decode($response['body'], true);
     if (!is_array($decoded)) {
-        dast_fail("the ZAP API returned something that is not JSON for {$path}: " . substr($response['body'], 0, 200));
+        dastFail("the ZAP API returned something that is not JSON for {$path}: " . substr($response['body'], 0, 200));
     }
 
     if (isset($decoded['code'])) {
-        dast_fail("the ZAP API refused {$path}: {$decoded['code']} — " . (string) ($decoded['message'] ?? ''));
+        dastFail("the ZAP API refused {$path}: {$decoded['code']} — " . (string) ($decoded['message'] ?? ''));
     }
 
     return $decoded;
@@ -164,10 +164,10 @@ function dast_zap_api(string $baseUrl, string $apiKey, string $path, array $para
  * throwaway TLS identity that outlives the run it was made for is just
  * litter with a private key attached.
  */
-function dast_generate_certificate(string $pemPath, string $hostname): void
+function dastGenerateCertificate(string $pemPath, string $hostname): void
 {
     if (!extension_loaded('openssl')) {
-        dast_fail("the 'openssl' PHP extension is required to generate the scan's certificate.");
+        dastFail("the 'openssl' PHP extension is required to generate the scan's certificate.");
     }
 
     $subject = [
@@ -182,7 +182,7 @@ function dast_generate_certificate(string $pemPath, string $hostname): void
     // suppresses the interstitial but not a malformed certificate.
     $configFile = tempnam(sys_get_temp_dir(), 'dast-openssl-');
     if ($configFile === false) {
-        dast_fail('could not create a temporary OpenSSL configuration file.');
+        dastFail('could not create a temporary OpenSSL configuration file.');
     }
     file_put_contents(
         $configFile,
@@ -204,19 +204,19 @@ function dast_generate_certificate(string $pemPath, string $hostname): void
     $privateKey = openssl_pkey_new($config);
     if ($privateKey === false) {
         unlink($configFile);
-        dast_fail('could not generate a private key: ' . openssl_error_string());
+        dastFail('could not generate a private key: ' . openssl_error_string());
     }
 
     $csr = openssl_csr_new($subject, $privateKey, $config);
     if ($csr === false) {
         unlink($configFile);
-        dast_fail('could not generate a certificate request: ' . openssl_error_string());
+        dastFail('could not generate a certificate request: ' . openssl_error_string());
     }
 
     $certificate = openssl_csr_sign($csr, null, $privateKey, 1, $config);
     if ($certificate === false) {
         unlink($configFile);
-        dast_fail('could not self-sign the certificate: ' . openssl_error_string());
+        dastFail('could not self-sign the certificate: ' . openssl_error_string());
     }
 
     openssl_x509_export($certificate, $certificatePem);
@@ -232,14 +232,14 @@ function dast_generate_certificate(string $pemPath, string $hostname): void
 
 /**
  * Poll a URL until it answers or the deadline passes. Same shape and
- * same reasoning as e2e_wait_http() — never a fixed sleep.
+ * same reasoning as e2eWaitHttp() — never a fixed sleep.
  */
-function dast_wait_url(string $url, int $timeoutSeconds): bool
+function dastWaitUrl(string $url, int $timeoutSeconds): bool
 {
     $deadline = microtime(true) + $timeoutSeconds;
 
     while (microtime(true) < $deadline) {
-        $response = dast_http_get($url, 5);
+        $response = dastHttpGet($url, 5);
         if ($response !== null && $response['status'] > 0 && $response['status'] < 500) {
             return true;
         }
@@ -259,12 +259,12 @@ function dast_wait_url(string $url, int $timeoutSeconds): bool
  * between the two calls. The plan is loaded from inside the ZAP
  * container, so the path here is the container's, not the host's.
  */
-function dast_start_plan(string $baseUrl, string $apiKey, string $planPath): void
+function dastStartPlan(string $baseUrl, string $apiKey, string $planPath): void
 {
-    $started = dast_zap_api($baseUrl, $apiKey, 'automation/action/runPlan', ['filePath' => $planPath]);
+    $started = dastZapApi($baseUrl, $apiKey, 'automation/action/runPlan', ['filePath' => $planPath]);
     $planId = (string) ($started['planId'] ?? '');
     if ($planId === '') {
-        dast_fail('ZAP accepted the plan but returned no planId.');
+        dastFail('ZAP accepted the plan but returned no planId.');
     }
 
     echo $planId;
@@ -277,13 +277,13 @@ function dast_start_plan(string $baseUrl, string $apiKey, string $planPath): voi
  * Polled rather than waited on blindly: a plan that hangs has to fail
  * this script rather than hold a release gate open for ever.
  */
-function dast_wait_plan(string $baseUrl, string $apiKey, string $planId, int $timeoutSeconds): void
+function dastWaitPlan(string $baseUrl, string $apiKey, string $planId, int $timeoutSeconds): void
 {
     $deadline = microtime(true) + $timeoutSeconds;
     $reported = [];
 
     while (microtime(true) < $deadline) {
-        $progress = dast_zap_api_soft($baseUrl, $apiKey, 'automation/view/planProgress', ['planId' => $planId]);
+        $progress = dastZapApiSoft($baseUrl, $apiKey, 'automation/view/planProgress', ['planId' => $planId]);
         if ($progress === null) {
             usleep(500_000);
             continue;
@@ -301,7 +301,7 @@ function dast_wait_plan(string $baseUrl, string $apiKey, string $planId, int $ti
 
         $errors = (array) ($progress['error'] ?? []);
         if (count($errors) > 0) {
-            dast_fail('the ZAP automation plan reported an error: ' . implode('; ', $errors));
+            dastFail('the ZAP automation plan reported an error: ' . implode('; ', $errors));
         }
 
         if (($progress['finished'] ?? '') !== '') {
@@ -311,7 +311,7 @@ function dast_wait_plan(string $baseUrl, string $apiKey, string $planId, int $ti
         usleep(500_000);
     }
 
-    dast_fail("the ZAP automation plan did not finish within {$timeoutSeconds} s.");
+    dastFail("the ZAP automation plan did not finish within {$timeoutSeconds} s.");
 }
 
 /**
@@ -325,20 +325,20 @@ function dast_wait_plan(string $baseUrl, string $apiKey, string $planId, int $ti
  * progress log rather than slept on, so a slow container delays the run
  * instead of corrupting it.
  */
-function dast_await_delay_job(string $baseUrl, string $apiKey, string $planId, int $timeoutSeconds): void
+function dastAwaitDelayJob(string $baseUrl, string $apiKey, string $planId, int $timeoutSeconds): void
 {
     $deadline = microtime(true) + $timeoutSeconds;
     $reported = [];
 
     while (microtime(true) < $deadline) {
-        $progress = dast_zap_api_soft($baseUrl, $apiKey, 'automation/view/planProgress', ['planId' => $planId]);
+        $progress = dastZapApiSoft($baseUrl, $apiKey, 'automation/view/planProgress', ['planId' => $planId]);
         if ($progress === null) {
             usleep(250_000);
             continue;
         }
 
         foreach ((array) ($progress['error'] ?? []) as $line) {
-            dast_fail("the ZAP automation plan errored before the browser ran: {$line}");
+            dastFail("the ZAP automation plan errored before the browser ran: {$line}");
         }
 
         foreach (['info', 'warn'] as $level) {
@@ -357,7 +357,7 @@ function dast_await_delay_job(string $baseUrl, string $apiKey, string $planId, i
         usleep(250_000);
     }
 
-    dast_fail("ZAP did not reach the plan's delay job within {$timeoutSeconds} s.");
+    dastFail("ZAP did not reach the plan's delay job within {$timeoutSeconds} s.");
 }
 
 /**
@@ -374,9 +374,9 @@ function dast_await_delay_job(string $baseUrl, string $apiKey, string $planId, i
  * the alert gate decides that. This decides whether the verdict is worth
  * anything.
  */
-function dast_scan_coverage(string $baseUrl, string $apiKey): void
+function dastScanCoverage(string $baseUrl, string $apiKey): void
 {
-    $scans = dast_zap_api_soft($baseUrl, $apiKey, 'ascan/view/scans');
+    $scans = dastZapApiSoft($baseUrl, $apiKey, 'ascan/view/scans');
     if ($scans === null || count((array) ($scans['scans'] ?? [])) === 0) {
         echo "DAST: no active scan ran (passive profile).\n";
         return;
@@ -386,7 +386,7 @@ function dast_scan_coverage(string $baseUrl, string $apiKey): void
     $scanId = (string) ($scan['id'] ?? '0');
     $requests = (string) ($scan['reqCount'] ?? '?');
 
-    $progress = dast_zap_api_soft($baseUrl, $apiKey, 'ascan/view/scanProgress', ['scanId' => $scanId]);
+    $progress = dastZapApiSoft($baseUrl, $apiKey, 'ascan/view/scanProgress', ['scanId' => $scanId]);
     if ($progress === null) {
         echo "DAST: the active scan's per-rule progress could not be read.\n";
         return;
@@ -449,26 +449,29 @@ function dast_scan_coverage(string $baseUrl, string $apiKey): void
  * session reaches and an anonymous visitor cannot — so "ZAP saw the site"
  * cannot be satisfied by the login page alone.
  */
-function dast_assert_sitemap(string $baseUrl, string $apiKey, string $siteUrl, string $expectationsFile): void
+function dastAssertSitemap(string $baseUrl, string $apiKey, string $siteUrl, string $expectationsFile): void
 {
     if (!is_file($expectationsFile)) {
-        dast_fail("the site-map expectations file {$expectationsFile} does not exist.");
+        dastFail("the site-map expectations file {$expectationsFile} does not exist.");
     }
 
-    $expected = array_values(array_filter(array_map(
-        static fn(string $line): string => trim($line),
-        (array) file($expectationsFile)
-    ), static fn(string $line): bool => $line !== '' && !str_starts_with($line, '#')));
+    $expected = array_values(array_filter(
+        array_map(
+            static fn(string $line): string => trim($line),
+            (array) file($expectationsFile)
+        ),
+        static fn(string $line): bool => $line !== '' && !str_starts_with($line, '#')
+    ));
 
     if (count($expected) === 0) {
-        dast_fail("the site-map expectations file {$expectationsFile} lists nothing to check.");
+        dastFail("the site-map expectations file {$expectationsFile} lists nothing to check.");
     }
 
-    $response = dast_zap_api($baseUrl, $apiKey, 'core/view/urls', ['baseurl' => $siteUrl]);
+    $response = dastZapApi($baseUrl, $apiKey, 'core/view/urls', ['baseurl' => $siteUrl]);
     $urls = array_map('strval', (array) ($response['urls'] ?? []));
 
     if (count($urls) === 0) {
-        dast_fail(
+        dastFail(
             "ZAP's site map for {$siteUrl} is EMPTY — the browser did not proxy through it.\n"
             . "      The usual cause is Chromium bypassing the proxy for loopback: check that\n"
             . "      --proxy-bypass-list=<-loopback> reached launchOptions.args in\n"
@@ -499,7 +502,7 @@ function dast_assert_sitemap(string $baseUrl, string $apiKey, string $siteUrl, s
     }
 
     if (count($missing) > 0) {
-        dast_fail(
+        dastFail(
             'ZAP recorded ' . count($urls) . " URLs for {$siteUrl}, but not these authenticated pages the\n"
             . "      browser suite visits: " . implode(', ', $missing) . "\n"
             . '      A site map holding only public pages means the scan never saw a signed-in session.'
@@ -516,11 +519,11 @@ function dast_assert_sitemap(string $baseUrl, string $apiKey, string $siteUrl, s
  * Alert filters have already been applied by the plan — a finding that
  * survives to here is one nobody has written down a reason to silence.
  */
-function dast_gate_alerts(string $baseUrl, string $apiKey, string $siteUrl, string $threshold): never
+function dastGateAlerts(string $baseUrl, string $apiKey, string $siteUrl, string $threshold): never
 {
     $thresholdIndex = array_search($threshold, DAST_RISK_ORDER, true);
     if ($thresholdIndex === false) {
-        dast_fail("unknown risk threshold '{$threshold}' (expected one of " . implode(', ', DAST_RISK_ORDER) . ').');
+        dastFail("unknown risk threshold '{$threshold}' (expected one of " . implode(', ', DAST_RISK_ORDER) . ').');
     }
 
     $alerts = [];
@@ -531,7 +534,7 @@ function dast_gate_alerts(string $baseUrl, string $apiKey, string $siteUrl, stri
     // raise thousands of informational alerts, and ZAP streams the lot
     // into one JSON document otherwise.
     while (true) {
-        $page = dast_zap_api($baseUrl, $apiKey, 'alert/view/alerts', [
+        $page = dastZapApi($baseUrl, $apiKey, 'alert/view/alerts', [
             'baseurl' => $siteUrl,
             'start' => (string) $start,
             'count' => (string) $pageSize,
@@ -603,58 +606,58 @@ $command = $argv[1] ?? '';
 switch ($command) {
     case 'generate-cert':
         if (($argv[2] ?? '') === '' || ($argv[3] ?? '') === '') {
-            dast_fail('usage: dast-support.php generate-cert <pem-path> <hostname>');
+            dastFail('usage: dast-support.php generate-cert <pem-path> <hostname>');
         }
-        dast_generate_certificate($argv[2], $argv[3]);
+        dastGenerateCertificate($argv[2], $argv[3]);
         break;
 
     case 'wait-url':
         if (($argv[2] ?? '') === '') {
-            dast_fail('usage: dast-support.php wait-url <url> <timeout-seconds>');
+            dastFail('usage: dast-support.php wait-url <url> <timeout-seconds>');
         }
-        exit(dast_wait_url($argv[2], (int) ($argv[3] ?? 60)) ? 0 : 1);
+        exit(dastWaitUrl($argv[2], (int) ($argv[3] ?? 60)) ? 0 : 1);
 
     case 'zap-plan-start':
         if (($argv[2] ?? '') === '' || ($argv[3] ?? '') === '' || ($argv[4] ?? '') === '') {
-            dast_fail('usage: dast-support.php zap-plan-start <zap-url> <api-key> <plan-path>');
+            dastFail('usage: dast-support.php zap-plan-start <zap-url> <api-key> <plan-path>');
         }
-        dast_start_plan($argv[2], $argv[3], $argv[4]);
+        dastStartPlan($argv[2], $argv[3], $argv[4]);
         break;
 
     case 'zap-plan-await-delay':
         if (($argv[2] ?? '') === '' || ($argv[3] ?? '') === '' || ($argv[4] ?? '') === '') {
-            dast_fail('usage: dast-support.php zap-plan-await-delay <zap-url> <api-key> <plan-id> <timeout-seconds>');
+            dastFail('usage: dast-support.php zap-plan-await-delay <zap-url> <api-key> <plan-id> <timeout-seconds>');
         }
-        dast_await_delay_job($argv[2], $argv[3], $argv[4], (int) ($argv[5] ?? 120));
+        dastAwaitDelayJob($argv[2], $argv[3], $argv[4], (int) ($argv[5] ?? 120));
         break;
 
     case 'zap-plan-wait':
         if (($argv[2] ?? '') === '' || ($argv[3] ?? '') === '' || ($argv[4] ?? '') === '') {
-            dast_fail('usage: dast-support.php zap-plan-wait <zap-url> <api-key> <plan-id> <timeout-seconds>');
+            dastFail('usage: dast-support.php zap-plan-wait <zap-url> <api-key> <plan-id> <timeout-seconds>');
         }
-        dast_wait_plan($argv[2], $argv[3], $argv[4], (int) ($argv[5] ?? 3600));
+        dastWaitPlan($argv[2], $argv[3], $argv[4], (int) ($argv[5] ?? 3600));
         break;
 
     case 'assert-sitemap':
         if (($argv[2] ?? '') === '' || ($argv[3] ?? '') === '' || ($argv[4] ?? '') === '' || ($argv[5] ?? '') === '') {
-            dast_fail('usage: dast-support.php assert-sitemap <zap-url> <api-key> <site-url> <expectations-file>');
+            dastFail('usage: dast-support.php assert-sitemap <zap-url> <api-key> <site-url> <expectations-file>');
         }
-        dast_assert_sitemap($argv[2], $argv[3], $argv[4], $argv[5]);
+        dastAssertSitemap($argv[2], $argv[3], $argv[4], $argv[5]);
         break;
 
     case 'scan-coverage':
         if (($argv[2] ?? '') === '' || ($argv[3] ?? '') === '') {
-            dast_fail('usage: dast-support.php scan-coverage <zap-url> <api-key>');
+            dastFail('usage: dast-support.php scan-coverage <zap-url> <api-key>');
         }
-        dast_scan_coverage($argv[2], $argv[3]);
+        dastScanCoverage($argv[2], $argv[3]);
         break;
 
     case 'gate-alerts':
         if (($argv[2] ?? '') === '' || ($argv[3] ?? '') === '' || ($argv[4] ?? '') === '') {
-            dast_fail('usage: dast-support.php gate-alerts <zap-url> <api-key> <site-url> <threshold>');
+            dastFail('usage: dast-support.php gate-alerts <zap-url> <api-key> <site-url> <threshold>');
         }
-        dast_gate_alerts($argv[2], $argv[3], $argv[4], $argv[5] ?? 'Medium');
-        // dast_gate_alerts() exits either way, so this break is unreachable
+        dastGateAlerts($argv[2], $argv[3], $argv[4], $argv[5] ?? 'Medium');
+        // dastGateAlerts() exits either way, so this break is unreachable
         // today — it is here because the case below is `default:`, and the
         // day that function grows an early return, falling through would
         // report "unknown subcommand 'gate-alerts'" after the gate had
@@ -662,5 +665,5 @@ switch ($command) {
         break;
 
     default:
-        dast_fail("unknown subcommand '{$command}' — see this file's header for the list.");
+        dastFail("unknown subcommand '{$command}' — see this file's header for the list.");
 }

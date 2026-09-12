@@ -33,7 +33,7 @@ if ($path === null) {
     exit(1);
 }
 $jar = tempnam(sys_get_temp_dir(), 'perf-jar');
-function perf_request(string $url, string $jar, ?string $json = null): string
+function perfRequest(string $url, string $jar, ?string $json = null): string
 {
     $ch = curl_init($url);
     curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_COOKIEJAR => $jar, CURLOPT_COOKIEFILE => $jar]);
@@ -46,9 +46,9 @@ function perf_request(string $url, string $jar, ?string $json = null): string
 
     return $body;
 }
-$html = perf_request($base . '/login', $jar);
+$html = perfRequest($base . '/login', $jar);
 preg_match('/id="csrf-token" value="([^"]+)"/', $html, $m);
-perf_request(
+perfRequest(
     $base . '/login/password',
     $jar,
     json_encode(['_csrf_token' => $m[1] ?? '', 'email' => $email, 'password' => $password, 'rgpd_consent' => true]),
@@ -70,7 +70,7 @@ $segments = [];
 $statements = [];
 for ($run = 0; $run < $runs; $run++) {
     $lastId = (int) $pdo->query('SELECT MAX(id) FROM event_log')->fetchColumn();
-    perf_request($base . $path . $separator . 'debug=1', $jar);
+    perfRequest($base . $path . $separator . 'debug=1', $jar);
     $row = $pdo->query(
         "SELECT * FROM event_log WHERE id > $lastId "
         . "AND event_type = 'debug_request_timeline' ORDER BY id DESC LIMIT 1"

@@ -367,7 +367,7 @@ $moduleManager->loadEnabledModules();
 // assembled it WITH — the same task, two behaviours, decided by which
 // trigger fired it.
 require_once __DIR__ . '/scheduler-bootstrap.php';
-scoutmagic_bootstrap_scheduler(
+scoutmagicBootstrapScheduler(
     $runner,
     new SchedulerService($schedulerRepo),
     $moduleManager,

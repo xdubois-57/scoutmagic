@@ -27,7 +27,7 @@ class E2eActivationOrderTest extends TestCase
 {
     public function testAModuleComesAfterTheOneItRequires(): void
     {
-        $order = \e2e_module_activation_order([
+        $order = \e2eModuleActivationOrder([
             'groups' => ['gallery'],
             'gallery' => [],
         ]);
@@ -37,7 +37,7 @@ class E2eActivationOrderTest extends TestCase
 
     public function testIndependentModulesAreOrderedAlphabeticallySoARunIsReproducible(): void
     {
-        $order = \e2e_module_activation_order([
+        $order = \e2eModuleActivationOrder([
             'trombinoscope' => [],
             'banner' => [],
             'news' => [],
@@ -48,7 +48,7 @@ class E2eActivationOrderTest extends TestCase
 
     public function testATransitiveChainIsOrderedFromItsRoot(): void
     {
-        $order = \e2e_module_activation_order([
+        $order = \e2eModuleActivationOrder([
             'c' => ['b'],
             'b' => ['a'],
             'a' => [],
@@ -68,7 +68,7 @@ class E2eActivationOrderTest extends TestCase
 
         $this->assertNotSame([], $requirements, 'the repository must ship at least one module');
 
-        $order = \e2e_module_activation_order($requirements);
+        $order = \e2eModuleActivationOrder($requirements);
 
         $this->assertIsArray(
             $order,
@@ -80,7 +80,7 @@ class E2eActivationOrderTest extends TestCase
 
     public function testACycleHasNoOrderRatherThanAnArbitraryOne(): void
     {
-        $this->assertNull(\e2e_module_activation_order([
+        $this->assertNull(\e2eModuleActivationOrder([
             'a' => ['b'],
             'b' => ['a'],
         ]));
@@ -88,13 +88,13 @@ class E2eActivationOrderTest extends TestCase
 
     public function testAModuleRequiringOneThatIsNotOnDiskHasNoOrder(): void
     {
-        $this->assertNull(\e2e_module_activation_order([
+        $this->assertNull(\e2eModuleActivationOrder([
             'groups' => ['gallery'],
         ]));
     }
 
     public function testNoModulesIsAnEmptyOrder(): void
     {
-        $this->assertSame([], \e2e_module_activation_order([]));
+        $this->assertSame([], \e2eModuleActivationOrder([]));
     }
 }

@@ -495,7 +495,7 @@ PORT="${DAST_PORT:-$(php "${SUPPORT}" free-port)}"
 BACKEND_PORT="${DAST_BACKEND_PORT:-$(php "${SUPPORT}" free-port)}"
 ZAP_PORT="${DAST_ZAP_PORT:-$(php "${SUPPORT}" free-port)}"
 
-# `localhost`, not 127.0.0.1 — e2e_base_url() in scripts/e2e-support.php
+# `localhost`, not 127.0.0.1 — e2eBaseUrl() in scripts/e2e-support.php
 # documents why (WebAuthn refuses an IP-literal Relying Party ID, so an
 # instance calling itself 127.0.0.1 cannot register a passkey at all, and
 # the browser suite's passkey scenario is part of the traffic this scan
@@ -506,7 +506,7 @@ ZAP_PORT="${DAST_ZAP_PORT:-$(php "${SUPPORT}" free-port)}"
 # instance through ZAP, which resolves names inside its own container, so
 # the instance has to agree or every absolute link it builds (magic-link
 # e-mail, password reset, registration tracking, passkey rpId) points at a
-# host ZAP cannot reach. See e2e_base_url()'s docblock for the three
+# host ZAP cannot reach. See e2eBaseUrl()'s docblock for the three
 # properties that were re-checked against this name.
 if [[ "$(uname -s)" == "Linux" ]]; then
     INSTANCE_HOST="localhost"
@@ -660,7 +660,7 @@ fi
 # THE INSTANCE NOW AGREES, which is what makes this gate runnable off
 # Linux at all. It used to restore the traffic and no more: ZAP recorded
 # its site map, most of the suite passed, and every scenario following a
-# link the SERVER built still failed, because e2e_base_url() hardcoded
+# link the SERVER built still failed, because e2eBaseUrl() hardcoded
 # `localhost` — so a magic-link e-mail, a password reset, a registration
 # tracking link and a passkey's Relying Party ID all named a host ZAP
 # resolved to its own container. Measured on macOS: 8 of 50 specs failed
@@ -671,7 +671,7 @@ fi
 # be careful, and each was checked against the new name rather than
 # assumed — the sharpest of them, StatisticsSender::isPublicHost(),
 # already answers false because `.internal` is in its NON_PUBLIC_TLDS
-# list. e2e_base_url()'s docblock records all three.
+# list. e2eBaseUrl()'s docblock records all three.
 #
 # Linux is untouched: INSTANCE_HOST is `localhost` there, so CI runs the
 # byte-identical harness it always did.

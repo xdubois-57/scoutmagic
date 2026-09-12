@@ -51,7 +51,7 @@ if (PHP_SAPI !== 'cli') {
 require_once __DIR__ . '/autoload.php';
 
 // The same clock as the application this builder writes into, and for the
-// same reason scripts/e2e-support.php applies it (e2e_apply_application_clock()):
+// same reason scripts/e2e-support.php applies it (e2eApplyApplicationClock()):
 // public/index.php, public/cron.php and tests/bootstrap.php all call this as
 // their first act after the autoloader, so every naive DATETIME in the
 // database is Europe/Brussels. This script did not, and ran on php.ini's

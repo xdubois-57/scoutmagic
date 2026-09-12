@@ -3071,7 +3071,7 @@ $ticketIdentityService = new \Core\Support\Ticket\TicketIdentityService(
 // exactly how create_backup once ended up missing from cron.php (§8.17)
 // and how rental's reminders ran without Finance under a real crontab.
 require_once __DIR__ . '/scheduler-bootstrap.php';
-scoutmagic_bootstrap_scheduler(
+scoutmagicBootstrapScheduler(
     $schedulerRunner,
     $schedulerService,
     $moduleManager,
@@ -3213,13 +3213,13 @@ if (AuthSession::isAuthenticated()) {
             $member->getDisplayName(),
             '/members/' . $member->memberYearId,
             'identified',
-            10 + $index,
             // order: members first
-                true,
+            10 + $index,
             // isDynamic = true (renders with the avatar-circle styling)
-                $member->getMainSectionName(),
+            true,
             // subtitle
-                MenuBuilder::SORT_GROUP_DYNAMIC,
+            $member->getMainSectionName(),
+            MenuBuilder::SORT_GROUP_DYNAMIC,
             null,
             // The persistent member id, never member_years.id: the avatar
             // draws this member's photo for the year in effect, and

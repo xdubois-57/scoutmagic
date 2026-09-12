@@ -47,7 +47,7 @@ class E2eSchedulerCoverageTest extends TestCase
 
     public function testAPassWithoutCoverageCarriesNoCollector(): void
     {
-        $command = \e2e_scheduler_command('/tmp/instance', null);
+        $command = \e2eSchedulerCommand('/tmp/instance', null);
 
         $this->assertStringNotContainsString('auto_prepend_file', $command);
         $this->assertStringNotContainsString('pcov', $command);
@@ -55,7 +55,7 @@ class E2eSchedulerCoverageTest extends TestCase
 
     public function testAPassWithoutCoverageStillRedirectsItsMailAndRunsTheInstancesCron(): void
     {
-        $command = \e2e_scheduler_command('/tmp/instance', null);
+        $command = \e2eSchedulerCommand('/tmp/instance', null);
 
         $this->assertStringContainsString('sendmail_path', $command);
         $this->assertStringContainsString('/tmp/instance/public/cron.php', $command);
@@ -63,7 +63,7 @@ class E2eSchedulerCoverageTest extends TestCase
 
     public function testAPassWithCoverageLoadsTheRepositorysOwnCollector(): void
     {
-        $command = \e2e_scheduler_command('/tmp/instance', '/tmp/coverage');
+        $command = \e2eSchedulerCommand('/tmp/instance', '/tmp/coverage');
 
         $this->assertStringContainsString(
             'auto_prepend_file=' . $this->repositoryRoot() . self::COLLECTOR,
@@ -79,7 +79,7 @@ class E2eSchedulerCoverageTest extends TestCase
      */
     public function testAPassWithCoverageSpansBothTreesAndSkipsTheSdks(): void
     {
-        $command = \e2e_scheduler_command('/tmp/instance', '/tmp/coverage');
+        $command = \e2eSchedulerCommand('/tmp/instance', '/tmp/coverage');
 
         $this->assertStringContainsString('pcov.enabled=1', $command);
         $this->assertStringContainsString('pcov.directory=/', $command);
@@ -88,7 +88,7 @@ class E2eSchedulerCoverageTest extends TestCase
 
     public function testMeasuringAPassDoesNotStopItSendingMailOrRunningTheRightScript(): void
     {
-        $command = \e2e_scheduler_command('/tmp/instance', '/tmp/coverage');
+        $command = \e2eSchedulerCommand('/tmp/instance', '/tmp/coverage');
 
         $this->assertStringContainsString('sendmail_path', $command);
         $this->assertStringContainsString('/tmp/instance/public/cron.php', $command);
@@ -183,7 +183,7 @@ class E2eSchedulerCoverageTest extends TestCase
         }
 
         try {
-            return \e2e_coverage_map_instance_paths($data);
+            return \e2eCoverageMapInstancePaths($data);
         } finally {
             if ($previousRoot === null) {
                 unset($_SERVER['DOCUMENT_ROOT']);

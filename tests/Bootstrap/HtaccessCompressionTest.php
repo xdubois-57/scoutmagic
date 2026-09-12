@@ -34,7 +34,7 @@ class HtaccessCompressionTest extends TestCase
     private function source(string $kind, string $path): string
     {
         if ($kind === 'generated') {
-            return \bootstrap_htaccess_content();
+            return \bootstrapHtaccessContent();
         }
 
         return (string) file_get_contents(dirname(__DIR__, 2) . '/' . $path);
