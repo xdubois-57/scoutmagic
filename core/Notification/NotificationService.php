@@ -393,16 +393,41 @@ class NotificationService
         try {
             return $this->mailerFactory->create();
         } catch (\Throwable $e) {
+            $this->journalDeliveryFailure($typeId, $e);
+
+            return null;
+        }
+    }
+
+    /**
+     * Writes the failure down, and does not make a second failure of it.
+     *
+     * `JournalRepository::insert()` rethrows a storage failure whenever
+     * the entry carries no user id — which both callers here do, since
+     * nobody asked for an operational alert. So the one line meant to
+     * record that a delivery failed could itself throw, out of a catch
+     * block whose whole promise is that nothing escapes it, and take the
+     * requeue in {@see deliverNow()} with it on the way past.
+     *
+     * The failures this runs inside come in pairs often enough for that
+     * to matter rather than being a theoretical worry: a database that
+     * has gone away mid-request is also a database the journal cannot
+     * write to. Losing the note is the cheapest thing to lose at that
+     * point; losing the reschedule is not.
+     */
+    private function journalDeliveryFailure(string $typeId, \Throwable $failure): void
+    {
+        try {
             $this->journalService->log(
                 'core',
                 'notification_immediate_delivery_failed',
                 'warning',
                 'Envoi immédiat d\'une notification impossible',
-                ['type_id' => $typeId, 'error' => $e->getMessage()],
+                ['type_id' => $typeId, 'error' => $failure->getMessage()],
                 null
             );
-
-            return null;
+        } catch (\Throwable) {
+            // Nowhere left to report it: the journal IS the reporting.
         }
     }
 
@@ -465,14 +490,7 @@ class NotificationService
         try {
             $attempted = $send();
         } catch (\Throwable $e) {
-            $this->journalService->log(
-                'core',
-                'notification_immediate_delivery_failed',
-                'warning',
-                'Envoi immédiat d\'une notification impossible',
-                ['type_id' => $typeId, 'error' => $e->getMessage()],
-                null
-            );
+            $this->journalDeliveryFailure($typeId, $e);
         }
 
         $remaining = array_values(array_diff($ids, $attempted));

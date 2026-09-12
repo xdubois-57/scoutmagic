@@ -448,4 +448,68 @@ final class ImmediateDeliveryTest extends TestCase
             $payload['notification_ids']
         );
     }
+
+    /**
+     * These failures come in pairs, so the note about one must not cost
+     * the recovery from the other.
+     *
+     * `JournalRepository::insert()` rethrows a storage failure when the
+     * entry carries no user id, and an operational alert's entries never
+     * do — nobody asked for it. A journal that throws inside the catch
+     * block would therefore escape the one method promising nothing
+     * escapes, and skip the reschedule on its way past: the recipients
+     * the send never reached would be lost because the site could not
+     * write down that it had failed.
+     */
+    public function testAJournalThatAlsoFailsDoesNotCostTheReschedule(): void
+    {
+        $admin = $this->createUserAccount();
+
+        $journal = new class (new JournalRepository($this->pdo)) extends JournalService {
+            public function log(
+                string $category,
+                string $type,
+                string $level,
+                string $description,
+                array $context = [],
+                ?int $userId = null
+            ): void {
+                // Only the entry written from inside a catch block: the
+                // ordinary `notification_sent` line is not this test's
+                // subject, and a journal that refuses every write has
+                // broken dispatch() since long before immediate delivery.
+                if ($type === 'notification_immediate_delivery_failed') {
+                    throw new \RuntimeException('SQLSTATE[HY000]: the event log is unreachable too');
+                }
+            }
+        };
+
+        $service = new NotificationService(
+            $this->notifications,
+            new PushSubscriptionRepository($this->pdo, $this->encryption),
+            $this->preferences,
+            $this->createMock(WebPush::class),
+            $this->settings,
+            $journal,
+            new SchedulerService($this->scheduler),
+            new UserAccountRepository($this->pdo, $this->encryption),
+            null,
+            null,
+            null,
+            new NotificationMailerFactory(
+                $this->recordingTransport(new \RuntimeException('the message would not render')),
+                $this->pdo,
+                $this->settings,
+                $journal
+            )
+        );
+
+        $this->dispatchAlert($service, $admin);
+
+        $this->assertCount(
+            1,
+            $this->queuedEmailTasks(),
+            'A journal that threw took the reschedule with it, so the alert was lost twice over.'
+        );
+    }
 }
