@@ -75,7 +75,7 @@ const DAST_TLS_MAX_REQUESTS = 200;
  * @param list<string> $argv
  * @return array<string, string>
  */
-function dast_tls_parse_arguments(array $argv): array
+function dastTlsParseArguments(array $argv): array
 {
     $options = [];
     foreach (array_slice($argv, 1) as $argument) {
@@ -106,7 +106,7 @@ function dast_tls_parse_arguments(array $argv): array
  *
  * @param string $buffer carried by reference between calls
  */
-function dast_tls_fill(&$buffer, $stream, int $minimum): bool
+function dastTlsFill(&$buffer, $stream, int $minimum): bool
 {
     while (strlen($buffer) < $minimum) {
         $chunk = fread($stream, DAST_TLS_READ_CHUNK);
@@ -128,7 +128,7 @@ function dast_tls_fill(&$buffer, $stream, int $minimum): bool
  * keep-alive connection reaching its idle end, a scanner probing the
  * port.
  */
-function dast_tls_read_head(&$buffer, $stream): ?string
+function dastTlsReadHead(&$buffer, $stream): ?string
 {
     while (($position = strpos($buffer, "\r\n\r\n")) === false) {
         if (strlen($buffer) > DAST_TLS_HEAD_LIMIT) {
@@ -150,7 +150,7 @@ function dast_tls_read_head(&$buffer, $stream): ?string
 /**
  * Case-insensitive header lookup over a raw header block.
  */
-function dast_tls_header(string $head, string $name): ?string
+function dastTlsHeader(string $head, string $name): ?string
 {
     foreach (explode("\r\n", $head) as $line) {
         $colon = strpos($line, ':');
@@ -170,7 +170,7 @@ function dast_tls_header(string $head, string $name): ?string
  *
  * @param list<string> $names
  */
-function dast_tls_strip_headers(string $head, array $names): string
+function dastTlsStripHeaders(string $head, array $names): string
 {
     $kept = [];
     foreach (explode("\r\n", rtrim($head, "\r\n")) as $line) {
@@ -198,20 +198,20 @@ function dast_tls_strip_headers(string $head, array $names): string
  * (Core\File\ChunkedUploadStore). A terminator that mishandled one would
  * truncate a request the scan would then report as a server error.
  */
-function dast_tls_read_body(&$buffer, $stream, string $head): ?string
+function dastTlsReadBody(&$buffer, $stream, string $head): ?string
 {
-    $transferEncoding = dast_tls_header($head, 'Transfer-Encoding');
+    $transferEncoding = dastTlsHeader($head, 'Transfer-Encoding');
     if ($transferEncoding !== null && stripos($transferEncoding, 'chunked') !== false) {
         $body = '';
         while (true) {
             while (($lineEnd = strpos($buffer, "\r\n")) === false) {
-                if (!dast_tls_fill($buffer, $stream, strlen($buffer) + 1)) {
+                if (!dastTlsFill($buffer, $stream, strlen($buffer) + 1)) {
                     return null;
                 }
             }
             $size = (int) hexdec(trim(explode(';', substr($buffer, 0, $lineEnd))[0]));
             $needed = $lineEnd + 2 + $size + 2;
-            if (!dast_tls_fill($buffer, $stream, $needed)) {
+            if (!dastTlsFill($buffer, $stream, $needed)) {
                 return null;
             }
             $body .= substr($buffer, 0, $needed);
@@ -222,11 +222,11 @@ function dast_tls_read_body(&$buffer, $stream, string $head): ?string
         }
     }
 
-    $contentLength = (int) (dast_tls_header($head, 'Content-Length') ?? '0');
+    $contentLength = (int) (dastTlsHeader($head, 'Content-Length') ?? '0');
     if ($contentLength <= 0) {
         return '';
     }
-    if (!dast_tls_fill($buffer, $stream, $contentLength)) {
+    if (!dastTlsFill($buffer, $stream, $contentLength)) {
         return null;
     }
     $body = substr($buffer, 0, $contentLength);
@@ -244,7 +244,7 @@ function dast_tls_read_body(&$buffer, $stream, string $head): ?string
  *
  * @return array{0: string, 1: string}|null head and body, or null on failure
  */
-function dast_tls_exchange(string $backend, string $head, string $body): ?array
+function dastTlsExchange(string $backend, string $head, string $body): ?array
 {
     $upstream = @stream_socket_client('tcp://' . $backend, $errorNumber, $errorString, DAST_TLS_BACKEND_TIMEOUT);
     if ($upstream === false) {
@@ -292,9 +292,9 @@ function dast_tls_exchange(string $backend, string $head, string $body): ?array
  * Measuring the body and declaring it fixes both: the connection can be
  * reused, and a download has a length to complete against.
  */
-function dast_tls_reframe(string $head, int $length, bool $keepAlive, bool $omitBody): string
+function dastTlsReframe(string $head, int $length, bool $keepAlive, bool $omitBody): string
 {
-    $head = dast_tls_strip_headers($head, ['Content-Length', 'Transfer-Encoding', 'Connection', 'Keep-Alive']);
+    $head = dastTlsStripHeaders($head, ['Content-Length', 'Transfer-Encoding', 'Connection', 'Keep-Alive']);
     $head .= "\r\nConnection: " . ($keepAlive ? 'keep-alive' : 'close');
     if (!$omitBody) {
         $head .= "\r\nContent-Length: {$length}";
@@ -309,13 +309,13 @@ function dast_tls_reframe(string $head, int $length, bool $keepAlive, bool $omit
  * Runs in a forked child, so a failure here costs one connection and
  * never the listener.
  */
-function dast_tls_handle_connection($client, string $backend): void
+function dastTlsHandleConnection($client, string $backend): void
 {
     stream_set_timeout($client, DAST_TLS_BACKEND_TIMEOUT);
     $buffer = '';
 
     for ($served = 0; $served < DAST_TLS_MAX_REQUESTS; $served++) {
-        $head = dast_tls_read_head($buffer, $client);
+        $head = dastTlsReadHead($buffer, $client);
         if ($head === null) {
             return;
         }
@@ -323,7 +323,7 @@ function dast_tls_handle_connection($client, string $backend): void
         $requestLine = strtok($head, "\r\n");
         $method = strtoupper((string) strtok($requestLine === false ? '' : $requestLine, ' '));
 
-        $body = dast_tls_read_body($buffer, $client, $head);
+        $body = dastTlsReadBody($buffer, $client, $head);
         if ($body === null) {
             return;
         }
@@ -333,10 +333,10 @@ function dast_tls_handle_connection($client, string $backend): void
         // exactly the vulnerability the application's opt-in exists to
         // avoid, and this one would otherwise teach the scan that the
         // header is trustworthy when it is not.
-        $forwarded = dast_tls_strip_headers($head, ['X-Forwarded-Proto'])
+        $forwarded = dastTlsStripHeaders($head, ['X-Forwarded-Proto'])
             . "\r\nX-Forwarded-Proto: https\r\n\r\n";
 
-        $response = dast_tls_exchange($backend, $forwarded, $body);
+        $response = dastTlsExchange($backend, $forwarded, $body);
         if ($response === null) {
             // The application server is gone (teardown, a crash). Answer
             // something well-formed rather than a bare connection reset,
@@ -356,7 +356,7 @@ function dast_tls_handle_connection($client, string $backend): void
         }
         $omitBody = $method === 'HEAD' || $status === 204 || $status === 304;
 
-        $clientConnection = (string) (dast_tls_header($head, 'Connection') ?? '');
+        $clientConnection = (string) (dastTlsHeader($head, 'Connection') ?? '');
         $keepAlive = stripos($clientConnection, 'close') === false
             && str_contains($requestLine === false ? '' : $requestLine, 'HTTP/1.1')
             // The LAST response this child will serve says so, rather than
@@ -367,7 +367,7 @@ function dast_tls_handle_connection($client, string $backend): void
             // request that simply never gets an answer.
             && $served < DAST_TLS_MAX_REQUESTS - 1;
 
-        $out = dast_tls_reframe($responseHead, strlen($responseBody), $keepAlive, $omitBody);
+        $out = dastTlsReframe($responseHead, strlen($responseBody), $keepAlive, $omitBody);
         if (@fwrite($client, $out) === false) {
             return;
         }
@@ -381,7 +381,7 @@ function dast_tls_handle_connection($client, string $backend): void
     }
 }
 
-$options = dast_tls_parse_arguments($argv);
+$options = dastTlsParseArguments($argv);
 
 foreach (['pcntl', 'openssl'] as $extension) {
     if (!extension_loaded($extension)) {
@@ -455,7 +455,7 @@ while (true) {
     if ($pid === -1) {
         fwrite(STDERR, "dast-tls-proxy: fork failed, handling this connection inline.\n");
         if (@stream_socket_enable_crypto($client, true, STREAM_CRYPTO_METHOD_TLS_SERVER) === true) {
-            dast_tls_handle_connection($client, $options['backend']);
+            dastTlsHandleConnection($client, $options['backend']);
         }
         fclose($client);
         continue;
@@ -467,7 +467,7 @@ while (true) {
         // HTTP probe against the TLS port, a client that changed its
         // mind); it costs this one connection and nothing else.
         if (@stream_socket_enable_crypto($client, true, STREAM_CRYPTO_METHOD_TLS_SERVER) === true) {
-            dast_tls_handle_connection($client, $options['backend']);
+            dastTlsHandleConnection($client, $options['backend']);
         }
         fclose($client);
         exit(0);

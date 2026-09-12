@@ -3066,7 +3066,7 @@ $ticketIdentityService = new \Core\Support\Ticket\TicketIdentityService(
 // exactly how create_backup once ended up missing from cron.php (§8.17)
 // and how rental's reminders ran without Finance under a real crontab.
 require_once __DIR__ . '/scheduler-bootstrap.php';
-scoutmagic_bootstrap_scheduler(
+scoutmagicBootstrapScheduler(
     $schedulerRunner,
     $schedulerService,
     $moduleManager,

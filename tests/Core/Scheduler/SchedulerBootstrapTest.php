@@ -68,7 +68,7 @@ class SchedulerBootstrapTest extends TestCase
         $source = self::publicSource($file);
 
         $this->assertStringContainsString("require_once __DIR__ . '/scheduler-bootstrap.php';", $source);
-        $this->assertStringContainsString('scoutmagic_bootstrap_scheduler(', $source);
+        $this->assertStringContainsString('scoutmagicBootstrapScheduler(', $source);
         $this->assertStringContainsString("define('SCOUTMAGIC_ENTRYPOINT', true);", $source);
     }
 
@@ -108,7 +108,7 @@ class SchedulerBootstrapTest extends TestCase
         // must name the file, like cron.php's.
         $bootstrap = self::publicSource('scheduler-bootstrap.php');
         $guard = strpos($bootstrap, "if (!defined('SCOUTMAGIC_ENTRYPOINT'))");
-        $function = strpos($bootstrap, 'function scoutmagic_bootstrap_scheduler(');
+        $function = strpos($bootstrap, 'function scoutmagicBootstrapScheduler(');
 
         $this->assertIsInt($guard);
         $this->assertIsInt($function);
@@ -165,7 +165,7 @@ class SchedulerBootstrapTest extends TestCase
         $schedulerRepo = new SchedulerRepository($pdo);
         $runner = new SchedulerRunner($schedulerRepo, $journalService);
 
-        $context = scoutmagic_bootstrap_scheduler(
+        $context = scoutmagicBootstrapScheduler(
             $runner,
             new SchedulerService($schedulerRepo),
             $moduleManager,

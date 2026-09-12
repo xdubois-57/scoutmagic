@@ -75,7 +75,7 @@ declare(strict_types=1);
  * Tested by tests/Core/System/SonarEvidenceTest.php with a fake API and a
  * fake clock, which is why the fetching, the waiting and the report are
  * functions taking callables, and every side effect is in
- * sonar_evidence_main(): the test defines SONAR_EVIDENCE_TEST and includes
+ * sonarEvidenceMain(): the test defines SONAR_EVIDENCE_TEST and includes
  * this file for its functions.
  */
 
@@ -105,7 +105,7 @@ const SONAR_EVIDENCE_MAX_PAGES = 20;
 // SONAR_EVIDENCE_TEST and includes this file for its functions, and the
 // command must not run when it does.
 if (!defined('SONAR_EVIDENCE_TEST')) {
-    sonar_evidence_main($argv);
+    sonarEvidenceMain($argv);
 }
 
 /**
@@ -114,7 +114,7 @@ if (!defined('SONAR_EVIDENCE_TEST')) {
  *
  * @param string[] $argv
  */
-function sonar_evidence_main(array $argv): void
+function sonarEvidenceMain(array $argv): void
 {
     if (PHP_SAPI !== 'cli') {
         fwrite(STDERR, "sonar-evidence.php is a CLI script.\n");
@@ -134,14 +134,14 @@ function sonar_evidence_main(array $argv): void
     // working silently, so it is a function with a test rather than four
     // lines nobody can reach.
     try {
-        $settings = sonar_evidence_settings(getenv());
+        $settings = sonarEvidenceSettings(getenv());
     } catch (RuntimeException $e) {
         fwrite(STDERR, 'sonar-evidence: ' . $e->getMessage() . "\n");
         exit(1);
     }
 
     $expected = $settings['expected'];
-    $token = sonar_evidence_resolve_token(
+    $token = sonarEvidenceResolveToken(
         (string) (getenv('SONAR_TOKEN') ?: ''),
         dirname(__DIR__) . '/.sonar-token'
     );
@@ -154,19 +154,19 @@ function sonar_evidence_main(array $argv): void
             );
             exit(1);
         }
-        sonar_evidence_write_unavailable($outDir, 'Aucun SONAR_TOKEN n\'était disponible pour cette exécution.');
+        sonarEvidenceWriteUnavailable($outDir, 'Aucun SONAR_TOKEN n\'était disponible pour cette exécution.');
         fwrite(STDERR, "sonar-evidence: SONAR_TOKEN is not set; wrote an UNAVAILABLE marker.\n");
         exit(0);
     }
 
     $host = $settings['host'];
-    $api = static fn (string $path): array => sonar_evidence_api($host, $token, $path);
+    $api = static fn (string $path): array => sonarEvidenceApi($host, $token, $path);
     $sleep = static function (int $s): void {
         sleep($s);
     };
 
     try {
-        $summary = sonar_evidence_collect(
+        $summary = sonarEvidenceCollect(
             $api,
             $outDir,
             $settings['project_key'],
@@ -181,17 +181,17 @@ function sonar_evidence_main(array $argv): void
         exit(1);
     }
 
-    fwrite(STDERR, sonar_evidence_summary_line($summary, $outDir));
+    fwrite(STDERR, sonarEvidenceSummaryLine($summary, $outDir));
 
     // Every file above is written before this point, on purpose: a refusal
     // is exactly when somebody wants to read the report, and the workflow
     // uploads the directory whether this exits 0 or 1.
-    $refusals = $expected === null ? [] : sonar_evidence_release_refusals($summary);
+    $refusals = $expected === null ? [] : sonarEvidenceReleaseRefusals($summary);
     if ($refusals === []) {
         return;
     }
 
-    fwrite(STDERR, sonar_evidence_refusal_message($refusals));
+    fwrite(STDERR, sonarEvidenceRefusalMessage($refusals));
     exit(1);
 }
 
@@ -207,7 +207,7 @@ function sonar_evidence_main(array $argv): void
  * @param array<string, string> $env
  * @return array{expected: ?string, host: string, project_key: string, branch: string, attempts: int, seconds: int}
  */
-function sonar_evidence_settings(array $env): array
+function sonarEvidenceSettings(array $env): array
 {
     $expected = (string) ($env['SONAR_EXPECTED_REVISION'] ?? '');
 
@@ -249,7 +249,7 @@ function sonar_evidence_settings(array $env): array
  * Bearer header carrying one is rejected with a 401 that says nothing
  * about why.
  */
-function sonar_evidence_resolve_token(string $fromEnvironment, string $tokenFile): string
+function sonarEvidenceResolveToken(string $fromEnvironment, string $tokenFile): string
 {
     if ($fromEnvironment !== '') {
         return $fromEnvironment;
@@ -268,7 +268,7 @@ function sonar_evidence_resolve_token(string $fromEnvironment, string $tokenFile
  * @param array{revision: string, analysis_date: string, quality_gate: string, issues: int, blocking: int,
  *     hotspots: int, hotspots_to_review: int} $summary
  */
-function sonar_evidence_summary_line(array $summary, string $outDir): string
+function sonarEvidenceSummaryLine(array $summary, string $outDir): string
 {
     return sprintf(
         "sonar-evidence: analysis %s of %s — quality gate %s, %d issue(s) (%d blocking), "
@@ -289,7 +289,7 @@ function sonar_evidence_summary_line(array $summary, string $outDir): string
  *
  * @param list<string> $refusals
  */
-function sonar_evidence_refusal_message(array $refusals): string
+function sonarEvidenceRefusalMessage(array $refusals): string
 {
     $message = "\nsonar-evidence: this analysis does not qualify for a release.\n";
     foreach ($refusals as $refusal) {
@@ -319,7 +319,7 @@ function sonar_evidence_refusal_message(array $refusals): string
  *     truncated?: bool} $summary
  * @return list<string>
  */
-function sonar_evidence_release_refusals(array $summary): array
+function sonarEvidenceReleaseRefusals(array $summary): array
 {
     $refusals = [];
 
@@ -352,7 +352,7 @@ function sonar_evidence_release_refusals(array $summary): array
  * @return array<string, mixed>
  * @throws RuntimeException
  */
-function sonar_evidence_api(string $host, string $token, string $path): array
+function sonarEvidenceApi(string $host, string $token, string $path): array
 {
     $handle = curl_init($host . '/api/' . $path);
     if ($handle === false) {
@@ -370,7 +370,7 @@ function sonar_evidence_api(string $host, string $token, string $path): array
     $error = curl_error($handle);
     curl_close($handle);
 
-    return sonar_evidence_decode($body, $status, $error, $path);
+    return sonarEvidenceDecode($body, $status, $error, $path);
 }
 
 /**
@@ -387,7 +387,7 @@ function sonar_evidence_api(string $host, string $token, string $path): array
  * @return array<string, mixed>
  * @throws RuntimeException
  */
-function sonar_evidence_decode(string|bool $body, int $status, string $error, string $path): array
+function sonarEvidenceDecode(string|bool $body, int $status, string $error, string $path): array
 {
     if (!is_string($body) || $status !== 200) {
         throw new RuntimeException("GET {$path} failed (HTTP {$status}) {$error}");
@@ -410,7 +410,7 @@ function sonar_evidence_decode(string|bool $body, int $status, string $error, st
  *     hotspots: int, hotspots_to_review: int, truncated: bool}
  * @throws RuntimeException
  */
-function sonar_evidence_collect(
+function sonarEvidenceCollect(
     callable $api,
     string $outDir,
     string $projectKey,
@@ -423,7 +423,7 @@ function sonar_evidence_collect(
     $project = rawurlencode($projectKey);
     $branchQuery = rawurlencode($branch);
 
-    $analysis = sonar_evidence_wait_for_analysis(
+    $analysis = sonarEvidenceWaitForAnalysis(
         $api,
         "project_analyses/search?project={$project}&branch={$branchQuery}&ps=1",
         $expectedRevision,
@@ -431,7 +431,7 @@ function sonar_evidence_collect(
         $seconds,
         $sleep
     );
-    sonar_evidence_write_json($outDir . '/sonarcloud-analysis.json', [
+    sonarEvidenceWriteJson($outDir . '/sonarcloud-analysis.json', [
         'project' => $projectKey,
         'branch' => $branch,
         'expected_revision' => $expectedRevision,
@@ -454,21 +454,21 @@ function sonar_evidence_collect(
         );
     }
     $gate = $api('qualitygates/project_status?analysisId=' . rawurlencode($analysisKey));
-    sonar_evidence_write_json($outDir . '/sonarcloud-quality-gate.json', $gate);
+    sonarEvidenceWriteJson($outDir . '/sonarcloud-quality-gate.json', $gate);
 
     $measures = $api(
         "measures/component?component={$project}&branch={$branchQuery}&metricKeys="
         . implode(',', SONAR_EVIDENCE_METRICS)
     );
-    sonar_evidence_write_json($outDir . '/sonarcloud-measures.json', $measures);
+    sonarEvidenceWriteJson($outDir . '/sonarcloud-measures.json', $measures);
 
-    $byFile = sonar_evidence_fetch_all_pages(
+    $byFile = sonarEvidenceFetchAllPages(
         $api,
         "measures/component_tree?component={$project}&branch={$branchQuery}&qualifiers=FIL&metricKeys="
         . SONAR_EVIDENCE_FILE_METRICS,
         'components'
     );
-    sonar_evidence_write_json(
+    sonarEvidenceWriteJson(
         $outDir . '/sonarcloud-measures-by-file.json',
         ['total' => count($byFile), 'components' => $byFile],
     );
@@ -480,14 +480,14 @@ function sonar_evidence_collect(
     // see the whole list". It is carried into the summary and refused on
     // rather than left for a reader to notice.
     $issuesTruncated = false;
-    $issues = sonar_evidence_fetch_all_pages(
+    $issues = sonarEvidenceFetchAllPages(
         $api,
         "issues/search?componentKeys={$project}&branch={$branchQuery}&resolved=false",
         'issues',
         $issuesTruncated
     );
-    $blocking = array_values(array_filter($issues, 'sonar_evidence_is_blocking'));
-    sonar_evidence_write_json($outDir . '/sonarcloud-issues.json', [
+    $blocking = array_values(array_filter($issues, 'sonarEvidenceIsBlocking'));
+    sonarEvidenceWriteJson($outDir . '/sonarcloud-issues.json', [
         'total' => count($issues),
         'blocking' => count($blocking),
         'exempt' => count($issues) - count($blocking),
@@ -498,7 +498,7 @@ function sonar_evidence_collect(
     ]);
 
     $hotspotsTruncated = false;
-    $hotspots = sonar_evidence_fetch_all_pages(
+    $hotspots = sonarEvidenceFetchAllPages(
         $api,
         "hotspots/search?projectKey={$project}&branch={$branchQuery}",
         'hotspots',
@@ -508,7 +508,7 @@ function sonar_evidence_collect(
         $hotspots,
         static fn (array $hotspot): bool => ($hotspot['status'] ?? '') === 'TO_REVIEW'
     ));
-    sonar_evidence_write_json($outDir . '/sonarcloud-hotspots.json', [
+    sonarEvidenceWriteJson($outDir . '/sonarcloud-hotspots.json', [
         'total' => count($hotspots),
         'to_review' => count($toReview),
         'truncated' => $hotspotsTruncated,
@@ -517,7 +517,7 @@ function sonar_evidence_collect(
 
     file_put_contents(
         $outDir . '/sonarcloud-report.md',
-        sonar_evidence_report($gate, $measures, $issues, $hotspots, $analysis, $expectedRevision, $projectKey, $branch)
+        sonarEvidenceReport($gate, $measures, $issues, $hotspots, $analysis, $expectedRevision, $projectKey, $branch)
     );
 
     return [
@@ -546,7 +546,7 @@ function sonar_evidence_collect(
  * @return array<string, mixed> the analysis record as the API returns it
  * @throws RuntimeException
  */
-function sonar_evidence_wait_for_analysis(
+function sonarEvidenceWaitForAnalysis(
     callable $api,
     string $path,
     ?string $expectedRevision,
@@ -604,7 +604,7 @@ function sonar_evidence_wait_for_analysis(
  * @param bool|null $truncated set to true when the page cap ended the loop
  * @return list<array<string, mixed>>
  */
-function sonar_evidence_fetch_all_pages(callable $api, string $path, string $key, ?bool &$truncated = null): array
+function sonarEvidenceFetchAllPages(callable $api, string $path, string $key, ?bool &$truncated = null): array
 {
     $all = [];
     $separator = str_contains($path, '?') ? '&' : '?';
@@ -624,13 +624,16 @@ function sonar_evidence_fetch_all_pages(callable $api, string $path, string $key
     }
 
     $truncated = true;
-    fwrite(STDERR, sprintf(
-        "sonar-evidence: %s still answered a full page after %d pages — the list is TRUNCATED at %d "
-        . "and every count derived from it is a floor.\n",
-        $key,
-        SONAR_EVIDENCE_MAX_PAGES,
-        count($all)
-    ));
+    fwrite(
+        STDERR,
+        sprintf(
+            "sonar-evidence: %s still answered a full page after %d pages — the list is TRUNCATED at %d "
+            . "and every count derived from it is a floor.\n",
+            $key,
+            SONAR_EVIDENCE_MAX_PAGES,
+            count($all)
+        )
+    );
 
     return $all;
 }
@@ -647,7 +650,7 @@ function sonar_evidence_fetch_all_pages(callable $api, string $path, string $key
  *
  * @param array<string, mixed> $issue
  */
-function sonar_evidence_is_blocking(array $issue): bool
+function sonarEvidenceIsBlocking(array $issue): bool
 {
     $tags = is_array($issue['tags'] ?? null) ? $issue['tags'] : [];
     $impacts = is_array($issue['impacts'] ?? null) ? $issue['impacts'] : [];
@@ -671,9 +674,9 @@ function sonar_evidence_is_blocking(array $issue): bool
  * The marker written when there is no token: a file that says why, rather
  * than a file that is not there.
  */
-function sonar_evidence_write_unavailable(string $outDir, string $reason): void
+function sonarEvidenceWriteUnavailable(string $outDir, string $reason): void
 {
-    sonar_evidence_write_json($outDir . '/sonarcloud-quality-gate.json', [
+    sonarEvidenceWriteJson($outDir . '/sonarcloud-quality-gate.json', [
         'status' => 'UNAVAILABLE',
         'reason' => $reason,
     ]);
@@ -686,14 +689,14 @@ function sonar_evidence_write_unavailable(string $outDir, string $reason): void
 /**
  * @param array<string, mixed> $data
  */
-function sonar_evidence_write_json(string $path, array $data): void
+function sonarEvidenceWriteJson(string $path, array $data): void
 {
     $flags = JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE;
     file_put_contents($path, json_encode($data, $flags) . "\n");
 }
 
 /** SonarCloud returns ratings as 1..5; nobody reads "3.0". */
-function sonar_evidence_rating(string $value): string
+function sonarEvidenceRating(string $value): string
 {
     $letters = ['1' => 'A', '2' => 'B', '3' => 'C', '4' => 'D', '5' => 'E'];
 
@@ -710,7 +713,7 @@ function sonar_evidence_rating(string $value): string
  * @param list<array<string, mixed>> $hotspots
  * @param array<string, mixed> $analysis
  */
-function sonar_evidence_report(
+function sonarEvidenceReport(
     array $gate,
     array $measures,
     array $issues,
@@ -764,12 +767,12 @@ function sonar_evidence_report(
     }
 
     $rows = [
-        'Fiabilité' => sonar_evidence_rating($m('reliability_rating')) . ' — ' . $m('bugs') . ' bug(s)',
-        'Sécurité' => sonar_evidence_rating($m('security_rating')) . ' — ' . $m('vulnerabilities')
+        'Fiabilité' => sonarEvidenceRating($m('reliability_rating')) . ' — ' . $m('bugs') . ' bug(s)',
+        'Sécurité' => sonarEvidenceRating($m('security_rating')) . ' — ' . $m('vulnerabilities')
             . ' vulnérabilité(s)',
-        'Revue de sécurité' => sonar_evidence_rating($m('security_review_rating')) . ' — ' . $m('security_hotspots')
+        'Revue de sécurité' => sonarEvidenceRating($m('security_review_rating')) . ' — ' . $m('security_hotspots')
             . ' hotspot(s), ' . $m('security_hotspots_reviewed') . ' % revus',
-        'Maintenabilité' => sonar_evidence_rating($m('sqale_rating')) . ' — ' . $m('code_smells') . ' code smell(s), '
+        'Maintenabilité' => sonarEvidenceRating($m('sqale_rating')) . ' — ' . $m('code_smells') . ' code smell(s), '
             . $m('sqale_index') . ' min de dette',
         'Couverture' => $m('coverage') . ' % (' . $m('uncovered_lines') . ' lignes non couvertes sur '
             . $m('lines_to_cover') . ')',
@@ -786,7 +789,7 @@ function sonar_evidence_report(
     }
     $lines[] = '';
 
-    $blocking = array_filter($issues, 'sonar_evidence_is_blocking');
+    $blocking = array_filter($issues, 'sonarEvidenceIsBlocking');
     $lines[] = '### Signalements ouverts (' . count($issues) . ')';
     $lines[] = '';
     $lines[] = count($blocking) . ' bloquant(s) pour une release, ' . (count($issues) - count($blocking))
@@ -803,7 +806,7 @@ function sonar_evidence_report(
             $severity = (string) ($issue['severity'] ?? 'INCONNUE');
             $bySeverity[$severity] = ($bySeverity[$severity] ?? 0) + 1;
             $ruleKey = (string) ($issue['rule'] ?? '?') . '|' . (string) ($issue['type'] ?? '?') . '|' . $severity
-                . '|' . (sonar_evidence_is_blocking($issue) ? 'bloquant' : 'exempté');
+                . '|' . (sonarEvidenceIsBlocking($issue) ? 'bloquant' : 'exempté');
             $byRule[$ruleKey] = ($byRule[$ruleKey] ?? 0) + 1;
         }
 

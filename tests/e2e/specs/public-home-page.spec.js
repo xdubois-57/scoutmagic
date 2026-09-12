@@ -166,7 +166,7 @@ const CAMPAIGN_LABEL = `Cotisation accueil ${Date.now()}`;
 const GROUP_NAME = `Accueil E2E ${Date.now()}`;
 /**
  * The section scripts/e2e-support.php gives BOTH seeded people a period
- * in (e2e_seed_section_with_both_members). Its group is therefore a group
+ * in (e2eSeedSectionWithBothMembers). Its group is therefore a group
  * they are both in without anybody being invited — and, unlike an
  * invitation group, one the creation quota does not count.
  */

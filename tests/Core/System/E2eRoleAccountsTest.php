@@ -21,7 +21,7 @@ require_once dirname(__DIR__, 3) . '/scripts/e2e-support.php';
  * What is pinned here is the DESCRIPTOR, not the seeding: the rows are
  * written against a real MySQL database inside a provisioning run, and
  * that run already fails closed if any of the five accounts does not
- * resolve to its intended role (e2e_assert_resolved_roles()). What a
+ * resolve to its intended role (e2eAssertResolvedRoles()). What a
  * unit test can hold is the part a typo would quietly break without
  * anything else noticing — the role ladder being complete, the addresses
  * being unroutable, and the environment prefixes not colliding with the
@@ -33,7 +33,7 @@ class E2eRoleAccountsTest extends TestCase
     {
         $roles = array_map(
             static fn(array $account): Role => $account['role'],
-            \e2e_role_accounts()
+            \e2eRoleAccounts()
         );
 
         // identified and superadmin come from the two accounts the
@@ -45,7 +45,7 @@ class E2eRoleAccountsTest extends TestCase
     {
         $covered = array_map(
             static fn(array $account): string => $account['role']->value,
-            \e2e_role_accounts()
+            \e2eRoleAccounts()
         );
         $covered[] = Role::IDENTIFIED->value;
         $covered[] = Role::SUPERADMIN->value;
@@ -66,7 +66,7 @@ class E2eRoleAccountsTest extends TestCase
      */
     public function testEveryDefaultAddressIsUnroutable(): void
     {
-        foreach (\e2e_role_accounts() as $account) {
+        foreach (\e2eRoleAccounts() as $account) {
             $this->assertStringEndsWith('@example.invalid', $account['default_email']);
         }
     }
@@ -80,7 +80,7 @@ class E2eRoleAccountsTest extends TestCase
     {
         $prefixes = array_map(
             static fn(array $account): string => $account['env_prefix'],
-            \e2e_role_accounts()
+            \e2eRoleAccounts()
         );
 
         $this->assertNotContains('E2E_ADMIN', $prefixes);
@@ -90,11 +90,11 @@ class E2eRoleAccountsTest extends TestCase
 
     public function testEveryIdentifierIsDistinctSoNoTwoAccountsOverwriteEachOther(): void
     {
-        $accounts = \e2e_role_accounts();
+        $accounts = \e2eRoleAccounts();
 
         foreach (['key', 'env_prefix', 'default_email', 'desk_id', 'function_code'] as $field) {
             $values = array_map(static fn(array $account): string => $account[$field], $accounts);
-            $this->assertSame($values, array_unique($values), "duplicate {$field} in e2e_role_accounts()");
+            $this->assertSame($values, array_unique($values), "duplicate {$field} in e2eRoleAccounts()");
         }
     }
 
@@ -107,7 +107,7 @@ class E2eRoleAccountsTest extends TestCase
     {
         $taken = ['E2E-ADMIN', 'E2E-MEMBER', 'E2E-FCT', 'E2E-CDU', 'E2E-SEC', 'E2E-BR'];
 
-        foreach (\e2e_role_accounts() as $account) {
+        foreach (\e2eRoleAccounts() as $account) {
             $this->assertNotContains($account['desk_id'], $taken);
             $this->assertNotContains($account['function_code'], $taken);
         }
@@ -132,12 +132,12 @@ class E2eRoleAccountsTest extends TestCase
 
         $ours = array_map(
             static fn(array $account): string => $account['function_code'],
-            \e2e_role_accounts()
+            \e2eRoleAccounts()
         );
-        foreach (\e2e_role_accounts() as $account) {
+        foreach (\e2eRoleAccounts() as $account) {
             $ours[] = $account['desk_id'];
         }
-        $ours = array_merge($ours, array_values(\e2e_role_fixture_codes()));
+        $ours = array_merge($ours, array_values(\e2eRoleFixtureCodes()));
 
         foreach ($ours as $code) {
             foreach ($existing as $taken) {
@@ -160,7 +160,7 @@ class E2eRoleAccountsTest extends TestCase
      */
     public function testEveryFunctionCarriesALabelAndAName(): void
     {
-        foreach (\e2e_role_accounts() as $account) {
+        foreach (\e2eRoleAccounts() as $account) {
             $this->assertNotSame('', trim($account['function_label']));
             $this->assertNotSame('', trim($account['first_name']));
             $this->assertNotSame('', trim($account['last_name']));
@@ -169,16 +169,16 @@ class E2eRoleAccountsTest extends TestCase
 
     public function testTheAddressComesFromTheEnvironmentWhenSetAndIsNormalised(): void
     {
-        $account = \e2e_role_accounts()[0];
+        $account = \e2eRoleAccounts()[0];
         $variable = $account['env_prefix'] . '_EMAIL';
         $previous = getenv($variable);
 
         try {
             putenv("{$variable}=  MiXeD@Example.Invalid  ");
-            $this->assertSame('mixed@example.invalid', \e2e_role_account_email($account));
+            $this->assertSame('mixed@example.invalid', \e2eRoleAccountEmail($account));
 
             putenv("{$variable}=");
-            $this->assertSame($account['default_email'], \e2e_role_account_email($account));
+            $this->assertSame($account['default_email'], \e2eRoleAccountEmail($account));
         } finally {
             if ($previous === false) {
                 putenv($variable);

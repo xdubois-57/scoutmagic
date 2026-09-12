@@ -138,7 +138,7 @@ final class MaintenancePortableBackupRbacTest extends TestCase
      * Router enforces a floor of `admin` — and they would go on passing if
      * this route were registered as `public`, as `chief`, or not at all.
      * That gap is real, and it is closed here rather than argued away:
-     * `authz_core_routes()` parses the production registrations (the same
+     * `authzCoreRoutes()` parses the production registrations (the same
      * reading `scripts/authz-support.php` gives the authorization matrix,
      * which replays every route as every role in CI), so this asserts the
      * floor where it is really written.
@@ -150,7 +150,7 @@ final class MaintenancePortableBackupRbacTest extends TestCase
     public function testTheProductionRegistrationIsTheFloorTheseTestsAssume(): void
     {
         $matching = array_values(array_filter(
-            \authz_core_routes(),
+            \authzCoreRoutes(),
             static fn (array $route): bool => $route['path'] === self::PATH && $route['method'] === 'POST'
         ));
 

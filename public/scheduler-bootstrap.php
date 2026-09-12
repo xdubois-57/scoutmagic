@@ -61,7 +61,7 @@ if (!defined('SCOUTMAGIC_ENTRYPOINT')) {
  * Returns the TaskContext it built and set on the runner, so an entry
  * point that needs it for something else keeps a handle.
  */
-function scoutmagic_bootstrap_scheduler(
+function scoutmagicBootstrapScheduler(
     \Core\Scheduler\SchedulerRunner $runner,
     \Core\Scheduler\SchedulerService $schedulerService,
     \Core\Module\ModuleManager $moduleManager,

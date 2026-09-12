@@ -48,7 +48,7 @@ declare(strict_types=1);
  * has to write down here (AGENTS.md § CSS / frontend for the vendored ones).
  *
  * Tested by tests/Core/System/DependencyInventoryTest.php, which is why the
- * work is in functions and the side effects in inventory_main(): the test
+ * work is in functions and the side effects in inventoryMain(): the test
  * defines DEPENDENCY_INVENTORY_TEST and includes this file for its functions.
  */
 
@@ -59,7 +59,7 @@ declare(strict_types=1);
  * lock file to read them out of. Two things keep the map honest. The
  * regexes are the same ones scripts/release.sh's dependency freshness gate
  * uses, so a banner that changes shape breaks both at once rather than one
- * silently; and inventory_vendored_libraries() lists every directory under
+ * silently; and inventoryVendoredLibraries() lists every directory under
  * public/assets/vendor/ and reports one missing from this map as "à
  * déclarer" instead of omitting it.
  *
@@ -152,7 +152,7 @@ const INVENTORY_LICENCE_UNKNOWN = '**À examiner** — licence absente de la tab
 // DEPENDENCY_INVENTORY_TEST and includes this file for its functions, and
 // the command must not run when it does.
 if (!defined('DEPENDENCY_INVENTORY_TEST')) {
-    inventory_main($argv);
+    inventoryMain($argv);
 }
 
 /**
@@ -161,7 +161,7 @@ if (!defined('DEPENDENCY_INVENTORY_TEST')) {
  *
  * @param string[] $argv
  */
-function inventory_main(array $argv): void
+function inventoryMain(array $argv): void
 {
     if (PHP_SAPI !== 'cli') {
         fwrite(STDERR, "dependency-inventory.php is a CLI script.\n");
@@ -171,7 +171,7 @@ function inventory_main(array $argv): void
     $root = $argv[1] ?? dirname(__DIR__);
 
     try {
-        echo inventory_render($root);
+        echo inventoryRender($root);
     } catch (RuntimeException $e) {
         fwrite(STDERR, 'dependency-inventory: ' . $e->getMessage() . "\n");
         exit(1);
@@ -184,16 +184,16 @@ function inventory_main(array $argv): void
  * @throws RuntimeException when a lock file is missing or unreadable — an
  *         inventory that silently skips a surface is worse than none.
  */
-function inventory_render(string $root): string
+function inventoryRender(string $root): string
 {
-    $composerLock = inventory_read_json($root . '/composer.lock');
-    $packageJson = inventory_read_json($root . '/package.json');
-    $packageLock = inventory_read_json($root . '/package-lock.json');
+    $composerLock = inventoryReadJson($root . '/composer.lock');
+    $packageJson = inventoryReadJson($root . '/package.json');
+    $packageLock = inventoryReadJson($root . '/package-lock.json');
 
-    $php = inventory_composer_packages($composerLock, 'packages');
-    $phpDev = inventory_composer_packages($composerLock, 'packages-dev');
-    $node = inventory_npm_packages($packageJson, $packageLock);
-    $vendored = inventory_vendored_libraries($root . '/public/assets/vendor');
+    $php = inventoryComposerPackages($composerLock, 'packages');
+    $phpDev = inventoryComposerPackages($composerLock, 'packages-dev');
+    $node = inventoryNpmPackages($packageJson, $packageLock);
+    $vendored = inventoryVendoredLibraries($root . '/public/assets/vendor');
 
     $phpRequirement = (string) ($composerLock['platform']['php'] ?? 'voir composer.json');
     $nodeRequirement = (string) ($packageJson['engines']['node'] ?? 'voir package.json');
@@ -207,22 +207,22 @@ function inventory_render(string $root): string
 
     $out .= '### PHP — production (' . count($php) . ")\n\n";
     $out .= "Présentes dans `vendor/` de l'archive installable : c'est ce qui tourne sur l'hébergement.\n\n";
-    $out .= inventory_table($php, '_Aucune._');
+    $out .= inventoryTable($php, '_Aucune._');
 
     $out .= "\n### PHP — développement (" . count($phpDev) . ")\n\n";
     $out .= "Non livrées. Ce sont les outils dont le verdict fonde cette release.\n\n";
-    $out .= inventory_table($phpDev, '_Aucune._');
+    $out .= inventoryTable($phpDev, '_Aucune._');
 
     $out .= "\n### JavaScript — développement (" . count($node) . ")\n\n";
     $out .= "Outillage de test et d'analyse uniquement. Le JavaScript de production est du code navigateur "
         . "simple, sans bundler ni Node : rien d'ici n'atteint un visiteur.\n\n";
-    $out .= inventory_table($node, '_Aucune._');
+    $out .= inventoryTable($node, '_Aucune._');
 
     $out .= "\n### Bibliothèques front-end vendorisées (" . count($vendored) . ")\n\n";
     $out .= "Dans aucun fichier de verrouillage : des fichiers minifiés commités sous `public/assets/vendor/`, "
         . "version lue dans leur bannière. Ce sont les seules dépendances tierces que le navigateur d'un "
         . "visiteur exécute réellement.\n\n";
-    $out .= inventory_table(
+    $out .= inventoryTable(
         $vendored,
         '_Aucune trouvée — vérifier le balayage dans `scripts/dependency-inventory.php`._',
     );
@@ -230,7 +230,7 @@ function inventory_render(string $root): string
     $out .= "\n### Compatibilité avec la licence du projet\n\n";
     $out .= "ScoutMagic est publié sous **AGPL-3.0-or-later**. Pour chaque licence rencontrée ci-dessus, "
         . "pourquoi elle peut être combinée avec celle-ci :\n\n";
-    $out .= inventory_compatibility_table(array_merge($php, $phpDev, $node, $vendored));
+    $out .= inventoryCompatibilityTable(array_merge($php, $phpDev, $node, $vendored));
 
     return $out;
 }
@@ -241,7 +241,7 @@ function inventory_render(string $root): string
  * @return array<string, mixed>
  * @throws RuntimeException
  */
-function inventory_read_json(string $path): array
+function inventoryReadJson(string $path): array
 {
     if (!is_file($path)) {
         throw new RuntimeException('missing ' . $path);
@@ -261,7 +261,7 @@ function inventory_read_json(string $path): array
  * @param array<string, mixed> $lock
  * @return array<string, array{version: string, licence: string}>
  */
-function inventory_composer_packages(array $lock, string $section): array
+function inventoryComposerPackages(array $lock, string $section): array
 {
     $rows = [];
     $packages = $lock[$section] ?? [];
@@ -297,7 +297,7 @@ function inventory_composer_packages(array $lock, string $section): array
  * @param array<string, mixed> $lock
  * @return array<string, array{version: string, licence: string}>
  */
-function inventory_npm_packages(array $manifest, array $lock): array
+function inventoryNpmPackages(array $manifest, array $lock): array
 {
     $dependencies = is_array($manifest['dependencies'] ?? null) ? $manifest['dependencies'] : [];
     $devDependencies = is_array($manifest['devDependencies'] ?? null) ? $manifest['devDependencies'] : [];
@@ -331,7 +331,7 @@ function inventory_npm_packages(array $manifest, array $lock): array
  *
  * @return array<string, array{version: string, licence: string}>
  */
-function inventory_vendored_libraries(string $vendorDir): array
+function inventoryVendoredLibraries(string $vendorDir): array
 {
     $rows = [];
     $directories = is_dir($vendorDir) ? array_filter(
@@ -350,7 +350,7 @@ function inventory_vendored_libraries(string $vendorDir): array
         }
 
         $rows[$library['name']] = [
-            'version' => inventory_banner_version($vendorDir . '/' . $library['file'], $library['pattern']),
+            'version' => inventoryBannerVersion($vendorDir . '/' . $library['file'], $library['pattern']),
             'licence' => $library['licence'],
         ];
     }
@@ -367,7 +367,7 @@ function inventory_vendored_libraries(string $vendorDir): array
  * The version a vendored file's banner declares, or a message a reader
  * cannot mistake for one.
  */
-function inventory_banner_version(string $file, string $pattern): string
+function inventoryBannerVersion(string $file, string $pattern): string
 {
     if (!is_file($file)) {
         return '**fichier introuvable** (`' . basename($file) . '`)';
@@ -389,7 +389,7 @@ function inventory_banner_version(string $file, string $pattern): string
  *
  * @param array<string, array{version: string, licence: string}> $rows
  */
-function inventory_table(array $rows, string $emptyNote): string
+function inventoryTable(array $rows, string $emptyNote): string
 {
     if ($rows === []) {
         return $emptyNote . "\n";
@@ -413,7 +413,7 @@ function inventory_table(array $rows, string $emptyNote): string
  *
  * @param array<string, array{version: string, licence: string}> $rows
  */
-function inventory_compatibility_table(array $rows): string
+function inventoryCompatibilityTable(array $rows): string
 {
     $counts = [];
     foreach ($rows as $row) {
@@ -425,7 +425,7 @@ function inventory_compatibility_table(array $rows): string
 
     $out = "| Licence | Paquets | Compatibilité |\n|---|---|---|\n";
     foreach ($counts as $licence => $count) {
-        $out .= '| ' . $licence . ' | ' . $count . ' | ' . inventory_licence_verdict($licence) . " |\n";
+        $out .= '| ' . $licence . ' | ' . $count . ' | ' . inventoryLicenceVerdict($licence) . " |\n";
     }
 
     return $out;
@@ -454,7 +454,7 @@ function inventory_compatibility_table(array $rows): string
  * precedence of `(MIT OR Apache-2.0) AND Zlib` against the AGPL is
  * exactly the kind of judgement this file exists to surface, not to make.
  */
-function inventory_licence_verdict(string $expression): string
+function inventoryLicenceVerdict(string $expression): string
 {
     // "**non déclarée**" and the vendored "**à déclarer**" markers: not a
     // licence, and not something to look up.

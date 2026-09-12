@@ -50,7 +50,7 @@ try {
 }
 
 /** @return array{0: int, 1: int, 2: float, 3: string, 4: string} */
-function perf_request(string $url, string $jar, ?string $json = null): array
+function perfRequest(string $url, string $jar, ?string $json = null): array
 {
     $ch = curl_init($url);
     curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_COOKIEJAR => $jar, CURLOPT_COOKIEFILE => $jar]);
@@ -72,11 +72,15 @@ function perf_request(string $url, string $jar, ?string $json = null): array
 }
 
 if ($email !== '-') {
-    [, , , $html] = perf_request($base . '/login', $jar);
+    [, , , $html] = perfRequest($base . '/login', $jar);
     preg_match('/id="csrf-token" value="([^"]+)"/', $html, $m);
-    [$code, , , $body] = perf_request($base . '/login/password', $jar, json_encode([
-        '_csrf_token' => $m[1] ?? '', 'email' => $email, 'password' => $password, 'rgpd_consent' => true,
-    ]));
+    [$code, , , $body] = perfRequest(
+        $base . '/login/password',
+        $jar,
+        json_encode([
+            '_csrf_token' => $m[1] ?? '', 'email' => $email, 'password' => $password, 'rgpd_consent' => true,
+        ])
+    );
     fwrite(STDERR, "login: $code $body\n");
 }
 
@@ -85,7 +89,7 @@ foreach (array_filter(array_map('trim', file($urlsFile))) as $path) {
     if ($path[0] === '#') {
         continue;
     }
-    perf_request($base . $path, $jar);
+    perfRequest($base . $path, $jar);
     $times = [];
     $sql = 0;
     $code = 0;
@@ -93,7 +97,7 @@ foreach (array_filter(array_map('trim', file($urlsFile))) as $path) {
     $redirect = '';
     for ($i = 0; $i < $runs; $i++) {
         $before = $questions !== null ? $questions() : 0;
-        [$code, $bytes, $seconds, , $redirect] = perf_request($base . $path, $jar);
+        [$code, $bytes, $seconds, , $redirect] = perfRequest($base . $path, $jar);
         // The status query itself is the one extra statement counted.
         $sql = $questions !== null ? $questions() - $before - 1 : 0;
         $times[] = $seconds * 1000;

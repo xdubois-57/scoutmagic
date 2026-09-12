@@ -57,7 +57,7 @@ const BOOTSTRAP_REQUIRED_ARTIFACT_ENTRIES = ['vendor/autoload.php', 'public/inde
  * @param array<string, mixed> $server
  * @return array{ok: bool, label: string, detail: string}
  */
-function bootstrap_check_location(array $server): array
+function bootstrapCheckLocation(array $server): array
 {
     $scriptName = (string) ($server['SCRIPT_NAME'] ?? '/bootstrap.php');
     $dir = str_replace('\\', '/', dirname($scriptName));
@@ -75,7 +75,7 @@ function bootstrap_check_location(array $server): array
 /**
  * @return array{ok: bool, label: string, detail: string}
  */
-function bootstrap_check_php_version(string $version = PHP_VERSION): array
+function bootstrapCheckPhpVersion(string $version = PHP_VERSION): array
 {
     $ok = version_compare($version, BOOTSTRAP_MIN_PHP_VERSION, '>=');
 
@@ -91,7 +91,7 @@ function bootstrap_check_php_version(string $version = PHP_VERSION): array
 /**
  * @return array{ok: bool, label: string, detail: string}
  */
-function bootstrap_check_zip_extension(): array
+function bootstrapCheckZipExtension(): array
 {
     $ok = class_exists('ZipArchive');
 
@@ -105,7 +105,7 @@ function bootstrap_check_zip_extension(): array
 /**
  * @return array{ok: bool, label: string, detail: string}
  */
-function bootstrap_check_outbound_https(callable $prober): array
+function bootstrapCheckOutboundHttps(callable $prober): array
 {
     $ok = (bool) $prober();
 
@@ -126,7 +126,7 @@ function bootstrap_check_outbound_https(callable $prober): array
  *
  * @return array<string, mixed>
  */
-function bootstrap_gather_environment_info(): array
+function bootstrapGatherEnvironmentInfo(): array
 {
     return [
         'server_software' => $_SERVER['SERVER_SOFTWARE'] ?? 'inconnu',
@@ -144,7 +144,7 @@ function bootstrap_gather_environment_info(): array
  * throwaway path — is_writable() "lies under ACLs and open_basedir", per
  * the spec, so nothing here trusts it.
  */
-function bootstrap_probe_writable(string $dir): bool
+function bootstrapProbeWritable(string $dir): bool
 {
     if (!is_dir($dir)) {
         return false;
@@ -174,7 +174,7 @@ function bootstrap_probe_writable(string $dir): bool
  * Rejects a parent directory that looks like a filesystem root (etc/, usr/,
  * bin/, var/ all present together) — layout A must never be selected there.
  */
-function bootstrap_looks_like_system_root(string $dir): bool
+function bootstrapLooksLikeSystemRoot(string $dir): bool
 {
     $markers = ['etc', 'usr', 'bin', 'var'];
     $present = 0;
@@ -198,7 +198,7 @@ function bootstrap_looks_like_system_root(string $dir): bool
  *
  * @return array{layout: 'A'|'B', parent: string|null, reason: string}
  */
-function bootstrap_select_layout(string $docRoot, callable $writableProbe): array
+function bootstrapSelectLayout(string $docRoot, callable $writableProbe): array
 {
     $parent = dirname($docRoot);
 
@@ -214,7 +214,7 @@ function bootstrap_select_layout(string $docRoot, callable $writableProbe): arra
         ];
     }
 
-    if (bootstrap_looks_like_system_root($parent)) {
+    if (bootstrapLooksLikeSystemRoot($parent)) {
         return [
             'layout' => 'B',
             'parent' => null,
@@ -255,7 +255,7 @@ function bootstrap_select_layout(string $docRoot, callable $writableProbe): arra
  * @param array<string, mixed> $release
  * @return array{url: string, size: int, source: 'asset'|'zipball'}
  */
-function bootstrap_resolve_archive_url(array $release): array
+function bootstrapResolveArchiveUrl(array $release): array
 {
     $assets = is_array($release['assets'] ?? null) ? $release['assets'] : [];
     foreach ($assets as $asset) {
@@ -283,7 +283,7 @@ function bootstrap_resolve_archive_url(array $release): array
  *
  * @return array<string, mixed>
  */
-function bootstrap_fetch_latest_release(callable $httpGet): array
+function bootstrapFetchLatestRelease(callable $httpGet): array
 {
     $url = 'https://api.github.com/repos/' . BOOTSTRAP_REPO_OWNER . '/' . BOOTSTRAP_REPO_NAME . '/releases/latest';
     $attempts = 0;
@@ -330,7 +330,7 @@ function bootstrap_fetch_latest_release(callable $httpGet): array
     throw $lastError;
 }
 
-function bootstrap_download_with_retry(string $url, string $destPath, callable $downloader): void
+function bootstrapDownloadWithRetry(string $url, string $destPath, callable $downloader): void
 {
     $attempts = 0;
     $lastError = null;
@@ -357,7 +357,7 @@ function bootstrap_download_with_retry(string $url, string $destPath, callable $
 /**
  * @return array{ok: bool, degraded: bool, label: string, detail: string}
  */
-function bootstrap_check_disk_space(string $dir, int $declaredArtifactSize, ?callable $freeSpaceFn = null): array
+function bootstrapCheckDiskSpace(string $dir, int $declaredArtifactSize, ?callable $freeSpaceFn = null): array
 {
     $freeSpaceFn ??= 'disk_free_space';
 
@@ -386,8 +386,11 @@ function bootstrap_check_disk_space(string $dir, int $declaredArtifactSize, ?cal
         'label' => 'Espace disque',
         'detail' => $ok
             ? sprintf('%.1f Mo disponibles.', $free / 1048576)
-            : sprintf('Seulement %.1f Mo disponibles, %.1f Mo requis (3x la taille de l\'archive).', $free / 1048576,
-                $needed / 1048576),
+            : sprintf(
+                'Seulement %.1f Mo disponibles, %.1f Mo requis (3x la taille de l\'archive).',
+                $free / 1048576,
+                $needed / 1048576
+            ),
     ];
 }
 
@@ -395,7 +398,7 @@ function bootstrap_check_disk_space(string $dir, int $declaredArtifactSize, ?cal
 // Archive extraction
 // =============================================================================
 
-function bootstrap_is_zip_slip(string $entryName): bool
+function bootstrapIsZipSlip(string $entryName): bool
 {
     $normalized = str_replace('\\', '/', $entryName);
     if (strpos($normalized, '../') !== false || substr($normalized, -3) === '/..') {
@@ -411,7 +414,7 @@ function bootstrap_is_zip_slip(string $entryName): bool
     return false;
 }
 
-function bootstrap_extract_zip_safely(string $zipPath, string $destDir): void
+function bootstrapExtractZipSafely(string $zipPath, string $destDir): void
 {
     $zip = new \ZipArchive();
     if ($zip->open($zipPath) !== true) {
@@ -423,7 +426,7 @@ function bootstrap_extract_zip_safely(string $zipPath, string $destDir): void
         if ($name === false) {
             continue;
         }
-        if (bootstrap_is_zip_slip($name)) {
+        if (bootstrapIsZipSlip($name)) {
             $zip->close();
             throw new RuntimeException("L'archive contient une entrée dangereuse (chemin hors de la zone "
                 . "d'extraction) : {$name}");
@@ -454,7 +457,7 @@ function bootstrap_extract_zip_safely(string $zipPath, string $destDir): void
  * never have this stripping applied even if it coincidentally has a single
  * top-level entry.
  */
-function bootstrap_resolve_archive_root(string $extractedDir, string $sourceType): string
+function bootstrapResolveArchiveRoot(string $extractedDir, string $sourceType): string
 {
     if ($sourceType !== 'zipball') {
         return $extractedDir;
@@ -471,7 +474,7 @@ function bootstrap_resolve_archive_root(string $extractedDir, string $sourceType
 /**
  * @return array{ok: bool, label: string, detail: string}
  */
-function bootstrap_verify_artifact(string $sourceRoot): array
+function bootstrapVerifyArtifact(string $sourceRoot): array
 {
     $missing = [];
     foreach (BOOTSTRAP_REQUIRED_ARTIFACT_ENTRIES as $entry) {
@@ -507,7 +510,7 @@ function bootstrap_verify_artifact(string $sourceRoot): array
  * @param string[] $excludeTopLevel
  * @return string[] the top-level entry names actually copied (for rollback)
  */
-function bootstrap_copy_tree(string $source, string $dest, array $excludeTopLevel = []): array
+function bootstrapCopyTree(string $source, string $dest, array $excludeTopLevel = []): array
 {
     if (!is_dir($dest) && !@mkdir($dest, 0755, true) && !is_dir($dest)) {
         throw new RuntimeException("Impossible de créer le dossier de destination.");
@@ -522,14 +525,14 @@ function bootstrap_copy_tree(string $source, string $dest, array $excludeTopLeve
         if (in_array($name, $excludeTopLevel, true)) {
             continue;
         }
-        bootstrap_copy_entry($source . '/' . $name, $dest . '/' . $name);
+        bootstrapCopyEntry($source . '/' . $name, $dest . '/' . $name);
         $copied[] = $name;
     }
 
     return $copied;
 }
 
-function bootstrap_copy_entry(string $source, string $dest): void
+function bootstrapCopyEntry(string $source, string $dest): void
 {
     if (is_dir($source)) {
         if (!is_dir($dest) && !@mkdir($dest, 0755, true) && !is_dir($dest)) {
@@ -555,18 +558,18 @@ function bootstrap_copy_entry(string $source, string $dest): void
     }
 }
 
-function bootstrap_remove_path(string $path): void
+function bootstrapRemovePath(string $path): void
 {
     if (is_link($path)) {
         @unlink($path);
     } elseif (is_dir($path)) {
-        bootstrap_remove_directory($path);
+        bootstrapRemoveDirectory($path);
     } elseif (file_exists($path)) {
         @unlink($path);
     }
 }
 
-function bootstrap_remove_directory(string $dir): void
+function bootstrapRemoveDirectory(string $dir): void
 {
     if (!is_dir($dir)) {
         return;
@@ -594,7 +597,7 @@ function bootstrap_remove_directory(string $dir): void
  * every other rule.
  *
  * PHP execution is routed to the index.php stub sitting in THIS SAME
- * directory (bootstrap_index_stub_content()) — never rewritten across
+ * directory (bootstrapIndexStubContent()) — never rewritten across
  * directories to public/index.php. An earlier version rewrote straight to
  * public/index.php via a two-hop chain (root .htaccess → public/'s own
  * .htaccess re-triggering a second rewrite for the same request) — that
@@ -607,7 +610,7 @@ function bootstrap_remove_directory(string $dir): void
  * case; only static assets are ever routed across directories here, which
  * never touches PHP execution or SCRIPT_FILENAME at all.
  */
-function bootstrap_htaccess_content(): string
+function bootstrapHtaccessContent(): string
 {
     return <<<'HTACCESS'
 RewriteEngine On
@@ -740,14 +743,14 @@ HTACCESS;
 
 /**
  * The one file bootstrap.php places outside the repository's own tree
- * (ARCHITECTURE.md §12) — see bootstrap_htaccess_content()'s own comment
+ * (ARCHITECTURE.md §12) — see bootstrapHtaccessContent()'s own comment
  * for why a same-directory PHP stub is required at all. __DIR__ inside the
  * required file always reflects its own real location regardless of how
  * it's included, so public/index.php's own path resolution (AppConfig,
  * Twig template dir, SecretManager, etc. — all built from its own
  * __DIR__) needs no changes whatsoever to be required from here.
  */
-function bootstrap_index_stub_content(): string
+function bootstrapIndexStubContent(): string
 {
     return <<<'PHP'
 <?php
@@ -768,7 +771,7 @@ PHP;
 /**
  * @return string[] subdirectory names created
  */
-function bootstrap_create_storage_dirs(string $basePath): array
+function bootstrapCreateStorageDirs(string $basePath): array
 {
     $created = [];
     foreach (BOOTSTRAP_STORAGE_SUBDIRS as $sub) {
@@ -786,17 +789,17 @@ function bootstrap_create_storage_dirs(string $basePath): array
  * Exact same format as Core\Maintenance\VersionFile::write() — the
  * installed site's VersionFile::read() must see byte-identical content.
  */
-function bootstrap_write_version(string $basePath, string $version): void
+function bootstrapWriteVersion(string $basePath, string $version): void
 {
     file_put_contents($basePath . '/VERSION', $version . "\n");
 }
 
-function bootstrap_generate_token(): string
+function bootstrapGenerateToken(): string
 {
     return bin2hex(random_bytes(32));
 }
 
-function bootstrap_token_file_content(string $token): string
+function bootstrapTokenFileContent(string $token): string
 {
     return "<?php /* TOKEN: {$token} */\n";
 }
@@ -808,7 +811,7 @@ function bootstrap_token_file_content(string $token): string
 /**
  * @return array{id: string, ok: bool, label: string, detail: string}
  */
-function bootstrap_gate_result(string $id, bool $ok, string $label, string $detail): array
+function bootstrapGateResult(string $id, bool $ok, string $label, string $detail): array
 {
     return ['id' => $id, 'ok' => $ok, 'label' => $label, 'detail' => $detail];
 }
@@ -816,51 +819,63 @@ function bootstrap_gate_result(string $id, bool $ok, string $label, string $deta
 /**
  * @return array{id: string, ok: bool, label: string, detail: string}
  */
-function bootstrap_check_s1(string $basePath): array
+function bootstrapCheckS1(string $basePath): array
 {
     $path = $basePath . '/VERSION';
     $ok = is_file($path) && trim((string) @file_get_contents($path)) !== '';
 
-    return bootstrap_gate_result('S1', $ok, 'Fichier VERSION', $ok ? 'Présent et lisible.' : 'Manquant ou vide.');
+    return bootstrapGateResult('S1', $ok, 'Fichier VERSION', $ok ? 'Présent et lisible.' : 'Manquant ou vide.');
 }
 
 /**
  * @return array{id: string, ok: bool, label: string, detail: string}
  */
-function bootstrap_check_s2(string $basePath): array
+function bootstrapCheckS2(string $basePath): array
 {
     $ok = is_file($basePath . '/vendor/autoload.php');
 
-    return bootstrap_gate_result('S2', $ok, 'Dépendances installées',
-        $ok ? 'vendor/autoload.php présent.' : 'vendor/autoload.php manquant.');
+    return bootstrapGateResult(
+        'S2',
+        $ok,
+        'Dépendances installées',
+        $ok ? 'vendor/autoload.php présent.' : 'vendor/autoload.php manquant.'
+    );
 }
 
 /**
  * @return array{id: string, ok: bool, label: string, detail: string}
  */
-function bootstrap_check_s3(string $publicDir): array
+function bootstrapCheckS3(string $publicDir): array
 {
     $ok = is_file($publicDir . '/index.php');
 
-    return bootstrap_gate_result('S3', $ok, "Point d'entrée applicatif",
-        $ok ? 'index.php présent.' : 'index.php manquant.');
+    return bootstrapGateResult(
+        'S3',
+        $ok,
+        "Point d'entrée applicatif",
+        $ok ? 'index.php présent.' : 'index.php manquant.'
+    );
 }
 
 /**
  * @return array{id: string, ok: bool, label: string, detail: string}
  */
-function bootstrap_check_s4(string $basePath): array
+function bootstrapCheckS4(string $basePath): array
 {
     $ok = is_file($basePath . '/schema/core.sql');
 
-    return bootstrap_gate_result('S4', $ok, 'Schéma de base de données',
-        $ok ? 'schema/core.sql présent.' : 'schema/core.sql manquant.');
+    return bootstrapGateResult(
+        'S4',
+        $ok,
+        'Schéma de base de données',
+        $ok ? 'schema/core.sql présent.' : 'schema/core.sql manquant.'
+    );
 }
 
 /**
  * @return array{id: string, ok: bool, label: string, detail: string}
  */
-function bootstrap_check_s5(string $basePath): array
+function bootstrapCheckS5(string $basePath): array
 {
     $missing = [];
     foreach (BOOTSTRAP_STORAGE_SUBDIRS as $sub) {
@@ -870,48 +885,62 @@ function bootstrap_check_s5(string $basePath): array
     }
     $ok = empty($missing);
 
-    return bootstrap_gate_result('S5', $ok, 'Dossiers de stockage',
+    return bootstrapGateResult(
+        'S5',
+        $ok,
+        'Dossiers de stockage',
         $ok
             ? 'Tous les sous-dossiers storage/ sont créés.'
             : 'Sous-dossiers manquants : ' . implode(', ', $missing) . '.'
-        );
+    );
 }
 
 /**
  * @return array{id: string, ok: bool, label: string, detail: string}
  */
-function bootstrap_check_s6(string $basePath): array
+function bootstrapCheckS6(string $basePath): array
 {
     $path = $basePath . '/storage/keys';
     $ok = is_dir($path) && is_writable($path);
     $mode = is_dir($path) ? substr(sprintf('%o', fileperms($path)), -4) : 'n/a';
 
-    return bootstrap_gate_result('S6', $ok, 'Permissions storage/keys',
-        $ok ? "Accessible en écriture (mode {$mode})." : "Non accessible en écriture (mode {$mode}).");
+    return bootstrapGateResult(
+        'S6',
+        $ok,
+        'Permissions storage/keys',
+        $ok ? "Accessible en écriture (mode {$mode})." : "Non accessible en écriture (mode {$mode})."
+    );
 }
 
 /**
  * @return array{id: string, ok: bool, label: string, detail: string}
  */
-function bootstrap_check_s7(string $extractedRoot): array
+function bootstrapCheckS7(string $extractedRoot): array
 {
     $ok = !is_file($extractedRoot . '/.htaccess');
 
-    return bootstrap_gate_result('S7', $ok, "Absence de .htaccess dans l'artefact",
+    return bootstrapGateResult(
+        'S7',
+        $ok,
+        "Absence de .htaccess dans l'artefact",
         $ok ? "Aucun .htaccess à la racine de l'archive." : "L'archive contenait un .htaccess à sa racine — elle ne "
             . "devrait jamais en fournir un."
-        );
+    );
 }
 
 /**
  * @return array{id: string, ok: bool, label: string, detail: string}
  */
-function bootstrap_check_s8(string $tempDir): array
+function bootstrapCheckS8(string $tempDir): array
 {
     $ok = !is_dir($tempDir);
 
-    return bootstrap_gate_result('S8', $ok, 'Nettoyage du dossier temporaire',
-        $ok ? 'Dossier temporaire supprimé.' : 'Le dossier temporaire existe encore.');
+    return bootstrapGateResult(
+        'S8',
+        $ok,
+        'Nettoyage du dossier temporaire',
+        $ok ? 'Dossier temporaire supprimé.' : 'Le dossier temporaire existe encore.'
+    );
 }
 
 // =============================================================================
@@ -922,7 +951,7 @@ function bootstrap_check_s8(string $tempDir): array
 /**
  * B1 — positive control. Must be exactly what was written.
  */
-function bootstrap_evaluate_control_probe(int $httpStatus, string $fetchedBody, string $probeContent): bool
+function bootstrapEvaluateControlProbe(int $httpStatus, string $fetchedBody, string $probeContent): bool
 {
     return $httpStatus === 200 && $fetchedBody === $probeContent;
 }
@@ -931,7 +960,7 @@ function bootstrap_evaluate_control_probe(int $httpStatus, string $fetchedBody, 
  * B2 — token.php must return 200 with an EMPTY body, proving PHP executes
  * it rather than serving it as source. Catastrophic if this fails.
  */
-function bootstrap_evaluate_php_execution_probe(int $httpStatus, string $fetchedBody): bool
+function bootstrapEvaluatePhpExecutionProbe(int $httpStatus, string $fetchedBody): bool
 {
     return $httpStatus === 200 && trim($fetchedBody) === '';
 }
@@ -940,7 +969,7 @@ function bootstrap_evaluate_php_execution_probe(int $httpStatus, string $fetched
  * B3-B7 — "not readable" means 403, 404, or a 200 whose body is an error
  * page rather than the probe content. Never read status alone.
  */
-function bootstrap_evaluate_protection_probe(int $httpStatus, string $fetchedBody, string $probeContent): bool
+function bootstrapEvaluateProtectionProbe(int $httpStatus, string $fetchedBody, string $probeContent): bool
 {
     if ($httpStatus === 403 || $httpStatus === 404) {
         return true;
@@ -955,7 +984,7 @@ function bootstrap_evaluate_protection_probe(int $httpStatus, string $fetchedBod
 /**
  * B8 — storage/ directory URL shows no index listing.
  */
-function bootstrap_evaluate_no_directory_listing(int $httpStatus, string $fetchedBody): bool
+function bootstrapEvaluateNoDirectoryListing(int $httpStatus, string $fetchedBody): bool
 {
     if ($httpStatus === 403 || $httpStatus === 404) {
         return true;
@@ -970,7 +999,7 @@ function bootstrap_evaluate_no_directory_listing(int $httpStatus, string $fetche
 /**
  * F1 — the setup wizard must actually be reachable at the site root.
  */
-function bootstrap_evaluate_functional_probe(int $httpStatus, string $fetchedBody, string $marker): bool
+function bootstrapEvaluateFunctionalProbe(int $httpStatus, string $fetchedBody, string $marker): bool
 {
     return $httpStatus === 200 && strpos($fetchedBody, $marker) !== false;
 }
@@ -982,7 +1011,7 @@ function bootstrap_evaluate_functional_probe(int $httpStatus, string $fetchedBod
 /**
  * @return array<string, mixed>
  */
-function bootstrap_read_state(string $path): array
+function bootstrapReadState(string $path): array
 {
     if (!is_file($path)) {
         return [];
@@ -999,13 +1028,13 @@ function bootstrap_read_state(string $path): array
 /**
  * @param array<string, mixed> $state
  */
-function bootstrap_write_state(string $path, array $state): void
+function bootstrapWriteState(string $path, array $state): void
 {
     $json = json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     file_put_contents($path, "<?php\n/*\n{$json}\n*/\n");
 }
 
-function bootstrap_acquire_lock(string $path): bool
+function bootstrapAcquireLock(string $path): bool
 {
     if (is_file($path) && (time() - (int) @filemtime($path)) < BOOTSTRAP_LOCK_STALE_SECONDS) {
         return false;
@@ -1014,7 +1043,7 @@ function bootstrap_acquire_lock(string $path): bool
     return @file_put_contents($path, (string) getmypid()) !== false;
 }
 
-function bootstrap_release_lock(string $path): void
+function bootstrapReleaseLock(string $path): void
 {
     if (is_file($path)) {
         @unlink($path);
@@ -1030,13 +1059,13 @@ function bootstrap_release_lock(string $path): void
  * @param array<string, mixed> $state
  * @return array<string, mixed>
  */
-function bootstrap_step_preflight(string $docRoot, array $state): array
+function bootstrapStepPreflight(string $docRoot, array $state): array
 {
     $checks = [
-        bootstrap_check_location($_SERVER),
-        bootstrap_check_php_version(),
-        bootstrap_check_zip_extension(),
-        bootstrap_check_outbound_https('bootstrap_default_https_probe'),
+        bootstrapCheckLocation($_SERVER),
+        bootstrapCheckPhpVersion(),
+        bootstrapCheckZipExtension(),
+        bootstrapCheckOutboundHttps('bootstrapDefaultHttpsProbe'),
     ];
     foreach ($checks as $check) {
         if (!$check['ok']) {
@@ -1044,13 +1073,13 @@ function bootstrap_step_preflight(string $docRoot, array $state): array
         }
     }
 
-    if (!bootstrap_probe_writable($docRoot)) {
+    if (!bootstrapProbeWritable($docRoot)) {
         throw new RuntimeException("Le dossier d'installation n'est pas accessible en écriture.");
     }
 
-    $layoutInfo = bootstrap_select_layout($docRoot, 'bootstrap_probe_writable');
+    $layoutInfo = bootstrapSelectLayout($docRoot, 'bootstrapProbeWritable');
 
-    if (bootstrap_already_installed($docRoot)) {
+    if (bootstrapAlreadyInstalled($docRoot)) {
         throw new RuntimeException('Ce dossier contient déjà une installation ScoutMagic.');
     }
 
@@ -1058,7 +1087,7 @@ function bootstrap_step_preflight(string $docRoot, array $state): array
     $state['layout'] = $layoutInfo['layout'];
     $state['layout_parent'] = $layoutInfo['parent'];
     $state['layout_reason'] = $layoutInfo['reason'];
-    $state['environment'] = bootstrap_gather_environment_info();
+    $state['environment'] = bootstrapGatherEnvironmentInfo();
     $state['label'] = 'Préflight';
     $state['percent'] = 100;
 
@@ -1069,13 +1098,13 @@ function bootstrap_step_preflight(string $docRoot, array $state): array
  * @param array<string, mixed> $state
  * @return array<string, mixed>
  */
-function bootstrap_step_resolve(string $docRoot, array $state): array
+function bootstrapStepResolve(string $docRoot, array $state): array
 {
-    $release = bootstrap_fetch_latest_release('bootstrap_default_http_get');
-    $archive = bootstrap_resolve_archive_url($release);
+    $release = bootstrapFetchLatestRelease('bootstrapDefaultHttpGet');
+    $archive = bootstrapResolveArchiveUrl($release);
 
     $installTarget = $state['layout'] === 'A' ? $state['layout_parent'] : $docRoot;
-    $diskCheck = bootstrap_check_disk_space($installTarget, $archive['size']);
+    $diskCheck = bootstrapCheckDiskSpace($installTarget, $archive['size']);
     if (!$diskCheck['ok']) {
         throw new RuntimeException($diskCheck['detail']);
     }
@@ -1095,7 +1124,7 @@ function bootstrap_step_resolve(string $docRoot, array $state): array
  * @param array<string, mixed> $state
  * @return array<string, mixed>
  */
-function bootstrap_step_download(string $docRoot, array $state): array
+function bootstrapStepDownload(string $docRoot, array $state): array
 {
     $tempDir = $docRoot . '/' . BOOTSTRAP_TEMP_DIR_PREFIX . bin2hex(random_bytes(6));
     if (!mkdir($tempDir, 0755, true)) {
@@ -1107,7 +1136,7 @@ function bootstrap_step_download(string $docRoot, array $state): array
     file_put_contents($tempDir . '/.htaccess', "Require all denied\n");
 
     $artifactPath = $tempDir . '/artifact.zip';
-    bootstrap_download_with_retry($state['archive_url'], $artifactPath, 'bootstrap_default_downloader');
+    bootstrapDownloadWithRetry($state['archive_url'], $artifactPath, 'bootstrapDefaultDownloader');
 
     $header = (string) @file_get_contents($artifactPath, false, null, 0, 2);
     if (filesize($artifactPath) < 4 || $header !== 'PK') {
@@ -1126,14 +1155,14 @@ function bootstrap_step_download(string $docRoot, array $state): array
  * @param array<string, mixed> $state
  * @return array<string, mixed>
  */
-function bootstrap_step_extract(string $docRoot, array $state): array
+function bootstrapStepExtract(string $docRoot, array $state): array
 {
     $extractedDir = $state['temp_dir'] . '/extracted';
     mkdir($extractedDir, 0755, true);
-    bootstrap_extract_zip_safely($state['artifact_path'], $extractedDir);
+    bootstrapExtractZipSafely($state['artifact_path'], $extractedDir);
 
     $state['extracted_dir'] = $extractedDir;
-    $state['source_root'] = bootstrap_resolve_archive_root($extractedDir, $state['source_type']);
+    $state['source_root'] = bootstrapResolveArchiveRoot($extractedDir, $state['source_type']);
     $state['label'] = 'Extraction';
     $state['percent'] = 100;
 
@@ -1144,9 +1173,9 @@ function bootstrap_step_extract(string $docRoot, array $state): array
  * @param array<string, mixed> $state
  * @return array<string, mixed>
  */
-function bootstrap_step_verify_artifact(string $docRoot, array $state): array
+function bootstrapStepVerifyArtifact(string $docRoot, array $state): array
 {
-    $result = bootstrap_verify_artifact($state['source_root']);
+    $result = bootstrapVerifyArtifact($state['source_root']);
     if (!$result['ok']) {
         throw new RuntimeException($result['detail']);
     }
@@ -1164,17 +1193,17 @@ function bootstrap_step_verify_artifact(string $docRoot, array $state): array
  * @param array<string, mixed> $state
  * @return array<string, mixed>
  */
-function bootstrap_step_install(string $docRoot, array $state): array
+function bootstrapStepInstall(string $docRoot, array $state): array
 {
     $installTarget = $state['layout'] === 'A' ? $state['layout_parent'] : $docRoot;
-    $copied = bootstrap_copy_tree($state['source_root'], $installTarget, ['storage', 'VERSION']);
+    $copied = bootstrapCopyTree($state['source_root'], $installTarget, ['storage', 'VERSION']);
 
     if ($state['layout'] === 'B') {
-        file_put_contents($docRoot . '/.htaccess', bootstrap_htaccess_content());
-        file_put_contents($docRoot . '/' . BOOTSTRAP_INDEX_STUB_FILE, bootstrap_index_stub_content());
+        file_put_contents($docRoot . '/.htaccess', bootstrapHtaccessContent());
+        file_put_contents($docRoot . '/' . BOOTSTRAP_INDEX_STUB_FILE, bootstrapIndexStubContent());
     }
 
-    bootstrap_seed_app_config($installTarget);
+    bootstrapSeedAppConfig($installTarget);
 
     $state['install_target'] = $installTarget;
     $state['installed_entries'] = $copied;
@@ -1198,7 +1227,7 @@ function bootstrap_step_install(string $docRoot, array $state): array
  * already exist (never overwrites — matches the "protect existing
  * config" intent everywhere else this file is handled).
  */
-function bootstrap_seed_app_config(string $installTarget): void
+function bootstrapSeedAppConfig(string $installTarget): void
 {
     $configPath = $installTarget . '/config/app.php';
     $distPath = $installTarget . '/config/app.php.dist';
@@ -1211,9 +1240,9 @@ function bootstrap_seed_app_config(string $installTarget): void
  * @param array<string, mixed> $state
  * @return array<string, mixed>
  */
-function bootstrap_step_storage(string $docRoot, array $state): array
+function bootstrapStepStorage(string $docRoot, array $state): array
 {
-    bootstrap_create_storage_dirs($state['install_target']);
+    bootstrapCreateStorageDirs($state['install_target']);
     $state['label'] = 'Création du stockage';
     $state['percent'] = 100;
 
@@ -1224,10 +1253,10 @@ function bootstrap_step_storage(string $docRoot, array $state): array
  * @param array<string, mixed> $state
  * @return array<string, mixed>
  */
-function bootstrap_step_finalize(string $docRoot, array $state): array
+function bootstrapStepFinalize(string $docRoot, array $state): array
 {
-    bootstrap_write_version($state['install_target'], $state['version']);
-    bootstrap_remove_directory($state['temp_dir']);
+    bootstrapWriteVersion($state['install_target'], $state['version']);
+    bootstrapRemoveDirectory($state['temp_dir']);
 
     $state['label'] = 'Finalisation';
     $state['percent'] = 100;
@@ -1244,27 +1273,27 @@ function bootstrap_step_finalize(string $docRoot, array $state): array
  * @param array<string, mixed> $state
  * @return array<string, mixed>
  */
-function bootstrap_step_gate_prepare(string $docRoot, array $state): array
+function bootstrapStepGatePrepare(string $docRoot, array $state): array
 {
     $basePath = $state['install_target'];
     $publicDir = $state['layout'] === 'A' ? $docRoot : $docRoot . '/public';
 
     $sChecks = [
-        bootstrap_check_s1($basePath),
-        bootstrap_check_s2($basePath),
-        bootstrap_check_s3($publicDir),
-        bootstrap_check_s4($basePath),
-        bootstrap_check_s5($basePath),
-        bootstrap_check_s6($basePath),
-        bootstrap_check_s7($state['source_root']),
-        bootstrap_check_s8($state['temp_dir']),
+        bootstrapCheckS1($basePath),
+        bootstrapCheckS2($basePath),
+        bootstrapCheckS3($publicDir),
+        bootstrapCheckS4($basePath),
+        bootstrapCheckS5($basePath),
+        bootstrapCheckS6($basePath),
+        bootstrapCheckS7($state['source_root']),
+        bootstrapCheckS8($state['temp_dir']),
     ];
     $state['s_checks'] = $sChecks;
 
     $sFailed = array_values(array_filter($sChecks, static fn (array $c): bool => !$c['ok']));
     if (!empty($sFailed)) {
-        bootstrap_rollback_install($docRoot, $state);
-        $state = bootstrap_finish_gate($state, false);
+        bootstrapRollbackInstall($docRoot, $state);
+        $state = bootstrapFinishGate($state, false);
         $state['gate_aborted_at'] = 'S';
         $state['label'] = 'Contrôles (échec)';
         $state['percent'] = 100;
@@ -1272,7 +1301,7 @@ function bootstrap_step_gate_prepare(string $docRoot, array $state): array
         return $state;
     }
 
-    $state['probes'] = bootstrap_write_gate_probes($docRoot, $state);
+    $state['probes'] = bootstrapWriteGateProbes($docRoot, $state);
     $state['awaiting_gate_report'] = true;
     $state['label'] = 'Contrôles';
     $state['percent'] = 50;
@@ -1284,7 +1313,7 @@ function bootstrap_step_gate_prepare(string $docRoot, array $state): array
  * @param array<string, mixed> $state
  * @return array<int, array<string, mixed>>
  */
-function bootstrap_write_gate_probes(string $docRoot, array $state): array
+function bootstrapWriteGateProbes(string $docRoot, array $state): array
 {
     $layout = $state['layout'];
     $basePath = $state['install_target'];
@@ -1402,7 +1431,7 @@ function bootstrap_write_gate_probes(string $docRoot, array $state): array
  * @param array<string, mixed> $state
  * @return array<string, mixed>|null
  */
-function bootstrap_find_probe(array $state, string $id): ?array
+function bootstrapFindProbe(array $state, string $id): ?array
 {
     foreach ((array) ($state['probes'] ?? []) as $probe) {
         if (($probe['id'] ?? null) === $id) {
@@ -1416,9 +1445,9 @@ function bootstrap_find_probe(array $state, string $id): ?array
 /**
  * @param array<string, mixed> $state
  */
-function bootstrap_probe_expected(array $state, string $id): string
+function bootstrapProbeExpected(array $state, string $id): string
 {
-    $probe = bootstrap_find_probe($state, $id);
+    $probe = bootstrapFindProbe($state, $id);
 
     return $probe !== null && $probe['expected'] !== null ? (string) $probe['expected'] : '';
 }
@@ -1426,7 +1455,7 @@ function bootstrap_probe_expected(array $state, string $id): string
 /**
  * @param array<string, mixed> $state
  */
-function bootstrap_cleanup_gate_probes(array $state): void
+function bootstrapCleanupGateProbes(array $state): void
 {
     foreach ((array) ($state['probes'] ?? []) as $probe) {
         if (($probe['id'] ?? '') === 'B2') {
@@ -1451,24 +1480,24 @@ function bootstrap_cleanup_gate_probes(array $state): void
  *
  * @param array<string, mixed> $state
  */
-function bootstrap_rollback_install(string $docRoot, array $state): void
+function bootstrapRollbackInstall(string $docRoot, array $state): void
 {
     $target = $state['install_target'] ?? null;
     if ($target !== null) {
         foreach ((array) ($state['installed_entries'] ?? []) as $entry) {
-            bootstrap_remove_path($target . '/' . $entry);
+            bootstrapRemovePath($target . '/' . $entry);
         }
-        bootstrap_remove_path($target . '/storage');
-        bootstrap_remove_path($target . '/VERSION');
+        bootstrapRemovePath($target . '/storage');
+        bootstrapRemovePath($target . '/VERSION');
     }
     if (($state['layout'] ?? null) === 'B') {
-        bootstrap_remove_path($docRoot . '/.htaccess');
-        bootstrap_remove_path($docRoot . '/' . BOOTSTRAP_INDEX_STUB_FILE);
+        bootstrapRemovePath($docRoot . '/.htaccess');
+        bootstrapRemovePath($docRoot . '/' . BOOTSTRAP_INDEX_STUB_FILE);
     }
-    bootstrap_remove_path($docRoot . '/' . BOOTSTRAP_TOKEN_FILE);
-    bootstrap_cleanup_gate_probes($state);
+    bootstrapRemovePath($docRoot . '/' . BOOTSTRAP_TOKEN_FILE);
+    bootstrapCleanupGateProbes($state);
     if (!empty($state['temp_dir'])) {
-        bootstrap_remove_path($state['temp_dir']);
+        bootstrapRemovePath($state['temp_dir']);
     }
 }
 
@@ -1476,7 +1505,7 @@ function bootstrap_rollback_install(string $docRoot, array $state): void
  * @param array<string, mixed> $state
  * @return array<string, mixed>
  */
-function bootstrap_finish_gate(array $state, bool $passed): array
+function bootstrapFinishGate(array $state, bool $passed): array
 {
     $state['gate_report'] = [
         's_checks' => $state['s_checks'] ?? [],
@@ -1510,7 +1539,7 @@ function bootstrap_finish_gate(array $state, bool $passed): array
  *        assumed present since this is decoded JSON from the browser
  * @return array<string, mixed>
  */
-function bootstrap_evaluate_gate_report(string $docRoot, array $state, array $results): array
+function bootstrapEvaluateGateReport(string $docRoot, array $state, array $results): array
 {
     $byId = [];
     foreach ($results as $r) {
@@ -1521,75 +1550,105 @@ function bootstrap_evaluate_gate_report(string $docRoot, array $state, array $re
 
     $bChecks = [];
     $b1 = $byId['B1'] ?? null;
-    $b1Pass = $b1 !== null && bootstrap_evaluate_control_probe((int) $b1['status'], (string) $b1['body'],
-        bootstrap_probe_expected($state, 'B1'));
-    $bChecks[] = bootstrap_gate_result('B1', $b1Pass, 'Témoin positif (fichier accessible)',
+    $b1Pass = $b1 !== null && bootstrapEvaluateControlProbe(
+        (int) $b1['status'],
+        (string) $b1['body'],
+        bootstrapProbeExpected($state, 'B1')
+    );
+    $bChecks[] = bootstrapGateResult(
+        'B1',
+        $b1Pass,
+        'Témoin positif (fichier accessible)',
         $b1Pass ? 'Le fichier témoin a été correctement servi.' : "Le fichier témoin n'a pas pu être vérifié — "
             . "impossible de faire confiance aux contrôles suivants."
-        );
+    );
 
     if (!$b1Pass) {
         foreach (['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8'] as $id) {
-            if (bootstrap_find_probe($state, $id) !== null) {
-                $bChecks[] = bootstrap_gate_result($id, false, $id, 'Non vérifié — le témoin positif (B1) a échoué.');
+            if (bootstrapFindProbe($state, $id) !== null) {
+                $bChecks[] = bootstrapGateResult($id, false, $id, 'Non vérifié — le témoin positif (B1) a échoué.');
             }
         }
         $state['b_checks'] = $bChecks;
-        $state['f_checks'] = [bootstrap_gate_result('F1', false, 'Assistant de configuration accessible',
-            'Non vérifié — le témoin positif (B1) a échoué.')];
-        bootstrap_rollback_install($docRoot, $state);
-        $state = bootstrap_finish_gate($state, false);
+        $state['f_checks'] = [bootstrapGateResult(
+            'F1',
+            false,
+            'Assistant de configuration accessible',
+            'Non vérifié — le témoin positif (B1) a échoué.'
+        )];
+        bootstrapRollbackInstall($docRoot, $state);
+        $state = bootstrapFinishGate($state, false);
         $state['gate_aborted_at'] = 'B1';
 
         return $state;
     }
 
     $b2 = $byId['B2'] ?? null;
-    $b2Pass = $b2 !== null && bootstrap_evaluate_php_execution_probe((int) $b2['status'], (string) $b2['body']);
-    $bChecks[] = bootstrap_gate_result('B2', $b2Pass, 'Exécution PHP (token.php)',
+    $b2Pass = $b2 !== null && bootstrapEvaluatePhpExecutionProbe((int) $b2['status'], (string) $b2['body']);
+    $bChecks[] = bootstrapGateResult(
+        'B2',
+        $b2Pass,
+        'Exécution PHP (token.php)',
         $b2Pass ? "token.php s'exécute correctement en PHP." : 'token.php a été servi en clair — le serveur n\'exécute '
             . 'pas PHP à cet endroit. Installation dangereuse, abandon immédiat.'
-        );
+    );
 
     $allProtectionsPass = true;
     foreach (['B3', 'B4', 'B5', 'B6', 'B7'] as $id) {
-        $probeDef = bootstrap_find_probe($state, $id);
+        $probeDef = bootstrapFindProbe($state, $id);
         if ($probeDef === null) {
             continue; // not applicable in this layout — skipped by construction.
         }
         $r = $byId[$id] ?? null;
-        $pass = $r !== null && bootstrap_evaluate_protection_probe((int) $r['status'], (string) $r['body'],
-            (string) $probeDef['expected']);
+        $pass = $r !== null && bootstrapEvaluateProtectionProbe(
+            (int) $r['status'],
+            (string) $r['body'],
+            (string) $probeDef['expected']
+        );
         $allProtectionsPass = $allProtectionsPass && $pass;
-        $bChecks[] = bootstrap_gate_result($id, $pass, 'Protection : ' . $id,
-            $pass ? "Non accessible depuis le web." : 'ACCESSIBLE depuis le web — donnée sensible exposée.');
+        $bChecks[] = bootstrapGateResult(
+            $id,
+            $pass,
+            'Protection : ' . $id,
+            $pass ? "Non accessible depuis le web." : 'ACCESSIBLE depuis le web — donnée sensible exposée.'
+        );
     }
 
-    $b8Def = bootstrap_find_probe($state, 'B8');
+    $b8Def = bootstrapFindProbe($state, 'B8');
     $b8Pass = true;
     if ($b8Def !== null) {
         $r = $byId['B8'] ?? null;
-        $b8Pass = $r !== null && bootstrap_evaluate_no_directory_listing((int) $r['status'], (string) $r['body']);
-        $bChecks[] = bootstrap_gate_result('B8', $b8Pass, 'Pas de listage de répertoire',
-            $b8Pass ? 'Aucun contenu de répertoire exposé.' : 'Le contenu de storage/ est listé publiquement.');
+        $b8Pass = $r !== null && bootstrapEvaluateNoDirectoryListing((int) $r['status'], (string) $r['body']);
+        $bChecks[] = bootstrapGateResult(
+            'B8',
+            $b8Pass,
+            'Pas de listage de répertoire',
+            $b8Pass ? 'Aucun contenu de répertoire exposé.' : 'Le contenu de storage/ est listé publiquement.'
+        );
     }
 
-    $fDef = bootstrap_find_probe($state, 'F1');
+    $fDef = bootstrapFindProbe($state, 'F1');
     $f = $byId['F1'] ?? null;
-    $fPass = $f !== null && $fDef !== null && bootstrap_evaluate_functional_probe((int) $f['status'],
-        (string) $f['body'], (string) $fDef['expected']);
-    $fChecks = [bootstrap_gate_result('F1', $fPass, "Assistant de configuration accessible",
+    $fPass = $f !== null && $fDef !== null && bootstrapEvaluateFunctionalProbe(
+        (int) $f['status'],
+        (string) $f['body'],
+        (string) $fDef['expected']
+    );
+    $fChecks = [bootstrapGateResult(
+        'F1',
+        $fPass,
+        "Assistant de configuration accessible",
         $fPass ? "La page d'accueil affiche l'assistant de configuration." : "La page d'accueil n'affiche pas "
             . "l'assistant de configuration attendu."
-        )];
+    )];
 
     $state['b_checks'] = $bChecks;
     $state['f_checks'] = $fChecks;
 
     if (!$b2Pass) {
         // Catastrophic — abort immediately regardless of everything else.
-        bootstrap_rollback_install($docRoot, $state);
-        $state = bootstrap_finish_gate($state, false);
+        bootstrapRollbackInstall($docRoot, $state);
+        $state = bootstrapFinishGate($state, false);
         $state['gate_aborted_at'] = 'B2';
 
         return $state;
@@ -1598,14 +1657,14 @@ function bootstrap_evaluate_gate_report(string $docRoot, array $state, array $re
     $gatePassed = $allProtectionsPass && $b8Pass && $fPass;
 
     if (!$gatePassed) {
-        bootstrap_rollback_install($docRoot, $state);
-        $state = bootstrap_finish_gate($state, false);
+        bootstrapRollbackInstall($docRoot, $state);
+        $state = bootstrapFinishGate($state, false);
 
         return $state;
     }
 
-    bootstrap_cleanup_gate_probes($state);
-    $state = bootstrap_finish_gate($state, true);
+    bootstrapCleanupGateProbes($state);
+    $state = bootstrapFinishGate($state, true);
 
     if (is_dir($state['install_target'] . '/storage/config')) {
         @file_put_contents(
@@ -1621,16 +1680,16 @@ function bootstrap_evaluate_gate_report(string $docRoot, array $state, array $re
  * @param array<string, mixed> $state
  * @return array<string, mixed>
  */
-function bootstrap_step_token(string $docRoot, array $state): array
+function bootstrapStepToken(string $docRoot, array $state): array
 {
     if (empty($state['gate_passed'])) {
         throw new RuntimeException('Le jeton ne peut être généré qu\'après la réussite des contrôles.');
     }
 
-    $token = bootstrap_generate_token();
+    $token = bootstrapGenerateToken();
     $written = @file_put_contents(
         $docRoot . '/' . BOOTSTRAP_TOKEN_FILE,
-        bootstrap_token_file_content($token)
+        bootstrapTokenFileContent($token)
     ) !== false;
 
     $state['token_written'] = $written;
@@ -1641,7 +1700,7 @@ function bootstrap_step_token(string $docRoot, array $state): array
         // generates the token itself.
         $state['token_write_warning'] = "Impossible d'écrire token.php automatiquement — créez-le manuellement via FTP "
             . "avec le contenu ci-dessous.";
-        $state['token_manual_content'] = bootstrap_token_file_content($token);
+        $state['token_manual_content'] = bootstrapTokenFileContent($token);
     }
 
     $state['label'] = 'Génération du jeton';
@@ -1654,7 +1713,7 @@ function bootstrap_step_token(string $docRoot, array $state): array
  * @param array<string, mixed> $state
  * @return array<string, mixed>
  */
-function bootstrap_step_cleanup(string $docRoot, array $state, ?callable $selfDelete = null): array
+function bootstrapStepCleanup(string $docRoot, array $state, ?callable $selfDelete = null): array
 {
     $selfDelete ??= static fn (): bool => @unlink(__FILE__);
 
@@ -1676,7 +1735,7 @@ function bootstrap_step_cleanup(string $docRoot, array $state, ?callable $selfDe
     return $state;
 }
 
-function bootstrap_already_installed(string $docRoot): bool
+function bootstrapAlreadyInstalled(string $docRoot): bool
 {
     return is_file($docRoot . '/VERSION') || is_dir($docRoot . '/core');
 }
@@ -1691,7 +1750,7 @@ function bootstrap_already_installed(string $docRoot): bool
  * @param string[] $headers
  * @return array{status: int, headers: array<string, string>, body: string}
  */
-function bootstrap_default_http_get(string $url, array $headers = []): array
+function bootstrapDefaultHttpGet(string $url, array $headers = []): array
 {
     $headerStr = 'User-Agent: ' . BOOTSTRAP_USER_AGENT . "\r\n";
     foreach ($headers as $h) {
@@ -1732,7 +1791,7 @@ function bootstrap_default_http_get(string $url, array $headers = []): array
     return ['status' => $status, 'headers' => $responseHeaders, 'body' => $body === false ? '' : $body];
 }
 
-function bootstrap_default_downloader(string $url, string $destPath): void
+function bootstrapDefaultDownloader(string $url, string $destPath): void
 {
     $context = stream_context_create([
         'http' => [
@@ -1752,7 +1811,7 @@ function bootstrap_default_downloader(string $url, string $destPath): void
     }
 }
 
-function bootstrap_default_https_probe(): bool
+function bootstrapDefaultHttpsProbe(): bool
 {
     $context = stream_context_create([
         'http' => [
@@ -1780,7 +1839,7 @@ function bootstrap_default_https_probe(): bool
  * @param array<string, mixed> $state
  * @return array<string, mixed>
  */
-function bootstrap_public_state(array $state): array
+function bootstrapPublicState(array $state): array
 {
     $publicKeys = [
         'label', 'percent', 'layout', 'layout_reason', 'version', 'done', 'done_gate',
@@ -1812,7 +1871,7 @@ function bootstrap_public_state(array $state): array
     return $out;
 }
 
-function bootstrap_sanitize_error_for_client(string $message, string $docRoot): string
+function bootstrapSanitizeErrorForClient(string $message, string $docRoot): string
 {
     $sanitized = str_replace($docRoot, '', $message);
     $parent = dirname($docRoot);
@@ -1831,15 +1890,15 @@ function bootstrap_sanitize_error_for_client(string $message, string $docRoot): 
  *     environment: array<string, mixed>
  * }
  */
-function bootstrap_preview_preflight(string $docRoot): array
+function bootstrapPreviewPreflight(string $docRoot): array
 {
     $checks = [
-        bootstrap_check_location($_SERVER),
-        bootstrap_check_php_version(),
-        bootstrap_check_zip_extension(),
-        bootstrap_check_outbound_https('bootstrap_default_https_probe'),
+        bootstrapCheckLocation($_SERVER),
+        bootstrapCheckPhpVersion(),
+        bootstrapCheckZipExtension(),
+        bootstrapCheckOutboundHttps('bootstrapDefaultHttpsProbe'),
     ];
-    $writable = bootstrap_probe_writable($docRoot);
+    $writable = bootstrapProbeWritable($docRoot);
     $checks[] = [
         'ok' => $writable,
         'label' => "Permissions du dossier d'installation",
@@ -1849,20 +1908,20 @@ function bootstrap_preview_preflight(string $docRoot): array
     ];
 
     $allOk = !in_array(false, array_column($checks, 'ok'), true);
-    $layout = $allOk ? bootstrap_select_layout($docRoot, 'bootstrap_probe_writable') : null;
+    $layout = $allOk ? bootstrapSelectLayout($docRoot, 'bootstrapProbeWritable') : null;
 
     return [
         'checks' => $checks,
         'ok' => $allOk,
         'layout' => $layout,
-        'environment' => bootstrap_gather_environment_info()
+        'environment' => bootstrapGatherEnvironmentInfo()
     ];
 }
 
-function bootstrap_handle_step_request(string $docRoot, string $stateFile): void
+function bootstrapHandleStepRequest(string $docRoot, string $stateFile): void
 {
     header('Content-Type: application/json; charset=utf-8');
-    // See bootstrap_send_json() — every exit point below goes through it
+    // See bootstrapSendJson() — every exit point below goes through it
     // rather than a bare echo json_encode(), so a stray PHP warning never
     // corrupts the JSON response.
     ob_start();
@@ -1871,112 +1930,112 @@ function bootstrap_handle_step_request(string $docRoot, string $stateFile): void
     $lockFile = $docRoot . '/' . BOOTSTRAP_LOCK_FILE;
 
     if ($step === 1) {
-        // Deliberately NOT checking bootstrap_already_installed() here —
-        // bootstrap_step_preflight() already makes the exact same check
+        // Deliberately NOT checking bootstrapAlreadyInstalled() here —
+        // bootstrapStepPreflight() already makes the exact same check
         // moments later, INSIDE the try/catch below, where a failure
         // correctly triggers rollback (an abandoned attempt whose files
         // were already copied by an earlier request's step 6 must be torn
         // down, not just refused). A short-circuit here would return the
         // identical error message without ever reaching that rollback,
         // permanently stranding those files with no recovery path.
-        if (!bootstrap_acquire_lock($lockFile)) {
-            bootstrap_send_json(['error' => "Une installation est déjà en cours (ou une tentative précédente n'a pas "
+        if (!bootstrapAcquireLock($lockFile)) {
+            bootstrapSendJson(['error' => "Une installation est déjà en cours (ou une tentative précédente n'a pas "
                 . "été nettoyée). Réessayez dans 10 minutes, ou supprimez immédiatement le fichier "
                 . BOOTSTRAP_LOCK_FILE
                 . " via FTP à la racine du site pour débloquer tout de suite."]);
             return;
         }
     } elseif (!is_file($lockFile)) {
-        bootstrap_send_json(['error' => 'Aucune installation en cours. Rechargez la page.']);
+        bootstrapSendJson(['error' => 'Aucune installation en cours. Rechargez la page.']);
         return;
     }
 
-    $state = bootstrap_read_state($stateFile);
+    $state = bootstrapReadState($stateFile);
 
     try {
         switch ($step) {
             case 1:
-                $state = bootstrap_step_preflight($docRoot, $state);
+                $state = bootstrapStepPreflight($docRoot, $state);
                 break;
             case 2:
-                $state = bootstrap_step_resolve($docRoot, $state);
+                $state = bootstrapStepResolve($docRoot, $state);
                 break;
             case 3:
-                $state = bootstrap_step_download($docRoot, $state);
+                $state = bootstrapStepDownload($docRoot, $state);
                 break;
             case 4:
-                $state = bootstrap_step_extract($docRoot, $state);
+                $state = bootstrapStepExtract($docRoot, $state);
                 break;
             case 5:
-                $state = bootstrap_step_verify_artifact($docRoot, $state);
+                $state = bootstrapStepVerifyArtifact($docRoot, $state);
                 break;
             case 6:
-                $state = bootstrap_step_install($docRoot, $state);
+                $state = bootstrapStepInstall($docRoot, $state);
                 break;
             case 7:
-                $state = bootstrap_step_storage($docRoot, $state);
+                $state = bootstrapStepStorage($docRoot, $state);
                 break;
             case 8:
-                $state = bootstrap_step_finalize($docRoot, $state);
+                $state = bootstrapStepFinalize($docRoot, $state);
                 break;
             case 9:
-                $state = bootstrap_step_gate_prepare($docRoot, $state);
+                $state = bootstrapStepGatePrepare($docRoot, $state);
                 break;
             case 10:
-                $state = bootstrap_step_token($docRoot, $state);
+                $state = bootstrapStepToken($docRoot, $state);
                 break;
             case 11:
-                $state = bootstrap_step_cleanup($docRoot, $state);
-                bootstrap_release_lock($lockFile);
-                bootstrap_send_json(bootstrap_public_state($state));
+                $state = bootstrapStepCleanup($docRoot, $state);
+                bootstrapReleaseLock($lockFile);
+                bootstrapSendJson(bootstrapPublicState($state));
                 return;
             default:
-                bootstrap_send_json(['error' => 'Étape inconnue.']);
+                bootstrapSendJson(['error' => 'Étape inconnue.']);
                 return;
         }
 
         if (($state['done_gate'] ?? false) === true && ($state['gate_passed'] ?? false) === false) {
-            bootstrap_release_lock($lockFile);
+            bootstrapReleaseLock($lockFile);
         }
 
-        bootstrap_write_state($stateFile, $state);
-        bootstrap_send_json(bootstrap_public_state($state));
+        bootstrapWriteState($stateFile, $state);
+        bootstrapSendJson(bootstrapPublicState($state));
     } catch (\Throwable $e) {
-        $state['error'] = bootstrap_sanitize_error_for_client($e->getMessage(), $docRoot);
+        $state['error'] = bootstrapSanitizeErrorForClient($e->getMessage(), $docRoot);
         $state['failed_step'] = $step;
         if (!empty($state['install_target']) && !empty($state['installed_entries'])) {
             // Something was actually copied onto disk — always roll it
             // back on any failure, regardless of which step number the
             // CURRENT request happens to be. Deliberately NOT keyed to
             // "$step is 6-8": a retry can fail at step 1 with "already
-            // installed" (bootstrap_step_preflight()'s own guard) against
+            // installed" (bootstrapStepPreflight()'s own guard) against
             // state left behind by an EARLIER request's step 6 that
             // succeeded server-side but whose response the browser never
             // got to process (a network error, or the exact bug
-            // bootstrap_send_json() now guards against) — that install_
+            // bootstrapSendJson() now guards against) — that install_
             // target/installed_entries pair is exactly as real and exactly
             // as much in need of rollback as one from the current request.
-            bootstrap_rollback_install($docRoot, $state);
+            bootstrapRollbackInstall($docRoot, $state);
         } elseif (!empty($state['temp_dir'])) {
             // Nothing installed yet, but the temp dir (steps 2-5: download/
             // extract/verify) must still never be left behind — same "no
             // sys_get_temp_dir(), always removed" guarantee regardless of
             // which step actually failed.
-            bootstrap_remove_directory($state['temp_dir']);
+            bootstrapRemoveDirectory($state['temp_dir']);
         }
-        bootstrap_write_state($stateFile, $state);
-        bootstrap_release_lock($lockFile);
-        bootstrap_send_json(['done' => true, 'error' => $state['error'], 'step' => $step]);
+        bootstrapWriteState($stateFile, $state);
+        bootstrapReleaseLock($lockFile);
+        bootstrapSendJson(['done' => true, 'error' => $state['error'], 'step' => $step]);
     }
 }
 
 /**
  * The browser can never be sure a step actually failed server-side just
  * because it couldn't parse the response (a network error, or the exact
- * class of bug bootstrap_send_json() now guards against) — the step may
+ * class of bug bootstrapSendJson() now guards against) — the step may
  * well have completed and left real files on disk with the lock still
  * held. Without an explicit way to force a clean rollback, that leaves
- * the install permanently stuck: bootstrap_step_preflight()'s own
+ * the install permanently stuck: bootstrapStepPreflight()'s own
  * "already installed" check then refuses every subsequent retry, and
  * there is no FTP-free way out. This performs the same rollback a
  * caught failure would have, from whatever was last durably written to
@@ -1984,18 +2043,18 @@ function bootstrap_handle_step_request(string $docRoot, string $stateFile): void
  * server-side regardless of whether the client ever saw the response),
  * then clears the lock and state file so a fresh attempt starts clean.
  */
-function bootstrap_handle_abort_request(string $docRoot, string $stateFile): void
+function bootstrapHandleAbortRequest(string $docRoot, string $stateFile): void
 {
     header('Content-Type: application/json; charset=utf-8');
     ob_start();
 
     try {
-        $state = bootstrap_read_state($stateFile);
-        bootstrap_rollback_install($docRoot, $state);
+        $state = bootstrapReadState($stateFile);
+        bootstrapRollbackInstall($docRoot, $state);
         @unlink($stateFile);
-        bootstrap_release_lock($docRoot . '/' . BOOTSTRAP_LOCK_FILE);
+        bootstrapReleaseLock($docRoot . '/' . BOOTSTRAP_LOCK_FILE);
 
-        bootstrap_send_json([
+        bootstrapSendJson([
             'ok' => true,
             'message' => "Installation abandonnée : les fichiers déjà copiés ont été retirés. Rechargez la page pour "
                 . "recommencer.",
@@ -2005,14 +2064,14 @@ function bootstrap_handle_abort_request(string $docRoot, string $stateFile): voi
         // response rather than a raw fatal error the browser can't read
         // — the JS fallback text already tells the operator to finish
         // the cleanup manually via FTP if this happens.
-        bootstrap_send_json([
+        bootstrapSendJson([
             'ok' => false,
-            'message' => bootstrap_sanitize_error_for_client($e->getMessage(), $docRoot),
+            'message' => bootstrapSanitizeErrorForClient($e->getMessage(), $docRoot),
         ]);
     }
 }
 
-function bootstrap_handle_gate_report(string $docRoot, string $stateFile): void
+function bootstrapHandleGateReport(string $docRoot, string $stateFile): void
 {
     header('Content-Type: application/json; charset=utf-8');
     ob_start();
@@ -2020,32 +2079,32 @@ function bootstrap_handle_gate_report(string $docRoot, string $stateFile): void
     $input = json_decode((string) file_get_contents('php://input'), true);
     $results = is_array($input) && is_array($input['results'] ?? null) ? $input['results'] : [];
 
-    $state = bootstrap_read_state($stateFile);
+    $state = bootstrapReadState($stateFile);
     if (empty($state['awaiting_gate_report'])) {
-        bootstrap_send_json(['error' => 'Aucun contrôle en attente.']);
+        bootstrapSendJson(['error' => 'Aucun contrôle en attente.']);
         return;
     }
 
     try {
-        $state = bootstrap_evaluate_gate_report($docRoot, $state, $results);
+        $state = bootstrapEvaluateGateReport($docRoot, $state, $results);
 
         if (($state['gate_passed'] ?? false) === false) {
-            bootstrap_release_lock($lockFile);
+            bootstrapReleaseLock($lockFile);
         }
 
-        bootstrap_write_state($stateFile, $state);
-        bootstrap_send_json(bootstrap_public_state($state));
+        bootstrapWriteState($stateFile, $state);
+        bootstrapSendJson(bootstrapPublicState($state));
     } catch (\Throwable $e) {
-        // Same guarantee as bootstrap_handle_step_request's catch block —
+        // Same guarantee as bootstrapHandleStepRequest's catch block —
         // an unexpected failure here must never leave the lock file
         // stranded, or every subsequent retry wrongly reports "an
         // install is already in progress" for up to
         // BOOTSTRAP_LOCK_STALE_SECONDS.
-        $state['error'] = bootstrap_sanitize_error_for_client($e->getMessage(), $docRoot);
-        bootstrap_rollback_install($docRoot, $state);
-        bootstrap_write_state($stateFile, $state);
-        bootstrap_release_lock($lockFile);
-        bootstrap_send_json(['done' => true, 'error' => $state['error']]);
+        $state['error'] = bootstrapSanitizeErrorForClient($e->getMessage(), $docRoot);
+        bootstrapRollbackInstall($docRoot, $state);
+        bootstrapWriteState($stateFile, $state);
+        bootstrapReleaseLock($lockFile);
+        bootstrapSendJson(['done' => true, 'error' => $state['error']]);
     }
 }
 
@@ -2055,15 +2114,15 @@ function bootstrap_handle_gate_report(string $docRoot, string $stateFile): void
  * simply a host with display_errors on) printed ahead of the intended
  * JSON would otherwise land in the same response body and break
  * response.json() client-side with an opaque "did not match the
- * expected pattern" parse error. bootstrap_handle_step_request() and
- * bootstrap_handle_gate_report() both call ob_start() first, and every
+ * expected pattern" parse error. bootstrapHandleStepRequest() and
+ * bootstrapHandleGateReport() both call ob_start() first, and every
  * exit point goes through this instead of a bare echo json_encode(),
  * so the response is always exactly one clean JSON document regardless
  * of what else the host's PHP tried to print along the way.
  *
  * @param array<string, mixed> $payload
  */
-function bootstrap_send_json(array $payload): void
+function bootstrapSendJson(array $payload): void
 {
     while (ob_get_level() > 0) {
         ob_end_clean();
@@ -2071,12 +2130,12 @@ function bootstrap_send_json(array $payload): void
     echo json_encode($payload);
 }
 
-function bootstrap_html_escape(string $value): string
+function bootstrapHtmlEscape(string $value): string
 {
     return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
 }
 
-function bootstrap_render_error_page(string $message): void
+function bootstrapRenderErrorPage(string $message): void
 {
     header('Content-Type: text/html; charset=utf-8');
     echo '<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" '
@@ -2086,14 +2145,14 @@ function bootstrap_render_error_page(string $message): void
         . '1rem;line-height:1.5}.alert{background:#fdecea;color:#611a15;border:1px solid '
         . '#f5c2c0;border-radius:.5rem;padding:1rem}</style>'
         . '</head><body><h1>ScoutMagic — Installation</h1><div class="alert">'
-        . bootstrap_html_escape($message)
+        . bootstrapHtmlEscape($message)
         . '</div></body></html>';
 }
 
-function bootstrap_render_ui(string $docRoot, string $stateFile): void
+function bootstrapRenderUi(string $docRoot, string $stateFile): void
 {
     header('Content-Type: text/html; charset=utf-8');
-    $preview = bootstrap_preview_preflight($docRoot);
+    $preview = bootstrapPreviewPreflight($docRoot);
     $stateFileNameJs = json_encode(BOOTSTRAP_STATE_FILE);
     $lockFileNameJs = json_encode(BOOTSTRAP_LOCK_FILE);
 
@@ -2104,9 +2163,12 @@ function bootstrap_render_ui(string $docRoot, string $stateFile): void
             ? 'Option A — Installation naturelle'
             : 'Option B — Arborescence unique';
         $paths = $layout['layout'] === 'A'
-            ? sprintf('Dossier parent : <code>%s</code><br>Document root (public/) : <code>%s</code>',
-                bootstrap_html_escape((string) $layout['parent']), bootstrap_html_escape($docRoot))
-            : sprintf('Dossier d\'installation : <code>%s</code>', bootstrap_html_escape($docRoot));
+            ? sprintf(
+                'Dossier parent : <code>%s</code><br>Document root (public/) : <code>%s</code>',
+                bootstrapHtmlEscape((string) $layout['parent']),
+                bootstrapHtmlEscape($docRoot)
+            )
+            : sprintf('Dossier d\'installation : <code>%s</code>', bootstrapHtmlEscape($docRoot));
         $securityNote = $layout['layout'] === 'A'
             ? "Le document root reste exactement ce qu'il est aujourd'hui — les fichiers sensibles (storage/, core/, "
                 . "etc.) sont installés à côté, hors de portée du web."
@@ -2115,9 +2177,9 @@ function bootstrap_render_ui(string $docRoot, string $stateFile): void
                 . "l'installation.";
 
         $layoutBlock = '<div class="option-box"><h3>' . $optionLabel . '</h3><p class="paths">' . $paths . '</p>'
-            . '<p><strong>Pourquoi ce choix :</strong> ' . bootstrap_html_escape($layout['reason']) . '</p>'
+            . '<p><strong>Pourquoi ce choix :</strong> ' . bootstrapHtmlEscape($layout['reason']) . '</p>'
             . '<p><strong>Ce que cela signifie pour la sécurité :</strong> '
-            . bootstrap_html_escape($securityNote)
+            . bootstrapHtmlEscape($securityNote)
             . '</p></div>';
     }
 
@@ -2125,9 +2187,9 @@ function bootstrap_render_ui(string $docRoot, string $stateFile): void
     foreach ($preview['checks'] as $check) {
         $checksHtml .= '<div class="report-row ' . ($check['ok'] ? 'report-ok' : 'report-fail') . '">'
             . ($check['ok'] ? '✓ ' : '✗ ')
-            . bootstrap_html_escape($check['label'])
+            . bootstrapHtmlEscape($check['label'])
             . ' — '
-            . bootstrap_html_escape($check['detail'])
+            . bootstrapHtmlEscape($check['detail'])
             . '</div>';
     }
 
@@ -2315,7 +2377,7 @@ function bootstrap_render_ui(string $docRoot, string $stateFile): void
   // The browser can never be sure a step genuinely failed server-side
   // just because the request errored or its response couldn't be parsed
   // — files may already be on disk with the install lock still held,
-  // and bootstrap_step_preflight()'s own "already installed" check would
+  // and bootstrapStepPreflight()'s own "already installed" check would
   // then refuse every retry with no way out. ?action=abort forces the
   // same rollback a caught failure would have, from whatever was last
   // durably written to .bootstrap-state.php.
@@ -2432,13 +2494,13 @@ function bootstrap_render_ui(string $docRoot, string $stateFile): void
 HTML;
 }
 
-function bootstrap_main(): void
+function bootstrapMain(): void
 {
     $docRoot = __DIR__;
     $stateFile = $docRoot . '/' . BOOTSTRAP_STATE_FILE;
 
-    if (bootstrap_already_installed($docRoot) && !is_file($stateFile)) {
-        bootstrap_render_error_page(
+    if (bootstrapAlreadyInstalled($docRoot) && !is_file($stateFile)) {
+        bootstrapRenderErrorPage(
             'Ce dossier contient déjà une installation ScoutMagic (fichier VERSION ou dossier core/ présent). '
             . 'Utilisez Configuration > Maintenance pour mettre à jour, ou retirez '
             . 'manuellement les fichiers existants '
@@ -2451,23 +2513,23 @@ function bootstrap_main(): void
     $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
     if ($action === 'step' && $method === 'POST') {
-        bootstrap_handle_step_request($docRoot, $stateFile);
+        bootstrapHandleStepRequest($docRoot, $stateFile);
         return;
     }
 
     if ($action === 'gate-report' && $method === 'POST') {
-        bootstrap_handle_gate_report($docRoot, $stateFile);
+        bootstrapHandleGateReport($docRoot, $stateFile);
         return;
     }
 
     if ($action === 'abort' && $method === 'POST') {
-        bootstrap_handle_abort_request($docRoot, $stateFile);
+        bootstrapHandleAbortRequest($docRoot, $stateFile);
         return;
     }
 
-    bootstrap_render_ui($docRoot, $stateFile);
+    bootstrapRenderUi($docRoot, $stateFile);
 }
 
 if (!defined('BOOTSTRAP_TEST')) {
-    bootstrap_main();
+    bootstrapMain();
 }

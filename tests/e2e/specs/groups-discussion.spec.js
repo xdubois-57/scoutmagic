@@ -46,7 +46,7 @@
 // FIXTURE
 // ----------------------------------------------------------------------------
 // scripts/e2e-support.php provisions the super-admin a member identity
-// and a first/last name (e2e_seed_member_for_admin) — both are hard
+// and a first/last name (e2eSeedMemberForAdmin) — both are hard
 // requirements of GroupAccessService, not shortcuts around it. It seeds
 // them for the CURRENT scout year, so this scenario has to run before
 // specs/scout-year-transition.spec.js moves the public year on; Playwright

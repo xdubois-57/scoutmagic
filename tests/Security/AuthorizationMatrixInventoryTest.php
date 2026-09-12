@@ -33,7 +33,7 @@ require_once dirname(__DIR__, 2) . '/scripts/authz-support.php';
 class AuthorizationMatrixInventoryTest extends TestCase
 {
     /**
-     * `authz_core_routes()` parses public/index.php rather than booting
+     * `authzCoreRoutes()` parses public/index.php rather than booting
      * it, and exits non-zero if the count it matched is not the count
      * present. Calling it here is the assertion: a route written in a
      * shape the regex does not understand fails this test at commit
@@ -49,7 +49,7 @@ class AuthorizationMatrixInventoryTest extends TestCase
         $this->assertGreaterThan(100, $present, 'did public/index.php stop registering routes?');
         $this->assertCount(
             $present,
-            \authz_core_routes(),
+            \authzCoreRoutes(),
             'a route public/index.php registers is invisible to the authorization matrix'
         );
     }
@@ -57,7 +57,7 @@ class AuthorizationMatrixInventoryTest extends TestCase
     public function testEveryModuleContributesItsRoutes(): void
     {
         $modules = glob(dirname(__DIR__, 2) . '/modules/*/module.json') ?: [];
-        $sources = array_unique(array_column(\authz_module_routes(), 'source'));
+        $sources = array_unique(array_column(\authzModuleRoutes(), 'source'));
 
         $withRoutes = 0;
         foreach ($modules as $manifestPath) {
@@ -77,11 +77,11 @@ class AuthorizationMatrixInventoryTest extends TestCase
      */
     public function testEveryRouteCanBeAddressed(): void
     {
-        $groups = \authz_fixtures();
+        $groups = \authzFixtures();
         $unaddressable = [];
 
-        foreach (\authz_routes() as $route) {
-            if (\authz_concrete_path($route['path'], $groups) === null) {
+        foreach (\authzRoutes() as $route) {
+            if (\authzConcretePath($route['path'], $groups) === null) {
                 $unaddressable[] = $route['method'] . ' ' . $route['path'] . '  (' . $route['source'] . ')';
             }
         }
@@ -105,10 +105,10 @@ class AuthorizationMatrixInventoryTest extends TestCase
      */
     public function testNoFixtureGroupIsUnused(): void
     {
-        $paths = array_column(\authz_routes(), 'path');
+        $paths = array_column(\authzRoutes(), 'path');
         $unused = [];
 
-        foreach (array_keys(\authz_fixtures()) as $prefix) {
+        foreach (array_keys(\authzFixtures()) as $prefix) {
             $used = false;
             foreach ($paths as $path) {
                 if (str_starts_with($path, $prefix)) {
@@ -150,7 +150,7 @@ class AuthorizationMatrixInventoryTest extends TestCase
             foreach (AUTHZ_ROLES as $need) {
                 $this->assertSame(
                     Role::fromString($have)->hasAccess(Role::fromString($need)),
-                    \authz_has_access($have, $need),
+                    \authzHasAccess($have, $need),
                     "disagreement on whether '{$have}' satisfies role_min '{$need}'"
                 );
             }
@@ -159,14 +159,14 @@ class AuthorizationMatrixInventoryTest extends TestCase
 
     /**
      * Every route declares a role_min the ladder knows. A typo would
-     * otherwise reach `authz_has_access()` at scan time and take the
+     * otherwise reach `authzHasAccess()` at scan time and take the
      * whole run down.
      */
     public function testEveryRouteDeclaresAKnownRoleMin(): void
     {
         $unknown = [];
 
-        foreach (\authz_routes() as $route) {
+        foreach (\authzRoutes() as $route) {
             if (!in_array($route['role_min'], AUTHZ_ROLES, true)) {
                 $unknown[] = $route['path'] . " declares role_min '{$route['role_min']}'";
             }

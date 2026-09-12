@@ -81,7 +81,7 @@ class SonarEvidenceTest extends TestCase
 
     public function testTheWaitReturnsOnceTheExpectedCommitIsAnalysed(): void
     {
-        $analysis = \sonar_evidence_wait_for_analysis(
+        $analysis = \sonarEvidenceWaitForAnalysis(
             $this->analysesApi(['old', 'old', 'released']),
             'project_analyses/search?project=p&ps=1',
             'released',
@@ -99,7 +99,7 @@ class SonarEvidenceTest extends TestCase
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('a pass read off an older analysis is not a pass');
 
-        \sonar_evidence_wait_for_analysis(
+        \sonarEvidenceWaitForAnalysis(
             $this->analysesApi(['old', 'old', 'old']),
             'project_analyses/search?project=p&ps=1',
             'released',
@@ -111,7 +111,7 @@ class SonarEvidenceTest extends TestCase
 
     public function testWithoutAnExpectedCommitTheLatestAnalysisIsTakenWithoutWaiting(): void
     {
-        $analysis = \sonar_evidence_wait_for_analysis(
+        $analysis = \sonarEvidenceWaitForAnalysis(
             $this->analysesApi(['whatever']),
             'project_analyses/search?project=p&ps=1',
             null,
@@ -127,7 +127,7 @@ class SonarEvidenceTest extends TestCase
     public function testABranchWithNoAnalysisAtAllIsARefusal(): void
     {
         $this->expectException(\RuntimeException::class);
-        \sonar_evidence_wait_for_analysis($this->analysesApi([]), 'project_analyses/search?project=p&ps=1', null, 1, 0, $this->sleeper());
+        \sonarEvidenceWaitForAnalysis($this->analysesApi([]), 'project_analyses/search?project=p&ps=1', null, 1, 0, $this->sleeper());
     }
 
     public function testPaginationFollowsFullPagesAndStopsOnAShortOne(): void
@@ -142,7 +142,7 @@ class SonarEvidenceTest extends TestCase
             return ['issues' => array_fill(0, $size, ['key' => "page{$page}"])];
         };
 
-        $all = \sonar_evidence_fetch_all_pages($api, 'issues/search?componentKeys=p', 'issues');
+        $all = \sonarEvidenceFetchAllPages($api, 'issues/search?componentKeys=p', 'issues');
 
         $this->assertCount(2 * SONAR_EVIDENCE_PAGE_SIZE + 7, $all);
         $this->assertCount(3, $calls, 'stopped on the short page, not on a page count');
@@ -158,7 +158,7 @@ class SonarEvidenceTest extends TestCase
             return ['hotspots' => array_fill(0, SONAR_EVIDENCE_PAGE_SIZE, ['key' => 'h'])];
         };
 
-        \sonar_evidence_fetch_all_pages($api, 'hotspots/search', 'hotspots');
+        \sonarEvidenceFetchAllPages($api, 'hotspots/search', 'hotspots');
 
         $this->assertSame(SONAR_EVIDENCE_MAX_PAGES, $calls);
     }
@@ -171,17 +171,17 @@ class SonarEvidenceTest extends TestCase
     {
         $low = ['softwareQuality' => 'MAINTAINABILITY', 'severity' => 'LOW'];
 
-        $this->assertFalse(\sonar_evidence_is_blocking(['tags' => ['convention'], 'impacts' => [$low]]), 'all three at once: exempt');
-        $this->assertTrue(\sonar_evidence_is_blocking(['tags' => [], 'impacts' => [$low]]), 'LOW maintainability without the tag blocks');
-        $this->assertTrue(\sonar_evidence_is_blocking(['tags' => ['convention'], 'impacts' => []]), 'no impact at all is not an exemption');
-        $this->assertTrue(\sonar_evidence_is_blocking(['tags' => ['convention'], 'impacts' => [
+        $this->assertFalse(\sonarEvidenceIsBlocking(['tags' => ['convention'], 'impacts' => [$low]]), 'all three at once: exempt');
+        $this->assertTrue(\sonarEvidenceIsBlocking(['tags' => [], 'impacts' => [$low]]), 'LOW maintainability without the tag blocks');
+        $this->assertTrue(\sonarEvidenceIsBlocking(['tags' => ['convention'], 'impacts' => []]), 'no impact at all is not an exemption');
+        $this->assertTrue(\sonarEvidenceIsBlocking(['tags' => ['convention'], 'impacts' => [
             ['softwareQuality' => 'MAINTAINABILITY', 'severity' => 'MEDIUM'],
         ]]), 'a MEDIUM convention finding blocks');
-        $this->assertTrue(\sonar_evidence_is_blocking(['tags' => ['convention'], 'impacts' => [
+        $this->assertTrue(\sonarEvidenceIsBlocking(['tags' => ['convention'], 'impacts' => [
             $low,
             ['softwareQuality' => 'RELIABILITY', 'severity' => 'LOW'],
         ]]), 'a mixed-impact issue blocks: every impact has to qualify');
-        $this->assertTrue(\sonar_evidence_is_blocking([]), 'an issue with nothing on it blocks');
+        $this->assertTrue(\sonarEvidenceIsBlocking([]), 'an issue with nothing on it blocks');
     }
 
     public function testTheReportSaysWhichCommitWasAnalysedAndWhetherItIsTheReleasedOne(): void
@@ -194,7 +194,7 @@ class SonarEvidenceTest extends TestCase
         ]]];
         $analysis = ['date' => '2026-09-06T10:00:00+0000', 'revision' => 'abc123'];
 
-        $report = \sonar_evidence_report($gate, $measures, [], [], $analysis, 'abc123', 'xdubois-57_scoutmagic', 'main');
+        $report = \sonarEvidenceReport($gate, $measures, [], [], $analysis, 'abc123', 'xdubois-57_scoutmagic', 'main');
 
         $this->assertStringContainsString('## SonarCloud — analyse complète', $report);
         $this->assertStringContainsString('commit `abc123`', $report);
@@ -206,10 +206,10 @@ class SonarEvidenceTest extends TestCase
         $this->assertStringContainsString('### Security hotspots (0)', $report);
         $this->assertStringNotContainsString('Conditions en échec', $report);
 
-        $other = \sonar_evidence_report($gate, $measures, [], [], ['revision' => 'zzz'], 'abc123', 'p', 'main');
+        $other = \sonarEvidenceReport($gate, $measures, [], [], ['revision' => 'zzz'], 'abc123', 'p', 'main');
         $this->assertStringContainsString("**Attention : ce n'est pas le commit livré (`abc123`).**", $other);
 
-        $rehearsal = \sonar_evidence_report($gate, $measures, [], [], $analysis, null, 'p', 'main');
+        $rehearsal = \sonarEvidenceReport($gate, $measures, [], [], $analysis, null, 'p', 'main');
         $this->assertStringContainsString('exécution de répétition', $rehearsal);
     }
 
@@ -225,7 +225,7 @@ class SonarEvidenceTest extends TestCase
         ];
         $hotspots = [['vulnerabilityProbability' => 'LOW', 'status' => 'TO_REVIEW']];
 
-        $report = \sonar_evidence_report($gate, [], $issues, $hotspots, ['revision' => 'r'], null, 'p', 'main');
+        $report = \sonarEvidenceReport($gate, [], $issues, $hotspots, ['revision' => 'r'], null, 'p', 'main');
 
         $this->assertStringContainsString('Quality Gate : **ERROR**', $report);
         $this->assertStringContainsString('- `new_coverage` = 40 (seuil 80)', $report);
@@ -278,7 +278,7 @@ class SonarEvidenceTest extends TestCase
             throw new \LogicException('unexpected call: ' . $path);
         };
 
-        $summary = \sonar_evidence_collect($api, $this->outDir, 'xdubois-57_scoutmagic', 'main', 'released', 1, 0, $this->sleeper());
+        $summary = \sonarEvidenceCollect($api, $this->outDir, 'xdubois-57_scoutmagic', 'main', 'released', 1, 0, $this->sleeper());
 
         foreach ([
             'sonarcloud-analysis.json', 'sonarcloud-quality-gate.json', 'sonarcloud-measures.json',
@@ -318,22 +318,22 @@ class SonarEvidenceTest extends TestCase
     {
         $clean = ['quality_gate' => 'OK', 'blocking' => 0, 'hotspots_to_review' => 0, 'revision' => 'r'];
 
-        $this->assertSame([], \sonar_evidence_release_refusals($clean));
+        $this->assertSame([], \sonarEvidenceReleaseRefusals($clean));
 
-        $gate = \sonar_evidence_release_refusals(['quality_gate' => 'ERROR'] + $clean);
+        $gate = \sonarEvidenceReleaseRefusals(['quality_gate' => 'ERROR'] + $clean);
         $this->assertCount(1, $gate);
         $this->assertStringContainsString('Quality Gate est ERROR', $gate[0]);
 
-        $issues = \sonar_evidence_release_refusals(['blocking' => 3] + $clean);
+        $issues = \sonarEvidenceReleaseRefusals(['blocking' => 3] + $clean);
         $this->assertCount(1, $issues);
         $this->assertStringContainsString('3 signalement(s)', $issues[0]);
         $this->assertStringContainsString('convention', $issues[0], 'the reason has to say which findings do not count');
 
-        $hotspots = \sonar_evidence_release_refusals(['hotspots_to_review' => 2] + $clean);
+        $hotspots = \sonarEvidenceReleaseRefusals(['hotspots_to_review' => 2] + $clean);
         $this->assertCount(1, $hotspots);
         $this->assertStringContainsString('TO_REVIEW', $hotspots[0]);
 
-        $this->assertCount(3, \sonar_evidence_release_refusals(
+        $this->assertCount(3, \sonarEvidenceReleaseRefusals(
             ['quality_gate' => 'ERROR', 'blocking' => 1, 'hotspots_to_review' => 1] + $clean
         ), 'every reason is reported, not just the first');
     }
@@ -345,7 +345,7 @@ class SonarEvidenceTest extends TestCase
      */
     public function testExemptFindingsAloneDoNotRefuseARelease(): void
     {
-        $this->assertSame([], \sonar_evidence_release_refusals([
+        $this->assertSame([], \sonarEvidenceReleaseRefusals([
             'quality_gate' => 'OK',
             'blocking' => 0,
             'hotspots_to_review' => 0,
@@ -384,7 +384,7 @@ class SonarEvidenceTest extends TestCase
             return ['components' => []];
         };
 
-        \sonar_evidence_collect($api, $this->outDir, 'p', 'main', 'released', 1, 0, $this->sleeper());
+        \sonarEvidenceCollect($api, $this->outDir, 'p', 'main', 'released', 1, 0, $this->sleeper());
 
         $gateCalls = array_values(array_filter($asked, static fn (string $p): bool => str_starts_with($p, 'qualitygates/')));
         $this->assertCount(1, $gateCalls);
@@ -408,7 +408,7 @@ class SonarEvidenceTest extends TestCase
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('carries no key');
-        \sonar_evidence_collect($api, $this->outDir, 'p', 'main', 'released', 1, 0, $this->sleeper());
+        \sonarEvidenceCollect($api, $this->outDir, 'p', 'main', 'released', 1, 0, $this->sleeper());
     }
 
     /**
@@ -419,12 +419,12 @@ class SonarEvidenceTest extends TestCase
     {
         $this->assertSame(
             'https://sonar.example.invalid',
-            \sonar_evidence_settings(['SONAR_HOST_URL' => 'https://sonar.example.invalid'])['host']
+            \sonarEvidenceSettings(['SONAR_HOST_URL' => 'https://sonar.example.invalid'])['host']
         );
 
         foreach (['http://sonarcloud.io', 'http://localhost:9000', 'ftp://x', 'sonarcloud.io'] as $host) {
             try {
-                \sonar_evidence_settings(['SONAR_HOST_URL' => $host]);
+                \sonarEvidenceSettings(['SONAR_HOST_URL' => $host]);
                 $this->fail($host . ' was accepted');
             } catch (\RuntimeException $e) {
                 $this->assertStringContainsString('must be https', $e->getMessage(), $host);
@@ -443,18 +443,18 @@ class SonarEvidenceTest extends TestCase
         $full = static fn (string $path): array => ['issues' => array_fill(0, SONAR_EVIDENCE_PAGE_SIZE, ['key' => 'i'])];
 
         $truncated = null;
-        \sonar_evidence_fetch_all_pages($full, 'issues/search', 'issues', $truncated);
+        \sonarEvidenceFetchAllPages($full, 'issues/search', 'issues', $truncated);
         $this->assertTrue($truncated, 'the page cap ended the loop and nothing said so');
 
         $short = static fn (string $path): array => ['issues' => [['key' => 'i']]];
         $notTruncated = null;
-        \sonar_evidence_fetch_all_pages($short, 'issues/search', 'issues', $notTruncated);
+        \sonarEvidenceFetchAllPages($short, 'issues/search', 'issues', $notTruncated);
         $this->assertFalse($notTruncated, 'a short page is the ordinary end of the loop, not a truncation');
 
         $clean = ['quality_gate' => 'OK', 'blocking' => 0, 'hotspots_to_review' => 0, 'revision' => 'r'];
-        $this->assertSame([], \sonar_evidence_release_refusals($clean + ['truncated' => false]));
+        $this->assertSame([], \sonarEvidenceReleaseRefusals($clean + ['truncated' => false]));
 
-        $refusals = \sonar_evidence_release_refusals(['truncated' => true] + $clean);
+        $refusals = \sonarEvidenceReleaseRefusals(['truncated' => true] + $clean);
         $this->assertCount(1, $refusals, 'a truncated list refuses on its own, with nothing else wrong');
         $this->assertStringContainsString('tronquée', $refusals[0]);
         $this->assertStringContainsString('minorants', $refusals[0]);
@@ -462,7 +462,7 @@ class SonarEvidenceTest extends TestCase
 
     public function testTheUnavailableMarkerSaysWhyRatherThanLeavingAGap(): void
     {
-        \sonar_evidence_write_unavailable($this->outDir, 'pas de jeton');
+        \sonarEvidenceWriteUnavailable($this->outDir, 'pas de jeton');
 
         $gate = json_decode((string) file_get_contents($this->outDir . '/sonarcloud-quality-gate.json'), true);
         $this->assertSame('UNAVAILABLE', $gate['status']);
@@ -478,7 +478,7 @@ class SonarEvidenceTest extends TestCase
      */
     public function testTheSettingsCarryTheirDefaults(): void
     {
-        $defaults = \sonar_evidence_settings([]);
+        $defaults = \sonarEvidenceSettings([]);
 
         $this->assertNull($defaults['expected'], 'no expected revision means a rehearsal, not a release');
         $this->assertSame('https://sonarcloud.io', $defaults['host']);
@@ -487,7 +487,7 @@ class SonarEvidenceTest extends TestCase
         $this->assertSame(20, $defaults['attempts']);
         $this->assertSame(30, $defaults['seconds']);
 
-        $set = \sonar_evidence_settings([
+        $set = \sonarEvidenceSettings([
             'SONAR_EXPECTED_REVISION' => 'abc123',
             'SONAR_HOST_URL' => 'https://sonar.example.invalid/',
             'SONAR_PROJECT_KEY' => 'other_project',
@@ -511,7 +511,7 @@ class SonarEvidenceTest extends TestCase
      */
     public function testAnEmptyVariableFallsBackToItsDefault(): void
     {
-        $settings = \sonar_evidence_settings([
+        $settings = \sonarEvidenceSettings([
             'SONAR_EXPECTED_REVISION' => '',
             'SONAR_HOST_URL' => '',
             'SONAR_BRANCH' => '',
@@ -529,10 +529,10 @@ class SonarEvidenceTest extends TestCase
      */
     public function testTheWaitBudgetIsClampedRatherThanTakenLiterally(): void
     {
-        $zero = \sonar_evidence_settings(['SONAR_WAIT_ATTEMPTS' => '0', 'SONAR_WAIT_SECONDS' => '0']);
+        $zero = \sonarEvidenceSettings(['SONAR_WAIT_ATTEMPTS' => '0', 'SONAR_WAIT_SECONDS' => '0']);
         $this->assertSame(20, $zero['attempts'], 'an explicit 0 is falsy, so it means "unset" and takes the default');
 
-        $negative = \sonar_evidence_settings(['SONAR_WAIT_ATTEMPTS' => '-5', 'SONAR_WAIT_SECONDS' => '-5']);
+        $negative = \sonarEvidenceSettings(['SONAR_WAIT_ATTEMPTS' => '-5', 'SONAR_WAIT_SECONDS' => '-5']);
         $this->assertSame(1, $negative['attempts'], 'at least one attempt, always');
         $this->assertSame(0, $negative['seconds'], 'no sleep is legitimate; a negative one is not');
     }
@@ -550,9 +550,9 @@ class SonarEvidenceTest extends TestCase
         file_put_contents($file, "from-the-file\n");
 
         try {
-            $this->assertSame('from-the-env', \sonar_evidence_resolve_token('from-the-env', $file));
-            $this->assertSame('from-the-file', \sonar_evidence_resolve_token('', $file));
-            $this->assertSame('', \sonar_evidence_resolve_token('', $file . '-absent'));
+            $this->assertSame('from-the-env', \sonarEvidenceResolveToken('from-the-env', $file));
+            $this->assertSame('from-the-file', \sonarEvidenceResolveToken('', $file));
+            $this->assertSame('', \sonarEvidenceResolveToken('', $file . '-absent'));
         } finally {
             unlink($file);
         }
@@ -568,7 +568,7 @@ class SonarEvidenceTest extends TestCase
     {
         $this->assertSame(
             ['analyses' => []],
-            \sonar_evidence_decode('{"analyses":[]}', 200, '', 'project_analyses/search')
+            \sonarEvidenceDecode('{"analyses":[]}', 200, '', 'project_analyses/search')
         );
 
         foreach ([
@@ -577,7 +577,7 @@ class SonarEvidenceTest extends TestCase
             'an HTTP 500' => ['', 500, ''],
         ] as $case => [$body, $status, $error]) {
             try {
-                \sonar_evidence_decode($body, $status, $error, 'issues/search');
+                \sonarEvidenceDecode($body, $status, $error, 'issues/search');
                 $this->fail($case . ' was not refused');
             } catch (\RuntimeException $e) {
                 $this->assertStringContainsString('issues/search', $e->getMessage(), $case);
@@ -586,12 +586,12 @@ class SonarEvidenceTest extends TestCase
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('did not return JSON');
-        \sonar_evidence_decode('<html>gateway</html>', 200, '', 'measures/component');
+        \sonarEvidenceDecode('<html>gateway</html>', 200, '', 'measures/component');
     }
 
     public function testTheSummaryLineNamesTheCommitAndTheCounts(): void
     {
-        $line = \sonar_evidence_summary_line([
+        $line = \sonarEvidenceSummaryLine([
             'revision' => 'abcdef1234567890',
             'analysis_date' => '2026-09-06T10:00:00+0000',
             'quality_gate' => 'OK',
@@ -610,7 +610,7 @@ class SonarEvidenceTest extends TestCase
 
     public function testTheRefusalMessageListsEveryReasonAndWhereTheRuleLives(): void
     {
-        $message = \sonar_evidence_refusal_message(['première raison', 'seconde raison']);
+        $message = \sonarEvidenceRefusalMessage(['première raison', 'seconde raison']);
 
         $this->assertStringContainsString('does not qualify for a release', $message);
         $this->assertStringContainsString('  - première raison', $message);
@@ -620,8 +620,8 @@ class SonarEvidenceTest extends TestCase
 
     public function testRatingsAreLettersNotDecimals(): void
     {
-        $this->assertSame('A', \sonar_evidence_rating('1.0'));
-        $this->assertSame('E', \sonar_evidence_rating('5'));
-        $this->assertSame('n/d', \sonar_evidence_rating('n/d'));
+        $this->assertSame('A', \sonarEvidenceRating('1.0'));
+        $this->assertSame('E', \sonarEvidenceRating('5'));
+        $this->assertSame('n/d', \sonarEvidenceRating('n/d'));
     }
 }

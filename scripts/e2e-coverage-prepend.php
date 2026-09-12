@@ -65,7 +65,7 @@ declare(strict_types=1);
                 return;
             }
 
-            $data = e2e_coverage_map_instance_paths($data);
+            $data = e2eCoverageMapInstancePaths($data);
 
             // One file per request rather than one shared file: several
             // executions write here over a run, and appending to a single
@@ -100,7 +100,7 @@ declare(strict_types=1);
  * @param array<string, array<int, int>> $data
  * @return array<string, array<int, int>>
  */
-function e2e_coverage_map_instance_paths(array $data): array
+function e2eCoverageMapInstancePaths(array $data): array
 {
     $documentRoot = $_SERVER['DOCUMENT_ROOT'] ?? '';
 

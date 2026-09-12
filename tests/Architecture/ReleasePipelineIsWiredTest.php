@@ -295,7 +295,7 @@ final class ReleasePipelineIsWiredTest extends TestCase
         }
 
         $this->assertStringContainsString(
-            'sonar_evidence_release_refusals',
+            'sonarEvidenceReleaseRefusals',
             self::read('scripts/sonar-evidence.php'),
             'the SonarCloud evidence no longer refuses an analysis that may not ship'
         );

@@ -114,7 +114,7 @@ export async function loginAsAdmin(page) {
 
 /**
  * Sign in as the ordinary member — no super-admin flag, and a function
- * whose own role is `identified` (see e2e_seed_section_with_both_members()
+ * whose own role is `identified` (see e2eSeedSectionWithBothMembers()
  * in scripts/e2e-support.php), so Core\Security\RoleResolver resolves
  * them to `identified`: the role most of a real unit has. Asserting the
  * ABSENCE of the admin menu is

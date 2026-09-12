@@ -39,7 +39,7 @@ class BootstrapTest extends TestCase
     public function testResolveArchiveUrlPrefersAsset(): void
     {
         $release = ['assets' => [['name' => 'release-v1.0.0.zip', 'browser_download_url' => 'https://example.com/artifact.zip', 'size' => 1234]], 'zipball_url' => 'https://example.com/zip'];
-        $result = \bootstrap_resolve_archive_url($release);
+        $result = \bootstrapResolveArchiveUrl($release);
 
         $this->assertSame('https://example.com/artifact.zip', $result['url']);
         $this->assertSame(1234, $result['size']);
@@ -58,7 +58,7 @@ class BootstrapTest extends TestCase
             ['name' => 'bootstrap.php', 'browser_download_url' => 'https://example.com/bootstrap.php', 'size' => 100],
             ['name' => 'release-v1.0.1.zip', 'browser_download_url' => 'https://example.com/release-v1.0.1.zip', 'size' => 5000],
         ]];
-        $result = \bootstrap_resolve_archive_url($release);
+        $result = \bootstrapResolveArchiveUrl($release);
 
         $this->assertSame('https://example.com/release-v1.0.1.zip', $result['url']);
         $this->assertSame('asset', $result['source']);
@@ -67,7 +67,7 @@ class BootstrapTest extends TestCase
     public function testResolveArchiveUrlFallsBackToZipballWhenNoZipNamedAsset(): void
     {
         $release = ['assets' => [['name' => 'bootstrap.php', 'browser_download_url' => 'https://example.com/bootstrap.php', 'size' => 100]], 'zipball_url' => 'https://example.com/zip'];
-        $result = \bootstrap_resolve_archive_url($release);
+        $result = \bootstrapResolveArchiveUrl($release);
 
         $this->assertSame('https://example.com/zip', $result['url']);
         $this->assertSame('zipball', $result['source']);
@@ -76,7 +76,7 @@ class BootstrapTest extends TestCase
     public function testResolveArchiveUrlFallsBackToZipball(): void
     {
         $release = ['assets' => [], 'zipball_url' => 'https://example.com/zip'];
-        $result = \bootstrap_resolve_archive_url($release);
+        $result = \bootstrapResolveArchiveUrl($release);
 
         $this->assertSame('https://example.com/zip', $result['url']);
         $this->assertSame(0, $result['size']);
@@ -86,7 +86,7 @@ class BootstrapTest extends TestCase
     public function testResolveArchiveUrlThrowsWhenNeitherPresent(): void
     {
         $this->expectException(RuntimeException::class);
-        \bootstrap_resolve_archive_url([]);
+        \bootstrapResolveArchiveUrl([]);
     }
 
     // -------------------------------------------------------------------
@@ -98,7 +98,7 @@ class BootstrapTest extends TestCase
         $extracted = $this->tempDir . '/extracted';
         mkdir($extracted . '/owner-repo-abc123', 0755, true);
 
-        $this->assertSame($extracted . '/owner-repo-abc123', \bootstrap_resolve_archive_root($extracted, 'zipball'));
+        $this->assertSame($extracted . '/owner-repo-abc123', \bootstrapResolveArchiveRoot($extracted, 'zipball'));
     }
 
     public function testResolveArchiveRootNeverUnwrapsReleaseAsset(): void
@@ -109,7 +109,7 @@ class BootstrapTest extends TestCase
         // Even with a single top-level dir (coincidentally zipball-shaped),
         // a release asset must never be stripped — decided by source type,
         // never entry count.
-        $this->assertSame($extracted, \bootstrap_resolve_archive_root($extracted, 'asset'));
+        $this->assertSame($extracted, \bootstrapResolveArchiveRoot($extracted, 'asset'));
     }
 
     public function testResolveArchiveRootLeavesMultiEntryZipballAlone(): void
@@ -118,29 +118,29 @@ class BootstrapTest extends TestCase
         mkdir($extracted . '/core', 0755, true);
         mkdir($extracted . '/public', 0755, true);
 
-        $this->assertSame($extracted, \bootstrap_resolve_archive_root($extracted, 'zipball'));
+        $this->assertSame($extracted, \bootstrapResolveArchiveRoot($extracted, 'zipball'));
     }
 
     public function testIsZipSlipRejectsParentTraversal(): void
     {
-        $this->assertTrue(\bootstrap_is_zip_slip('../../etc/passwd'));
-        $this->assertTrue(\bootstrap_is_zip_slip('core/../../../etc/passwd'));
+        $this->assertTrue(\bootstrapIsZipSlip('../../etc/passwd'));
+        $this->assertTrue(\bootstrapIsZipSlip('core/../../../etc/passwd'));
     }
 
     public function testIsZipSlipRejectsAbsolutePath(): void
     {
-        $this->assertTrue(\bootstrap_is_zip_slip('/etc/passwd'));
+        $this->assertTrue(\bootstrapIsZipSlip('/etc/passwd'));
     }
 
     public function testIsZipSlipRejectsWindowsDriveLetter(): void
     {
-        $this->assertTrue(\bootstrap_is_zip_slip('C:\\Windows\\System32'));
+        $this->assertTrue(\bootstrapIsZipSlip('C:\\Windows\\System32'));
     }
 
     public function testIsZipSlipAcceptsOrdinaryRelativeEntries(): void
     {
-        $this->assertFalse(\bootstrap_is_zip_slip('core/Http/Controller/PageController.php'));
-        $this->assertFalse(\bootstrap_is_zip_slip('public/index.php'));
+        $this->assertFalse(\bootstrapIsZipSlip('core/Http/Controller/PageController.php'));
+        $this->assertFalse(\bootstrapIsZipSlip('public/index.php'));
     }
 
     // -------------------------------------------------------------------
@@ -153,7 +153,7 @@ class BootstrapTest extends TestCase
         $docRoot = $parent . '/public';
         mkdir($docRoot, 0755, true);
 
-        $result = \bootstrap_select_layout($docRoot, static fn (string $dir): bool => true);
+        $result = \bootstrapSelectLayout($docRoot, static fn (string $dir): bool => true);
 
         $this->assertSame('A', $result['layout']);
         $this->assertSame($parent, $result['parent']);
@@ -165,7 +165,7 @@ class BootstrapTest extends TestCase
         $docRoot = $parent . '/public';
         mkdir($docRoot, 0755, true);
 
-        $result = \bootstrap_select_layout($docRoot, static fn (string $dir): bool => false);
+        $result = \bootstrapSelectLayout($docRoot, static fn (string $dir): bool => false);
 
         $this->assertSame('B', $result['layout']);
         $this->assertNull($result['parent']);
@@ -177,7 +177,7 @@ class BootstrapTest extends TestCase
         // no distinct parent at all (bootstrap.php itself would never
         // legitimately end up here given the location check, but the
         // layout selector must not assume otherwise).
-        $result = \bootstrap_select_layout('/', static fn (string $dir): bool => true);
+        $result = \bootstrapSelectLayout('/', static fn (string $dir): bool => true);
 
         $this->assertSame('B', $result['layout']);
     }
@@ -191,7 +191,7 @@ class BootstrapTest extends TestCase
         $docRoot = $systemRoot . '/public';
         mkdir($docRoot, 0755, true);
 
-        $result = \bootstrap_select_layout($docRoot, static fn (string $dir): bool => true);
+        $result = \bootstrapSelectLayout($docRoot, static fn (string $dir): bool => true);
 
         $this->assertSame('B', $result['layout']);
         $this->assertStringContainsString('racine système', $result['reason']);
@@ -203,7 +203,7 @@ class BootstrapTest extends TestCase
         mkdir($partial . '/etc', 0755, true);
         mkdir($partial . '/usr', 0755, true);
 
-        $this->assertFalse(\bootstrap_looks_like_system_root($partial));
+        $this->assertFalse(\bootstrapLooksLikeSystemRoot($partial));
     }
 
     // -------------------------------------------------------------------
@@ -212,19 +212,19 @@ class BootstrapTest extends TestCase
 
     public function testCheckLocationPassesAtRoot(): void
     {
-        $result = \bootstrap_check_location(['SCRIPT_NAME' => '/bootstrap.php']);
+        $result = \bootstrapCheckLocation(['SCRIPT_NAME' => '/bootstrap.php']);
         $this->assertTrue($result['ok']);
     }
 
     public function testCheckLocationFailsInSubfolder(): void
     {
-        $result = \bootstrap_check_location(['SCRIPT_NAME' => '/install/bootstrap.php']);
+        $result = \bootstrapCheckLocation(['SCRIPT_NAME' => '/install/bootstrap.php']);
         $this->assertFalse($result['ok']);
     }
 
     public function testCheckLocationDefaultsToRootWhenScriptNameAbsent(): void
     {
-        $result = \bootstrap_check_location([]);
+        $result = \bootstrapCheckLocation([]);
         $this->assertTrue($result['ok']);
     }
 
@@ -232,8 +232,8 @@ class BootstrapTest extends TestCase
     {
         // A legitimately differing DOCUMENT_ROOT (real chroot: Apache sees
         // /var/www/example.be/htdocs, PHP sees /htdocs, both correct) must
-        // never block — bootstrap_check_location doesn't even look at it.
-        $result = \bootstrap_check_location([
+        // never block — bootstrapCheckLocation doesn't even look at it.
+        $result = \bootstrapCheckLocation([
             'SCRIPT_NAME' => '/bootstrap.php',
             'DOCUMENT_ROOT' => '/var/www/example.be/htdocs',
         ]);
@@ -247,92 +247,92 @@ class BootstrapTest extends TestCase
     public function testS1PassesWithNonEmptyVersionFile(): void
     {
         file_put_contents($this->tempDir . '/VERSION', "1.2.3\n");
-        $this->assertTrue(\bootstrap_check_s1($this->tempDir)['ok']);
+        $this->assertTrue(\bootstrapCheckS1($this->tempDir)['ok']);
     }
 
     public function testS1FailsWhenVersionMissing(): void
     {
-        $this->assertFalse(\bootstrap_check_s1($this->tempDir)['ok']);
+        $this->assertFalse(\bootstrapCheckS1($this->tempDir)['ok']);
     }
 
     public function testS2PassesWhenVendorAutoloadPresent(): void
     {
         mkdir($this->tempDir . '/vendor', 0755, true);
         file_put_contents($this->tempDir . '/vendor/autoload.php', '<?php');
-        $this->assertTrue(\bootstrap_check_s2($this->tempDir)['ok']);
+        $this->assertTrue(\bootstrapCheckS2($this->tempDir)['ok']);
     }
 
     public function testS2FailsOnVendorlessArtifact(): void
     {
-        $this->assertFalse(\bootstrap_check_s2($this->tempDir)['ok']);
+        $this->assertFalse(\bootstrapCheckS2($this->tempDir)['ok']);
     }
 
     public function testS3PassesWhenIndexPhpPresent(): void
     {
         file_put_contents($this->tempDir . '/index.php', '<?php');
-        $this->assertTrue(\bootstrap_check_s3($this->tempDir)['ok']);
+        $this->assertTrue(\bootstrapCheckS3($this->tempDir)['ok']);
     }
 
     public function testS3Fails(): void
     {
-        $this->assertFalse(\bootstrap_check_s3($this->tempDir)['ok']);
+        $this->assertFalse(\bootstrapCheckS3($this->tempDir)['ok']);
     }
 
     public function testS4PassesWhenSchemaPresent(): void
     {
         mkdir($this->tempDir . '/schema', 0755, true);
         file_put_contents($this->tempDir . '/schema/core.sql', 'CREATE TABLE x;');
-        $this->assertTrue(\bootstrap_check_s4($this->tempDir)['ok']);
+        $this->assertTrue(\bootstrapCheckS4($this->tempDir)['ok']);
     }
 
     public function testS4Fails(): void
     {
-        $this->assertFalse(\bootstrap_check_s4($this->tempDir)['ok']);
+        $this->assertFalse(\bootstrapCheckS4($this->tempDir)['ok']);
     }
 
     public function testS5PassesWhenAllStorageSubdirsExist(): void
     {
-        \bootstrap_create_storage_dirs($this->tempDir);
-        $this->assertTrue(\bootstrap_check_s5($this->tempDir)['ok']);
+        \bootstrapCreateStorageDirs($this->tempDir);
+        $this->assertTrue(\bootstrapCheckS5($this->tempDir)['ok']);
     }
 
     public function testS5FailsWhenAStorageSubdirIsMissing(): void
     {
         mkdir($this->tempDir . '/storage/keys', 0755, true);
-        $this->assertFalse(\bootstrap_check_s5($this->tempDir)['ok']);
+        $this->assertFalse(\bootstrapCheckS5($this->tempDir)['ok']);
     }
 
     public function testS6PassesWhenKeysDirWritable(): void
     {
         mkdir($this->tempDir . '/storage/keys', 0755, true);
-        $this->assertTrue(\bootstrap_check_s6($this->tempDir)['ok']);
+        $this->assertTrue(\bootstrapCheckS6($this->tempDir)['ok']);
     }
 
     public function testS6FailsWhenKeysDirMissing(): void
     {
-        $this->assertFalse(\bootstrap_check_s6($this->tempDir)['ok']);
+        $this->assertFalse(\bootstrapCheckS6($this->tempDir)['ok']);
     }
 
     public function testS7PassesWhenArtifactHasNoRootHtaccess(): void
     {
-        $this->assertTrue(\bootstrap_check_s7($this->tempDir)['ok']);
+        $this->assertTrue(\bootstrapCheckS7($this->tempDir)['ok']);
     }
 
     public function testS7FailsWhenArtifactShipsARootHtaccess(): void
     {
         file_put_contents($this->tempDir . '/.htaccess', 'deny all');
-        $this->assertFalse(\bootstrap_check_s7($this->tempDir)['ok']);
+        $this->assertFalse(\bootstrapCheckS7($this->tempDir)['ok']);
     }
 
     public function testS8PassesWhenTempDirRemoved(): void
     {
-        $this->assertTrue(\bootstrap_check_s8($this->tempDir . '/nonexistent-temp')['ok']);
+        $this->assertTrue(\bootstrapCheckS8($this->tempDir . '/nonexistent-temp')['ok']);
     }
 
     public function testS8FailsWhenTempDirStillExists(): void
     {
         mkdir($this->tempDir . '/leftover-temp', 0755, true);
-        $this->assertFalse(\bootstrap_check_s8($this->tempDir . '/leftover-temp')['ok']);
+        $this->assertFalse(\bootstrapCheckS8($this->tempDir . '/leftover-temp')['ok']);
     }
 
     // -------------------------------------------------------------------
@@ -341,24 +341,24 @@ class BootstrapTest extends TestCase
 
     public function testControlProbePassesOnExactBodyMatch(): void
     {
-        $this->assertTrue(\bootstrap_evaluate_control_probe(200, 'abc', 'abc'));
+        $this->assertTrue(\bootstrapEvaluateControlProbe(200, 'abc', 'abc'));
     }
 
     public function testControlProbeFailsOnMismatchOrNon200(): void
     {
-        $this->assertFalse(\bootstrap_evaluate_control_probe(200, 'wrong', 'abc'));
-        $this->assertFalse(\bootstrap_evaluate_control_probe(404, 'abc', 'abc'));
+        $this->assertFalse(\bootstrapEvaluateControlProbe(200, 'wrong', 'abc'));
+        $this->assertFalse(\bootstrapEvaluateControlProbe(404, 'abc', 'abc'));
     }
 
     public function testPhpExecutionProbePassesOnEmptyBody(): void
     {
-        $this->assertTrue(\bootstrap_evaluate_php_execution_probe(200, ''));
-        $this->assertTrue(\bootstrap_evaluate_php_execution_probe(200, "  \n"));
+        $this->assertTrue(\bootstrapEvaluatePhpExecutionProbe(200, ''));
+        $this->assertTrue(\bootstrapEvaluatePhpExecutionProbe(200, "  \n"));
     }
 
     public function testPhpExecutionProbeFailsWhenSourceLeaksAsPlaintext(): void
     {
-        $this->assertFalse(\bootstrap_evaluate_php_execution_probe(200, "<?php /* TOKEN: abc */\n"));
+        $this->assertFalse(\bootstrapEvaluatePhpExecutionProbe(200, "<?php /* TOKEN: abc */\n"));
     }
 
     /**
@@ -367,44 +367,44 @@ class BootstrapTest extends TestCase
      */
     public function testProtectionProbeTreats403And404AsProtected(): void
     {
-        $this->assertTrue(\bootstrap_evaluate_protection_probe(403, '', 'secret'));
-        $this->assertTrue(\bootstrap_evaluate_protection_probe(404, '', 'secret'));
+        $this->assertTrue(\bootstrapEvaluateProtectionProbe(403, '', 'secret'));
+        $this->assertTrue(\bootstrapEvaluateProtectionProbe(404, '', 'secret'));
     }
 
     public function testProtectionProbeTreats200WithDifferentBodyAsProtected(): void
     {
-        $this->assertTrue(\bootstrap_evaluate_protection_probe(200, '<html>Not Found</html>', 'secret-content'));
+        $this->assertTrue(\bootstrapEvaluateProtectionProbe(200, '<html>Not Found</html>', 'secret-content'));
     }
 
     public function testProtectionProbeTreats200WithMatchingBodyAsExposed(): void
     {
-        $this->assertFalse(\bootstrap_evaluate_protection_probe(200, 'secret-content', 'secret-content'));
+        $this->assertFalse(\bootstrapEvaluateProtectionProbe(200, 'secret-content', 'secret-content'));
     }
 
     public function testProtectionProbeTreatsUnexpectedStatusAsNotProven(): void
     {
-        $this->assertFalse(\bootstrap_evaluate_protection_probe(500, '', 'secret'));
+        $this->assertFalse(\bootstrapEvaluateProtectionProbe(500, '', 'secret'));
     }
 
     public function testNoDirectoryListingPassesOn403Or404(): void
     {
-        $this->assertTrue(\bootstrap_evaluate_no_directory_listing(403, ''));
-        $this->assertTrue(\bootstrap_evaluate_no_directory_listing(404, ''));
+        $this->assertTrue(\bootstrapEvaluateNoDirectoryListing(403, ''));
+        $this->assertTrue(\bootstrapEvaluateNoDirectoryListing(404, ''));
     }
 
     public function testNoDirectoryListingFailsOnApacheAutoindex(): void
     {
-        $this->assertFalse(\bootstrap_evaluate_no_directory_listing(200, '<title>Index of /storage/</title>'));
+        $this->assertFalse(\bootstrapEvaluateNoDirectoryListing(200, '<title>Index of /storage/</title>'));
     }
 
     public function testFunctionalProbePassesWhenMarkerPresent(): void
     {
-        $this->assertTrue(\bootstrap_evaluate_functional_probe(200, '<div id="scoutmagic-setup-wizard">', 'id="scoutmagic-setup-wizard"'));
+        $this->assertTrue(\bootstrapEvaluateFunctionalProbe(200, '<div id="scoutmagic-setup-wizard">', 'id="scoutmagic-setup-wizard"'));
     }
 
     public function testFunctionalProbeFailsWhenMarkerAbsent(): void
     {
-        $this->assertFalse(\bootstrap_evaluate_functional_probe(200, '<div>Something else</div>', 'id="scoutmagic-setup-wizard"'));
+        $this->assertFalse(\bootstrapEvaluateFunctionalProbe(200, '<div>Something else</div>', 'id="scoutmagic-setup-wizard"'));
     }
 
     // -------------------------------------------------------------------
@@ -419,7 +419,7 @@ class BootstrapTest extends TestCase
             ['id' => 'B1', 'kind' => 'control', 'url' => '/control-x.txt', 'expected' => 'expected-content', 'file' => null],
         ];
 
-        $result = \bootstrap_evaluate_gate_report($this->tempDir, $state, [
+        $result = \bootstrapEvaluateGateReport($this->tempDir, $state, [
             ['id' => 'B1', 'status' => 200, 'body' => 'not-the-expected-content'],
         ]);
 
@@ -438,7 +438,7 @@ class BootstrapTest extends TestCase
             ['id' => 'F1', 'kind' => 'functional', 'url' => '/', 'expected' => 'id="scoutmagic-setup-wizard"', 'file' => null],
         ];
 
-        $result = \bootstrap_evaluate_gate_report($this->tempDir, $state, [
+        $result = \bootstrapEvaluateGateReport($this->tempDir, $state, [
             ['id' => 'B1', 'status' => 200, 'body' => 'ok'],
             // token.php served as source instead of executing — catastrophic.
             ['id' => 'B2', 'status' => 200, 'body' => "<?php /* TOKEN: abc */\n"],
@@ -461,7 +461,7 @@ class BootstrapTest extends TestCase
             ['id' => 'F1', 'kind' => 'functional', 'url' => '/', 'expected' => 'id="scoutmagic-setup-wizard"', 'file' => null],
         ];
 
-        $result = \bootstrap_evaluate_gate_report($this->tempDir, $state, [
+        $result = \bootstrapEvaluateGateReport($this->tempDir, $state, [
             ['id' => 'B1', 'status' => 200, 'body' => 'ok'],
             ['id' => 'B2', 'status' => 200, 'body' => ''],
             ['id' => 'B3', 'status' => 403, 'body' => ''],                    // protected — B3 passes
@@ -487,7 +487,7 @@ class BootstrapTest extends TestCase
             ['id' => 'F1', 'kind' => 'functional', 'url' => '/', 'expected' => 'id="scoutmagic-setup-wizard"', 'file' => null],
         ];
 
-        $result = \bootstrap_evaluate_gate_report($this->tempDir, $state, [
+        $result = \bootstrapEvaluateGateReport($this->tempDir, $state, [
             ['id' => 'B1', 'status' => 200, 'body' => 'ok'],
             ['id' => 'B2', 'status' => 200, 'body' => ''],
             ['id' => 'F1', 'status' => 200, 'body' => '<div id="scoutmagic-setup-wizard">'],
@@ -496,7 +496,7 @@ class BootstrapTest extends TestCase
         $this->assertTrue($result['gate_passed']);
         $this->assertFileExists($this->tempDir . '/index.php');
 
-        $written = \bootstrap_step_token($this->tempDir, $result);
+        $written = \bootstrapStepToken($this->tempDir, $result);
         $this->assertTrue($written['token_written']);
         $this->assertFileExists($this->tempDir . '/token.php');
         $this->assertStringContainsString('TOKEN:', (string) file_get_contents($this->tempDir . '/token.php'));
@@ -505,7 +505,7 @@ class BootstrapTest extends TestCase
     public function testStepTokenRefusesBeforeGatePasses(): void
     {
         $this->expectException(RuntimeException::class);
-        \bootstrap_step_token($this->tempDir, ['gate_passed' => false]);
+        \bootstrapStepToken($this->tempDir, ['gate_passed' => false]);
     }
 
     // -------------------------------------------------------------------
@@ -513,9 +513,9 @@ class BootstrapTest extends TestCase
     // failed" from "response unparseable"; abort must roll back from
     // whatever was last durably written to .bootstrap-state.php and
     // leave the install target clean, regardless of which case it was.
-    // bootstrap_handle_abort_request() calls bootstrap_send_json()
+    // bootstrapHandleAbortRequest() calls bootstrapSendJson()
     // internally, which clears every open buffer level including any
-    // this test opens to capture output — same reason bootstrap_send_json
+    // this test opens to capture output — same reason bootstrapSendJson
     // itself is tested via a subprocess.
     // -------------------------------------------------------------------
 
@@ -527,7 +527,7 @@ class BootstrapTest extends TestCase
         file_put_contents($this->tempDir . '/.bootstrap.lock', (string) getmypid());
 
         $stateFile = $this->tempDir . '/.bootstrap-state.php';
-        \bootstrap_write_state($stateFile, [
+        \bootstrapWriteState($stateFile, [
             'layout' => 'B',
             'install_target' => $this->tempDir,
             'installed_entries' => ['index.php', 'core'],
@@ -537,7 +537,7 @@ class BootstrapTest extends TestCase
         $script = <<<'PHP'
 define('BOOTSTRAP_TEST', true);
 require %s;
-bootstrap_handle_abort_request(%s, %s . '/.bootstrap-state.php');
+bootstrapHandleAbortRequest(%s, %s . '/.bootstrap-state.php');
 PHP;
         $decoded = json_decode($this->lastLineOfSubprocessWithDocRoot($script), true);
 
@@ -559,7 +559,7 @@ PHP;
         $script = <<<'PHP'
 define('BOOTSTRAP_TEST', true);
 require %s;
-bootstrap_handle_abort_request(%s, %s . '/.bootstrap-state.php');
+bootstrapHandleAbortRequest(%s, %s . '/.bootstrap-state.php');
 PHP;
         $decoded = json_decode($this->lastLineOfSubprocessWithDocRoot($script), true);
 
@@ -569,7 +569,7 @@ PHP;
 
     /**
      * Regression: a retry that fails at step 1 ("already installed",
-     * bootstrap_step_preflight()'s own guard) must still roll back files
+     * bootstrapStepPreflight()'s own guard) must still roll back files
      * an EARLIER request's step 6 already copied, even though the
      * CURRENTLY failing step number (1) is nowhere near 6-8. Before this
      * fix, the catch block only rolled back when $step was itself in
@@ -583,7 +583,7 @@ PHP;
         file_put_contents($this->tempDir . '/VERSION', "1.0.0\n");
 
         $stateFile = $this->tempDir . '/.bootstrap-state.php';
-        \bootstrap_write_state($stateFile, [
+        \bootstrapWriteState($stateFile, [
             'layout' => 'B',
             'install_target' => $this->tempDir,
             'installed_entries' => ['index.php', 'core'],
@@ -592,11 +592,11 @@ PHP;
 
         // No lock file: simulates the operator having already cleared it
         // (via the 10-minute expiry or the manual-remedy hint) before
-        // retrying — bootstrap_handle_step_request's step===1 branch
-        // re-acquires it fresh, then bootstrap_step_preflight() throws
+        // retrying — bootstrapHandleStepRequest's step===1 branch
+        // re-acquires it fresh, then bootstrapStepPreflight() throws
         // "already installed" against the files still on disk above.
         //
-        // bootstrap_handle_step_request() reads the step number from
+        // bootstrapHandleStepRequest() reads the step number from
         // php://input, which the CLI SAPI never populates (confirmed:
         // `php -r` and `php -f script < body` both return an empty
         // string for it regardless of stdin) — a real HTTP SAPI is
@@ -614,14 +614,14 @@ PHP;
 
     /**
      * Starts php -S serving a tiny router that calls
-     * bootstrap_handle_step_request() for real, POSTs {"step": $step} to
+     * bootstrapHandleStepRequest() for real, POSTs {"step": $step} to
      * it, and returns the raw response body.
      */
     private function postStepViaHttpServer(string $docRoot, string $stateFile, int $step): string
     {
         $router = $this->tempDir . '-router.php';
         file_put_contents($router, sprintf(
-            "<?php\ndefine('BOOTSTRAP_TEST', true);\nrequire %s;\nbootstrap_handle_step_request(%s, %s);\n",
+            "<?php\ndefine('BOOTSTRAP_TEST', true);\nrequire %s;\nbootstrapHandleStepRequest(%s, %s);\n",
             var_export(dirname(__DIR__, 2) . '/bootstrap/bootstrap.php', true),
             var_export($docRoot, true),
             var_export($stateFile, true)
@@ -705,34 +705,34 @@ PHP;
 
     public function testDiskSpaceCheckDegradesGracefullyWhenProbeFails(): void
     {
-        $result = \bootstrap_check_disk_space($this->tempDir, 1000, static fn (string $dir) => false);
+        $result = \bootstrapCheckDiskSpace($this->tempDir, 1000, static fn (string $dir) => false);
         $this->assertTrue($result['ok']);
         $this->assertTrue($result['degraded']);
     }
 
     public function testDiskSpaceCheckDegradesWhenArtifactSizeUnknown(): void
     {
-        $result = \bootstrap_check_disk_space($this->tempDir, 0, static fn (string $dir) => 999999999);
+        $result = \bootstrapCheckDiskSpace($this->tempDir, 0, static fn (string $dir) => 999999999);
         $this->assertTrue($result['ok']);
         $this->assertTrue($result['degraded']);
     }
 
     public function testDiskSpaceCheckFailsWhenGenuinelyInsufficient(): void
     {
-        $result = \bootstrap_check_disk_space($this->tempDir, 1000, static fn (string $dir) => 100);
+        $result = \bootstrapCheckDiskSpace($this->tempDir, 1000, static fn (string $dir) => 100);
         $this->assertFalse($result['ok']);
         $this->assertFalse($result['degraded']);
     }
 
     public function testDiskSpaceCheckPassesWithThreeTimesMargin(): void
     {
-        $result = \bootstrap_check_disk_space($this->tempDir, 1000, static fn (string $dir) => 3000);
+        $result = \bootstrapCheckDiskSpace($this->tempDir, 1000, static fn (string $dir) => 3000);
         $this->assertTrue($result['ok']);
     }
 
     public function testGatherEnvironmentInfoNeverThrowsAndAlwaysReturnsData(): void
     {
-        $info = \bootstrap_gather_environment_info();
+        $info = \bootstrapGatherEnvironmentInfo();
         $this->assertArrayHasKey('server_software', $info);
         $this->assertArrayHasKey('posix_available', $info);
         $this->assertArrayHasKey('open_basedir', $info);
@@ -753,7 +753,7 @@ PHP;
             file_put_contents($dest, 'PK-fake-zip-bytes');
         };
 
-        \bootstrap_download_with_retry('https://example.com/a.zip', $this->tempDir . '/a.zip', $downloader);
+        \bootstrapDownloadWithRetry('https://example.com/a.zip', $this->tempDir . '/a.zip', $downloader);
 
         $this->assertSame(3, $attempts);
         $this->assertFileExists($this->tempDir . '/a.zip');
@@ -769,7 +769,7 @@ PHP;
 
         $this->expectException(RuntimeException::class);
         try {
-            \bootstrap_download_with_retry('https://example.com/a.zip', $this->tempDir . '/a.zip', $downloader);
+            \bootstrapDownloadWithRetry('https://example.com/a.zip', $this->tempDir . '/a.zip', $downloader);
         } finally {
             $this->assertSame(3, $attempts);
         }
@@ -785,7 +785,7 @@ PHP;
 
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessageMatches('/[Ll]imite/');
-        \bootstrap_fetch_latest_release($httpGet);
+        \bootstrapFetchLatestRelease($httpGet);
     }
 
     public function testFetchLatestReleaseThrowsOn404(): void
@@ -793,7 +793,7 @@ PHP;
         $httpGet = static fn (string $url, array $headers): array => ['status' => 404, 'headers' => [], 'body' => ''];
 
         $this->expectException(RuntimeException::class);
-        \bootstrap_fetch_latest_release($httpGet);
+        \bootstrapFetchLatestRelease($httpGet);
     }
 
     public function testFetchLatestReleaseRetriesOnServerErrorThenSucceeds(): void
@@ -807,7 +807,7 @@ PHP;
             return ['status' => 200, 'headers' => [], 'body' => json_encode(['tag_name' => 'v1.2.3', 'assets' => []])];
         };
 
-        $release = \bootstrap_fetch_latest_release($httpGet);
+        $release = \bootstrapFetchLatestRelease($httpGet);
         $this->assertSame('v1.2.3', $release['tag_name']);
         $this->assertSame(2, $calls);
     }
@@ -824,7 +824,7 @@ PHP;
         mkdir($this->tempDir . '/schema', 0755, true);
         file_put_contents($this->tempDir . '/schema/core.sql', 'CREATE TABLE x;');
 
-        $result = \bootstrap_verify_artifact($this->tempDir);
+        $result = \bootstrapVerifyArtifact($this->tempDir);
 
         $this->assertFalse($result['ok']);
         $this->assertStringContainsString('vendor/autoload.php', $result['detail']);
@@ -839,7 +839,7 @@ PHP;
         mkdir($this->tempDir . '/schema', 0755, true);
         file_put_contents($this->tempDir . '/schema/core.sql', 'CREATE TABLE x;');
 
-        $this->assertTrue(\bootstrap_verify_artifact($this->tempDir)['ok']);
+        $this->assertTrue(\bootstrapVerifyArtifact($this->tempDir)['ok']);
     }
 
     // -------------------------------------------------------------------
@@ -855,7 +855,7 @@ PHP;
         file_put_contents($source . '/public/.user.ini', 'upload_max_filesize=2048M');
         file_put_contents($source . '/public/index.php', '<?php');
 
-        \bootstrap_copy_tree($source, $dest);
+        \bootstrapCopyTree($source, $dest);
 
         $this->assertFileExists($dest . '/public/.htaccess');
         $this->assertFileExists($dest . '/public/.user.ini');
@@ -870,7 +870,7 @@ PHP;
         file_put_contents($source . '/VERSION', "1.0.0\n");
         file_put_contents($source . '/core-file.php', '<?php');
 
-        $copied = \bootstrap_copy_tree($source, $dest, ['storage', 'VERSION']);
+        $copied = \bootstrapCopyTree($source, $dest, ['storage', 'VERSION']);
 
         $this->assertDirectoryDoesNotExist($dest . '/storage');
         $this->assertFileDoesNotExist($dest . '/VERSION');
@@ -892,7 +892,7 @@ PHP;
         mkdir($this->tempDir . '/config', 0755, true);
         file_put_contents($this->tempDir . '/config/app.php.dist', "<?php\nreturn ['debug' => false];\n");
 
-        \bootstrap_seed_app_config($this->tempDir);
+        \bootstrapSeedAppConfig($this->tempDir);
 
         $this->assertFileExists($this->tempDir . '/config/app.php');
         $this->assertStringContainsString('debug', (string) file_get_contents($this->tempDir . '/config/app.php'));
@@ -904,7 +904,7 @@ PHP;
         file_put_contents($this->tempDir . '/config/app.php.dist', "<?php\nreturn ['debug' => false];\n");
         file_put_contents($this->tempDir . '/config/app.php', "<?php\nreturn ['debug' => true, 'custom' => 'kept'];\n");
 
-        \bootstrap_seed_app_config($this->tempDir);
+        \bootstrapSeedAppConfig($this->tempDir);
 
         $this->assertStringContainsString('kept', (string) file_get_contents($this->tempDir . '/config/app.php'));
     }
@@ -913,7 +913,7 @@ PHP;
     {
         mkdir($this->tempDir . '/config', 0755, true);
 
-        \bootstrap_seed_app_config($this->tempDir);
+        \bootstrapSeedAppConfig($this->tempDir);
 
         $this->assertFileDoesNotExist($this->tempDir . '/config/app.php');
     }
@@ -925,28 +925,28 @@ PHP;
     public function testStateRoundTripsThroughPhpCommentWrapper(): void
     {
         $path = $this->tempDir . '/.bootstrap-state.php';
-        \bootstrap_write_state($path, ['label' => 'Test', 'percent' => 42]);
+        \bootstrapWriteState($path, ['label' => 'Test', 'percent' => 42]);
 
         $this->assertStringStartsWith('<?php', (string) file_get_contents($path));
-        $this->assertSame(['label' => 'Test', 'percent' => 42], \bootstrap_read_state($path));
+        $this->assertSame(['label' => 'Test', 'percent' => 42], \bootstrapReadState($path));
     }
 
     public function testReadStateReturnsEmptyArrayWhenFileAbsent(): void
     {
-        $this->assertSame([], \bootstrap_read_state($this->tempDir . '/nonexistent.php'));
+        $this->assertSame([], \bootstrapReadState($this->tempDir . '/nonexistent.php'));
     }
 
     public function testWriteVersionMatchesVersionFileFormat(): void
     {
-        \bootstrap_write_version($this->tempDir, '2.5.0');
+        \bootstrapWriteVersion($this->tempDir, '2.5.0');
         $this->assertSame("2.5.0\n", file_get_contents($this->tempDir . '/VERSION'));
     }
 
     public function testTokenFileContentIsAWellFormedPhpCommentOnly(): void
     {
-        $token = \bootstrap_generate_token();
+        $token = \bootstrapGenerateToken();
         $this->assertSame(64, strlen($token));
-        $content = \bootstrap_token_file_content($token);
+        $content = \bootstrapTokenFileContent($token);
 
         $this->assertStringStartsWith('<?php', $content);
         $this->assertStringContainsString("TOKEN: {$token}", $content);
@@ -954,7 +954,7 @@ PHP;
 
     public function testCreateStorageDirsCreatesExactlyTheFiveDeclaredSubdirs(): void
     {
-        $created = \bootstrap_create_storage_dirs($this->tempDir);
+        $created = \bootstrapCreateStorageDirs($this->tempDir);
         sort($created);
         $this->assertSame(['config', 'core', 'keys', 'modules', 'temp'], $created);
         foreach ($created as $sub) {
@@ -964,15 +964,15 @@ PHP;
 
     public function testAlreadyInstalledDetectsVersionFile(): void
     {
-        $this->assertFalse(\bootstrap_already_installed($this->tempDir));
+        $this->assertFalse(\bootstrapAlreadyInstalled($this->tempDir));
         file_put_contents($this->tempDir . '/VERSION', "1.0.0\n");
-        $this->assertTrue(\bootstrap_already_installed($this->tempDir));
+        $this->assertTrue(\bootstrapAlreadyInstalled($this->tempDir));
     }
 
     public function testAlreadyInstalledDetectsCoreDirectory(): void
     {
         mkdir($this->tempDir . '/core', 0755, true);
-        $this->assertTrue(\bootstrap_already_installed($this->tempDir));
+        $this->assertTrue(\bootstrapAlreadyInstalled($this->tempDir));
     }
 
     // -------------------------------------------------------------------
@@ -985,7 +985,7 @@ PHP;
         // disk, so it would otherwise be served/executed on GET /cron.php.
         // The CLI SAPI guard inside cron.php is the load-bearing control;
         // this is the .htaccess belt to it.
-        $content = \bootstrap_htaccess_content();
+        $content = \bootstrapHtaccessContent();
         $this->assertMatchesRegularExpression(
             '/<Files "cron\\.php">\s*Require all denied\s*<\/Files>/',
             $content,
@@ -995,7 +995,7 @@ PHP;
 
     public function testHtaccessContentDeniesInternalDirectoriesBeforeTheRewrite(): void
     {
-        $content = \bootstrap_htaccess_content();
+        $content = \bootstrapHtaccessContent();
         $denyPos = strpos($content, 'storage|core|modules');
         $rewritePos = strpos($content, 'public/$1');
 
@@ -1020,7 +1020,7 @@ PHP;
      */
     public function testHtaccessContentOnlyDeniesInternalDirectoriesThatActuallyExistOnDisk(): void
     {
-        $content = \bootstrap_htaccess_content();
+        $content = \bootstrapHtaccessContent();
         $denyRulePos = strpos($content, 'RewriteRule ^(storage|core|modules|config|schema|vendor|tests|scripts)(/|$) - [F,L]');
         $this->assertIsInt($denyRulePos, 'the internal-directory deny rule must exist verbatim');
 
@@ -1043,7 +1043,7 @@ PHP;
      */
     public function testHtaccessContentForcesDirectoryIndexToTheStub(): void
     {
-        $content = \bootstrap_htaccess_content();
+        $content = \bootstrapHtaccessContent();
         $directiveOpos = strpos($content, 'DirectoryIndex index.php');
         $engineOnPos = strpos($content, 'RewriteEngine On');
         $catchAllPos = strpos($content, 'RewriteRule ^ index.php [L]');
@@ -1066,7 +1066,7 @@ PHP;
      */
     public function testHtaccessContentNeverRewritesPhpExecutionAcrossDirectories(): void
     {
-        $content = \bootstrap_htaccess_content();
+        $content = \bootstrapHtaccessContent();
 
         $this->assertStringNotContainsString('public/index.php', $content, 'must never rewrite PHP execution straight to public/index.php across a directory boundary');
         $this->assertStringContainsString('RewriteRule ^ index.php [L]', $content, 'the catch-all must route to the same-directory stub');
@@ -1092,7 +1092,7 @@ PHP;
      */
     public function testHtaccessRealFileRuleNeverMatchesOnDirectoryAlone(): void
     {
-        $content = \bootstrap_htaccess_content();
+        $content = \bootstrapHtaccessContent();
 
         // Scoped to the "serve a real docroot file as-is" rule specifically
         // (the block ending in `RewriteRule ^ - [L]`) — the internal-
@@ -1111,7 +1111,7 @@ PHP;
 
     public function testIndexStubRequiresThePublicFrontControllerFromItsOwnDirectory(): void
     {
-        $content = \bootstrap_index_stub_content();
+        $content = \bootstrapIndexStubContent();
 
         $this->assertStringStartsWith('<?php', $content);
         $this->assertStringContainsString("require __DIR__ . '/public/index.php';", $content);
@@ -1128,7 +1128,7 @@ PHP;
     public function testPostInstallRedirectsExplicitlyToSetupNotBareRoot(): void
     {
         ob_start();
-        \bootstrap_render_ui($this->tempDir, $this->tempDir . '/.bootstrap-state.php');
+        \bootstrapRenderUi($this->tempDir, $this->tempDir . '/.bootstrap-state.php');
         $html = ob_get_clean();
 
         $this->assertStringContainsString("window.location.href = '/setup'", $html);
@@ -1144,7 +1144,7 @@ PHP;
         $docRoot = '/home/user/site/public';
         $message = "Impossible d'écrire {$docRoot}/storage/keys/master.key";
 
-        $sanitized = \bootstrap_sanitize_error_for_client($message, $docRoot);
+        $sanitized = \bootstrapSanitizeErrorForClient($message, $docRoot);
 
         $this->assertStringNotContainsString('/home/user/site', $sanitized);
     }
@@ -1162,7 +1162,7 @@ PHP;
         file_put_contents($this->tempDir . '/.htaccess', 'deny');
         file_put_contents($this->tempDir . '/token.php', '<?php /* gate probe */');
 
-        \bootstrap_rollback_install($this->tempDir, [
+        \bootstrapRollbackInstall($this->tempDir, [
             'layout' => 'B',
             'install_target' => $this->tempDir,
             'installed_entries' => ['index.php', 'core'],
@@ -1179,7 +1179,7 @@ PHP;
     /**
      * The real layout-B scenario, distinct from the test above: the
      * index.php stub is written directly at docRoot by
-     * bootstrap_step_install() itself (never via installed_entries, since
+     * bootstrapStepInstall() itself (never via installed_entries, since
      * it has no counterpart in the extracted artifact at all) — rollback
      * must remove it via its own dedicated path or a rolled-back attempt
      * leaves an orphaned stub require()-ing a now-deleted public/index.php.
@@ -1188,10 +1188,10 @@ PHP;
     {
         mkdir($this->tempDir . '/public', 0755, true);
         file_put_contents($this->tempDir . '/public/index.php', '<?php // real front controller');
-        file_put_contents($this->tempDir . '/index.php', \bootstrap_index_stub_content());
-        file_put_contents($this->tempDir . '/.htaccess', \bootstrap_htaccess_content());
+        file_put_contents($this->tempDir . '/index.php', \bootstrapIndexStubContent());
+        file_put_contents($this->tempDir . '/.htaccess', \bootstrapHtaccessContent());
 
-        \bootstrap_rollback_install($this->tempDir, [
+        \bootstrapRollbackInstall($this->tempDir, [
             'layout' => 'B',
             'install_target' => $this->tempDir,
             'installed_entries' => ['public'],
@@ -1208,7 +1208,7 @@ PHP;
 
     public function testPublicStateStripsInternalFilesystemPaths(): void
     {
-        $public = \bootstrap_public_state([
+        $public = \bootstrapPublicState([
             'label' => 'Installation',
             'percent' => 50,
             'install_target' => '/secret/absolute/path',
@@ -1230,7 +1230,7 @@ PHP;
     // -------------------------------------------------------------------
 
     /**
-     * bootstrap_send_json() clears every open output-buffer level via its
+     * bootstrapSendJson() clears every open output-buffer level via its
      * own while(ob_get_level()>0) loop — which means it also consumes any
      * buffer *this test* opens to capture its output, making the
      * assertion untestable in-process. A real PHP subprocess sidesteps
@@ -1244,7 +1244,7 @@ define('BOOTSTRAP_TEST', true);
 require %s;
 ob_start();
 echo '<b>Warning</b>: mkdir(): File exists in bootstrap.php on line 123';
-bootstrap_send_json(['ok' => true, 'label' => 'Stockage']);
+bootstrapSendJson(['ok' => true, 'label' => 'Stockage']);
 PHP;
         $decoded = json_decode($this->lastLineOfSubprocess($script), true);
         $this->assertNotNull($decoded, 'response body must be valid JSON even with stray output buffered ahead of it');
@@ -1260,7 +1260,7 @@ ob_start();
 echo 'first stray write';
 ob_start();
 echo 'second stray write, nested buffer';
-bootstrap_send_json(['ok' => true]);
+bootstrapSendJson(['ok' => true]);
 PHP;
         $this->assertSame(['ok' => true], json_decode($this->lastLineOfSubprocess($script), true));
     }
@@ -1268,7 +1268,7 @@ PHP;
     /**
      * Runs $script (a %s-templated PHP -r body, %s filled with the
      * bootstrap.php path) in a real subprocess and returns its last
-     * output line — bootstrap_send_json()'s echo is always the last thing
+     * output line — bootstrapSendJson()'s echo is always the last thing
      * printed, and taking only that line sidesteps unrelated noise this
      * local environment's php CLI happens to print to stdout (e.g. a
      * duplicate-extension warning), which isn't part of what's being

@@ -60,7 +60,7 @@ test('every module the instance ships is active, and the site boots with all of 
     expect(
         disabled,
         'scripts/e2e-support.php must activate every module, so index.php wires every one of them '
-        + 'in the run under test — see e2e_activate_all_modules()',
+        + 'in the run under test — see e2eActivateAllModules()',
     ).toEqual([]);
 
     // `exact` because the contextual help panel of this page glosses the

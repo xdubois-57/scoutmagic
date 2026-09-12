@@ -20,7 +20,7 @@ set -euo pipefail
 #   3. Provision a throwaway instance directory + a dedicated, empty E2E
 #      database, with EVERY module the repository ships activated
 #      (scripts/e2e-support.php provision — see its header for why the
-#      instance is a directory of its own, and e2e_activate_all_modules()
+#      instance is a directory of its own, and e2eActivateAllModules()
 #      for why all the modules and not just the default three).
 #   4. Start `php -S` on a free local port, document root = the instance's
 #      public/, with sendmail_path pointed at scripts/e2e-maildrop.php so
@@ -367,7 +367,7 @@ while true; do
     # Relying Party IDs are domain names, and Chrome rejects an IP-literal
     # one outright, so an instance calling itself http://127.0.0.1:<port>
     # cannot register or use a passkey at all. Same loopback address, same
-    # secure context, same not-a-public-host — see e2e_base_url() in
+    # secure context, same not-a-public-host — see e2eBaseUrl() in
     # scripts/e2e-support.php for the full reasoning and for what it
     # deliberately does not change.
     BASE_URL="http://localhost:${PORT}"
