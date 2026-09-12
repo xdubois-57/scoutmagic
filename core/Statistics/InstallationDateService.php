@@ -48,9 +48,18 @@ class InstallationDateService
      */
     public static function register(SettingService $settingService): void
     {
-        $settingService->register(self::SETTING_KEY, '', 'text', 'Date d\'installation de ScoutMagic',
+        $settingService->register(
+            self::SETTING_KEY,
+            '',
+            'text',
+            'Date d\'installation de ScoutMagic',
             'Date de première installation de ce site, au format ISO 8601 UTC. Renseignée automatiquement.',
-            null, null, null, false, 284);
+            null,
+            null,
+            null,
+            false,
+            284
+        );
     }
 
     /**

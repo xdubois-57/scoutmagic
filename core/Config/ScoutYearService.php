@@ -115,12 +115,15 @@ class ScoutYearService
         if ($stmt === false) {
             return [];
         }
-        return array_map(fn(array $row) => [
-            'id' => (int) $row['id'],
-            'label' => (string) $row['label'],
-            'start_date' => (string) $row['start_date'],
-            'end_date' => (string) $row['end_date'],
-        ], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+        return array_map(
+            fn(array $row) => [
+                'id' => (int) $row['id'],
+                'label' => (string) $row['label'],
+                'start_date' => (string) $row['start_date'],
+                'end_date' => (string) $row['end_date'],
+            ],
+            $stmt->fetchAll(\PDO::FETCH_ASSOC)
+        );
     }
 
     /**

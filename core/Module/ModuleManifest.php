@@ -396,9 +396,24 @@ class ModuleManifest
             }
         }
 
-        return new self($id, $data['name'], $data['version'], $routes, $settings, $cookies, $scheduledTasks, $storage,
-            $enabledByDefault, $description, $notifications, $offline, $requires, $visibleWhen, $helpDirectory, $emails
-            );
+        return new self(
+            $id,
+            $data['name'],
+            $data['version'],
+            $routes,
+            $settings,
+            $cookies,
+            $scheduledTasks,
+            $storage,
+            $enabledByDefault,
+            $description,
+            $notifications,
+            $offline,
+            $requires,
+            $visibleWhen,
+            $helpDirectory,
+            $emails
+        );
     }
 
     /**

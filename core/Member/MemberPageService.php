@@ -139,8 +139,10 @@ class MemberPageService
                 ? ($this->hooks?->getOptional(MemberPaymentProvider::class)?->getOpenPayments($profile->memberId) ?? [])
                 : [],
             'formation_path' => $isSelf
-                ? $this->hooks?->getOptional(FormationPathProvider::class)?->getFormationPath($profile->memberId,
-                    $scoutYearId)
+                ? $this->hooks?->getOptional(FormationPathProvider::class)?->getFormationPath(
+                    $profile->memberId,
+                    $scoutYearId
+                )
                 : null,
         ];
     }
@@ -220,8 +222,10 @@ class MemberPageService
     private function buildSectionInfo(MemberProfile $profile, array $section, int $scoutYearId): array
     {
         $responsable = null;
-        $lead = $this->hooks?->getOptional(SectionResponsableProvider::class)?->getResponsable($section['id'],
-            $scoutYearId);
+        $lead = $this->hooks?->getOptional(SectionResponsableProvider::class)?->getResponsable(
+            $section['id'],
+            $scoutYearId
+        );
         if ($lead !== null) {
             // SectionService::hydrateMemberProfile() (which every
             // SectionResponsableProvider implementation is built on)

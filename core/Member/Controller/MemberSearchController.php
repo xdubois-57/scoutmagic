@@ -160,35 +160,38 @@ class MemberSearchController extends AbstractController
         );
         $departureStatus = $this->departureService->getStatus($profile->memberYearId);
 
-        return $this->render('admin/members/show.html.twig', array_merge(
-            $this->adminMemberPageService->buildPageData($profile, $effective->id),
-            [
-                'member' => $profile,
-                'breadcrumb_current' => trim($profile->lastName . ' ' . $profile->firstName),
-                'effective_age' => $effectiveAge,
-                'departure_leaving' => $departureStatus?->leaving ?? false,
-                'departure_comment' => $departureStatus?->comment ?? '',
-                'is_temporary_member' => TemporaryMemberSession::get() === $profile->memberYearId,
-                // Keyed on the PERSISTENT member id, not the annual row:
-                // a note about a person outlives the scout year that saw
-                // it written.
-                'notes' => $this->memberNoteService->listForMember($profile->memberId),
-                'note_max_length' => MemberNoteService::MAX_LENGTH,
-                // The year the page is actually showing, which is the
-                // member's own latest — not necessarily the effective one.
-                'year_label' => $profile->scoutYearLabel,
-                'is_past_year' => $profile->scoutYearLabel !== $effective->label,
-                // « Année dans la branche » is an ANIMÉ's fact, and the
-                // write behind those buttons refuses anybody else
-                // (Core\Http\Controller\MemberController::
-                // updateScoutYearOffset()). Asked here with the same
-                // predicate rather than a second rule, so the card is
-                // never rendered where saving is guaranteed to fail — a
-                // staff member-year, an inactive row, or an animé of a
-                // section this account does not staff.
-                'can_edit_scout_year_offset' => $this->canEditScoutYearOffset($profile->memberYearId),
-            ]
-        ));
+        return $this->render(
+            'admin/members/show.html.twig',
+            array_merge(
+                $this->adminMemberPageService->buildPageData($profile, $effective->id),
+                [
+                    'member' => $profile,
+                    'breadcrumb_current' => trim($profile->lastName . ' ' . $profile->firstName),
+                    'effective_age' => $effectiveAge,
+                    'departure_leaving' => $departureStatus?->leaving ?? false,
+                    'departure_comment' => $departureStatus?->comment ?? '',
+                    'is_temporary_member' => TemporaryMemberSession::get() === $profile->memberYearId,
+                    // Keyed on the PERSISTENT member id, not the annual row:
+                    // a note about a person outlives the scout year that saw
+                    // it written.
+                    'notes' => $this->memberNoteService->listForMember($profile->memberId),
+                    'note_max_length' => MemberNoteService::MAX_LENGTH,
+                    // The year the page is actually showing, which is the
+                    // member's own latest — not necessarily the effective one.
+                    'year_label' => $profile->scoutYearLabel,
+                    'is_past_year' => $profile->scoutYearLabel !== $effective->label,
+                    // « Année dans la branche » is an ANIMÉ's fact, and the
+                    // write behind those buttons refuses anybody else
+                    // (Core\Http\Controller\MemberController::
+                    // updateScoutYearOffset()). Asked here with the same
+                    // predicate rather than a second rule, so the card is
+                    // never rendered where saving is guaranteed to fail — a
+                    // staff member-year, an inactive row, or an animé of a
+                    // section this account does not staff.
+                    'can_edit_scout_year_offset' => $this->canEditScoutYearOffset($profile->memberYearId),
+                ]
+            )
+        );
     }
 
     /**

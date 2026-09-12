@@ -111,10 +111,13 @@ class SectionDocumentRepository
         );
         $stmt->execute($params);
 
-        return array_map(fn(array $row) => [
-            'section_id' => (int) $row['section_id'],
-            'scout_year_id' => (int) $row['scout_year_id'],
-        ], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+        return array_map(
+            fn(array $row) => [
+                'section_id' => (int) $row['section_id'],
+                'scout_year_id' => (int) $row['scout_year_id'],
+            ],
+            $stmt->fetchAll(\PDO::FETCH_ASSOC)
+        );
     }
 
     public function create(

@@ -73,8 +73,11 @@ class CheckStableUpdateHandler implements TaskHandlerInterface
             $service->checkForNewRelease();
         } catch (\Throwable $e) {
             $context->journal->log(
-                'core', 'auto_update_check_failed', 'info',
-                'Échec de la vérification quotidienne des mises à jour', ['error' => $e->getMessage()]
+                'core',
+                'auto_update_check_failed',
+                'info',
+                'Échec de la vérification quotidienne des mises à jour',
+                ['error' => $e->getMessage()]
             );
         }
     }

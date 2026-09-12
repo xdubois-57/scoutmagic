@@ -59,8 +59,10 @@ class TemporaryMemberController extends AbstractController
      */
     public function add(Request $request, array $params): Response
     {
-        if (($guard = $this->guardCsrf($request,
-            SafeRedirect::internalPathFromUrl($request->getReferer() ?? '/admin/members'))) !== null) {
+        if (($guard = $this->guardCsrf(
+            $request,
+            SafeRedirect::internalPathFromUrl($request->getReferer() ?? '/admin/members')
+        )) !== null) {
             return $guard;
         }
 
@@ -164,8 +166,10 @@ class TemporaryMemberController extends AbstractController
      */
     public function remove(Request $request, array $params): Response
     {
-        if (($guard = $this->guardCsrf($request,
-            SafeRedirect::internalPathFromUrl($request->getReferer() ?? '/admin/members'))) !== null) {
+        if (($guard = $this->guardCsrf(
+            $request,
+            SafeRedirect::internalPathFromUrl($request->getReferer() ?? '/admin/members')
+        )) !== null) {
             return $guard;
         }
 

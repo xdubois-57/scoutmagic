@@ -566,8 +566,10 @@ class MemberService
             );
         }
 
-        usort($entries, static fn(MemberDirectoryEntry $a, MemberDirectoryEntry $b) =>
-            strcasecmp($a->label(), $b->label()));
+        usort(
+            $entries,
+            static fn(MemberDirectoryEntry $a, MemberDirectoryEntry $b) => strcasecmp($a->label(), $b->label())
+        );
 
         return $entries;
     }

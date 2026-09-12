@@ -84,9 +84,13 @@ class PasswordResetService
         }
 
         $this->journalService?->log(
-            'core', 'password_reset_requested', 'info', 'Demande de réinitialisation de mot de passe',
+            'core',
+            'password_reset_requested',
+            'info',
+            'Demande de réinitialisation de mot de passe',
             // See AuthService: the address is already event_log.ip_address.
-            [], null
+            [],
+            null
         );
     }
 
@@ -122,8 +126,12 @@ class PasswordResetService
         $this->userRepo->updatePasswordHash($user->id, password_hash($newPassword, PASSWORD_DEFAULT));
 
         $this->journalService?->log(
-            'core', 'password_reset_completed', 'security', 'Mot de passe réinitialisé via lien de réinitialisation',
-            [], $user->id
+            'core',
+            'password_reset_completed',
+            'security',
+            'Mot de passe réinitialisé via lien de réinitialisation',
+            [],
+            $user->id
         );
 
         return true;

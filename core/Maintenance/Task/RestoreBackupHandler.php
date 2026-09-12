@@ -226,8 +226,14 @@ class RestoreBackupHandler implements TaskHandlerInterface
 
                 return;
             } catch (\Throwable $restoreError) {
-                $this->rollbackToSafetyBackup($context, $backupService, (string) $safetyDbDump, (string) $safetyZip,
-                    $requestedBy, $restoreError);
+                $this->rollbackToSafetyBackup(
+                    $context,
+                    $backupService,
+                    (string) $safetyDbDump,
+                    (string) $safetyZip,
+                    $requestedBy,
+                    $restoreError
+                );
             }
         } catch (\Throwable $e) {
             $context->journal->log(

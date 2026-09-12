@@ -180,8 +180,10 @@ class SchedulerRunner
                 $this->repository->markDone((int) $task['id']);
                 $processed++;
                 $durationMs = (int) round((microtime(true) - $taskStart) * 1000);
-                RequestTimeline::mark('scheduler_task_done:' . $handlerKey,
-                    ['task_id' => $task['id'], 'duration_ms' => $durationMs]);
+                RequestTimeline::mark(
+                    'scheduler_task_done:' . $handlerKey,
+                    ['task_id' => $task['id'], 'duration_ms' => $durationMs]
+                );
 
                 $this->journal->log(
                     'core',
@@ -204,8 +206,10 @@ class SchedulerRunner
                     . 'événements (Configuration > Journal).'
                 ));
                 $durationMs = (int) round((microtime(true) - $taskStart) * 1000);
-                RequestTimeline::mark('scheduler_task_failed:' . $handlerKey,
-                    ['task_id' => $task['id'], 'duration_ms' => $durationMs]);
+                RequestTimeline::mark(
+                    'scheduler_task_failed:' . $handlerKey,
+                    ['task_id' => $task['id'], 'duration_ms' => $durationMs]
+                );
                 $this->journal->log(
                     'core',
                     'scheduler_task_failed',

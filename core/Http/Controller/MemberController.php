@@ -66,8 +66,13 @@ class MemberController extends AbstractController
         $isSelf = $this->memberService->canAccess($userEmail, $memberYearId, 'identified');
         $isChiefOrAbove = Role::fromString($userRole)->hasAccess(Role::CHIEF);
 
-        $pageData = $this->memberPageService->buildPageData($profile, $scoutYearId, $isSelf, $isChiefOrAbove,
-            Role::fromString($userRole));
+        $pageData = $this->memberPageService->buildPageData(
+            $profile,
+            $scoutYearId,
+            $isSelf,
+            $isChiefOrAbove,
+            Role::fromString($userRole)
+        );
 
         return $this->render('members/show.html.twig', array_merge($pageData, [
             'member' => $profile,
