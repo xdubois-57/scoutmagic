@@ -56,7 +56,11 @@ class PurgeRegistrationRequestsHandler implements TaskHandlerInterface
         }
 
         $schedulerService = new SchedulerService(new SchedulerRepository($pdo));
-        $schedulerService->rearmAfter('registration', 'purge_registration_requests', self::REFERENCE,
-            self::INTERVAL_SECONDS);
+        $schedulerService->rearmAfter(
+            'registration',
+            'purge_registration_requests',
+            self::REFERENCE,
+            self::INTERVAL_SECONDS
+        );
     }
 }

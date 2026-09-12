@@ -135,8 +135,11 @@ class PublicRegistrationController extends AbstractController
         if (!$availability['form_available']) {
             return $this->render(
                 '@registration/public.html.twig',
-                $this->buildPageContext('Les inscriptions ne sont pas ouvertes pour le moment.', $request->getBodyAll(),
-                    null)
+                $this->buildPageContext(
+                    'Les inscriptions ne sont pas ouvertes pour le moment.',
+                    $request->getBodyAll(),
+                    null
+                )
             )->setStatusCode(422);
         }
 
@@ -336,8 +339,11 @@ class PublicRegistrationController extends AbstractController
         }
 
         return [
-            'parcours_image_file_id' => (int) $this->settingService->get('registration_parcours_image_file_id',
-                'registration', '0'),
+            'parcours_image_file_id' => (int) $this->settingService->get(
+                'registration_parcours_image_file_id',
+                'registration',
+                '0'
+            ),
             'target_year_label' => $targetLabel,
             'birth_years_by_branch' => $this->slotService->birthYearsByBranch($targetLabel),
             'waitlist_enabled' => $waitlistEnabled,

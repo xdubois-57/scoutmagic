@@ -235,13 +235,16 @@ class ToolsController extends AbstractController
      */
     private function renderTools(array $context = []): Response
     {
-        return $this->render('@finance/tools.html.twig', $context + [
-            // The page picker in @finance/_nav.html.twig wants these; the
-            // account picker is suppressed because neither tool works on
-            // an account — the QR takes an arbitrary IBAN, and the checker
-            // searches every receivable the caller may see.
-            'accounts' => [],
-            'hide_account_picker' => true,
-        ]);
+        return $this->render(
+            '@finance/tools.html.twig',
+            $context + [
+                // The page picker in @finance/_nav.html.twig wants these; the
+                // account picker is suppressed because neither tool works on
+                // an account — the QR takes an arbitrary IBAN, and the checker
+                // searches every receivable the caller may see.
+                'accounts' => [],
+                'hide_account_picker' => true,
+            ]
+        );
     }
 }

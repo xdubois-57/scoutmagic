@@ -64,8 +64,11 @@ class RequestEmailService
         $this->repository->markAcceptedEmailSent($request->id);
 
         $this->journalService->log(
-            'registration', 'registration_accepted_email_sent', 'info',
-            "Email d'acceptation envoyé", ['request_id' => $request->id]
+            'registration',
+            'registration_accepted_email_sent',
+            'info',
+            "Email d'acceptation envoyé",
+            ['request_id' => $request->id]
         );
     }
 
@@ -82,8 +85,11 @@ class RequestEmailService
         $this->repository->markRefusedEmailSent($request->id);
 
         $this->journalService->log(
-            'registration', 'registration_refused_email_sent', 'info',
-            'Email de refus envoyé', ['request_id' => $request->id]
+            'registration',
+            'registration_refused_email_sent',
+            'info',
+            'Email de refus envoyé',
+            ['request_id' => $request->id]
         );
     }
 
@@ -124,8 +130,12 @@ class RequestEmailService
         ]);
 
         try {
-            $this->mailService->send(to: $request->email, subject: $subject, bodyHtml: $body,
-                bodyText: self::toPlainText($body));
+            $this->mailService->send(
+                to: $request->email,
+                subject: $subject,
+                bodyHtml: $body,
+                bodyText: self::toPlainText($body)
+            );
         } catch (MailException $e) {
             // Nothing was written: the previous tracking link still works and
             // *_email_sent_at is untouched, so retrying really is free. Worth

@@ -109,8 +109,11 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
             return;
         }
 
-        $fileStorage = new EncryptedFileStorageService(new FileRepository($pdo), $context->encryption,
-            $context->storagePath);
+        $fileStorage = new EncryptedFileStorageService(
+            new FileRepository($pdo),
+            $context->encryption,
+            $context->storagePath
+        );
 
         try {
             $content = $fileStorage->retrieve($attachment->fileId);
@@ -125,8 +128,11 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
 
         $parsed = null;
         if ($request === null) {
-            $this->logFailure($context, $attachmentId,
-                "PDF sans texte exploitable et impossible à convertir en image pour l'analyse.");
+            $this->logFailure(
+                $context,
+                $attachmentId,
+                "PDF sans texte exploitable et impossible à convertir en image pour l'analyse."
+            );
         } else {
             try {
                 $parsed = $llmConnector->complete($request)->parsed;
@@ -231,8 +237,11 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
             return new LlmRequest(
                 tier: LlmTier::CHEAP,
                 prompt: self::PROMPT . $this->filenameHint($originalFilename)
-                    . "\n\nVoici le texte extrait du document :\n\n" . mb_substr($text, 0,
-                        self::MAX_EXTRACTED_TEXT_CHARS),
+                    . "\n\nVoici le texte extrait du document :\n\n" . mb_substr(
+                        $text,
+                        0,
+                        self::MAX_EXTRACTED_TEXT_CHARS
+                    ),
                 responseSchema: self::RESPONSE_SCHEMA
             );
         }

@@ -294,8 +294,15 @@ class MassMailService
             }
         }
 
-        $result = $this->emailRepository->findFiltered($search, $status, $sectionId, $matchedDefaultListTypes,
-            $page, $visibleSectionIds, $ownAccountId);
+        $result = $this->emailRepository->findFiltered(
+            $search,
+            $status,
+            $sectionId,
+            $matchedDefaultListTypes,
+            $page,
+            $visibleSectionIds,
+            $ownAccountId
+        );
 
         return ['emails' => $result['emails'], 'total' => $result['total'], 'per_page' => EmailRepository::perPage()];
     }
@@ -368,12 +375,25 @@ class MassMailService
             $this->assertScoutYearsSelectable($scoutYearIds);
         }
 
-        $id = $this->emailRepository->create($subject, $bodyHtml, $sectionId, $listType, $listId, $listSectionId,
-            $scoutYearIds, $createdBy, $audienceId);
+        $id = $this->emailRepository->create(
+            $subject,
+            $bodyHtml,
+            $sectionId,
+            $listType,
+            $listId,
+            $listSectionId,
+            $scoutYearIds,
+            $createdBy,
+            $audienceId
+        );
 
         $this->journalService->log(
-            'mass_mail', 'email_created', 'info', 'Nouvel email de masse créé (brouillon)',
-            ['email_id' => $id], $createdBy
+            'mass_mail',
+            'email_created',
+            'info',
+            'Nouvel email de masse créé (brouillon)',
+            ['email_id' => $id],
+            $createdBy
         );
 
         $email = $this->emailRepository->findById($id);
@@ -439,8 +459,17 @@ class MassMailService
             }
         }
 
-        $this->emailRepository->update($id, $subject, $bodyHtml, $sectionId, $listType, $listId, $listSectionId,
-            $scoutYearIds, $audienceId);
+        $this->emailRepository->update(
+            $id,
+            $subject,
+            $bodyHtml,
+            $sectionId,
+            $listType,
+            $listId,
+            $listSectionId,
+            $scoutYearIds,
+            $audienceId
+        );
 
         $updated = $this->emailRepository->findById($id);
         \assert($updated !== null);
@@ -462,8 +491,12 @@ class MassMailService
         $this->emailRepository->updateStatus($id, Email::STATUS_TEST);
 
         $this->journalService->log(
-            'mass_mail', 'email_status_changed', 'info', 'Email de masse passé en mode test',
-            ['email_id' => $id, 'from' => Email::STATUS_DRAFT, 'to' => Email::STATUS_TEST], $actorId
+            'mass_mail',
+            'email_status_changed',
+            'info',
+            'Email de masse passé en mode test',
+            ['email_id' => $id, 'from' => Email::STATUS_DRAFT, 'to' => Email::STATUS_TEST],
+            $actorId
         );
 
         return $this->requireEmail($id);
@@ -484,8 +517,12 @@ class MassMailService
         $this->emailRepository->updateStatus($id, Email::STATUS_DRAFT);
 
         $this->journalService->log(
-            'mass_mail', 'email_status_changed', 'info', 'Email de masse revenu en brouillon',
-            ['email_id' => $id, 'from' => Email::STATUS_TEST, 'to' => Email::STATUS_DRAFT], $actorId
+            'mass_mail',
+            'email_status_changed',
+            'info',
+            'Email de masse revenu en brouillon',
+            ['email_id' => $id, 'from' => Email::STATUS_TEST, 'to' => Email::STATUS_DRAFT],
+            $actorId
         );
 
         return $this->requireEmail($id);
@@ -746,7 +783,10 @@ class MassMailService
     private function freezeListRecipients(Email $email): array
     {
         $members = $this->mailingListService->resolveMembersForYears(
-            $email->listType, $email->listId, $email->listSectionId, $this->orderYearsMostRecentFirst(
+            $email->listType,
+            $email->listId,
+            $email->listSectionId,
+            $this->orderYearsMostRecentFirst(
                 $email->scoutYearIds
             )
         );
@@ -802,8 +842,13 @@ class MassMailService
 
             foreach ($addresses as $memberEmail) {
                 $this->recipientRepository->create(
-                    $email->id, $member['member_id'], $member['scout_year_id'], $memberEmail->email,
-                    Recipient::STATUS_PENDING, null, $memberEmail->id
+                    $email->id,
+                    $member['member_id'],
+                    $member['scout_year_id'],
+                    $memberEmail->email,
+                    Recipient::STATUS_PENDING,
+                    null,
+                    $memberEmail->id
                 );
                 $writtenAddresses[mb_strtolower(trim($memberEmail->email))] = true;
                 $validCount++;
@@ -853,7 +898,12 @@ class MassMailService
     ): array {
         if (filter_var($address, FILTER_VALIDATE_EMAIL) === false) {
             $recipientId = $this->recipientRepository->create(
-                $email->id, null, null, $address, Recipient::STATUS_ERROR, 'Adresse invalide'
+                $email->id,
+                null,
+                null,
+                $address,
+                Recipient::STATUS_ERROR,
+                'Adresse invalide'
             );
             $this->journalRecipientNotSendable($email->id, $recipientId, null, 'Adresse invalide');
             return [$validCount, $invalidCount + 1];
@@ -861,8 +911,12 @@ class MassMailService
 
         if ($this->suppressedAddressRepository->isSuppressed($address)) {
             $recipientId = $this->recipientRepository->create(
-                $email->id, null, null, $address,
-                Recipient::STATUS_ERROR, 'Adresse désinscrite des emails groupés'
+                $email->id,
+                null,
+                null,
+                $address,
+                Recipient::STATUS_ERROR,
+                'Adresse désinscrite des emails groupés'
             );
             $this->journalRecipientNotSendable(
                 $email->id,
@@ -912,16 +966,24 @@ class MassMailService
         foreach ($rows as $row) {
             if ($row->memberId !== null) {
                 $profile = $mergeMembers[$row->memberId] ?? null;
-                $deskEmail = $profile !== null && $profile['email'] !== null && filter_var($profile['email'],
-                    FILTER_VALIDATE_EMAIL) !== false
+                $deskEmail = $profile !== null && $profile['email'] !== null && filter_var(
+                    $profile['email'],
+                    FILTER_VALIDATE_EMAIL
+                ) !== false
                     ? $profile['email']
                     : null;
                 $addresses = $this->memberEmailService->resolveValidAddressesForMassMail($row->memberId, $deskEmail);
 
                 if ($addresses === []) {
                     $recipientId = $this->recipientRepository->create(
-                        $email->id, $row->memberId, $profile['scout_year_id'] ?? null, null,
-                        Recipient::STATUS_ERROR, 'Adresse invalide', null, $row->id
+                        $email->id,
+                        $row->memberId,
+                        $profile['scout_year_id'] ?? null,
+                        null,
+                        Recipient::STATUS_ERROR,
+                        'Adresse invalide',
+                        null,
+                        $row->id
                     );
                     $this->journalRecipientNotSendable(
                         $email->id,
@@ -935,8 +997,14 @@ class MassMailService
 
                 foreach ($addresses as $memberEmail) {
                     $this->recipientRepository->create(
-                        $email->id, $row->memberId, $profile['scout_year_id'] ?? null, $memberEmail->email,
-                        Recipient::STATUS_PENDING, null, $memberEmail->id, $row->id
+                        $email->id,
+                        $row->memberId,
+                        $profile['scout_year_id'] ?? null,
+                        $memberEmail->email,
+                        Recipient::STATUS_PENDING,
+                        null,
+                        $memberEmail->id,
+                        $row->id
                     );
                     $validCount++;
                 }
@@ -946,8 +1014,14 @@ class MassMailService
             foreach ($this->splitRowAddresses($row) as $address) {
                 if ($this->suppressedAddressRepository->isSuppressed($address)) {
                     $recipientId = $this->recipientRepository->create(
-                        $email->id, null, null, $address,
-                        Recipient::STATUS_ERROR, 'Adresse désinscrite des emails groupés', null, $row->id
+                        $email->id,
+                        null,
+                        null,
+                        $address,
+                        Recipient::STATUS_ERROR,
+                        'Adresse désinscrite des emails groupés',
+                        null,
+                        $row->id
                     );
                     $this->journalRecipientNotSendable(
                         $email->id,
@@ -959,8 +1033,14 @@ class MassMailService
                     continue;
                 }
                 $this->recipientRepository->create(
-                    $email->id, null, null, $address,
-                    Recipient::STATUS_PENDING, null, null, $row->id
+                    $email->id,
+                    null,
+                    null,
+                    $address,
+                    Recipient::STATUS_PENDING,
+                    null,
+                    null,
+                    $row->id
                 );
                 $validCount++;
             }
@@ -1175,8 +1255,11 @@ class MassMailService
             return;
         }
 
-        $this->schedulerService->scheduleAfter(self::SCHEDULER_MODULE_ID, self::SCHEDULER_TASK_KEY,
-            $runImmediately ? 0 : 60);
+        $this->schedulerService->scheduleAfter(
+            self::SCHEDULER_MODULE_ID,
+            self::SCHEDULER_TASK_KEY,
+            $runImmediately ? 0 : 60
+        );
     }
 
     /**
@@ -1294,8 +1377,12 @@ class MassMailService
         SenderAuthorization $authorization
     ): void
     {
-        if (!MassMailAccessService::canUseList($authorization->isChefDUniteOrAbove,
-            $authorization->allowedListSectionIds, $listType, $listSectionId)) {
+        if (!MassMailAccessService::canUseList(
+            $authorization->isChefDUniteOrAbove,
+            $authorization->allowedListSectionIds,
+            $listType,
+            $listSectionId
+        )) {
             throw new MassMailException("Vous ne pouvez envoyer qu'à la liste de votre section ou à la liste des "
                 . "chefs — seul un chef d'unité peut cibler une autre liste.");
         }

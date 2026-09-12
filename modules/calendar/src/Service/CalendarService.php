@@ -175,10 +175,10 @@ class CalendarService implements
         return array_map(
             static fn(array $calendar): \Modules\Calendar\Api\SelectableCalendar =>
                 new \Modules\Calendar\Api\SelectableCalendar(
-                (int) $calendar['id'],
-                (string) $calendar['label'],
-                (bool) $calendar['is_section']
-            ),
+                    (int) $calendar['id'],
+                    (string) $calendar['label'],
+                    (bool) $calendar['is_section']
+                ),
             $this->listSelectableCalendars()
         );
     }
@@ -645,8 +645,11 @@ class CalendarService implements
         $isoWeekdayOfLast = (int) $lastOfMonth->format('N');
         $gridEnd = $lastOfMonth->modify('+' . (7 - $isoWeekdayOfLast) . ' days');
 
-        return $this->eventRepository->findByCalendarIdsInRange($calendarIds, $gridStart->format('Y-m-d'),
-            $gridEnd->format('Y-m-d'));
+        return $this->eventRepository->findByCalendarIdsInRange(
+            $calendarIds,
+            $gridStart->format('Y-m-d'),
+            $gridEnd->format('Y-m-d')
+        );
     }
 
     /**
@@ -711,8 +714,12 @@ class CalendarService implements
             if ($viewerRole !== null && $this->retroEventLinkLookup !== null) {
                 $data['auto-create-retro'] = $event->autoCreateRetro ? '1' : '0';
                 $data['has-linked-retro'] = $this->retroEventLinkLookup->hasLinkedBoard($event->id) ? '1' : '0';
-                $link = $this->retroEventLinkLookup->findLinkedBoardLink($event->id, $viewerRole, $viewerEmail,
-                    $scoutYearId);
+                $link = $this->retroEventLinkLookup->findLinkedBoardLink(
+                    $event->id,
+                    $viewerRole,
+                    $viewerEmail,
+                    $scoutYearId
+                );
                 $data['retro-link'] = $link?->url ?? '';
                 $data['retro-link-title'] = $link?->title ?? '';
             }

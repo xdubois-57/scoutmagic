@@ -225,8 +225,10 @@ class EmailRepository
         $scoutYearsByEmailId = $this->getScoutYearIdsForEmails($emailIds);
 
         return [
-            'emails' => array_map(fn(array $row) => $this->hydrate($row, $scoutYearsByEmailId[(int) $row['id']] ?? []),
-                $rows),
+            'emails' => array_map(
+                fn(array $row) => $this->hydrate($row, $scoutYearsByEmailId[(int) $row['id']] ?? []),
+                $rows
+            ),
             'total' => $total,
         ];
     }

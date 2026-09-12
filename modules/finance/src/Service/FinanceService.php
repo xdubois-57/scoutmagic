@@ -299,9 +299,17 @@ class FinanceService
             // finds them by name and seeds rules for them, exactly once.
             $this->seedDefaultCategoryRules();
 
-            $this->settingService->register(self::SEEDED_SETTING_KEY, '0', 'boolean',
-                'Catégories par défaut initialisées', 'Indicateur interne — ne pas modifier.', 'finance', null, null,
-                false);
+            $this->settingService->register(
+                self::SEEDED_SETTING_KEY,
+                '0',
+                'boolean',
+                'Catégories par défaut initialisées',
+                'Indicateur interne — ne pas modifier.',
+                'finance',
+                null,
+                null,
+                false
+            );
             $this->settingService->setInternal(self::SEEDED_SETTING_KEY, '1', 'finance');
         }
 
@@ -365,8 +373,10 @@ class FinanceService
             fn(CategoryRule $rule) => !$rule->isSystem
         ));
 
-        usort($nonSystemRules,
-            fn(CategoryRule $a, CategoryRule $b) => ($b->isDefault ? 1 : 0) <=> ($a->isDefault ? 1 : 0));
+        usort(
+            $nonSystemRules,
+            fn(CategoryRule $a, CategoryRule $b) => ($b->isDefault ? 1 : 0) <=> ($a->isDefault ? 1 : 0)
+        );
 
         $this->categoryRuleRepository->reorder(array_map(fn(CategoryRule $rule) => $rule->id, $nonSystemRules));
     }
@@ -385,8 +395,10 @@ class FinanceService
      */
     public function resetDefaultCategories(): void
     {
-        $existingNames = array_map(fn(Category $category) => $category->name,
-            $this->categoryRepository->findAllOrdered());
+        $existingNames = array_map(
+            fn(Category $category) => $category->name,
+            $this->categoryRepository->findAllOrdered()
+        );
 
         $recreatedNames = [];
         foreach (self::DEFAULT_CATEGORY_DESCRIPTIONS as $name => $description) {
@@ -425,8 +437,15 @@ class FinanceService
 
             foreach ($patterns as $pattern) {
                 $priority = count($this->categoryRuleRepository->findAllOrderedByPriority());
-                $this->categoryRuleRepository->create($category->id, $priority, $pattern, null, null, isSystem: false,
-                    isDefault: true);
+                $this->categoryRuleRepository->create(
+                    $category->id,
+                    $priority,
+                    $pattern,
+                    null,
+                    null,
+                    isSystem: false,
+                    isDefault: true
+                );
             }
         }
     }

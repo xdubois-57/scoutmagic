@@ -281,8 +281,11 @@ class RentalCommunicationService
         }
 
         $target = $this->bookingRepository->findById($targetBookingId);
-        if ($target === null || !$this->authorizationService->canManageAssetId($actorEmail, $scoutYearId,
-            $target->assetId)) {
+        if ($target === null || !$this->authorizationService->canManageAssetId(
+            $actorEmail,
+            $scoutYearId,
+            $target->assetId
+        )) {
             // Deliberately the same answer for "no such booking" and "not
             // yours": otherwise this is an oracle for which bookings exist.
             throw new RentalException("Cette réservation n'est pas accessible.");

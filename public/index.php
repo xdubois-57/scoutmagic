@@ -477,12 +477,15 @@ if ($migrationIsPending) {
             $migrationJournal
         );
         $stepResult = $stepRunner->migrate($schemaFiles);
-        \Core\Debug\RequestTimeline::mark('migration_step_done', [
-            'complete' => $stepResult->complete,
-            'progress' => $stepResult->progressFraction,
-            'executed_statements' => count($stepResult->executedStatements),
-            'warnings' => count($stepResult->warnings),
-        ]);
+        \Core\Debug\RequestTimeline::mark(
+            'migration_step_done',
+            [
+                'complete' => $stepResult->complete,
+                'progress' => $stepResult->progressFraction,
+                'executed_statements' => count($stepResult->executedStatements),
+                'warnings' => count($stepResult->warnings),
+            ]
+        );
 
         header('Content-Type: application/json; charset=utf-8');
         echo json_encode([
@@ -621,85 +624,279 @@ if (!empty($secrets['admin_email'])) {
 $settingRepo = new SettingRepository($pdo);
 $settingService = new SettingService($settingRepo);
 
-$settingService->register('site_name', $siteName, 'text', 'Nom de l\'unité',
-    'Nom complet de l\'unité, affiché dans le header et le titre du site.');
-$settingService->register('short_name', '', 'text', 'Nom court',
+$settingService->register(
+    'site_name',
+    $siteName,
+    'text',
+    'Nom de l\'unité',
+    'Nom complet de l\'unité, affiché dans le header et le titre du site.'
+);
+$settingService->register(
+    'short_name',
+    '',
+    'text',
+    'Nom court',
     'Identifiant court (5 caractères maximum), utilisé comme préfixe du sujet de tous les emails, par exemple [25SV].',
-    null, '^[A-Za-z0-9]{0,5}$', null, true, 20);
-$settingService->register('base_url', '', 'url', 'URL de base',
+    null,
+    '^[A-Za-z0-9]{0,5}$',
+    null,
+    true,
+    20
+);
+$settingService->register(
+    'base_url',
+    '',
+    'url',
+    'URL de base',
     'Adresse complète du site (ex. https://www.unite-exemple.be). Utilisée pour générer les liens dans les emails.',
-    null, null, null, true, 30);
-$settingService->register('mail_from_address', '', 'email', 'Email d\'expédition',
+    null,
+    null,
+    null,
+    true,
+    30
+);
+$settingService->register(
+    'mail_from_address',
+    '',
+    'email',
+    'Email d\'expédition',
     'Adresse email affichée comme expéditeur pour tous les emails envoyés par le site.',
-    null, null, null, true, 40);
-$settingService->register('mail_from_name', '', 'text', 'Nom d\'expédition',
+    null,
+    null,
+    null,
+    true,
+    40
+);
+$settingService->register(
+    'mail_from_name',
+    '',
+    'text',
+    'Nom d\'expédition',
     'Nom affiché comme expéditeur, en complément de l\'adresse email.',
-    null, null, null, true, 50);
-$settingService->register('dkim_selector', 's2026', 'text', 'Sélecteur DKIM',
+    null,
+    null,
+    null,
+    true,
+    50
+);
+$settingService->register(
+    'dkim_selector',
+    's2026',
+    'text',
+    'Sélecteur DKIM',
     'Identifiant technique de la clé DKIM, présent dans l\'enregistrement DNS correspondant.',
-    null, '^[a-z0-9]+$', null, true, 60);
-$settingService->register('dmarc_report_email', '', 'email', 'Email rapports DMARC',
+    null,
+    '^[a-z0-9]+$',
+    null,
+    true,
+    60
+);
+$settingService->register(
+    'dmarc_report_email',
+    '',
+    'email',
+    'Email rapports DMARC',
     'Adresse à laquelle les fournisseurs de messagerie envoient un résumé périodique des emails reçus au nom du '
         . 'domaine.',
-    null, null, null, true, 70);
-$settingService->register('contact_email', '', 'email', 'Email de contact',
+    null,
+    null,
+    null,
+    true,
+    70
+);
+$settingService->register(
+    'contact_email',
+    '',
+    'email',
+    'Email de contact',
     'Adresse email affichée sur la page Contact.',
-    null, null, null, true, 80);
-$settingService->register('site_version', '0.0.0', 'text', 'Version du site',
+    null,
+    null,
+    null,
+    true,
+    80
+);
+$settingService->register(
+    'site_version',
+    '0.0.0',
+    'text',
+    'Version du site',
     'Version actuelle du site. Mise à jour automatiquement lors des releases.',
-    null, null, null, false, 90);
-$settingService->register('journal_retention_days', '730', 'number', 'Rétention du journal (jours)',
+    null,
+    null,
+    null,
+    false,
+    90
+);
+$settingService->register(
+    'journal_retention_days',
+    '730',
+    'number',
+    'Rétention du journal (jours)',
     'Durée de conservation des entrées du journal d\'événements. Les entrées plus anciennes sont automatiquement '
         . 'supprimées.',
-    null, '^[1-9][0-9]*$', null, true, 100);
-$settingService->register('update_github_owner', 'xdubois-57', 'text', 'Propriétaire du dépôt GitHub (mises à jour)',
+    null,
+    '^[1-9][0-9]*$',
+    null,
+    true,
+    100
+);
+$settingService->register(
+    'update_github_owner',
+    'xdubois-57',
+    'text',
+    'Propriétaire du dépôt GitHub (mises à jour)',
     'Compte/organisation GitHub du dépôt publiant les releases de mise à jour. À modifier uniquement si l\'unité '
         . 'utilise son propre fork.',
-    null, null, null, true, 110);
-$settingService->register('update_github_repo', 'scoutmagic', 'text', 'Dépôt GitHub (mises à jour)',
+    null,
+    null,
+    null,
+    true,
+    110
+);
+$settingService->register(
+    'update_github_repo',
+    'scoutmagic',
+    'text',
+    'Dépôt GitHub (mises à jour)',
     'Nom du dépôt GitHub publiant les releases de mise à jour.',
-    null, null, null, true, 111);
-$settingService->register('update_latest_version', '', 'text', 'Dernière version connue',
+    null,
+    null,
+    null,
+    true,
+    111
+);
+$settingService->register(
+    'update_latest_version',
+    '',
+    'text',
+    'Dernière version connue',
     'Version publiée la plus récente trouvée lors de la dernière vérification. Géré automatiquement.',
-    null, null, null, false, 112);
-$settingService->register('update_checked_at', '', 'text', 'Dernière vérification de mise à jour',
+    null,
+    null,
+    null,
+    false,
+    112
+);
+$settingService->register(
+    'update_checked_at',
+    '',
+    'text',
+    'Dernière vérification de mise à jour',
     'Horodatage de la dernière vérification de mise à jour effectuée. Géré automatiquement.',
-    null, null, null, false, 113);
-$settingService->register('update_release_notes', '', 'textarea', 'Notes de version (dernière release)',
+    null,
+    null,
+    null,
+    false,
+    113
+);
+$settingService->register(
+    'update_release_notes',
+    '',
+    'textarea',
+    'Notes de version (dernière release)',
     'Contenu des notes de version de la dernière release GitHub connue. Géré automatiquement.',
-    null, null, null, false, 114);
-$settingService->register('update_release_html_url', '', 'url', 'URL des notes de version',
+    null,
+    null,
+    null,
+    false,
+    114
+);
+$settingService->register(
+    'update_release_html_url',
+    '',
+    'url',
+    'URL des notes de version',
     'Lien vers la page GitHub de la dernière release connue. Géré automatiquement.',
-    null, null, null, false, 115);
-$settingService->register('update_download_url', '', 'url', 'URL de téléchargement de la mise à jour',
+    null,
+    null,
+    null,
+    false,
+    115
+);
+$settingService->register(
+    'update_download_url',
+    '',
+    'url',
+    'URL de téléchargement de la mise à jour',
     'Lien vers l\'archive de la dernière release connue. Géré automatiquement.',
-    null, null, null, false, 116);
-$settingService->register('update_dependencies_changed', '0', 'boolean', 'Dépendances modifiées (dernière release)',
+    null,
+    null,
+    null,
+    false,
+    116
+);
+$settingService->register(
+    'update_dependencies_changed',
+    '0',
+    'boolean',
+    'Dépendances modifiées (dernière release)',
     'Indique si composer.lock a changé entre la version installée et la dernière release connue. Géré automatiquement.',
-    null, null, null, false, 117);
-$settingService->register('installed_version_notes', '', 'textarea', 'Notes de version (version installée)',
+    null,
+    null,
+    null,
+    false,
+    117
+);
+$settingService->register(
+    'installed_version_notes',
+    '',
+    'textarea',
+    'Notes de version (version installée)',
     'Notes de version (ou message de commit en mode développement) de la version actuellement installée. Mis en '
         . 'cache et rafraîchi automatiquement lorsque la version installée change. Géré automatiquement.',
-    null, null, null, false, 999);
-$settingService->register('installed_version_notes_url', '', 'url', 'URL des notes de version (version installée)',
+    null,
+    null,
+    null,
+    false,
+    999
+);
+$settingService->register(
+    'installed_version_notes_url',
+    '',
+    'url',
+    'URL des notes de version (version installée)',
     'Lien vers la page GitHub (release ou commit) correspondant à la version installée. Géré automatiquement.',
-    null, null, null, false, 999);
-$settingService->register('installed_version_notes_for', '', 'text', 'Version des notes ci-dessus',
+    null,
+    null,
+    null,
+    false,
+    999
+);
+$settingService->register(
+    'installed_version_notes_for',
+    '',
+    'text',
+    'Version des notes ci-dessus',
     'Version pour laquelle installed_version_notes a été mis en cache — sert uniquement à détecter qu\'un '
         . 'rafraîchissement est nécessaire après une mise à jour. Géré automatiquement.',
-    null, null, null, false, 999);
+    null,
+    null,
+    null,
+    false,
+    999
+);
 // The declared hosting quota (Core\Storage\DiskBudget). Empty by default
 // and deliberately so: nothing can guess it, and a wrong guess is worse
 // than none. Without it the site can only measure the hosting VOLUME,
 // which on shared hosting is shared with every other account and says far
 // less than it looks like it says.
-$settingService->register('storage_quota_bytes', '', 'text', 'Quota disque déclaré',
+$settingService->register(
+    'storage_quota_bytes',
+    '',
+    'text',
+    'Quota disque déclaré',
     'Espace disque que votre hébergeur vous accorde, tel qu\'il figure sur votre contrat — par exemple '
         . '« 10 Go » ou « 500 Mo ». Laissez vide si vous ne le connaissez pas : le site mesurera alors le '
         . 'volume de l\'hébergeur, qui est partagé et bien plus grand que votre part. Sert à calculer '
         . 'l\'occupation affichée dans Configuration > Maintenance et à refuser proprement une écriture '
         . 'qui ne tiendrait pas.',
-    null, '/^\s*$|^\s*[0-9]+([.,][0-9]+)?\s*(o|Ko|Mo|Go|To|Po)?\s*$/i', null, true, 117);
+    null,
+    '/^\s*$|^\s*[0-9]+([.,][0-9]+)?\s*(o|Ko|Mo|Go|To|Po)?\s*$/i',
+    null,
+    true,
+    117
+);
 // 'weekly', not 'monthly'. The recovery objective
 // (docs/exigences-non-fonctionnelles.md §3) accepts losing at most one
 // week of the unit's work, and a monthly default authorises four times
@@ -711,13 +908,31 @@ $settingService->register('storage_quota_bytes', '', 'text', 'Quota disque décl
 // SettingService::register() self-heals the default_value column of rows
 // that already exist, so an installation that never chose a frequency
 // picks this up; one that explicitly chose monthly keeps its choice.
-$settingService->register('backup_auto_frequency', 'weekly', 'select', 'Fréquence des sauvegardes automatiques',
+$settingService->register(
+    'backup_auto_frequency',
+    'weekly',
+    'select',
+    'Fréquence des sauvegardes automatiques',
     'Fréquence à laquelle une sauvegarde complète du site (base de données et fichiers, sans la galerie photo) '
         . 'est générée automatiquement en arrière-plan. « Aucune » désactive la sauvegarde automatique.',
-    null, null, ['none', 'daily', 'weekly', 'biweekly', 'monthly'], true, 118);
-$settingService->register('backup_auto_last_run', '', 'text', 'Dernière sauvegarde automatique',
+    null,
+    null,
+    ['none', 'daily', 'weekly', 'biweekly', 'monthly'],
+    true,
+    118
+);
+$settingService->register(
+    'backup_auto_last_run',
+    '',
+    'text',
+    'Dernière sauvegarde automatique',
     'Horodatage de la dernière sauvegarde automatique effectuée avec succès. Géré automatiquement.',
-    null, null, null, false, 119);
+    null,
+    null,
+    null,
+    false,
+    119
+);
 // One quota per family rather than one for everything (D3 of the
 // « Exigences opérationnelles » chantier, ARCHITECTURE.md §8.100). A single
 // list of five, oldest evicted first, let three consecutive updates delete
@@ -780,41 +995,140 @@ $settingService->register(
 // explainer / webhook status block this feature needs. auto_update_level's
 // 'dev' option folds what used to be a separate danger-zone "Mode
 // développement" toggle into this same radio group.
-$settingService->register('auto_update_enabled', '1', 'boolean', 'Mises à jour automatiques activées',
+$settingService->register(
+    'auto_update_enabled',
+    '1',
+    'boolean',
+    'Mises à jour automatiques activées',
     'Active l\'installation automatique des mises à jour selon les préférences ci-dessous.',
-    null, null, null, true, 120);
-$settingService->register('auto_update_level', 'minor', 'select', 'Niveau de version autorisé',
+    null,
+    null,
+    null,
+    true,
+    120
+);
+$settingService->register(
+    'auto_update_level',
+    'minor',
+    'select',
+    'Niveau de version autorisé',
     'Types de versions installés automatiquement (patch, mineure, majeure, développement).',
-    null, null, ['patch', 'minor', 'major', 'dev'], true, 121);
-$settingService->register('auto_update_day', 'monday', 'select', 'Jour d\'installation automatique',
+    null,
+    null,
+    ['patch', 'minor', 'major', 'dev'],
+    true,
+    121
+);
+$settingService->register(
+    'auto_update_day',
+    'monday',
+    'select',
+    'Jour d\'installation automatique',
     'Jour de la semaine auquel une mise à jour disponible est installée automatiquement.',
-    null, null, ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'], true, 122);
-$settingService->register('auto_update_time', '03:00', 'text', 'Heure d\'installation automatique',
+    null,
+    null,
+    ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'],
+    true,
+    122
+);
+$settingService->register(
+    'auto_update_time',
+    '03:00',
+    'text',
+    'Heure d\'installation automatique',
     'Heure (HH:MM) à laquelle une mise à jour disponible est installée automatiquement.',
-    null, '^([01]\d|2[0-3]):[0-5]\d$', null, true, 123);
-$settingService->register('dev_update_branch', 'main', 'text', 'Branche de développement',
+    null,
+    '^([01]\d|2[0-3]):[0-5]\d$',
+    null,
+    true,
+    123
+);
+$settingService->register(
+    'dev_update_branch',
+    'main',
+    'text',
+    'Branche de développement',
     'Branche GitHub surveillée pour l\'installation immédiate en mode développement.',
-    null, null, null, true, 125);
-$settingService->register('auto_update_last_push_at', '', 'text', 'Dernière poussée GitHub traitée',
+    null,
+    null,
+    null,
+    true,
+    125
+);
+$settingService->register(
+    'auto_update_last_push_at',
+    '',
+    'text',
+    'Dernière poussée GitHub traitée',
     'Horodatage de la dernière poussée GitHub reçue et effectivement examinée par le webhook. Géré automatiquement.',
-    null, null, null, false, 126);
-$settingService->register('auto_update_last_push_result', '', 'text', 'Résultat de la dernière poussée',
+    null,
+    null,
+    null,
+    false,
+    126
+);
+$settingService->register(
+    'auto_update_last_push_result',
+    '',
+    'text',
+    'Résultat de la dernière poussée',
     'Ce que le webhook a fait de cette poussée : « ok » si l\'installation a été programmée, sinon la raison du '
         . 'rejet. Géré automatiquement.',
-    null, null, null, false, 127);
-$settingService->register('current_scout_year_id', '0', 'number', 'Année scoute publique (ID)',
+    null,
+    null,
+    null,
+    false,
+    127
+);
+$settingService->register(
+    'current_scout_year_id',
+    '0',
+    'number',
+    'Année scoute publique (ID)',
     'Identifiant de l\'année scoute vue par tout le monde. Gérée depuis la page « Année scoute ».',
-    null, '^[0-9]+$', null, false, 210);
-$settingService->register('staff_scout_year_id', '0', 'number', 'Année scoute du staff (ID)',
+    null,
+    '^[0-9]+$',
+    null,
+    false,
+    210
+);
+$settingService->register(
+    'staff_scout_year_id',
+    '0',
+    'number',
+    'Année scoute du staff (ID)',
     'Identifiant de l\'année scoute vue par les chefs et intendants. 0 si aucune. Gérée depuis la page « Année '
         . 'scoute ».',
-    null, '^[0-9]+$', null, false, 220);
-$settingService->register('rgpd_generation_mode', 'default', 'select', 'Mode de génération RGPD',
+    null,
+    '^[0-9]+$',
+    null,
+    false,
+    220
+);
+$settingService->register(
+    'rgpd_generation_mode',
+    'default',
+    'select',
+    'Mode de génération RGPD',
     'Mode de génération du contenu de la page RGPD publique.',
-    null, null, ['default', 'custom', 'ai'], false, 230);
-$settingService->register('rgpd_custom_prompt', '', 'textarea', 'Prompt RGPD personnalisé',
+    null,
+    null,
+    ['default', 'custom', 'ai'],
+    false,
+    230
+);
+$settingService->register(
+    'rgpd_custom_prompt',
+    '',
+    'textarea',
+    'Prompt RGPD personnalisé',
     'Instructions pour la génération IA du contenu RGPD.',
-    null, null, null, false, 240);
+    null,
+    null,
+    null,
+    false,
+    240
+);
 // Section documents (Core\Member\SectionDocumentOwnershipChecker /
 // SectionMembershipRepository::hasPeriodCovering()) — the calendar date
 // within a scout year used to decide "who was active in which section
@@ -824,10 +1138,18 @@ $settingService->register('rgpd_custom_prompt', '', 'textarea', 'Prompt RGPD per
 // with a scout year's start calendar year, e.g. default '30-09' + 2025 =
 // 2025-09-30.
 $settingService->register(
-    'section_document_reference_date', '30-09', 'text', 'Date de référence — documents de section',
+    'section_document_reference_date',
+    '30-09',
+    'text',
+    'Date de référence — documents de section',
     'Jour et mois (JJ-MM) utilisés pour déterminer qui était actif dans quelle section une année scoute donnée, '
         . 'pour l\'accès aux documents de section.',
-    null, '^(0[1-9]|[12]\d|3[01])-(0[1-9]|1[0-2])$', null, true, 250);
+    null,
+    '^(0[1-9]|[12]\d|3[01])-(0[1-9]|1[0-2])$',
+    null,
+    true,
+    250
+);
 // Scout year transition (Core\ScoutYear\ScoutYearTransitionService) — the
 // day the "Année scoute" page starts presenting the Desk encoding phase as
 // the current one. A signpost and nothing else: it labels the phases and
@@ -835,35 +1157,73 @@ $settingService->register(
 // triggers anything. specifications.md §16.4 removed date-driven
 // transitions deliberately (a computed date cannot be told "not yet" by
 // the registration veto), and this parameter does not bring them back.
-$settingService->register('scout_year_desk_encoding_date', '08-15', 'text', 'Bascule vers l\'encodage dans Desk',
+$settingService->register(
+    'scout_year_desk_encoding_date',
+    '08-15',
+    'text',
+    'Bascule vers l\'encodage dans Desk',
     'Jour et mois (MM-JJ) à partir desquels la page « Année scoute » présente l\'encodage dans Desk comme la '
         . 'période en cours — jamais d\'année à indiquer, la même configuration se répète d\'une année scoute à '
         . 'l\'autre. Purement indicatif : cette date n\'active, ne bloque et ne déclenche jamais rien.',
-    null, '^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$', null, true, 252);
+    null,
+    '^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$',
+    null,
+    true,
+    252
+);
 $settingService->register(
-    'section_document_compression_enabled', '1', 'boolean', 'Compression des documents PDF de section',
+    'section_document_compression_enabled',
+    '1',
+    'boolean',
+    'Compression des documents PDF de section',
     'Compresse automatiquement les documents PDF de section en arrière-plan après leur ajout, si un outil de '
         . 'compression est disponible sur le serveur.',
-    null, null, null, true, 251);
+    null,
+    null,
+    null,
+    true,
+    251
+);
 $settingService->register(
-    'section_document_compression_quality', \Core\Pdf\PdfCompressor::QUALITY_BALANCED, 'select',
+    'section_document_compression_quality',
+    \Core\Pdf\PdfCompressor::QUALITY_BALANCED,
+    'select',
     'Qualité de compression — documents de section',
     'Niveau de compression appliqué aux documents PDF de section.',
-    null, null, [
+    null,
+    null,
+    [
         \Core\Pdf\PdfCompressor::QUALITY_MIN_SIZE, \Core\Pdf\PdfCompressor::QUALITY_BALANCED,
-        \Core\Pdf\PdfCompressor::QUALITY_HIGH], true, 252,
-    );
+        \Core\Pdf\PdfCompressor::QUALITY_HIGH],
+    true,
+    252,
+);
 $settingService->register(
-    'section_document_compression_backend', \Core\Pdf\PdfCompressor::BACKEND_NONE, 'text',
+    'section_document_compression_backend',
+    \Core\Pdf\PdfCompressor::BACKEND_NONE,
+    'text',
     'Outil de compression PDF détecté',
     'Outil de compression PDF détecté automatiquement sur le serveur (ghostscript, qpdf, pdftocairo, ou none). '
         . 'Lecture seule — mis à jour automatiquement.',
-    null, null, null, false, 253);
+    null,
+    null,
+    null,
+    false,
+    253
+);
 $settingService->register(
-    'section_document_oversize_warning_mb', '5', 'number', 'Seuil d\'avertissement — gros document de section',
+    'section_document_oversize_warning_mb',
+    '5',
+    'number',
+    'Seuil d\'avertissement — gros document de section',
     'Taille (Mo) à partir de laquelle un avertissement s\'affiche avant l\'ajout d\'un document, uniquement '
         . 'lorsqu\'aucun outil de compression n\'est disponible sur le serveur.',
-    null, '^[1-9][0-9]*$', null, true, 254);
+    null,
+    '^[1-9][0-9]*$',
+    null,
+    true,
+    254
+);
 // Installable PWA (Lot 1) — theme_color/background_color feed both the
 // manifest and the maskable/icon-180 icons' own opaque backdrop
 // (Core\Photo\UnitLogoProcessor::flattenOpaque()), so a re-uploaded logo
@@ -871,77 +1231,181 @@ $settingService->register(
 // color (ARCHITECTURE §1). background_color changes also trigger
 // Core\Photo\UnitLogoService::rederiveFromSource() from SettingsController
 // — those two icons are re-baked immediately, not just future uploads.
-$settingService->register('pwa_theme_color', '#0d6efd', 'color', 'Couleur du thème (PWA)',
+$settingService->register(
+    'pwa_theme_color',
+    '#0d6efd',
+    'color',
+    'Couleur du thème (PWA)',
     'Couleur de la barre d\'état/du thème lorsque le site est installé comme application.',
-    null, null, null, true, 255);
-$settingService->register('pwa_background_color', '#ffffff', 'color', 'Couleur de fond (PWA)',
+    null,
+    null,
+    null,
+    true,
+    255
+);
+$settingService->register(
+    'pwa_background_color',
+    '#ffffff',
+    'color',
+    'Couleur de fond (PWA)',
     'Couleur de fond affichée pendant le chargement de l\'application installée, et derrière l\'icône adaptative '
         . '(maskable).',
-    null, null, null, true, 256);
-$settingService->register('pwa_icon_version', '1', 'number', 'Version de l\'icône PWA',
+    null,
+    null,
+    null,
+    true,
+    256
+);
+$settingService->register(
+    'pwa_icon_version',
+    '1',
+    'number',
+    'Version de l\'icône PWA',
     'Incrémentée automatiquement à chaque nouvel envoi de logo — sert à invalider le cache navigateur/OS de '
         . 'l\'icône. Lecture seule.',
-    null, null, null, false, 257);
+    null,
+    null,
+    null,
+    false,
+    257
+);
 
 // Notification centre (Lot 2) — global defaults, overridable per account
 // for quiet hours (Core\Security\UserAccountRepository::
 // updateNotificationSettings()) via "Mon compte".
-$settingService->register('notifications_quiet_hours_start', '22:00', 'text', 'Heures calmes — début',
+$settingService->register(
+    'notifications_quiet_hours_start',
+    '22:00',
+    'text',
+    'Heures calmes — début',
     'Heure à partir de laquelle une notification push est retardée jusqu\'à la fin de la période calme (format '
         . 'HH:MM). Chaque membre peut définir ses propres heures dans "Mon compte".',
-    null, '^([01]\d|2[0-3]):[0-5]\d$', null, true, 258);
-$settingService->register('notifications_quiet_hours_end', '07:00', 'text', 'Heures calmes — fin',
+    null,
+    '^([01]\d|2[0-3]):[0-5]\d$',
+    null,
+    true,
+    258
+);
+$settingService->register(
+    'notifications_quiet_hours_end',
+    '07:00',
+    'text',
+    'Heures calmes — fin',
     'Heure à laquelle les notifications push retardées par la période calme sont envoyées (format HH:MM).',
-    null, '^([01]\d|2[0-3]):[0-5]\d$', null, true, 259);
-$settingService->register('notifications_retention_days', '90', 'number', 'Conservation des notifications (jours)',
+    null,
+    '^([01]\d|2[0-3]):[0-5]\d$',
+    null,
+    true,
+    259
+);
+$settingService->register(
+    'notifications_retention_days',
+    '90',
+    'number',
+    'Conservation des notifications (jours)',
     'Une notification lue est supprimée automatiquement après ce délai. Une notification non lue n\'est jamais '
         . 'supprimée.',
-    null, null, null, true, 260);
+    null,
+    null,
+    null,
+    true,
+    260
+);
 
 // Desk import retention, in scout years (Core\Import\ImportRetentionService,
 // SECURITY.md §13). In seasons rather than in a number of imports on
 // purpose: `fees` needs November's roster snapshot for the deposit invoice
 // and February's for the settlement, and a count would quietly drop
 // November after half a dozen ordinary re-imports.
-$settingService->register(\Core\Import\ImportRetentionService::SETTING_KEY,
-    (string) \Core\Import\ImportRetentionService::DEFAULT_YEARS, 'number',
+$settingService->register(
+    \Core\Import\ImportRetentionService::SETTING_KEY,
+    (string) \Core\Import\ImportRetentionService::DEFAULT_YEARS,
+    'number',
     'Conservation des imports Desk (années scoutes)',
     'Nombre d\'années scoutes pendant lesquelles un import Desk est conservé — sa ligne, son fichier CSV chiffré '
         . 'et l\'instantané du roster qu\'il a figé. La valeur 2 conserve l\'année en cours et la précédente. Au-delà, '
         . 'la saison entière est supprimée définitivement.',
-    null, null, null, true, 261);
+    null,
+    null,
+    null,
+    true,
+    261
+);
 
 // Offline content caching (Lot 3) — how old a cached copy of a
 // whitelisted page (Core\Offline\OfflineWhitelist) may be before the
 // service worker refuses to serve it and falls back to the offline page
 // instead. Passed to public/sw.js via postMessage — never hardcoded
 // there (see base.html.twig).
-$settingService->register('offline_cache_staleness_days', '30', 'number', 'Péremption du contenu hors ligne (jours)',
+$settingService->register(
+    'offline_cache_staleness_days',
+    '30',
+    'number',
+    'Péremption du contenu hors ligne (jours)',
     'Au-delà de ce délai, une page mise en cache pour la consultation hors ligne n\'est plus affichée — la page '
         . 'hors ligne générique est montrée à la place plutôt qu\'un contenu obsolète.',
-    null, null, null, true, 261);
+    null,
+    null,
+    null,
+    true,
+    261
+);
 
 // Core\Security\HumanCheck — generic anti-bot protection for public forms
 // submitted by a non-identified session (ARCHITECTURE.md §8). Applies to
 // every integration point (magic-link request, news module public form
 // responses, and any future module reusing the component) at once.
-$settingService->register('human_check_min_delay_seconds', '3', 'number', 'Délai minimum avant soumission (secondes)',
+$settingService->register(
+    'human_check_min_delay_seconds',
+    '3',
+    'number',
+    'Délai minimum avant soumission (secondes)',
     'Une soumission de formulaire public reçue moins de X secondes après son affichage est rejetée (probable '
         . 'robot). Une valeur trop élevée finit par rejeter de vrais visiteurs.',
-    null, '^\d+$', null, true, 270);
+    null,
+    '^\d+$',
+    null,
+    true,
+    270
+);
 $settingService->register(
-    'human_check_form_validity_seconds', '14400', 'number', 'Durée de validité d\'un formulaire (secondes)',
+    'human_check_form_validity_seconds',
+    '14400',
+    'number',
+    'Durée de validité d\'un formulaire (secondes)',
     'Au-delà de ce délai après son affichage, un formulaire public est considéré expiré et sa soumission est '
         . 'rejetée — évite qu\'un onglet resté ouvert très longtemps soit rejoué indéfiniment.',
-    null, '^\d+$', null, true, 271);
+    null,
+    '^\d+$',
+    null,
+    true,
+    271
+);
 $settingService->register(
-    'human_check_rate_limit_window_minutes', '10', 'number', 'Fenêtre de limitation par IP (minutes)',
+    'human_check_rate_limit_window_minutes',
+    '10',
+    'number',
+    'Fenêtre de limitation par IP (minutes)',
     'Taille de la fenêtre glissante utilisée pour compter les soumissions de formulaires publics par adresse IP.',
-    null, '^\d+$', null, true, 272);
-$settingService->register('human_check_rate_limit_max_attempts', '5', 'number', 'Soumissions maximum par IP',
+    null,
+    '^\d+$',
+    null,
+    true,
+    272
+);
+$settingService->register(
+    'human_check_rate_limit_max_attempts',
+    '5',
+    'number',
+    'Soumissions maximum par IP',
     'Nombre maximum de soumissions de formulaires publics autorisées pour une même adresse IP dans la fenêtre de '
         . 'limitation, au-delà duquel les soumissions suivantes sont rejetées.',
-    null, '^\d+$', null, true, 273);
+    null,
+    '^\d+$',
+    null,
+    true,
+    273
+);
 
 // Usage statistics and support package (Core\Statistics, Core\Support —
 // ARCHITECTURE.md §8.47/§8.48). All five are deliberately kept out of the
@@ -950,10 +1414,19 @@ $settingService->register('human_check_rate_limit_max_attempts', '5', 'number', 
 // auto-update settings) — they are managed from the dedicated Support
 // page, which pairs the switch with the plain-language explanation of what
 // leaves the site, something a plain editable row cannot carry.
-$settingService->register('statistics_enabled', '1', 'boolean', 'Envoi automatique des statistiques d\'utilisation',
+$settingService->register(
+    'statistics_enabled',
+    '1',
+    'boolean',
+    'Envoi automatique des statistiques d\'utilisation',
     'Autorise l\'envoi quotidien d\'un rapport d\'utilisation agrégé vers ScoutMagic. Le rapport contient '
         . 'l\'adresse de ce site, jamais de donnée de membre. Géré depuis la page Support.',
-    null, null, null, true, 280);
+    null,
+    null,
+    null,
+    true,
+    280
+);
 // Rendered by no page at all — not by the Support page (Core\Http\Controller\
 // SupportController::index() says why) and not by the generic Réglages page
 // (SettingsController::EXCLUDED_FROM_GENERIC_PAGE) — because where the reports
@@ -961,52 +1434,142 @@ $settingService->register('statistics_enabled', '1', 'boolean', 'Envoi automatiq
 // false` to say the same thing in the row itself; on an installation that
 // already has the row, the exclusion list is what does the work, since
 // SettingRepository::upsert() only ever refreshes `default_value`.
-$settingService->register('statistics_destination', 'https://www.scoutmagic.be', 'url', 'Destination des statistiques',
+$settingService->register(
+    'statistics_destination',
+    'https://www.scoutmagic.be',
+    'url',
+    'Destination des statistiques',
     'Adresse du site qui reçoit les rapports d\'utilisation. Fait de niveau projet, modifiable uniquement lors du '
         . 'déploiement d\'une installation réceptrice.',
-    null, null, null, false, 281);
+    null,
+    null,
+    null,
+    false,
+    281
+);
 // Both declared by the service that owns them: the setup wizard has to make
 // the same declaration after a portable restore, and two copies of it would
 // be two copies to keep right.
 \Core\Statistics\InstallationIdentityService::register($settingService);
 \Core\Maintenance\Remote\RemoteBackupConnection::register($settingService);
-$settingService->register('support_email', 'support@scoutmagic.be', 'email', 'Adresse du support ScoutMagic',
+$settingService->register(
+    'support_email',
+    'support@scoutmagic.be',
+    'email',
+    'Adresse du support ScoutMagic',
     'Adresse à laquelle envoyer une archive de support. Affichée sur la page Support.',
-    null, null, null, false, 283);
+    null,
+    null,
+    null,
+    false,
+    283
+);
 // Send-state bookkeeping, written by the daily task and shown read-only on
 // the Support page. The failure reason is a short, redacted code — never a
 // raw server response and never the authentication secret.
-$settingService->register('statistics_last_success_at', '', 'text', 'Dernier envoi de statistiques réussi',
+$settingService->register(
+    'statistics_last_success_at',
+    '',
+    'text',
+    'Dernier envoi de statistiques réussi',
     'Horodatage du dernier rapport d\'utilisation transmis avec succès. Renseigné automatiquement.',
-    null, null, null, false, 285);
-$settingService->register('statistics_last_failure_at', '', 'text', 'Dernier échec d\'envoi de statistiques',
+    null,
+    null,
+    null,
+    false,
+    285
+);
+$settingService->register(
+    'statistics_last_failure_at',
+    '',
+    'text',
+    'Dernier échec d\'envoi de statistiques',
     'Horodatage de la dernière tentative d\'envoi ayant échoué ou ayant été sautée. Renseigné automatiquement.',
-    null, null, null, false, 286);
-$settingService->register('statistics_last_failure_reason', '', 'text', 'Motif du dernier échec d\'envoi',
+    null,
+    null,
+    null,
+    false,
+    286
+);
+$settingService->register(
+    'statistics_last_failure_reason',
+    '',
+    'text',
+    'Motif du dernier échec d\'envoi',
     'Motif court du dernier échec ou saut d\'envoi des statistiques. Renseigné automatiquement.',
-    null, null, null, false, 287);
+    null,
+    null,
+    null,
+    false,
+    287
+);
 // Support package bookkeeping (Core\Support, ARCHITECTURE.md §8.48) — one
 // package is ever kept, so two settings replace what would be a one-row table.
-$settingService->register('support_package_file_id', '', 'text', 'Paquet de support disponible',
+$settingService->register(
+    'support_package_file_id',
+    '',
+    'text',
+    'Paquet de support disponible',
     'Identifiant du fichier de l\'archive de support actuellement conservée. Renseigné automatiquement.',
-    null, null, null, false, 288);
-$settingService->register('support_package_generated_at', '', 'text', 'Date de génération du paquet de support',
+    null,
+    null,
+    null,
+    false,
+    288
+);
+$settingService->register(
+    'support_package_generated_at',
+    '',
+    'text',
+    'Date de génération du paquet de support',
     'Horodatage de génération de l\'archive de support conservée, utilisé pour sa purge automatique. Renseigné '
         . 'automatiquement.',
-    null, null, null, false, 289);
+    null,
+    null,
+    null,
+    false,
+    289
+);
 // Support-ticket bookkeeping (roadmap IT-25). Three internal rows and no
 // table: what is kept locally is the reference of the last ticket, when it
 // left, and the category list the receiver last published — a ticket is
 // one-way, so there is no state to reconcile and nothing to poll.
-$settingService->register('support_last_ticket_reference', '', 'text', 'Référence du dernier ticket de support',
+$settingService->register(
+    'support_last_ticket_reference',
+    '',
+    'text',
+    'Référence du dernier ticket de support',
     'Référence renvoyée par le serveur de support pour le dernier ticket envoyé. Renseignée automatiquement.',
-    null, null, null, false, 290);
-$settingService->register('support_last_ticket_sent_at', '', 'text', 'Date du dernier ticket de support',
+    null,
+    null,
+    null,
+    false,
+    290
+);
+$settingService->register(
+    'support_last_ticket_sent_at',
+    '',
+    'text',
+    'Date du dernier ticket de support',
     'Horodatage du dernier ticket de support envoyé depuis cette installation. Renseigné automatiquement.',
-    null, null, null, false, 291);
-$settingService->register('support_ticket_categories', '', 'text', 'Catégories de tickets de support',
+    null,
+    null,
+    null,
+    false,
+    291
+);
+$settingService->register(
+    'support_ticket_categories',
+    '',
+    'text',
+    'Catégories de tickets de support',
     'Liste des catégories publiée par le serveur de support lors du dernier échange. Renseignée automatiquement.',
-    null, null, null, false, 292);
+    null,
+    null,
+    null,
+    false,
+    292
+);
 // The last five references, newest first (JSON). A reference exists to be
 // copied into a GitHub issue, and nobody reports within the minute: keeping
 // only the latest made the reference of two days ago unrecoverable, which
@@ -1036,21 +1599,55 @@ $settingService->register(
 // Tests\Architecture\SupportSettingsAreRegisteredTest now fails if a
 // sender gains a setting and this list does not.
 $settingService->register(
-    'support_last_ticket_archive_sent_at', '', 'text', "Date de transmission de la dernière archive",
+    'support_last_ticket_archive_sent_at',
+    '',
+    'text',
+    "Date de transmission de la dernière archive",
     "Horodatage de la dernière archive de diagnostic transmise au support. Renseigné automatiquement.",
-    null, null, null, false, 293);
+    null,
+    null,
+    null,
+    false,
+    293
+);
 $settingService->register(
-    'support_last_ticket_archive_reference', '', 'text', "Ticket de la dernière archive transmise",
+    'support_last_ticket_archive_reference',
+    '',
+    'text',
+    "Ticket de la dernière archive transmise",
     "Référence du ticket auquel la dernière archive de diagnostic a été jointe. Renseignée automatiquement.",
-    null, null, null, false, 294);
-$settingService->register('support_last_mail_probe_at', '', 'text', "Date de la dernière sonde e-mail",
+    null,
+    null,
+    null,
+    false,
+    294
+);
+$settingService->register(
+    'support_last_mail_probe_at',
+    '',
+    'text',
+    "Date de la dernière sonde e-mail",
     "Horodatage de la dernière sonde de diagnostic envoyée, qui porte aussi la limite d'une sonde par heure. "
         . "Renseigné automatiquement.",
-    null, null, null, false, 295);
-$settingService->register('support_last_mail_probe_key', '', 'text', "Clé de la dernière sonde e-mail",
+    null,
+    null,
+    null,
+    false,
+    295
+);
+$settingService->register(
+    'support_last_mail_probe_key',
+    '',
+    'text',
+    "Clé de la dernière sonde e-mail",
     "Clé de corrélation de la dernière sonde de diagnostic envoyée, pour la citer au support. Renseignée "
         . "automatiquement.",
-    null, null, null, false, 296);
+    null,
+    null,
+    null,
+    false,
+    296
+);
 // Discovery tips — « Le saviez-vous ? » (ARCHITECTURE.md §8.95). Four
 // knobs and no content: the corpus served is the contextual help's own
 // (§8.64), so a unit that writes a help topic has written a tip.
@@ -1114,9 +1711,18 @@ $settingService->register(
 
 // Migrate non-secret settings from secrets.enc to settings table (one-time)
 if ($settingService->get('settings_migrated') !== '1') {
-    $settingService->register('settings_migrated', '0', 'boolean', 'Migration effectuée',
+    $settingService->register(
+        'settings_migrated',
+        '0',
+        'boolean',
+        'Migration effectuée',
         'Indique si la migration des paramètres depuis secrets.enc a été effectuée.',
-        null, null, null, false, 999);
+        null,
+        null,
+        null,
+        false,
+        999
+    );
 
     $migrateKeys = ['site_name', 'short_name', 'base_url', 'mail_from_address', 'mail_from_name', 'dkim_selector',
         'dmarc_report_email'];
@@ -1228,10 +1834,18 @@ $schedulerRunner = new SchedulerRunner($schedulerRepo, $journalService);
 // settings_migrated blocks above: guarded by its own boolean so it costs
 // one cheap read per request once it has run.
 if ($settingService->get('scheduler_chain_settings_pruned') !== '1') {
-    $settingService->register('scheduler_chain_settings_pruned', '0', 'boolean',
+    $settingService->register(
+        'scheduler_chain_settings_pruned',
+        '0',
+        'boolean',
         'Nettoyage des réglages de chaînage effectué',
         'Indique si les réglages de l\'ancien enchaînement de tranches (ordonnanceur et migration) ont été supprimés.',
-        null, null, null, false, 999);
+        null,
+        null,
+        null,
+        false,
+        999
+    );
     $settingRepo->deleteCoreSettings([
         'scheduler_slice_seconds',
         'scheduler_max_hops',
@@ -1248,12 +1862,15 @@ if ($settingService->get('scheduler_chain_settings_pruned') !== '1') {
 }
 
 // Register param() Twig function — reads from settings database
-$twig->addFunction(new TwigFunction('param', function (
-    string $key,
-    ?string $moduleId = null
-) use ($settingService): string {
-    return (string) ($settingService->get($key, $moduleId) ?? '');
-}));
+$twig->addFunction(new TwigFunction(
+    'param',
+    function (
+        string $key,
+        ?string $moduleId = null
+    ) use ($settingService): string {
+        return (string) ($settingService->get($key, $moduleId) ?? '');
+    }
+));
 
 // Set site_name global from settings (used extensively in templates)
 $twig->addGlobal('site_name', (string) ($settingService->get('site_name') ?: 'Unité scoute'));
@@ -1366,7 +1983,9 @@ try {
 } catch (\Throwable $e) {
     $webPush = null;
     $journalService->log(
-        'core', 'vapid_construction_failed', 'info',
+        'core',
+        'vapid_construction_failed',
+        'info',
         'Configuration VAPID invalide : notifications push désactivées pour cette requête',
         ['message' => $e->getMessage()]
     );
@@ -1457,9 +2076,18 @@ $sectionMembershipService = new \Core\Member\SectionMembershipService($sectionMe
 // "Documents de section" box stays empty for every existing member until
 // their section changes on a future Desk import.
 if ($settingService->get('member_section_periods_backfilled') !== '1') {
-    $settingService->register('member_section_periods_backfilled', '0', 'boolean', 'Historique de sections reconstitué',
+    $settingService->register(
+        'member_section_periods_backfilled',
+        '0',
+        'boolean',
+        'Historique de sections reconstitué',
         'Indique si l\'historique d\'appartenance aux sections a été reconstitué depuis les fonctions existantes.',
-        null, null, null, false, 999);
+        null,
+        null,
+        null,
+        false,
+        999
+    );
 
     $sectionMembershipService->backfillFromFunctions();
 
@@ -1478,7 +2106,10 @@ $memberEmailRepository = new \Core\Member\MemberEmailRepository($pdo, $encryptio
 // so a module can never answer it differently (Core\Member\
 // MemberAccountResolver).
 $memberAccountResolver = new \Core\Member\MemberAccountResolver(
-    $memberYearRepo, $memberEmailRepository, $userAccountRepo, $encryptionService
+    $memberYearRepo,
+    $memberEmailRepository,
+    $userAccountRepo,
+    $encryptionService
 );
 $roleResolver = new RoleResolver($memberYearRepo, $encryptionService, $pdo, $memberEmailRepository);
 
@@ -1504,19 +2135,28 @@ $notificationService = new NotificationService(
 // Constructed here, in the composition root, because it is the only place
 // with a session to read: MemberService itself never touches $_SESSION.
 $temporaryMemberProvider = new \Core\Member\SessionTemporaryMemberProvider();
-$memberService = new MemberService($memberYearRepo, $encryptionService, $connection, $temporaryMemberProvider,
-    $memberEmailRepository);
+$memberService = new MemberService(
+    $memberYearRepo,
+    $encryptionService,
+    $connection,
+    $temporaryMemberProvider,
+    $memberEmailRepository
+);
 $memberYearService = new MemberYearService();
-$memberSearchService = new MemberSearchService(new MemberSearchRepository($connection, $encryptionService),
-    $scoutYearService);
+$memberSearchService = new MemberSearchService(
+    new MemberSearchRepository($connection, $encryptionService),
+    $scoutYearService
+);
 // "Won't be back next scout year" marking (ARCHITECTURE.md §8) — a plain
 // fact about a member_year, not inscriptions-specific, so it lives here at
 // core level even though the registration module's own "Départs" page
 // (below, once that module's block is reached) was its first consumer;
 // Core\Http\Controller\MemberController's "/members/{id}/departure" AJAX
 // endpoint (admin member-search page) is the other, always-available one.
-$departureService = new \Core\Member\DepartureService(new \Core\Member\DepartureRepository($pdo, $encryptionService),
-    $journalService);
+$departureService = new \Core\Member\DepartureService(
+    new \Core\Member\DepartureRepository($pdo, $encryptionService),
+    $journalService
+);
 // Badges — transversal roles assignable to chiefs (Core\Badge). Global
 // concept configured once (Édition du site), assignment scoped per
 // member_year (Staffs page), displayed on the trombinoscope.
@@ -1547,7 +2187,10 @@ $badgeService = new BadgeService($badgeRepository, $memberBadgeRepository, $sect
 // $memberEmailRepository silently staffs fewer sections), and this
 // question must have exactly one answer site-wide.
 $sectionStaffAuthorizationService = new \Core\Member\SectionStaffAuthorizationService(
-    $connection, $encryptionService, $sectionService, $memberEmailRepository
+    $connection,
+    $encryptionService,
+    $sectionService,
+    $memberEmailRepository
 );
 
 // Member page (Espace membres) "Documents privés" storage — see
@@ -1559,9 +2202,15 @@ $memberDocumentService = new \Core\Member\MemberDocumentService($memberDocumentR
 // Member\MemberEmailService). $memberEmailRepository was already built
 // above, before $roleResolver.
 $memberEmailService = new \Core\Member\MemberEmailService(
-    $memberEmailRepository, $mailService, $emailTemplateRenderer, $journalService, $sectionService, $memberService,
+    $memberEmailRepository,
+    $mailService,
+    $emailTemplateRenderer,
+    $journalService,
+    $sectionService,
+    $memberService,
     $scoutYearService,
-    (string) $settingService->get('base_url'), (string) ($settingService->get('site_name') ?: 'Unité scoute')
+    (string) $settingService->get('base_url'),
+    (string) ($settingService->get('site_name') ?: 'Unité scoute')
 );
 
 // Scout year resolution (public / staff / session-preview priority)
@@ -1576,13 +2225,25 @@ $scoutYearAdminService = new ScoutYearAdminService($settingService);
 // beyond this one page) and an exhaustive, role-gated Excel export
 // (Core\Member\Export, also reusable beyond this one page).
 $memberMovementRepository = new \Core\Member\Movement\MemberMovementRepository($pdo);
-$memberMovementClassifier = new \Core\Member\Movement\MemberMovementClassifierService($memberMovementRepository,
-    $scoutYearService);
+$memberMovementClassifier = new \Core\Member\Movement\MemberMovementClassifierService(
+    $memberMovementRepository,
+    $scoutYearService
+);
 $sectionRosterRepository = new \Core\Member\SectionRosterRepository($pdo);
-$sectionRosterService = new \Core\Member\SectionRosterService($sectionRosterRepository, $encryptionService,
-    $memberEmailRepository, $memberMovementClassifier);
-$memberExportRowBuilder = new \Core\Member\Export\MemberExportRowBuilder($sectionRosterRepository, $sectionService,
-    $scoutYearService, $encryptionService, $memberEmailRepository, $memberMovementClassifier);
+$sectionRosterService = new \Core\Member\SectionRosterService(
+    $sectionRosterRepository,
+    $encryptionService,
+    $memberEmailRepository,
+    $memberMovementClassifier
+);
+$memberExportRowBuilder = new \Core\Member\Export\MemberExportRowBuilder(
+    $sectionRosterRepository,
+    $sectionService,
+    $scoutYearService,
+    $encryptionService,
+    $memberEmailRepository,
+    $memberMovementClassifier
+);
 $memberExportService = new \Core\Member\Export\MemberExportService();
 
 // Create file services
@@ -1595,8 +2256,11 @@ $attachedFileRemover = new \Core\File\AttachedFileRemover($fileRepository, $stor
 $diskBudget = new \Core\Storage\DiskBudget($storagePath, $settingService);
 $operationalRequestChecks = new \Core\Alert\RequestBoundChecks($storagePath);
 $uploadHandler = new UploadHandler($fileRepository, $storagePath, $diskBudget);
-$encryptedFileStorageService = new \Core\File\EncryptedFileStorageService($fileRepository, $encryptionService,
-    $storagePath);
+$encryptedFileStorageService = new \Core\File\EncryptedFileStorageService(
+    $fileRepository,
+    $encryptionService,
+    $storagePath
+);
 // « Que contient ce fichier ? », posée une fois — the two writers store
 // two shapes (UploadHandler plain, EncryptedFileStorageService a GCM
 // blob) and a reader that picks one and assumes gets silence when it
@@ -1613,8 +2277,10 @@ $storedFileReader = new \Core\File\StoredFileReader($fileRepository, $encryptedF
 $rosterSnapshotRepository = new \Core\Import\RosterSnapshotRepository($pdo);
 $importDiffCalculator = new \Core\Import\ImportDiffCalculator($rosterSnapshotRepository);
 $duplicateMemberRepository = new \Core\Member\Duplicate\DuplicateMemberRepository($pdo, $encryptionService);
-$duplicateMemberDetector = new \Core\Member\Duplicate\DuplicateMemberDetector($duplicateMemberRepository,
-    $encryptionService);
+$duplicateMemberDetector = new \Core\Member\Duplicate\DuplicateMemberDetector(
+    $duplicateMemberRepository,
+    $encryptionService
+);
 $memberMergeService = new \Core\Member\Duplicate\MemberMergeService($pdo, $duplicateMemberRepository, $journalService);
 $rosterReplacementGuard = new \Core\Import\RosterReplacementGuard(
     new \Core\Import\RosterComparisonRepository($pdo),
@@ -1637,17 +2303,36 @@ $deskImportListeners->register(
     new \Core\Badge\TreasurerBadgeDeskImportListener($badgeService, $journalService)
 );
 $importService = new DeskImportService(
-    $pdo, $encryptionService, $csvParser, $mappingResolver,
-    $memberRepo, $memberYearRepo, $importJournalRepo, $userAccountRepo, $unitStaffSectionService,
-    $sectionMembershipService, $rosterReplacementGuard, $journalService, $rosterSnapshotRepository,
-    $encryptedFileStorageService, $importDiffCalculator, $duplicateMemberDetector, $deskImportListeners
+    $pdo,
+    $encryptionService,
+    $csvParser,
+    $mappingResolver,
+    $memberRepo,
+    $memberYearRepo,
+    $importJournalRepo,
+    $userAccountRepo,
+    $unitStaffSectionService,
+    $sectionMembershipService,
+    $rosterReplacementGuard,
+    $journalService,
+    $rosterSnapshotRepository,
+    $encryptedFileStorageService,
+    $importDiffCalculator,
+    $duplicateMemberDetector,
+    $deskImportListeners
 );
 $importReportPresenter = new \Core\Import\ImportReportPresenter(
     new \Core\Import\ImportReportRepository($pdo, $encryptionService)
 );
 $importRetentionService = new \Core\Import\ImportRetentionService(
-    $pdo, $importJournalRepo, $rosterSnapshotRepository, $fileRepository,
-    $scoutYearService, $settingService, $journalService, $storagePath
+    $pdo,
+    $importJournalRepo,
+    $rosterSnapshotRepository,
+    $fileRepository,
+    $scoutYearService,
+    $settingService,
+    $journalService,
+    $storagePath
 );
 
 // Image variant pipeline (thumb/md derivatives of the core photo contexts
@@ -1656,8 +2341,15 @@ $importRetentionService = new \Core\Import\ImportRetentionService(
 // Core\Photo\ImageVariantService's own docblock.
 $imageVariantService = new ImageVariantService($fileRepository, new ImageVariantProcessor(), $storagePath);
 $sectionDocumentService = new \Core\Member\SectionDocumentService(
-    $sectionDocumentRepository, $sectionMembershipRepository, $encryptedFileStorageService, $fileRepository,
-    $sectionService, $scoutYearService, $journalService, $schedulerService, $settingService,
+    $sectionDocumentRepository,
+    $sectionMembershipRepository,
+    $encryptedFileStorageService,
+    $fileRepository,
+    $sectionService,
+    $scoutYearService,
+    $journalService,
+    $schedulerService,
+    $settingService,
     new \Core\Pdf\PdfCompressor($storagePath . '/temp')
 );
 
@@ -1810,7 +2502,10 @@ if (AuthSession::isAuthenticated()) {
 // which isn't resolved until this point — see the class docblock for why
 // there's deliberately no chief/admin bypass on that check.
 $sectionDocumentOwnershipChecker = new \Core\Member\SectionDocumentOwnershipChecker(
-    $sectionDocumentRepository, $sectionMembershipRepository, $scoutYearService, $settingService
+    $sectionDocumentRepository,
+    $sectionMembershipRepository,
+    $scoutYearService,
+    $settingService
 );
 
 // The registry FileAccessGuard consults for a file carrying owner_type.
@@ -1958,69 +2653,336 @@ $menuBuilder = new MenuBuilder(Role::fromString($currentRole));
 $dynamicMenuRegistrar = new DynamicMenuRegistrar();
 
 // Register core pages in menus
-$menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Accueil', '/', 'public', 10, false, null,
-    MenuBuilder::SORT_GROUP_CORE, 'bi-house');
-$menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Contact', '/contact', 'public', 20, false, null,
-    MenuBuilder::SORT_GROUP_CORE, 'bi-envelope');
-$menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Sections', '/sections', 'public', 30, false, null,
-    MenuBuilder::SORT_GROUP_CORE, 'bi-diagram-3');
-$menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Protection des données', '/rgpd', 'public', 40, false, null,
-    MenuBuilder::SORT_GROUP_CORE, 'bi-shield-check');
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Staffs', '/chefs/staffs', 'intendant', 10, false, null,
-    MenuBuilder::SORT_GROUP_CORE, 'bi-people-fill', null, 'ma_section');
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Membres par section', '/chefs/membres', 'intendant', 11, false,
-    null, MenuBuilder::SORT_GROUP_CORE, 'bi-list-ul', null, 'ma_section');
+$menuBuilder->addPage(
+    MenuBuilder::MENU_NOTRE_UNITE,
+    'Accueil',
+    '/',
+    'public',
+    10,
+    false,
+    null,
+    MenuBuilder::SORT_GROUP_CORE,
+    'bi-house'
+);
+$menuBuilder->addPage(
+    MenuBuilder::MENU_NOTRE_UNITE,
+    'Contact',
+    '/contact',
+    'public',
+    20,
+    false,
+    null,
+    MenuBuilder::SORT_GROUP_CORE,
+    'bi-envelope'
+);
+$menuBuilder->addPage(
+    MenuBuilder::MENU_NOTRE_UNITE,
+    'Sections',
+    '/sections',
+    'public',
+    30,
+    false,
+    null,
+    MenuBuilder::SORT_GROUP_CORE,
+    'bi-diagram-3'
+);
+$menuBuilder->addPage(
+    MenuBuilder::MENU_NOTRE_UNITE,
+    'Protection des données',
+    '/rgpd',
+    'public',
+    40,
+    false,
+    null,
+    MenuBuilder::SORT_GROUP_CORE,
+    'bi-shield-check'
+);
+$menuBuilder->addPage(
+    MenuBuilder::MENU_ESPACE_CHEFS,
+    'Staffs',
+    '/chefs/staffs',
+    'intendant',
+    10,
+    false,
+    null,
+    MenuBuilder::SORT_GROUP_CORE,
+    'bi-people-fill',
+    null,
+    'ma_section'
+);
+$menuBuilder->addPage(
+    MenuBuilder::MENU_ESPACE_CHEFS,
+    'Membres par section',
+    '/chefs/membres',
+    'intendant',
+    11,
+    false,
+    null,
+    MenuBuilder::SORT_GROUP_CORE,
+    'bi-list-ul',
+    null,
+    'ma_section'
+);
 // Édition du site — shrunk to just the configuration-mode toggle,
 // moved here from the Configuration menu and widened from superadmin to
 // admin (see /config-mode/activate|deactivate's own role_min and
 // Core\View\ConfigurationMode, widened the same way) so every chief
 // d'unité, not only a superadmin, can edit site content. First in this
 // menu (order 10) — the most-used entry for a chief d'unité.
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Édition du site', '/config/general', 'admin', 10, false, null,
-    MenuBuilder::SORT_GROUP_CORE, 'bi-pencil-square', null, 'contenu');
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Import Desk', '/admin/import', 'admin', 20, false, null,
-    MenuBuilder::SORT_GROUP_CORE, 'bi-cloud-arrow-down', null, 'membres_annee');
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, "Points d'attention", '/admin/points-attention', 'admin', 21,
-    false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-exclamation-triangle', null, 'membres_annee');
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Membres', '/admin/members', 'admin', 30, false, null,
-    MenuBuilder::SORT_GROUP_CORE, 'bi-person-lines-fill', null, 'membres_annee');
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Année scoute', '/admin/scout-year', 'admin', 40, false, null,
-    MenuBuilder::SORT_GROUP_CORE, 'bi-calendar-range', null, 'membres_annee');
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Journal', '/admin/journal', 'admin', 50, false, null,
-    MenuBuilder::SORT_GROUP_CORE, 'bi-journal-text', null, 'suivi');
+$menuBuilder->addPage(
+    MenuBuilder::MENU_ESPACE_ADMIN,
+    'Édition du site',
+    '/config/general',
+    'admin',
+    10,
+    false,
+    null,
+    MenuBuilder::SORT_GROUP_CORE,
+    'bi-pencil-square',
+    null,
+    'contenu'
+);
+$menuBuilder->addPage(
+    MenuBuilder::MENU_ESPACE_ADMIN,
+    'Import Desk',
+    '/admin/import',
+    'admin',
+    20,
+    false,
+    null,
+    MenuBuilder::SORT_GROUP_CORE,
+    'bi-cloud-arrow-down',
+    null,
+    'membres_annee'
+);
+$menuBuilder->addPage(
+    MenuBuilder::MENU_ESPACE_ADMIN,
+    "Points d'attention",
+    '/admin/points-attention',
+    'admin',
+    21,
+    false,
+    null,
+    MenuBuilder::SORT_GROUP_CORE,
+    'bi-exclamation-triangle',
+    null,
+    'membres_annee'
+);
+$menuBuilder->addPage(
+    MenuBuilder::MENU_ESPACE_ADMIN,
+    'Membres',
+    '/admin/members',
+    'admin',
+    30,
+    false,
+    null,
+    MenuBuilder::SORT_GROUP_CORE,
+    'bi-person-lines-fill',
+    null,
+    'membres_annee'
+);
+$menuBuilder->addPage(
+    MenuBuilder::MENU_ESPACE_ADMIN,
+    'Année scoute',
+    '/admin/scout-year',
+    'admin',
+    40,
+    false,
+    null,
+    MenuBuilder::SORT_GROUP_CORE,
+    'bi-calendar-range',
+    null,
+    'membres_annee'
+);
+$menuBuilder->addPage(
+    MenuBuilder::MENU_ESPACE_ADMIN,
+    'Journal',
+    '/admin/journal',
+    'admin',
+    50,
+    false,
+    null,
+    MenuBuilder::SORT_GROUP_CORE,
+    'bi-journal-text',
+    null,
+    'suivi'
+);
 // Installation & serveur first (order 5, ahead of Modules/Badges below) —
 // the most-used entry for a superadmin; the rest of this menu keeps its
 // existing relative order.
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Installation & serveur', '/setup', 'superadmin', 5, false, null,
-    MenuBuilder::SORT_GROUP_CORE, 'bi-sliders', null, 'site');
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Modules', '/config/modules', 'superadmin', 10, false, null,
-    MenuBuilder::SORT_GROUP_CORE, 'bi-puzzle', null, 'site');
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Badges', '/config/badges', 'superadmin', 12, false, null,
-    MenuBuilder::SORT_GROUP_CORE, 'bi-award', null, 'unite_donnees');
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Desk', '/config/functions', 'superadmin', 20, false, null,
-    MenuBuilder::SORT_GROUP_CORE, 'bi-diagram-2', null, 'unite_donnees');
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Réglages', '/config/settings', 'superadmin', 30, false, null,
-    MenuBuilder::SORT_GROUP_CORE, 'bi-gear-wide-connected', null, 'site');
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'RGPD', '/config/rgpd', 'superadmin', 35, false, null,
-    MenuBuilder::SORT_GROUP_CORE, 'bi-shield-lock', null, 'unite_donnees');
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Actions planifiées', '/config/scheduled', 'superadmin', 40,
-    false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-clock-history', null, 'exploitation');
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Comptes superadmin', '/config/superadmins', 'superadmin', 44,
-    false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-shield-lock', null, 'exploitation');
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Maintenance', '/config/maintenance', 'admin', 45, false, null,
-    MenuBuilder::SORT_GROUP_CORE, 'bi-tools', null, 'exploitation');
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Notifications', '/config/notifications', 'superadmin', 46,
-    false, null, MenuBuilder::SORT_GROUP_CORE, 'bi-bell', null, 'exploitation');
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'E-mails', '/config/emails', 'superadmin', 47, false, null,
-    MenuBuilder::SORT_GROUP_CORE, 'bi-envelope', null, 'exploitation');
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Support', '/config/support', 'superadmin', 48, false, null,
-    MenuBuilder::SORT_GROUP_CORE, 'bi-life-preserver', null, 'exploitation');
+$menuBuilder->addPage(
+    MenuBuilder::MENU_CONFIGURATION,
+    'Installation & serveur',
+    '/setup',
+    'superadmin',
+    5,
+    false,
+    null,
+    MenuBuilder::SORT_GROUP_CORE,
+    'bi-sliders',
+    null,
+    'site'
+);
+$menuBuilder->addPage(
+    MenuBuilder::MENU_CONFIGURATION,
+    'Modules',
+    '/config/modules',
+    'superadmin',
+    10,
+    false,
+    null,
+    MenuBuilder::SORT_GROUP_CORE,
+    'bi-puzzle',
+    null,
+    'site'
+);
+$menuBuilder->addPage(
+    MenuBuilder::MENU_CONFIGURATION,
+    'Badges',
+    '/config/badges',
+    'superadmin',
+    12,
+    false,
+    null,
+    MenuBuilder::SORT_GROUP_CORE,
+    'bi-award',
+    null,
+    'unite_donnees'
+);
+$menuBuilder->addPage(
+    MenuBuilder::MENU_CONFIGURATION,
+    'Desk',
+    '/config/functions',
+    'superadmin',
+    20,
+    false,
+    null,
+    MenuBuilder::SORT_GROUP_CORE,
+    'bi-diagram-2',
+    null,
+    'unite_donnees'
+);
+$menuBuilder->addPage(
+    MenuBuilder::MENU_CONFIGURATION,
+    'Réglages',
+    '/config/settings',
+    'superadmin',
+    30,
+    false,
+    null,
+    MenuBuilder::SORT_GROUP_CORE,
+    'bi-gear-wide-connected',
+    null,
+    'site'
+);
+$menuBuilder->addPage(
+    MenuBuilder::MENU_CONFIGURATION,
+    'RGPD',
+    '/config/rgpd',
+    'superadmin',
+    35,
+    false,
+    null,
+    MenuBuilder::SORT_GROUP_CORE,
+    'bi-shield-lock',
+    null,
+    'unite_donnees'
+);
+$menuBuilder->addPage(
+    MenuBuilder::MENU_CONFIGURATION,
+    'Actions planifiées',
+    '/config/scheduled',
+    'superadmin',
+    40,
+    false,
+    null,
+    MenuBuilder::SORT_GROUP_CORE,
+    'bi-clock-history',
+    null,
+    'exploitation'
+);
+$menuBuilder->addPage(
+    MenuBuilder::MENU_CONFIGURATION,
+    'Comptes superadmin',
+    '/config/superadmins',
+    'superadmin',
+    44,
+    false,
+    null,
+    MenuBuilder::SORT_GROUP_CORE,
+    'bi-shield-lock',
+    null,
+    'exploitation'
+);
+$menuBuilder->addPage(
+    MenuBuilder::MENU_CONFIGURATION,
+    'Maintenance',
+    '/config/maintenance',
+    'admin',
+    45,
+    false,
+    null,
+    MenuBuilder::SORT_GROUP_CORE,
+    'bi-tools',
+    null,
+    'exploitation'
+);
+$menuBuilder->addPage(
+    MenuBuilder::MENU_CONFIGURATION,
+    'Notifications',
+    '/config/notifications',
+    'superadmin',
+    46,
+    false,
+    null,
+    MenuBuilder::SORT_GROUP_CORE,
+    'bi-bell',
+    null,
+    'exploitation'
+);
+$menuBuilder->addPage(
+    MenuBuilder::MENU_CONFIGURATION,
+    'E-mails',
+    '/config/emails',
+    'superadmin',
+    47,
+    false,
+    null,
+    MenuBuilder::SORT_GROUP_CORE,
+    'bi-envelope',
+    null,
+    'exploitation'
+);
+$menuBuilder->addPage(
+    MenuBuilder::MENU_CONFIGURATION,
+    'Support',
+    '/config/support',
+    'superadmin',
+    48,
+    false,
+    null,
+    MenuBuilder::SORT_GROUP_CORE,
+    'bi-life-preserver',
+    null,
+    'exploitation'
+);
 // order 10, not a leftover "after the separator" number — SORT_GROUP_CORE
 // (addPage()'s default) already sorts this after the dynamic member
 // entries/empty-state placeholder above regardless of the numeric order,
 // and it's currently the only core static page in this menu.
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Notifications', '/notifications', 'identified', 10, false, null,
-    MenuBuilder::SORT_GROUP_CORE, 'bi-bell', null, 'pages');
+$menuBuilder->addPage(
+    MenuBuilder::MENU_ESPACE_ANIMES,
+    'Notifications',
+    '/notifications',
+    'identified',
+    10,
+    false,
+    null,
+    MenuBuilder::SORT_GROUP_CORE,
+    'bi-bell',
+    null,
+    'pages'
+);
 
 // Create router early so ModuleManager can register routes
 $router = new Router();
@@ -2154,8 +3116,12 @@ $schedulerService->seed(
 
 // Same bootstrap for the notification retention purge (Core\Notification\
 // Task\PurgeNotificationsHandler).
-$schedulerService->rearm('core', 'purge_notifications', \Core\Notification\Task\PurgeNotificationsHandler::REFERENCE,
-    new DateTimeImmutable());
+$schedulerService->rearm(
+    'core',
+    'purge_notifications',
+    \Core\Notification\Task\PurgeNotificationsHandler::REFERENCE,
+    new DateTimeImmutable()
+);
 
 // Same bootstrap for the daily stable-channel update check
 // (Core\Maintenance\Task\CheckStableUpdateHandler) — the very first
@@ -2165,43 +3131,67 @@ $schedulerService->rearm('core', 'check_stable_update', 'daily', new DateTimeImm
 
 // Same bootstrap for the human-check rate-limit purge (Core\Security\
 // HumanCheck\Task\PurgeHumanCheckRateLimitsHandler).
-$schedulerService->rearm('core', 'purge_human_check_rate_limits',
-    \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler::REFERENCE, new DateTimeImmutable());
+$schedulerService->rearm(
+    'core',
+    'purge_human_check_rate_limits',
+    \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler::REFERENCE,
+    new DateTimeImmutable()
+);
 
 // Same bootstrap for the sent-mail claim purge (Core\Mail\Task\
 // PurgeSentEmailClaimsHandler): the replay guards of the background
 // e-mail handlers, once their own occurrence is long past.
-$schedulerService->rearm('core', \Core\Mail\Task\PurgeSentEmailClaimsHandler::TASK_KEY,
-    \Core\Mail\Task\PurgeSentEmailClaimsHandler::REFERENCE, new DateTimeImmutable());
+$schedulerService->rearm(
+    'core',
+    \Core\Mail\Task\PurgeSentEmailClaimsHandler::TASK_KEY,
+    \Core\Mail\Task\PurgeSentEmailClaimsHandler::REFERENCE,
+    new DateTimeImmutable()
+);
 
 // Same bootstrap for the help assistant's own purge (Core\Help\Assistant\
 // Task\PurgeHelpAssistantHandler): rate-limit rows past the quota window
 // and cached answers no running version can still reach.
-$schedulerService->rearm('core', \Core\Help\Assistant\Task\PurgeHelpAssistantHandler::TASK_KEY,
-    \Core\Help\Assistant\Task\PurgeHelpAssistantHandler::REFERENCE, new DateTimeImmutable());
+$schedulerService->rearm(
+    'core',
+    \Core\Help\Assistant\Task\PurgeHelpAssistantHandler::TASK_KEY,
+    \Core\Help\Assistant\Task\PurgeHelpAssistantHandler::REFERENCE,
+    new DateTimeImmutable()
+);
 
 // Same bootstrap for the daily usage-statistics report (Core\Statistics\
 // Task\SendStatisticsHandler). The very first occurrence runs immediately;
 // every guard it can trip (reporting disabled, non-public host, this site
 // IS the receiver) is checked inside the handler, so seeding it here costs
 // nothing on an installation that will never actually report.
-$schedulerService->rearm('core', \Core\Statistics\Task\SendStatisticsHandler::TASK_KEY,
-    \Core\Statistics\Task\SendStatisticsHandler::REFERENCE, new DateTimeImmutable());
+$schedulerService->rearm(
+    'core',
+    \Core\Statistics\Task\SendStatisticsHandler::TASK_KEY,
+    \Core\Statistics\Task\SendStatisticsHandler::REFERENCE,
+    new DateTimeImmutable()
+);
 
 // Same bootstrap for the support-package retention purge (Core\Support\
 // Task\PurgeSupportPackagesHandler) — the archive is the most sensitive
 // artefact this codebase produces on demand, so the purge must be running
 // from the first boot, not from the first generation.
-$schedulerService->rearm('core', \Core\Support\Task\PurgeSupportPackagesHandler::TASK_KEY,
-    \Core\Support\Task\PurgeSupportPackagesHandler::REFERENCE, new DateTimeImmutable());
+$schedulerService->rearm(
+    'core',
+    \Core\Support\Task\PurgeSupportPackagesHandler::TASK_KEY,
+    \Core\Support\Task\PurgeSupportPackagesHandler::REFERENCE,
+    new DateTimeImmutable()
+);
 
 // Same bootstrap for the Desk-import retention purge (Core\Import\Task\
 // PurgeImportsHandler). It must run even if nobody imports any more: a
 // retention hung off the next import would keep its RGPD promise only
 // while the unit keeps importing, and a unit that stops importing is
 // exactly the one whose kept CSVs should stop being kept.
-$schedulerService->rearm('core', \Core\Import\Task\PurgeImportsHandler::TASK_KEY,
-    \Core\Import\Task\PurgeImportsHandler::REFERENCE, new DateTimeImmutable());
+$schedulerService->rearm(
+    'core',
+    \Core\Import\Task\PurgeImportsHandler::TASK_KEY,
+    \Core\Import\Task\PurgeImportsHandler::REFERENCE,
+    new DateTimeImmutable()
+);
 
 // Add dynamic member entries to Espace membres — group: SORT_GROUP_DYNAMIC keeps
 // these (and the empty-state placeholder below) sorted ahead of every core
@@ -2220,10 +3210,13 @@ if (AuthSession::isAuthenticated()) {
             $member->getDisplayName(),
             '/members/' . $member->memberYearId,
             'identified',
-            10 + $index,  // order: members first
-            true,          // isDynamic = true (renders with the avatar-circle styling)
-            $member->getMainSectionName(),  // subtitle
-            MenuBuilder::SORT_GROUP_DYNAMIC,
+            10 + $index,
+            // order: members first
+                true,
+            // isDynamic = true (renders with the avatar-circle styling)
+                $member->getMainSectionName(),
+            // subtitle
+                MenuBuilder::SORT_GROUP_DYNAMIC,
             null,
             // The persistent member id, never member_years.id: the avatar
             // draws this member's photo for the year in effect, and
@@ -2258,15 +3251,27 @@ if (AuthSession::isAuthenticated()) {
 // Public pages
 $router->addRoute('GET', '/', PageController::class, 'home', 'public', ['label' => 'Accueil', 'parents' => []]);
 $router->addRoute(
-    'GET', '/contact', PageController::class, 'contact', 'public',
+    'GET',
+    '/contact',
+    PageController::class,
+    'contact',
+    'public',
     ['label' => 'Contact', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_NOTRE_UNITE)]],
 );
 $router->addRoute(
-    'GET', '/sections', PageController::class, 'sections', 'public',
+    'GET',
+    '/sections',
+    PageController::class,
+    'sections',
+    'public',
     ['label' => 'Sections', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_NOTRE_UNITE)]],
 );
 $router->addRoute(
-    'GET', '/rgpd', PageController::class, 'rgpd', 'public',
+    'GET',
+    '/rgpd',
+    PageController::class,
+    'rgpd',
+    'public',
     ['label' => 'Protection des données', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_NOTRE_UNITE)]],
 );
 
@@ -2277,7 +3282,11 @@ $router->addRoute('POST', '/login/password', AuthController::class, 'loginWithPa
 $router->addRoute('GET', '/login/passkey/options', AuthController::class, 'passkeyOptions', 'public');
 $router->addRoute('POST', '/login/passkey/verify', AuthController::class, 'passkeyVerify', 'public');
 $router->addRoute(
-    'GET', '/auth/verify', AuthController::class, 'verifyMagicLink', 'public',
+    'GET',
+    '/auth/verify',
+    AuthController::class,
+    'verifyMagicLink',
+    'public',
     ['label' => 'Connexion', 'parents' => []],
 );
 $router->addRoute('GET', '/auth/poll/{id}', AuthController::class, 'pollMagicLink', 'public');
@@ -2286,7 +3295,11 @@ $router->addRoute('POST', '/logout', AuthController::class, 'logout', 'identifie
 // Password reset ("Mot de passe oublié")
 $router->addRoute('POST', '/password-reset/request', PasswordResetController::class, 'request', 'public');
 $router->addRoute(
-    'GET', '/password-reset/{id}', PasswordResetController::class, 'show', 'public',
+    'GET',
+    '/password-reset/{id}',
+    PasswordResetController::class,
+    'show',
+    'public',
     ['label' => 'Nouveau mot de passe', 'parents' => []],
 );
 $router->addRoute('POST', '/password-reset/{id}/check', PasswordResetController::class, 'check', 'public');
@@ -2294,12 +3307,21 @@ $router->addRoute('POST', '/password-reset/{id}', PasswordResetController::class
 
 // Account routes
 $router->addRoute(
-    'GET', '/account', AccountController::class, 'index', 'identified', ['label' => 'Mon compte', 'parents' => []],
+    'GET',
+    '/account',
+    AccountController::class,
+    'index',
+    'identified',
+    ['label' => 'Mon compte', 'parents' => []],
 );
 $router->addRoute('POST', '/account/profile', AccountController::class, 'updateProfile', 'identified');
 $router->addRoute('POST', '/account/password', AccountController::class, 'updatePassword', 'identified');
 $router->addRoute(
-    'GET', '/account/passkey/register-options', AccountController::class, 'passkeyRegisterOptions', 'identified',
+    'GET',
+    '/account/passkey/register-options',
+    AccountController::class,
+    'passkeyRegisterOptions',
+    'identified',
 );
 $router->addRoute('POST', '/account/passkey/register', AccountController::class, 'passkeyRegister', 'identified');
 $router->addRoute('POST', '/account/passkey/delete', AccountController::class, 'passkeyDelete', 'identified');
@@ -2309,49 +3331,86 @@ $router->addRoute('POST', '/account/photo/delete', AccountController::class, 'de
 // than AccountController because it is the discovery feature's own state:
 // the route lives under /account, the concern does not.
 $router->addRoute(
-    'POST', '/account/discovery/reset', \Core\Http\Controller\HelpDiscoveryController::class, 'reset', 'identified'
+    'POST',
+    '/account/discovery/reset',
+    \Core\Http\Controller\HelpDiscoveryController::class,
+    'reset',
+    'identified'
 );
 $router->addRoute('POST', '/api/push-subscription', PushSubscriptionController::class, 'subscribe', 'identified');
 $router->addRoute('DELETE', '/api/push-subscription', PushSubscriptionController::class, 'unsubscribe', 'identified');
 
 // Notification centre (Core\Notification, Lot 2)
 $router->addRoute(
-    'GET', '/notifications', \Core\Http\Controller\NotificationController::class, 'index', 'identified',
+    'GET',
+    '/notifications',
+    \Core\Http\Controller\NotificationController::class,
+    'index',
+    'identified',
     ['label' => 'Notifications', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ANIMES)]],
 );
 $router->addRoute(
-    'POST', '/notifications/{id}/read', \Core\Http\Controller\NotificationController::class, 'markRead', 'identified',
-);
-$router->addRoute(
-    'POST', '/notifications/mark-all-read', \Core\Http\Controller\NotificationController::class, 'markAllRead',
+    'POST',
+    '/notifications/{id}/read',
+    \Core\Http\Controller\NotificationController::class,
+    'markRead',
     'identified',
 );
 $router->addRoute(
-    'GET', '/api/notifications/unread-count', \Core\Http\Controller\NotificationController::class, 'unreadCount',
+    'POST',
+    '/notifications/mark-all-read',
+    \Core\Http\Controller\NotificationController::class,
+    'markAllRead',
     'identified',
 );
 $router->addRoute(
-    'GET', '/notifications/preferences', \Core\Http\Controller\NotificationPreferenceController::class, 'index',
+    'GET',
+    '/api/notifications/unread-count',
+    \Core\Http\Controller\NotificationController::class,
+    'unreadCount',
     'identified',
 );
 $router->addRoute(
-    'POST', '/notifications/preferences', \Core\Http\Controller\NotificationPreferenceController::class,
-    'updateChannel', 'identified',
+    'GET',
+    '/notifications/preferences',
+    \Core\Http\Controller\NotificationPreferenceController::class,
+    'index',
+    'identified',
 );
 $router->addRoute(
-    'POST', '/notifications/quiet-hours', \Core\Http\Controller\NotificationPreferenceController::class,
-    'updateAccountSettings', 'identified',
+    'POST',
+    '/notifications/preferences',
+    \Core\Http\Controller\NotificationPreferenceController::class,
+    'updateChannel',
+    'identified',
 );
 $router->addRoute(
-    'GET', '/config/notifications', \Core\Http\Controller\NotificationConfigController::class, 'index', 'superadmin',
+    'POST',
+    '/notifications/quiet-hours',
+    \Core\Http\Controller\NotificationPreferenceController::class,
+    'updateAccountSettings',
+    'identified',
+);
+$router->addRoute(
+    'GET',
+    '/config/notifications',
+    \Core\Http\Controller\NotificationConfigController::class,
+    'index',
+    'superadmin',
     ['label' => 'Notifications', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
 );
 $router->addRoute(
-    'POST', '/config/notifications/rotate-vapid', \Core\Http\Controller\NotificationConfigController::class,
-    'rotateVapid', 'superadmin',
+    'POST',
+    '/config/notifications/rotate-vapid',
+    \Core\Http\Controller\NotificationConfigController::class,
+    'rotateVapid',
+    'superadmin',
 );
 $router->addRoute(
-    'POST', '/config/notifications/test', \Core\Http\Controller\NotificationConfigController::class, 'sendTest',
+    'POST',
+    '/config/notifications/test',
+    \Core\Http\Controller\NotificationConfigController::class,
+    'sendTest',
     'superadmin',
 );
 
@@ -2362,35 +3421,58 @@ $router->addRoute(
 // (SECURITY.md §35), and these ids are registry keys like
 // `rental.acknowledgement`.
 $router->addRoute(
-    'GET', '/config/emails', \Core\Http\Controller\EmailTemplateController::class, 'index', 'superadmin',
+    'GET',
+    '/config/emails',
+    \Core\Http\Controller\EmailTemplateController::class,
+    'index',
+    'superadmin',
     ['label' => 'E-mails', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
 );
 $router->addRoute(
-    'GET', '/config/emails/{template}', \Core\Http\Controller\EmailTemplateController::class,
-    'edit', 'superadmin',
+    'GET',
+    '/config/emails/{template}',
+    \Core\Http\Controller\EmailTemplateController::class,
+    'edit',
+    'superadmin',
     ['label' => 'Email', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
         'ancestors' => [['label' => 'E-mails', 'path' => '/config/emails']]]
 );
 $router->addRoute(
-    'POST', '/config/emails/{template}/sujet', \Core\Http\Controller\EmailTemplateController::class, 'saveSubject',
+    'POST',
+    '/config/emails/{template}/sujet',
+    \Core\Http\Controller\EmailTemplateController::class,
+    'saveSubject',
     'superadmin',
 );
 $router->addRoute(
-    'POST', '/config/emails/{template}/corps', \Core\Http\Controller\EmailTemplateController::class, 'saveBody',
+    'POST',
+    '/config/emails/{template}/corps',
+    \Core\Http\Controller\EmailTemplateController::class,
+    'saveBody',
     'superadmin',
 );
 $router->addRoute(
-    'POST', '/config/emails/{template}/defaut', \Core\Http\Controller\EmailTemplateController::class, 'reset',
+    'POST',
+    '/config/emails/{template}/defaut',
+    \Core\Http\Controller\EmailTemplateController::class,
+    'reset',
     'superadmin',
 );
 $router->addRoute(
-    'POST', '/config/emails/{template}/test', \Core\Http\Controller\EmailTemplateController::class, 'sendTest',
+    'POST',
+    '/config/emails/{template}/test',
+    \Core\Http\Controller\EmailTemplateController::class,
+    'sendTest',
     'superadmin',
 );
 
 // Member pages
 $router->addRoute(
-    'GET', '/members/{id}', MemberController::class, 'show', 'identified',
+    'GET',
+    '/members/{id}',
+    MemberController::class,
+    'show',
+    'identified',
     ['label' => 'Membre', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ANIMES)]],
 );
 $router->addRoute('POST', '/members/{id}/scout-year-offset', MemberController::class, 'updateScoutYearOffset', 'chief');
@@ -2399,29 +3481,48 @@ $router->addRoute('POST', '/members/{id}/departure', MemberController::class, 'u
 // exists for this (Core\Http\Controller\MemberEmailAddressController
 // re-verifies self access on every action regardless of role_min).
 $router->addRoute(
-    'POST', '/members/{id}/emails', \Core\Http\Controller\MemberEmailAddressController::class, 'add', 'identified',
+    'POST',
+    '/members/{id}/emails',
+    \Core\Http\Controller\MemberEmailAddressController::class,
+    'add',
+    'identified',
 );
 $router->addRoute(
-    'POST', '/members/{id}/emails/{email_id}/resend', \Core\Http\Controller\MemberEmailAddressController::class,
-    'resend', 'identified',
+    'POST',
+    '/members/{id}/emails/{email_id}/resend',
+    \Core\Http\Controller\MemberEmailAddressController::class,
+    'resend',
+    'identified',
 );
 $router->addRoute(
-    'POST', '/members/{id}/emails/{email_id}/reactivate', \Core\Http\Controller\MemberEmailAddressController::class,
-    'reactivate', 'identified',
+    'POST',
+    '/members/{id}/emails/{email_id}/reactivate',
+    \Core\Http\Controller\MemberEmailAddressController::class,
+    'reactivate',
+    'identified',
 );
 $router->addRoute(
-    'POST', '/members/{id}/emails/{email_id}/delete', \Core\Http\Controller\MemberEmailAddressController::class,
-    'delete', 'identified',
+    'POST',
+    '/members/{id}/emails/{email_id}/delete',
+    \Core\Http\Controller\MemberEmailAddressController::class,
+    'delete',
+    'identified',
 );
 // The confirmation link's target — public, unauthenticated, same reasoning
 // as /auth/verify and /password-reset/{id}. The GET only renders a confirm
 // page (prefetch-safe); the POST behind its button is what confirms.
 $router->addRoute(
-    'GET', '/members/emails/confirm/{id}', \Core\Http\Controller\MemberEmailAddressController::class, 'confirm',
+    'GET',
+    '/members/emails/confirm/{id}',
+    \Core\Http\Controller\MemberEmailAddressController::class,
+    'confirm',
     'public',
 );
 $router->addRoute(
-    'POST', '/members/emails/confirm/{id}', \Core\Http\Controller\MemberEmailAddressController::class, 'confirmPost',
+    'POST',
+    '/members/emails/confirm/{id}',
+    \Core\Http\Controller\MemberEmailAddressController::class,
+    'confirmPost',
     'public',
 );
 // The email-detail route (/members/{id}/emails/{recipient_id}) is
@@ -2461,7 +3562,11 @@ $router->addRoute('POST', '/api/rich-text-content', EditableContentController::c
 // empty on purpose: the help belongs to no menu, and a `parents` entry
 // that matches no MenuBuilder label renders as dead text (design.md §7.3).
 $router->addRoute(
-    'GET', '/aide', \Core\Http\Controller\HelpController::class, 'index', 'public',
+    'GET',
+    '/aide',
+    \Core\Http\Controller\HelpController::class,
+    'index',
+    'public',
     ['label' => 'Aide', 'parents' => []],
 );
 // BEFORE /aide/{topic}, and this order is the whole wiring: Router::
@@ -2470,11 +3575,19 @@ $router->addRoute(
 // 404 for a topic nobody wrote. Core\Help\HelpFrontMatterParser reserves
 // the id 'assistant' from the other side, so a topic can never claim it.
 $router->addRoute(
-    'GET', '/aide/assistant', \Core\Http\Controller\HelpAssistantController::class, 'page', 'chief',
+    'GET',
+    '/aide/assistant',
+    \Core\Http\Controller\HelpAssistantController::class,
+    'page',
+    'chief',
     ['label' => 'Assistant', 'parents' => [], 'ancestors' => [['label' => 'Aide', 'path' => '/aide']]],
 );
 $router->addRoute(
-    'GET', '/aide/{topic}', \Core\Http\Controller\HelpController::class, 'show', 'public',
+    'GET',
+    '/aide/{topic}',
+    \Core\Http\Controller\HelpController::class,
+    'show',
+    'public',
     ['label' => 'Aide', 'parents' => [], 'ancestors' => [['label' => 'Aide', 'path' => '/aide']]],
 );
 // The endpoint both surfaces post to. role_min: chief like the page —
@@ -2488,12 +3601,20 @@ $router->addRoute('POST', '/api/aide/assistant', \Core\Http\Controller\HelpAssis
 // CSRF token is mandatory like on every other POST of this site
 // (SECURITY.md §4; the GitHub webhook is the single exception).
 $router->addRoute(
-    'POST', '/api/aide/decouverte', \Core\Http\Controller\HelpDiscoveryController::class, 'record', 'identified'
+    'POST',
+    '/api/aide/decouverte',
+    \Core\Http\Controller\HelpDiscoveryController::class,
+    'record',
+    'identified'
 );
 
 // Cookie consent
 $router->addRoute(
-    'GET', '/cookies', CookieController::class, 'preferences', 'public',
+    'GET',
+    '/cookies',
+    CookieController::class,
+    'preferences',
+    'public',
     ['label' => 'Préférences cookies', 'parents' => []],
 );
 $router->addRoute('POST', '/cookies/save', CookieController::class, 'save', 'public');
@@ -2523,7 +3644,11 @@ $router->addRoute('GET', '/api/offline/manifest', OfflineController::class, 'man
 // AuditAccessResolver asks the owning module whether this visitor may
 // read THIS entity, and refuses any entity type nobody registered.
 $router->addRoute(
-    'GET', '/api/audit/{entity_type}/{entity_id}', \Core\Http\Controller\AuditController::class, 'page', 'chief',
+    'GET',
+    '/api/audit/{entity_type}/{entity_id}',
+    \Core\Http\Controller\AuditController::class,
+    'page',
+    'chief',
 );
 // Deployment/version check — see Core\Http\Controller\VersionController's
 // own docblock for why role_min is deliberately public here.
@@ -2538,7 +3663,11 @@ $router->addRoute('GET', '/s/{code}', ShortUrlController::class, 'resolve', 'pub
 // authorization boundary per context (still effectively superadmin-only
 // for every context except member_photo — see that method's docblock).
 $router->addRoute(
-    'GET', '/upload', UploadController::class, 'index', 'identified',
+    'GET',
+    '/upload',
+    UploadController::class,
+    'index',
+    'identified',
     ['label' => 'Envoyer un fichier', 'parents' => []],
 );
 $router->addRoute('POST', '/upload', UploadController::class, 'store', 'identified');
@@ -2558,7 +3687,11 @@ $router->addRoute('GET', '/offline', \Core\Http\Controller\PwaController::class,
 
 // Setup routes (admin, but bypassed when not initialized)
 $router->addRoute(
-    'GET', '/setup', SetupController::class, 'index', 'superadmin',
+    'GET',
+    '/setup',
+    SetupController::class,
+    'index',
+    'superadmin',
     ['label' => 'Installation & serveur', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
 );
 $router->addRoute('POST', '/setup/verify-token', SetupController::class, 'verifyToken', 'superadmin');
@@ -2574,48 +3707,82 @@ $router->addRoute('GET', '/setup/cron-status', SetupController::class, 'cronStat
 
 // Import
 $router->addRoute(
-    'GET', '/admin/import', ImportController::class, 'index', 'admin',
+    'GET',
+    '/admin/import',
+    ImportController::class,
+    'index',
+    'admin',
     ['label' => 'Import Desk', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]],
 );
 $router->addRoute('POST', '/admin/import', ImportController::class, 'import', 'admin');
 $router->addRoute(
-    'GET', '/admin/import/historique', ImportController::class, 'history', 'admin',
+    'GET',
+    '/admin/import/historique',
+    ImportController::class,
+    'history',
+    'admin',
     ['label' => 'Historique des imports', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)],
         'ancestors' => [['label' => 'Import Desk', 'path' => '/admin/import']]]
 );
 $router->addRoute(
-    'GET', '/admin/import/{id}/rapport', ImportController::class, 'report', 'admin',
+    'GET',
+    '/admin/import/{id}/rapport',
+    ImportController::class,
+    'report',
+    'admin',
     ['label' => "Rapport d'import", 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)],
         'ancestors' => [['label' => 'Import Desk', 'path' => '/admin/import'],
             ['label' => 'Historique des imports', 'path' => '/admin/import/historique']]]
 );
 $router->addRoute(
-    'GET', '/admin/points-attention', \Core\Http\Controller\AttentionController::class, 'index', 'admin',
+    'GET',
+    '/admin/points-attention',
+    \Core\Http\Controller\AttentionController::class,
+    'index',
+    'admin',
     ['label' => "Points d'attention", 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]],
 );
 $router->addRoute(
-    'GET', '/admin/doublons', \Core\Http\Controller\DuplicateMemberController::class, 'index', 'admin',
+    'GET',
+    '/admin/doublons',
+    \Core\Http\Controller\DuplicateMemberController::class,
+    'index',
+    'admin',
     ['label' => 'Fiches en double', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)],
         'ancestors' => [['label' => "Points d'attention", 'path' => '/admin/points-attention']]]
 );
 $router->addRoute(
-    'POST', '/admin/doublons/{id}/fusionner', \Core\Http\Controller\DuplicateMemberController::class, 'merge',
+    'POST',
+    '/admin/doublons/{id}/fusionner',
+    \Core\Http\Controller\DuplicateMemberController::class,
+    'merge',
     'admin',
 );
 $router->addRoute(
-    'POST', '/admin/doublons/{id}/distinctes', \Core\Http\Controller\DuplicateMemberController::class, 'markDistinct',
+    'POST',
+    '/admin/doublons/{id}/distinctes',
+    \Core\Http\Controller\DuplicateMemberController::class,
+    'markDistinct',
     'admin',
 );
 
 // Journal
 $router->addRoute(
-    'GET', '/admin/journal', JournalController::class, 'index', 'admin',
+    'GET',
+    '/admin/journal',
+    JournalController::class,
+    'index',
+    'admin',
     ['label' => 'Journal', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]],
 );
 
 // Scout year navigation and transition
 $router->addRoute(
-    'GET', '/admin/members', MemberSearchController::class, 'index', 'admin',
+    'GET',
+    '/admin/members',
+    MemberSearchController::class,
+    'index',
+    'admin',
     ['label' => 'Membres', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]],
 );
 $router->addRoute('GET', '/admin/members/export', MemberSearchController::class, 'export', 'admin');
@@ -2624,7 +3791,11 @@ $router->addRoute('GET', '/admin/members/export', MemberSearchController::class,
 // but registration order is what the reader checks first, and the
 // neighbouring temporary-access routes below already depend on it.
 $router->addRoute(
-    'GET', '/admin/members/{id}', MemberSearchController::class, 'show', 'admin',
+    'GET',
+    '/admin/members/{id}',
+    MemberSearchController::class,
+    'show',
+    'admin',
     ['label' => 'Membre', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)],
         'ancestors' => [['label' => 'Membres', 'path' => '/admin/members']]]
 );
@@ -2640,21 +3811,36 @@ $router->addRoute(
 $router->addRoute('POST', '/admin/members/{id}/notes', MemberSearchController::class, 'addNote', 'admin');
 $router->addRoute('POST', '/admin/members/{id}/notes/{note_id}', MemberSearchController::class, 'updateNote', 'admin');
 $router->addRoute(
-    'POST', '/admin/members/{id}/notes/{note_id}/delete', MemberSearchController::class, 'deleteNote', 'admin',
+    'POST',
+    '/admin/members/{id}/notes/{note_id}/delete',
+    MemberSearchController::class,
+    'deleteNote',
+    'admin',
 );
 // Private documents on a member's sheet (ARCHITECTURE.md §8.3's Staff
 // d'Unité bypass). Same `admin` floor as the page and as the bypass
 // itself — never `chief`.
 $router->addRoute(
-    'POST', '/admin/members/{id}/documents/{document_id}/renvoyer', MemberSearchController::class, 'resendDocument',
+    'POST',
+    '/admin/members/{id}/documents/{document_id}/renvoyer',
+    MemberSearchController::class,
+    'resendDocument',
     'admin',
 );
 $router->addRoute(
-    'POST', '/admin/members/temporary-access/remove', TemporaryMemberController::class, 'remove', 'admin',
+    'POST',
+    '/admin/members/temporary-access/remove',
+    TemporaryMemberController::class,
+    'remove',
+    'admin',
 );
 $router->addRoute('POST', '/admin/members/{id}/temporary-access', TemporaryMemberController::class, 'add', 'admin');
 $router->addRoute(
-    'GET', '/admin/scout-year', ScoutYearController::class, 'index', 'admin',
+    'GET',
+    '/admin/scout-year',
+    ScoutYearController::class,
+    'index',
+    'admin',
     ['label' => 'Année scoute', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]],
 );
 $router->addRoute('POST', '/admin/scout-year/preview', ScoutYearController::class, 'preview', 'admin');
@@ -2666,25 +3852,41 @@ $router->addRoute('POST', '/admin/scout-year/step', ScoutYearController::class, 
 
 // Settings
 $router->addRoute(
-    'GET', '/config/settings', SettingsController::class, 'index', 'superadmin',
+    'GET',
+    '/config/settings',
+    SettingsController::class,
+    'index',
+    'superadmin',
     ['label' => 'Réglages', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
 );
 $router->addRoute('POST', '/config/settings/update', SettingsController::class, 'update', 'superadmin');
 $router->addRoute('POST', '/config/settings/logo-delete', SettingsController::class, 'deleteLogo', 'superadmin');
 $router->addRoute(
-    'POST', '/config/settings/logo-notify-ios', SettingsController::class, 'notifyIosLogoUpdate', 'superadmin',
+    'POST',
+    '/config/settings/logo-notify-ios',
+    SettingsController::class,
+    'notifyIosLogoUpdate',
+    'superadmin',
 );
 
 // Support (Core\Statistics, Core\Support — ARCHITECTURE.md §8.47/§8.48)
 $router->addRoute(
-    'GET', '/config/support', SupportController::class, 'index', 'superadmin',
+    'GET',
+    '/config/support',
+    SupportController::class,
+    'index',
+    'superadmin',
     ['label' => 'Support', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
 );
 $router->addRoute('POST', '/config/support/statistics', SupportController::class, 'saveStatistics', 'superadmin');
 $router->addRoute('POST', '/config/support/measure', SupportController::class, 'startMeasurement', 'superadmin');
 $router->addRoute('POST', '/config/support/measure/stop', SupportController::class, 'stopMeasurement', 'superadmin');
 $router->addRoute(
-    'POST', '/config/support/statistics/test', SupportController::class, 'sendTestStatistics', 'superadmin',
+    'POST',
+    '/config/support/statistics/test',
+    SupportController::class,
+    'sendTestStatistics',
+    'superadmin',
 );
 $router->addRoute('POST', '/config/support/package', SupportController::class, 'generatePackage', 'superadmin');
 // One support ticket, sent now (roadmap IT-25). Same floor as the rest of
@@ -2698,15 +3900,27 @@ $router->addRoute('GET', '/api/support/package-status/{id}', SupportController::
 
 // Scheduled actions
 $router->addRoute(
-    'GET', '/config/scheduled', ScheduledActionsController::class, 'index', 'superadmin',
+    'GET',
+    '/config/scheduled',
+    ScheduledActionsController::class,
+    'index',
+    'superadmin',
     ['label' => 'Actions planifiées', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
 );
 $router->addRoute(
-    'GET', '/config/maintenance', MaintenanceController::class, 'index', 'admin',
+    'GET',
+    '/config/maintenance',
+    MaintenanceController::class,
+    'index',
+    'admin',
     ['label' => 'Maintenance', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
 );
 $router->addRoute(
-    'POST', '/config/maintenance/backup/database', MaintenanceController::class, 'createDatabaseBackup', 'admin',
+    'POST',
+    '/config/maintenance/backup/database',
+    MaintenanceController::class,
+    'createDatabaseBackup',
+    'admin',
 );
 $router->addRoute('POST', '/config/maintenance/backup/full', MaintenanceController::class, 'createFullBackup', 'admin');
 // 'admin', like every other backup route, and deliberately not
@@ -2718,10 +3932,17 @@ $router->addRoute('POST', '/config/maintenance/backup/full', MaintenanceControll
 // (Core\Maintenance\Portable\PortablePassphrase), the second envelope on
 // the secrets, and a `security` journal entry naming what was asked for.
 $router->addRoute(
-    'POST', '/config/maintenance/backup/portable', MaintenanceController::class, 'createPortableBackup', 'admin',
+    'POST',
+    '/config/maintenance/backup/portable',
+    MaintenanceController::class,
+    'createPortableBackup',
+    'admin',
 );
 $router->addRoute(
-    'POST', '/config/maintenance/backup/auto-frequency', MaintenanceController::class, 'updateAutoBackupFrequency',
+    'POST',
+    '/config/maintenance/backup/auto-frequency',
+    MaintenanceController::class,
+    'updateAutoBackupFrequency',
     'admin',
 );
 // 'admin', like every other write in the « Sauvegardes » section — the
@@ -2738,30 +3959,56 @@ $router->addRoute(
 );
 $router->addRoute('GET', '/api/maintenance/backup-status/{id}', MaintenanceController::class, 'backupStatus', 'admin');
 $router->addRoute(
-    'POST', '/config/maintenance/update/install', MaintenanceController::class, 'installUpdate', 'superadmin',
+    'POST',
+    '/config/maintenance/update/install',
+    MaintenanceController::class,
+    'installUpdate',
+    'superadmin',
 );
 $router->addRoute(
-    'POST', '/config/maintenance/update/check-now', MaintenanceController::class, 'checkForUpdatesNow', 'admin',
+    'POST',
+    '/config/maintenance/update/check-now',
+    MaintenanceController::class,
+    'checkForUpdatesNow',
+    'admin',
 );
 $router->addRoute('GET', '/api/maintenance/update-status/{id}', MaintenanceController::class, 'updateStatus', 'admin');
 $router->addRoute(
-    'POST', '/config/maintenance/reset/settings', MaintenanceController::class, 'resetSettings', 'superadmin',
+    'POST',
+    '/config/maintenance/reset/settings',
+    MaintenanceController::class,
+    'resetSettings',
+    'superadmin',
 );
 $router->addRoute('POST', '/config/maintenance/reset/full', MaintenanceController::class, 'fullReset', 'superadmin');
 $router->addRoute(
-    'POST', '/config/maintenance/reset/restore', MaintenanceController::class, 'restoreBackup', 'superadmin',
+    'POST',
+    '/config/maintenance/reset/restore',
+    MaintenanceController::class,
+    'restoreBackup',
+    'superadmin',
 );
 $router->addRoute(
-    'POST', '/config/maintenance/restore-upload-chunk', MaintenanceController::class, 'restoreUploadChunk',
+    'POST',
+    '/config/maintenance/restore-upload-chunk',
+    MaintenanceController::class,
+    'restoreUploadChunk',
     'superadmin',
 );
 $router->addRoute('GET', '/api/maintenance/reset-status/{id}', MaintenanceController::class, 'resetStatus', 'admin');
 $router->addRoute(
-    'POST', '/config/maintenance/auto-update/save', MaintenanceController::class, 'saveAutoUpdatePreferences',
+    'POST',
+    '/config/maintenance/auto-update/save',
+    MaintenanceController::class,
+    'saveAutoUpdatePreferences',
     'admin',
 );
 $router->addRoute(
-    'POST', '/api/maintenance/webhook-secret', MaintenanceController::class, 'generateWebhookSecret', 'admin',
+    'POST',
+    '/api/maintenance/webhook-secret',
+    MaintenanceController::class,
+    'generateWebhookSecret',
+    'admin',
 );
 
 // **La destination hors site.** Les cinq routes sont au plancher `admin`,
@@ -2790,14 +4037,22 @@ $router->addRoute('POST', '/api/webhook/github', \Core\Http\Controller\WebhookCo
 // /config-mode/* routes it links to — URL kept unchanged, nothing forces it
 // to change.
 $router->addRoute(
-    'GET', '/config/general', ConfigGeneralController::class, 'index', 'admin',
+    'GET',
+    '/config/general',
+    ConfigGeneralController::class,
+    'index',
+    'admin',
     ['label' => 'Édition du site', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]],
 );
 
 // Configuration > Modules — module registry (split out of Configuration
 // générale, ARCHITECTURE §7.1). Stays superadmin, in the Configuration menu.
 $router->addRoute(
-    'GET', '/config/modules', ConfigModulesController::class, 'index', 'superadmin',
+    'GET',
+    '/config/modules',
+    ConfigModulesController::class,
+    'index',
+    'superadmin',
     ['label' => 'Modules', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
 );
 $router->addRoute('POST', '/config/modules/toggle', ConfigModulesController::class, 'toggleModule', 'superadmin');
@@ -2806,31 +4061,51 @@ $router->addRoute('POST', '/config/modules/reorder', ConfigModulesController::cl
 // Configuration > Badges — badge registry (split out of Configuration
 // générale, ARCHITECTURE §8.11). Stays superadmin, in the Configuration menu.
 $router->addRoute(
-    'GET', '/config/badges', ConfigBadgesController::class, 'index', 'superadmin',
+    'GET',
+    '/config/badges',
+    ConfigBadgesController::class,
+    'index',
+    'superadmin',
     ['label' => 'Badges', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
 );
 $router->addRoute('POST', '/config/badges/add', ConfigBadgesController::class, 'addBadge', 'superadmin');
 $router->addRoute('POST', '/config/badges/update', ConfigBadgesController::class, 'updateBadge', 'superadmin');
 $router->addRoute(
-    'POST', '/config/badges/toggle-active', ConfigBadgesController::class, 'toggleBadgeActive', 'superadmin',
+    'POST',
+    '/config/badges/toggle-active',
+    ConfigBadgesController::class,
+    'toggleBadgeActive',
+    'superadmin',
 );
 $router->addRoute('POST', '/config/badges/delete', ConfigBadgesController::class, 'deleteBadge', 'superadmin');
 
 // Configuration > Comptes superadmin — the accounts holding is_super_admin,
 // the one administrative access that exists outside the Desk roster.
 $router->addRoute(
-    'GET', '/config/superadmins', SuperAdminAccountsController::class, 'index', 'superadmin',
+    'GET',
+    '/config/superadmins',
+    SuperAdminAccountsController::class,
+    'index',
+    'superadmin',
     ['label' => 'Comptes superadmin', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
 );
 $router->addRoute('POST', '/config/superadmins/add', SuperAdminAccountsController::class, 'add', 'superadmin');
 $router->addRoute('POST', '/config/superadmins/revoke', SuperAdminAccountsController::class, 'revoke', 'superadmin');
 $router->addRoute(
-    'POST', '/config/superadmins/toggle-active', SuperAdminAccountsController::class, 'toggleActive', 'superadmin',
+    'POST',
+    '/config/superadmins/toggle-active',
+    SuperAdminAccountsController::class,
+    'toggleActive',
+    'superadmin',
 );
 
 // RGPD configuration
 $router->addRoute(
-    'GET', '/config/rgpd', RgpdConfigController::class, 'index', 'superadmin',
+    'GET',
+    '/config/rgpd',
+    RgpdConfigController::class,
+    'index',
+    'superadmin',
     ['label' => 'RGPD', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
 );
 $router->addRoute('POST', '/config/rgpd/save', RgpdConfigController::class, 'save', 'superadmin');
@@ -2840,16 +4115,28 @@ $router->addRoute('POST', '/config/rgpd/reset', RgpdConfigController::class, 're
 
 // Staffs
 $router->addRoute(
-    'GET', '/chefs/staffs', StaffsController::class, 'index', 'intendant',
+    'GET',
+    '/chefs/staffs',
+    StaffsController::class,
+    'index',
+    'intendant',
     ['label' => 'Staffs', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_CHEFS)]],
 );
 $router->addRoute('POST', '/chefs/staffs/badge-toggle', StaffsController::class, 'toggleBadge', 'chief');
 $router->addRoute(
-    'GET', '/chefs/membres', \Core\Http\Controller\SectionRosterController::class, 'index', 'intendant',
+    'GET',
+    '/chefs/membres',
+    \Core\Http\Controller\SectionRosterController::class,
+    'index',
+    'intendant',
     ['label' => 'Membres par section', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_CHEFS)]],
 );
 $router->addRoute(
-    'GET', '/chefs/membres/export', \Core\Http\Controller\SectionRosterController::class, 'export', 'intendant',
+    'GET',
+    '/chefs/membres/export',
+    \Core\Http\Controller\SectionRosterController::class,
+    'export',
+    'intendant',
 );
 // The roll-call sheet. Same role as the page it prints — it carries less
 // than the page does, not more: no contact of any kind reaches it.
@@ -2861,39 +4148,72 @@ $router->addRoute(
     'intendant',
 );
 $router->addRoute(
-    'POST', '/chefs/staffs/documents', \Core\Http\Controller\SectionDocumentController::class, 'add', 'chief',
-);
-$router->addRoute(
-    'POST', '/chefs/staffs/documents/reorder', \Core\Http\Controller\SectionDocumentController::class, 'reorder',
+    'POST',
+    '/chefs/staffs/documents',
+    \Core\Http\Controller\SectionDocumentController::class,
+    'add',
     'chief',
 );
 $router->addRoute(
-    'POST', '/chefs/staffs/documents/delete', \Core\Http\Controller\SectionDocumentController::class, 'delete',
+    'POST',
+    '/chefs/staffs/documents/reorder',
+    \Core\Http\Controller\SectionDocumentController::class,
+    'reorder',
     'chief',
 );
 $router->addRoute(
-    'POST', '/chefs/staffs/documents/{id}', \Core\Http\Controller\SectionDocumentController::class, 'update', 'chief',
+    'POST',
+    '/chefs/staffs/documents/delete',
+    \Core\Http\Controller\SectionDocumentController::class,
+    'delete',
+    'chief',
+);
+$router->addRoute(
+    'POST',
+    '/chefs/staffs/documents/{id}',
+    \Core\Http\Controller\SectionDocumentController::class,
+    'update',
+    'chief',
 );
 
 // Functions configuration
 $router->addRoute(
-    'GET', '/config/functions', FunctionsController::class, 'index', 'superadmin',
+    'GET',
+    '/config/functions',
+    FunctionsController::class,
+    'index',
+    'superadmin',
     ['label' => 'Desk', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
 );
 $router->addRoute('POST', '/config/functions/update', FunctionsController::class, 'update', 'superadmin');
 $router->addRoute('POST', '/config/functions/flags', FunctionsController::class, 'updateFlags', 'superadmin');
 $router->addRoute(
-    'POST', '/config/functions/section-name', FunctionsController::class, 'updateSectionName', 'superadmin',
-);
-$router->addRoute(
-    'POST', '/config/functions/section-email', FunctionsController::class, 'updateSectionEmail', 'superadmin',
-);
-$router->addRoute(
-    'POST', '/config/functions/section-visibility', FunctionsController::class, 'updateSectionVisibility',
+    'POST',
+    '/config/functions/section-name',
+    FunctionsController::class,
+    'updateSectionName',
     'superadmin',
 );
 $router->addRoute(
-    'POST', '/config/functions/section-color', FunctionsController::class, 'updateSectionColor', 'superadmin',
+    'POST',
+    '/config/functions/section-email',
+    FunctionsController::class,
+    'updateSectionEmail',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/functions/section-visibility',
+    FunctionsController::class,
+    'updateSectionVisibility',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/functions/section-color',
+    FunctionsController::class,
+    'updateSectionColor',
+    'superadmin',
 );
 $router->addRoute('POST', '/config/functions/branch-url', FunctionsController::class, 'updateBranchUrl', 'superadmin');
 
@@ -3072,8 +4392,15 @@ $householdService = new \Core\Member\Household\HouseholdService(
 
 // Handle the request
 $maintenanceGate = new \Core\Maintenance\MaintenanceGate($updateHistoryRepository);
-$frontController = new FrontController($router, $twig, $config, $offlineWhitelist, $maintenanceGate, $helpService,
-    $helpPageLinkResolver);
+$frontController = new FrontController(
+    $router,
+    $twig,
+    $config,
+    $offlineWhitelist,
+    $maintenanceGate,
+    $helpService,
+    $helpPageLinkResolver
+);
 
 // Entity change history pages (Core\Audit) — registered here rather than
 // next to its route, because $frontController does not exist yet at the
@@ -3201,8 +4528,11 @@ if ($isEnabled('llm_connector')) {
     \Core\Debug\RequestTimeline::mark('module_llm_connector');
     $llmProviderRepo = new \Modules\LlmConnector\Repository\ProviderRepository($pdo, $encryptionService);
     $llmModelRepo = new \Modules\LlmConnector\Repository\ProviderModelRepository($pdo);
-    $llmConnectorForOthers = new \Modules\LlmConnector\Service\LlmConnectorService($llmProviderRepo, $llmModelRepo,
-        $journalService);
+    $llmConnectorForOthers = new \Modules\LlmConnector\Service\LlmConnectorService(
+        $llmProviderRepo,
+        $llmModelRepo,
+        $journalService
+    );
     $llmSubProcessorProvider = new \Modules\LlmConnector\Service\LlmSubProcessorService(
         $llmProviderRepo,
         $llmModelRepo
@@ -3303,16 +4633,32 @@ $expenseReceiptProvider = null;
 // (mass_mail, gallery, calendar) still require the re-registration
 // further down, once their blocks have run.
 $memberPageService = new \Core\Member\MemberPageService(
-    $sectionService, $memberService, $badgeRepository, $memberBadgeRepository, $ageBranchRepo, $memberDocumentService,
+    $sectionService,
+    $memberService,
+    $badgeRepository,
+    $memberBadgeRepository,
+    $ageBranchRepo,
+    $memberDocumentService,
     $memberEmailService,
-    $sectionDocumentService, $moduleHooks
+    $sectionDocumentService,
+    $moduleHooks
 );
 
 // Register controllers with dependencies
-$frontController->registerController(PageController::class,
-    new PageController($twig, $editableContentService, $sectionRepository, $settingService, $rgpdContentService,
-        $sectionService, $unitStaffSectionService, $scoutYearService, $moduleHooks)
-    );
+$frontController->registerController(
+    PageController::class,
+    new PageController(
+        $twig,
+        $editableContentService,
+        $sectionRepository,
+        $settingService,
+        $rgpdContentService,
+        $sectionService,
+        $unitStaffSectionService,
+        $scoutYearService,
+        $moduleHooks
+    )
+);
 $frontController->registerController(CookieController::class, new CookieController($twig, $cookieConsentService));
 $setupController = new SetupController($twig, $secretManager, $dkimManager, $schemaPath, __DIR__);
 $setupController->setSettingService($settingService);
@@ -3341,17 +4687,33 @@ $webAuthnService = new WebAuthnService(
     $webAuthnBaseUrl
 );
 
-$authController = new AuthController($twig, $authService, $roleResolver, $scoutYearResolver,
-    $cookieConsentService, $authorizationYearService);
+$authController = new AuthController(
+    $twig,
+    $authService,
+    $roleResolver,
+    $scoutYearResolver,
+    $cookieConsentService,
+    $authorizationYearService
+);
 $authController->setPasswordAuth($passwordAuthMethod);
 $authController->setWebAuthnService($webAuthnService);
 $authController->setHumanCheck($humanCheckService);
 $frontController->registerController(AuthController::class, $authController);
-$frontController->registerController(AccountController::class,
-    new AccountController($twig, $userAccountRepo, $webAuthnCredentialRepo, $webAuthnService, $accountPhotoService,
-        $seenHelpTopicRepository));
-$frontController->registerController(PushSubscriptionController::class,
-    new PushSubscriptionController($twig, $notificationService, $journalService));
+$frontController->registerController(
+    AccountController::class,
+    new AccountController(
+        $twig,
+        $userAccountRepo,
+        $webAuthnCredentialRepo,
+        $webAuthnService,
+        $accountPhotoService,
+        $seenHelpTopicRepository
+    )
+);
+$frontController->registerController(
+    PushSubscriptionController::class,
+    new PushSubscriptionController($twig, $notificationService, $journalService)
+);
 
 $frontController->registerController(
     \Core\Http\Controller\NotificationController::class,
@@ -3404,78 +4766,139 @@ $frontController->registerController(
     RemoteBackupController::class,
     new RemoteBackupController($twig, $remoteBackupConnection, $journalService)
 );
-$frontController->registerController(MaintenanceController::class, new MaintenanceController(
-    $twig, $backupService, $backupRepository, $fileRepository, $updateHistoryRepository, $schedulerService,
-    $moduleManager, $encryptionService, $journalService, $settingService, $storagePath, $secretManager,
-    null,
-    // A runner of its own, with a SHORT budget: updateStatus() runs one
-    // slice per poll while an update sits in `migrating`, inside a request
-    // an administrator is waiting on. Not $migrationRunner from the
-    // bootstrap above — that one carries the memoized introspection of a
-    // pass that ran before the update replaced anything on disk.
-    new MigrationRunner(
-        $connection,
-        new SchemaIntrospector($connection->getPdo()),
-        new SchemaComparator(),
-        new SqlParser(),
-        5,
-        $journalService
-    ),
-    // The directory holding cron.php, for the health block's crontab line.
-    __DIR__
-));
+$frontController->registerController(
+    MaintenanceController::class,
+    new MaintenanceController(
+        $twig,
+        $backupService,
+        $backupRepository,
+        $fileRepository,
+        $updateHistoryRepository,
+        $schedulerService,
+        $moduleManager,
+        $encryptionService,
+        $journalService,
+        $settingService,
+        $storagePath,
+        $secretManager,
+        null,
+        // A runner of its own, with a SHORT budget: updateStatus() runs one
+        // slice per poll while an update sits in `migrating`, inside a request
+        // an administrator is waiting on. Not $migrationRunner from the
+        // bootstrap above — that one carries the memoized introspection of a
+        // pass that ran before the update replaced anything on disk.
+        new MigrationRunner(
+            $connection,
+            new SchemaIntrospector($connection->getPdo()),
+            new SchemaComparator(),
+            new SqlParser(),
+            5,
+            $journalService
+        ),
+        // The directory holding cron.php, for the health block's crontab line.
+        __DIR__
+    )
+);
 $frontController->registerController(VersionController::class, new VersionController($twig, $storagePath));
 $githubWebhookService = new \Core\Maintenance\GitHubWebhookService(
-    $settingService, $schedulerService, $updateHistoryRepository, $journalService, dirname($storagePath)
+    $settingService,
+    $schedulerService,
+    $updateHistoryRepository,
+    $journalService,
+    dirname($storagePath)
 );
 $frontController->registerController(
-    \Core\Http\Controller\WebhookController::class, new \Core\Http\Controller\WebhookController(
-    $twig, $githubWebhookService, $secretManager, $journalService
-));
+    \Core\Http\Controller\WebhookController::class,
+    new \Core\Http\Controller\WebhookController(
+        $twig,
+        $githubWebhookService,
+        $secretManager,
+        $journalService
+    )
+);
 $passwordResetController = new PasswordResetController($twig, $passwordResetService);
 $passwordResetController->setHumanCheck($humanCheckService);
 $frontController->registerController(PasswordResetController::class, $passwordResetController);
 $frontController->registerController(ShortUrlController::class, new ShortUrlController($twig, $shortUrlService));
-$frontController->registerController(ImportController::class,
-    new ImportController($twig, $importService, $scoutYearResolver, $importJournalRepo, $functionRepo,
-        $importRetentionService, $rosterSnapshotRepository, $fileRepository, $userAccountRepo, $importReportPresenter,
-        $storagePath, $registrationReconciliation ?? null, $diskBudget
+$frontController->registerController(
+    ImportController::class,
+    new ImportController(
+        $twig,
+        $importService,
+        $scoutYearResolver,
+        $importJournalRepo,
+        $functionRepo,
+        $importRetentionService,
+        $rosterSnapshotRepository,
+        $fileRepository,
+        $userAccountRepo,
+        $importReportPresenter,
+        $storagePath,
+        $registrationReconciliation ?? null,
+        $diskBudget
     )
 );
-$frontController->registerController(MemberController::class,
-    new MemberController($twig, $memberService, $memberYearService, $journalService, $memberPageService,
-        $departureService, $sectionStaffAuthorizationService)
-    );
+$frontController->registerController(
+    MemberController::class,
+    new MemberController(
+        $twig,
+        $memberService,
+        $memberYearService,
+        $journalService,
+        $memberPageService,
+        $departureService,
+        $sectionStaffAuthorizationService
+    )
+);
 $frontController->registerController(
     \Core\Http\Controller\MemberEmailAddressController::class,
     new \Core\Http\Controller\MemberEmailAddressController($twig, $memberEmailService, $memberService)
 );
-$frontController->registerController(StaffsController::class, new StaffsController(
-    $twig, $sectionService, $memberService, $scoutYearResolver, $journalService, $badgeService,
-    $unitStaffSectionService, $sectionDocumentService, $settingService, $sectionStaffAuthorizationService
-));
 $frontController->registerController(
-    \Core\Http\Controller\SectionRosterController::class, new \Core\Http\Controller\SectionRosterController(
-    $twig,
-    $sectionService,
-    $sectionRosterService,
-    $memberExportRowBuilder,
-    $memberExportService,
-    $scoutYearResolver,
-    $journalService,
-    new \Core\Member\SectionRosterPdfService(
-        new \Core\Member\Pdf\SectionRosterHtmlBuilder(),
-        // The rendered document is kept here until its inputs change —
-        // the same disk cache, and the same atomic replacement, as the
-        // printable trombinoscope's.
-        $storagePath . '/temp'
-    ),
-    $settingService,
-));
+    StaffsController::class,
+    new StaffsController(
+        $twig,
+        $sectionService,
+        $memberService,
+        $scoutYearResolver,
+        $journalService,
+        $badgeService,
+        $unitStaffSectionService,
+        $sectionDocumentService,
+        $settingService,
+        $sectionStaffAuthorizationService
+    )
+);
 $frontController->registerController(
-    \Core\Http\Controller\SectionDocumentController::class, new \Core\Http\Controller\SectionDocumentController(
-    $twig, $sectionDocumentService, $sectionStaffAuthorizationService, $scoutYearResolver, $journalService
-));
+    \Core\Http\Controller\SectionRosterController::class,
+    new \Core\Http\Controller\SectionRosterController(
+        $twig,
+        $sectionService,
+        $sectionRosterService,
+        $memberExportRowBuilder,
+        $memberExportService,
+        $scoutYearResolver,
+        $journalService,
+        new \Core\Member\SectionRosterPdfService(
+            new \Core\Member\Pdf\SectionRosterHtmlBuilder(),
+            // The rendered document is kept here until its inputs change —
+            // the same disk cache, and the same atomic replacement, as the
+            // printable trombinoscope's.
+            $storagePath . '/temp'
+        ),
+        $settingService,
+    )
+);
+$frontController->registerController(
+    \Core\Http\Controller\SectionDocumentController::class,
+    new \Core\Http\Controller\SectionDocumentController(
+        $twig,
+        $sectionDocumentService,
+        $sectionStaffAuthorizationService,
+        $scoutYearResolver,
+        $journalService
+    )
+);
 $frontController->registerController(ConfigModeController::class, new ConfigModeController($twig));
 $editableContentController = new EditableContentController($twig, $editableContentService);
 $editableContentController->setJournalService($journalService);
@@ -3488,8 +4911,16 @@ $frontController->registerController(EditableContentController::class, $editable
 // module it resolves to null and the manifest carries no trombinoscope
 // photos.
 $offlineManifestService = new \Core\Offline\OfflineManifestService(
-    $offlineWhitelist, $memberService, $memberPhotoService, $sectionPhotoService, $sectionService,
-    $unitStaffSectionService, $scoutYearResolver, $editableContentService, $ageBranchRepo, $moduleHooks,
+    $offlineWhitelist,
+    $memberService,
+    $memberPhotoService,
+    $sectionPhotoService,
+    $sectionService,
+    $unitStaffSectionService,
+    $scoutYearResolver,
+    $editableContentService,
+    $ageBranchRepo,
+    $moduleHooks,
     $temporaryMemberProvider
 );
 $offlineController = new OfflineController($twig, $offlineManifestService);
@@ -3509,78 +4940,101 @@ $photoIngestionService = new \Core\Photo\PhotoIngestionService(
 $uploadController = new UploadController($twig, $photoIngestionService, $memberService);
 $uploadController->setJournalService($journalService);
 $frontController->registerController(UploadController::class, $uploadController);
-$frontController->registerController(\Core\Http\Controller\PwaController::class,
-    new \Core\Http\Controller\PwaController($twig, $settingService, $unitLogoService));
-$frontController->registerController(JournalController::class,
-    new JournalController($twig, $journalRepo, $userAccountRepo));
-$frontController->registerController(TemporaryMemberController::class,
-    new TemporaryMemberController($twig, $memberSearchService, $scoutYearResolver, $journalService, $memberYearRepo));
-$frontController->registerController(SettingsController::class,
-    new SettingsController($twig, $settingService, $journalService, $unitLogoService, $notificationService,
-        $userAccountRepo, $moduleManager)
-    );
-$frontController->registerController(SupportController::class, new SupportController(
-    $twig,
-    $settingService,
-    $journalService,
-    $statisticsPayloadBuilder,
-    $schedulerService,
-    $statisticsSender,
-    // The ticket half of the page (roadmap IT-25). Same transport as the
-    // statistics sender above — the timeouts a page must not exceed live
-    // in one place.
-    new \Core\Support\Ticket\SupportTicketSender(
+$frontController->registerController(
+    \Core\Http\Controller\PwaController::class,
+    new \Core\Http\Controller\PwaController($twig, $settingService, $unitLogoService)
+);
+$frontController->registerController(
+    JournalController::class,
+    new JournalController($twig, $journalRepo, $userAccountRepo)
+);
+$frontController->registerController(
+    TemporaryMemberController::class,
+    new TemporaryMemberController($twig, $memberSearchService, $scoutYearResolver, $journalService, $memberYearRepo)
+);
+$frontController->registerController(
+    SettingsController::class,
+    new SettingsController(
+        $twig,
         $settingService,
-        $ticketIdentityService,
-        new \Core\Statistics\StreamStatisticsTransport(),
         $journalService,
-        \Core\Maintenance\VersionFile::read(dirname(__DIR__)),
-        // The usage report travels inside the ticket, so the receiver can
-        // tie the two together — which a separately-sent report could not.
+        $unitLogoService,
+        $notificationService,
+        $userAccountRepo,
+        $moduleManager
+    )
+);
+$frontController->registerController(
+    SupportController::class,
+    new SupportController(
+        $twig,
+        $settingService,
+        $journalService,
         $statisticsPayloadBuilder,
-        // One category per enabled module, named the way its own menu
-        // entry names it. Minted here and never received: which modules
-        // are enabled is a fact about THIS installation, and the receiver
-        // publishes one vocabulary for every unit at once.
-        $moduleManager->getEnabledModuleNames()
-    ),
-    $ticketIdentityService,
-    // The archive, on its own transport: megabytes uphill from a shared
-    // host is not a 2 KB JSON body, and sharing the interface would mean
-    // sharing the timeouts (roadmap IT-26).
-    new \Core\Support\Ticket\SupportArchiveSender(
-        $settingService,
+        $schedulerService,
+        $statisticsSender,
+        // The ticket half of the page (roadmap IT-25). Same transport as the
+        // statistics sender above — the timeouts a page must not exceed live
+        // in one place.
+        new \Core\Support\Ticket\SupportTicketSender(
+            $settingService,
+            $ticketIdentityService,
+            new \Core\Statistics\StreamStatisticsTransport(),
+            $journalService,
+            \Core\Maintenance\VersionFile::read(dirname(__DIR__)),
+            // The usage report travels inside the ticket, so the receiver can
+            // tie the two together — which a separately-sent report could not.
+            $statisticsPayloadBuilder,
+            // One category per enabled module, named the way its own menu
+            // entry names it. Minted here and never received: which modules
+            // are enabled is a fact about THIS installation, and the receiver
+            // publishes one vocabulary for every unit at once.
+            $moduleManager->getEnabledModuleNames()
+        ),
         $ticketIdentityService,
-        $encryptedFileStorageService,
-        new \Core\Support\Ticket\StreamArchiveTransport(),
-        $journalService,
-        \Core\Maintenance\VersionFile::read(dirname(__DIR__))
-    ),
-    \Core\Support\SupportPackageFactory::collectorNames(),
-    $fileRepository,
-    // The mail probes (roadmap IT-27). Same identity, same guards and the
-    // same transport as the ticket above; MailService is what actually
-    // carries the probe, so the local mail configuration is exactly what
-    // is being measured.
-    new \Core\Support\Ticket\MailProbeSender(
-        $settingService,
-        $ticketIdentityService,
-        new \Core\Statistics\StreamStatisticsTransport(),
-        $mailService,
-        $journalService,
-        \Core\Maintenance\VersionFile::read(dirname(__DIR__))
-    ),
-    // The measurement window (docs/chantiers/CHANTIER-performance.md §6):
-    // the same instance the top of this file asked whether to record.
-    $measurementWindow
-));
-$frontController->registerController(ScheduledActionsController::class,
-    new ScheduledActionsController($twig, $schedulerRepo));
+        // The archive, on its own transport: megabytes uphill from a shared
+        // host is not a 2 KB JSON body, and sharing the interface would mean
+        // sharing the timeouts (roadmap IT-26).
+        new \Core\Support\Ticket\SupportArchiveSender(
+            $settingService,
+            $ticketIdentityService,
+            $encryptedFileStorageService,
+            new \Core\Support\Ticket\StreamArchiveTransport(),
+            $journalService,
+            \Core\Maintenance\VersionFile::read(dirname(__DIR__))
+        ),
+        \Core\Support\SupportPackageFactory::collectorNames(),
+        $fileRepository,
+        // The mail probes (roadmap IT-27). Same identity, same guards and the
+        // same transport as the ticket above; MailService is what actually
+        // carries the probe, so the local mail configuration is exactly what
+        // is being measured.
+        new \Core\Support\Ticket\MailProbeSender(
+            $settingService,
+            $ticketIdentityService,
+            new \Core\Statistics\StreamStatisticsTransport(),
+            $mailService,
+            $journalService,
+            \Core\Maintenance\VersionFile::read(dirname(__DIR__))
+        ),
+        // The measurement window (docs/chantiers/CHANTIER-performance.md §6):
+        // the same instance the top of this file asked whether to record.
+        $measurementWindow
+    )
+);
+$frontController->registerController(
+    ScheduledActionsController::class,
+    new ScheduledActionsController($twig, $schedulerRepo)
+);
 $frontController->registerController(ConfigGeneralController::class, new ConfigGeneralController($twig));
-$frontController->registerController(ConfigModulesController::class,
-    new ConfigModulesController($twig, $moduleManager, $journalService));
-$frontController->registerController(ConfigBadgesController::class,
-    new ConfigBadgesController($twig, $badgeService, $journalService));
+$frontController->registerController(
+    ConfigModulesController::class,
+    new ConfigModulesController($twig, $moduleManager, $journalService)
+);
+$frontController->registerController(
+    ConfigBadgesController::class,
+    new ConfigBadgesController($twig, $badgeService, $journalService)
+);
 $frontController->registerController(
     SuperAdminAccountsController::class,
     new SuperAdminAccountsController($twig, $userAccountRepo, $superAdminService)
@@ -3644,8 +5098,16 @@ if ($isEnabled('trombinoscope')) {
     );
     $frontController->registerController(
         \Modules\Trombinoscope\Controller\TrombinoscopeController::class,
-        new \Modules\Trombinoscope\Controller\TrombinoscopeController($twig, $sectionService, $trombinoscopeService,
-            $scoutYearResolver, $settingService, $trombinoscopePdfService, $memberPhotoService, $journalService)
+        new \Modules\Trombinoscope\Controller\TrombinoscopeController(
+            $twig,
+            $sectionService,
+            $trombinoscopeService,
+            $scoutYearResolver,
+            $settingService,
+            $trombinoscopePdfService,
+            $memberPhotoService,
+            $journalService
+        )
     );
 
     // The module's three core-hook implementations (§7.4), registered
@@ -3720,10 +5182,14 @@ if ($isEnabled('calendar')) {
     $calendarPresenceEventCleanup = new \Modules\Calendar\Service\PresenceEventCleanupRegistry();
     $calendarRepo = new \Modules\Calendar\Repository\CalendarRepository($pdo, $encryptionService);
     $calendarEventRepo = new \Modules\Calendar\Repository\CalendarEventRepository($pdo);
-    $calendarPersonalTokenRepo = new \Modules\Calendar\Repository\CalendarPersonalTokenRepository($pdo,
-        $encryptionService);
-    $calendarUnitFeedTokenRepo = new \Modules\Calendar\Repository\CalendarUnitFeedTokenRepository($pdo,
-        $encryptionService);
+    $calendarPersonalTokenRepo = new \Modules\Calendar\Repository\CalendarPersonalTokenRepository(
+        $pdo,
+        $encryptionService
+    );
+    $calendarUnitFeedTokenRepo = new \Modules\Calendar\Repository\CalendarUnitFeedTokenRepository(
+        $pdo,
+        $encryptionService
+    );
 
     // Api\ScoutYearEventCountProvider (ARCHITECTURE.md §7.5) — read by the
     // "Année scoute" workflow to tell whether this year's éphémérides have
@@ -3732,14 +5198,24 @@ if ($isEnabled('calendar')) {
     $calendarScoutYearEventCount = new \Modules\Calendar\Service\ScoutYearEventCountService($calendarEventRepo);
 
     $calendarService = new \Modules\Calendar\Service\CalendarService(
-        $calendarRepo, $calendarEventRepo, $sectionService, $calendarUnitFeedTokenRepo, $calendarRetroLinks
+        $calendarRepo,
+        $calendarEventRepo,
+        $sectionService,
+        $calendarUnitFeedTokenRepo,
+        $calendarRetroLinks
     );
     $calendarNotificationService = new \Modules\Calendar\Service\CalendarNotificationService(
-        $schedulerService, $settingService, $calendarService, $calendarEventRepo, $notificationService,
-        $userAccountRepo, $scoutYearService
+        $schedulerService,
+        $settingService,
+        $calendarService,
+        $calendarEventRepo,
+        $notificationService,
+        $userAccountRepo,
+        $scoutYearService
     );
     $calendarRetroAutoCreateService = new \Modules\Calendar\Service\CalendarRetroAutoCreateService(
-        $schedulerService, $calendarRetroLinks
+        $schedulerService,
+        $calendarRetroLinks
     );
     $calendarEventService = new \Modules\Calendar\Service\CalendarEventService(
         $calendarEventRepo,
@@ -3766,7 +5242,8 @@ if ($isEnabled('calendar')) {
         $authorizationYearService
     );
     $calendarPickerService = new \Modules\Calendar\Service\CalendarPickerService(
-        $calendarService, $calendarPersonalFeedService
+        $calendarService,
+        $calendarPersonalFeedService
     );
     $monthGridBuilder = new \Core\View\MonthGrid\MonthGridBuilder();
     $calendarIcsBuilder = new \Modules\Calendar\Service\IcsBuilder();
@@ -3787,22 +5264,43 @@ if ($isEnabled('calendar')) {
     $frontController->registerController(
         \Modules\Calendar\Controller\CalendarPublicController::class,
         new \Modules\Calendar\Controller\CalendarPublicController(
-            $twig, $calendarService, $calendarPickerService, $monthGridBuilder, $calendarPersonalFeedService,
-            $calendarIcsBuilder, $scoutYearResolver, $journalService, $calendarVirtualEventRegistry
+            $twig,
+            $calendarService,
+            $calendarPickerService,
+            $monthGridBuilder,
+            $calendarPersonalFeedService,
+            $calendarIcsBuilder,
+            $scoutYearResolver,
+            $journalService,
+            $calendarVirtualEventRegistry
         )
     );
     $frontController->registerController(
         \Modules\Calendar\Controller\CalendarChiefController::class,
         new \Modules\Calendar\Controller\CalendarChiefController(
-            $twig, $calendarService, $calendarPickerService, $monthGridBuilder, $calendarEventService,
-            $sectionService, $memberService, $scoutYearResolver, $journalService, $settingService, $moduleManager,
+            $twig,
+            $calendarService,
+            $calendarPickerService,
+            $monthGridBuilder,
+            $calendarEventService,
+            $sectionService,
+            $memberService,
+            $scoutYearResolver,
+            $journalService,
+            $settingService,
+            $moduleManager,
             $sectionStaffAuthorizationService
         )
     );
     $frontController->registerController(
         \Modules\Calendar\Controller\CalendarConfigController::class,
         new \Modules\Calendar\Controller\CalendarConfigController(
-            $twig, $calendarService, $sectionService, $settingService, $journalService, $calendarNotificationService
+            $twig,
+            $calendarService,
+            $sectionService,
+            $settingService,
+            $journalService,
+            $calendarNotificationService
         )
     );
 }
@@ -3900,32 +5398,57 @@ if ($isEnabled('sos_staff')) {
     // without it — the default number's auto-resolution then falls back
     // to the first Staff d'U roster member.
     $sosSettingsService = new \Modules\SosStaff\Service\SosSettingsService(
-        $sosExcludedSectionRepo, $sosSettingsRepo, $sectionService, $memberYearRepo, $unitStaffSectionService,
-        $settingService, $moduleHooks->getOptional(\Core\Module\SectionResponsableProvider::class)
+        $sosExcludedSectionRepo,
+        $sosSettingsRepo,
+        $sectionService,
+        $memberYearRepo,
+        $unitStaffSectionService,
+        $settingService,
+        $moduleHooks->getOptional(\Core\Module\SectionResponsableProvider::class)
     );
-    $sosOnCallService = new \Modules\SosStaff\Service\OnCallService($sosOnCallRepo, $schedulerService,
-        $sosSettingsService);
+    $sosOnCallService = new \Modules\SosStaff\Service\OnCallService(
+        $sosOnCallRepo,
+        $schedulerService,
+        $sosSettingsService
+    );
     // The handover pair is told through the notification centre (the two
     // types module.json declares) rather than by a direct mail — hence the
     // NotificationService here. sendAdminAlert() still uses $mailService:
     // a technical alert addressed to a role, not a personal notice.
     $sosRedirectService = new \Modules\SosStaff\Service\RedirectService(
-        $sosProviderConfigService, $sosSettingsService, $memberService, $userAccountRepo, $mailService, $journalService,
-        $emailTemplateRenderer, $notificationService
+        $sosProviderConfigService,
+        $sosSettingsService,
+        $memberService,
+        $userAccountRepo,
+        $mailService,
+        $journalService,
+        $emailTemplateRenderer,
+        $notificationService
     );
 
     $frontController->registerController(
         \Modules\SosStaff\Controller\SosConfigController::class,
         new \Modules\SosStaff\Controller\SosConfigController(
-            $twig, $sosProviderConfigService, $sosSettingsService, $sectionService, $journalService,
+            $twig,
+            $sosProviderConfigService,
+            $sosSettingsService,
+            $sectionService,
+            $journalService,
             $settingService
         )
     );
     $frontController->registerController(
         \Modules\SosStaff\Controller\SosAdminController::class,
         new \Modules\SosStaff\Controller\SosAdminController(
-            $twig, $sosProviderConfigService, $sosSettingsService, $sosOnCallService, $sosRedirectService,
-            $sectionService, $schedulerService, $scoutYearResolver, $journalService,
+            $twig,
+            $sosProviderConfigService,
+            $sosSettingsService,
+            $sosOnCallService,
+            $sosRedirectService,
+            $sectionService,
+            $schedulerService,
+            $scoutYearResolver,
+            $journalService,
             // « Ma disponibilité » needs to know which roster member the
             // signed-in visitor is — a convenience tab, never a rule: the
             // route stays role_min admin and the month tab still edits
@@ -3945,7 +5468,9 @@ if ($isEnabled('sos_staff')) {
     // where $calendarServiceForOthers was assigned.
     if ($calendarVirtualEventRegistry !== null) {
         $calendarVirtualEventRegistry->register(new \Modules\SosStaff\Calendar\SosVirtualEventProvider(
-            $sosOnCallRepo, $memberService, $calendarServiceForOthers
+            $sosOnCallRepo,
+            $memberService,
+            $calendarServiceForOthers
         ));
     }
 }
@@ -4044,8 +5569,13 @@ if ($isEnabled('banner')) {
 
     $frontController->registerController(
         \Modules\Banner\Controller\BannerConfigController::class,
-        new \Modules\Banner\Controller\BannerConfigController($twig, $bannerService, $journalService, $memberService,
-            $scoutYearResolver)
+        new \Modules\Banner\Controller\BannerConfigController(
+            $twig,
+            $bannerService,
+            $journalService,
+            $memberService,
+            $scoutYearResolver
+        )
     );
 
     // The home page's banner hook (§7.4) — resolved per request through
@@ -4121,10 +5651,18 @@ if ($isEnabled('inbound_mail')) {
     // removed them. Same shape as member_section_periods_backfilled above.
     if ($settingService->get('inbound_mail_links_migrated') !== '1') {
         $settingService->register(
-            'inbound_mail_links_migrated', '0', 'boolean', 'Associations de courrier reconstituées',
+            'inbound_mail_links_migrated',
+            '0',
+            'boolean',
+            'Associations de courrier reconstituées',
             'Indique si les messages entrants antérieurs ont été rattachés à leurs objets via la table '
                 . 'd\'associations.',
-            null, null, null, false, 999);
+            null,
+            null,
+            null,
+            false,
+            999
+        );
 
         $inboundMessageRepository->backfillLinks();
 
@@ -4136,11 +5674,19 @@ if ($isEnabled('inbound_mail')) {
     // owner. Until it runs they are gated by their `role_min` floor alone,
     // which is to say readable by any intendant walking /files/{id}.
     if ($settingService->get('inbound_mail_attachment_owners_migrated') !== '1') {
-        $settingService->register('inbound_mail_attachment_owners_migrated', '0', 'boolean',
+        $settingService->register(
+            'inbound_mail_attachment_owners_migrated',
+            '0',
+            'boolean',
             'Propriété des pièces jointes reconstituée',
             'Indique si les pièces jointes entrantes antérieures ont été rattachées à leur message pour le contrôle '
                 . 'd\'accès.',
-            null, null, null, false, 999);
+            null,
+            null,
+            null,
+            false,
+            999
+        );
 
         $inboundMailForOthers->backfillAttachmentOwners();
 
@@ -4157,10 +5703,18 @@ if ($isEnabled('inbound_mail')) {
     // under. Nothing is deleted here; the nightly purge decides that, on
     // the duration the unit chose.
     if ($settingService->get('inbound_mail_unsorted_dropped') !== '1') {
-        $settingService->register('inbound_mail_unsorted_dropped', '0', 'boolean',
+        $settingService->register(
+            'inbound_mail_unsorted_dropped',
+            '0',
+            'boolean',
             'Références réservées du courrier retirées',
             'Indique si les rattachements au pseudo-dossier « non classé » des camps ont été retirés.',
-            null, null, null, false, 999);
+            null,
+            null,
+            null,
+            false,
+            999
+        );
 
         $inboundMessageRepository->dropReservedReference('camps', 'unsorted');
 
@@ -4329,7 +5883,9 @@ if ($isEnabled('finance')) {
         $financeTransactionRepo
     );
     $financeAccountTransferCategoryService = new \Modules\Finance\Service\AccountTransferCategoryService(
-        $financeCategoryRepo, $financeCategoryRuleRepo, $financeTransactionRepo
+        $financeCategoryRepo,
+        $financeCategoryRuleRepo,
+        $financeTransactionRepo
     );
     // "Which sections is this session the treasurer of" (ARCHITECTURE.md
     // §8.69). The rule is pure and takes members.id values so the receipts
@@ -4338,19 +5894,32 @@ if ($isEnabled('finance')) {
     // root's to know, and a Service must not go looking for them. Lazy, so
     // a page load that never touches finance pays nothing for it.
     $financeTreasurerScopeService = new \Modules\Finance\Service\TreasurerScopeService(
-        $connection, $badgeRepository, $memberBadgeRepository
+        $connection,
+        $badgeRepository,
+        $memberBadgeRepository
     );
     $financeTreasurerScope = \Modules\Finance\Service\TreasurerScope::forSession(
-        $financeTreasurerScopeService, $linkedMemberIds, $effectiveScoutYear->id
+        $financeTreasurerScopeService,
+        $linkedMemberIds,
+        $effectiveScoutYear->id
     );
     $financeAccountVisibility = new \Modules\Finance\Service\AccountVisibility($financeTreasurerScope);
     $financeService = new \Modules\Finance\Service\FinanceService(
-        $financeAccountRepo, $financeCategoryRepo, $financeFiscalYearRepo, $sectionService, $financeTransactionRepo,
+        $financeAccountRepo,
+        $financeCategoryRepo,
+        $financeFiscalYearRepo,
+        $sectionService,
+        $financeTransactionRepo,
         $financeBalanceService,
-        $settingService, $financeCategoryRuleRepo, $financeAccountTransferCategoryService, $financeAccountVisibility
+        $settingService,
+        $financeCategoryRuleRepo,
+        $financeAccountTransferCategoryService,
+        $financeAccountVisibility
     );
-    $financeRuleEngine = new \Modules\Finance\Service\CategoryRuleEngine($financeTransactionRepo,
-        $financeCategoryRuleRepo);
+    $financeRuleEngine = new \Modules\Finance\Service\CategoryRuleEngine(
+        $financeTransactionRepo,
+        $financeCategoryRuleRepo
+    );
     $financeParserFactory = new \Modules\Finance\Parser\BankStatementParserFactory();
     // Optional dependency on the llm_connector module (ARCHITECTURE.md
     // §7.5), same instance reused for RGPD content generation above —
@@ -4372,8 +5941,13 @@ if ($isEnabled('finance')) {
     // section calendar events" section when calendar is disabled.
     $financeAiSuggestionRepo = new \Modules\Finance\Repository\AiCategorySuggestionRepository($pdo);
     $financeAiCategorizationService = new \Modules\Finance\Service\AiCategorizationService(
-        $llmConnectorForOthers, $financeCategoryRepo, $financeAiSuggestionRepo, $journalService,
-        $financeAccountRepo, $financeTransactionAttachmentRepo, $financeAttachmentRepo,
+        $llmConnectorForOthers,
+        $financeCategoryRepo,
+        $financeAiSuggestionRepo,
+        $journalService,
+        $financeAccountRepo,
+        $financeTransactionAttachmentRepo,
+        $financeAttachmentRepo,
         // The calendar's PUBLISHED read Api (§7.5) — the null-seeded
         // handle from the calendar block above implements it; null with
         // calendar disabled, and the AI prompt simply omits the "nearby
@@ -4381,7 +5955,11 @@ if ($isEnabled('finance')) {
         $calendarServiceForOthers
     );
     $financeBulkCategorizationService = new \Modules\Finance\Service\BulkCategorizationService(
-        $financeTransactionRepo, $financeRuleEngine, $financeAiCategorizationService, $settingService, $schedulerService
+        $financeTransactionRepo,
+        $financeRuleEngine,
+        $financeAiCategorizationService,
+        $settingService,
+        $schedulerService
     );
 
     // Who paid what, written down (ARCHITECTURE.md §8.81). Declared here,
@@ -4389,22 +5967,38 @@ if ($isEnabled('finance')) {
     // let these rows be written in the same request; the public
     // cross-module API further down reads through the very same instance,
     // so no two parts of the application can disagree about a status.
-    $financeExpectedReceivableRepo = new \Modules\Finance\Repository\ExpectedReceivableRepository($pdo,
-        $encryptionService);
+    $financeExpectedReceivableRepo = new \Modules\Finance\Repository\ExpectedReceivableRepository(
+        $pdo,
+        $encryptionService
+    );
     $financeAllocationRepo = new \Modules\Finance\Repository\ReceivableAllocationRepository($pdo);
     $financeAllocationService = new \Modules\Finance\Service\ReceivableAllocationService(
-        $financeExpectedReceivableRepo, $financeAllocationRepo, $financeTransactionRepo,
-        $financeAccountRepo, $financeAccountVisibility
+        $financeExpectedReceivableRepo,
+        $financeAllocationRepo,
+        $financeTransactionRepo,
+        $financeAccountRepo,
+        $financeAccountVisibility
     );
 
     $financeImportService = new \Modules\Finance\Service\ImportService(
-        $pdo, $encryptionService, $financeParserFactory, $financeTransactionRepo, $financeCheckpointRepo,
-        $financeStatementImportRepo, $financeFiscalYearRepo, $financeRuleEngine, $financeBalanceService,
+        $pdo,
+        $encryptionService,
+        $financeParserFactory,
+        $financeTransactionRepo,
+        $financeCheckpointRepo,
+        $financeStatementImportRepo,
+        $financeFiscalYearRepo,
+        $financeRuleEngine,
+        $financeBalanceService,
         $financeReceiptMatchingService,
-        $financeBulkCategorizationService, $financeAllocationService
+        $financeBulkCategorizationService,
+        $financeAllocationService
     );
-    $financeEncryptedFileStorage = new \Core\File\EncryptedFileStorageService($fileRepository, $encryptionService,
-        $storagePath);
+    $financeEncryptedFileStorage = new \Core\File\EncryptedFileStorageService(
+        $fileRepository,
+        $encryptionService,
+        $storagePath
+    );
     // Optional dependency on the llm_connector module (ARCHITECTURE.md
     // §7.5) — reuses the same LlmConnectorInterface instance already
     // built for RGPD content generation above; extraction is skipped
@@ -4414,11 +6008,18 @@ if ($isEnabled('finance')) {
     // queues the extraction now: every way a receipt enters the site goes
     // through its store(), the one arriving by e-mail included, and that
     // path has no controller to remember on its behalf.
-    $financeReceiptExtractionService = new \Modules\Finance\Service\ReceiptExtractionService($schedulerService,
-        $llmConnectorForOthers);
+    $financeReceiptExtractionService = new \Modules\Finance\Service\ReceiptExtractionService(
+        $schedulerService,
+        $llmConnectorForOthers
+    );
     $financeReceiptService = new \Modules\Finance\Service\ReceiptService(
-        $financeAttachmentRepo, $financeAccountRepo, $financeTransactionAttachmentRepo, $financeEncryptedFileStorage,
-        $financeTransactionRepo, $settingService, $financeReceiptExtractionService
+        $financeAttachmentRepo,
+        $financeAccountRepo,
+        $financeTransactionAttachmentRepo,
+        $financeEncryptedFileStorage,
+        $financeTransactionRepo,
+        $settingService,
+        $financeReceiptExtractionService
     );
 
     // The matching service can now file a sorting-pile receipt onto the
@@ -4432,7 +6033,10 @@ if ($isEnabled('finance')) {
     // itself from the actor its caller names, rather than accepting a
     // decision a consumer could have granted itself.
     $expenseReceiptProvider = new \Modules\Finance\Service\ExpenseReceiptService(
-        $financeAccountRepo, $financeTreasurerScopeService, $financeReceiptService, $effectiveScoutYear->id
+        $financeAccountRepo,
+        $financeTreasurerScopeService,
+        $financeReceiptService,
+        $effectiveScoutYear->id
     );
 
     // An invoice arriving by email, offered as a receipt on the account it
@@ -4567,7 +6171,9 @@ if ($isEnabled('finance')) {
     // Louveteaux section", so without this the screen would be narrowed
     // and a direct /files/{id} would not be.
     $fileOwnershipCheckers[] = new \Modules\Finance\File\FinanceAccountOwnershipChecker(
-        $financeAccountRepo, $financeTreasurerScopeService, $effectiveScoutYear->id
+        $financeAccountRepo,
+        $financeTreasurerScopeService,
+        $effectiveScoutYear->id
     );
 
     // Every receipt stored before that checker existed carries no owner
@@ -4578,8 +6184,10 @@ if ($isEnabled('finance')) {
     // flag, and SettingService caches settings once per request, so every
     // run after the first costs one array lookup and no query.
     $financeReceiptService->ensureReceiptFileOwnership();
-    $financeFirstReceiptResolver = new \Modules\Finance\Service\FirstReceiptResolver($financeTransactionAttachmentRepo,
-        $financeAttachmentRepo);
+    $financeFirstReceiptResolver = new \Modules\Finance\Service\FirstReceiptResolver(
+        $financeTransactionAttachmentRepo,
+        $financeAttachmentRepo
+    );
 
     // Built here rather than next to its own controller a few hundred
     // lines down: the dashboard's "À rapprocher" tile reads the same
@@ -4599,30 +6207,56 @@ if ($isEnabled('finance')) {
     $frontController->registerController(
         \Modules\Finance\Controller\DashboardController::class,
         new \Modules\Finance\Controller\DashboardController(
-            $twig, $financeService, $financeBalanceService, $financeTransactionRepo, $financeReceiptService,
-            $financeCategoryRepo, $financeAttachmentRepo, $financeTransactionAttachmentRepo,
+            $twig,
+            $financeService,
+            $financeBalanceService,
+            $financeTransactionRepo,
+            $financeReceiptService,
+            $financeCategoryRepo,
+            $financeAttachmentRepo,
+            $financeTransactionAttachmentRepo,
             $financeStatementImportRepo,
-            $financeFirstReceiptResolver, $financeReconciliationService, $scoutYearResolver
+            $financeFirstReceiptResolver,
+            $financeReconciliationService,
+            $scoutYearResolver
         )
     );
     $frontController->registerController(
         \Modules\Finance\Controller\MovementController::class,
         new \Modules\Finance\Controller\MovementController(
-            $twig, $financeService, $financeTransactionRepo, $financeCategoryRepo, $financeFiscalYearRepo,
-            $financeAttachmentRepo, $financeTransactionAttachmentRepo, $financeReceiptService,
-            $financeFirstReceiptResolver, $journalService
+            $twig,
+            $financeService,
+            $financeTransactionRepo,
+            $financeCategoryRepo,
+            $financeFiscalYearRepo,
+            $financeAttachmentRepo,
+            $financeTransactionAttachmentRepo,
+            $financeReceiptService,
+            $financeFirstReceiptResolver,
+            $journalService
         )
     );
     $frontController->registerController(
         \Modules\Finance\Controller\ImportController::class,
-        new \Modules\Finance\Controller\ImportController($twig, $financeService, $financeImportService,
-            $financeParserFactory, $financeCheckpointRepo)
+        new \Modules\Finance\Controller\ImportController(
+            $twig,
+            $financeService,
+            $financeImportService,
+            $financeParserFactory,
+            $financeCheckpointRepo
+        )
     );
     $frontController->registerController(
         \Modules\Finance\Controller\ReceiptController::class,
         new \Modules\Finance\Controller\ReceiptController(
-            $twig, $financeAttachmentRepo, $financeTransactionAttachmentRepo, $financeTransactionRepo, $financeService,
-            $financeReceiptService, $financeFirstReceiptResolver, $journalService,
+            $twig,
+            $financeAttachmentRepo,
+            $financeTransactionAttachmentRepo,
+            $financeTransactionRepo,
+            $financeService,
+            $financeReceiptService,
+            $financeFirstReceiptResolver,
+            $journalService,
             // The mail this module proposed on, for the treasury to answer
             // (§7.5): null without `inbound_mail`, and no block then.
             $inboundMailForOthers
@@ -4635,14 +6269,25 @@ if ($isEnabled('finance')) {
     $frontController->registerController(
         \Modules\Finance\Controller\ConfigAccountController::class,
         new \Modules\Finance\Controller\ConfigAccountController(
-            $twig, $financeService, $sectionService, $financeAttachmentRepo, $fileRepository, $journalService
+            $twig,
+            $financeService,
+            $sectionService,
+            $financeAttachmentRepo,
+            $fileRepository,
+            $journalService
         )
     );
     $frontController->registerController(
         \Modules\Finance\Controller\ConfigCategoryController::class,
         new \Modules\Finance\Controller\ConfigCategoryController(
-            $twig, $financeService, $financeCategoryRuleRepo, $journalService, $financeAiSuggestionRepo,
-            $financeBulkCategorizationService, $financeTransactionRepo, $llmConnectorForOthers !== null
+            $twig,
+            $financeService,
+            $financeCategoryRuleRepo,
+            $journalService,
+            $financeAiSuggestionRepo,
+            $financeBulkCategorizationService,
+            $financeTransactionRepo,
+            $llmConnectorForOthers !== null
         )
     );
     $frontController->registerController(
@@ -4660,7 +6305,11 @@ if ($isEnabled('finance')) {
     $frontController->registerController(
         \Modules\Finance\Controller\ConfigDangerController::class,
         new \Modules\Finance\Controller\ConfigDangerController(
-            $twig, $financeTransactionRepo, $financeCheckpointRepo, $financeAttachmentRepo, $journalService
+            $twig,
+            $financeTransactionRepo,
+            $financeCheckpointRepo,
+            $financeAttachmentRepo,
+            $journalService
         )
     );
 
@@ -4867,7 +6516,11 @@ if ($isEnabled('finance')) {
     $frontController->registerController(
         \Modules\Finance\Controller\ToolsController::class,
         new \Modules\Finance\Controller\ToolsController(
-            $twig, $financeService, $financeExpectedReceivableRepo, $journalService, $financeSepaQrCodeForOthers
+            $twig,
+            $financeService,
+            $financeExpectedReceivableRepo,
+            $journalService,
+            $financeSepaQrCodeForOthers
         )
     );
 }
@@ -4891,7 +6544,9 @@ if ($isEnabled('mass_mail')) {
     $massMailSuppressedRepo = new \Modules\MassMail\Repository\SuppressedAddressRepository($pdo);
     $massMailMergeRenderer = new \Modules\MassMail\Service\MergeRenderer();
     $massMailAudienceImportService = new \Modules\MassMail\Service\AudienceImportService(
-        $massMailAudienceRepo, $massMailResolutionRepo, $journalService
+        $massMailAudienceRepo,
+        $massMailResolutionRepo,
+        $journalService
     );
 
     // No registration module here (this block runs whether or not it is
@@ -4901,14 +6556,30 @@ if ($isEnabled('mass_mail')) {
     // has to work with registration disabled too.
     $massMailListAddressRepo = new \Modules\MassMail\Repository\ListAddressRepository($pdo, $encryptionService);
     $massMailListAddressService = new \Modules\MassMail\Service\ListAddressService(
-        $massMailListAddressRepo, $massMailListRepo, $settingService, $journalService, $massMailSuppressedRepo
+        $massMailListAddressRepo,
+        $massMailListRepo,
+        $settingService,
+        $journalService,
+        $massMailSuppressedRepo
     );
     $massMailListAddressImportService = new \Modules\MassMail\Service\ListAddressImportService(
-        $massMailListAddressRepo, $massMailListAddressService, $journalService, $massMailSuppressedRepo
+        $massMailListAddressRepo,
+        $massMailListAddressService,
+        $journalService,
+        $massMailSuppressedRepo
     );
     $massMailListService = new \Modules\MassMail\Service\MailingListService(
-        $massMailListRepo, $massMailResolutionRepo, $sectionService, $massMailFunctionRepo, $badgeService,
-        $massMailListAddressRepo, null, null, $scoutYearResolver, $scoutYearService, $settingService
+        $massMailListRepo,
+        $massMailResolutionRepo,
+        $sectionService,
+        $massMailFunctionRepo,
+        $badgeService,
+        $massMailListAddressRepo,
+        null,
+        null,
+        $scoutYearResolver,
+        $scoutYearService,
+        $settingService
     );
     // « This module points at badges by id, so do not let one be deleted
     //   from under a list » — Core\Module\BadgeUsageProvider. Registered
@@ -4921,11 +6592,25 @@ if ($isEnabled('mass_mail')) {
 
     $massMailAccessService = new \Modules\MassMail\Service\MassMailAccessService($memberService, $sectionService);
     $massMailService = new \Modules\MassMail\Service\MassMailService(
-        $massMailEmailRepo, $massMailRecipientRepo, $massMailAttachmentRepo, $fileRepository,
-        $massMailListService, $memberService, $memberEmailService, $sectionService, $mailService, $schedulerService,
+        $massMailEmailRepo,
+        $massMailRecipientRepo,
+        $massMailAttachmentRepo,
+        $fileRepository,
+        $massMailListService,
+        $memberService,
+        $memberEmailService,
+        $sectionService,
+        $mailService,
+        $schedulerService,
         $journalService,
-        new \Core\Security\HtmlSanitizer(), $scoutYearService, $importJournalRepo, $storagePath,
-        $massMailAudienceRepo, $massMailResolutionRepo, $massMailSuppressedRepo, $massMailMergeRenderer
+        new \Core\Security\HtmlSanitizer(),
+        $scoutYearService,
+        $importJournalRepo,
+        $storagePath,
+        $massMailAudienceRepo,
+        $massMailResolutionRepo,
+        $massMailSuppressedRepo,
+        $massMailMergeRenderer
     );
 
     $massMailDraftForOthers = new \Modules\MassMail\Service\MergeDraftService(
@@ -4940,8 +6625,17 @@ if ($isEnabled('mass_mail')) {
     $frontController->registerController(
         \Modules\MassMail\Controller\MassMailController::class,
         new \Modules\MassMail\Controller\MassMailController(
-            $twig, $massMailService, $massMailListService, $massMailAccessService, $memberService, $sectionService,
-            $scoutYearService, $importJournalRepo, $settingService, $uploadHandler, $fileRepository,
+            $twig,
+            $massMailService,
+            $massMailListService,
+            $massMailAccessService,
+            $memberService,
+            $sectionService,
+            $scoutYearService,
+            $importJournalRepo,
+            $settingService,
+            $uploadHandler,
+            $fileRepository,
             $massMailAudienceImportService
         )
     );
@@ -4953,7 +6647,10 @@ if ($isEnabled('mass_mail')) {
     $frontController->registerController(
         \Modules\MassMail\Controller\MailingListController::class,
         new \Modules\MassMail\Controller\MailingListController(
-            $twig, $massMailListService, $scoutYearResolver, $massMailListAddressService,
+            $twig,
+            $massMailListService,
+            $scoutYearResolver,
+            $massMailListAddressService,
             $massMailListAddressImportService
         )
     );
@@ -4979,8 +6676,13 @@ if ($isEnabled('mass_mail')) {
     // session, token-authenticated (see the controller's own docblock).
     $frontController->registerController(
         \Modules\MassMail\Controller\UnsubscribeController::class,
-        new \Modules\MassMail\Controller\UnsubscribeController($twig, $massMailRecipientRepo, $memberEmailService,
-            $massMailSuppressedRepo, $massMailListAddressService)
+        new \Modules\MassMail\Controller\UnsubscribeController(
+            $twig,
+            $massMailRecipientRepo,
+            $memberEmailService,
+            $massMailSuppressedRepo,
+            $massMailListAddressService
+        )
     );
 
     // MemberController is re-registered once, with every optional
@@ -5009,11 +6711,19 @@ if ($isEnabled('news')) {
     $newsResponseRepo = new \Modules\News\Repository\FormResponseRepository($pdo, $encryptionService);
 
     $newsArticleService = new \Modules\News\Service\ArticleService(
-        $newsArticleRepo, $newsFormRepo, $editableContentService, $shortUrlService, $fileRepository,
+        $newsArticleRepo,
+        $newsFormRepo,
+        $editableContentService,
+        $shortUrlService,
+        $fileRepository,
         $financeExpectedReceivableForOthers
     );
-    $newsFormService = new \Modules\News\Service\FormService($newsFormRepo, $newsFieldRepo, $newsArticleService,
-        $newsResponseRepo);
+    $newsFormService = new \Modules\News\Service\FormService(
+        $newsFormRepo,
+        $newsFieldRepo,
+        $newsArticleService,
+        $newsResponseRepo
+    );
     $newsTicketService = new \Modules\News\Service\TicketService($newsResponseRepo);
     // The reminder before the event carries the QR as an image URL: a
     // mail-merge body is sanitized on the way in, and that sanitizer
@@ -5039,12 +6749,21 @@ if ($isEnabled('news')) {
         $calendarIcsBuilderForOthers
     );
     $newsResponseService = new \Modules\News\Service\ResponseService(
-        $newsResponseRepo, $roleResolver, $sectionService, $mailService, $emailTemplateRenderer, $shortUrlService,
+        $newsResponseRepo,
+        $roleResolver,
+        $sectionService,
+        $mailService,
+        $emailTemplateRenderer,
+        $shortUrlService,
         (string) ($settingService->get('base_url') ?: ''),
         (string) ($settingService->get('site_name') ?: 'Unité scoute'),
-        $financeStructuredCommunicationForOthers, $financeExpectedReceivableForOthers, $financeSepaQrCodeForOthers,
+        $financeStructuredCommunicationForOthers,
+        $financeExpectedReceivableForOthers,
+        $financeSepaQrCodeForOthers,
         $financeAccountForOthers,
-        $journalService, $newsTicketService, $newsTicketMailService,
+        $journalService,
+        $newsTicketService,
+        $newsTicketMailService,
         // The running capacity total lives on the field (#241).
         $newsFieldRepo
     );
@@ -5056,9 +6775,16 @@ if ($isEnabled('news')) {
     // handful of rows on any real installation.
     if ($settingService->get('news_field_capacity_backfilled', 'news') !== '1') {
         $settingService->register(
-            'news_field_capacity_backfilled', '0', 'boolean', 'Capacités des champs recalculées',
+            'news_field_capacity_backfilled',
+            '0',
+            'boolean',
+            'Capacités des champs recalculées',
             'Indique si le total consommé de chaque champ à capacité a été reconstitué depuis les réponses.',
-            'news', null, null, false, 999
+            'news',
+            null,
+            null,
+            false,
+            999
         );
         $newsFieldRepo->recomputeUsedCapacities($newsResponseRepo);
         $settingRepo->updateValue('news', 'news_field_capacity_backfilled', '1');
@@ -5072,11 +6798,26 @@ if ($isEnabled('news')) {
     $frontController->registerController(
         \Modules\News\Controller\NewsController::class,
         new \Modules\News\Controller\NewsController(
-            $twig, $newsArticleService, $newsFormService, $newsResponseService, $newsSeoKeywordService,
-            $posterPdfService, $scoutYearService, $settingService, $schedulerService, $userAccountRepo,
-            $memberService, $sectionService, $uploadHandler, $fileRepository, $storagePath, $journalService,
+            $twig,
+            $newsArticleService,
+            $newsFormService,
+            $newsResponseService,
+            $newsSeoKeywordService,
+            $posterPdfService,
+            $scoutYearService,
+            $settingService,
+            $schedulerService,
+            $userAccountRepo,
+            $memberService,
+            $sectionService,
+            $uploadHandler,
+            $fileRepository,
+            $storagePath,
+            $journalService,
             $newsTicketService,
-            $financeAccountForOthers, $humanCheckService, $imageVariantService
+            $financeAccountForOthers,
+            $humanCheckService,
+            $imageVariantService
         )
     );
 
@@ -5136,8 +6877,15 @@ if ($isEnabled('news')) {
     $frontController->registerController(
         \Modules\News\Controller\FormController::class,
         new \Modules\News\Controller\FormController(
-            $twig, $newsArticleService, $newsFormService, $newsResponseService, $scoutYearService, $journalService,
-            $financeExpectedReceivableForOthers, $humanCheckService, $massMailDraftForOthers,
+            $twig,
+            $newsArticleService,
+            $newsFormService,
+            $newsResponseService,
+            $scoutYearService,
+            $journalService,
+            $financeExpectedReceivableForOthers,
+            $humanCheckService,
+            $massMailDraftForOthers,
             (string) ($settingService->get('base_url') ?: ''),
             $financeStatementStatusForOthers,
             $newsTicketQrTokenService
@@ -5164,8 +6912,13 @@ if ($isEnabled('news')) {
     $frontController->registerController(
         \Modules\News\Controller\ScanController::class,
         new \Modules\News\Controller\ScanController(
-            $twig, $newsArticleService, $newsFormService, $newsScanService, $newsTicketService,
-            new \Core\Pdf\DocumentPdfService(), $journalService,
+            $twig,
+            $newsArticleService,
+            $newsFormService,
+            $newsScanService,
+            $newsTicketService,
+            new \Core\Pdf\DocumentPdfService(),
+            $journalService,
             (string) ($settingService->get('site_name') ?: '')
         )
     );
@@ -5221,16 +6974,21 @@ if ($isEnabled('gallery')) {
         new \Modules\Gallery\Service\GalleryStorageSubProcessorService($galleryStorageLocationRepo)
     );
 
-    $galleryAccessService = new \Modules\Gallery\Service\GalleryAccessService($memberService, $sectionService,
-        $scoutYearService);
+    $galleryAccessService = new \Modules\Gallery\Service\GalleryAccessService(
+        $memberService,
+        $sectionService,
+        $scoutYearService
+    );
     $galleryOgScraperService = new \Modules\Gallery\Service\OgScraperService();
     // Api\LinkPreviewFetcher's only implementation (SECURITY.md §17) —
     // built unconditionally, like Api\DelegatedAlbumManager just below,
     // ready for a future module's block to consume; groups (first
     // consumer) is the only one that does so today.
     $galleryLinkPreviewCacheRepo = new \Modules\Gallery\Repository\LinkPreviewCacheRepository($pdo);
-    $galleryLinkPreviewFetcher = new \Modules\Gallery\Service\LinkPreviewService($galleryOgScraperService,
-        $galleryLinkPreviewCacheRepo);
+    $galleryLinkPreviewFetcher = new \Modules\Gallery\Service\LinkPreviewService(
+        $galleryOgScraperService,
+        $galleryLinkPreviewCacheRepo
+    );
     $galleryStorageBackendFactory = new \Modules\Gallery\Service\Storage\StorageBackendFactory(
         $galleryStorageLocationRepo,
         $storagePath
@@ -5244,20 +7002,41 @@ if ($isEnabled('gallery')) {
     // an external album's cached og:image once nothing references them.
     $galleryStoredFileCleaner = new \Modules\Gallery\Service\StoredFileCleaner($fileRepository, $storagePath);
     $galleryStorageLocationService = new \Modules\Gallery\Service\StorageLocationService(
-        $galleryStorageLocationRepo, $galleryAlbumRepo, $galleryStorageBackendFactory, $settingService,
-        $galleryS3SecretRepo, $storagePath
+        $galleryStorageLocationRepo,
+        $galleryAlbumRepo,
+        $galleryStorageBackendFactory,
+        $settingService,
+        $galleryS3SecretRepo,
+        $storagePath
     );
 
     $galleryAlbumService = new \Modules\Gallery\Service\AlbumService(
-        $galleryAlbumRepo, $galleryMediaRepo, $galleryAccessService, $galleryOgScraperService,
-        $galleryStorageBackendFactory, $galleryStorageLocationRepo, $galleryStorageLocationService,
-        $scoutYearService, $settingService, $schedulerService, $uploadHandler,
-        $notificationService, $userAccountRepo, $galleryStoredFileCleaner
+        $galleryAlbumRepo,
+        $galleryMediaRepo,
+        $galleryAccessService,
+        $galleryOgScraperService,
+        $galleryStorageBackendFactory,
+        $galleryStorageLocationRepo,
+        $galleryStorageLocationService,
+        $scoutYearService,
+        $settingService,
+        $schedulerService,
+        $uploadHandler,
+        $notificationService,
+        $userAccountRepo,
+        $galleryStoredFileCleaner
     );
     $galleryMediaService = new \Modules\Gallery\Service\MediaService(
-        $galleryMediaRepo, $galleryAlbumRepo, $uploadHandler, $schedulerService, $settingService,
-        $galleryAccessService, $galleryStorageBackendFactory, $galleryStorageLocationService,
-        $galleryFfmpegAvailability, $galleryStoredFileCleaner
+        $galleryMediaRepo,
+        $galleryAlbumRepo,
+        $uploadHandler,
+        $schedulerService,
+        $settingService,
+        $galleryAccessService,
+        $galleryStorageBackendFactory,
+        $galleryStorageLocationService,
+        $galleryFfmpegAvailability,
+        $galleryStoredFileCleaner
     );
 
     // Controller\GalleryController is NOT registered here — see the end
@@ -5268,16 +7047,30 @@ if ($isEnabled('gallery')) {
     // service, ready for a future module's block to consume — no consumer
     // exists yet.
     $galleryDelegatedAlbumManager = new \Modules\Gallery\Service\DelegatedAlbumService(
-        $galleryAlbumRepo, $galleryMediaRepo, $galleryMediaService, $galleryStorageLocationRepo,
-        $galleryStorageLocationService, $galleryStorageBackendFactory, $scoutYearService
+        $galleryAlbumRepo,
+        $galleryMediaRepo,
+        $galleryMediaService,
+        $galleryStorageLocationRepo,
+        $galleryStorageLocationService,
+        $galleryStorageBackendFactory,
+        $scoutYearService
     );
 
     $frontController->registerController(
         \Modules\Gallery\Controller\GalleryChiefController::class,
         new \Modules\Gallery\Controller\GalleryChiefController(
-            $twig, $galleryAlbumService, $galleryMediaService, $galleryMediaRepo, $galleryAccessService,
-            $sectionService, $settingService, $galleryStorageLocationRepo, $galleryStorageLocationService,
-            new \Core\File\ChunkedUploadStore($storagePath, $diskBudget), $scoutYearService, $scoutYearResolver
+            $twig,
+            $galleryAlbumService,
+            $galleryMediaService,
+            $galleryMediaRepo,
+            $galleryAccessService,
+            $sectionService,
+            $settingService,
+            $galleryStorageLocationRepo,
+            $galleryStorageLocationService,
+            new \Core\File\ChunkedUploadStore($storagePath, $diskBudget),
+            $scoutYearService,
+            $scoutYearResolver
         )
     );
     // GalleryConfigController is NOT registered here — see the late block
@@ -5287,7 +7080,10 @@ if ($isEnabled('gallery')) {
     $frontController->registerController(
         \Modules\Gallery\Controller\GalleryStorageLocationController::class,
         new \Modules\Gallery\Controller\GalleryStorageLocationController(
-            $twig, $galleryStorageLocationRepo, $galleryStorageLocationService, $journalService,
+            $twig,
+            $galleryStorageLocationRepo,
+            $galleryStorageLocationService,
+            $journalService,
             $galleryS3ErrorExplainerService
         )
     );
@@ -5299,7 +7095,9 @@ if ($isEnabled('groups')) {
     $groupsSectionRepo = new \Modules\Groups\Repository\GroupSectionRepository($pdo);
     $groupsMemberRepo = new \Modules\Groups\Repository\GroupMemberRepository($pdo);
     $groupsAccessService = new \Modules\Groups\Service\GroupAccessService(
-        $groupsMemberRepo, $groupsSectionRepo, $sectionMembershipRepository
+        $groupsMemberRepo,
+        $groupsSectionRepo,
+        $sectionMembershipRepository
     );
     $groupsService = new \Modules\Groups\Service\GroupService($groupsGroupRepo, $groupsSectionRepo, $groupsMemberRepo);
     // Which groups a member belongs to, for the admin member page's
@@ -5315,13 +7113,20 @@ if ($isEnabled('groups')) {
     // per group page view by Service\GroupReadStateService.
     $groupsReadRepo = new \Modules\Groups\Repository\GroupReadRepository($pdo);
     $groupsListService = new \Modules\Groups\Service\GroupListService(
-        $groupsGroupRepo, $groupsSectionRepo, $groupsMemberRepo, $sectionMembershipRepository, $groupsReadRepo
+        $groupsGroupRepo,
+        $groupsSectionRepo,
+        $groupsMemberRepo,
+        $sectionMembershipRepository,
+        $groupsReadRepo
     );
     $groupsReadStateService = new \Modules\Groups\Service\GroupReadStateService(
-        $groupsReadRepo, $groupsAccessService
+        $groupsReadRepo,
+        $groupsAccessService
     );
     $groupsContextFactory = new \Modules\Groups\Service\GroupSessionContextFactory(
-        $memberService, $userAccountRepo, $scoutYearResolver
+        $memberService,
+        $userAccountRepo,
+        $scoutYearResolver
     );
 
     $groupsPostRepo = new \Modules\Groups\Repository\PostRepository($pdo);
@@ -5340,7 +7145,10 @@ if ($isEnabled('groups')) {
     $groupsModerationService = new \Modules\Groups\Service\ModerationService($settingService, $llmConnectorForOthers);
 
     $groupsPostService = new \Modules\Groups\Service\PostService(
-        $groupsPostRepo, $groupsActivityService, $groupsRateLimitService, $groupsModerationService
+        $groupsPostRepo,
+        $groupsActivityService,
+        $groupsRateLimitService,
+        $groupsModerationService
     );
 
     // gallery is a hard dependency (module.json's requires) — this block
@@ -5359,15 +7167,22 @@ if ($isEnabled('groups')) {
     // well as of hidden posts, or the very photo that got something hidden
     // stays one click away on another page.
     $groupsPostMediaService = new \Modules\Groups\Service\PostMediaService(
-        $galleryDelegatedAlbumManager, $groupsPostMediaRepo, $groupsGroupRepo, $groupsReplyRepo
+        $galleryDelegatedAlbumManager,
+        $groupsPostMediaRepo,
+        $groupsGroupRepo,
+        $groupsReplyRepo
     );
 
     $groupsPostLinkRepo = new \Modules\Groups\Repository\PostLinkRepository($pdo);
     $groupsLinkFetchLogRepo = new \Modules\Groups\Repository\LinkFetchLogRepository($pdo);
     $groupsLinkFetchThrottleService = new \Modules\Groups\Service\LinkFetchThrottleService($groupsLinkFetchLogRepo);
     $groupsPostLinkService = new \Modules\Groups\Service\PostLinkService(
-        $galleryLinkPreviewFetcher, $groupsLinkFetchThrottleService, $groupsPostLinkRepo,
-        $uploadHandler, $fileRepository, $storagePath
+        $galleryLinkPreviewFetcher,
+        $groupsLinkFetchThrottleService,
+        $groupsPostLinkRepo,
+        $uploadHandler,
+        $fileRepository,
+        $storagePath
     );
 
     // Replies and reactions (prompt 8). The two reaction repositories are
@@ -5411,12 +7226,17 @@ if ($isEnabled('groups')) {
     // idempotent service, and there is deliberately no core hook into the
     // Desk import.
     $groupsSectionGroupSync = new \Modules\Groups\Service\SectionGroupSyncService(
-        $sectionService, $groupsGroupRepo, $groupsSectionRepo
+        $sectionService,
+        $groupsGroupRepo,
+        $groupsSectionRepo
     );
 
     // Leaving, reopening and the creation quota (prompt 12).
     $groupsMembershipService = new \Modules\Groups\Service\GroupMembershipService(
-        $groupsGroupRepo, $groupsMemberRepo, $settingService, $journalService
+        $groupsGroupRepo,
+        $groupsMemberRepo,
+        $settingService,
+        $journalService
     );
 
     // Notifications (prompt 10). The recipient resolver reads membership
@@ -5466,21 +7286,29 @@ if ($isEnabled('groups')) {
         $journalService
     );
     $groupsReplyPresenter = new \Modules\Groups\Service\ReplyPresenter(
-        $groupsAuthorResolver, $groupsReplyService, $groupsReactionService, $groupsReportService
+        $groupsAuthorResolver,
+        $groupsReplyService,
+        $groupsReactionService,
+        $groupsReportService
     );
 
     $groupsPollService = new \Modules\Groups\Service\PollService(
         new \Modules\Groups\Repository\PollRepository($pdo)
     );
     $groupsSeenByService = new \Modules\Groups\Service\SeenByService($groupsReadStateService, $groupsIdentityService);
-    $groupsMentionService = new \Modules\Groups\Service\MentionService($groupsRecipientResolver, $memberService,
-        $groupsIdentityService);
+    $groupsMentionService = new \Modules\Groups\Service\MentionService(
+        $groupsRecipientResolver,
+        $memberService,
+        $groupsIdentityService
+    );
 
     // Group files are readable only by the group's own members —
     // ARCHITECTURE.md §8.3's owner_type registry, appended here so it
     // reaches FileAccessGuard, which is built after every module block.
     $groupsFileOwnershipChecker = new \Modules\Groups\File\GroupFileOwnershipChecker(
-        $groupsGroupRepo, $groupsAccessService, $scoutYearResolver
+        $groupsGroupRepo,
+        $groupsAccessService,
+        $scoutYearResolver
     );
     $fileOwnershipCheckers[] = $groupsFileOwnershipChecker;
 
@@ -5521,14 +7349,36 @@ if ($isEnabled('groups')) {
     $groupsRegisterEventAwareControllers = function (
         ?\Modules\Groups\Service\PostEventService $eventService
     ) use (
-        $frontController, $twig, $groupsGroupRepo, $groupsPostRepo, $groupsAuthorResolver,
-        $groupsPostService, $groupsPostMediaService, $groupsPostLinkRepo, $groupsPostLinkService,
-        $groupsReplyRepo, $groupsReplyPresenter, $groupsReplyService, $groupsReactionService,
-        $groupsReportService, $groupsReadStateService, $groupsPollService, $groupsListService,
-        $groupsAccessService, $groupsService, $groupsContextFactory, $sectionService,
-        $groupsSectionGroupSync, $groupsModeratorBinding, $groupsMembershipService,
-        $settingService, $groupsNotificationService, $groupsSeenByService, $groupsMentionService,
-        $groupsIdentityService, $groupsRecipientResolver
+        $frontController,
+        $twig,
+        $groupsGroupRepo,
+        $groupsPostRepo,
+        $groupsAuthorResolver,
+        $groupsPostService,
+        $groupsPostMediaService,
+        $groupsPostLinkRepo,
+        $groupsPostLinkService,
+        $groupsReplyRepo,
+        $groupsReplyPresenter,
+        $groupsReplyService,
+        $groupsReactionService,
+        $groupsReportService,
+        $groupsReadStateService,
+        $groupsPollService,
+        $groupsListService,
+        $groupsAccessService,
+        $groupsService,
+        $groupsContextFactory,
+        $sectionService,
+        $groupsSectionGroupSync,
+        $groupsModeratorBinding,
+        $groupsMembershipService,
+        $settingService,
+        $groupsNotificationService,
+        $groupsSeenByService,
+        $groupsMentionService,
+        $groupsIdentityService,
+        $groupsRecipientResolver
     ): void {
         $feedService = new \Modules\Groups\Service\GroupFeedService(
             $groupsPostRepo,
@@ -5547,11 +7397,26 @@ if ($isEnabled('groups')) {
         $frontController->registerController(
             \Modules\Groups\Controller\GroupController::class,
             new \Modules\Groups\Controller\GroupController(
-                $twig, $groupsGroupRepo, $groupsListService, $groupsAccessService, $groupsService,
-                $groupsContextFactory, $sectionService, $feedService, $groupsPostMediaService,
-                $groupsPostRepo, $groupsSectionGroupSync, $groupsModeratorBinding, $groupsMembershipService,
-                $settingService, $groupsReadStateService, $eventService, $groupsIdentityService,
-                $groupsReportService, $groupsPostService, $groupsRecipientResolver
+                $twig,
+                $groupsGroupRepo,
+                $groupsListService,
+                $groupsAccessService,
+                $groupsService,
+                $groupsContextFactory,
+                $sectionService,
+                $feedService,
+                $groupsPostMediaService,
+                $groupsPostRepo,
+                $groupsSectionGroupSync,
+                $groupsModeratorBinding,
+                $groupsMembershipService,
+                $settingService,
+                $groupsReadStateService,
+                $eventService,
+                $groupsIdentityService,
+                $groupsReportService,
+                $groupsPostService,
+                $groupsRecipientResolver
             )
         );
         // The moderator's reports page renders the same post cards as the
@@ -5563,19 +7428,39 @@ if ($isEnabled('groups')) {
         $frontController->registerController(
             \Modules\Groups\Controller\ReportController::class,
             new \Modules\Groups\Controller\ReportController(
-                $twig, $groupsGroupRepo, $groupsPostRepo, $groupsReplyRepo, $groupsAccessService,
-                $groupsReportService, $groupsContextFactory, $groupsNotificationService,
-                $groupsRecipientResolver, $feedService, $groupsPostService
+                $twig,
+                $groupsGroupRepo,
+                $groupsPostRepo,
+                $groupsReplyRepo,
+                $groupsAccessService,
+                $groupsReportService,
+                $groupsContextFactory,
+                $groupsNotificationService,
+                $groupsRecipientResolver,
+                $feedService,
+                $groupsPostService
             )
         );
         $frontController->registerController(
             \Modules\Groups\Controller\PostController::class,
             new \Modules\Groups\Controller\PostController(
-                $twig, $groupsGroupRepo, $groupsPostRepo, $groupsAccessService, $feedService,
-                $groupsPostService, $groupsContextFactory, $groupsPostMediaService, $groupsPostLinkService,
-                $groupsReplyService, $groupsReportService,
-                $groupsNotificationService, $groupsSeenByService, $groupsMentionService, $eventService,
-                $groupsPollService, $groupsIdentityService
+                $twig,
+                $groupsGroupRepo,
+                $groupsPostRepo,
+                $groupsAccessService,
+                $feedService,
+                $groupsPostService,
+                $groupsContextFactory,
+                $groupsPostMediaService,
+                $groupsPostLinkService,
+                $groupsReplyService,
+                $groupsReportService,
+                $groupsNotificationService,
+                $groupsSeenByService,
+                $groupsMentionService,
+                $eventService,
+                $groupsPollService,
+                $groupsIdentityService
             )
         );
     };
@@ -5593,39 +7478,65 @@ if ($isEnabled('groups')) {
     // The home page's group-activity hook (§7.4) — resolved per request
     // through $moduleHooks, no PageController re-registration.
     $moduleHooks->register(
-        \Core\Module\HomeGroupActivityProvider::class, new \Modules\Groups\Service\HomeActivityService(
-        $groupsListService,
-        $groupsContextFactory,
-        $groupsReadRepo,
-        $groupsPostRepo,
-        $groupsReplyRepo,
-        \Modules\Groups\Repository\ReactionRepository::forPosts($pdo),
-        \Modules\Groups\Repository\ReactionRepository::forReplies($pdo),
-        $notificationRepo
-    ));
+        \Core\Module\HomeGroupActivityProvider::class,
+        new \Modules\Groups\Service\HomeActivityService(
+            $groupsListService,
+            $groupsContextFactory,
+            $groupsReadRepo,
+            $groupsPostRepo,
+            $groupsReplyRepo,
+            \Modules\Groups\Repository\ReactionRepository::forPosts($pdo),
+            \Modules\Groups\Repository\ReactionRepository::forReplies($pdo),
+            $notificationRepo
+        )
+    );
     $frontController->registerController(
         \Modules\Groups\Controller\ReplyController::class,
         new \Modules\Groups\Controller\ReplyController(
-            $twig, $groupsGroupRepo, $groupsPostRepo, $groupsReplyRepo, $groupsAccessService,
-            $groupsReplyService, $groupsReplyPresenter, $groupsPostMediaService, $groupsContextFactory,
-            $groupsReportService, $groupsNotificationService, $groupsMentionService
+            $twig,
+            $groupsGroupRepo,
+            $groupsPostRepo,
+            $groupsReplyRepo,
+            $groupsAccessService,
+            $groupsReplyService,
+            $groupsReplyPresenter,
+            $groupsPostMediaService,
+            $groupsContextFactory,
+            $groupsReportService,
+            $groupsNotificationService,
+            $groupsMentionService
         )
     );
     $frontController->registerController(
         \Modules\Groups\Controller\ReactionController::class,
         new \Modules\Groups\Controller\ReactionController(
-            $twig, $groupsGroupRepo, $groupsPostRepo, $groupsReplyRepo, $groupsAccessService,
-            $groupsReactionService, $groupsContextFactory, $groupsNotificationService,
+            $twig,
+            $groupsGroupRepo,
+            $groupsPostRepo,
+            $groupsReplyRepo,
+            $groupsAccessService,
+            $groupsReactionService,
+            $groupsContextFactory,
+            $groupsNotificationService,
             $groupsReactorListService
         )
     );
     $frontController->registerController(
         \Modules\Groups\Controller\GroupMemberController::class,
         new \Modules\Groups\Controller\GroupMemberController(
-            $twig, $groupsGroupRepo, $groupsMemberRepo, $groupsSectionRepo, $groupsAccessService,
-            $groupsService, $groupsContextFactory, $sectionService,
-            $groupsMembershipService, $groupsIdentityService,
-            $groupsRecipientResolver, $userAccountRepo, $groupsNotificationService
+            $twig,
+            $groupsGroupRepo,
+            $groupsMemberRepo,
+            $groupsSectionRepo,
+            $groupsAccessService,
+            $groupsService,
+            $groupsContextFactory,
+            $sectionService,
+            $groupsMembershipService,
+            $groupsIdentityService,
+            $groupsRecipientResolver,
+            $userAccountRepo,
+            $groupsNotificationService
         )
     );
 }
@@ -5916,18 +7827,30 @@ if ($isEnabled('camps')) {
     // member_section_periods with this module's camp_camp_sections —
     // see the service's own docblock for what that infers and what it
     // does not claim.
-    $moduleHooks->register(\Core\Module\MemberCampStayProvider::class, new \Modules\Camps\Service\MemberCampStayService(
-        $campsCampRepo, $campsPlaceRepo, $sectionMembershipRepository, $sectionService, $scoutYearService
-    ));
+    $moduleHooks->register(
+        \Core\Module\MemberCampStayProvider::class,
+        new \Modules\Camps\Service\MemberCampStayService(
+            $campsCampRepo,
+            $campsPlaceRepo,
+            $sectionMembershipRepository,
+            $sectionService,
+            $scoutYearService
+        )
+    );
 
     $campsSectionDescriber = new \Modules\Camps\Service\SectionDescriber($sectionService);
     $campsPlaceService = new \Modules\Camps\Service\PlaceService($campsPlaceRepo, $auditService);
     $campsCampService = new \Modules\Camps\Service\CampService($campsCampRepo, $auditService, $campsPlaceRepo);
     $campsContactService = new \Modules\Camps\Service\ContactService(
-        $campsContactRepo, $auditService, $journalService
+        $campsContactRepo,
+        $auditService,
+        $journalService
     );
     $campsDocumentService = new \Modules\Camps\Service\DocumentService(
-        $campsDocumentRepo, $attachedFileRemover, $uploadHandler, $auditService
+        $campsDocumentRepo,
+        $attachedFileRemover,
+        $uploadHandler,
+        $auditService
     );
 
     // Two OPTIONAL gallery capabilities, both nullable and both degrading
@@ -5948,18 +7871,32 @@ if ($isEnabled('camps')) {
     );
     $campsReviewService = new \Modules\Camps\Service\ReviewService($campsReviewRepo, $auditService, $campsPlaceRepo);
     $campsSummaryService = new \Modules\Camps\Service\PlaceSummaryService(
-        $campsPlaceRepo, $campsCampRepo, $campsReviewRepo, $editableContentService,
-        $campsSectionDescriber, $llmConnectorForOthers ?? null
+        $campsPlaceRepo,
+        $campsCampRepo,
+        $campsReviewRepo,
+        $editableContentService,
+        $campsSectionDescriber,
+        $llmConnectorForOthers ?? null
     );
     $campsArchiveService = new \Modules\Camps\Service\PlaceArchiveService(
-        $campsPlaceRepo, $campsCampRepo, $auditService
+        $campsPlaceRepo,
+        $campsCampRepo,
+        $auditService
     );
     $campsMergeService = new \Modules\Camps\Service\MergeService(
-        $campsPlaceRepo, $campsCampRepo, $campsContactRepo, $campsLinkRepo, $campsDocumentRepo,
-        $campsReviewRepo, $editableContentService, $auditService, $campsAlbumService,
+        $campsPlaceRepo,
+        $campsCampRepo,
+        $campsContactRepo,
+        $campsLinkRepo,
+        $campsDocumentRepo,
+        $campsReviewRepo,
+        $editableContentService,
+        $auditService,
+        $campsAlbumService,
         // The PDO a merge's transaction runs on, and the mail that has to
         // follow a merged stay to its new reference.
-        $pdo, $inboundMailForOthers
+        $pdo,
+        $inboundMailForOthers
     );
 
     // Duplicate detection: the AI half is an optional dependency on
@@ -6147,8 +8084,11 @@ if ($isEnabled('camps')) {
     $frontController->registerController(
         \Modules\Camps\Controller\CampsMailController::class,
         new \Modules\Camps\Controller\CampsMailController(
-            $twig, $campsCampRepo, $inboundMailForOthers ?? null,
-            $campsProposalRepo, $campsFieldCompletion,
+            $twig,
+            $campsCampRepo,
+            $inboundMailForOthers ?? null,
+            $campsProposalRepo,
+            $campsFieldCompletion,
             // « Rattacher à »: a search rather than a list of the unit's
             // whole history.
             new \Modules\Camps\Service\StaySearchService($campsCampRepo),
@@ -6178,11 +8118,27 @@ if ($isEnabled('camps')) {
     $frontController->registerController(
         \Modules\Camps\Controller\CampsChiefController::class,
         new \Modules\Camps\Controller\CampsChiefController(
-            $twig, $campsPlaceRepo, $campsCampRepo, $campsPlaceService, $campsCampService,
-            $campsSectionDescriber, $sectionService, $editableContentService, $auditService, $settingService,
-            $campsContactRepo, $campsLinkRepo, $campsDocumentRepo, $campsAlbumService,
-            $campsReviewRepo, $campsReviewService, $campsDuplicateDetector, $campsArchiveService,
-            $inboundMailForOthers ?? null, $campsProposalRepo, $campsSummaryService,
+            $twig,
+            $campsPlaceRepo,
+            $campsCampRepo,
+            $campsPlaceService,
+            $campsCampService,
+            $campsSectionDescriber,
+            $sectionService,
+            $editableContentService,
+            $auditService,
+            $settingService,
+            $campsContactRepo,
+            $campsLinkRepo,
+            $campsDocumentRepo,
+            $campsAlbumService,
+            $campsReviewRepo,
+            $campsReviewService,
+            $campsDuplicateDetector,
+            $campsArchiveService,
+            $inboundMailForOthers ?? null,
+            $campsProposalRepo,
+            $campsSummaryService,
             // Only to suggest this year's staff in « Réservation faite par »
             // — the field stays free text when the resolver is absent.
             $scoutYearResolver,
@@ -6193,15 +8149,28 @@ if ($isEnabled('camps')) {
     $frontController->registerController(
         \Modules\Camps\Controller\CampsAttachmentController::class,
         new \Modules\Camps\Controller\CampsAttachmentController(
-            $twig, $campsCampRepo, $campsPlaceRepo, $campsContactRepo, $campsLinkRepo, $campsDocumentRepo,
-            $campsContactService, $campsLinkService, $campsDocumentService, $campsAlbumService,
-            $campsReviewService, $campsReviewRepo
+            $twig,
+            $campsCampRepo,
+            $campsPlaceRepo,
+            $campsContactRepo,
+            $campsLinkRepo,
+            $campsDocumentRepo,
+            $campsContactService,
+            $campsLinkService,
+            $campsDocumentService,
+            $campsAlbumService,
+            $campsReviewService,
+            $campsReviewRepo
         )
     );
     $frontController->registerController(
         \Modules\Camps\Controller\CampsMergeController::class,
         new \Modules\Camps\Controller\CampsMergeController(
-            $twig, $campsPlaceRepo, $campsCampRepo, $campsMergeService, $campsArchiveService
+            $twig,
+            $campsPlaceRepo,
+            $campsCampRepo,
+            $campsMergeService,
+            $campsArchiveService
         )
     );
     $frontController->registerController(
@@ -6224,11 +8193,21 @@ if ($isEnabled('retro')) {
     // moderation check and AI-shorten button simply degrade to unavailable.
     $retroModerationService = new \Modules\Retro\Service\ModerationService($llmConnectorForOthers);
     $retroSummaryService = new \Modules\Retro\Service\SummaryService($llmConnectorForOthers);
-    $retroCommentService = new \Modules\Retro\Service\CommentService($retroCommentRepo, $retroModerationService,
-        $retroRateLimitService);
+    $retroCommentService = new \Modules\Retro\Service\CommentService(
+        $retroCommentRepo,
+        $retroModerationService,
+        $retroRateLimitService
+    );
     $retroBoardService = new \Modules\Retro\Service\BoardService(
-        $retroBoardRepo, $retroCommentRepo, $memberService, $sectionService, $schedulerService, $journalService,
-        $mailService, $emailTemplateRenderer, (string) ($settingService->get('site_name') ?: 'Unité scoute'),
+        $retroBoardRepo,
+        $retroCommentRepo,
+        $memberService,
+        $sectionService,
+        $schedulerService,
+        $journalService,
+        $mailService,
+        $emailTemplateRenderer,
+        (string) ($settingService->get('site_name') ?: 'Unité scoute'),
         (string) ($settingService->get('base_url') ?: ''),
         $shortUrlService,
         $calendarServiceForOthers,
@@ -6245,20 +8224,39 @@ if ($isEnabled('retro')) {
     $frontController->registerController(
         \Modules\Retro\Controller\RetroChiefController::class,
         new \Modules\Retro\Controller\RetroChiefController(
-            $twig, $retroBoardRepo, $retroBoardService, $settingService, $scoutYearResolver, $moduleManager
+            $twig,
+            $retroBoardRepo,
+            $retroBoardService,
+            $settingService,
+            $scoutYearResolver,
+            $moduleManager
         )
     );
     $frontController->registerController(
         \Modules\Retro\Controller\RetroBoardController::class,
         new \Modules\Retro\Controller\RetroBoardController(
-            $twig, $retroBoardRepo, $retroCommentRepo, $retroCommentService, $retroVoteService, $retroBoardService,
-            $retroRateLimitService, $retroModerationService, $cookieConsentService, $settingService, $scoutYearResolver
+            $twig,
+            $retroBoardRepo,
+            $retroCommentRepo,
+            $retroCommentService,
+            $retroVoteService,
+            $retroBoardService,
+            $retroRateLimitService,
+            $retroModerationService,
+            $cookieConsentService,
+            $settingService,
+            $scoutYearResolver
         )
     );
     $frontController->registerController(
         \Modules\Retro\Controller\RetroConfigController::class,
         new \Modules\Retro\Controller\RetroConfigController(
-            $twig, $settingService, $journalService, $memberService, $scoutYearResolver, $retroModerationService
+            $twig,
+            $settingService,
+            $journalService,
+            $memberService,
+            $scoutYearResolver,
+            $retroModerationService
         )
     );
 
@@ -6286,13 +8284,17 @@ if ($isEnabled('registration')) {
     $registrationBaseUrl = (string) ($settingService->get('base_url') ?: '');
     $registrationSiteName = (string) ($settingService->get('site_name') ?: 'Unité scoute');
 
-    $registrationRequestRepo = new \Modules\Registration\Repository\RegistrationRequestRepository($pdo,
-        $encryptionService);
+    $registrationRequestRepo = new \Modules\Registration\Repository\RegistrationRequestRepository(
+        $pdo,
+        $encryptionService
+    );
     $registrationYearCodeRepo = new \Modules\Registration\Repository\RegistrationYearCodeRepository($pdo);
     $registrationAgeBracketRepo = new \Modules\Registration\Repository\AgeBracketRepository($pdo);
     $registrationSlotCapacityRepo = new \Modules\Registration\Repository\SlotCapacityRepository($pdo);
-    $registrationSecondaryEmailRepo = new \Modules\Registration\Repository\RegistrationSecondaryEmailRepository($pdo,
-        $encryptionService);
+    $registrationSecondaryEmailRepo = new \Modules\Registration\Repository\RegistrationSecondaryEmailRepository(
+        $pdo,
+        $encryptionService
+    );
 
     $registrationSlotService = new \Modules\Registration\Service\SlotService(
         $pdo,
@@ -6303,8 +8305,16 @@ if ($isEnabled('registration')) {
         $registrationRequestRepo,
     );
     $registrationService = new \Modules\Registration\Service\RegistrationService(
-        $registrationRequestRepo, $registrationYearCodeRepo, $scoutYearResolver, $scoutYearService, $settingService,
-        $mailService, $editableContentService, $journalService, $registrationBaseUrl, $registrationSiteName
+        $registrationRequestRepo,
+        $registrationYearCodeRepo,
+        $scoutYearResolver,
+        $scoutYearService,
+        $settingService,
+        $mailService,
+        $editableContentService,
+        $journalService,
+        $registrationBaseUrl,
+        $registrationSiteName
     );
     $registrationSecondaryEmailService = new \Modules\Registration\Service\SecondaryEmailService(
         $registrationSecondaryEmailRepo,
@@ -6315,7 +8325,9 @@ if ($isEnabled('registration')) {
         $registrationSiteName,
     );
     $registrationTrackingService = new \Modules\Registration\Service\TrackingService(
-        $registrationRequestRepo, $registrationSecondaryEmailRepo, $encryptionService
+        $registrationRequestRepo,
+        $registrationSecondaryEmailRepo,
+        $encryptionService
     );
     $registrationMenuHookService = new \Modules\Registration\Service\RegistrationMenuHookService(
         $registrationTrackingService,
@@ -6336,8 +8348,10 @@ if ($isEnabled('registration')) {
     // HouseholdRegistrationCountProvider implementation is NOT built here:
     // Core\Member\FeeEstimationService is core and is assembled in the
     // common trunk above, whatever this module's state.
-    $registrationStatusService = new \Modules\Registration\Service\RequestStatusService($registrationRequestRepo,
-        $journalService);
+    $registrationStatusService = new \Modules\Registration\Service\RequestStatusService(
+        $registrationRequestRepo,
+        $journalService
+    );
     $registrationEmailService = new \Modules\Registration\Service\RequestEmailService(
         $registrationRequestRepo,
         $mailService,
@@ -6347,33 +8361,65 @@ if ($isEnabled('registration')) {
         $registrationSiteName,
     );
     $registrationMigrationService = new \Modules\Registration\Service\MigrationService(
-        $pdo, $registrationRequestRepo, $registrationSecondaryEmailRepo, $memberEmailRepository, $journalService
+        $pdo,
+        $registrationRequestRepo,
+        $registrationSecondaryEmailRepo,
+        $memberEmailRepository,
+        $journalService
     );
     $registrationReconciliation = new \Modules\Registration\Service\ReconciliationService(
-        $pdo, $registrationRequestRepo, $encryptionService, $registrationMigrationService, $journalService
+        $pdo,
+        $registrationRequestRepo,
+        $encryptionService,
+        $registrationMigrationService,
+        $journalService
     );
     $frontController->registerController(
         \Modules\Registration\Controller\TrackingController::class,
         new \Modules\Registration\Controller\TrackingController(
-            $twig, $registrationTrackingService, $registrationSecondaryEmailService, $registrationRequestRepo,
+            $twig,
+            $registrationTrackingService,
+            $registrationSecondaryEmailService,
+            $registrationRequestRepo,
             $registrationStatusService
         )
     );
     $frontController->registerController(
         \Modules\Registration\Controller\RegistrationConfigController::class,
         new \Modules\Registration\Controller\RegistrationConfigController(
-            $twig, $registrationAgeBracketRepo, $registrationSlotCapacityRepo, $registrationYearCodeRepo,
-            $scoutYearResolver, $scoutYearService, $registrationRequestRepo, $registrationSlotService,
-            $sectionService, $editableContentService, $registrationStatusService, $journalService,
-            $settingService, new \Modules\Registration\Service\RequestExportService()
+            $twig,
+            $registrationAgeBracketRepo,
+            $registrationSlotCapacityRepo,
+            $registrationYearCodeRepo,
+            $scoutYearResolver,
+            $scoutYearService,
+            $registrationRequestRepo,
+            $registrationSlotService,
+            $sectionService,
+            $editableContentService,
+            $registrationStatusService,
+            $journalService,
+            $settingService,
+            new \Modules\Registration\Service\RequestExportService()
         )
     );
     $frontController->registerController(
         \Modules\Registration\Controller\RegistrationRequestController::class,
         new \Modules\Registration\Controller\RegistrationRequestController(
-            $twig, $registrationRequestRepo, $registrationAgeBracketRepo, $sectionService, $feeCategoryRepo,
-            $feeEstimationService, $registrationStatusService, $registrationEmailService, $registrationMigrationService,
-            $memberRepo, $memberYearRepo, $scoutYearResolver, $scoutYearService, $registrationSlotService,
+            $twig,
+            $registrationRequestRepo,
+            $registrationAgeBracketRepo,
+            $sectionService,
+            $feeCategoryRepo,
+            $feeEstimationService,
+            $registrationStatusService,
+            $registrationEmailService,
+            $registrationMigrationService,
+            $memberRepo,
+            $memberYearRepo,
+            $scoutYearResolver,
+            $scoutYearService,
+            $registrationSlotService,
             $memberService
         )
     );
@@ -6418,19 +8464,28 @@ if ($isEnabled('registration')) {
     // makes that workflow drop its three preparation steps, which are this
     // module's own pages.
     $registrationScoutYearPreparation = new \Modules\Registration\Service\ScoutYearPreparationService(
-        $registrationPassageService, $scoutYearResolver, $scoutYearService
+        $registrationPassageService,
+        $scoutYearResolver,
+        $scoutYearService
     );
 
     // Iteration 7 — "Prévisions" (own ForecastService, reusing
     // PassageService::getAnimeMemberYears()/getBranchChanges()/
     // getNewRegistrations() rather than recomputing any of them).
     $registrationForecastService = new \Modules\Registration\Service\ForecastService(
-        $pdo, $encryptionService, $sectionService, $registrationPassageService
+        $pdo,
+        $encryptionService,
+        $sectionService,
+        $registrationPassageService
     );
     $frontController->registerController(
         \Modules\Registration\Controller\ForecastController::class,
         new \Modules\Registration\Controller\ForecastController(
-            $twig, $registrationForecastService, $scoutYearResolver, $scoutYearService, $registrationSlotService
+            $twig,
+            $registrationForecastService,
+            $scoutYearResolver,
+            $scoutYearService,
+            $registrationSlotService
         )
     );
 
@@ -6467,8 +8522,10 @@ if ($isEnabled('registration')) {
     // Passage statistics box reading the same numbers. The two controllers
     // that need these services are registered immediately below, so the
     // move costs nothing but this comment.
-    $registrationReenrollmentRepository = new \Modules\Registration\Repository\ReenrollmentRepository($pdo,
-        $encryptionService);
+    $registrationReenrollmentRepository = new \Modules\Registration\Repository\ReenrollmentRepository(
+        $pdo,
+        $encryptionService
+    );
     // IT-17 — the staff's own entry on the Passage page, kept apart from
     // the family's answer so a chief typing a note never fabricates one.
     $registrationPassageNoteRepository = new \Modules\Registration\Repository\PassageNoteRepository(
@@ -6562,15 +8619,23 @@ if ($isEnabled('registration')) {
     $frontController->registerController(
         \Modules\Registration\Controller\ReenrollmentConfigController::class,
         new \Modules\Registration\Controller\ReenrollmentConfigController(
-            $twig, $registrationReenrollmentCampaign, $settingService, $schedulerService, $journalService
+            $twig,
+            $registrationReenrollmentCampaign,
+            $settingService,
+            $schedulerService,
+            $journalService
         )
     );
     \Modules\Registration\Task\ReenrollmentCampaignHandler::ensureScheduled($schedulerService);
     $frontController->registerController(
         \Modules\Registration\Controller\ReenrollmentController::class,
         new \Modules\Registration\Controller\ReenrollmentController(
-            $twig, $registrationReenrollmentForm, $registrationReenrollmentService,
-            $scoutYearResolver, $scoutYearService, $registrationReenrollmentCampaign
+            $twig,
+            $registrationReenrollmentForm,
+            $registrationReenrollmentService,
+            $scoutYearResolver,
+            $scoutYearService,
+            $registrationReenrollmentCampaign
         )
     );
 
@@ -6582,9 +8647,15 @@ if ($isEnabled('registration')) {
     $frontController->registerController(
         \Modules\Registration\Controller\PassageController::class,
         new \Modules\Registration\Controller\PassageController(
-            $twig, $registrationPassageService, $registrationRequestRepo, $registrationSectionTransferRepo,
+            $twig,
+            $registrationPassageService,
+            $registrationRequestRepo,
+            $registrationSectionTransferRepo,
             $sectionService,
-            $registrationAgeBracketRepo, $registrationSlotService, $scoutYearResolver, $scoutYearService,
+            $registrationAgeBracketRepo,
+            $registrationSlotService,
+            $scoutYearResolver,
+            $scoutYearService,
             new \Modules\Registration\Service\PassageStatisticsService(
                 $sectionService,
                 $registrationProjectedPopulation
@@ -6633,9 +8704,19 @@ if ($isEnabled('registration')) {
     $frontController->registerController(
         ImportController::class,
         new ImportController(
-            $twig, $importService, $scoutYearResolver, $importJournalRepo, $functionRepo,
-            $importRetentionService, $rosterSnapshotRepository, $fileRepository, $userAccountRepo,
-            $importReportPresenter, $storagePath, $registrationReconciliation, $diskBudget
+            $twig,
+            $importService,
+            $scoutYearResolver,
+            $importJournalRepo,
+            $functionRepo,
+            $importRetentionService,
+            $rosterSnapshotRepository,
+            $fileRepository,
+            $userAccountRepo,
+            $importReportPresenter,
+            $storagePath,
+            $registrationReconciliation,
+            $diskBudget
         )
     );
 
@@ -6646,7 +8727,11 @@ if ($isEnabled('registration')) {
     // same ordering constraint as ImportController above) — re-registered
     // here with the real provider only when mass_mail is also enabled.
     $registrationExternalMailingListService = new \Modules\Registration\Service\ExternalMailingListService(
-        $pdo, $encryptionService, $scoutYearResolver, $scoutYearService, $registrationRequestRepo
+        $pdo,
+        $encryptionService,
+        $scoutYearResolver,
+        $scoutYearService,
+        $registrationRequestRepo
     );
     if ($isEnabled('mass_mail')) {
         // $massMailService itself holds its own internal reference to the
@@ -6655,7 +8740,11 @@ if ($isEnabled('registration')) {
         // since PHP doesn't retroactively update an already-injected
         // dependency. Both are rebuilt together here.
         $massMailListService = new \Modules\MassMail\Service\MailingListService(
-            $massMailListRepo, $massMailResolutionRepo, $sectionService, $massMailFunctionRepo, $badgeService,
+            $massMailListRepo,
+            $massMailResolutionRepo,
+            $sectionService,
+            $massMailFunctionRepo,
+            $badgeService,
             $massMailListAddressRepo,
             $registrationExternalMailingListService,
             // IT-11 — with registration enabled, a list aimed at a year the
@@ -6672,10 +8761,21 @@ if ($isEnabled('registration')) {
         // the "might not be defined" pattern this cross-module
         // re-registration already carries (phpstan-baseline.neon).
         $massMailService = new \Modules\MassMail\Service\MassMailService(
-            $massMailEmailRepo, $massMailRecipientRepo, $massMailAttachmentRepo, $fileRepository,
-            $massMailListService, $memberService, $memberEmailService, $sectionService, $mailService, $schedulerService,
+            $massMailEmailRepo,
+            $massMailRecipientRepo,
+            $massMailAttachmentRepo,
+            $fileRepository,
+            $massMailListService,
+            $memberService,
+            $memberEmailService,
+            $sectionService,
+            $mailService,
+            $schedulerService,
             $journalService,
-            new \Core\Security\HtmlSanitizer(), $scoutYearService, $importJournalRepo, $storagePath,
+            new \Core\Security\HtmlSanitizer(),
+            $scoutYearService,
+            $importJournalRepo,
+            $storagePath,
             new \Modules\MassMail\Repository\AudienceRepository($pdo, $encryptionService),
             new \Modules\MassMail\Repository\MemberResolutionRepository($pdo, $encryptionService),
             new \Modules\MassMail\Repository\SuppressedAddressRepository($pdo),
@@ -6684,8 +8784,17 @@ if ($isEnabled('registration')) {
         $frontController->registerController(
             \Modules\MassMail\Controller\MassMailController::class,
             new \Modules\MassMail\Controller\MassMailController(
-                $twig, $massMailService, $massMailListService, $massMailAccessService, $memberService, $sectionService,
-                $scoutYearService, $importJournalRepo, $settingService, $uploadHandler, $fileRepository,
+                $twig,
+                $massMailService,
+                $massMailListService,
+                $massMailAccessService,
+                $memberService,
+                $sectionService,
+                $scoutYearService,
+                $importJournalRepo,
+                $settingService,
+                $uploadHandler,
+                $fileRepository,
                 new \Modules\MassMail\Service\AudienceImportService(
                     new \Modules\MassMail\Repository\AudienceRepository($pdo, $encryptionService),
                     new \Modules\MassMail\Repository\MemberResolutionRepository($pdo, $encryptionService),
@@ -6696,7 +8805,10 @@ if ($isEnabled('registration')) {
         $frontController->registerController(
             \Modules\MassMail\Controller\MailingListController::class,
             new \Modules\MassMail\Controller\MailingListController(
-                $twig, $massMailListService, $scoutYearResolver, $massMailListAddressService,
+                $twig,
+                $massMailListService,
+                $scoutYearResolver,
+                $massMailListAddressService,
                 $massMailListAddressImportService
             )
         );
@@ -6822,8 +8934,10 @@ if ($isEnabled('rental')) {
     // indistinguishable, because an Occupancy carries nothing to tell them
     // apart by.
     $rentalBookingRepository = new \Modules\Rental\Repository\RentalBookingRepository($pdo, $encryptionService);
-    $rentalChangeRequestRepository = new \Modules\Rental\Repository\RentalChangeRequestRepository($pdo,
-        $encryptionService);
+    $rentalChangeRequestRepository = new \Modules\Rental\Repository\RentalChangeRequestRepository(
+        $pdo,
+        $encryptionService
+    );
     // The booking's own change history (§6.15) now goes through Core\Audit
     // (§8.66), like Camps' and every other per-entity timeline: one storage
     // rule (every value encrypted), one partial, one JSON pagination route.
@@ -6833,7 +8947,9 @@ if ($isEnabled('rental')) {
     $rentalBookingAudit = new \Modules\Rental\Audit\BookingAudit(
         $auditService,
         new \Modules\Rental\Audit\ActorAccountResolver(
-            $memberService, $userAccountRepo, $scoutYearService
+            $memberService,
+            $userAccountRepo,
+            $scoutYearService
         )
     );
     $rentalBookingService = new \Modules\Rental\Service\RentalBookingService(
@@ -6898,8 +9014,13 @@ if ($isEnabled('rental')) {
     $frontController->registerController(
         \Modules\Rental\Controller\RentalConfigController::class,
         new \Modules\Rental\Controller\RentalConfigController(
-            $twig, $rentalAssetRepository, $rentalAssetService, $rentalManagerService,
-            $scoutYearService, $settingService, $rentalPaymentService,
+            $twig,
+            $rentalAssetRepository,
+            $rentalAssetService,
+            $rentalManagerService,
+            $scoutYearService,
+            $settingService,
+            $rentalPaymentService,
             // The null-seeded API handle (§7.5): the page names the unit's
             // boxes and their state, never a host, an account or a
             // password. Which of them this module reads is the mailbox
@@ -6913,19 +9034,28 @@ if ($isEnabled('rental')) {
     $frontController->registerController(
         \Modules\Rental\Controller\RentalPricingController::class,
         new \Modules\Rental\Controller\RentalPricingController(
-            $twig, $rentalPricingService, $rentalAvailabilityService,
+            $twig,
+            $rentalPricingService,
+            $rentalAvailabilityService,
             // `role_min: identified` on every one of this controller's
             // routes: the authorization service, not the route guard, is
             // what keeps one asset's tariff out of another manager's reach.
-            $rentalAuthorizationService, $rentalAssetRepository, $scoutYearResolver,
+            $rentalAuthorizationService,
+            $rentalAssetRepository,
+            $scoutYearResolver,
             $rentalPaymentService
         )
     );
     $frontController->registerController(
         \Modules\Rental\Controller\RentalPublicController::class,
         new \Modules\Rental\Controller\RentalPublicController(
-            $twig, $rentalAssetRepository, $rentalAuthorizationService, $scoutYearResolver,
-            $rentalAvailabilityService, $rentalPricingService, new \Core\View\MonthGrid\DayStateGridBuilder()
+            $twig,
+            $rentalAssetRepository,
+            $rentalAuthorizationService,
+            $scoutYearResolver,
+            $rentalAvailabilityService,
+            $rentalPricingService,
+            new \Core\View\MonthGrid\DayStateGridBuilder()
         )
     );
     // Documents: contracts, invoices and whatever a manager attaches
@@ -6947,7 +9077,10 @@ if ($isEnabled('rental')) {
         $storagePath
     );
     $rentalBookingMailService = new \Modules\Rental\Service\RentalBookingMailService(
-        $mailService, $emailTemplateRenderer, $settingService, $journalService,
+        $mailService,
+        $emailTemplateRenderer,
+        $settingService,
+        $journalService,
         // So the Message-IDs it mints are remembered and a renter's reply
         // threads onto the booking (§7.6). Null without `inbound_mail`.
         $inboundMailForOthers
@@ -7097,12 +9230,25 @@ if ($isEnabled('rental')) {
     $frontController->registerController(
         \Modules\Rental\Controller\RentalManagementController::class,
         new \Modules\Rental\Controller\RentalManagementController(
-            $twig, $rentalAuthorizationService, $scoutYearResolver, $rentalAssetRepository,
-            $rentalBookingRepository, $auditService, $rentalCommentRepository,
-            $rentalChangeRequestRepository, $rentalOperationsService, $rentalBlockService,
-            $rentalAvailabilityService, $rentalPricingService, $memberService,
-            new \Core\View\MonthGrid\DayStateGridBuilder(), $rentalPaymentService,
-            $rentalDocumentService, $rentalBookingMailService, $uploadHandler, $rentalStayService,
+            $twig,
+            $rentalAuthorizationService,
+            $scoutYearResolver,
+            $rentalAssetRepository,
+            $rentalBookingRepository,
+            $auditService,
+            $rentalCommentRepository,
+            $rentalChangeRequestRepository,
+            $rentalOperationsService,
+            $rentalBlockService,
+            $rentalAvailabilityService,
+            $rentalPricingService,
+            $memberService,
+            new \Core\View\MonthGrid\DayStateGridBuilder(),
+            $rentalPaymentService,
+            $rentalDocumentService,
+            $rentalBookingMailService,
+            $uploadHandler,
+            $rentalStayService,
             // `rental` consuming `calendar` — the other direction of the
             // same circularity, and a nullable dependency like every other
             // cross-module one.
@@ -7125,11 +9271,20 @@ if ($isEnabled('rental')) {
     $frontController->registerController(
         \Modules\Rental\Controller\RentalRequestController::class,
         new \Modules\Rental\Controller\RentalRequestController(
-            $twig, $rentalAssetRepository, $rentalBookingService, $rentalAvailabilityService,
+            $twig,
+            $rentalAssetRepository,
+            $rentalBookingService,
+            $rentalAvailabilityService,
             $rentalPricingService,
             $rentalBookingMailService,
-            $rentalManagerService, $memberService, $scoutYearService, $editableContentService,
-            $humanCheckService, $settingService, $rentalOperationsService, $rentalChangeRequestRepository,
+            $rentalManagerService,
+            $memberService,
+            $scoutYearService,
+            $editableContentService,
+            $humanCheckService,
+            $settingService,
+            $rentalOperationsService,
+            $rentalChangeRequestRepository,
             // The renter's own ICS feed (§6.32): only the generator is
             // borrowed from `calendar`, never a calendar row. Without the
             // module the link simply is not offered.
@@ -7270,11 +9425,13 @@ if ($isEnabled('leadership')) {
     );
 
     $moduleHooks->register(
-        \Core\Module\FormationPathProvider::class, new \Modules\Leadership\Service\MemberFormationPathService(
-        $leadershipRepository,
-        $leadershipMappingRepository,
-        $leadershipResolver
-    ));
+        \Core\Module\FormationPathProvider::class,
+        new \Modules\Leadership\Service\MemberFormationPathService(
+            $leadershipRepository,
+            $leadershipMappingRepository,
+            $leadershipResolver
+        )
+    );
 }
 
 if ($isEnabled('fees')) {
@@ -7379,7 +9536,11 @@ if ($isEnabled('fees')) {
     $frontController->registerController(
         \Modules\Fees\Controller\InvoiceReportController::class,
         new \Modules\Fees\Controller\InvoiceReportController(
-            $twig, $feesInvoiceRepo, $feesVerification, $scoutYearResolver, $journalService
+            $twig,
+            $feesInvoiceRepo,
+            $feesVerification,
+            $scoutYearResolver,
+            $journalService
         )
     );
 }
@@ -7412,13 +9573,22 @@ if (
         : null;
     $galleryAlbumProviderForMember = $isEnabled('gallery')
         ? new \Modules\Gallery\Service\GalleryMemberQueryService(
-            $galleryAlbumRepo, $galleryMediaRepo, $galleryMediaService, $sectionService, $scoutYearService
+            $galleryAlbumRepo,
+            $galleryMediaRepo,
+            $galleryMediaService,
+            $sectionService,
+            $scoutYearService
         )
         : null;
 
     $memberPageService = new \Core\Member\MemberPageService(
-        $sectionService, $memberService, $badgeRepository, $memberBadgeRepository, $ageBranchRepo,
-        $memberDocumentService, $memberEmailService,
+        $sectionService,
+        $memberService,
+        $badgeRepository,
+        $memberBadgeRepository,
+        $ageBranchRepo,
+        $memberDocumentService,
+        $memberEmailService,
         $sectionDocumentService,
         $moduleHooks,
         $massMailQueryForMember,
@@ -7428,8 +9598,15 @@ if (
 
     $frontController->registerController(
         MemberController::class,
-        new MemberController($twig, $memberService, $memberYearService, $journalService, $memberPageService,
-            $departureService, $sectionStaffAuthorizationService)
+        new MemberController(
+            $twig,
+            $memberService,
+            $memberYearService,
+            $journalService,
+            $memberPageService,
+            $departureService,
+            $sectionStaffAuthorizationService
+        )
     );
 }
 
@@ -7441,28 +9618,42 @@ if (
 // none of them is in scope until those modules' blocks have run. Each
 // stays null when its module is disabled, and the corresponding block is
 // then not built at all.
-$frontController->registerController(MemberSearchController::class, new MemberSearchController(
-    $twig, $memberSearchService, $memberService, $scoutYearResolver, $memberYearService, $departureService,
-    $memberExportRowBuilder, $memberExportService, $journalService,
-    new \Core\Member\AdminMemberPageService(
-        $memberBadgeRepository, $memberPhotoService, $sectionMembershipRepository,
-        $sectionService, $scoutYearService, $memberEmailRepository,
+$frontController->registerController(
+    MemberSearchController::class,
+    new MemberSearchController(
+        $twig,
+        $memberSearchService,
+        $memberService,
+        $scoutYearResolver,
+        $memberYearService,
+        $departureService,
+        $memberExportRowBuilder,
+        $memberExportService,
+        $journalService,
+        new \Core\Member\AdminMemberPageService(
+            $memberBadgeRepository,
+            $memberPhotoService,
+            $sectionMembershipRepository,
+            $sectionService,
+            $scoutYearService,
+            $memberEmailRepository,
+            $memberDocumentService,
+            $moduleHooks
+        ),
+        $memberYearRepo,
+        new \Core\Member\MemberNoteService(
+            new \Core\Member\MemberNoteRepository($pdo, $encryptionService, $userAccountRepo),
+            $journalService
+        ),
         $memberDocumentService,
-        $moduleHooks
-    ),
-    $memberYearRepo,
-    new \Core\Member\MemberNoteService(
-        new \Core\Member\MemberNoteRepository($pdo, $encryptionService, $userAccountRepo),
-        $journalService
-    ),
-    $memberDocumentService,
-    new \Core\Member\MemberDocumentMailer($mailService, $encryptedFileStorageService, $storagePath),
-    $settingService,
-    // The one predicate the « Année dans la branche » card and the write
-    // behind it both ask, so the buttons are never offered where saving
-    // would answer 403.
-    $sectionStaffAuthorizationService
-));
+        new \Core\Member\MemberDocumentMailer($mailService, $encryptedFileStorageService, $storagePath),
+        $settingService,
+        // The one predicate the « Année dans la branche » card and the write
+        // behind it both ask, so the buttons are never offered where saving
+        // would answer 403.
+        $sectionStaffAuthorizationService
+    )
+);
 
 // File access (/files/{id}) — built here, deliberately last, because
 // FileAccessGuard's ownership-checker registry must be complete before it
@@ -7501,8 +9692,13 @@ $fileAccessGuard = new FileAccessGuard(
     $linkedMemberIds,
     $fileOwnershipCheckers
 );
-$fileController = new FileController($twig, $fileAccessGuard, $storagePath, $encryptedFileStorageService,
-    $imageVariantService);
+$fileController = new FileController(
+    $twig,
+    $fileAccessGuard,
+    $storagePath,
+    $encryptedFileStorageService,
+    $imageVariantService
+);
 $fileController->setJournalService($journalService);
 $frontController->registerController(FileController::class, $fileController);
 
@@ -7535,9 +9731,15 @@ if (isset(
     $frontController->registerController(
         \Modules\Gallery\Controller\GalleryConfigController::class,
         new \Modules\Gallery\Controller\GalleryConfigController(
-            $twig, $settingService, $galleryFfmpegAvailability, $journalService,
-            $galleryS3ErrorExplainerService, $galleryStorageLocationService, $galleryStorageLocationRepo,
-            $galleryAlbumService, $galleryDelegatedAlbumDescriberRegistry
+            $twig,
+            $settingService,
+            $galleryFfmpegAvailability,
+            $journalService,
+            $galleryS3ErrorExplainerService,
+            $galleryStorageLocationService,
+            $galleryStorageLocationRepo,
+            $galleryAlbumService,
+            $galleryDelegatedAlbumDescriberRegistry
         )
     );
     $frontController->registerController(
@@ -7582,8 +9784,12 @@ $scoutYearTransitionService = new \Core\ScoutYear\ScoutYearTransitionService(
 $frontController->registerController(
     ScoutYearController::class,
     new ScoutYearController(
-        $twig, $scoutYearResolver, $scoutYearAdminService, $scoutYearService,
-        $scoutYearTransitionService, $journalService
+        $twig,
+        $scoutYearResolver,
+        $scoutYearAdminService,
+        $scoutYearService,
+        $scoutYearTransitionService,
+        $journalService
     )
 );
 
@@ -7603,10 +9809,18 @@ $rgpdGenerationRunner = new \Core\View\RgpdGenerationRunner(
     $editableContentService,
     $journalService
 );
-$frontController->registerController(RgpdConfigController::class,
-    new RgpdConfigController($twig, $editableContentService, $rgpdContentService, $settingService, $moduleManager,
-        $journalService, $rgpdGenerationRunner)
-    );
+$frontController->registerController(
+    RgpdConfigController::class,
+    new RgpdConfigController(
+        $twig,
+        $editableContentService,
+        $rgpdContentService,
+        $settingService,
+        $moduleManager,
+        $journalService,
+        $rgpdGenerationRunner
+    )
+);
 
 // Bypass RBAC for /setup routes ONLY while the site has no secrets yet —
 // i.e. the first-run installer, where there is no database, no account and

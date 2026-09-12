@@ -300,8 +300,10 @@ class ReenrollmentRepository
             decision: (string) $row['decision'],
             preferredSectionId: $row['preferred_section_id'] !== null ? (int) $row['preferred_section_id'] : null,
             familyComment: $row['family_comment_encrypted'] !== null
-                ? $this->encryption->decrypt($row['family_comment_encrypted'],
-                    'registration_reenrollments.family_comment')
+                ? $this->encryption->decrypt(
+                    $row['family_comment_encrypted'],
+                    'registration_reenrollments.family_comment'
+                )
                 : null,
             answeredAt: DateInput::requireFromStorage((string) $row['answered_at'], 'answered_at'),
             answeredByUserAccountId: $row['answered_by_user_account_id'] !== null

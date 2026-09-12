@@ -116,8 +116,12 @@ class GroupNotificationService
 
         $this->send(
             self::TYPE_REPLY_RECEIVED,
-            fn(): array => $this->recipientsForAuthorOf($post, $group, $reply->authorUserAccountId,
-                $effectiveScoutYearId),
+            fn(): array => $this->recipientsForAuthorOf(
+                $post,
+                $group,
+                $reply->authorUserAccountId,
+                $effectiveScoutYearId
+            ),
             [
                 'title' => 'Réponse à votre message — ' . $group->name,
                 // The REPLY's text, and only if the reply itself is
@@ -281,8 +285,10 @@ class GroupNotificationService
         ?int $reporterAccountId,
         ?ReportedAuthor $author = null
     ): void {
-        $escalated = $author !== null && $this->recipientResolver->isExplicitModeratorAccount($group,
-            $author->userAccountId);
+        $escalated = $author !== null && $this->recipientResolver->isExplicitModeratorAccount(
+            $group,
+            $author->userAccountId
+        );
 
         $this->send(
             self::TYPE_ITEM_REPORTED,

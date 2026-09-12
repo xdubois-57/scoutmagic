@@ -119,18 +119,21 @@ class AttestationsController extends AbstractController
         } catch (PageCountMismatchException $e) {
             $this->journalRefusal($e);
 
-            return $this->render('@attestations/index.html.twig', array_merge(
-                $this->pageContext(
-                    ['scout_year_id' => $scoutYearId, 'category' => $category->value, 'label' => $label]
-                ),
-                [
-                    'refusal' => [
-                        'page_count' => $e->pageCount,
-                        'pages_per_document' => $e->pagesPerDocument,
-                        'remainder' => $e->remainder(),
-                    ],
-                ]
-            ));
+            return $this->render(
+                '@attestations/index.html.twig',
+                array_merge(
+                    $this->pageContext(
+                        ['scout_year_id' => $scoutYearId, 'category' => $category->value, 'label' => $label]
+                    ),
+                    [
+                        'refusal' => [
+                            'page_count' => $e->pageCount,
+                            'pages_per_document' => $e->pagesPerDocument,
+                            'remainder' => $e->remainder(),
+                        ],
+                    ]
+                )
+            );
         } catch (AttestationsException $e) {
             return $this->renderWithError($e->getMessage(), $scoutYearId, $category->value, $label);
         } catch (\Throwable $e) {

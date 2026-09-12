@@ -842,13 +842,16 @@ class CampsChiefController extends AbstractController
      */
     private function decorateContacts(array $contacts): array
     {
-        return array_map(fn(Contact $contact): array => [
-            'contact' => $contact,
-            'role_options' => $this->options(
-                ContactService::ROLES,
-                ContactService::roleKeyForLabel($contact->roleLabel)
-            ),
-        ], $contacts);
+        return array_map(
+            fn(Contact $contact): array => [
+                'contact' => $contact,
+                'role_options' => $this->options(
+                    ContactService::ROLES,
+                    ContactService::roleKeyForLabel($contact->roleLabel)
+                ),
+            ],
+            $contacts
+        );
     }
 
     /**

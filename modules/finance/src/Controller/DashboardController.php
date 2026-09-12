@@ -124,8 +124,13 @@ class DashboardController extends AbstractController
             $balanceEvolution = $this->financeService->getBalanceEvolution($account->id, $fiscalYear->id);
             $recentMovements = array_slice(
                 $isFiltered
-                    ? $this->findMatchingMovements($account->id, $fiscalYear->id, $categoryId, $uncategorizedOnly,
-                        $search)
+                    ? $this->findMatchingMovements(
+                        $account->id,
+                        $fiscalYear->id,
+                        $categoryId,
+                        $uncategorizedOnly,
+                        $search
+                    )
                     : $this->findActionNeededMovements($account->id, $fiscalYear->id),
                 0,
                 self::RECENT_MOVEMENTS_LIMIT
@@ -142,8 +147,11 @@ class DashboardController extends AbstractController
         );
         $recentMovementRows = array_map(fn(Transaction $movement) => [
             'movement' => $movement,
-            'counterparty' => MovementPresenter::counterparty($movement,
-                $firstReceiptsByMovementId[$movement->id] ?? null, $account->name),
+            'counterparty' => MovementPresenter::counterparty(
+                $movement,
+                $firstReceiptsByMovementId[$movement->id] ?? null,
+                $account->name
+            ),
             'description' => MovementPresenter::description(
                 $movement,
                 $firstReceiptsByMovementId[$movement->id] ?? null
@@ -240,8 +248,13 @@ class DashboardController extends AbstractController
         bool $uncategorizedOnly,
         string $search
     ): array {
-        $movements = $this->transactionRepository->findFiltered([$accountId], $fiscalYearId, $categoryId, null,
-            $uncategorizedOnly);
+        $movements = $this->transactionRepository->findFiltered(
+            [$accountId],
+            $fiscalYearId,
+            $categoryId,
+            null,
+            $uncategorizedOnly
+        );
 
         if ($search === '') {
             return $movements;

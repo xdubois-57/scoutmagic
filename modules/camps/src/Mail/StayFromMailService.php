@@ -302,8 +302,11 @@ class StayFromMailService
      */
     private function shortStayMaxDays(): int
     {
-        $raw = (int) ($this->settings->get('camps_short_stay_max_days', 'camps',
-            (string) self::DEFAULT_SHORT_STAY_MAX_DAYS)
+        $raw = (int) ($this->settings->get(
+            'camps_short_stay_max_days',
+            'camps',
+            (string) self::DEFAULT_SHORT_STAY_MAX_DAYS
+        )
             ?? self::DEFAULT_SHORT_STAY_MAX_DAYS);
 
         return max(1, $raw);
