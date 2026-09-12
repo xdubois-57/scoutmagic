@@ -183,10 +183,20 @@ final class RemoteBackupConnection
      * difference, a trailing slash included. So the screen shows this
      * string and the callback builds from this string: two spellings would
      * be a failure nobody could diagnose from either of them.
+     *
+     * **Empty when this site does not know its own address**, rather than
+     * a bare path. `base_url` is the only source for it — never the
+     * request's `HTTP_HOST`, which the caller supplies and which has no
+     * business composing an OAuth redirect URI. Returning
+     * `/config/maintenance/remote/callback` on its own would put a value
+     * on screen that Google's console refuses outright, under a sentence
+     * telling the operator to register it character for character.
      */
     public function redirectUri(): string
     {
-        return rtrim($this->baseUrl(), '/') . self::REDIRECT_PATH;
+        $base = rtrim($this->baseUrl(), '/');
+
+        return $base === '' ? '' : $base . self::REDIRECT_PATH;
     }
 
     /** Whether the operator has entered a client ID and secret at all. */

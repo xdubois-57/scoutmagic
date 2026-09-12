@@ -107,6 +107,14 @@ final class RemoteBackupController extends AbstractController
             return $this->redirect('/config/maintenance#remote-backup');
         }
 
+        // Before Google is involved at all: the redirect URI is composed
+        // from this site's own address, and there is no honest way to
+        // compose it without one.
+        $refusal = $this->refuseWithoutSiteAddress();
+        if ($refusal !== null) {
+            return $refusal;
+        }
+
         // Random, single-use, and held in the session: this is what makes
         // the callback below refuse a URL somebody else composed.
         //
@@ -120,7 +128,7 @@ final class RemoteBackupController extends AbstractController
 
         return $this->redirect($this->client->authorizationUrl(
             $this->connection->clientId(),
-            $this->redirectUri($request),
+            $this->connection->redirectUri(),
             $state
         ));
     }
@@ -166,7 +174,7 @@ final class RemoteBackupController extends AbstractController
             $tokens = $this->client->exchangeCode(
                 $this->connection->clientId(),
                 $this->connection->clientSecret(),
-                $this->redirectUri($request),
+                $this->connection->redirectUri(),
                 $code
             );
             $about = $this->client->about($tokens['access_token']);
@@ -294,32 +302,37 @@ final class RemoteBackupController extends AbstractController
     }
 
     /**
-     * The address Google must send the browser back to.
+     * Refuses to start when this site does not know its own address.
      *
-     * Built from `base_url` when the site knows its own address and from
-     * the request otherwise, because the value has to match the one
-     * registered in the Google project CHARACTER FOR CHARACTER — Google
-     * refuses the exchange on any difference, including a trailing slash.
-     * The screen shows the same string so the operator can paste it rather
-     * than retype it.
+     * **There used to be a fallback here, built from the request's
+     * `HTTP_HOST`, and removing it is the fix rather than a
+     * simplification.** Two things were wrong with it. The Host header is
+     * supplied by whoever made the request — `InstallationProfile` and
+     * `BackgroundExecutionCollector` both say it in as many words,
+     * « la SEULE source de l'adresse du site, ici comme ailleurs : jamais
+     * HTTP_HOST » — and an OAuth redirect URI is the last place to take an
+     * attacker's word for where a browser should be sent back to. And it
+     * silently disagreed with the screen: the page renders
+     * {@see RemoteBackupConnection::redirectUri()}, which has no fallback,
+     * so on a site with no `base_url` the operator was told to register a
+     * bare path Google's console will not even accept, while the flow sent
+     * an absolute URL built from the header. Google answers that with
+     * `redirect_uri_mismatch`, and nothing on either side says why.
+     *
+     * One spelling, then, which is what that method's docblock always
+     * promised — and when there is none to spell, an answer the operator
+     * can act on instead of a mismatch they cannot diagnose.
      */
-    public function redirectUri(Request $request): string
+    private function refuseWithoutSiteAddress(): ?Response
     {
         if ($this->connection->baseUrl() !== '') {
-            return $this->connection->redirectUri();
+            return null;
         }
 
-        // A site that has not been told its own address yet — the state a
-        // fresh installation is in before anyone saves the general
-        // settings. Answering from the request keeps the flow usable
-        // there; it is the screen's own displayed value that the operator
-        // registers with Google, and that one comes from `base_url` too,
-        // so the two only differ on a site where neither is settled.
-        $scheme = ($request->getServer('HTTPS', '') !== '' && $request->getServer('HTTPS', '') !== 'off')
-            ? 'https'
-            : 'http';
+        FlashMessage::set('error', 'Ce site ne connaît pas encore sa propre adresse. Renseignez-la dans '
+            . 'Configuration > Réglages (« Adresse du site ») avant de raccorder un compte Google : c\'est elle '
+            . 'qui compose l\'adresse de redirection à déclarer chez Google.');
 
-        return $scheme . '://' . (string) $request->getServer('HTTP_HOST', 'localhost')
-            . RemoteBackupConnection::REDIRECT_PATH;
+        return $this->redirect('/config/maintenance#remote-backup');
     }
 }

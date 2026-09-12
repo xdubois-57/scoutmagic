@@ -804,10 +804,23 @@
                 Ils viennent du projet que vous créez dans la console Google. Le secret n'est jamais affiché
                 ensuite : il est chiffré avec la clé de ce site, comme le mot de passe SMTP.
             </p>
-            <p class="small">
-                Adresse de redirection à déclarer dans le projet Google, au caractère près :<br>
-                <code class="user-select-all">{{ remote_backup_redirect_uri }}</code>
-            </p>
+            {% if remote_backup_redirect_uri %}
+                <p class="small">
+                    Adresse de redirection à déclarer dans le projet Google, au caractère près :<br>
+                    <code class="user-select-all">{{ remote_backup_redirect_uri }}</code>
+                </p>
+            {% else %}
+                {# Composed from the site's own address, so there is nothing
+                   to show until that address is known — and showing a bare
+                   path would be worse than showing nothing: Google's console
+                   refuses it, and the operator would have registered it. #}
+                <div class="alert alert-warning small" role="alert">
+                    <strong>Ce site ne connaît pas encore sa propre adresse.</strong>
+                    Renseignez-la dans <a href="/config/settings">Configuration &gt; Réglages</a>
+                    (« Adresse du site ») : l'adresse de redirection à déclarer chez Google s'en déduit,
+                    et le raccordement ne peut pas commencer sans elle.
+                </div>
+            {% endif %}
             <form method="post" action="/config/maintenance/remote/credentials" class="mb-3">
                 {{ csrf_field()|raw }}
                 <div class="mb-2" style="max-width:480px;">

@@ -306,19 +306,52 @@ final class RemoteBackupControllerTest extends TestCase
     }
 
     /**
-     * A site that has not been told its own address still produces a
-     * usable redirect, from the request — the state a fresh installation
-     * is in before anyone saves the general settings.
+     * **A site that does not know its own address cannot start at all**,
+     * and that refusal replaces a fallback built from `HTTP_HOST`.
+     *
+     * Two reasons, and either one is enough. The Host header is supplied
+     * by whoever made the request — `InstallationProfile` says it in as
+     * many words, « la SEULE source de l'adresse du site, ici comme
+     * ailleurs : jamais HTTP_HOST » — and an OAuth redirect URI is the
+     * last place to take an attacker's word for where to send a browser
+     * back. And it disagreed with the screen, which renders
+     * `RemoteBackupConnection::redirectUri()` and had no such fallback:
+     * the operator was told to register a bare path Google's console
+     * refuses, while the flow sent an absolute URL. Google answers that
+     * with `redirect_uri_mismatch` and neither side says why.
      */
-    public function testASiteThatDoesNotKnowItsAddressStillBuildsARedirectUri(): void
+    public function testASiteThatDoesNotKnowItsAddressIsToldSoRatherThanGuessing(): void
+    {
+        $this->settings->values['base_url'] = '';
+        $this->connection->saveCredentials('client-1', 'secret-1');
+
+        $response = $this->controller()->connect(
+            new Request('GET', '/x', [], [], [], ['HTTPS' => 'on', 'HTTP_HOST' => 'attaquant.example']),
+            []
+        );
+
+        // Back to the page, not off to Google: nothing was started.
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/config/maintenance#remote-backup', $response->getHeaders()['Location'] ?? '');
+        $this->assertNull(
+            SessionStore::get('remote_backup_oauth_state'),
+            'a raccordement was begun on an address a request header chose'
+        );
+    }
+
+    /** And the screen shows no address to register rather than a bare path. */
+    public function testTheScreenShowsNothingToRegisterUntilTheSiteKnowsItsAddress(): void
     {
         $this->settings->values['base_url'] = '';
 
-        $uri = $this->controller()->redirectUri(
-            new Request('GET', '/x', [], [], [], ['HTTPS' => 'on', 'HTTP_HOST' => 'neuf.example'])
-        );
+        $this->assertSame('', $this->connection->redirectUri());
 
-        $this->assertSame('https://neuf.example/config/maintenance/remote/callback', $uri);
+        $this->settings->values['base_url'] = 'https://unite.example/';
+
+        $this->assertSame(
+            'https://unite.example/config/maintenance/remote/callback',
+            $this->connection->redirectUri()
+        );
     }
 
     /**
