@@ -489,11 +489,14 @@ class MassMailController extends AbstractController
             return $this->redirect('/mass-mail/' . $id);
         }
 
-        FlashMessage::set('success', match ($action) {
-            'to_test' => 'Email passé en mode test.',
-            'to_draft' => 'Email repassé en brouillon.',
-            default => "L'envoi est lancé : les emails partent par lots en arrière-plan.",
-        });
+        FlashMessage::set(
+            'success',
+            match ($action) {
+                'to_test' => 'Email passé en mode test.',
+                'to_draft' => 'Email repassé en brouillon.',
+                default => "L'envoi est lancé : les emails partent par lots en arrière-plan.",
+            }
+        );
 
         return $this->redirect('/mass-mail/' . $id);
     }
@@ -530,11 +533,14 @@ class MassMailController extends AbstractController
             // time, which is why it is not a Core\Exception\UserFacingException
             // and why this goes through the helper rather than being
             // concatenated.
-            FlashMessage::set('error', UserFacingMessage::from(
-                $e,
-                "L'email de test n'a pas pu être envoyé — vérifiez la configuration d'envoi du site (Configuration > "
-                    . "Email), puis réessayez."
-            ));
+            FlashMessage::set(
+                'error',
+                UserFacingMessage::from(
+                    $e,
+                    "L'email de test n'a pas pu être envoyé — vérifiez la configuration d'envoi du site "
+                    . "(Configuration > Email), puis réessayez."
+                )
+            );
 
             return $this->redirect('/mass-mail/' . $id);
         }

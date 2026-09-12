@@ -932,15 +932,18 @@ class RentalManagementController extends AbstractController
                 $found[] = $report['proposed'] . ' proposition' . ($report['proposed'] > 1 ? 's' : '');
             }
 
-            FlashMessage::set('success', $report['examined'] === 0
-                ? 'Aucun message en attente : tout ce qui est conservé est déjà rattaché.'
-                : sprintf(
-                    '%d message%s réexaminé%s : %s.',
-                    $report['examined'],
-                    $report['examined'] > 1 ? 's' : '',
-                    $report['examined'] > 1 ? 's' : '',
-                    $found === [] ? 'rien de neuf pour l\'instant' : implode(' et ', $found)
-                ));
+            FlashMessage::set(
+                'success',
+                $report['examined'] === 0
+                    ? 'Aucun message en attente : tout ce qui est conservé est déjà rattaché.'
+                    : sprintf(
+                        '%d message%s réexaminé%s : %s.',
+                        $report['examined'],
+                        $report['examined'] > 1 ? 's' : '',
+                        $report['examined'] > 1 ? 's' : '',
+                        $found === [] ? 'rien de neuf pour l\'instant' : implode(' et ', $found)
+                    )
+            );
         });
     }
 

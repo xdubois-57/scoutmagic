@@ -141,7 +141,7 @@ class StorageLocationRepository
 
     /**
      * $secretKey null/empty keeps the existing secret unchanged (same
-     * "leave blank to keep" convention as the old singleton S3SecretRepository).
+     * "leave blank to keep" convention as the old singleton ObjectStorageSecretRepository).
      */
     public function update(
         int $id,

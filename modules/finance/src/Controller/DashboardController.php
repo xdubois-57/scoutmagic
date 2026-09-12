@@ -145,18 +145,21 @@ class DashboardController extends AbstractController
         $firstReceiptsByMovementId = $this->firstReceiptResolver->resolve(
             array_map(fn(Transaction $movement) => $movement->id, $recentMovements)
         );
-        $recentMovementRows = array_map(fn(Transaction $movement) => [
-            'movement' => $movement,
-            'counterparty' => MovementPresenter::counterparty(
-                $movement,
-                $firstReceiptsByMovementId[$movement->id] ?? null,
-                $account->name
-            ),
-            'description' => MovementPresenter::description(
-                $movement,
-                $firstReceiptsByMovementId[$movement->id] ?? null
-            ),
-        ], $recentMovements);
+        $recentMovementRows = array_map(
+            fn(Transaction $movement) => [
+                'movement' => $movement,
+                'counterparty' => MovementPresenter::counterparty(
+                    $movement,
+                    $firstReceiptsByMovementId[$movement->id] ?? null,
+                    $account->name
+                ),
+                'description' => MovementPresenter::description(
+                    $movement,
+                    $firstReceiptsByMovementId[$movement->id] ?? null
+                ),
+            ],
+            $recentMovements
+        );
 
         $bilan = ['income' => 0.0, 'expense' => 0.0, 'total' => 0.0];
         foreach ($categorySummary as $row) {

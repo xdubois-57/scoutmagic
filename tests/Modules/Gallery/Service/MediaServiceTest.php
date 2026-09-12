@@ -16,7 +16,7 @@ use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\Media;
 use Modules\Gallery\Repository\MediaRepository;
-use Modules\Gallery\Repository\S3SecretRepository;
+use Modules\Gallery\Repository\ObjectStorageSecretRepository;
 use Modules\Gallery\Repository\StorageLocation;
 use Modules\Gallery\Repository\StorageLocationRepository;
 use Modules\Gallery\Service\FfmpegAvailability;
@@ -73,7 +73,7 @@ class MediaServiceTest extends TestCase
         $this->accessService->method('canManageAlbum')->willReturn(true);
         $this->storageLocationService = new StorageLocationService(
             $this->storageLocationRepository, $this->albumRepository, $this->storageBackendFactory,
-            $this->settingService, new S3SecretRepository($this->pdo, $encryption), $this->storagePath
+            $this->settingService, new ObjectStorageSecretRepository($this->pdo, $encryption), $this->storagePath
         );
         $ffmpegAvailability = $this->createMock(FfmpegAvailability::class);
         $ffmpegAvailability->method('check')->willReturn(false);

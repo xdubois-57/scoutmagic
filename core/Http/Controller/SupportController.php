@@ -441,10 +441,13 @@ class SupportController extends AbstractController
         );
 
         if ($result->sent) {
-            FlashMessage::set('success', sprintf(
-                'Archive transmise et rattachée au ticket %s.',
-                $last['reference']
-            ));
+            FlashMessage::set(
+                'success',
+                sprintf(
+                    'Archive transmise et rattachée au ticket %s.',
+                    $last['reference']
+                )
+            );
         } else {
             FlashMessage::set('error', self::archiveFailureMessage((string) $result->failureReason));
         }
@@ -553,11 +556,14 @@ class SupportController extends AbstractController
         $result = $this->statisticsSender->sendTest();
 
         if ($result->isSent()) {
-            FlashMessage::set('success', sprintf(
-                'Rapport de test transmis (réponse HTTP %d en %d ms).',
-                (int) $result->statusCode,
-                (int) $result->durationMs
-            ));
+            FlashMessage::set(
+                'success',
+                sprintf(
+                    'Rapport de test transmis (réponse HTTP %d en %d ms).',
+                    (int) $result->statusCode,
+                    (int) $result->durationMs
+                )
+            );
         } elseif ($result->isSkipped()) {
             FlashMessage::set('warning', self::skipMessage((string) $result->reason));
         } else {
@@ -650,12 +656,15 @@ class SupportController extends AbstractController
             $this->probeAfterTicket(),
         ]);
 
-        FlashMessage::set('success', trim(sprintf(
-            'Ticket envoyé. Référence : %s. Le mainteneur répondra par e-mail à %s. %s',
-            $reference,
-            $contactEmail,
-            implode(' ', $followUp)
-        )));
+        FlashMessage::set(
+            'success',
+            trim(sprintf(
+                'Ticket envoyé. Référence : %s. Le mainteneur répondra par e-mail à %s. %s',
+                $reference,
+                $contactEmail,
+                implode(' ', $followUp)
+            ))
+        );
 
         return $this->redirect('/config/support');
     }

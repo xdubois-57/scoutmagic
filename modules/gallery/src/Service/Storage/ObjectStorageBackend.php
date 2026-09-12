@@ -18,7 +18,7 @@ use Aws\S3\S3Client;
  * class covers them all; only the endpoint/region differ (Controller\
  * GalleryConfigController's provider presets).
  */
-class S3StorageBackend implements StorageBackendInterface
+class ObjectStorageBackend implements StorageBackendInterface
 {
     /**
      * Dedicated, non-colliding prefix for testConnection()'s canary object —

@@ -219,13 +219,16 @@ class ReceiptController extends AbstractController
         $search = trim((string) $request->getQuery('q', ''));
         $page = max(1, (int) $request->getQuery('page', 1));
 
-        $totalPages = max(1, (int) ceil(
-            $this->attachmentRepository->countFilteredForAccount(
-                $accountId,
-                $pendingOnly,
-                $search !== '' ? $search : null
-            ) / self::PER_PAGE
-        ));
+        $totalPages = max(
+            1,
+            (int) ceil(
+                $this->attachmentRepository->countFilteredForAccount(
+                    $accountId,
+                    $pendingOnly,
+                    $search !== '' ? $search : null
+                ) / self::PER_PAGE
+            )
+        );
         $page = min($page, $totalPages);
 
         return $this->render('@finance/receipts/list.html.twig', [
@@ -319,21 +322,24 @@ class ReceiptController extends AbstractController
             'page' => $page,
             'total_pages' => $totalPages,
             'total' => $total,
-            'receipts' => array_map(fn(array $row) => [
-                'id' => $row['attachment']->id,
-                'file_id' => $row['attachment']->fileId,
-                'mime_type' => $row['attachment']->mimeType,
-                'original_filename' => $row['attachment']->originalFilename,
-                'uploaded_at' => $row['attachment']->uploadedAt,
-                'suggested_amount' => $row['attachment']->suggestedAmount,
-                'suggested_date' => $row['attachment']->suggestedDate,
-                'suggested_label' => $row['attachment']->suggestedLabel,
-                'suggested_description' => $row['attachment']->suggestedDescription,
-                'suggested_source' => $row['attachment']->suggestedSource,
-                'matching_ai_attempted' => $row['attachment']->matchingAiAttemptedAt !== null,
-                'is_pending' => $row['is_pending'],
-                'movement_count' => $row['movement_count'],
-            ], $rows),
+            'receipts' => array_map(
+                fn(array $row) => [
+                    'id' => $row['attachment']->id,
+                    'file_id' => $row['attachment']->fileId,
+                    'mime_type' => $row['attachment']->mimeType,
+                    'original_filename' => $row['attachment']->originalFilename,
+                    'uploaded_at' => $row['attachment']->uploadedAt,
+                    'suggested_amount' => $row['attachment']->suggestedAmount,
+                    'suggested_date' => $row['attachment']->suggestedDate,
+                    'suggested_label' => $row['attachment']->suggestedLabel,
+                    'suggested_description' => $row['attachment']->suggestedDescription,
+                    'suggested_source' => $row['attachment']->suggestedSource,
+                    'matching_ai_attempted' => $row['attachment']->matchingAiAttemptedAt !== null,
+                    'is_pending' => $row['is_pending'],
+                    'movement_count' => $row['movement_count'],
+                ],
+                $rows
+            ),
         ]);
     }
 
@@ -367,13 +373,16 @@ class ReceiptController extends AbstractController
 
         return $this->json([
             'success' => true,
-            'movements' => array_map(fn(Transaction $t) => [
-                'id' => $t->id,
-                'date' => $t->transactionDate,
-                'label' => $t->label,
-                'amount' => $t->amount,
-                'description' => MovementPresenter::description($t, $firstReceipts[$t->id] ?? null),
-            ], $transactions),
+            'movements' => array_map(
+                fn(Transaction $t) => [
+                    'id' => $t->id,
+                    'date' => $t->transactionDate,
+                    'label' => $t->label,
+                    'amount' => $t->amount,
+                    'description' => MovementPresenter::description($t, $firstReceipts[$t->id] ?? null),
+                ],
+                $transactions
+            ),
         ]);
     }
 
@@ -390,11 +399,14 @@ class ReceiptController extends AbstractController
             ($page - 1) * self::PER_PAGE
         );
 
-        return array_map(fn(array $row) => [
-            'attachment' => $row['attachment'],
-            'movement_count' => $row['movement_count'],
-            'is_pending' => $row['movement_count'] === 0,
-        ], $results);
+        return array_map(
+            fn(array $row) => [
+                'attachment' => $row['attachment'],
+                'movement_count' => $row['movement_count'],
+                'is_pending' => $row['movement_count'] === 0,
+            ],
+            $results
+        );
     }
 
     /**

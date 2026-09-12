@@ -92,7 +92,7 @@ Documentation seule, aucun code, conformément au document de chantier.
    10 Gio dépasse ce que donne l'hébergement mutualisé le moins cher :
    c'est écrit noir sur blanc dans le document, avec ses trois issues
    (payer plus, garder moins d'années en ligne, ou passer la galerie sur
-   `S3StorageBackend`). La vidéo est exclue du chiffre et signalée à
+   `ObjectStorageBackend`). La vidéo est exclue du chiffre et signalée à
    part — `gallery_max_video_upload_mb` vaut 2 048 par défaut, donc une
    douzaine de vidéos de camp pèse plus que cinq ans de photos.
 

@@ -957,13 +957,16 @@ class NewsController extends AbstractController
      */
     private function fieldsForPreview(array $fields, array $memberOptions): array
     {
-        return array_map(fn(FormField $field) => [
-            'field' => $field,
-            'options' => $field->optionsSource === FormField::OPTIONS_SOURCE_MEMBERS
-                ? array_values($memberOptions)
-                : $field->manualOptions(),
-            'remaining_capacity' => $field->capacityMax,
-        ], $fields);
+        return array_map(
+            fn(FormField $field) => [
+                'field' => $field,
+                'options' => $field->optionsSource === FormField::OPTIONS_SOURCE_MEMBERS
+                    ? array_values($memberOptions)
+                    : $field->manualOptions(),
+                'remaining_capacity' => $field->capacityMax,
+            ],
+            $fields
+        );
     }
 
     /**
@@ -1104,27 +1107,30 @@ class NewsController extends AbstractController
             return [];
         }
 
-        return array_map(fn(array $f) => [
-            'id' => isset($f['id']) && $f['id'] !== null ? (int) $f['id'] : null,
-            'field_type' => (string) ($f['field_type'] ?? ''),
-            'label' => isset($f['label']) && $f['label'] !== '' ? (string) $f['label'] : null,
-            'is_required' => (bool) ($f['is_required'] ?? false),
-            'options_source' => isset($f['options_source']) && $f['options_source'] !== ''
-                ? (string) $f['options_source']
-                : null,
-            'options_manual' => isset($f['options_manual']) && $f['options_manual'] !== ''
-                ? (string) $f['options_manual']
-                : null,
-            'capacity_max' => isset($f['capacity_max']) && $f['capacity_max'] !== '' && $f['capacity_max'] !== null
-                ? (int) $f['capacity_max']
-                : null,
-            'price_per_unit' => isset($f['price_per_unit'])
-                && $f['price_per_unit'] !== ''
-                && $f['price_per_unit'] !== null ? (float) $f['price_per_unit'] : null,
-            'confirmation_text' => isset($f['confirmation_text']) && $f['confirmation_text'] !== ''
-                ? (string) $f['confirmation_text']
-                : null,
-        ], $raw);
+        return array_map(
+            fn(array $f) => [
+                'id' => isset($f['id']) && $f['id'] !== null ? (int) $f['id'] : null,
+                'field_type' => (string) ($f['field_type'] ?? ''),
+                'label' => isset($f['label']) && $f['label'] !== '' ? (string) $f['label'] : null,
+                'is_required' => (bool) ($f['is_required'] ?? false),
+                'options_source' => isset($f['options_source']) && $f['options_source'] !== ''
+                    ? (string) $f['options_source']
+                    : null,
+                'options_manual' => isset($f['options_manual']) && $f['options_manual'] !== ''
+                    ? (string) $f['options_manual']
+                    : null,
+                'capacity_max' => isset($f['capacity_max']) && $f['capacity_max'] !== '' && $f['capacity_max'] !== null
+                    ? (int) $f['capacity_max']
+                    : null,
+                'price_per_unit' => isset($f['price_per_unit'])
+                    && $f['price_per_unit'] !== ''
+                    && $f['price_per_unit'] !== null ? (float) $f['price_per_unit'] : null,
+                'confirmation_text' => isset($f['confirmation_text']) && $f['confirmation_text'] !== ''
+                    ? (string) $f['confirmation_text']
+                    : null,
+            ],
+            $raw
+        );
     }
 
     /**

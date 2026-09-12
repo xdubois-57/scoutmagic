@@ -122,8 +122,11 @@ class SectionStaffAuthorizationService
         // multi-section chief/animateur would see their sections in
         // arbitrary DB order instead of matching every other section
         // picker on the site.
-        usort($sections, static fn(array $a, array $b): int
-            => [$a['branch_sort_order'], $a['desk_code']] <=> [$b['branch_sort_order'], $b['desk_code']]);
+        usort(
+            $sections,
+            static fn(array $a, array $b): int
+                => [$a['branch_sort_order'], $a['desk_code']] <=> [$b['branch_sort_order'], $b['desk_code']]
+        );
 
         return $sections;
     }

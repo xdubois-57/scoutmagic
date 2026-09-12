@@ -87,8 +87,15 @@ class ConfigCategoryController extends AbstractController
                         (string) ($data['name'] ?? ''),
                         (string) ($data['description'] ?? '')
                     );
-                    $this->journalService->log('finance', 'category_created', 'info', "Catégorie « {$category->name} "
-                        . "» créée", ['category_id' => $category->id], AuthSession::getUserAccountId());
+                    $this->journalService->log(
+                        'finance',
+                        'category_created',
+                        'info',
+                        "Catégorie « {$category->name} "
+                            . "» créée",
+                        ['category_id' => $category->id],
+                        AuthSession::getUserAccountId()
+                    );
                     return $this->json(['success' => true, 'category_id' => $category->id]);
 
                 case 'update':

@@ -17,7 +17,7 @@ use Core\Security\CsrfGuard;
 use Modules\Gallery\Repository\StorageLocation;
 use Modules\Gallery\Repository\StorageLocationRepository;
 use Modules\Gallery\Api\GalleryException;
-use Modules\Gallery\Service\S3ErrorExplainerService;
+use Modules\Gallery\Service\ObjectStorageErrorExplainerService;
 use Modules\Gallery\Service\StorageLocationService;
 use Twig\Environment;
 
@@ -31,7 +31,7 @@ class GalleryStorageLocationController extends AbstractController
         private StorageLocationRepository $storageLocationRepository,
         private StorageLocationService $storageLocationService,
         private JournalService $journalService,
-        private S3ErrorExplainerService $s3ErrorExplainerService
+        private ObjectStorageErrorExplainerService $s3ErrorExplainerService
     ) {
     }
 

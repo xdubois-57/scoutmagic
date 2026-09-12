@@ -37,7 +37,7 @@ class Response
      * Allows an additional origin in the img-src directive — e.g. the
      * gallery module's currently-configured S3-compatible origin, so
      * photos actually load regardless of which provider is configured
-     * (Modules\Gallery\Service\Storage\S3StorageBackend::servingOrigin()).
+     * (Modules\Gallery\Service\Storage\ObjectStorageBackend::servingOrigin()).
      */
     public function addImgSrcOrigin(string $origin): self
     {

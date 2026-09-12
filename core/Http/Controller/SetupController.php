@@ -1445,11 +1445,14 @@ class SetupController extends AbstractController
             // would throw a second exception inside this catch block and turn
             // a flash message into a fatal.
             error_log('ScoutMagic setup failed: ' . $e->getMessage());
-            FlashMessage::set('error', 'Erreur lors de l\'installation : ' . UserFacingMessage::from(
-                $e,
-                'l\'installation n\'a pas pu être terminée. Vérifiez les paramètres de la base de données et '
-                . 'les droits d\'écriture sur storage/, puis réessayez.'
-            ));
+            FlashMessage::set(
+                'error',
+                'Erreur lors de l\'installation : ' . UserFacingMessage::from(
+                    $e,
+                    'l\'installation n\'a pas pu être terminée. Vérifiez les paramètres de la base de données et '
+                    . 'les droits d\'écriture sur storage/, puis réessayez.'
+                )
+            );
             return $this->redirect('/setup');
         }
     }
@@ -1544,11 +1547,14 @@ class SetupController extends AbstractController
             // reported is frequently the database, so the detail goes to the
             // PHP error log rather than through a journal INSERT.
             error_log('ScoutMagic setup configuration save failed: ' . $e->getMessage());
-            FlashMessage::set('error', 'Erreur lors de la sauvegarde : ' . UserFacingMessage::from(
-                $e,
-                'la configuration n\'a pas pu être enregistrée. Vérifiez les paramètres de la base de données '
-                . 'et les droits d\'écriture sur storage/, puis réessayez.'
-            ));
+            FlashMessage::set(
+                'error',
+                'Erreur lors de la sauvegarde : ' . UserFacingMessage::from(
+                    $e,
+                    'la configuration n\'a pas pu être enregistrée. Vérifiez les paramètres de la base de données '
+                    . 'et les droits d\'écriture sur storage/, puis réessayez.'
+                )
+            );
             return $this->redirect('/setup');
         }
     }

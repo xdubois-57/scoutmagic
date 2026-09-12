@@ -60,11 +60,14 @@ final class SectionRosterService
         $memberYearRows = $this->repository->findMemberYearRows($memberYearIds);
         $validEmailsByMember = $this->memberEmailRepository->findValidByMemberIds($memberIds);
 
-        $currentRoster = array_map(fn(SectionRosterEntry $e) => [
-            'member_id' => $e->memberId,
-            'section_id' => $e->sectionId,
-            'age_branch_id' => $e->ageBranchId,
-        ], $entries);
+        $currentRoster = array_map(
+            fn(SectionRosterEntry $e) => [
+                'member_id' => $e->memberId,
+                'section_id' => $e->sectionId,
+                'age_branch_id' => $e->ageBranchId,
+            ],
+            $entries
+        );
         $movementByMemberId = $this->movementClassifier->classifyBatch($scoutYearId, $currentRoster);
 
         foreach ($entries as $entry) {
@@ -82,10 +85,13 @@ final class SectionRosterService
 
         foreach ($bySection as $sectionId => $buckets) {
             foreach ($buckets as $bucket => $rows) {
-                usort($rows, fn(MemberRosterRow $a, MemberRosterRow $b) => strcasecmp(
-                    $a->lastName . ' ' . $a->firstName,
-                    $b->lastName . ' ' . $b->firstName
-                ));
+                usort(
+                    $rows,
+                    fn(MemberRosterRow $a, MemberRosterRow $b) => strcasecmp(
+                        $a->lastName . ' ' . $a->firstName,
+                        $b->lastName . ' ' . $b->firstName
+                    )
+                );
                 $bySection[$sectionId][$bucket] = $rows;
             }
         }

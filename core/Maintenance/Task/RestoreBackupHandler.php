@@ -859,27 +859,34 @@ class RestoreBackupHandler implements TaskHandlerInterface
     ): void
     {
         $schedulerService = new SchedulerService(new SchedulerRepository($context->connection->getPdo()));
-        $schedulerService->scheduleAfter('core', 'restore_backup', 0, $extraPayload + [
-            'resume_migration' => true,
-            // **The paths, not only the id.** The restore that just ran
-            // replaced the database — `backups` and `files` included — so
-            // by the time this payload is read, the row recording the
-            // safety copy is whatever the RESTORED database has under
-            // that id, which is another backup or nothing at all. The
-            // rollback then reports « aucune sauvegarde de sécurité n'a pu
-            // être restaurée automatiquement, une intervention manuelle
-            // est nécessaire » with a perfectly usable copy sitting on
-            // disk beside it.
-            //
-            // The two files outlive any database, so they are what the
-            // resume pass is given. The id stays for the pass queued by an
-            // installation upgraded mid-restore, whose payload predates
-            // this and has nothing else to go on.
-            'safety_backup_id' => $safetyBackupId,
-            'safety_db_dump_path' => $safetyDbDump,
-            'safety_zip_path' => $safetyZip,
-            'source' => $source,
-        ], null, $requestedBy);
+        $schedulerService->scheduleAfter(
+            'core',
+            'restore_backup',
+            0,
+            $extraPayload + [
+                'resume_migration' => true,
+                // **The paths, not only the id.** The restore that just ran
+                // replaced the database — `backups` and `files` included — so
+                // by the time this payload is read, the row recording the
+                // safety copy is whatever the RESTORED database has under
+                // that id, which is another backup or nothing at all. The
+                // rollback then reports « aucune sauvegarde de sécurité n'a pu
+                // être restaurée automatiquement, une intervention manuelle
+                // est nécessaire » with a perfectly usable copy sitting on
+                // disk beside it.
+                //
+                // The two files outlive any database, so they are what the
+                // resume pass is given. The id stays for the pass queued by an
+                // installation upgraded mid-restore, whose payload predates
+                // this and has nothing else to go on.
+                'safety_backup_id' => $safetyBackupId,
+                'safety_db_dump_path' => $safetyDbDump,
+                'safety_zip_path' => $safetyZip,
+                'source' => $source,
+            ],
+            null,
+            $requestedBy
+        );
     }
 
     /**

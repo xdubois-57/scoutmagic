@@ -113,11 +113,14 @@ class RegistrationConfigController extends AbstractController
 
         [$requestedYearId, $statusFilter, $search] = $this->readListFilters($request);
 
-        return $this->render('@registration/config.html.twig', $this->buildPageContext(
-            $requestedYearId,
-            $statusFilter,
-            $search
-        ));
+        return $this->render(
+            '@registration/config.html.twig',
+            $this->buildPageContext(
+                $requestedYearId,
+                $statusFilter,
+                $search
+            )
+        );
     }
 
     /**

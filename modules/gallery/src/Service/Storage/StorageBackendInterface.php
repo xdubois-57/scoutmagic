@@ -11,7 +11,7 @@ namespace Modules\Gallery\Service\Storage;
 /**
  * Where the derived photo/video sizes (thumb/medium/large/original) are
  * written — either the local disk (LocalStorageBackend) or an S3-compatible
- * object store (S3StorageBackend), selected via the album's own
+ * object store (ObjectStorageBackend), selected via the album's own
  * gallery_storage_locations row (Service\Storage\StorageBackendFactory).
  * $key is always a relative path such as "{albumId}/med_{mediaId}.jpg" —
  * never an absolute path or URL.
@@ -80,12 +80,12 @@ interface StorageBackendInterface
      * A URL to serve $key to a browser — for LocalStorageBackend this is
      * never called directly by a template (files are streamed through
      * Controller\GalleryController::serveMedia() instead); for
-     * S3StorageBackend it's either the configured public URL prefix or a
+     * ObjectStorageBackend it's either the configured public URL prefix or a
      * time-limited pre-signed URL.
      *
      * $ttl is a pre-signing expiry understood by Aws\S3\S3Client::
      * createPresignedRequest() (e.g. '+1 hour', '+5 minutes') — only ever
-     * meaningful for S3StorageBackend without a public URL configured;
+     * meaningful for ObjectStorageBackend without a public URL configured;
      * LocalStorageBackend ignores it entirely (its "URL" is this app's own
      * access-controlled route, not a time-limited grant). Controller\
      * GalleryController::serveMedia() passes a short TTL for a delegated

@@ -24,7 +24,7 @@ use Minishlink\WebPush\WebPush;
 use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\MediaRepository;
-use Modules\Gallery\Repository\S3SecretRepository;
+use Modules\Gallery\Repository\ObjectStorageSecretRepository;
 use Modules\Gallery\Repository\StorageLocation;
 use Modules\Gallery\Repository\StorageLocationRepository;
 use Modules\Gallery\Service\AlbumService;
@@ -79,7 +79,7 @@ class AlbumServiceTest extends TestCase
         $settingService->method('get')->willReturnCallback(fn($key, $module, $default) => $default);
         $this->storageLocationService = new StorageLocationService(
             $this->storageLocationRepository, $this->albumRepository, $this->storageBackendFactory,
-            $settingService, new S3SecretRepository($this->pdo, $encryption), sys_get_temp_dir()
+            $settingService, new ObjectStorageSecretRepository($this->pdo, $encryption), sys_get_temp_dir()
         );
 
         $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
@@ -333,7 +333,7 @@ class AlbumServiceTest extends TestCase
         $settingService = $this->settingServiceAllowingEverything();
         $storageLocationService = new StorageLocationService(
             $storageLocationRepository, $albumRepository, $storageBackendFactory,
-            $settingService, new S3SecretRepository($pdo, $encryption), sys_get_temp_dir()
+            $settingService, new ObjectStorageSecretRepository($pdo, $encryption), sys_get_temp_dir()
         );
         $service = new AlbumService(
             $albumRepository, new MediaRepository($pdo), $this->accessService,

@@ -33,7 +33,7 @@ use Core\Security\SessionStore;
  * test this admin just ran and nothing else. Never journaled from here:
  * testConnection() already does that, with the actor.
  */
-class S3TestFailure
+class ObjectStorageTestFailure
 {
     private const SESSION_KEY = '_gallery_s3_test_failure';
 

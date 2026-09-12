@@ -52,7 +52,7 @@ class StorageBackendFactory
             return new LocalStorageBackend($this->storagePath, $subdir);
         }
 
-        return new S3StorageBackend(
+        return new ObjectStorageBackend(
             $location->s3Endpoint ?? '',
             $location->s3Region ?? '',
             $location->s3Bucket ?? '',

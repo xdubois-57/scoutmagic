@@ -74,15 +74,21 @@ class MemberController extends AbstractController
             Role::fromString($userRole)
         );
 
-        return $this->render('members/show.html.twig', array_merge($pageData, [
-            'member' => $profile,
-            'is_self' => $isSelf,
-            'show_contact' => $isSelf || $isChiefOrAbove,
-            'show_addresses' => $isSelf || $isChiefOrAbove,
-            // Replaces the route's static breadcrumb label ("Membre") with
-            // this member's own display name (partials/breadcrumb_bar.html.twig).
-            'breadcrumb_current' => $profile->getDisplayName(),
-        ]));
+        return $this->render(
+            'members/show.html.twig',
+            array_merge(
+                $pageData,
+                [
+                    'member' => $profile,
+                    'is_self' => $isSelf,
+                    'show_contact' => $isSelf || $isChiefOrAbove,
+                    'show_addresses' => $isSelf || $isChiefOrAbove,
+                    // Replaces the route's static breadcrumb label ("Membre") with
+                    // this member's own display name (partials/breadcrumb_bar.html.twig).
+                    'breadcrumb_current' => $profile->getDisplayName(),
+                ]
+            )
+        );
     }
 
     /**

@@ -18,7 +18,7 @@ use Core\Security\EncryptionService;
 use Core\Security\Role;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\MediaRepository;
-use Modules\Gallery\Repository\S3SecretRepository;
+use Modules\Gallery\Repository\ObjectStorageSecretRepository;
 use Modules\Gallery\Repository\StorageLocation;
 use Modules\Gallery\Repository\StorageLocationRepository;
 use Modules\Gallery\Service\DelegatedAlbumService;
@@ -113,7 +113,7 @@ class PostMediaIntegrationTest extends TestCase
 
         $storageLocationService = new StorageLocationService(
             $this->storageLocationRepo, $albumRepository, $this->storageBackendFactory,
-            $settingService, new S3SecretRepository($this->pdo, $encryption), $this->storagePath
+            $settingService, new ObjectStorageSecretRepository($this->pdo, $encryption), $this->storagePath
         );
         $accessService = $this->createMock(GalleryAccessService::class);
         $uploadHandler = new UploadHandler($this->fileRepo, $this->storagePath);

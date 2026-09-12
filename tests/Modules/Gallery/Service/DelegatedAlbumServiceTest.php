@@ -10,7 +10,7 @@ use Core\Security\EncryptionService;
 use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\MediaRepository;
-use Modules\Gallery\Repository\S3SecretRepository;
+use Modules\Gallery\Repository\ObjectStorageSecretRepository;
 use Modules\Gallery\Repository\StorageLocation;
 use Modules\Gallery\Repository\StorageLocationRepository;
 use Modules\Gallery\Service\DelegatedAlbumService;
@@ -53,7 +53,7 @@ class DelegatedAlbumServiceTest extends TestCase
         $settingService->method('get')->willReturnCallback(fn($key, $module, $default) => $default);
         $storageLocationService = new StorageLocationService(
             $this->storageLocationRepository, $this->albumRepository, $this->storageBackendFactory,
-            $settingService, new S3SecretRepository($this->pdo, $encryption), sys_get_temp_dir()
+            $settingService, new ObjectStorageSecretRepository($this->pdo, $encryption), sys_get_temp_dir()
         );
         $mediaService = $this->createMock(MediaService::class);
 
@@ -232,7 +232,7 @@ class DelegatedAlbumServiceTest extends TestCase
             $this->storageLocationRepository,
             new StorageLocationService(
                 $this->storageLocationRepository, $racingRepository, $this->storageBackendFactory,
-                $this->createMock(SettingService::class), new S3SecretRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))),
+                $this->createMock(SettingService::class), new ObjectStorageSecretRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))),
                 sys_get_temp_dir()
             ),
             $this->storageBackendFactory, new ScoutYearService($this->pdo)

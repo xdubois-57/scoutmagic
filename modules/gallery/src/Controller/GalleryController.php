@@ -33,7 +33,7 @@ class GalleryController extends AbstractController
     /**
      * A delegated album's presigned S3 URL is a bearer credential for as
      * long as it stays valid — kept deliberately short, unlike the 1-hour
-     * default S3StorageBackend::url() uses for an ordinary album's <img
+     * default ObjectStorageBackend::url() uses for an ordinary album's <img
      * src> (module spec: "a few minutes").
      */
     private const DELEGATED_PRESIGN_TTL = '+5 minutes';
@@ -136,11 +136,14 @@ class GalleryController extends AbstractController
         [$unavailable, $unavailableReason] = $this->availability($album);
 
         $mediaRows = $this->mediaRepository->findByAlbumId($album->id);
-        $media = $unavailable ? [] : array_map(fn(Media $m) => [
-            'media' => $m,
-            'thumb_url' => $this->mediaService->resolveUrl($m, $album, 'thumb'),
-            'medium_url' => $this->mediaService->resolveUrl($m, $album, 'medium'),
-        ], $mediaRows);
+        $media = $unavailable ? [] : array_map(
+            fn(Media $m) => [
+                'media' => $m,
+                'thumb_url' => $this->mediaService->resolveUrl($m, $album, 'thumb'),
+                'medium_url' => $this->mediaService->resolveUrl($m, $album, 'medium'),
+            ],
+            $mediaRows
+        );
 
         return $this->render('@gallery/album.html.twig', [
             'album' => $album,
@@ -622,7 +625,7 @@ class GalleryController extends AbstractController
         // invariant was only enforced at creation time: a superadmin adding
         // an s3_public_url to a location later would silently turn the short
         // presign below into a permanent, unauthenticated link (see
-        // S3StorageBackend::url(), which ignores the TTL when a public URL is
+        // ObjectStorageBackend::url(), which ignores the TTL when a public URL is
         // set). Re-assert it here, where the bytes are actually handed out.
         if ($location->s3PublicUrl !== null && $location->s3PublicUrl !== '') {
             return new Response('Not Found', 404);

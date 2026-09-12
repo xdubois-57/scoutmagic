@@ -25,7 +25,7 @@ use Modules\Gallery\Api\GalleryException;
 use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\MediaRepository;
-use Modules\Gallery\Repository\S3SecretRepository;
+use Modules\Gallery\Repository\ObjectStorageSecretRepository;
 use Modules\Gallery\Repository\StorageLocationRepository;
 use Modules\Gallery\Service\AlbumService;
 use Modules\Gallery\Service\GalleryAccessService;
@@ -84,7 +84,7 @@ final class GallerySeeder
                 $albumRepository,
                 $storageBackendFactory,
                 $settingService,
-                new S3SecretRepository($pdo, $encryption),
+                new ObjectStorageSecretRepository($pdo, $encryption),
                 $storagePath,
             ),
             $scoutYearService,

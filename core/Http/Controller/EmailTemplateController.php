@@ -299,11 +299,14 @@ class EmailTemplateController extends AbstractController
             // visitor can act on. UserFacingMessage is the helper that
             // decides whether an exception claims to be showable, and
             // this one does not.
-            FlashMessage::set('error', UserFacingMessage::from(
-                $e,
-                "L'envoi de test a échoué — vérifiez la configuration d'envoi du site "
-                    . "(Configuration > Email), puis réessayez."
-            ));
+            FlashMessage::set(
+                'error',
+                UserFacingMessage::from(
+                    $e,
+                    "L'envoi de test a échoué — vérifiez la configuration d'envoi du site "
+                        . "(Configuration > Email), puis réessayez."
+                )
+            );
 
             return $this->redirect($this->editUrl($template->id));
         }

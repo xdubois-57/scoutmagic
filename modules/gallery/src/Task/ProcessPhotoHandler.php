@@ -13,7 +13,7 @@ use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\MediaRepository;
-use Modules\Gallery\Repository\S3SecretRepository;
+use Modules\Gallery\Repository\ObjectStorageSecretRepository;
 use Modules\Gallery\Repository\StorageLocationRepository;
 use Modules\Gallery\Api\GalleryException;
 use Modules\Gallery\Service\ImageProcessingService;
@@ -157,7 +157,7 @@ class ProcessPhotoHandler implements TaskHandlerInterface
             $albumRepository,
             $storageBackendFactory,
             $context->settings,
-            new S3SecretRepository($context->connection->getPdo(), $context->encryption),
+            new ObjectStorageSecretRepository($context->connection->getPdo(), $context->encryption),
             $context->storagePath
         );
     }

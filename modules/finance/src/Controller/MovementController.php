@@ -380,16 +380,19 @@ class MovementController extends AbstractController
 
         return $this->json([
             'success' => true,
-            'attachments' => array_map(fn(Attachment $attachment) => [
-                'id' => $attachment->id,
-                'file_id' => $attachment->fileId,
-                'original_filename' => $attachment->originalFilename,
-                'mime_type' => $attachment->mimeType,
-                'suggested_amount' => $attachment->suggestedAmount,
-                'suggested_date' => $attachment->suggestedDate,
-                'suggested_label' => $attachment->suggestedLabel,
-                'suggested_description' => $attachment->suggestedDescription,
-            ], $attachments),
+            'attachments' => array_map(
+                fn(Attachment $attachment) => [
+                    'id' => $attachment->id,
+                    'file_id' => $attachment->fileId,
+                    'original_filename' => $attachment->originalFilename,
+                    'mime_type' => $attachment->mimeType,
+                    'suggested_amount' => $attachment->suggestedAmount,
+                    'suggested_date' => $attachment->suggestedDate,
+                    'suggested_label' => $attachment->suggestedLabel,
+                    'suggested_description' => $attachment->suggestedDescription,
+                ],
+                $attachments
+            ),
         ]);
     }
 
@@ -540,20 +543,26 @@ class MovementController extends AbstractController
 
         return $this->json([
             'success' => true,
-            'movements' => array_map(fn(Transaction $transaction) => [
-                'id' => $transaction->id,
-                'date' => $transaction->transactionDate,
-                'label' => $transaction->label,
-                'amount' => $transaction->amount,
-                'counterparty' => MovementPresenter::counterparty(
-                    $transaction,
-                    $firstReceipts[
-                        $transaction->id
-                    ] ?? null,
-                    $accountNamesById[$transaction->accountId] ?? ''
-                ),
-                'description' => MovementPresenter::description($transaction, $firstReceipts[$transaction->id] ?? null),
-            ], $matches),
+            'movements' => array_map(
+                fn(Transaction $transaction) => [
+                    'id' => $transaction->id,
+                    'date' => $transaction->transactionDate,
+                    'label' => $transaction->label,
+                    'amount' => $transaction->amount,
+                    'counterparty' => MovementPresenter::counterparty(
+                        $transaction,
+                        $firstReceipts[
+                            $transaction->id
+                        ] ?? null,
+                        $accountNamesById[$transaction->accountId] ?? ''
+                    ),
+                    'description' => MovementPresenter::description(
+                        $transaction,
+                        $firstReceipts[$transaction->id] ?? null
+                    ),
+                ],
+                $matches
+            ),
         ]);
     }
 
