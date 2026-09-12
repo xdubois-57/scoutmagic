@@ -68,9 +68,10 @@ permissions: {}
 #                   complete ones.
 #   Monitor         refused for the same reason, and it is on this list
 #                   because naming `ScheduleWakeup` had only closed the
-#                   door taken first (issue #300). Run 34447638775 stopped
-#                   at 7 agents launched and 3 finished — the 2026-09-08
-#                   fingerprint to the digit — with `ScheduleWakeup`
+#                   door taken first (issue #300). Run 34447638775, on
+#                   2026-09-10, stopped at 7 agents launched and 3
+#                   finished — matching the figures of the 2026-09-08
+#                   runs above to the digit — with `ScheduleWakeup`
 #                   nowhere in its tool list and `Monitor` in its place,
 #                   the run's only refusal outside this list. The two
 #                   tools are one mistake: arranging to be called back

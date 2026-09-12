@@ -992,6 +992,18 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
             . 'waiting for its agents — under two different tool names.',
         );
 
+        // The two names above are the spellings already met; this is the
+        // rule they are spellings OF. Without it the prompt would still
+        // pass the assertion above while saying nothing at all about a
+        // third tool, which is precisely how #262's fix left #300 open.
+        $this->assertStringContainsString(
+            'Any other way of arranging to be called back later is the same mistake under a third name',
+            $args,
+            'The prompt names the refused tools but no longer states the rule behind them. An enumeration '
+            . 'only covers what somebody has already met: the general sentence is the only part that can '
+            . 'reach a tool nobody has seen truncate a review yet.',
+        );
+
         foreach (self::deliberateDenials() as $tool) {
             if ($tool === 'Bash') {
                 // Granted command by command, and the prompt says which
