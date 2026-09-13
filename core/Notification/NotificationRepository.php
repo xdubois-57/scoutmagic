@@ -12,6 +12,12 @@ use Core\Security\EncryptionService;
 
 class NotificationRepository
 {
+    /**
+     * How many urls deleteOfTypeWithUrls() binds per statement — see the
+     * reason there.
+     */
+    private const URL_BATCH_SIZE = 500;
+
     public function __construct(
         private \PDO $pdo,
         private EncryptionService $encryption
@@ -271,13 +277,27 @@ class NotificationRepository
             return 0;
         }
 
-        $placeholders = implode(',', array_fill(0, count($urls), '?'));
-        $stmt = $this->pdo->prepare(
-            'DELETE FROM notifications WHERE type_id = ? AND url IN (' . $placeholders . ')'
-        );
-        $stmt->execute(array_merge([$typeId], $urls));
+        // Batched, because the caller's list is as long as the audiences it
+        // is erasing and nothing bounds that. Connection sets
+        // ATTR_EMULATE_PREPARES => false, so these are native prepares and
+        // MySQL refuses more than 65 535 parameters in one statement — the
+        // `type_id` binding included. Sending them all at once would throw
+        // exactly when there is most to erase, and the caller has by then
+        // already deleted the audience rows that are the only way to
+        // rebuild these urls: the personal values would be stranded, not
+        // merely unpurged. BATCH_SIZE is far below the limit because there
+        // is nothing to gain from approaching it.
+        $deleted = 0;
+        foreach (array_chunk($urls, self::URL_BATCH_SIZE) as $batch) {
+            $placeholders = implode(',', array_fill(0, count($batch), '?'));
+            $stmt = $this->pdo->prepare(
+                'DELETE FROM notifications WHERE type_id = ? AND url IN (' . $placeholders . ')'
+            );
+            $stmt->execute(array_merge([$typeId], $batch));
+            $deleted += $stmt->rowCount();
+        }
 
-        return $stmt->rowCount();
+        return $deleted;
     }
 
     /**

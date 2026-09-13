@@ -368,6 +368,83 @@ class PurgeMergeAudiencesHandlerTest extends TestCase
         $this->assertContains('Réunion de 2019', $this->notificationBodies());
     }
 
+    /**
+     * More recipients than one statement may bind.
+     *
+     * `Connection` sets `ATTR_EMULATE_PREPARES => false`, so MySQL refuses
+     * a statement with more than 65 535 parameters — and the list here is
+     * as long as the audiences being erased, which nothing bounds. The
+     * failure would land exactly when there is most to erase, and after
+     * the audience rows that are the only way to rebuild these urls had
+     * already gone.
+     *
+     * The batch size is deliberately not reached here: 600 rows crosses
+     * one boundary of NotificationRepository's 500, which is what proves
+     * the loop sums rather than returns on its first pass. Binding 65 536
+     * parameters to prove the real ceiling would be a slow test of MySQL
+     * rather than of this code.
+     */
+    public function testPurgesMoreNotificationsThanOneStatementCanBind(): void
+    {
+        $audienceId = $this->createAudience('2020-01-01 00:00:00');
+        $emailId = $this->createEmail($audienceId, 'sent', '2020-06-01 00:00:00');
+
+        $expected = 600;
+        for ($i = 0; $i < $expected; $i++) {
+            $rowId = $this->audienceRepository->createRow($audienceId, $i, null, 'a@test.be', ['Prenom' => 'Kaa']);
+            $this->insertNotification(
+                'mass_mail.email_received',
+                'Camp de Kaa ' . $i,
+                '2020-06-01 00:00:00',
+                RecipientEmailLink::url($this->memberYearId, $this->createRecipient($emailId, $rowId))
+            );
+        }
+        $this->assertSame($expected, (int) $this->pdo->query('SELECT COUNT(*) FROM notifications')->fetchColumn());
+
+        (new PurgeMergeAudiencesHandler())->handle([], $this->buildContext());
+
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM notifications')->fetchColumn());
+
+        // And the count reached the journal, which is the only place an
+        // administrator sees that this happened at all — a loop returning
+        // after its first batch would purge everything and report 500.
+        $context = $this->pdo->query(
+            "SELECT context FROM event_log WHERE event_type = 'merge_audiences_purged'"
+        )->fetchColumn();
+        $this->assertStringContainsString('"notifications":' . $expected, (string) $context);
+    }
+
+    /**
+     * Read, delete, purge is a sequence whose FIRST step destroys the key
+     * the LAST one needs: `deleteById()` nulls `audience_row_id`. A failure
+     * in between, committed, would leave notification bodies with nothing
+     * left to correlate them by — unpurgeable rather than merely unpurged,
+     * and the scheduler marks the task failed rather than retrying it.
+     *
+     * So the whole erasure is one transaction. Here the notification purge
+     * is made to fail by dropping the table out from under it; what is
+     * asserted is that the audience is still there afterwards, ready for
+     * the next daily run.
+     */
+    public function testARollbackLeavesTheAudienceForTheNextRun(): void
+    {
+        $merge = $this->createMergeRecipientWithNotification('Camp de Kaa', '2020-06-01 00:00:00');
+
+        $this->pdo->exec('DROP TABLE notifications');
+
+        try {
+            (new PurgeMergeAudiencesHandler())->handle([], $this->buildContext());
+            $this->fail('The purge must not swallow a failure of its own erasure.');
+        } catch (\Throwable $e) {
+            $this->assertFalse($this->pdo->inTransaction(), 'The transaction must not be left open.');
+        }
+
+        $this->assertNotNull(
+            $this->audienceRepository->findById($merge['audienceId']),
+            'A rolled-back purge leaves the audience — and its audience_row_id — for the next run.'
+        );
+    }
+
     public function testReschedulesItselfDaily(): void
     {
         (new PurgeMergeAudiencesHandler())->handle([], $this->buildContext());
