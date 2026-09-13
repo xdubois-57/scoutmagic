@@ -17,6 +17,7 @@ use Core\Maintenance\Remote\GoogleDriveClient;
 use Core\Maintenance\Remote\GoogleDriveTarget;
 use Core\Maintenance\Remote\RemoteBackupConnection;
 use Core\Maintenance\Remote\RemoteBackupException;
+use Core\Maintenance\Remote\RemotePassphrase;
 use Core\Security\AuthSession;
 use Core\Security\SessionStore;
 use Twig\Environment;
@@ -48,9 +49,109 @@ final class RemoteBackupController extends AbstractController
         Environment $twig,
         private readonly RemoteBackupConnection $connection,
         private readonly JournalService $journalService,
+        private readonly RemotePassphrase $passphrase,
         private readonly GoogleDriveClient $client = new GoogleDriveClient()
     ) {
         parent::__construct($twig);
+    }
+
+    /**
+     * POST — shows the phrase the off-site archives are encrypted with.
+     *
+     * **A deliberate departure from the webhook secret, which is shown
+     * once and never again.** That one can be regenerated at no cost:
+     * GitHub is told the new value and nothing that came before matters.
+     * This phrase opens archives that already exist, on a service this
+     * site may not be around to talk to — and it has to live in
+     * `secrets.enc` anyway, because the scheduled send encrypts with it
+     * at four in the morning with nobody there to type anything. So
+     * anybody who can read the server already has it: hiding it from the
+     * administrator protects nothing, and guarantees that one day, with
+     * the server still running, nobody will be able to open the archives
+     * it spent a year uploading.
+     *
+     * POST rather than GET, and behind the CSRF token, so that the phrase
+     * cannot be pulled out by a link somebody was persuaded to follow.
+     *
+     * @param array<string, string> $params
+     */
+    public function revealPassphrase(Request $request, array $params): Response
+    {
+        $guard = $this->guardCsrfJson($request);
+        if ($guard !== null) {
+            return $guard;
+        }
+
+        try {
+            $phrase = $this->passphrase->current();
+        } catch (RemoteBackupException $e) {
+            return $this->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+
+        // **Journaled, and journaled as a security event.** Reading this
+        // is reading the key to every archive off this server; an
+        // administrator who did not do it should be able to find out that
+        // somebody did. The phrase itself is not in the entry, for the
+        // reason AGENTS.md gives about the journal: it is shown on screen
+        // and it travels in the support archive.
+        $this->journalService->log(
+            'core',
+            'remote_backup_passphrase_revealed',
+            'security',
+            'Phrase de passe des sauvegardes hors site affichée',
+            ['generation' => $this->passphrase->generation()],
+            AuthSession::getUserAccountId()
+        );
+
+        return $this->json(['success' => true, 'passphrase' => $phrase]);
+    }
+
+    /**
+     * POST — draws a new phrase, and leaves every archive already sent
+     * unreadable by it.
+     *
+     * That consequence is the whole reason this is a separate, confirmed
+     * action rather than a side effect of anything: nothing re-encrypts
+     * what is already on Drive, and the old phrase is gone from
+     * `secrets.enc` the moment this returns. The generation counter is
+     * what keeps the folder legible afterwards — it is in the name of
+     * every file sent, so an operator holding two phrases can tell which
+     * opens which.
+     *
+     * @param array<string, string> $params
+     */
+    public function regeneratePassphrase(Request $request, array $params): Response
+    {
+        $guard = $this->guardCsrf($request, '/config/maintenance');
+        if ($guard !== null) {
+            return $guard;
+        }
+
+        $previous = $this->passphrase->generation();
+
+        try {
+            $this->passphrase->regenerate();
+        } catch (RemoteBackupException $e) {
+            FlashMessage::set('error', $e->getMessage());
+
+            return $this->redirect('/config/maintenance#remote-backup');
+        }
+
+        $this->journalService->log(
+            'core',
+            'remote_backup_passphrase_regenerated',
+            'security',
+            'Phrase de passe des sauvegardes hors site régénérée',
+            ['previous_generation' => $previous, 'generation' => $this->passphrase->generation()],
+            AuthSession::getUserAccountId()
+        );
+        FlashMessage::set(
+            'success',
+            'Nouvelle phrase de passe. Les archives déjà envoyées ne s\'ouvrent plus qu\'avec l\'ancienne : '
+            . 'notez-la si vous la connaissez encore, ou supprimez-les du compte distant.'
+        );
+
+        return $this->redirect('/config/maintenance#remote-backup');
     }
 
     /**

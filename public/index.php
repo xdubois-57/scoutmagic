@@ -4032,11 +4032,14 @@ $router->addRoute(
     'admin',
 );
 
-// **The off-site destination.** All five routes sit at the `admin` floor,
-// the callback included: an open callback that writes a refresh token
-// would let anybody able to compose a URL decide which Google account
-// this site backs up to. The `state` checked against the session sits on
-// top of that floor; it does not replace it.
+// **The off-site destination.** All seven routes sit at the `admin`
+// floor, the callback included: an open callback that writes a refresh
+// token would let anybody able to compose a URL decide which Google
+// account this site backs up to. The `state` checked against the session
+// sits on top of that floor; it does not replace it. The two passphrase
+// routes need that floor most of all — one shows the key to every
+// archive this site has ever sent off-server, and the other makes them
+// all unreadable.
 $router->addRoute(
     'POST', '/config/maintenance/remote/credentials', RemoteBackupController::class, 'saveCredentials', 'admin',
 );
@@ -4045,6 +4048,20 @@ $router->addRoute('GET', '/config/maintenance/remote/callback', RemoteBackupCont
 $router->addRoute('POST', '/config/maintenance/remote/test', RemoteBackupController::class, 'test', 'admin');
 $router->addRoute(
     'POST', '/config/maintenance/remote/disconnect', RemoteBackupController::class, 'disconnect', 'admin',
+);
+$router->addRoute(
+    'POST',
+    '/config/maintenance/remote/passphrase/reveal',
+    RemoteBackupController::class,
+    'revealPassphrase',
+    'admin',
+);
+$router->addRoute(
+    'POST',
+    '/config/maintenance/remote/passphrase/regenerate',
+    RemoteBackupController::class,
+    'regeneratePassphrase',
+    'admin',
 );
 // The only public, CSRF-free route in the codebase — GitHub is a machine
 // caller with no session; the HMAC-SHA256 signature (Core\Maintenance\
@@ -4785,7 +4802,12 @@ $frontController->registerController(
 $remoteBackupConnection = new \Core\Maintenance\Remote\RemoteBackupConnection($settingService, $secretManager);
 $frontController->registerController(
     RemoteBackupController::class,
-    new RemoteBackupController($twig, $remoteBackupConnection, $journalService)
+    new RemoteBackupController(
+        $twig,
+        $remoteBackupConnection,
+        $journalService,
+        new \Core\Maintenance\Remote\RemotePassphrase($settingService, $secretManager)
+    )
 );
 $frontController->registerController(
     MaintenanceController::class,

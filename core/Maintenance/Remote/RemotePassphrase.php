@@ -63,9 +63,16 @@ final class RemotePassphrase
      */
     private const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
-    /** Six groups of five, hyphen-separated: `AB3DE-F7HJK-…`. */
-    private const GROUPS = 6;
-    private const GROUP_LENGTH = 5;
+    /**
+     * Six groups of five, hyphen-separated: `AB3DE-F7HJK-…`.
+     *
+     * Public because the Maintenance page draws the masked placeholder
+     * from them — six runs of five bullets — and a placeholder whose
+     * shape was typed out by hand would go on showing thirty characters
+     * the day the phrase stopped having thirty.
+     */
+    public const GROUPS = 6;
+    public const GROUP_LENGTH = 5;
 
     public function __construct(
         private readonly SettingService $settings,
