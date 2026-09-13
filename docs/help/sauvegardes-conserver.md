@@ -19,7 +19,11 @@ sauvegarde.
 
 « Sauvegardes récentes » les liste toutes, la plus récente en premier,
 avec leur type, leur date, leur taille et leur état. « Voir plus »
-révèle les lignes au-delà des cinq premières.
+révèle les lignes au-delà des cinq premières. Le bloc arrive replié
+comme les autres : cliquez sur son titre pour l'ouvrir.
+
+Chaque ligne porte deux icônes à droite : une **flèche vers le bas**
+pour télécharger l'archive, une **corbeille** pour la supprimer.
 
 Le site en garde **trois de chaque sorte**, comptées séparément : les
 vôtres et les planifiées — une série de mises à jour n'efface donc plus
@@ -52,7 +56,7 @@ quelques sauvegardes par nuit plutôt que toutes d'un coup.
 
 ## Supprimer
 
-« Supprimer » retire une sauvegarde après une confirmation qui la
+La corbeille retire une sauvegarde après une confirmation qui la
 nomme. Celle prise **avant une opération** est ce depuis quoi le site
 revient en arrière seul : tant que cette opération tourne, la
 suppression est refusée et le site dit pourquoi.

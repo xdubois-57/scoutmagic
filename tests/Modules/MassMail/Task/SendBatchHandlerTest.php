@@ -31,6 +31,7 @@ use Minishlink\WebPush\WebPush;
 use Modules\MassMail\Repository\Email;
 use Modules\MassMail\Repository\Recipient;
 use Modules\MassMail\Repository\RecipientRepository;
+use Modules\MassMail\Service\RecipientEmailLink;
 use Modules\MassMail\Task\SendBatchHandler;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -434,12 +435,16 @@ class SendBatchHandlerTest extends TestCase
      * the substitution lived in a local variable one scope away. The
      * template must never reach it.
      *
-     * Nor must the substituted subject, and that is the second half:
-     * `notifications.body` is written once and only ever purged once
-     * READ, so a personalised subject stored there outlives the 18-month
-     * merge retention the rest of this change is built to respect.
+     * The substituted subject, on the other hand, IS written — and that
+     * is issue #292's whole point. It used to be replaced by « Un email
+     * personnalisé vous a été envoyé. » because `notifications.body` is
+     * written once and the core purge only ever deletes rows somebody has
+     * READ, so the value would have outlived the 18-month merge retention.
+     * Task\PurgeMergeAudiencesHandler now deletes these notifications by
+     * type on that same horizon, read or not, so the value can be stored:
+     * it stops existing on schedule.
      */
-    public function testAPersonalisedSubjectIsNeverWrittenIntoTheNotificationStore(): void
+    public function testThePersonalisedSubjectIsWrittenNowThatItCanBePurged(): void
     {
         $this->pdo->exec("DELETE FROM mass_mail_recipients WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_recipients)");
         $recipient = $this->recipientRepository->findByEmailId($this->emailId)[0];
@@ -476,10 +481,64 @@ class SendBatchHandlerTest extends TestCase
 
         $notifications = (new NotificationRepository($this->pdo, $this->encryption))->findByUserAccountId($account->id);
         $this->assertCount(1, $notifications);
-        // A subject that personalises is NOT written into the
-        // notification store — see notificationBody(). What must never
-        // survive is the raw template.
+        // The subject as SENT — substituted, so the reader is told which
+        // email arrived rather than that one did.
+        $this->assertSame('Camp de Kaa', $notifications[0]->body);
+        // The raw template must never survive, personalisation or not.
         $this->assertStringNotContainsString('{{', $notifications[0]->body);
+
+        // And the url is the correlation key the purge rebuilds months
+        // later to find this exact row — no column joins the two, so a
+        // link written in any other shape would be a value nothing can
+        // erase.
+        $memberYearId = (int) $this->pdo->query('SELECT id FROM member_years')->fetchColumn();
+        $this->assertSame(
+            RecipientEmailLink::url($memberYearId, $recipient->id),
+            $notifications[0]->url
+        );
+    }
+
+    /**
+     * The invariant that keeps the previous test honest: a personalised
+     * subject is stored only when it can later be found and deleted.
+     *
+     * `notifications.url` IS the correlation key — Task\PurgeMergeAudiencesHandler
+     * rebuilds it for every recipient of an audience it erases. A recipient
+     * whose `member_years` row for its own snapshot year has gone (a Desk
+     * re-import or a year transition between queueing and sending) gets no
+     * url, so the purge could never find the row again. Writing « Camp de
+     * Kaa » there would recreate exactly the immortal personal value this
+     * whole change exists to end, and the reader loses nothing: with no
+     * url there is nothing to open either.
+     */
+    public function testAPersonalisedSubjectIsNotWrittenWhenNoLinkCanBeBuilt(): void
+    {
+        $this->pdo->exec("DELETE FROM mass_mail_recipients WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_recipients)");
+        $recipient = $this->recipientRepository->findByEmailId($this->emailId)[0];
+        $account = $this->userAccountRepository->create($recipient->emailAddress);
+
+        // Deliberately NO member_years row: that is the whole scenario.
+        $audienceRepository = new \Modules\MassMail\Repository\AudienceRepository($this->pdo, $this->encryption);
+        $audienceId = $audienceRepository->createAudience('camp.xlsx', 'Camp', ['Prenom'], 1, null);
+        $rowId = $audienceRepository->createRow($audienceId, 2, $this->memberId, null, ['Prenom' => 'Kaa']);
+        $update = $this->pdo->prepare(
+            "UPDATE mass_mail_emails SET subject = 'Camp de {{Prenom}}', list_type = 'mail_merge', audience_id = ?
+             WHERE id = ?"
+        );
+        $update->execute([$audienceId, $this->emailId]);
+        $this->pdo->prepare('UPDATE mass_mail_recipients SET audience_row_id = ? WHERE id = ?')
+            ->execute([$rowId, $recipient->id]);
+
+        $handler = new SendBatchHandler();
+        $handler->handle([], $this->buildContextWithNotifications(
+            $this->createMock(MailService::class),
+            $this->buildNotificationService()
+        ));
+
+        $notifications = (new NotificationRepository($this->pdo, $this->encryption))->findByUserAccountId($account->id);
+        $this->assertCount(1, $notifications);
+        $this->assertNull($notifications[0]->url);
+        $this->assertStringNotContainsString('Kaa', $notifications[0]->body);
         $this->assertSame('Un email personnalisé vous a été envoyé.', $notifications[0]->body);
     }
 

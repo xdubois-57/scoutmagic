@@ -22,6 +22,11 @@ secondes et une sauvegarde pèse des gigaoctets, donc chaque passage en
 envoie un morceau. Un envoi interrompu — serveur redémarré, connexion
 coupée — reprend où il s'était arrêté plutôt que de tout recommencer.
 
+**Ce rythme n'est pas celui du bloc « Sauvegarde automatique ».** Les
+deux ne partagent aucun réglage : celui-là garde une archive non
+chiffrée sur votre serveur, celui-ci construit la sienne, chiffrée, et
+c'est elle qui part.
+
 La **galerie photo n'est pas envoyée**. Elle se compte en gigaoctets, et
 un envoi quotidien remplirait un Drive gratuit en quelques semaines ;
 après quoi plus rien ne partirait du tout. Si vous avez la place, un

@@ -12,6 +12,12 @@ use Core\Security\EncryptionService;
 
 class NotificationRepository
 {
+    /**
+     * How many urls deleteOfTypeWithUrls() binds per statement — see the
+     * reason there.
+     */
+    private const URL_BATCH_SIZE = 500;
+
     public function __construct(
         private \PDO $pdo,
         private EncryptionService $encryption
@@ -228,6 +234,70 @@ class NotificationRepository
         $stmt->execute([$cutoff->format('Y-m-d H:i:s')]);
 
         return $stmt->rowCount();
+    }
+
+    /**
+     * Erasure purge for NAMED notifications — read or not, unlike the
+     * retention purge above.
+     *
+     * The two answer different questions, and that is why this exists
+     * rather than a flag on the other. `deleteReadOlderThan()` serves
+     * TIDINESS: a notification somebody has seen has done its job, and
+     * leaving an unread one alone is a promise that nothing vanishes
+     * before it is read. This one serves ERASURE: a notification whose
+     * body carries a value the site has undertaken to delete cannot wait
+     * to be read, because nobody may ever read it — and `read_at IS NOT
+     * NULL` is precisely what made such a row immortal (issue #292).
+     *
+     * `body` is written once at dispatch and never recomputed, so the only
+     * way a stored value stops existing is for the row to go.
+     *
+     * **It takes the exact urls, not a type and an age**, and that is the
+     * whole safety of it. A type is not a data class: a module can dispatch
+     * one declared type from several paths, only some of which store
+     * something erasable, and deleting by type would silently take the
+     * others with it — unread, under a retention rule that was never about
+     * them. So the caller names the rows: it knows which records it is
+     * erasing, and `url` is what ties a notification to one of them.
+     * Anything this method is not handed keeps the site-wide promise above.
+     *
+     * `type_id` narrows rather than selects — a url belongs to a route, and
+     * pairing it with the type the caller owns is what stops a collision
+     * with some other type pointing at the same page.
+     *
+     * @param string $typeId the declared notification type, e.g.
+     *        `mass_mail.email_received`
+     * @param string[] $urls exact `notifications.url` values; an empty list
+     *        deletes nothing
+     */
+    public function deleteOfTypeWithUrls(string $typeId, array $urls): int
+    {
+        $urls = array_values(array_unique($urls));
+        if ($urls === []) {
+            return 0;
+        }
+
+        // Batched, because the caller's list is as long as the audiences it
+        // is erasing and nothing bounds that. Connection sets
+        // ATTR_EMULATE_PREPARES => false, so these are native prepares and
+        // MySQL refuses more than 65 535 parameters in one statement — the
+        // `type_id` binding included. Sending them all at once would throw
+        // exactly when there is most to erase, and the caller has by then
+        // already deleted the audience rows that are the only way to
+        // rebuild these urls: the personal values would be stranded, not
+        // merely unpurged. BATCH_SIZE is far below the limit because there
+        // is nothing to gain from approaching it.
+        $deleted = 0;
+        foreach (array_chunk($urls, self::URL_BATCH_SIZE) as $batch) {
+            $placeholders = implode(',', array_fill(0, count($batch), '?'));
+            $stmt = $this->pdo->prepare(
+                'DELETE FROM notifications WHERE type_id = ? AND url IN (' . $placeholders . ')'
+            );
+            $stmt->execute(array_merge([$typeId], $batch));
+            $deleted += $stmt->rowCount();
+        }
+
+        return $deleted;
     }
 
     /**

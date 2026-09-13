@@ -243,6 +243,118 @@ class MaintenanceControllerTest extends TestCase
     }
 
     /**
+     * Every box folds, and only the two the page is opened for arrive
+     * open.
+     *
+     * The page carries eight cards, three of which are used once a year
+     * and one of which nobody wants to open at all; flat, it is read with
+     * the scroll wheel. The assertion is on the state as rendered,
+     * because that is the whole promise: a collapse that ships `show` on
+     * all eight is a page that folds nothing, and one that ships it on
+     * none hides the cron verdict an administrator came to check.
+     */
+    public function testOnlyTheFirstTwoBoxesArriveOpen(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        foreach (['maintenance-health', 'maintenance-update'] as $open) {
+            $this->assertStringContainsString(
+                '<div class="collapse show mt-3" id="' . $open . '-body">',
+                $body,
+                "« {$open} » must arrive open."
+            );
+            $this->assertStringContainsString('aria-controls="' . $open . '-body">', $body);
+        }
+
+        foreach ([
+            'maintenance-auto-update',
+            'maintenance-backups',
+            'maintenance-backups-automatic',
+            'maintenance-backups-list',
+            'remote-backup',
+            'maintenance-reset',
+        ] as $folded) {
+            $this->assertStringContainsString(
+                '<div class="collapse mt-3" id="' . $folded . '-body">',
+                $body,
+                "« {$folded} » must arrive folded."
+            );
+        }
+
+        // The heading is not replaced by the button, it wraps it: each
+        // box contains <h3> sections that would otherwise lose their
+        // parent in the document outline. The h5 sizing sits on the span
+        // inside, because `.btn` fixes its own font-size and would eat it
+        // on the <h2>.
+        $this->assertMatchesRegularExpression('~<h2 class="mb-0">\s*<button type="button"~', $body);
+        $this->assertStringContainsString('<span class="h5 mb-0 flex-grow-1">État</span>', $body);
+        // Eight boxes, eight headings: the page still has one <h1> and
+        // no section left without a title.
+        $this->assertSame(8, substr_count($body, '<h2 class="mb-0">'));
+    }
+
+    /**
+     * « Sauvegardes » names the manual triggers only, and the automatic
+     * box no longer claims to configure anything distant.
+     *
+     * The automatic box was called « Sauvegardes automatiques et
+     * distantes » in anticipation of a remote destination that ended up
+     * in a box of its own. A unit read its weekly frequency as the
+     * cadence of the sends to Google, which it has never been — the two
+     * mechanisms share no setting at all.
+     */
+    public function testTheBackupBoxesSayWhichOneTheyGovern(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Sauvegarde manuelle', $body);
+        $this->assertStringContainsString('Sauvegarde automatique</span>', $body);
+        $this->assertStringNotContainsString('Sauvegardes automatiques et distantes', $body);
+
+        // Both sides state the independence, because an operator reads
+        // whichever box they opened.
+        $this->assertStringContainsString('ne gouverne <strong>que</strong> ce qui s\'écrit sur ce serveur', $body);
+        $this->assertStringContainsString(
+            'la fréquence choisie dans
+                    « Sauvegarde automatique » n\'a aucun effet dessus',
+            $body
+        );
+        $this->assertStringContainsString(
+            'fixée à ' . \Core\Maintenance\Task\SendRemoteBackupHandler::INTERVAL_HOURS . ' heures',
+            $body
+        );
+    }
+
+    /**
+     * The two actions on a backup row are icons, and each keeps a name
+     * that says WHICH backup it acts on.
+     *
+     * The row already carries up to three badges, a date and a size;
+     * « Télécharger » and « Supprimer » spelled out wrapped it onto a
+     * second line as soon as an integrity badge appeared. Fifteen
+     * identical « Supprimer » would be no better to a screen reader than
+     * to an eye, hence the backup's own words in the accessible name —
+     * the same words the confirmation uses.
+     */
+    public function testABackupRowOffersIconsThatStillNameTheirBackup(): void
+    {
+        $backups = new \Core\Maintenance\BackupRepository($this->pdo);
+        $files = new \Core\File\FileRepository($this->pdo);
+        $backupId = $backups->create('full_no_gallery', null);
+        $fileId = $files->create('backups/sauvegarde.zip', 'sauvegarde.zip', 'application/zip', 1024, 'admin', null, null);
+        $backups->markCompleted($backupId, $fileId, null);
+
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('aria-label="Télécharger la sauvegarde « Complète (sans galerie) »', $body);
+        $this->assertStringContainsString('aria-label="Supprimer la sauvegarde « Complète (sans galerie) »', $body);
+        $this->assertStringContainsString('<i class="bi bi-download" aria-hidden="true"></i>', $body);
+        // No visible text left beside either icon.
+        $this->assertStringNotContainsString('</i> Télécharger', $body);
+        $this->assertStringNotContainsString('</i> Supprimer', $body);
+    }
+
+    /**
      * #245. Core\Maintenance\BackupService excludes storage/keys and
      * storage/config from the archive — rightly, "secrets never leave the
      * server in a backup" — and the screen said so nowhere. An
