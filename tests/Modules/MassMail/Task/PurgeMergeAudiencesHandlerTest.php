@@ -25,6 +25,11 @@ use Tests\Modules\MassMail\MassMailTestHelper;
  * days, and never while a draft/test/sending email still references the
  * audience. The tracking history must survive the purge.
  *
+ * The « Nouvel email » notifications of those merges go on the same
+ * horizon and in the same pass (issue #292), so they are tested here
+ * rather than beside the core retention purge: what is asserted is that
+ * one task erases both, without skew.
+ *
  * @group database
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
@@ -81,6 +86,58 @@ class PurgeMergeAudiencesHandlerTest extends TestCase
         return (int) $this->pdo->lastInsertId();
     }
 
+    private function insertEmailReceivedNotification(string $body, string $createdAt): int
+    {
+        return $this->insertNotification('mass_mail.email_received', $body, $createdAt);
+    }
+
+    private function insertNotification(string $typeId, string $body, string $createdAt): int
+    {
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO notifications (user_account_id, type_id, title, body, created_at, read_at)
+             VALUES (1, ?, ?, ?, ?, NULL)'
+        );
+        $stmt->execute([
+            $typeId,
+            $this->encryption->encrypt('Nouvel email', 'notifications.title'),
+            $this->encryption->encrypt($body, 'notifications.body'),
+            $createdAt,
+        ]);
+
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    /**
+     * Reads `body` the way NotificationRepository::hydrate() does — the
+     * column is a BLOB, and a driver may hand it back as a stream rather
+     * than a string.
+     *
+     * @return array<int, string>
+     */
+    private function notificationBodies(): array
+    {
+        $rows = $this->pdo->query('SELECT body FROM notifications')->fetchAll(\PDO::FETCH_COLUMN);
+
+        return array_map(
+            fn (mixed $body): string => $this->encryption->decrypt(
+                is_resource($body) ? (string) stream_get_contents($body) : (string) $body,
+                'notifications.body'
+            ),
+            $rows
+        );
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    private function notificationIds(): array
+    {
+        return array_map(
+            'intval',
+            $this->pdo->query('SELECT id FROM notifications ORDER BY id')->fetchAll(\PDO::FETCH_COLUMN)
+        );
+    }
+
     public function testPurgesAudiencesSentLongerAgoThanRetentionAndKeepsRecentOnes(): void
     {
         $oldAudience = $this->createAudience('2020-01-01 00:00:00');
@@ -127,6 +184,48 @@ class PurgeMergeAudiencesHandlerTest extends TestCase
 
         $this->assertNull($this->audienceRepository->findById($oldOrphan));
         $this->assertNotNull($this->audienceRepository->findById($freshOrphan));
+    }
+
+    /**
+     * The notification a merge leaves behind carries the SENT subject —
+     * « Camp de Kaa » — and `notifications.body` is written once at
+     * dispatch and never recomputed. The core retention purge only ever
+     * deletes rows somebody has READ, so an unread one was immortal, and
+     * that is exactly why the subject used to be scrubbed before it got
+     * there (issue #292).
+     *
+     * Unread is the whole point of this test: a read one was already
+     * covered by the core purge.
+     */
+    public function testPurgesTheUnreadNotificationsCarryingASubstitutedSubject(): void
+    {
+        $old = $this->insertEmailReceivedNotification('Camp de Kaa', '2020-01-01 00:00:00');
+        $recent = $this->insertEmailReceivedNotification(
+            'Camp de Baloo',
+            (new \DateTimeImmutable('-1 day'))->format('Y-m-d H:i:s')
+        );
+
+        (new PurgeMergeAudiencesHandler())->handle([], $this->buildContext());
+
+        $bodies = $this->notificationBodies();
+        $this->assertNotContains('Camp de Kaa', $bodies, 'A substituted subject may not outlive the retention.');
+        $this->assertContains('Camp de Baloo', $bodies, 'A notification inside the window is left alone.');
+        $this->assertSame([$recent], $this->notificationIds());
+        $this->assertNotContains($old, $this->notificationIds());
+    }
+
+    /**
+     * The purge is scoped to the type this module owns. Deleting somebody
+     * else's unread notifications would be a site-wide change of
+     * behaviour smuggled in as a module's retention.
+     */
+    public function testLeavesOtherTypesAloneHoweverOldTheyAre(): void
+    {
+        $this->insertNotification('calendar.event_created', 'Réunion de 2019', '2019-01-01 00:00:00');
+
+        (new PurgeMergeAudiencesHandler())->handle([], $this->buildContext());
+
+        $this->assertContains('Réunion de 2019', $this->notificationBodies());
     }
 
     public function testReschedulesItselfDaily(): void

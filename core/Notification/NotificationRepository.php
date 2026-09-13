@@ -231,6 +231,40 @@ class NotificationRepository
     }
 
     /**
+     * Erasure purge for ONE type — read or not, unlike the retention purge
+     * above.
+     *
+     * The two answer different questions, and that is why this exists
+     * rather than a flag on the other. `deleteReadOlderThan()` serves
+     * TIDINESS: a notification somebody has seen has done its job, and
+     * leaving an unread one alone is a promise that nothing vanishes
+     * before it is read. This one serves ERASURE: a notification whose
+     * body carries a value the site has undertaken to delete cannot wait
+     * to be read, because nobody may ever read it — and `read_at IS NOT
+     * NULL` is precisely what made such a row immortal (issue #292).
+     *
+     * `body` is written once at dispatch and never recomputed, so the
+     * only way a stored value stops existing is for the row to go. Deleting
+     * an unread notification is a real loss of a UI record, and it is the
+     * cheaper of the two: the alternative is a personal value outliving
+     * every retention window the site declares.
+     *
+     * Scoped to one `type_id` on purpose. A caller asks for the erasure it
+     * is responsible for; nothing here decides retention for types it does
+     * not own, and the site-wide rule above is untouched.
+     *
+     * @param string $typeId the declared notification type, e.g.
+     *        `mass_mail.email_received`
+     */
+    public function deleteOfTypeOlderThan(string $typeId, \DateTimeInterface $cutoff): int
+    {
+        $stmt = $this->pdo->prepare('DELETE FROM notifications WHERE type_id = ? AND created_at < ?');
+        $stmt->execute([$typeId, $cutoff->format('Y-m-d H:i:s')]);
+
+        return $stmt->rowCount();
+    }
+
+    /**
      * @param array<string, mixed> $row
      */
     private function hydrate(array $row): NotificationRecord

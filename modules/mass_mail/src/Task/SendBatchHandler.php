@@ -190,12 +190,7 @@ class SendBatchHandler implements TaskHandlerInterface
                 // lot?") and answers nothing about any one recipient.
                 $massMailService->journalRecipientSent($email->id, $recipient->id, $recipient->memberId);
                 $sentCount++;
-                $this->dispatchEmailReceivedNotification(
-                    $context,
-                    $recipient,
-                    $email,
-                    $this->notificationBody($email, $subject, $mergeRenderer)
-                );
+                $this->dispatchEmailReceivedNotification($context, $recipient, $email, $subject);
             } catch (MailException $e) {
                 // $e->getMessage() is a transport-level error (SMTP
                 // response, connection failure) built from PHPMailer's
@@ -255,8 +250,29 @@ class SendBatchHandler implements TaskHandlerInterface
      * recipient's own snapshot scout year, matching MemberEmailController's
      * `/members/{member_year_id}/emails/{recipient_id}` route.
      *
-     * $body is what the notification should say — see notificationBody()
-     * below, which is where the one interesting decision lives.
+     * $body is the subject that was actually sent, personalised or not.
+     *
+     * It used to be scrubbed of any substituted value before reaching
+     * here, and the reason was not squeamishness: `notifications.body` is
+     * written once, at dispatch, and the core retention purge only ever
+     * deletes rows somebody has READ
+     * (`NotificationRepository::deleteReadOlderThan()`). A notification
+     * nobody opens was kept for good, so « Camp de Kaa » stored there
+     * would have outlived the 18-month merge retention this whole flow is
+     * built to respect. Encrypted at rest, yes; but the guarantee at stake
+     * is erasure, not confidentiality — so the notification said only that
+     * an email had arrived.
+     *
+     * These notifications now have a purge path of their own (issue #292):
+     * Task\PurgeMergeAudiencesHandler deletes them by type on the same
+     * horizon, in the same pass, as the audiences whose values they carry
+     * — read or not, which is the half the core purge cannot do. The value
+     * can be written because it now stops existing on schedule.
+     *
+     * The link still goes to the member page's detail view, which
+     * re-renders the merge at READ time and therefore shows nothing once
+     * the audience is gone (Service\MassMailQueryService,
+     * ARCHITECTURE.md §8.61).
      */
     private function dispatchEmailReceivedNotification(
         TaskContext $context,
@@ -292,45 +308,6 @@ class SendBatchHandler implements TaskHandlerInterface
             'body' => $body,
             'url' => $url,
         ], $email->createdBy);
-    }
-
-    /**
-     * What a « Nouvel email » notification says — and the one place in
-     * #287's fix where the answer is NOT simply "what was sent".
-     *
-     * Everywhere else, this change re-renders the merge at READ time so
-     * the personalisation disappears with the audience it came from
-     * (Service\MassMailQueryService's docblock, ARCHITECTURE.md §8.61). A
-     * notification cannot: `notifications.body` is written once, at
-     * dispatch, and `Core\Notification\Task\PurgeNotificationsHandler`
-     * only ever deletes rows that were READ
-     * (`NotificationRepository::deleteReadOlderThan()`). A notification
-     * nobody opens is kept for good — so a substituted subject stored
-     * there would outlive the 18-month merge retention this whole change
-     * is built to respect. Encrypted at rest, yes; but the guarantee at
-     * stake is erasure, not confidentiality.
-     *
-     * So the rule is: the notification carries the subject whenever the
-     * subject is **the same for everybody**, and says only that an email
-     * arrived when it is not. And that is most publipostages — the
-     * variables usually live in the body, not the subject, in which case
-     * the rendered subject IS the stored one and nothing personal is
-     * written anywhere. The reader loses nothing either way: the
-     * notification links to the member page's detail view, which renders
-     * their own copy live and correctly.
-     *
-     * The fuller alternative — keeping the personalised subject and
-     * giving these notifications a purge path of their own — is a real
-     * option and a larger one; it is written up as its own issue rather
-     * than decided here.
-     */
-    private function notificationBody(Email $email, string $sentSubject, MergeRenderer $mergeRenderer): string
-    {
-        if ($email->listType !== Email::LIST_TYPE_MAIL_MERGE || !$mergeRenderer->containsToken($email->subject)) {
-            return $sentSubject;
-        }
-
-        return 'Un email personnalisé vous a été envoyé.';
     }
 
     private function rescheduleIfPendingRemain(TaskContext $context, RecipientRepository $recipientRepository): void

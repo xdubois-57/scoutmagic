@@ -399,12 +399,16 @@ class SendBatchHandlerTest extends TestCase
      * the substitution lived in a local variable one scope away. The
      * template must never reach it.
      *
-     * Nor must the substituted subject, and that is the second half:
-     * `notifications.body` is written once and only ever purged once
-     * READ, so a personalised subject stored there outlives the 18-month
-     * merge retention the rest of this change is built to respect.
+     * The substituted subject, on the other hand, IS written — and that
+     * is issue #292's whole point. It used to be replaced by « Un email
+     * personnalisé vous a été envoyé. » because `notifications.body` is
+     * written once and the core purge only ever deletes rows somebody has
+     * READ, so the value would have outlived the 18-month merge retention.
+     * Task\PurgeMergeAudiencesHandler now deletes these notifications by
+     * type on that same horizon, read or not, so the value can be stored:
+     * it stops existing on schedule.
      */
-    public function testAPersonalisedSubjectIsNeverWrittenIntoTheNotificationStore(): void
+    public function testThePersonalisedSubjectIsWrittenNowThatItCanBePurged(): void
     {
         $this->pdo->exec("DELETE FROM mass_mail_recipients WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_recipients)");
         $recipient = $this->recipientRepository->findByEmailId($this->emailId)[0];
@@ -441,11 +445,11 @@ class SendBatchHandlerTest extends TestCase
 
         $notifications = (new NotificationRepository($this->pdo, $this->encryption))->findByUserAccountId($account->id);
         $this->assertCount(1, $notifications);
-        // A subject that personalises is NOT written into the
-        // notification store — see notificationBody(). What must never
-        // survive is the raw template.
+        // The subject as SENT — substituted, so the reader is told which
+        // email arrived rather than that one did.
+        $this->assertSame('Camp de Kaa', $notifications[0]->body);
+        // The raw template must never survive, personalisation or not.
         $this->assertStringNotContainsString('{{', $notifications[0]->body);
-        $this->assertSame('Un email personnalisé vous a été envoyé.', $notifications[0]->body);
     }
 
     /**
