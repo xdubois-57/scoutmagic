@@ -720,6 +720,62 @@
         });
     }
 
+    // ——— Off-site destination: showing the passphrase ———
+    //
+    // Fetched on demand rather than rendered into the page, and that is
+    // the whole security of it: a page an administrator opened to look at
+    // the disk usage never carries the key to every archive this site has
+    // ever sent off-server. The POST is CSRF-guarded and journaled on the
+    // server side.
+    var passphraseBox = document.getElementById('remote-backup-passphrase');
+    var passphraseReveal = /** @type {HTMLButtonElement|null} */ (
+        document.getElementById('remote-backup-passphrase-reveal')
+    );
+    var passphraseCopy = /** @type {HTMLButtonElement|null} */ (
+        document.getElementById('remote-backup-passphrase-copy')
+    );
+    if (passphraseBox && passphraseReveal && passphraseCopy) {
+        var passphraseMask = passphraseBox.dataset.mask || '';
+        var revealed = false;
+
+        passphraseReveal.addEventListener('click', function () {
+            if (revealed) {
+                passphraseBox.textContent = passphraseMask;
+                passphraseReveal.textContent = 'Afficher la phrase de passe';
+                passphraseCopy.classList.add('d-none');
+                revealed = false;
+                return;
+            }
+
+            passphraseReveal.disabled = true;
+            window.ScoutMagicApi.postJson('/config/maintenance/remote/passphrase/reveal', {})
+                .then(function (res) {
+                    var data = res.data || {};
+                    passphraseReveal.disabled = false;
+                    if (!data.success || !data.passphrase) {
+                        passphraseBox.textContent = data.message || 'La phrase de passe n\'a pas pu être lue.';
+                        return;
+                    }
+                    passphraseBox.textContent = data.passphrase;
+                    passphraseReveal.textContent = 'Masquer';
+                    passphraseCopy.classList.remove('d-none');
+                    revealed = true;
+                });
+        });
+
+        passphraseCopy.addEventListener('click', function () {
+            // navigator.clipboard needs a secure context, which a site
+            // served in clear does not have — and this phrase is
+            // selectable by hand either way (user-select-all on the box),
+            // so a failure here costs nothing worth a message.
+            if (!navigator.clipboard) return;
+            navigator.clipboard.writeText(passphraseBox.textContent || '').then(function () {
+                passphraseCopy.textContent = 'Copié';
+                window.setTimeout(function () { passphraseCopy.textContent = 'Copier'; }, 1500);
+            }, function () { /* nothing to say: the text is selectable */ });
+        });
+    }
+
     // Resume polling after the classic-form restore redirect.
     var restoreIdMatch = /[?&]restore_id=(\d+)/.exec(window.location.search);
     if (restoreIdMatch) {

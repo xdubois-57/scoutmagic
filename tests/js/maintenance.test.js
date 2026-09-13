@@ -1407,3 +1407,78 @@ describe('maintenance.js: the off-site connection test', () => {
         expect(window.location.reload).toHaveBeenCalled();
     });
 });
+
+/**
+ * The off-site passphrase, shown on demand.
+ *
+ * What is pinned here is that the phrase is **not in the page** until
+ * somebody asks for it: an administrator who opened Maintenance to look
+ * at the disk usage must not be carrying the key to every archive this
+ * site has ever sent off-server, in a document a browser may cache and a
+ * screen-sharing call may show.
+ */
+describe('maintenance.js: revealing the off-site passphrase', () => {
+    const MASK = '•••••-•••••-•••••-•••••-•••••-•••••';
+
+    function buildDom() {
+        appendAll(
+            el(`<div id="remote-backup-passphrase" data-mask="${MASK}">${MASK}</div>`),
+            el('<button type="button" id="remote-backup-passphrase-reveal">Afficher la phrase de passe</button>'),
+            el('<button type="button" id="remote-backup-passphrase-copy" class="d-none">Copier</button>'),
+        );
+    }
+
+    it('shows nothing until it is asked, then fetches the phrase', async () => {
+        buildDom();
+        global.fetch = vi.fn(() => jsonResponse({ success: true, passphrase: 'AB3DE-F7HJK-MNPQR-STUVW-XYZ23-456789' }));
+        await boot();
+
+        // Before the click: the page carries a mask and no phrase at all.
+        expect(document.getElementById('remote-backup-passphrase').textContent).toBe(MASK);
+        expect(fetch).not.toHaveBeenCalled();
+
+        vi.useFakeTimers();
+        document.getElementById('remote-backup-passphrase-reveal').click();
+        await vi.advanceTimersByTimeAsync(100);
+
+        expect(fetch).toHaveBeenCalledWith('/config/maintenance/remote/passphrase/reveal', expect.anything());
+        expect(document.getElementById('remote-backup-passphrase').textContent)
+            .toBe('AB3DE-F7HJK-MNPQR-STUVW-XYZ23-456789');
+        expect(document.getElementById('remote-backup-passphrase-copy').classList.contains('d-none')).toBe(false);
+    });
+
+    it('puts the mask back when it is hidden again', async () => {
+        buildDom();
+        global.fetch = vi.fn(() => jsonResponse({ success: true, passphrase: 'AB3DE-F7HJK-MNPQR-STUVW-XYZ23-456789' }));
+        await boot();
+
+        vi.useFakeTimers();
+        const reveal = document.getElementById('remote-backup-passphrase-reveal');
+        reveal.click();
+        await vi.advanceTimersByTimeAsync(100);
+        reveal.click();
+
+        expect(document.getElementById('remote-backup-passphrase').textContent).toBe(MASK);
+        expect(reveal.textContent).toBe('Afficher la phrase de passe');
+        expect(document.getElementById('remote-backup-passphrase-copy').classList.contains('d-none')).toBe(true);
+    });
+
+    /**
+     * A refusal says so in the box rather than leaving the mask standing:
+     * a reader who pressed the button and saw the bullets unchanged would
+     * conclude the button was broken, not that the secrets were.
+     */
+    it('says so when the phrase cannot be read', async () => {
+        buildDom();
+        global.fetch = vi.fn(() => jsonResponse({ success: false, message: 'Les secrets de ce site sont illisibles.' }));
+        await boot();
+
+        vi.useFakeTimers();
+        document.getElementById('remote-backup-passphrase-reveal').click();
+        await vi.advanceTimersByTimeAsync(100);
+
+        expect(document.getElementById('remote-backup-passphrase').textContent).toContain('illisibles');
+        expect(document.getElementById('remote-backup-passphrase-copy').classList.contains('d-none')).toBe(true);
+        expect(document.getElementById('remote-backup-passphrase-reveal').disabled).toBe(false);
+    });
+});

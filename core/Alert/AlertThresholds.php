@@ -115,4 +115,38 @@ final class AlertThresholds
     public const MAIL_FAILURE_WINDOW_HOURS = 24;
     public const MAIL_FAILURE_TRIGGER_COUNT = 5;
     public const MAIL_FAILURE_REARM_COUNT = 0;
+
+    /**
+     * Age of the last off-site send that arrived, in days.
+     *
+     * **The same pair as the local backup, and that is the point.** A copy
+     * on the server answers a deleted table; only a copy somewhere else
+     * answers the hosting account itself going away, which is the event
+     * this whole chapter exists for. Holding the off-site copy to a laxer
+     * age than the local one would say the opposite.
+     *
+     * A site with no destination connected is not measured at all: there
+     * is nothing failing, and an alert every unit would carry from its
+     * first day is an alert nobody reads
+     * (`Core\Alert\Check\RemoteBackupAgeCheck`).
+     */
+    public const REMOTE_BACKUP_AGE_TRIGGER_DAYS = 10;
+    public const REMOTE_BACKUP_AGE_REARM_DAYS = 3;
+
+    /**
+     * Occupation of the remote account, as a percentage of what it says
+     * its limit is.
+     *
+     * Higher than the local disk's 85/75, deliberately. Running out of
+     * room on the server breaks the site — an upload refused, a write
+     * truncated — so it is worth shouting about early. Running out of room
+     * on the destination costs the next send and nothing else; the site
+     * keeps working, and the archives already there stay readable. What
+     * makes it worth an alert at all is that it is otherwise invisible:
+     * nobody looks at the free space of a Drive they set up two years ago,
+     * and the send that fails does so on the night it was needed
+     * (`Core\Alert\Check\RemoteQuotaCheck`).
+     */
+    public const REMOTE_QUOTA_TRIGGER_PERCENT = 90;
+    public const REMOTE_QUOTA_REARM_PERCENT = 80;
 }

@@ -47,6 +47,46 @@ interface RemoteBackupTarget
     public function upload(string $localPath, string $remoteName): string;
 
     /**
+     * Opens a send that later runs will finish, and answers with the
+     * handle to continue it on.
+     *
+     * **The three methods below exist because {@see upload()} cannot be
+     * the whole story on shared hosting.** There, one request gets thirty
+     * to a hundred and twenty seconds, and a backup of a whole site does
+     * not fit in that. So a send is opened once, continued a few chunks
+     * at a time under a budget, and finished several scheduler runs
+     * later; the handle is what survives between them. `upload()` remains
+     * for the small things — a witness file — where one request is
+     * plainly enough.
+     *
+     * @throws RemoteBackupException
+     */
+    public function beginUpload(string $remoteName, int $size): string;
+
+    /**
+     * Sends from `$offset` until the file is done or `$hasTimeLeft()`
+     * says to stop; a stop is an ordinary outcome, not a failure.
+     *
+     * @param \Closure(): bool $hasTimeLeft
+     * @throws RemoteBackupException
+     */
+    public function sendChunks(
+        string $sessionUrl,
+        string $localPath,
+        int $size,
+        int $offset,
+        \Closure $hasTimeLeft
+    ): RemoteUpload;
+
+    /**
+     * Asks the destination how much of the file it actually holds, for a
+     * run that died without saying how far it got.
+     *
+     * @throws RemoteBackupException
+     */
+    public function probeUpload(string $sessionUrl, int $size): RemoteUpload;
+
+    /**
      * What this application has left there, newest first.
      *
      * Only files this application itself created — see
