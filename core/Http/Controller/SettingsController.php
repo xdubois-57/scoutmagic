@@ -57,6 +57,7 @@ class SettingsController extends AbstractController
         \Core\Mail\Transport\MailProviderDirectory::SETTING_LOCAL_BATCH_SIZE,
         \Core\Mail\Transport\MailProviderDirectory::SETTING_LOCAL_BATCH_INTERVAL,
         \Core\Mail\Transport\TransportSeeder::SETTING_SEEDED,
+        \Core\Mail\Transport\TransportSeeder::SETTING_RELAY_IMPORTED,
     ];
 
     public function __construct(

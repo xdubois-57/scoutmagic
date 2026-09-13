@@ -269,3 +269,44 @@ documentation.
 
 **Reporté.** Rien.
 
+
+**Le semis relisait une photographie, pas un état.** Deux constats d'une
+passe de relecture complète, sur le même point de couture, et qui sont les
+deux moitiés d'une même erreur : `TransportSeeder` décidait une fois pour
+toutes, au premier démarrage, à partir de `smtp_host` seul.
+
+Or `SetupController::handleConfigUpdate()` réécrit ce `smtp_host` dans
+`secrets.enc` **à chaque enregistrement, quel que soit le mode** — le
+gabarit ne masque les champs SMTP que côté navigateur quand « Local » est
+choisi, ils partent quand même. Une installation passée de SMTP à Local
+garde donc un hôte parfaitement lisible dont elle ne veut plus. Le semis en
+faisait le premier fournisseur, **actif, en tête des trois voies**, et
+`TransportConfigurator::apply()` appelant `isSMTP()` sans consulter le mode,
+tout le courrier — liens magiques compris — repartait par un tiers que
+l'unité avait délibérément quitté. Le mode gouverne maintenant la reprise,
+et un `mail_mode` absent se lit `local`, comme `MailServiceFactory` le fait
+déjà.
+
+L'autre moitié est le drapeau. Une installation semée en local pur n'avait
+rien à reprendre, le drapeau se posait quand même, et le relais que
+quelqu'un configurerait un mois plus tard par l'assistant n'était jamais
+repris : le courrier continuait de partir localement pendant
+qu'« Installation & serveur » affichait un relais — en silence, le bouton
+« Envoyer un email de test » de l'assistant appelant
+`MailServiceFactory::create()` sans passer par la chaîne. D'où deux
+drapeaux, parce qu'ils enregistrent deux décisions distinctes : les voies
+sont posées, et le relais est repris. Un seul ne pouvait pas dire les
+deux — effacé, il ressusciterait à la requête suivante un relais qu'un
+administrateur a supprimé de la page Fournisseurs, dont
+`ProviderConnections::forget()` conserve délibérément les quatre clés.
+
+**Et une troisième panne, trouvée par le test écrit pour la deuxième.**
+Reprendre le relais tardivement l'ajoutait *derrière* l'envoi local, qui
+occupe déjà la position 0 : essayé en second, atteint seulement si l'envoi
+depuis le serveur avait échoué. Le courrier serait resté local — exactement
+ce que la reprise tardive existe pour faire cesser. `putFirst()` le remet
+en tête, et seulement sur une entrée que la passe vient de créer, pour ne
+jamais contredire un ordre choisi par un administrateur.
+
+Les quatre morceaux du correctif sont tenus chacun par un test vérifié en
+échec sur le code fautif.

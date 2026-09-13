@@ -1747,6 +1747,24 @@ $settingService->register(
     false,
     303
 );
+// Its sibling, and a separate decision: this one says the relay written
+// by « Installation & serveur » has become a provider row. An
+// installation seeded while local-only has no relay to import, so the
+// flag above is set and this one is not — which is what lets a relay
+// configured through the wizard a month later still be picked up
+// (Core\Mail\Transport\TransportSeeder).
+$settingService->register(
+    \Core\Mail\Transport\TransportSeeder::SETTING_RELAY_IMPORTED,
+    '0',
+    'boolean',
+    'Relais d\'installation repris',
+    'Indique si le relais SMTP de l\'assistant d\'installation est devenu un fournisseur.',
+    null,
+    null,
+    null,
+    false,
+    304
+);
 
 // `installed_at` declares itself (Core\Statistics\InstallationDateService::
 // register()) because SetupController writes it before this file has ever
