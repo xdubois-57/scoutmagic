@@ -193,32 +193,33 @@ final class GoogleDriveClientTest extends TestCase
      */
     public function testALargeUploadIsSentInPiecesAndTheContinueStatusIsNotAFailure(): void
     {
-        // Two chunks and a bit: the chunk size is eight mebibytes.
-        // Through fileOf(), so tearDown() removes the twenty mebibytes
-        // whatever happens — an upload that throws half way would
-        // otherwise leave them behind on every failing run.
-        $path = $this->fileOf(str_repeat('x', 20 * 1024 * 1024));
+        // Two chunks and a bit, whatever the chunk size happens to be.
+        // Through fileOf(), so tearDown() removes the bytes whatever
+        // happens — an upload that throws half way would otherwise leave
+        // them behind on every failing run.
+        $chunk = GoogleDriveClient::UPLOAD_CHUNK_BYTES;
+        $size = ($chunk * 2) + ($chunk / 2);
+        $path = $this->fileOf(str_repeat('x', (int) $size));
 
         $ranges = [];
-        $client = $this->clientAnswering(function (string $method, string $url, array $headers, ?string $body) use (&$ranges): array {
+        $client = $this->clientAnswering(function (string $method, string $url, array $headers, ?string $body) use (&$ranges, $chunk): array {
             if ($method === 'POST') {
                 return ['status' => 200, 'body' => '{}', 'location' => 'https://upload.example/session-1'];
             }
             $ranges[] = $headers['Content-Range'] ?? '';
 
-            return str_contains($headers['Content-Range'] ?? '', '/20971520')
-                && str_starts_with($headers['Content-Range'] ?? '', 'bytes 16777216-')
+            return str_starts_with($headers['Content-Range'] ?? '', 'bytes ' . ($chunk * 2) . '-')
                 ? ['status' => 200, 'body' => '{"id":"drive-file-9"}']
-                : ['status' => 308, 'body' => ''];
+                : ['status' => 308, 'body' => '', 'range' => 'bytes=0-' . (($chunk * count($ranges)) - 1)];
         });
 
         $id = $client->uploadFile('token', 'folder-1', $path, 'sauvegarde.zip');
 
         $this->assertSame('drive-file-9', $id);
         $this->assertSame([
-            'bytes 0-8388607/20971520',
-            'bytes 8388608-16777215/20971520',
-            'bytes 16777216-20971519/20971520',
+            sprintf('bytes 0-%d/%d', $chunk - 1, $size),
+            sprintf('bytes %d-%d/%d', $chunk, ($chunk * 2) - 1, $size),
+            sprintf('bytes %d-%d/%d', $chunk * 2, $size - 1, $size),
         ], $ranges);
     }
 
@@ -235,43 +236,53 @@ final class GoogleDriveClientTest extends TestCase
      */
     public function testAShortCommitIsResumedFromWhereGoogleSaysRatherThanFromWhatWasSent(): void
     {
-        $path = $this->fileOf(str_repeat('x', 12 * 1024 * 1024));
+        $chunk = GoogleDriveClient::UPLOAD_CHUNK_BYTES;
+        $size = $chunk * 6;
+        $path = $this->fileOf(str_repeat('x', $size));
 
         $ranges = [];
         $answered = 0;
-        $client = $this->clientAnswering(function (string $method, string $url, array $headers) use (&$ranges, &$answered): array {
+        $client = $this->clientAnswering(function (string $method, string $url, array $headers) use (&$ranges, &$answered, $chunk): array {
             if ($method === 'POST') {
                 return ['status' => 200, 'body' => '{}', 'location' => 'https://upload.example/session-1'];
             }
             $ranges[] = $headers['Content-Range'] ?? '';
             $answered++;
 
-            // The first chunk carries 8 MiB; Google keeps only the first
-            // mebibyte of it and says so.
+            // Google keeps only the first eighth of that chunk, and says so.
             return $answered === 1
-                ? ['status' => 308, 'body' => '', 'range' => 'bytes=0-1048575']
+                ? ['status' => 308, 'body' => '', 'range' => 'bytes=0-' . (((int) ($chunk / 8)) - 1)]
                 : ['status' => 200, 'body' => '{"id":"drive-file-7"}'];
         });
 
         $id = $client->uploadFile('token', 'folder-1', $path, 'sauvegarde.zip');
 
         $this->assertSame('drive-file-7', $id);
+        $kept = (int) ($chunk / 8);
         $this->assertSame([
-            'bytes 0-8388607/12582912',
-            // Resumed at 1 MiB — what Google kept — and not at 8 MiB,
-            // which is what this client had sent.
-            'bytes 1048576-9437183/12582912',
+            sprintf('bytes 0-%d/%d', $chunk - 1, $size),
+            // Resumed at what Google KEPT, not at what this client sent.
+            sprintf('bytes %d-%d/%d', $kept, $kept + $chunk - 1, $size),
         ], $ranges);
     }
 
     /**
-     * And with no `Range` at all — some intermediaries strip it — the
-     * client's own reckoning stands, which is right whenever Google kept
-     * everything it was given.
+     * **A 308 that names no `Range` kept nothing**, and assuming
+     * otherwise corrupts the archive silently.
+     *
+     * The protocol lets Google commit fewer bytes than were sent and say
+     * how many; a silent answer is the limit case of that, not permission
+     * to believe the chunk landed. Advancing by what was written would
+     * leave a hole in the middle of a backup that every later chunk
+     * widens — an archive that uploads, is accepted, and is unreadable on
+     * the one day it matters. A refusal instead costs a run, and the next
+     * one probes and resumes from where the destination really is.
      */
-    public function testAContinueWithoutARangeHeaderFallsBackToWhatWasSent(): void
+    public function testAContinueWithoutARangeHeaderIsRefusedRatherThanAssumedComplete(): void
     {
-        $path = $this->fileOf(str_repeat('x', 12 * 1024 * 1024));
+        $chunk = GoogleDriveClient::UPLOAD_CHUNK_BYTES;
+        $size = $chunk * 6;
+        $path = $this->fileOf(str_repeat('x', $size));
 
         $ranges = [];
         $client = $this->clientAnswering(function (string $method, string $url, array $headers) use (&$ranges): array {
@@ -280,17 +291,21 @@ final class GoogleDriveClientTest extends TestCase
             }
             $ranges[] = $headers['Content-Range'] ?? '';
 
-            return count($ranges) === 1
-                ? ['status' => 308, 'body' => '']
-                : ['status' => 200, 'body' => '{"id":"drive-file-8"}'];
+            return ['status' => 308, 'body' => ''];
         });
 
-        $client->uploadFile('token', 'folder-1', $path, 'sauvegarde.zip');
+        try {
+            $client->uploadFile('token', 'folder-1', $path, 'sauvegarde.zip');
+            $this->fail('A 308 that reported no committed range was treated as progress.');
+        } catch (RemoteBackupException $e) {
+            $this->assertStringContainsString('aucun octet', $e->getMessage());
+        }
 
-        $this->assertSame([
-            'bytes 0-8388607/12582912',
-            'bytes 8388608-12582911/12582912',
-        ], $ranges);
+        $this->assertSame(
+            [sprintf('bytes 0-%d/%d', $chunk - 1, $size)],
+            $ranges,
+            'the upload carried on past a chunk the destination never acknowledged'
+        );
     }
 
     /**
@@ -300,7 +315,9 @@ final class GoogleDriveClientTest extends TestCase
      */
     public function testAContinueThatCommittedNothingIsRefusedRatherThanRetriedForEver(): void
     {
-        $path = $this->fileOf(str_repeat('x', 12 * 1024 * 1024));
+        $chunk = GoogleDriveClient::UPLOAD_CHUNK_BYTES;
+        $size = $chunk * 6;
+        $path = $this->fileOf(str_repeat('x', $size));
 
         $client = $this->clientAnswering(fn (string $method): array => $method === 'POST'
             ? ['status' => 200, 'body' => '{}', 'location' => 'https://upload.example/session-1']
@@ -660,6 +677,127 @@ final class GoogleDriveClientTest extends TestCase
             GoogleDriveClient::transferCeilingSeconds($chunk),
             'a backup chunk was given less time than the slowest link this client claims to support needs'
         );
+    }
+
+    /**
+     * **A run that stops on its budget has not failed.**
+     *
+     * A backup of a whole site does not fit in one request on shared
+     * hosting, where `max_execution_time` is thirty to a hundred and
+     * twenty seconds. So the ordinary outcome of a run is « some of it
+     * went » — and the offset it stops at is what the next run needs.
+     * Reporting that as an exception would turn the normal case into an
+     * error and lose the progress with it.
+     */
+    public function testAnUploadThatRunsOutOfTimeReportsHowFarItGotInsteadOfFailing(): void
+    {
+        $chunk = GoogleDriveClient::UPLOAD_CHUNK_BYTES;
+        $size = $chunk * 5;
+        $path = $this->fileOf(str_repeat('x', $size));
+
+        // Each 308 names what Google kept, which is what the real
+        // service does — a silent 308 means it kept NOTHING and is
+        // refused (testAContinueWithoutARangeHeaderIsRefusedRatherThan-
+        // AssumedComplete).
+        $sent = 0;
+        $client = $this->clientAnswering(function () use (&$sent, $chunk): array {
+            $sent++;
+
+            return ['status' => 308, 'body' => '', 'range' => 'bytes=0-' . (($chunk * $sent) - 1)];
+        });
+
+        // Room for two chunks and no more.
+        $upload = $client->sendChunks('https://upload.example/s1', $path, $size, 0, static function () use (&$sent): bool {
+            return $sent < 2;
+        });
+
+        $this->assertFalse($upload->isComplete());
+        $this->assertSame($chunk * 2, $upload->offset, 'the next run would resend what this one committed');
+        $this->assertSame('https://upload.example/s1', $upload->sessionUrl);
+        $this->assertSame(2, $sent, 'the budget did not bound how many chunks were started');
+    }
+
+    /** And a run that reaches the end reports the id, not an offset. */
+    public function testAnUploadThatFinishesCarriesTheIdThePurgeWillDeleteBy(): void
+    {
+        $chunk = GoogleDriveClient::UPLOAD_CHUNK_BYTES;
+        $path = $this->fileOf(str_repeat('x', $chunk));
+
+        $client = $this->clientAnswering(fn (): array => ['status' => 200, 'body' => '{"id":"drive-file-42"}']);
+
+        $upload = $client->sendChunks('https://upload.example/s1', $path, $chunk, 0, static fn(): bool => true);
+
+        $this->assertTrue($upload->isComplete());
+        $this->assertSame('drive-file-42', $upload->fileId);
+    }
+
+    /**
+     * **Resuming starts from the offset it was given**, which is the
+     * whole point of keeping one between runs.
+     */
+    public function testResumingSendsFromTheStoredOffsetRatherThanFromTheStart(): void
+    {
+        $chunk = GoogleDriveClient::UPLOAD_CHUNK_BYTES;
+        $size = $chunk * 3;
+        $path = $this->fileOf(str_repeat('x', $size));
+
+        $ranges = [];
+        $client = $this->clientAnswering(
+            function (string $method, string $url, array $headers) use (&$ranges, $chunk): array {
+                $ranges[] = $headers['Content-Range'] ?? '';
+
+                return count($ranges) < 2
+                    ? ['status' => 308, 'body' => '', 'range' => 'bytes=0-' . (($chunk * 2) - 1)]
+                    : ['status' => 200, 'body' => '{"id":"f"}'];
+            }
+        );
+
+        $client->sendChunks('https://upload.example/s1', $path, $size, $chunk, static fn(): bool => true);
+
+        $this->assertSame([
+            sprintf('bytes %d-%d/%d', $chunk, ($chunk * 2) - 1, $size),
+            sprintf('bytes %d-%d/%d', $chunk * 2, $size - 1, $size),
+        ], $ranges, 'a resumed upload started over from zero');
+    }
+
+    /**
+     * **Asking Google where it got to, rather than guessing.**
+     *
+     * A run killed mid-chunk leaves this application unsure how much
+     * arrived. Guessing high skips bytes; guessing low resends them. The
+     * empty `PUT` with `Content-Range: bytes * / total` is the protocol's
+     * own question, and its answer is authoritative in a way no local
+     * bookkeeping can be.
+     */
+    public function testTheProbeAsksGoogleHowMuchItHoldsAndBelievesTheAnswer(): void
+    {
+        $asked = [];
+        $client = $this->clientAnswering(function (string $method, string $url, array $headers) use (&$asked): array {
+            $asked[] = $headers['Content-Range'] ?? '';
+
+            return ['status' => 308, 'body' => '', 'range' => 'bytes=0-4095'];
+        });
+
+        $upload = $client->probeUpload('https://upload.example/s1', 10_000);
+
+        $this->assertSame(['bytes */10000'], $asked);
+        $this->assertFalse($upload->isComplete());
+        $this->assertSame(4096, $upload->offset);
+    }
+
+    /**
+     * A probe answering 2xx means the last chunk DID land and only the
+     * answer was lost — a resume with nothing left to do, not an error,
+     * and certainly not a reason to send the archive a second time.
+     */
+    public function testAProbeThatFindsTheFileAlreadyCompleteSaysSo(): void
+    {
+        $client = $this->clientAnswering(fn (): array => ['status' => 200, 'body' => '{"id":"drive-file-9"}']);
+
+        $upload = $client->probeUpload('https://upload.example/s1', 10_000);
+
+        $this->assertTrue($upload->isComplete());
+        $this->assertSame('drive-file-9', $upload->fileId);
     }
 
     private function fileOf(string $contents): string

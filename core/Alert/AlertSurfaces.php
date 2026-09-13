@@ -14,7 +14,7 @@ namespace Core\Alert;
  * This exists because {@see OperationalAttentionProvider} reads *rows*,
  * not checks: it renders whatever the last pass left in
  * `operational_alerts`, and a row carries a key and a reading but no
- * words. Constructing all eight checks just to ask each one its label would
+ * words. Constructing all ten checks just to ask each one its label would
  * mean building a `DiskBudget` and a `CronHealth` on every render of a
  * page that only wants to print « Espace disque ».
  *
@@ -37,6 +37,8 @@ final class AlertSurfaces
             Check\HttpsCheck::KEY => 'Connexion sécurisée',
             Check\BackupIntegrityCheck::KEY => 'Intégrité des sauvegardes',
             Check\PortableBackupLingerCheck::KEY => 'Sauvegarde portable',
+            Check\RemoteBackupAgeCheck::KEY => 'Sauvegarde hors site',
+            Check\RemoteQuotaCheck::KEY => 'Espace hors site',
         ];
     }
 }

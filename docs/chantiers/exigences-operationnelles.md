@@ -1755,3 +1755,217 @@ n'appelle encore `upload()` en dehors du fichier témoin du bouton
 « Tester ». Le quota distant n'est pas lu au rendu de la page — cela
 coûterait une requête vers Google à chaque affichage, et la réponse dont
 l'opérateur a besoin, « ça marche », c'est le bouton qui la donne.
+
+## IT-09 — L'envoi récurrent et la rétention distante
+
+IT-08 avait posé le tuyau. Celle-ci fait passer quelque chose dedans.
+
+**Ce qui a été livré.** La tâche `send_remote_backup` construit une
+archive portable, l'envoie par tranches sous un budget de vingt secondes
+et reprogramme le reliquat ; `RemotePassphrase` détient la phrase qui la
+chiffre ; `RemoteRetention` ramène le dossier distant dans ses deux
+bornes ; deux alertes opérationnelles surveillent l'âge du dernier envoi
+et l'occupation du compte. Sur la page Maintenance, deux sections
+nouvelles : ce que ce site sait des envois, et la phrase de passe,
+affichable et régénérable. Le RGPD, `SECURITY.md`, `ARCHITECTURE.md` et
+un deuxième sujet d'aide disent ce qui a changé.
+
+**Ce qui survit entre deux passages est le vrai sujet.** Le budget de
+vingt secondes vient de `SendNotificationsHandler` et la forme est
+reprise telle quelle, mais un lot de notifications c'est une liste
+d'identifiants, alors qu'ici c'est une URI de session reprenable et un
+offset. La ligne qui les porte est écrite **avant** que la première
+tranche ne parte : un processus tué en plein envoi ne laisse rien
+d'autre, et perdre l'URI de session, c'est reconstruire plusieurs
+gibioctets pour rien. Cette ligne dit `offset_is_certain: false`, et le
+passage suivant demande donc au destinataire ce qu'il détient au lieu de
+déduire de ce qu'il avait émis — un passage peut remettre plusieurs
+tranches et n'en voir valider qu'une partie, et seul ce qui a été validé
+est sûr. Un passage
+qui se termine normalement remplace cette ligne par l'offset réellement
+atteint, de sorte que le cas ordinaire ne coûte aucune sonde.
+
+**Décision autonome : la galerie passe par un paramètre, pas par un
+scope.** Le document demande un réglage explicite pour l'inclure. Or
+`createPortableBackup()` ne connaissait pas la galerie : son scope est
+`portable`, et `writeArchive()` n'inclut `storage/gallery/` que pour
+`full_with_gallery`. Enregistrer le réglage sans toucher au constructeur
+aurait donné un interrupteur qui ne commande rien — la faute que la revue
+d'IT-08 a relevée cinq fois. Ajouter un cinquième scope aurait au
+contraire cassé le raisonnement qu'IT-06 a écrit noir sur blanc : « un
+bouton, une archive », parce qu'un opérateur qui choisit entre quatre
+saveurs sous un avertissement sur les clés maîtresses se trompe une fois.
+D'où un paramètre `includeGallery` par défaut faux : le bouton de
+Maintenance passe toujours faux et garde sa promesse, seul l'envoi
+récurrent lit un réglage — configuré une fois, pas choisi dans l'instant.
+
+**Divergence avec le dépôt : pas de second `ensureRoom()`.** Le document
+demande que `DiskBudget::ensureRoom()` s'applique avant de construire
+l'archive. Il s'applique déjà : `writeArchive()` réserve la place du dump
+et de l'archive en une seule lecture avant d'en commencer aucun des deux.
+Le rappeler depuis la tâche aurait facturé les mêmes octets deux fois au
+même budget, donc refusé des envois qui tiennent. Le commentaire de la
+tâche dit pourquoi il n'y est pas, faute de quoi quelqu'un l'ajoutera.
+
+**La phrase de passe est un écart assumé, et l'écrire quelque part ne
+suffisait pas.** Le secret du webhook n'est montré qu'une fois ; celui-ci
+est affichable à volonté. La raison tient en une ligne : il doit vivre
+dans `secrets.enc` pour que l'envoi de quatre heures du matin chiffre
+sans personne, donc quiconque lit le serveur l'a déjà, et le cacher à
+l'administrateur ne protège de rien tout en garantissant qu'un jour, le
+site encore debout, personne ne pourra ouvrir un an d'envois. Ce qui
+compense le stockage en clair, c'est l'entropie : trente caractères sur
+un alphabet de trente et un symboles, environ 148 bits, là où IT-06
+imposait seize caractères choisis par un humain. `SECURITY.md` §5 énonce
+les deux conditions de l'exception portable que cette copie ne remplit
+pas, plutôt que de laisser croire qu'elle les remplit toutes.
+
+**Ce que les tests ont trouvé.** Le premier essai enveloppait la
+construction de l'archive et l'envoi dans un seul `try`. L'échec était
+alors rapporté avec la charge utile *reçue* — donc sans le chemin de
+l'archive qui venait d'être construite : un envoi mort sur sa première
+tranche reconstruisait plusieurs gibioctets au passage suivant et
+laissait le précédent orphelin sur le disque. Les deux moitiés ont
+désormais leur propre `try`, et la seconde rapporte ce qu'elle porte.
+
+Le deuxième est un test qui mesurait mon double au lieu du code : il
+plafonnait les octets par passage lui-même, si bien que « le budget de
+temps est respecté » était vrai par construction et serait resté vert
+avec le budget supprimé. La fausse destination avance maintenant une
+horloge et ne s'arrête que sur `hasTimeLeft()`.
+
+Le troisième : la branche « la sonde répond que le fichier est déjà
+complet » n'était couverte par rien. C'est pourtant le passage mort après
+la validation de la dernière tranche — envoyer dans une session close est
+refusé, et cinq refus auraient abandonné une archive effectivement
+arrivée.
+
+**Une fragilité de la suite, corrigée en passant.**
+`InMemorySettingService` vivait au pied de `GoogleDriveTargetTest` : il
+n'était trouvé que si PHPUnit avait chargé ce fichier-là en premier, et
+PHPStan ne le voyait pas du tout. Il a désormais un fichier à son nom.
+
+**Douze constats de revue, un décliné.** Deux touchent la même erreur,
+et c'est celle d'IT-08 revenue ailleurs : `isConnected()` répond faux
+aussi bien pour un site déraccordé que pour un site dont Google a retiré
+l'autorisation — `markNeedsReauthorisation()` efface le jeton. Les deux
+alertes s'y appuyaient, donc elles se seraient tues précisément sur
+l'installation pour laquelle elles existent : une destination
+configurée, un opérateur qui la croit active, et plus rien qui quitte le
+serveur depuis un mois. C'est l'état qui décide maintenant, pas le
+jeton : seul un déraccordement délibéré ré-arme.
+
+Le manifeste de l'archive annonçait `includes_gallery: false` alors que
+le paramètre ajouté plus haut y mettait bel et bien la galerie. Un
+manifeste faux est pire qu'aucun manifeste : c'est ce qu'une
+restauration et un opérateur lisent pour savoir ce que l'archive
+contient, et il est cru.
+
+Deux constats sur la même fonction, et tous deux étaient des pertes
+sèches. L'URI de session ouverte par un passage ne remontait pas au
+`catch` : un échec sur la première tranche renvoyait donc le passage
+suivant ouvrir une deuxième session et repousser plusieurs gibioctets
+depuis zéro, en laissant une session orpheline chez Google. Et
+`finish()` — l'horodatage du succès — vivait dans le `try` dont le
+`catch` appelle `recordFailure()` : une table des réglages qui refuse
+une écriture transformait une archive livrée en envoi échoué, et au
+plafond la branche d'abandon supprimait l'archive locale en journalisant
+« abandonné » pour une sauvegarde posée sans encombre chez la
+destination.
+
+La purge comptait le fichier témoin. `testConnection()` dépose
+`scoutmagic-test.txt` dans le même dossier et ignore l'échec du ménage,
+délibérément — donc un témoin peut survivre, et il est alors le plus
+récent : avec `keep` à 1, la purge gardait le témoin et supprimait
+l'unique sauvegarde distante. Le nom d'une archive et son motif de
+reconnaissance vivent désormais dans la même classe, parce que les tenir
+séparés, c'est deux choses à garder d'accord à l'endroit où se tromper
+détruit une sauvegarde.
+
+`regenerate()` écrit dans deux réservoirs sans transaction qui les
+couvre : la phrase est un fichier, la génération une ligne de réglages.
+Si le numéro ne suivait pas, chaque envoi ultérieur chiffrait avec la
+génération 2 en nommant le fichier `…-g1.zip` — exactement la confusion
+que la génération existe pour empêcher. Rien ici ne peut rendre la paire
+atomique ; ce qu'elle fait maintenant, c'est remettre en place tout ce
+qu'elle avait déjà changé et le dire.
+
+Restent quatre corrections de texte (un exemple en mébioctets que le
+code contredit, « vous seul pouvez les supprimer » alors que la
+rétention en supprime, « rend illisible » là où c'est la nouvelle phrase
+qui n'ouvre pas l'ancien, et une énumération dont « les deux derniers »
+ne désignaient pas les bons) et deux broutilles : un `max-width` en
+ligne là où `design.md` §7.6 impose les classes partagées, et deux
+commentaires de section en français dans un test.
+
+**Quatre constats du relecteur Claude, en plus.** Le plus lourd n'avait
+été vu par personne d'autre : quand plus aucune destination n'est
+raccordée, la tâche laissait tomber sa charge utile sans regarder si
+elle portait une archive en cours d'envoi. Or une destination peut
+cesser de l'être *pendant* un envoi qui traverse plusieurs passages — un
+opérateur déraccorde, ou Google retire l'autorisation et
+`markNeedsReauthorisation()` efface le jeton, de sorte que le passage
+suivant prend exactement cette branche. L'archive à demi envoyée
+transporte `master.key`, la phrase qui l'ouvre dort dans `secrets.enc`
+juste à côté, et rien d'autre ne l'aurait jamais supprimée : elle n'est
+pas enregistrée dans `BackupRepository`, donc `PortableBackupLingerCheck`
+— une requête sur `backups`, pas un parcours du disque — ne la voit pas
+non plus. C'était le contraire de ce que `SECURITY.md` §5 affirme.
+
+Le deuxième porte sur un 308 sans en-tête `Range`. Le commentaire écrit
+deux lignes plus haut dit que l'endroit où reprendre appartient à
+Google et non à nous — et le repli faisait précisément l'inverse, en
+avançant de toute la longueur écrite. Or, chez Google, un 308 muet
+signifie qu'aucun octet n'a été retenu : le repli creusait donc un trou
+au milieu d'une archive que chaque tranche suivante élargit. Trois
+tests s'appuyaient sur cette indulgence ; leurs faux services répondent
+maintenant comme le vrai.
+
+Un cinquième, à la ronde suivante, sur le même `finish()` : son docbloc
+affirme « nothing in here may throw », et la première version ne gardait
+que l'horodatage. Or l'écriture du journal et la reprogrammation passent
+toutes deux par la base, et `PDOException` est une `RuntimeException` —
+un verrou mortel sur `scheduled_actions`, la table la plus disputée du
+site, serait donc reparti dans le `catch` de `handle()` **après** la
+suppression de l'archive locale. Le test écrit pour le vérifier en a
+révélé un troisième cas, une ligne plus haut : `cancelPending()` s'exécute
+lui aussi après la livraison. Tout ce qui suit la dernière tranche est
+désormais absorbé, chaque échec journalisé là où il y a encore un endroit
+où le dire — et en silence là où il n'y en a plus, le journal étant le
+canal qui vient de tomber.
+
+Trois de plus à la ronde d'après, et deux sont la même erreur d'un cran
+plus loin. `purge()` gardait encore son propre `catch`, dont le corps
+appelait `journal->log()` à nu : un verrou sur la table du journal
+pendant qu'il signalait une purge ratée repartait donc dans le `catch`
+de `handle()` — une archive livrée comptée en échec par le gestionnaire
+d'erreur du gestionnaire d'erreur. Une seule garde, écrite une fois, est
+ce qui empêche de la réinventer chaque fois légèrement de travers.
+
+Et les deux suppressions d'archive annonçaient « archive supprimée »
+sans regarder si `unlink()` avait réussi. Ici, cette affirmation coûte
+plus cher qu'ailleurs : l'archive n'est jamais enregistrée dans
+`BackupRepository`, donc `PortableBackupLingerCheck` ne la voit pas, et
+cette ligne de journal est la seule chose qui pourrait jamais signaler
+un fichier porteur de `master.key` resté sur le disque. Le verdict est
+désormais `is_file()` après la tentative plutôt que la valeur de retour
+d'`unlink()` — ce sont deux questions différentes, et une archive qu'un
+autre balai avait déjà emportée aurait fait crier au reliquat inexistant.
+
+Les deux derniers sont des mots français restés dans du commentaire
+anglais — « raccordement », « raccording » — que ma propre passe avait
+manqués.
+
+**Le constat décliné.** « Le bouton Afficher reste désactivé si la
+requête échoue » : `ScoutMagicApi.postJson()` ne rejette jamais — son
+docbloc l'écrit en toutes lettres et son `.catch()` interne résout en
+`{ok:false, status:0, data:null}`. Vérifié en le pilotant avec un
+`fetch` qui rejette. Le `.then()` s'exécute donc toujours, et c'est lui
+qui réactive le bouton.
+
+**Reporté.** Rien de cette itération. Les points sortis de la revue non
+fonctionnelle et explicitement laissés de côté par le document restent
+hors chantier : la route `/health`, la rétention globale des lignes
+`scheduled_actions` terminées, la boucle de retour sur les rebonds
+d'e-mail, un seuil sur les requêtes lentes, `axe-core` dans la suite
+Playwright, et le chapitre de `README.md` sur la reprise humaine.

@@ -42,6 +42,8 @@ final class RemoteBackupControllerTest extends TestCase
     private RemoteBackupConnection $connection;
     private RemoteBackupSettingsDouble $settings;
     private RecordingJournalRepository $journal;
+    private \Core\Maintenance\Remote\RemotePassphrase $passphrase;
+    private SecretManager $secrets;
 
     protected function setUp(): void
     {
@@ -59,12 +61,14 @@ final class RemoteBackupControllerTest extends TestCase
         $secrets = new SecretManager($this->base . '/keys/master.key', $this->base . '/config/secrets.enc');
         $secrets->generateMasterKey();
         $secrets->writeSecrets([]);
+        $this->secrets = $secrets;
 
         $this->settings = new RemoteBackupSettingsDouble([
             'base_url' => 'https://unite.example',
             RemoteBackupConnection::STATE_SETTING => RemoteBackupConnection::STATE_DISCONNECTED,
         ]);
         $this->connection = new RemoteBackupConnection($this->settings, $secrets);
+        $this->passphrase = new \Core\Maintenance\Remote\RemotePassphrase($this->settings, $secrets);
     }
 
     protected function tearDown(): void
@@ -391,7 +395,7 @@ final class RemoteBackupControllerTest extends TestCase
     }
 
     /**
-     * The same, on the raccordement path — where the consequence is
+     * The same, on the connection path — where the consequence is
      * sharper still, since a wrong reading there deletes a valid grant.
      */
     public function testARefusedCallbackRecordsWhatGoogleActuallySaid(): void
@@ -408,6 +412,117 @@ final class RemoteBackupControllerTest extends TestCase
         );
     }
 
+    // ————— The passphrase —————
+
+    /**
+     * **Shown on demand, and that is the deliberate departure.** The
+     * webhook secret is shown once and never again; this phrase opens
+     * archives that already exist on a service this site may not be
+     * around to reach, and it has to live in `secrets.enc` anyway so the
+     * scheduled send can encrypt without a human. Hiding it from the
+     * administrator protects nothing and guarantees that one day nobody
+     * can open a year of uploads.
+     */
+    public function testThePhraseCanBeRevealedAndIsCreatedOnFirstAsking(): void
+    {
+        $this->connectSite();
+
+        $response = $this->controller()->revealPassphrase($this->jsonRequest(), []);
+        $payload = json_decode($response->getBody(), true);
+
+        $this->assertTrue($payload['success']);
+        $this->assertSame(
+            $this->passphrase->stored(),
+            $payload['passphrase'],
+            'the screen was shown a phrase other than the one the sends encrypt with'
+        );
+        $this->assertNotSame('', $payload['passphrase']);
+    }
+
+    /**
+     * Reading it is reading the key to every archive off this server, so
+     * it leaves a security entry — without the phrase in it, which would
+     * put the key in a log read on screen and carried in the support
+     * archive.
+     */
+    public function testRevealingThePhraseIsJournaledWithoutThePhrase(): void
+    {
+        $this->connectSite();
+
+        $response = $this->controller()->revealPassphrase($this->jsonRequest(), []);
+        $phrase = json_decode($response->getBody(), true)['passphrase'];
+
+        $recorded = $this->journal->textOf('remote_backup_passphrase_revealed');
+        $this->assertNotSame('', $recorded, 'nothing recorded that somebody read the key to every remote archive');
+        $this->assertStringNotContainsString($phrase, $recorded, 'the journal now carries the phrase itself');
+    }
+
+    /** No token, no phrase: it cannot be pulled out by a link. */
+    public function testRevealingThePhraseNeedsTheCsrfToken(): void
+    {
+        $this->connectSite();
+        // The superglobal cleared as well as the body: `isCsrfValid()`
+        // accepts the token from either, so a test that only emptied the
+        // body would prove nothing about a request that carries neither.
+        unset($_POST['_csrf_token']);
+
+        $request = new Request('POST', '/config/maintenance/remote/passphrase/reveal', [], [], [], []);
+        $response = $this->controller()->revealPassphrase($request, []);
+
+        $this->assertNotSame(200, $response->getStatusCode());
+        $this->assertSame(
+            '',
+            $this->passphrase->stored(),
+            'a refused request still created — and therefore could still have leaked — a phrase'
+        );
+    }
+
+    /**
+     * Regenerating draws a genuinely different phrase and moves the
+     * generation on, which is what keeps the remote folder legible: the
+     * number is in every file name, so an operator holding two phrases
+     * can tell which opens which.
+     */
+    public function testRegeneratingChangesThePhraseAndAdvancesTheGeneration(): void
+    {
+        $this->connectSite();
+        $first = $this->passphrase->current();
+        $firstGeneration = $this->passphrase->generation();
+
+        $this->controller()->regeneratePassphrase($this->postRequest([]), []);
+
+        $this->assertNotSame($first, $this->passphrase->stored());
+        $this->assertSame($firstGeneration + 1, $this->passphrase->generation());
+    }
+
+    /** And it is journaled with both numbers, never with either phrase. */
+    public function testRegeneratingIsJournaledWithBothGenerationsAndNoPhrase(): void
+    {
+        $this->connectSite();
+        $first = $this->passphrase->current();
+
+        $this->controller()->regeneratePassphrase($this->postRequest([]), []);
+
+        $recorded = $this->journal->textOf('remote_backup_passphrase_regenerated');
+        $this->assertStringContainsString('"previous_generation":1', $recorded);
+        $this->assertStringContainsString('"generation":2', $recorded);
+        $this->assertStringNotContainsString($first, $recorded);
+        $this->assertStringNotContainsString($this->passphrase->stored(), $recorded);
+    }
+
+    /** Without the token, nothing is drawn — the old archives stay open. */
+    public function testRegeneratingNeedsTheCsrfToken(): void
+    {
+        $this->connectSite();
+        $first = $this->passphrase->current();
+        unset($_POST['_csrf_token']);
+
+        $request = new Request('POST', '/config/maintenance/remote/passphrase/regenerate', [], [], [], []);
+        $this->controller()->regeneratePassphrase($request, []);
+
+        $this->assertSame($first, $this->passphrase->stored(), 'a request with no token still burned the phrase');
+    }
+
     private function connectSite(): void
     {
         $this->connection->saveCredentials('client-1', 'secret-1');
@@ -422,6 +537,7 @@ final class RemoteBackupControllerTest extends TestCase
             new Environment(new ArrayLoader([])),
             $this->connection,
             new JournalService($this->journal),
+            $this->passphrase,
             $client ?? new GoogleDriveClient(fn (): array => ['status' => 500, 'body' => '{}'])
         );
     }

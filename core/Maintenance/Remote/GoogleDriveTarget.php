@@ -41,6 +41,36 @@ final class GoogleDriveTarget implements RemoteBackupTarget
         return $this->client->uploadFile($this->accessToken(), $this->folderId(), $localPath, $remoteName);
     }
 
+    public function beginUpload(string $remoteName, int $size): string
+    {
+        return $this->client->beginUpload($this->accessToken(), $this->folderId(), $remoteName, $size);
+    }
+
+    /**
+     * **No access token here, and that is the protocol rather than an
+     * omission.** A resumable session URI carries its own authorisation:
+     * the grant was proved when the session was opened, and Google wants
+     * the bytes without a `Bearer` header afterwards. It also means a
+     * send already under way does not stop because an access token
+     * expired in the middle of it.
+     *
+     * @param \Closure(): bool $hasTimeLeft
+     */
+    public function sendChunks(
+        string $sessionUrl,
+        string $localPath,
+        int $size,
+        int $offset,
+        \Closure $hasTimeLeft
+    ): RemoteUpload {
+        return $this->client->sendChunks($sessionUrl, $localPath, $size, $offset, $hasTimeLeft);
+    }
+
+    public function probeUpload(string $sessionUrl, int $size): RemoteUpload
+    {
+        return $this->client->probeUpload($sessionUrl, $size);
+    }
+
     /** @return RemoteFile[] */
     public function list(): array
     {

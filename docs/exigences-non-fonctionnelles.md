@@ -157,6 +157,25 @@ is actually about — the server is gone — the off-site copy's staleness
 *is* the realised data loss, so letting it drift further than the local
 copy would be tolerating exactly what §3 refuses.
 
+Both off-site rows are **not measured at all** on a site with no
+destination connected, and the reading comes back *re-armed* rather than
+*inconclusive*. Off-site sending is something a unit chooses to set up: one
+that has not is not failing at anything, and an alert every installation
+carried from its first day is an alert nobody reads. Re-armed rather than
+inconclusive because inconclusive leaves the last reading standing for
+ever — an operator who disconnects a destination precisely because they are
+retiring it would be left with a permanent alert about a backup that is
+never coming, and nothing able to clear it.
+
+The off-site **quota** row sits higher than the disk row (90/80 against
+85/75) for a reason that is a judgement and not an oversight: running out
+of room on the server breaks the site — an upload refused, a write
+truncated half way — while running out of room on the destination costs the
+next send and nothing else, with every archive already there still
+readable. What earns it an alert at all is that it is otherwise invisible:
+nobody looks at the free space of a Drive they set up two years ago, and
+the send that fails does so on the night it was needed.
+
 Notification and attention point read the same check, run once. The
 notification says "this has just tipped over"; the attention point says
 "this is still true".

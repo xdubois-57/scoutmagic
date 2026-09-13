@@ -25,8 +25,10 @@ use Core\Maintenance\GitHubReleaseClient;
 use Core\Maintenance\GitHubReleaseClientInterface;
 use Core\Maintenance\GitHubWebhookService;
 use Core\Maintenance\ReleaseInfo;
+use Core\Maintenance\Remote\RemotePassphrase;
 use Core\Maintenance\UpdateException;
 use Core\Maintenance\UpdateHistoryRepository;
+use Core\Maintenance\Task\SendRemoteBackupHandler;
 use Core\Maintenance\UpdateTargetSelector;
 use Core\Maintenance\VersionFile;
 use Core\Module\ModuleManager;
@@ -170,6 +172,13 @@ class MaintenanceController extends AbstractController
             $this->settingService,
             $this->secretManager
         );
+        // Both read settings only. The phrase ITSELF is never put in the
+        // template: revealing it is its own POST route, behind the CSRF
+        // token and journaled (Core\Http\Controller\
+        // RemoteBackupController::revealPassphrase()), so a page rendered
+        // for any other reason — or cached anywhere — never carries it.
+        $remotePassphrase = new RemotePassphrase($this->settingService, $this->secretManager);
+        $remoteRetention = new \Core\Maintenance\Remote\RemoteRetention($this->settingService);
 
         // The most recent ATTEMPT, not the most recent success: a channel
         // whose last three installs all rolled back still has a perfectly
@@ -241,6 +250,29 @@ class MaintenanceController extends AbstractController
             'remote_backup_has_credentials' => $remoteBackup->hasCredentials(),
             'remote_backup_redirect_uri' => $remoteBackup->redirectUri(),
             'remote_backup_quota_free' => null,
+            // ——— The recurring off-site send (IT-09) ———
+            // All local reads: the date of the last send that arrived, the
+            // two retention bounds, and which generation of the phrase is
+            // in force. Nothing here asks Google anything, for the reason
+            // just above.
+            'remote_backup_last_success' =>
+                (string) ($this->settingService->get(SendRemoteBackupHandler::LAST_SUCCESS_SETTING) ?: ''),
+            'remote_backup_include_gallery' =>
+                (string) ($this->settingService->get(SendRemoteBackupHandler::INCLUDE_GALLERY_SETTING) ?: '0') === '1',
+            'remote_backup_keep' => $remoteRetention->keep(),
+            'remote_backup_max_bytes' => \Core\Storage\ByteFormatter::format($remoteRetention->maxBytes()),
+            'remote_backup_interval_hours' => SendRemoteBackupHandler::INTERVAL_HOURS,
+            'remote_backup_passphrase_generation' => $remotePassphrase->generation(),
+            'remote_backup_passphrase_created_at' => $remotePassphrase->createdAt(),
+            // The masked shape the screen shows before anything is
+            // revealed — six groups of five, drawn from the phrase's own
+            // constants so the placeholder cannot outlive a change to
+            // them.
+            'remote_backup_passphrase_mask' => implode('-', array_fill(
+                0,
+                RemotePassphrase::GROUPS,
+                str_repeat('•', RemotePassphrase::GROUP_LENGTH)
+            )),
             // The number the warning quotes comes from the client that
             // suffers it, so the screen and the code cannot drift.
             'remote_backup_testing_token_days' => \Core\Maintenance\Remote\GoogleDriveClient::TESTING_TOKEN_LIFETIME_DAYS,

@@ -28,4 +28,24 @@ final class RemoteQuota
     {
         return max(0, $this->limitBytes - $this->usedBytes);
     }
+
+    /**
+     * How full the account is, or null when there is nothing to be full
+     * of.
+     *
+     * Null means *unknown*, never *empty*: an account that declares no
+     * limit reports zero here, and rounding that into « 0 % occupé »
+     * would put a reassuring number on a screen where no measurement
+     * exists. Rounded and capped the same way
+     * {@see \Core\Storage\StorageUsage::usedPercent()} does it, so the
+     * local disk and the remote destination read alike.
+     */
+    public function usedPercent(): ?int
+    {
+        if ($this->limitBytes <= 0) {
+            return null;
+        }
+
+        return (int) min(100, round($this->usedBytes / $this->limitBytes * 100));
+    }
 }

@@ -47,6 +47,11 @@ final class RemoteBackupRbacTest extends TestCase
         ['GET', '/config/maintenance/remote/callback'],
         ['POST', '/config/maintenance/remote/test'],
         ['POST', '/config/maintenance/remote/disconnect'],
+        // The two that matter most: one hands back the key to every
+        // archive this site has ever sent off-server, the other makes
+        // them all unreadable in a single request.
+        ['POST', '/config/maintenance/remote/passphrase/reveal'],
+        ['POST', '/config/maintenance/remote/passphrase/regenerate'],
     ];
 
     private Environment $twig;

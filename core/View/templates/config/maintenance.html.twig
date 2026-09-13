@@ -857,6 +857,100 @@
                     <button type="submit" class="btn btn-outline-danger btn-sm">Déraccorder</button>
                 </form>
             {% endif %}
+
+            {# ————— Envois —————
+
+               Only what this site knows without asking Google. The
+               occupation of the account and the number of archives there
+               cost a request each and would be paid on every render of
+               this page by an administrator who came to look at something
+               else; the « Tester » button above answers both on demand. #}
+            <hr class="my-4">
+            <h3 class="h6">Envois</h3>
+            <p class="small text-body-secondary mb-2">
+                Quand une destination est raccordée, ce site y dépose une <strong>sauvegarde portable</strong>
+                toutes les {{ remote_backup_interval_hours }} heures, par tranches : sur un hébergement
+                mutualisé, une archive de plusieurs gigaoctets ne tient pas dans une seule requête.
+            </p>
+            <p class="small mb-2">
+                {% if remote_backup_last_success %}
+                    Dernier envoi arrivé à son terme le
+                    {{ remote_backup_last_success|date('d/m/Y \\à H:i') }}.
+                {% elseif remote_backup_state == 'connected' %}
+                    Aucun envoi n'est encore arrivé à son terme.
+                {% else %}
+                    Aucune destination n'est raccordée : rien ne quitte ce serveur.
+                {% endif %}
+            </p>
+            <p class="small text-body-secondary mb-2">
+                Conservation chez la destination : {{ remote_backup_keep }} archives au maximum, et
+                {{ remote_backup_max_bytes }} au plus — la plus contraignante des deux s'applique.
+                {% if remote_backup_include_gallery %}
+                    La galerie fait partie des envois.
+                {% else %}
+                    La galerie n'est pas envoyée : elle se compte en gigaoctets et remplirait le compte
+                    distant en quelques semaines.
+                {% endif %}
+                Ces trois réglages se modifient dans
+                <a href="/config/settings">Configuration &gt; Réglages</a>.
+            </p>
+
+            {# ————— La phrase de passe —————
+
+               Shown on demand rather than once and never again — the
+               opposite choice from the webhook secret, and deliberately.
+               That one can be regenerated for free; this one opens
+               archives that already exist, on a service this site may no
+               longer be able to reach. It has to live in secrets.enc
+               anyway, because the scheduled send encrypts with it at four
+               in the morning with nobody there to type anything. #}
+            <hr class="my-4">
+            <h3 class="h6">Phrase de passe des sauvegardes distantes</h3>
+            <p class="small text-body-secondary mb-2">
+                Ce qui part est une <strong>sauvegarde portable</strong> : restaurable sur une installation
+                neuve, chez un autre hébergeur — donc chiffrée, avec cette phrase, générée une fois pour
+                votre unité. Google ne peut rien en lire.
+            </p>
+            {% if remote_backup_passphrase_generation > 0 %}
+                <p class="small text-body-secondary mb-2">
+                    Génération {{ remote_backup_passphrase_generation }}
+                    {% if remote_backup_passphrase_created_at %}
+                        · créée le {{ remote_backup_passphrase_created_at|date('d/m/Y') }}
+                    {% endif %}
+                    · ce numéro figure dans le nom de chaque fichier envoyé.
+                </p>
+
+                <div class="border rounded bg-body-tertiary text-center py-3 px-3 font-monospace user-select-all"
+                     id="remote-backup-passphrase" data-mask="{{ remote_backup_passphrase_mask }}">{{ remote_backup_passphrase_mask }}</div>
+                <div class="d-flex gap-2 mt-2 page-narrow">
+                    <button type="button" class="btn btn-outline-secondary btn-sm flex-fill"
+                            id="remote-backup-passphrase-reveal">Afficher la phrase de passe</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm flex-fill d-none"
+                            id="remote-backup-passphrase-copy">Copier</button>
+                </div>
+
+                <div class="alert alert-warning small mt-3" role="alert">
+                    <strong>Notez-la hors du site.</strong>
+                    Sans elle, aucune archive distante ne peut être restaurée — et le jour où vous en aurez
+                    besoin, ce site ne sera peut-être plus accessible.
+                </div>
+                <p class="small text-body-secondary">
+                    Elle reste consultable ici tant que le site fonctionne : la cacher ne protégerait de rien,
+                    puisqu'elle doit rester sur le serveur pour chiffrer chaque sauvegarde.
+                </p>
+
+                <form method="post" action="/config/maintenance/remote/passphrase/regenerate"
+                      data-confirm="Régénérer la phrase de passe ? Les archives déjà envoyées chez la destination ne s'ouvriront plus qu'avec l'ancienne, et rien ne les rechiffrera.">
+                    {{ csrf_field()|raw }}
+                    <button type="submit" class="btn btn-link btn-sm text-danger p-0">
+                        Régénérer la phrase de passe
+                    </button>
+                </form>
+            {% else %}
+                <p class="small text-body-secondary">
+                    Aucune phrase n'existe encore : elle est créée au premier envoi, et s'affichera ici.
+                </p>
+            {% endif %}
         </div>
     </div>
 
