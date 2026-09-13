@@ -146,10 +146,49 @@ class StorageLocationServiceTest extends TestCase
         $this->assertNull($this->repository->findById($id));
     }
 
-    public function testAConsumerThatThrowsDoesNotTakeTheWholeAnswerDown(): void
+    /**
+     * The screens may lose a line rather than the page: a configuration
+     * page that 500s because one module's table is missing is a page
+     * nobody can open to repair that module.
+     */
+    public function testAConsumerThatThrowsDoesNotTakeTheDisplayedAnswerDown(): void
     {
         $id = $this->service->create(StorageLocationType::Local, 'Disque', new LocalLocationConfig('a'), null);
-        $this->consumers->register(new class implements StorageLocationConsumer {
+        $this->consumers->register($this->brokenConsumer());
+
+        $this->assertSame([], $this->service->usagesOf($id));
+    }
+
+    /**
+     * **But a deletion may not.** « I could not determine whether anybody
+     * is using this » and « nobody is using this » are opposite
+     * conclusions, and the registry used to hand back the second when it
+     * meant the first — so a transient database error inside one consumer
+     * turned into a clean removal of a location something was still
+     * standing on. The albums with a location written down were still
+     * caught by the foreign key; the ones resolving to the default
+     * lazily had nothing at all protecting them.
+     */
+    public function testADeletionIsRefusedWhenAConsumerCannotBeAskedAtAll(): void
+    {
+        $id = $this->service->create(StorageLocationType::Local, 'Disque', new LocalLocationConfig('a'), null);
+        $this->consumers->register($this->brokenConsumer());
+
+        try {
+            $this->service->delete($id);
+            $this->fail('A deletion must not proceed on an answer nobody could give.');
+        } catch (StorageLocationException $e) {
+            // French, and says the location was NOT removed — an
+            // administrator's next move depends on knowing which.
+            $this->assertStringContainsString("n'a pas été supprimé", $e->getMessage());
+        }
+
+        $this->assertNotNull($this->service->findById($id));
+    }
+
+    private function brokenConsumer(): StorageLocationConsumer
+    {
+        return new class implements StorageLocationConsumer {
             public function usageLabel(): string
             {
                 return 'Module en panne';
@@ -159,10 +198,7 @@ class StorageLocationServiceTest extends TestCase
             {
                 throw new \RuntimeException('table missing');
             }
-        });
-        $this->consumers->register($this->consumerNamed('Galeries photo', [$id]));
-
-        $this->assertSame(['Galeries photo'], $this->service->usagesOf($id));
+        };
     }
 
     public function testCheckNowRecordsASuccessForAReachableLocalFolder(): void

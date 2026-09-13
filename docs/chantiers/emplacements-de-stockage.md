@@ -249,6 +249,24 @@ résolvaient ensuite vers le défaut suivant, où leurs fichiers ne sont
 pas. Le consommateur rapporte maintenant le défaut dès qu'un album local
 n'épingle rien.
 
+**Et une leniency écrite pour l'affichage servait de garde à la
+suppression.** Le registre avalait l'exception d'un consommateur — juste
+pour une page, qui perd une ligne plutôt que de ne plus s'ouvrir du tout,
+et c'est la même transaction que fait le calendrier avec ses événements
+contribués. Mais la même réponse autorisait aussi la suppression, et là
+« je n'ai pas pu demander » et « personne ne s'en sert » sont des
+conclusions opposées : avalée, une erreur passagère de base de données
+devenait une suppression propre d'un emplacement sur lequel quelque chose
+se tenait encore. Les albums ayant un `location_id` écrit restaient
+protégés par la clé étrangère ; ceux qui résolvent vers le défaut
+n'avaient rien du tout.
+
+Le registre dit maintenant la vérité, et la leniency est descendue chez
+les appelants qui peuvent se la permettre : le service l'attrape pour les
+écrans, `delete()` ne l'attrape pas et refuse. Les deux restent cohérents
+quand ils divergent — une page dont la ligne « Sert : … » est sortie vide
+propose le bouton, et le bouton tombe sur le refus.
+
 ### Reporté à l'itération suivante, explicitement
 
 `GalleryLocationService::diskSpaceFor()` est gardé tel quel pour une

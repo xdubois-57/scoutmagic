@@ -124,11 +124,32 @@ class StorageLocationService
      * the storage itself: a location is a declaration, and removing the
      * declaration must not remove somebody's photos.
      *
-     * @throws StorageLocationException while a consumer depends on $id
+     * **A consumer that cannot be asked is a refusal, not a permission.**
+     * « I could not determine whether anybody is using this » and
+     * « nobody is using this » are opposite conclusions, and only one of
+     * them may end in a deletion. The screens are allowed the lenient
+     * reading ({@see usagesOf()}) because they only draw a list; this is
+     * where the answer authorises destroying a declaration, so it fails
+     * closed. Note that the two together are still safe when they
+     * disagree: a page whose « Sert : … » line came out empty offers the
+     * button, and the button lands here.
+     *
+     * @throws StorageLocationException while a consumer depends on $id, or
+     *         when one of them could not be asked at all
      */
     public function delete(int $id): void
     {
-        $usages = $this->consumers->usagesOf($id);
+        try {
+            $usages = $this->consumers->usagesOf($id);
+        } catch (\Throwable $e) {
+            throw new StorageLocationException(
+                'Impossible de vérifier si cet emplacement sert encore à quelque chose — il n\'a pas été '
+                    . 'supprimé. Réessayez dans un instant.',
+                0,
+                $e
+            );
+        }
+
         if ($usages !== []) {
             throw new StorageLocationException(sprintf(
                 'Cet emplacement sert encore à %s — choisissez-lui un autre emplacement avant de le supprimer.',
@@ -141,13 +162,24 @@ class StorageLocationService
     }
 
     /**
-     * The French names of everything standing on this location.
+     * The French names of everything standing on this location, **as far
+     * as can be told** — a consumer that cannot answer is left out.
+     *
+     * For the screens, and only for them. A configuration page that 500s
+     * because one module's table is missing is a page nobody can use to
+     * repair that module; one « Sert : … » line short is a smaller harm,
+     * and the deletion behind the button does not trust this answer
+     * ({@see delete()}).
      *
      * @return list<string>
      */
     public function usagesOf(int $id): array
     {
-        return $this->consumers->usagesOf($id);
+        try {
+            return $this->consumers->usagesOf($id);
+        } catch (\Throwable) {
+            return [];
+        }
     }
 
     /**
