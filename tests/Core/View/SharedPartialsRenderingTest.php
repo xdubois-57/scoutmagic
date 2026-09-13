@@ -569,7 +569,16 @@ final class SharedPartialsRenderingTest extends TestCase
         $this->assertStringContainsString('aria-label="Télécharger la sauvegarde « Complète (sans galerie) » du 03/02/2026"', $html);
         $this->assertStringContainsString('title="Télécharger"', $html);
         $this->assertStringContainsString('<i class="bi bi-download" aria-hidden="true"></i>', $html);
-        $this->assertStringContainsString('download', $html);
+
+        // `download` the ATTRIBUTE, and matched as one. This fixture asks
+        // for the download ICON, so a bare substring assertion is
+        // satisfied by `class="bi bi-download"` and stays green with both
+        // attributes deleted from the partial — which is precisely the
+        // regression the docblock above claims this test prevents.
+        $this->assertMatchesRegularExpression('~<a\b[^>]*\sdownload[\s>]~', $html);
+        $this->assertStringContainsString('target="_blank"', $html);
+        $this->assertStringContainsString('rel="noopener"', $html);
+
         // No stray separator where the label used to be: the space
         // between icon and text only exists when there is text.
         $this->assertStringNotContainsString('</i> ', $html);
