@@ -3833,14 +3833,21 @@ talk to is the one that counts. `TransportConfigurator::apply()` calls
 holds regardless of what `Host` now says — without it, the fallback's
 message would go out through the relay that had just refused it.
 
-**A chain that cannot be READ is not an empty chain.** On an installation
-whose tables do not exist yet — a setup wizard mid-flight, a migration
-that has not run — the right answer is to deliver through whatever
-`MailService` had already configured, not to refuse; an empty chain, by
-contrast, is a real configuration error and says so. The two cases are
-distinguished on purpose (`candidates()` returns `null` versus `[]`),
-because collapsing them would mean either a site that cannot send during
-its own installation or a misconfiguration that fails silently.
+**There are three states here, not two, and the middle one is where this
+goes wrong if nobody writes it down.** A chain that cannot be READ — a
+setup wizard mid-flight, a migration that has not run — delivers through
+whatever `MailService` had already configured rather than refusing. A
+lane with **no row at all** is handled identically and deliberately: the
+only way to reach it is a database migrated before `TransportSeeder`
+could lay the chains down, and refusing there would mean a site unable to
+send mail during its own installation. A lane that **has rows and no
+usable entry** — every one disabled, spent or unconfigured — is a real
+configuration error, is the one an administrator can act on, and says so
+rather than quietly sending through the relay the chain was built to stop
+using. `candidates()` returns `null` for the first two and `[]` for the
+third, which is why it is nullable rather than merely possibly empty;
+collapsing any two of them buys either a site that cannot install itself
+or a misconfiguration that fails in silence.
 
 **A counter moves after the transport returned, never before.**
 `mail_send_counters` holds one row per (provider, day, lane); a counter

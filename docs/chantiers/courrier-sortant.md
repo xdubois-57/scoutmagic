@@ -167,6 +167,30 @@ quatre rôles.
   sous-pages sont l'état final, pas l'état d'IT-01 : le rail n'en porte
   que deux ici et grandit avec les itérations. Voir la décision 10.
 
+**Auto-revue, le relecteur automatique s'étant arrêté à mi-course deux
+fois de suite sur cette PR** (9 agents lancés / 5 rendus, puis 3 / 1 —
+la forme du défaut #208 décrite dans la compétence `steward`, pas un
+verdict sur le diff : 4 min 18 s contre un plafond de 60, et aucun
+commentaire posté). Deux constats en sont sortis.
+
+Le premier est corrigé : le contrat de `MailTransportChain::candidates()`
+a **trois** états et son commentaire n'en décrivait que deux. Une chaîne
+illisible et une voie sans aucune ligne rendent toutes deux la main au
+transport — la seconde parce que le seul moyen de l'atteindre est une base
+migrée avant que le semis ait pu poser les chaînes, et refuser là voudrait
+dire un site incapable d'envoyer pendant sa propre installation. Une voie
+qui a des lignes dont aucune n'est utilisable, elle, est une vraie erreur
+de configuration et le dit. Un test épingle désormais ce troisième état.
+
+Le second est une exposition de séquencement, énoncée plutôt que corrigée :
+**entre IT-01 et IT-02, une voie dont le quota est atteint échoue au lieu
+d'être différée** — le report, c'est D9, et c'est IT-02. La portée réelle
+est étroite : aucun quota n'existe par défaut (le semis comme l'ajout
+enregistrent `null`, « aucun plafond connu »), donc il faut qu'un
+administrateur en saisisse un ; et pour le publipostage,
+`POST /mass-mail/recipients/{id}/resend` existe déjà pour rattraper les
+destinataires marqués en échec. IT-02 referme la fenêtre.
+
 **RGPD.** La section « Sous-traitants essentiels » de
 `core/View/rgpd_default.html` est mise à jour : le relais SMTP y était au
 singulier, il y est désormais au pluriel, avec la phrase qui dit qu'une

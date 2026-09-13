@@ -186,6 +186,31 @@ class MailTransportChainTest extends TestCase
         $this->assertCount(1, $delivery->attemptedHosts, 'No chain means "send as before", never "refuse".');
     }
 
+    /**
+     * The third state of the chain, and the one the other two are easy to
+     * confuse it with: the lane IS configured, and nothing in it can
+     * carry a message. That is an administrator's mistake rather than an
+     * installation mid-flight, so it is an error — never a quiet
+     * delegation to the relay the chain was built to stop using.
+     */
+    public function testALaneWhoseEveryEntryIsDisabledIsAnErrorRatherThanADelegation(): void
+    {
+        $relay = $this->addRelay('Désactivé partout', 'smtp.off.test');
+        $this->chains->append(MailLane::Transactional, $relay, false);
+        $this->chains->append(MailLane::Transactional, MailProvider::LOCAL_ID, false);
+
+        $delivery = $this->recordingTransport();
+
+        try {
+            $this->chain($delivery)->deliver($this->message(), MailPurpose::Ordinary);
+            $this->fail('A lane with no usable entry must refuse rather than send.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('Transactionnel', $e->getMessage());
+        }
+
+        $this->assertSame([], $delivery->attemptedHosts, 'Nothing was attempted.');
+    }
+
     public function testADisabledEntryIsNeverTried(): void
     {
         $first = $this->addRelay('Désactivé', 'smtp.off.test');

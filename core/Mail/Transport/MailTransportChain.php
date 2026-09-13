@@ -44,12 +44,26 @@ use PHPMailer\PHPMailer\PHPMailer;
  * a real one, and the sandbox keeps showing what the site would have
  * sent.
  *
- * **A chain it cannot read is not an empty chain.** On an installation
- * whose tables do not exist yet — a setup wizard mid-flight, a
- * migration that has not run — reading the chain throws, and the right
- * answer is to deliver through whatever `MailService` had already
- * configured rather than to refuse. An empty chain, by contrast, is a
- * real configuration error and says so.
+ * **Three states, not two, and the middle one is the easy mistake.**
+ *
+ * - The chain **cannot be read** — a setup wizard mid-flight, a migration
+ *   that has not run, tables that do not exist yet. Reading throws, and
+ *   the right answer is to deliver through whatever `MailService` had
+ *   already configured rather than to refuse.
+ * - The lane **has no row at all**, which is not the same thing and is
+ *   handled the same way, deliberately: the only way to reach it is a
+ *   database that migrated before `TransportSeeder` could lay the chains
+ *   down. Refusing there would mean a site that cannot send mail during
+ *   its own installation, so this case delegates too.
+ * - The lane **has rows and none of them is usable** — every entry
+ *   disabled, or every provider spent or unconfigured. That is a real
+ *   configuration error, it is the one an administrator can act on, and
+ *   it says so instead of quietly sending through a relay the chain was
+ *   built to stop using.
+ *
+ * `candidates()` returns null for the first two and the empty array for
+ * the third, which is why it is nullable rather than merely possibly
+ * empty.
  */
 final class MailTransportChain implements MailTransportInterface
 {
@@ -114,8 +128,12 @@ final class MailTransportChain implements MailTransportInterface
     /**
      * The providers this lane may be tried on, in order.
      *
-     * Null means « there is no chain to read », which is not the same
-     * answer as the empty array — see the class docblock.
+     * **Null and the empty array mean different things**: null is « there
+     * is no chain here to consult » — unreadable, or not laid down yet —
+     * and the caller falls back to the configuration `MailService`
+     * already applied. The empty array is « this lane is configured and
+     * none of it can carry a message », which is an error. See the class
+     * docblock for all three states.
      *
      * @return array<int, MailProvider>|null
      */
