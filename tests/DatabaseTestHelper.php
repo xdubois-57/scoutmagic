@@ -731,6 +731,24 @@ class DatabaseTestHelper
             FOREIGN KEY (updated_by) REFERENCES user_accounts(id) ON DELETE SET NULL
         )');
 
+        // Declared storage destinations (schema/core.sql:
+        // storage_locations). In the core helper rather than the gallery's
+        // because the gallery is only one consumer: anything that writes
+        // files can stand on one of these.
+        $pdo->exec('CREATE TABLE storage_locations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            type TEXT NOT NULL,
+            label TEXT NOT NULL,
+            is_default INTEGER NOT NULL DEFAULT 0,
+            config TEXT NULL,
+            secret_encrypted BLOB NULL,
+            last_checked_at TEXT NULL,
+            last_check_ok INTEGER NULL,
+            last_check_error TEXT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(label)
+        )');
+
         return $pdo;
     }
 }

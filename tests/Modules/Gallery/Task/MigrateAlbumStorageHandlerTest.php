@@ -17,15 +17,19 @@ use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\Media;
 use Modules\Gallery\Repository\MediaRepository;
-use Modules\Gallery\Repository\StorageLocation;
-use Modules\Gallery\Repository\StorageLocationRepository;
-use Modules\Gallery\Service\Storage\LocalStorageBackend;
-use Modules\Gallery\Service\Storage\StorageBackendFactory;
-use Modules\Gallery\Service\Storage\StorageBackendInterface;
+use Core\Storage\Location\StorageLocation;
+use Core\Storage\Location\StorageLocationRepository;
+use Core\Storage\Location\Backend\LocalStorageBackend;
+use Core\Storage\Location\Backend\StorageBackendFactory;
+use Core\Storage\Location\Backend\RangeReadableBackend;
+use Core\Storage\Location\Backend\ServerSideCopyBackend;
+use Core\Storage\Location\Backend\StorageBackendInterface;
 use Modules\Gallery\Task\MigrateAlbumStorageHandler;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Gallery\GalleryTestHelper;
+use Core\Storage\Location\StorageLocationType;
+use Core\Storage\Location\Config\LocalLocationConfig;
 
 /**
  * @group database
@@ -62,10 +66,10 @@ class MigrateAlbumStorageHandlerTest extends TestCase
         $scoutYearId = (int) $this->pdo->lastInsertId();
 
         $this->sourceId = $this->storageLocationRepository->create(
-            StorageLocation::TYPE_LOCAL, 'Source', 'source', null, null, null, null, null, null, null
+            StorageLocationType::Local, 'Source', new LocalLocationConfig('source'), null
         );
         $this->targetId = $this->storageLocationRepository->create(
-            StorageLocation::TYPE_LOCAL, 'Cible', 'target', null, null, null, null, null, null, null
+            StorageLocationType::Local, 'Cible', new LocalLocationConfig('target'), null
         );
 
         $this->albumId = $this->albumRepository->create(
@@ -101,7 +105,7 @@ class MigrateAlbumStorageHandlerTest extends TestCase
         $mediumPath = "{$this->albumId}/med_{$mediaId}.jpg";
         $largePath = "{$this->albumId}/lg_{$mediaId}.jpg";
 
-        $sourceBackend = new LocalStorageBackend($this->storagePath, 'source');
+        $sourceBackend = new LocalStorageBackend($this->storagePath . '/source');
         $sourceBackend->put($thumbPath, "thumb-bytes-{$mediaId}", 'image/jpeg');
         $sourceBackend->put($mediumPath, "medium-bytes-{$mediaId}", 'image/jpeg');
         $sourceBackend->put($largePath, "large-bytes-{$mediaId}", 'image/jpeg');
@@ -136,20 +140,20 @@ class MigrateAlbumStorageHandlerTest extends TestCase
 
         (new MigrateAlbumStorageHandler())->handle(['album_id' => $this->albumId], $this->buildContext());
 
-        $targetBackend = new LocalStorageBackend($this->storagePath, 'target');
+        $targetBackend = new LocalStorageBackend($this->storagePath . '/target');
         $this->assertSame("thumb-bytes-{$mediaId}", $targetBackend->get("{$this->albumId}/thumb_{$mediaId}.jpg"));
         $this->assertSame("medium-bytes-{$mediaId}", $targetBackend->get("{$this->albumId}/med_{$mediaId}.jpg"));
         $this->assertSame("large-bytes-{$mediaId}", $targetBackend->get("{$this->albumId}/lg_{$mediaId}.jpg"));
 
-        $sourceBackend = new LocalStorageBackend($this->storagePath, 'source');
+        $sourceBackend = new LocalStorageBackend($this->storagePath . '/source');
         $this->assertFalse($sourceBackend->exists("{$this->albumId}/thumb_{$mediaId}.jpg"));
         $this->assertFalse($sourceBackend->exists("{$this->albumId}/med_{$mediaId}.jpg"));
         $this->assertFalse($sourceBackend->exists("{$this->albumId}/lg_{$mediaId}.jpg"));
 
         $album = $this->albumRepository->findById($this->albumId);
-        $this->assertSame($this->targetId, $album->storageLocationId);
+        $this->assertSame($this->targetId, $album->locationId);
         $this->assertSame(Album::MIGRATION_NONE, $album->migrationStatus);
-        $this->assertNull($album->migrationTargetLocationId);
+        $this->assertNull($album->migrationTargetId);
         $this->assertNull($album->migrationError);
 
         $entry = $this->pdo->query("SELECT * FROM event_log WHERE event_type = 'album_storage_migrated'")->fetch();
@@ -172,9 +176,9 @@ class MigrateAlbumStorageHandlerTest extends TestCase
         $album = $this->albumRepository->findById($this->albumId);
         $this->assertSame(Album::MIGRATION_FAILED, $album->migrationStatus);
         $this->assertNotNull($album->migrationError);
-        $this->assertSame($this->sourceId, $album->storageLocationId, 'storage_location_id must stay pinned to the source');
+        $this->assertSame($this->sourceId, $album->locationId, 'location_id must stay pinned to the source');
 
-        $sourceBackend = new LocalStorageBackend($this->storagePath, 'source');
+        $sourceBackend = new LocalStorageBackend($this->storagePath . '/source');
         $this->assertSame("thumb-bytes-{$mediaId}", $sourceBackend->get("{$this->albumId}/thumb_{$mediaId}.jpg"));
         $this->assertSame("medium-bytes-{$mediaId}", $sourceBackend->get("{$this->albumId}/med_{$mediaId}.jpg"));
         $this->assertSame("large-bytes-{$mediaId}", $sourceBackend->get("{$this->albumId}/lg_{$mediaId}.jpg"));
@@ -195,9 +199,9 @@ class MigrateAlbumStorageHandlerTest extends TestCase
         $album = $this->albumRepository->findById($this->albumId);
         $this->assertSame(Album::MIGRATION_FAILED, $album->migrationStatus);
         $this->assertStringContainsString('différent après copie', (string) $album->migrationError);
-        $this->assertSame($this->sourceId, $album->storageLocationId);
+        $this->assertSame($this->sourceId, $album->locationId);
 
-        $sourceBackend = new LocalStorageBackend($this->storagePath, 'source');
+        $sourceBackend = new LocalStorageBackend($this->storagePath . '/source');
         $this->assertSame("thumb-bytes-{$mediaId}", $sourceBackend->get("{$this->albumId}/thumb_{$mediaId}.jpg"));
     }
 
@@ -210,7 +214,7 @@ class MigrateAlbumStorageHandlerTest extends TestCase
 
         $album = $this->albumRepository->findById($this->albumId);
         $this->assertSame(Album::MIGRATION_NONE, $album->migrationStatus);
-        $this->assertSame($this->sourceId, $album->storageLocationId);
+        $this->assertSame($this->sourceId, $album->locationId);
     }
 
     public function testIsANoOpForADeletedAlbum(): void
@@ -230,7 +234,7 @@ class MigrateAlbumStorageHandlerTest extends TestCase
         $album = $this->albumRepository->findById($this->albumId);
         // Left exactly as-is for an admin to notice and retry with a valid target.
         $this->assertSame(Album::MIGRATION_IN_PROGRESS, $album->migrationStatus);
-        $this->assertSame($this->sourceId, $album->storageLocationId);
+        $this->assertSame($this->sourceId, $album->locationId);
     }
 
     public function testARetryAfterAFailedMigrationSucceeds(): void
@@ -248,9 +252,9 @@ class MigrateAlbumStorageHandlerTest extends TestCase
 
         $album = $this->albumRepository->findById($this->albumId);
         $this->assertSame(Album::MIGRATION_NONE, $album->migrationStatus);
-        $this->assertSame($this->targetId, $album->storageLocationId);
+        $this->assertSame($this->targetId, $album->locationId);
 
-        $targetBackend = new LocalStorageBackend($this->storagePath, 'target');
+        $targetBackend = new LocalStorageBackend($this->storagePath . '/target');
         $this->assertSame("thumb-bytes-{$mediaId}", $targetBackend->get("{$this->albumId}/thumb_{$mediaId}.jpg"));
         $this->assertSame("medium-bytes-{$mediaId}", $targetBackend->get("{$this->albumId}/med_{$mediaId}.jpg"));
         $this->assertSame("large-bytes-{$mediaId}", $targetBackend->get("{$this->albumId}/lg_{$mediaId}.jpg"));
@@ -264,71 +268,9 @@ class MigrateAlbumStorageHandlerTest extends TestCase
      */
     private function factoryFailingOnNthDestinationPut(int $failOnPutNumber): StorageBackendFactory
     {
-        $sourceId = $this->sourceId;
-        $storagePath = $this->storagePath;
-
-        $factory = $this->createMock(StorageBackendFactory::class);
-        $factory->method('create')->willReturnCallback(function (StorageLocation $location) use ($sourceId, $storagePath, $failOnPutNumber) {
-            if ($location->id === $sourceId) {
-                return new LocalStorageBackend($storagePath, 'source');
-            }
-            return new class(new LocalStorageBackend($storagePath, 'target'), $failOnPutNumber) implements StorageBackendInterface {
-                private int $putCount = 0;
-                public function __construct(private LocalStorageBackend $real, private int $failOnPutNumber)
-                {
-                }
-                public function put(string $key, string $contents, string $mimeType): void
-                {
-                    $this->putCount++;
-                    if ($this->putCount === $this->failOnPutNumber) {
-                        throw new \RuntimeException('Simulated destination write failure');
-                    }
-                    $this->real->put($key, $contents, $mimeType);
-                }
-                public function get(string $key): string
-                {
-                    return $this->real->get($key);
-                }
-                public function localPath(string $key): ?string
-                {
-                    return null;
-                }
-                public function size(string $key): ?int
-                {
-                    return $this->real->size($key);
-                }
-                public function getRange(string $key, int $offset, int $length): string
-                {
-                    return $this->real->getRange($key, $offset, $length);
-                }
-                public function copy(string $fromKey, string $toKey): void
-                {
-                    $this->real->copy($fromKey, $toKey);
-                }
-                public function delete(string $key): void
-                {
-                    $this->real->delete($key);
-                }
-                public function deletePrefix(string $prefix): void
-                {
-                    $this->real->deletePrefix($prefix);
-                }
-                public function url(string $key, string $ttl = '+1 hour'): string
-                {
-                    return $this->real->url($key, $ttl);
-                }
-                public function stableUrl(string $key): string
-                {
-                    return $this->real->stableUrl($key);
-                }
-                public function exists(string $key): bool
-                {
-                    return $this->real->exists($key);
-                }
-            };
-        });
-
-        return $factory;
+        return $this->factoryWithDestination(
+            fn(LocalStorageBackend $real) => new FailingPutBackend($real, $failOnPutNumber)
+        );
     }
 
     /**
@@ -338,73 +280,179 @@ class MigrateAlbumStorageHandlerTest extends TestCase
      */
     private function factoryCorruptingDestinationReads(): StorageBackendFactory
     {
+        return $this->factoryWithDestination(fn(LocalStorageBackend $real) => new CorruptingReadBackend($real));
+    }
+
+    /**
+     * A factory that hands back the real source backend and whatever
+     * $decorate makes of the real destination one.
+     *
+     * @param callable(LocalStorageBackend): StorageBackendInterface $decorate
+     */
+    private function factoryWithDestination(callable $decorate): StorageBackendFactory
+    {
         $sourceId = $this->sourceId;
         $storagePath = $this->storagePath;
 
         $factory = $this->createMock(StorageBackendFactory::class);
-        $factory->method('create')->willReturnCallback(function (StorageLocation $location) use ($sourceId, $storagePath) {
-            if ($location->id === $sourceId) {
-                return new LocalStorageBackend($storagePath, 'source');
+        $factory->method('create')->willReturnCallback(
+            function (StorageLocation $location) use ($sourceId, $storagePath, $decorate) {
+                if ($location->id === $sourceId) {
+                    return new LocalStorageBackend($storagePath . '/source');
+                }
+
+                return $decorate(new LocalStorageBackend($storagePath . '/target'));
             }
-            return new class(new LocalStorageBackend($storagePath, 'target')) implements StorageBackendInterface {
-                public function __construct(private LocalStorageBackend $real)
-                {
-                }
-                public function put(string $key, string $contents, string $mimeType): void
-                {
-                    $this->real->put($key, $contents, $mimeType);
-                }
-                public function get(string $key): string
-                {
-                    return $this->real->get($key) . '-corrupted';
-                }
-                public function localPath(string $key): ?string
-                {
-                    // Force the buffered read path so the corruption above is
-                    // always exercised (never streamed straight off disk).
-                    return null;
-                }
-                // Every read path reports the SAME corrupted content, not
-                // just get(): the handler happens to verify through get()
-                // today, but a double that corrupts only that one path
-                // would let a future switch to size()/getRange() silently
-                // pass this test for the wrong reason — no mismatch
-                // detected because the double stopped simulating one.
-                public function size(string $key): ?int
-                {
-                    return strlen($this->get($key));
-                }
-                public function getRange(string $key, int $offset, int $length): string
-                {
-                    return substr($this->get($key), $offset, $length);
-                }
-                public function copy(string $fromKey, string $toKey): void
-                {
-                    $this->real->copy($fromKey, $toKey);
-                }
-                public function delete(string $key): void
-                {
-                    $this->real->delete($key);
-                }
-                public function deletePrefix(string $prefix): void
-                {
-                    $this->real->deletePrefix($prefix);
-                }
-                public function url(string $key, string $ttl = '+1 hour'): string
-                {
-                    return $this->real->url($key, $ttl);
-                }
-                public function stableUrl(string $key): string
-                {
-                    return $this->real->stableUrl($key);
-                }
-                public function exists(string $key): bool
-                {
-                    return $this->real->exists($key);
-                }
-            };
-        });
+        );
 
         return $factory;
+    }
+}
+
+/**
+ * Everything forwarded to a real local backend, so that a test double only
+ * has to say what it changes.
+ *
+ * A named class rather than an anonymous one per test: the interface has
+ * capability methods as well as the common floor, and three anonymous
+ * copies of the forwarding meant three places to update every time it
+ * moved — which is exactly how they came to be declaring a capability
+ * whose method they no longer had.
+ */
+abstract class DecoratedLocalBackend implements RangeReadableBackend, ServerSideCopyBackend
+{
+    public function __construct(protected LocalStorageBackend $real)
+    {
+    }
+
+    public function capabilities(): array
+    {
+        return $this->real->capabilities();
+    }
+
+    public function supports(\Core\Storage\Location\StorageCapability $capability): bool
+    {
+        return $this->real->supports($capability);
+    }
+
+    public function put(string $key, string $contents, string $mimeType): void
+    {
+        $this->real->put($key, $contents, $mimeType);
+    }
+
+    public function get(string $key): string
+    {
+        return $this->real->get($key);
+    }
+
+    public function localPath(string $key): ?string
+    {
+        // Null on purpose in every double: it forces the buffered read
+        // path, so whatever a subclass changes about the bytes is actually
+        // exercised instead of being streamed straight off the disk.
+        return null;
+    }
+
+    public function size(string $key): ?int
+    {
+        return $this->real->size($key);
+    }
+
+    public function getRange(string $key, int $offset, int $length): string
+    {
+        return $this->real->getRange($key, $offset, $length);
+    }
+
+    public function copy(string $fromKey, string $toKey): void
+    {
+        $this->real->copy($fromKey, $toKey);
+    }
+
+    public function delete(string $key): void
+    {
+        $this->real->delete($key);
+    }
+
+    public function deletePrefix(string $prefix): void
+    {
+        $this->real->deletePrefix($prefix);
+    }
+
+    public function list(string $prefix, ?string $cursor = null, int $limit = 1000): \Core\Storage\Location\StorageListing
+    {
+        return $this->real->list($prefix, $cursor, $limit);
+    }
+
+    public function announcedChecksum(string $key): ?string
+    {
+        return $this->real->announcedChecksum($key);
+    }
+
+    public function directUrl(string $key, string $ttl = '+1 hour'): ?string
+    {
+        return $this->real->directUrl($key, $ttl);
+    }
+
+    public function stableDirectUrl(string $key): ?string
+    {
+        return $this->real->stableDirectUrl($key);
+    }
+
+    public function exists(string $key): bool
+    {
+        return $this->real->exists($key);
+    }
+
+    public function testConnection(): ?string
+    {
+        return $this->real->testConnection();
+    }
+}
+
+/** Throws on the Nth put, having really written the ones before it. */
+final class FailingPutBackend extends DecoratedLocalBackend
+{
+    private int $putCount = 0;
+
+    public function __construct(LocalStorageBackend $real, private int $failOnPutNumber)
+    {
+        parent::__construct($real);
+    }
+
+    public function put(string $key, string $contents, string $mimeType): void
+    {
+        $this->putCount++;
+        if ($this->putCount === $this->failOnPutNumber) {
+            throw new \RuntimeException('Simulated destination write failure');
+        }
+        parent::put($key, $contents, $mimeType);
+    }
+}
+
+/**
+ * Writes honestly and reads back tampered bytes — a storage that corrupts
+ * silently.
+ *
+ * EVERY read path reports the same corruption, not just get(): the handler
+ * happens to verify through get() today, but a double that corrupted only
+ * that one path would let a future switch to size()/getRange() pass this
+ * test for the wrong reason — no mismatch detected because the double
+ * stopped simulating one.
+ */
+final class CorruptingReadBackend extends DecoratedLocalBackend
+{
+    public function get(string $key): string
+    {
+        return parent::get($key) . '-corrupted';
+    }
+
+    public function size(string $key): ?int
+    {
+        return strlen($this->get($key));
+    }
+
+    public function getRange(string $key, int $offset, int $length): string
+    {
+        return substr($this->get($key), $offset, $length);
     }
 }

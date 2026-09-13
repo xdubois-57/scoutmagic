@@ -25,13 +25,15 @@ use Modules\Gallery\Api\GalleryException;
 use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\MediaRepository;
-use Modules\Gallery\Repository\ObjectStorageSecretRepository;
-use Modules\Gallery\Repository\StorageLocationRepository;
+use Core\Storage\Location\StorageLocationRepository;
 use Modules\Gallery\Service\AlbumService;
 use Modules\Gallery\Service\GalleryAccessService;
+use Modules\Gallery\Service\GalleryLocationService;
+use Modules\Gallery\Service\GalleryStorageConsumer;
 use Modules\Gallery\Service\OgScraperService;
-use Modules\Gallery\Service\StorageLocationService;
-use Modules\Gallery\Service\Storage\StorageBackendFactory;
+use Core\Storage\Location\StorageLocationConsumerRegistry;
+use Core\Storage\Location\StorageLocationService;
+use Core\Storage\Location\Backend\StorageBackendFactory;
 
 /**
  * Creates the gallery's external album through Modules\Gallery\Service\
@@ -67,6 +69,13 @@ final class GallerySeeder
         $storageBackendFactory = new StorageBackendFactory($storageLocationRepository, $storagePath);
         $settingService = new SettingService(new SettingRepository($pdo));
         $scoutYearService = new ScoutYearService($pdo);
+        $storageConsumers = new StorageLocationConsumerRegistry();
+        $storageConsumers->register(new GalleryStorageConsumer($albumRepository));
+        $storageLocationService = new StorageLocationService(
+            $storageLocationRepository,
+            $storageBackendFactory,
+            $storageConsumers,
+        );
 
         $this->albumService = new AlbumService(
             $albumRepository,
@@ -79,12 +88,11 @@ final class GallerySeeder
             new OgScraperService(),
             $storageBackendFactory,
             $storageLocationRepository,
-            new StorageLocationService(
-                $storageLocationRepository,
+            $storageLocationService,
+            new GalleryLocationService(
+                $storageLocationService,
                 $albumRepository,
-                $storageBackendFactory,
                 $settingService,
-                new ObjectStorageSecretRepository($pdo, $encryption),
                 $storagePath,
             ),
             $scoutYearService,

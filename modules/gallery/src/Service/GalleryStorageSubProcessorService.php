@@ -10,7 +10,8 @@ namespace Modules\Gallery\Service;
 
 use Core\Module\SubProcessorProvider;
 use Core\Module\SubProcessorView;
-use Modules\Gallery\Repository\StorageLocationRepository;
+use Core\Storage\Location\Config\ObjectStorageLocationConfig;
+use Core\Storage\Location\StorageLocationRepository;
 
 /**
  * The gallery's S3 storage as declared sub-processors (Core\Module\
@@ -33,15 +34,14 @@ final class GalleryStorageSubProcessorService implements SubProcessorProvider
     {
         $names = [];
         foreach ($this->storageLocations->findAll() as $location) {
-            if (!$location->isS3()) {
+            $config = $location->config;
+            if (!$config instanceof ObjectStorageLocationConfig) {
                 continue;
             }
-            $names[] = match ($location->s3Provider) {
+            $names[] = match ($config->provider) {
                 'hetzner' => 'Hetzner Object Storage (Allemagne/Finlande, UE)',
                 'cloudflare_r2' => 'Cloudflare R2 (réseau mondial, région selon configuration du bucket : '
-                    . ($location->s3Region !== null && $location->s3Region !== ''
-                        ? $location->s3Region
-                        : 'non précisée')
+                    . ($config->region !== '' ? $config->region : 'non précisée')
                     . ')',
                 'scaleway' => 'Scaleway Object Storage (France/Pays-Bas, UE)',
                 'ovhcloud' => 'OVHcloud Object Storage (France/Allemagne/Pologne, UE)',

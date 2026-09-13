@@ -2,15 +2,17 @@
 
 declare(strict_types=1);
 
-namespace Tests\Modules\Gallery\Service\Storage;
+namespace Tests\Core\Storage\Location\Backend;
 
 use Aws\Command;
 use Aws\Exception\AwsException;
+use Aws\S3\Exception\S3Exception;
 use Aws\MockHandler;
 use Aws\Result;
 use Aws\S3\S3Client;
 use GuzzleHttp\Psr7\Utils;
-use Modules\Gallery\Service\Storage\ObjectStorageBackend;
+use Core\Storage\Location\Backend\ObjectStorageBackend;
+use Core\Storage\Location\StorageCapability;
 use PHPUnit\Framework\TestCase;
 
 class ObjectStorageBackendTest extends TestCase
@@ -27,6 +29,19 @@ class ObjectStorageBackendTest extends TestCase
         return new ObjectStorageBackend(
             'https://s3.example.org', 'us-east-1', 'scoutmagic', 'access', 'secret', null, $client
         );
+    }
+
+    /**
+     * @param list<mixed> $responses each a Result or an exception, returned in order
+     */
+    private function backendWithMockedResponses(array $responses): ObjectStorageBackend
+    {
+        $mock = new MockHandler();
+        foreach ($responses as $response) {
+            $mock->append($response);
+        }
+
+        return $this->backendWithMockClient($mock);
     }
 
     public function testConnectionSucceedsWhenEveryOperationWorks(): void
@@ -225,7 +240,7 @@ class ObjectStorageBackendTest extends TestCase
             'secret'
         );
 
-        $url = $backend->url('albums/1/photo.jpg');
+        $url = $backend->directUrl('albums/1/photo.jpg');
 
         $this->assertStringStartsWith('https://s3.fr-par.scw.cloud/scoutmagic/', $url);
     }
@@ -253,9 +268,9 @@ class ObjectStorageBackendTest extends TestCase
             sleep(3);
         }
 
-        $first = $backend->stableUrl('albums/1/photo.jpg');
+        $first = $backend->stableDirectUrl('albums/1/photo.jpg');
         sleep(1);
-        $second = $backend->stableUrl('albums/1/photo.jpg');
+        $second = $backend->stableDirectUrl('albums/1/photo.jpg');
 
         $this->assertSame($first, $second);
         $this->assertStringContainsString('X-Amz-Signature=', $first);
@@ -274,7 +289,7 @@ class ObjectStorageBackendTest extends TestCase
 
         $this->assertSame(
             'https://cdn.example.test/photos/albums/1/photo.jpg',
-            $backend->stableUrl('albums/1/photo.jpg')
+            $backend->stableDirectUrl('albums/1/photo.jpg')
         );
     }
 
@@ -288,7 +303,7 @@ class ObjectStorageBackendTest extends TestCase
             'secret'
         );
 
-        $url = $backend->url('albums/1/photo.jpg');
+        $url = $backend->directUrl('albums/1/photo.jpg');
 
         $this->assertStringStartsWith('https://s3.fr-par.scw.cloud/scoutmagic/', $url);
     }
@@ -469,5 +484,81 @@ class ObjectStorageBackendTest extends TestCase
         $this->backendWithMockClient($mock)->deletePrefix('5');
 
         $this->assertSame(1, $listCalls);
+    }
+
+    public function testItDeclaresRangeReadingSignedUrlsAndServerSideCopy(): void
+    {
+        $backend = new ObjectStorageBackend('https://s3.example.test', 'eu', 'b', 'ak', 'sk');
+
+        $this->assertTrue($backend->supports(StorageCapability::RangeRead));
+        $this->assertTrue($backend->supports(StorageCapability::SignedUrl));
+        $this->assertTrue($backend->supports(StorageCapability::ServerSideCopy));
+    }
+
+    public function testItDeclaresNeitherQuotaNorChecksum(): void
+    {
+        $backend = new ObjectStorageBackend('https://s3.example.test', 'eu', 'b', 'ak', 'sk');
+
+        // No quota: a bucket's size is only knowable by listing every
+        // object in it, and a bar drawn from a number nobody measured is
+        // worse than no bar.
+        $this->assertFalse($backend->supports(StorageCapability::Quota));
+        // No checksum: the ETag equals the MD5 only for a single-part
+        // upload, so this backend can answer SOMETIMES — and « sometimes »
+        // is not something a consumer can plan around.
+        $this->assertFalse($backend->supports(StorageCapability::Checksum));
+    }
+
+    public function testAnAnnouncedChecksumIsReportedOnlyWhenItIsReallyAnMd5(): void
+    {
+        $md5 = str_repeat('a', 32);
+        $backend = $this->backendWithMockedResponses([
+            new Result(['ETag' => '"' . $md5 . '"']),
+            // A multipart ETag: a digest of digests with the part count
+            // appended. Comparing THAT to an MD5 fails for every large
+            // file, and whoever read the report would conclude that every
+            // copy they own is corrupt.
+            new Result(['ETag' => '"' . $md5 . '-4"']),
+        ]);
+
+        $this->assertSame($md5, $backend->announcedChecksum('one-shot.jpg'));
+        $this->assertNull($backend->announcedChecksum('multipart.mp4'));
+    }
+
+    public function testListPagesThroughTheProvidersOwnContinuationToken(): void
+    {
+        $backend = $this->backendWithMockedResponses([
+            new Result([
+                'Contents' => [
+                    ['Key' => '7/a.jpg', 'Size' => 3, 'ETag' => '"' . str_repeat('b', 32) . '"'],
+                ],
+                'IsTruncated' => true,
+                'NextContinuationToken' => 'tok-1',
+            ]),
+            new Result([
+                'Contents' => [['Key' => '7/b.jpg', 'Size' => 5]],
+                'IsTruncated' => false,
+            ]),
+        ]);
+
+        $first = $backend->list('7');
+        $this->assertSame(['7/a.jpg'], array_map(fn($o) => $o->key, $first->objects));
+        $this->assertSame(str_repeat('b', 32), $first->objects[0]->announcedChecksum);
+        $this->assertSame('tok-1', $first->cursor);
+
+        $second = $backend->list('7', $first->cursor);
+        $this->assertSame(['7/b.jpg'], array_map(fn($o) => $o->key, $second->objects));
+        $this->assertTrue($second->isComplete());
+    }
+
+    public function testDeletingAKeyThatIsNotThereSucceeds(): void
+    {
+        $backend = $this->backendWithMockedResponses([
+            new S3Exception('missing', new Command('DeleteObject'), ['code' => 'NoSuchKey']),
+        ]);
+
+        $backend->delete('gone.jpg');
+
+        $this->expectNotToPerformAssertions();
     }
 }

@@ -321,7 +321,7 @@ function scoutmagicBootstrapScheduler(
                         if (in_array('gallery', $enabledModuleIds, true)) {
                             $service->addSubProcessorProvider(
                                 new \Modules\Gallery\Service\GalleryStorageSubProcessorService(
-                                    new \Modules\Gallery\Repository\StorageLocationRepository($pdo, $encryptionService)
+                                    new \Core\Storage\Location\StorageLocationRepository($pdo, $encryptionService)
                                 )
                             );
                         }

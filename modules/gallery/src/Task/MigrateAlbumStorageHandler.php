@@ -14,8 +14,8 @@ use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\Media;
 use Modules\Gallery\Repository\MediaRepository;
-use Modules\Gallery\Repository\StorageLocationRepository;
-use Modules\Gallery\Service\Storage\StorageBackendFactory;
+use Core\Storage\Location\StorageLocationRepository;
+use Core\Storage\Location\Backend\StorageBackendFactory;
 
 /**
  * Background storage migration (module spec: "the gallery is not available
@@ -24,13 +24,13 @@ use Modules\Gallery\Service\Storage\StorageBackendFactory;
  * (superadmin) via Controller\GalleryConfigController::migrateAlbumStorage().
  * Copies every
  * rendition of every media row from the album's current storage location to
- * migration_target_location_id, verifying each file immediately after
+ * migration_target_id, verifying each file immediately after
  * writing it (one at a time — never holding every file's bytes in memory
  * simultaneously, some renditions are full-size videos).
  *
  * Safety invariant: the source is only ever touched (deleted) after EVERY
  * file has been copied AND verified — any failure anywhere aborts
- * immediately, leaves storage_location_id completely untouched (still
+ * immediately, leaves location_id completely untouched (still
  * pointing at the fully intact source), and never deletes anything from
  * either side, so a retry can simply resume (the destination's partial
  * copy is harmless orphaned data, safely overwritten by the retry).
@@ -73,20 +73,20 @@ class MigrateAlbumStorageHandler implements TaskHandlerInterface
         if (
             $album === null
             || $album->migrationStatus !== Album::MIGRATION_IN_PROGRESS
-            || $album->migrationTargetLocationId === null
+            || $album->migrationTargetId === null
         ) {
             return;
         }
 
-        $targetLocation = $storageLocationRepository->findById($album->migrationTargetLocationId);
+        $targetLocation = $storageLocationRepository->findById($album->migrationTargetId);
         if ($targetLocation === null) {
             // Deleted out from under an in-progress migration — nothing
             // safe to do; leave the album as-is for an admin to pick a new
             // target and retry.
             return;
         }
-        $sourceLocation = $album->storageLocationId !== null
-            ? $storageLocationRepository->findById($album->storageLocationId)
+        $sourceLocation = $album->locationId !== null
+            ? $storageLocationRepository->findById($album->locationId)
             : null;
         if ($sourceLocation === null) {
             return;

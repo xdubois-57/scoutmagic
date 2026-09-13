@@ -263,8 +263,8 @@ class InboundMailboxRepository
      * Portable insert-or-update — a SELECT then a branch, never MySQL's
      * `INSERT ... ON DUPLICATE KEY UPDATE`, which SQLite does not
      * understand and which would make this the one repository its own tests
-     * could not exercise. Same convention as
-     * `Modules\Gallery\Repository\ObjectStorageSecretRepository`.
+     * could not exercise. The same convention as
+     * `Modules\Gallery\Repository\LinkPreviewCacheRepository::store()`.
      */
     public function saveCursor(FolderCursor $cursor): void
     {

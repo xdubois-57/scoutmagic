@@ -11,10 +11,10 @@
         <div class="alert alert-danger">{{ submit_error }}</div>
     {% endif %}
 
-    {% if location and referenced_count > 0 %}
+    {% if location and usages is not empty %}
         <div class="alert alert-info">
-            Utilisé par {{ referenced_count }} album{{ referenced_count > 1 ? 's' : '' }} — le type de stockage
-            (local/S3) n'est plus modifiable, seuls le nom et les détails de connexion peuvent l'être.
+            Sert à {{ usages|join(', ') }} — le type de stockage n'est plus modifiable, seuls le nom et
+            les détails de connexion peuvent l'être.
         </div>
     {% endif %}
 
@@ -40,15 +40,15 @@
                         <div class="form-label small">Type de stockage</div>
                         <fieldset class="btn-group w-100">
                             <input type="radio" class="btn-check" name="type" id="storage-local" value="local" autocomplete="off"
-                                   {{ location and location.type == 's3' ? '' : 'checked' }} {{ location ? 'disabled' : '' }}>
+                                   {{ location and location.type.value == 's3' ? '' : 'checked' }} {{ location ? 'disabled' : '' }}>
                             <label class="btn btn-outline-primary" for="storage-local"><i class="bi bi-hdd" aria-hidden="true"></i> Stockage local</label>
                             <input type="radio" class="btn-check" name="type" id="storage-s3" value="s3" autocomplete="off"
-                                   {{ location and location.type == 's3' ? 'checked' : '' }} {{ location ? 'disabled' : '' }}>
+                                   {{ location and location.type.value == 's3' ? 'checked' : '' }} {{ location ? 'disabled' : '' }}>
                             <label class="btn btn-outline-primary" for="storage-s3"><i class="bi bi-cloud" aria-hidden="true"></i> Stockage objet (S3)</label>
                         </fieldset>
                         {% if location %}
                             {# Disabled radios don't submit their value — resend it as a hidden field so the type is preserved. #}
-                            <input type="hidden" name="type" value="{{ location.type }}">
+                            <input type="hidden" name="type" value="{{ location.type.value }}">
                         {% endif %}
                     </div>
 
@@ -57,7 +57,7 @@
                             field_id: 'storage-local-subdir',
                             field_name: 'subdir',
                             label: 'Sous-dossier local',
-                            value: location.subdir ?? 'gallery',
+                            value: location.config.path ?? 'gallery',
                             size: 'sm',
                         } only %}
                     </div>
@@ -67,11 +67,11 @@
                     <div class="col-12">
                         <label class="form-label small" for="s3-provider">Fournisseur</label>
                         <select class="form-select" id="s3-provider" name="s3_provider">
-                            <option value="hetzner" {{ location and location.s3Provider == 'hetzner' ? 'selected' : '' }}>Hetzner Object Storage</option>
-                            <option value="cloudflare_r2" {{ location and location.s3Provider == 'cloudflare_r2' ? 'selected' : '' }}>Cloudflare R2</option>
-                            <option value="scaleway" {{ location and location.s3Provider == 'scaleway' ? 'selected' : '' }}>Scaleway Object Storage</option>
-                            <option value="ovhcloud" {{ location and location.s3Provider == 'ovhcloud' ? 'selected' : '' }}>OVHcloud Object Storage</option>
-                            <option value="custom" {{ not location or location.s3Provider == 'custom' or location.s3Provider is null ? 'selected' : '' }}>Personnalisé (compatible S3)</option>
+                            <option value="hetzner" {{ location and location.config.provider == 'hetzner' ? 'selected' : '' }}>Hetzner Object Storage</option>
+                            <option value="cloudflare_r2" {{ location and location.config.provider == 'cloudflare_r2' ? 'selected' : '' }}>Cloudflare R2</option>
+                            <option value="scaleway" {{ location and location.config.provider == 'scaleway' ? 'selected' : '' }}>Scaleway Object Storage</option>
+                            <option value="ovhcloud" {{ location and location.config.provider == 'ovhcloud' ? 'selected' : '' }}>OVHcloud Object Storage</option>
+                            <option value="custom" {{ not location or location.config.provider == 'custom' or location.config.provider is null ? 'selected' : '' }}>Personnalisé (compatible S3)</option>
                         </select>
                     </div>
 
@@ -122,7 +122,7 @@
                             field_name: 's3_endpoint',
                             label: 'Endpoint',
                             type: 'url',
-                            value: location.s3Endpoint ?? '',
+                            value: location.config.endpoint ?? '',
                             placeholder: 'https://...',
                             size: 'sm',
                         } only %}
@@ -132,7 +132,7 @@
                             field_id: 's3-region',
                             field_name: 's3_region',
                             label: 'Région',
-                            value: location.s3Region ?? '',
+                            value: location.config.region ?? '',
                             size: 'sm',
                         } only %}
                     </div>
@@ -141,7 +141,7 @@
                             field_id: 's3-bucket',
                             field_name: 's3_bucket',
                             label: 'Bucket',
-                            value: location.s3Bucket ?? '',
+                            value: location.config.bucket ?? '',
                             size: 'sm',
                         } only %}
                     </div>
@@ -150,7 +150,7 @@
                             field_id: 's3-access-key',
                             field_name: 's3_access_key',
                             label: 'Access key',
-                            value: location.s3AccessKey ?? '',
+                            value: location.config.accessKey ?? '',
                             autocomplete: 'off',
                             size: 'sm',
                         } only %}
@@ -166,7 +166,7 @@
                             field_name: 's3_public_url',
                             label: 'URL publique (CDN, optionnel)',
                             type: 'url',
-                            value: location.s3PublicUrl ?? '',
+                            value: location.config.publicUrl ?? '',
                             placeholder: 'https://cdn.example.org',
                             help: 'Si vide, les médias sont servis via une URL signée temporaire.',
                             size: 'sm',

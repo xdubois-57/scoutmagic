@@ -1584,3 +1584,69 @@ CREATE TABLE IF NOT EXISTS mail_send_counters (
     UNIQUE KEY uniq_mail_send_counters_day (provider_id, count_date, lane),
     INDEX idx_mail_send_counters_date (count_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- storage_locations: one row per declared destination for bytes — a
+-- directory on this server, an S3-compatible bucket, and the kinds the
+-- following iterations add. In the core and not in a module, for the same
+-- reason Core\Mail is: the backups are core and cannot depend on a module,
+-- and the gallery was only the first consumer to need this, never its
+-- owner.
+--
+-- Several coexist by design (a local folder and several buckets at once),
+-- so that adding or changing the destination for NEW content never breaks
+-- reading the old, which stays pinned to whichever location it was written
+-- in.
+--
+-- No table maps a location to what uses it, deliberately. A consumer keeps
+-- the identifier of the location it chose in its own setting — the gallery
+-- in a gallery setting, the off-site backup in a backup one — because an
+-- assignment belongs to whoever made it. The question that shape leaves
+-- open, « is anybody still using this one? », is asked the other way round
+-- at runtime through Core\Storage\Location\StorageLocationConsumer, which
+-- is also what makes a refusal name « Galeries photo » instead of
+-- reporting a foreign-key violation.
+CREATE TABLE IF NOT EXISTS storage_locations (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    -- VARCHAR and not an ENUM: a new kind of storage then costs a case in
+    -- Core\Storage\Location\StorageLocationType and nothing at all in the
+    -- database, where widening an ENUM is a MODIFY COLUMN on every
+    -- installed site. The validation an ENUM would have given did not
+    -- disappear — it moved into StorageLocationType::tryFrom(), the only
+    -- door into that type, which refuses a value it does not know rather
+    -- than silently treating it as a local folder.
+    type VARCHAR(32) NOT NULL,
+    label VARCHAR(255) NOT NULL,
+    -- Exactly one location is default at a time, enforced in
+    -- StorageLocationRepository::setDefault() inside a transaction and NOT
+    -- here: "at most one TRUE row" has no clean, portable expression in
+    -- this schema style, and what actually matters is that no read ever
+    -- observes zero or two, which a transaction gives and a CHECK would
+    -- not.
+    is_default BOOLEAN NOT NULL DEFAULT FALSE,
+    -- The per-type configuration, serialised. One column rather than one
+    -- per field: what a location is configured with varies BY TYPE by
+    -- definition, and the shape this replaces carried six s3_* columns
+    -- that WebDAV and Drive would have grown by five or six each, every
+    -- one of them NULL for every row of another type. The secret is the
+    -- one thing NOT in here — see below.
+    config JSON,
+    -- The location's own credential, encrypted with EncryptionService.
+    -- In this row rather than in secrets.enc, which is made for singleton
+    -- secrets: there are N locations, they are created and deleted by an
+    -- administrator at runtime, and a secret whose lifetime is a row's is
+    -- stored with the row. Read by exactly one method
+    -- (StorageLocationRepository::getSecret()); the DTO that everything
+    -- else handles carries only whether one exists.
+    secret_encrypted BLOB NULL,
+    -- Cached health-check result (StorageLocationService::checkNow()).
+    -- Checking a location means writing to it, reading it back and
+    -- removing the witness — three round trips over the internet for a
+    -- bucket — so it is never done synchronously while rendering a page
+    -- that shows a photo. Refreshed on an explicit « Tester » and lazily
+    -- once the recorded result has aged past the service's TTL.
+    last_checked_at DATETIME NULL,
+    last_check_ok BOOLEAN NULL,
+    last_check_error TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_storage_locations_label (label)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -18,12 +18,14 @@ use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\Media;
 use Modules\Gallery\Repository\MediaRepository;
-use Modules\Gallery\Repository\StorageLocation;
-use Modules\Gallery\Repository\StorageLocationRepository;
+use Core\Storage\Location\StorageLocation;
+use Core\Storage\Location\StorageLocationRepository;
 use Modules\Gallery\Task\ProcessPhotoHandler;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Gallery\GalleryTestHelper;
+use Core\Storage\Location\StorageLocationType;
+use Core\Storage\Location\Config\LocalLocationConfig;
 
 /**
  * @group database
@@ -59,7 +61,7 @@ class ProcessPhotoHandlerTest extends TestCase
         $scoutYearId = (int) $this->pdo->lastInsertId();
 
         $locationId = (new StorageLocationRepository($this->pdo, $this->encryption))->create(
-            StorageLocation::TYPE_LOCAL, 'Stockage local', 'gallery', null, null, null, null, null, null, null
+            StorageLocationType::Local, 'Stockage local', new LocalLocationConfig('gallery'), null
         );
         $this->albumId = (new AlbumRepository($this->pdo))->create(Album::TYPE_LOCAL, 'Camp', null, '2026-01-01', null, $scoutYearId, null, $locationId, $authorId);
         $this->mediaRepository = new MediaRepository($this->pdo);
@@ -166,7 +168,7 @@ class ProcessPhotoHandlerTest extends TestCase
         $mediaId = $this->mediaRepository->create($this->albumId, Media::TYPE_PHOTO, $fileId, 0, 'test.jpg');
         $albumRepository = new AlbumRepository($this->pdo);
         $targetId = (new StorageLocationRepository($this->pdo, $this->encryption))->create(
-            StorageLocation::TYPE_LOCAL, 'Cible', 'gallery2', null, null, null, null, null, null, null
+            StorageLocationType::Local, 'Cible', new LocalLocationConfig('gallery2'), null
         );
         $albumRepository->startMigration($this->albumId, $targetId);
 
@@ -185,7 +187,7 @@ class ProcessPhotoHandlerTest extends TestCase
         $fileId = $this->createOriginalFile();
         $mediaId = $this->mediaRepository->create($this->albumId, Media::TYPE_PHOTO, $fileId, 0, 'test.jpg');
         $targetId = (new StorageLocationRepository($this->pdo, $this->encryption))->create(
-            StorageLocation::TYPE_LOCAL, 'Cible', 'gallery2', null, null, null, null, null, null, null
+            StorageLocationType::Local, 'Cible', new LocalLocationConfig('gallery2'), null
         );
         (new AlbumRepository($this->pdo))->startMigration($this->albumId, $targetId);
 
@@ -204,7 +206,7 @@ class ProcessPhotoHandlerTest extends TestCase
         $fileId = $this->createOriginalFile();
         $mediaId = $this->mediaRepository->create($this->albumId, Media::TYPE_PHOTO, $fileId, 0, 'test.jpg');
         $targetId = (new StorageLocationRepository($this->pdo, $this->encryption))->create(
-            StorageLocation::TYPE_LOCAL, 'Cible', 'gallery2', null, null, null, null, null, null, null
+            StorageLocationType::Local, 'Cible', new LocalLocationConfig('gallery2'), null
         );
         (new AlbumRepository($this->pdo))->startMigration($this->albumId, $targetId);
 
@@ -223,7 +225,7 @@ class ProcessPhotoHandlerTest extends TestCase
         $mediaId = $this->mediaRepository->create($this->albumId, Media::TYPE_PHOTO, $fileId, 0, 'test.jpg');
         $albumRepository = new AlbumRepository($this->pdo);
         $targetId = (new StorageLocationRepository($this->pdo, $this->encryption))->create(
-            StorageLocation::TYPE_LOCAL, 'Cible', 'gallery2', null, null, null, null, null, null, null
+            StorageLocationType::Local, 'Cible', new LocalLocationConfig('gallery2'), null
         );
         $albumRepository->startMigration($this->albumId, $targetId);
         // A failed migration leaves the source fully intact, so processing is
@@ -236,16 +238,16 @@ class ProcessPhotoHandlerTest extends TestCase
     }
 
     /**
-     * The genuine upgrade window: an album created before multi-location
-     * support has a null storage_location_id and no location row exists yet.
-     * Reading gallery_albums.storage_location_id directly failed every single
-     * media with "Emplacement de stockage introuvable"; resolving through
-     * Service\StorageLocationService runs the backfill instead.
+     * An album with no location at all, and no location declared on the
+     * installation either. Reading gallery_albums.location_id directly
+     * failed every single media with « Emplacement de stockage
+     * introuvable »; resolving through Service\GalleryLocationService
+     * creates the default and puts the album on it instead.
      */
-    public function testBackfillsALegacyAlbumThatHasNoStorageLocationYet(): void
+    public function testPutsAnAlbumWithNoLocationOnTheDefaultOneRatherThanFailing(): void
     {
-        $this->pdo->exec('UPDATE gallery_albums SET storage_location_id = NULL WHERE id = ' . $this->albumId);
-        $this->pdo->exec('DELETE FROM gallery_storage_locations');
+        $this->pdo->exec('UPDATE gallery_albums SET location_id = NULL WHERE id = ' . $this->albumId);
+        $this->pdo->exec('DELETE FROM storage_locations');
         $fileId = $this->createOriginalFile();
         $mediaId = $this->mediaRepository->create($this->albumId, Media::TYPE_PHOTO, $fileId, 0, 'test.jpg');
 
@@ -253,8 +255,8 @@ class ProcessPhotoHandlerTest extends TestCase
 
         $media = $this->mediaRepository->findById($mediaId);
         $this->assertSame(Media::STATUS_DONE, $media->processingStatus);
-        $this->assertNotNull((new AlbumRepository($this->pdo))->findById($this->albumId)?->storageLocationId);
-        $this->assertTrue(is_file($this->storagePath . '/gallery/' . $media->thumbPath));
+        $this->assertNotNull((new AlbumRepository($this->pdo))->findById($this->albumId)?->locationId);
+        $this->assertTrue(is_file($this->storagePath . '/modules/gallery/' . $media->thumbPath));
     }
 
     public function testIsANoOpWhenAlreadyDone(): void

@@ -21,11 +21,14 @@ use Modules\Gallery\Repository\Media;
 use Modules\Gallery\Repository\MediaRepository;
 use Modules\Gallery\Service\AlbumService;
 use Modules\Gallery\Service\DelegatedAlbumAccessRegistry;
+use Modules\Gallery\Service\GalleryLocationService;
 use Modules\Gallery\Service\MediaFileName;
 use Modules\Gallery\Service\MediaService;
-use Modules\Gallery\Service\Storage\StorageBackendFactory;
-use Modules\Gallery\Service\Storage\StorageBackendInterface;
-use Modules\Gallery\Service\StorageLocationService;
+use Core\Storage\Location\Backend\RangeReadableBackend;
+use Core\Storage\Location\Backend\StorageBackendFactory;
+use Core\Storage\Location\Config\ObjectStorageLocationConfig;
+use Core\Storage\Location\Backend\StorageBackendInterface;
+use Core\Storage\Location\StorageLocationService;
 use Twig\Environment;
 
 class GalleryController extends AbstractController
@@ -68,6 +71,7 @@ class GalleryController extends AbstractController
         private ScoutYearService $scoutYearService,
         private StorageBackendFactory $storageBackendFactory,
         private StorageLocationService $storageLocationService,
+        private GalleryLocationService $galleryLocationService,
         // Both last, with safe defaults, so every existing positional
         // construction of this controller (tests included) keeps working
         // unchanged — same "append-only" discipline as
@@ -193,7 +197,7 @@ class GalleryController extends AbstractController
             return new Response('Not Found', 404);
         }
 
-        $location = $this->storageLocationService->resolveLocationForAlbum($album);
+        $location = $this->galleryLocationService->resolveLocationForAlbum($album);
         if ($location === null) {
             return new Response('Not Found', 404);
         }
@@ -338,7 +342,7 @@ class GalleryController extends AbstractController
             return new Response('Not Found', 404);
         }
 
-        $location = $this->storageLocationService->resolveLocationForAlbum($album);
+        $location = $this->galleryLocationService->resolveLocationForAlbum($album);
         if ($location === null) {
             return new Response('Not Found', 404);
         }
@@ -434,7 +438,7 @@ class GalleryController extends AbstractController
                 ->setHeader('Cache-Control', 'private, max-age=31536000');
         }
 
-        $location = $this->storageLocationService->resolveLocationForAlbum($album);
+        $location = $this->galleryLocationService->resolveLocationForAlbum($album);
         if ($location === null) {
             return new Response('Not Found', 404);
         }
@@ -476,13 +480,20 @@ class GalleryController extends AbstractController
 
     /**
      * A 206/416 answer to a `Range:` request, or null to fall through to the
-     * ordinary full response (no Range header, an unusable one, or a backend
-     * that can't report the object's size — RFC 9110 lets a server ignore
-     * Range, so falling through is always a valid outcome).
+     * ordinary full response (no Range header, an unusable one, a backend
+     * that cannot read a slice at all, or one that can't report the object's
+     * size — RFC 9110 lets a server ignore Range, so falling through is
+     * always a valid outcome).
      *
      * Without this a video was only ever served whole, which meant the whole
      * transcode in memory per request AND no seeking in the player: every
      * scrub restarted the download from byte zero.
+     *
+     * A backend WITHOUT the range capability falls through rather than
+     * being refused, and the difference matters: an image served from such
+     * a destination is perfectly fine whole, so the honest answer is to
+     * ignore the header. What is genuinely broken there is video, and that
+     * is refused where a video is uploaded, not where one is read.
      */
     private function serveRange(
         Request $request,
@@ -492,7 +503,7 @@ class GalleryController extends AbstractController
         string $mimeType
     ): ?Response {
         $header = trim((string) $request->getServer('HTTP_RANGE', ''));
-        if ($header === '') {
+        if ($header === '' || !$backend instanceof RangeReadableBackend) {
             return null;
         }
 
@@ -614,7 +625,7 @@ class GalleryController extends AbstractController
             return new Response('Not Found', 404);
         }
 
-        $location = $this->storageLocationService->resolveLocationForAlbum($album);
+        $location = $this->galleryLocationService->resolveLocationForAlbum($album);
         if ($location === null) {
             return new Response('Not Found', 404);
         }
@@ -623,28 +634,36 @@ class GalleryController extends AbstractController
         // delegated album on a location with a public URL, because a public
         // URL is world-readable and defeats the access control entirely. That
         // invariant was only enforced at creation time: a superadmin adding
-        // an s3_public_url to a location later would silently turn the short
-        // presign below into a permanent, unauthenticated link (see
-        // ObjectStorageBackend::url(), which ignores the TTL when a public URL is
-        // set). Re-assert it here, where the bytes are actually handed out.
-        if ($location->s3PublicUrl !== null && $location->s3PublicUrl !== '') {
+        // a public URL to a location later would silently turn the short
+        // presign below into a permanent, unauthenticated link (a public
+        // URL prefix ignores the TTL entirely). Re-assert it here, where
+        // the bytes are actually handed out.
+        $config = $location->config;
+        if ($config instanceof ObjectStorageLocationConfig
+            && $config->publicUrl !== null && $config->publicUrl !== ''
+        ) {
             return new Response('Not Found', 404);
         }
 
-        if ($location->isS3()) {
-            // Minted fresh for this one request, never stored or logged —
-            // a presigned URL is a bearer credential for as long as it
-            // stays valid, hence the short TTL (self::DELEGATED_PRESIGN_TTL)
-            // instead of the 1-hour default an ordinary album's own
-            // <img src> uses.
-            $url = $this->storageBackendFactory->create($location)->url($path, self::DELEGATED_PRESIGN_TTL);
+        $backend = $this->storageBackendFactory->create($location);
+
+        // Minted fresh for this one request, never stored or logged — a
+        // presigned URL is a bearer credential for as long as it stays
+        // valid, hence the short TTL (self::DELEGATED_PRESIGN_TTL) instead
+        // of the 1-hour default an ordinary album's own <img src> uses.
+        // Null means this destination cannot hand the visitor anything, so
+        // the bytes go out through here instead — which is the ordinary
+        // case for the local disk, and for every destination without
+        // signed URLs.
+        $url = $backend->directUrl($path, self::DELEGATED_PRESIGN_TTL);
+        if ($url !== null) {
             return (new Response('', 302))
                 ->setHeader('Location', $url)
                 ->setHeader('Cache-Control', 'private, no-store');
         }
 
         try {
-            $contents = $this->storageBackendFactory->create($location)->get($path);
+            $contents = $backend->get($path);
         } catch (\RuntimeException) {
             return new Response('Not Found', 404);
         }
@@ -738,7 +757,7 @@ class GalleryController extends AbstractController
             return [true, 'Cet album est en cours de migration vers un autre emplacement de stockage.'];
         }
 
-        $location = $this->storageLocationService->resolveLocationForAlbum($album);
+        $location = $this->galleryLocationService->resolveLocationForAlbum($album);
         if ($location === null) {
             return [false, null];
         }

@@ -14,18 +14,20 @@ use Core\Security\EncryptionService;
 use Modules\Gallery\Controller\GalleryStorageLocationController;
 use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
-use Modules\Gallery\Repository\ObjectStorageSecretRepository;
-use Modules\Gallery\Repository\StorageLocation;
-use Modules\Gallery\Repository\StorageLocationRepository;
+use Core\Storage\Location\StorageLocation;
+use Core\Storage\Location\StorageLocationRepository;
 use Modules\Gallery\Service\ObjectStorageErrorExplainerService;
-use Modules\Gallery\Service\Storage\StorageBackendFactory;
-use Modules\Gallery\Service\StorageLocationService;
+use Core\Storage\Location\Backend\StorageBackendFactory;
+use Core\Storage\Location\StorageLocationService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Gallery\GalleryTestHelper;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 use Twig\TwigFunction;
+use Modules\Gallery\Service\GalleryStorageWiring;
+use Core\Storage\Location\StorageLocationType;
+use Core\Storage\Location\Config\LocalLocationConfig;
 
 /**
  * @group database
@@ -50,10 +52,11 @@ class GalleryStorageLocationControllerTest extends TestCase
         $this->albumRepository = new AlbumRepository($this->pdo);
         $settingService = new SettingService(new SettingRepository($this->pdo));
         $storageBackendFactory = new StorageBackendFactory($this->storageLocationRepository, sys_get_temp_dir());
-        $storageLocationService = new StorageLocationService(
-            $this->storageLocationRepository, $this->albumRepository, $storageBackendFactory, $settingService,
-            new ObjectStorageSecretRepository($this->pdo, $encryption), sys_get_temp_dir()
-        );
+        $storageWiring = GalleryStorageWiring::build(
+                $this->pdo, $encryption, $settingService, sys_get_temp_dir(), $this->albumRepository
+            );
+        $storageLocationService = $storageWiring->locationService;
+        $galleryLocationService = $storageWiring->galleryLocations;
         $journalService = new JournalService(new JournalRepository($this->pdo));
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
@@ -130,7 +133,7 @@ class GalleryStorageLocationControllerTest extends TestCase
         $locations = $this->storageLocationRepository->findAll();
         $this->assertCount(1, $locations);
         $this->assertSame('Disque du serveur', $locations[0]->label);
-        $this->assertFalse($locations[0]->isS3());
+        $this->assertFalse($locations[0]->type === StorageLocationType::ObjectStorage);
     }
 
     public function testStoreCreatesAnS3Location(): void
@@ -148,13 +151,13 @@ class GalleryStorageLocationControllerTest extends TestCase
         $this->assertSame(302, $response->getStatusCode());
         $locations = $this->storageLocationRepository->findAll();
         $this->assertCount(1, $locations);
-        $this->assertTrue($locations[0]->isS3());
+        $this->assertTrue($locations[0]->type === StorageLocationType::ObjectStorage);
         $this->assertTrue($locations[0]->secretConfigured);
     }
 
     public function testStoreRejectsADuplicateLabel(): void
     {
-        $this->storageLocationRepository->create(StorageLocation::TYPE_LOCAL, 'Existant', 'gallery', null, null, null, null, null, null, null);
+        $this->storageLocationRepository->create(StorageLocationType::Local, 'Existant', new LocalLocationConfig('gallery'), null);
         $token = $this->csrfToken();
         $request = new Request('POST', '/config/gallery/locations', [], [
             'type' => 'local', 'label' => 'Existant', 'subdir' => 'other', '_csrf_token' => $token,
@@ -180,7 +183,7 @@ class GalleryStorageLocationControllerTest extends TestCase
 
     public function testUpdateChangesTheLabel(): void
     {
-        $id = $this->storageLocationRepository->create(StorageLocation::TYPE_LOCAL, 'Ancien nom', 'gallery', null, null, null, null, null, null, null);
+        $id = $this->storageLocationRepository->create(StorageLocationType::Local, 'Ancien nom', new LocalLocationConfig('gallery'), null);
         $token = $this->csrfToken();
         $request = new Request('POST', '/config/gallery/locations/' . $id, [], [
             'label' => 'Nouveau nom', 'subdir' => 'gallery', '_csrf_token' => $token,
@@ -194,7 +197,7 @@ class GalleryStorageLocationControllerTest extends TestCase
 
     public function testDeleteRequiresCsrf(): void
     {
-        $id = $this->storageLocationRepository->create(StorageLocation::TYPE_LOCAL, 'Local', 'gallery', null, null, null, null, null, null, null);
+        $id = $this->storageLocationRepository->create(StorageLocationType::Local, 'Local', new LocalLocationConfig('gallery'), null);
 
         $response = $this->controller->delete($this->jsonRequest(['_csrf_token' => 'bad']), ['id' => (string) $id]);
 
@@ -203,7 +206,7 @@ class GalleryStorageLocationControllerTest extends TestCase
 
     public function testDeleteRemovesAnUnreferencedLocation(): void
     {
-        $id = $this->storageLocationRepository->create(StorageLocation::TYPE_LOCAL, 'Local', 'gallery', null, null, null, null, null, null, null);
+        $id = $this->storageLocationRepository->create(StorageLocationType::Local, 'Local', new LocalLocationConfig('gallery'), null);
         $token = $this->csrfToken();
 
         $response = $this->controller->delete($this->jsonRequest(['_csrf_token' => $token]), ['id' => (string) $id]);
@@ -215,7 +218,7 @@ class GalleryStorageLocationControllerTest extends TestCase
 
     public function testDeleteRejectsALocationStillReferencedByAnAlbum(): void
     {
-        $id = $this->storageLocationRepository->create(StorageLocation::TYPE_LOCAL, 'Local', 'gallery', null, null, null, null, null, null, null);
+        $id = $this->storageLocationRepository->create(StorageLocationType::Local, 'Local', new LocalLocationConfig('gallery'), null);
         $this->albumRepository->create(Album::TYPE_LOCAL, 'Camp', null, '2026-01-01', null, $this->scoutYearId, null, $id, $this->authorId);
         $token = $this->csrfToken();
 
@@ -229,8 +232,8 @@ class GalleryStorageLocationControllerTest extends TestCase
 
     public function testSetDefaultPromotesTheGivenLocation(): void
     {
-        $firstId = $this->storageLocationRepository->create(StorageLocation::TYPE_LOCAL, 'Premier', 'gallery', null, null, null, null, null, null, null);
-        $secondId = $this->storageLocationRepository->create(StorageLocation::TYPE_LOCAL, 'Second', 'gallery2', null, null, null, null, null, null, null);
+        $firstId = $this->storageLocationRepository->create(StorageLocationType::Local, 'Premier', new LocalLocationConfig('gallery'), null);
+        $secondId = $this->storageLocationRepository->create(StorageLocationType::Local, 'Second', new LocalLocationConfig('gallery2'), null);
         $token = $this->csrfToken();
 
         $response = $this->controller->setDefault($this->jsonRequest(['_csrf_token' => $token], '/config/gallery/locations/' . $secondId . '/default'), ['id' => (string) $secondId]);
@@ -243,7 +246,7 @@ class GalleryStorageLocationControllerTest extends TestCase
 
     public function testSetDefaultRequiresCsrf(): void
     {
-        $id = $this->storageLocationRepository->create(StorageLocation::TYPE_LOCAL, 'Local', 'gallery', null, null, null, null, null, null, null);
+        $id = $this->storageLocationRepository->create(StorageLocationType::Local, 'Local', new LocalLocationConfig('gallery'), null);
 
         $response = $this->controller->setDefault($this->jsonRequest(['_csrf_token' => 'bad'], '/config/gallery/locations/' . $id . '/default'), ['id' => (string) $id]);
 
@@ -253,7 +256,7 @@ class GalleryStorageLocationControllerTest extends TestCase
     public function testTestActionRecordsAFailedLocalCheckWhenTheDirectoryCannotBeCreated(): void
     {
         $id = $this->storageLocationRepository->create(
-            StorageLocation::TYPE_LOCAL, 'Local', '/root/impossible-permission-denied', null, null, null, null, null, null, null
+            StorageLocationType::Local, 'Local', new LocalLocationConfig('/root/impossible-permission-denied'), null
         );
         $token = $this->csrfToken();
 
@@ -323,7 +326,7 @@ class GalleryStorageLocationControllerTest extends TestCase
         $response = $this->controller->store($request, []);
 
         $this->assertSame(302, $response->getStatusCode());
-        $this->assertSame('gallery-2024', $this->storageLocationRepository->findByLabel('Disque secondaire')?->subdir);
+        $this->assertSame('gallery-2024', $this->localPathOf($this->storageLocationRepository->findByLabel('Disque secondaire')));
     }
 
     public function testStoreNormalizesATrailingSlash(): void
@@ -338,7 +341,7 @@ class GalleryStorageLocationControllerTest extends TestCase
 
         $this->controller->store($request, []);
 
-        $this->assertSame('gallery', $this->storageLocationRepository->findByLabel('Slash final')?->subdir);
+        $this->assertSame('gallery', $this->localPathOf($this->storageLocationRepository->findByLabel('Slash final')));
     }
 
     public function testStoreAcceptsANestedSubdir(): void
@@ -353,7 +356,7 @@ class GalleryStorageLocationControllerTest extends TestCase
 
         $this->controller->store($request, []);
 
-        $this->assertSame('medias/gallery', $this->storageLocationRepository->findByLabel('Disque imbriqué')?->subdir);
+        $this->assertSame('medias/gallery', $this->localPathOf($this->storageLocationRepository->findByLabel('Disque imbriqué')));
     }
 
     public function testStoreFallsBackToTheDefaultSubdirWhenBlank(): void
@@ -368,7 +371,7 @@ class GalleryStorageLocationControllerTest extends TestCase
 
         $this->controller->store($request, []);
 
-        $this->assertSame('gallery', $this->storageLocationRepository->findByLabel('Sans sous-dossier')?->subdir);
+        $this->assertSame('gallery', $this->localPathOf($this->storageLocationRepository->findByLabel('Sans sous-dossier')));
     }
 
     /**
@@ -378,7 +381,7 @@ class GalleryStorageLocationControllerTest extends TestCase
     public function testUpdateRejectsAnUnsafeSubdir(string $subdir): void
     {
         $id = $this->storageLocationRepository->create(
-            StorageLocation::TYPE_LOCAL, 'À modifier', 'gallery', null, null, null, null, null, null, null
+            StorageLocationType::Local, 'À modifier', new LocalLocationConfig('gallery'), null
         );
         $token = $this->csrfToken();
         $request = new Request('POST', '/config/gallery/locations/' . $id, [], [
@@ -390,6 +393,17 @@ class GalleryStorageLocationControllerTest extends TestCase
         $response = $this->controller->update($request, ['id' => (string) $id]);
 
         $this->assertSame(422, $response->getStatusCode());
-        $this->assertSame('gallery', $this->storageLocationRepository->findById($id)?->subdir);
+        $this->assertSame('gallery', $this->localPathOf($this->storageLocationRepository->findById($id)));
+    }
+
+    /**
+     * The folder a local location points at, or null when the location is
+     * missing or is not a local one — so a test that means « the path was
+     * not changed » cannot pass by accident on a location that turned into
+     * something else entirely.
+     */
+    private function localPathOf(?StorageLocation $location): ?string
+    {
+        return $location?->config instanceof LocalLocationConfig ? $location->config->path : null;
     }
 }

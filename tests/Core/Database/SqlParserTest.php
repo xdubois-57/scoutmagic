@@ -189,7 +189,7 @@ class SqlParserTest extends TestCase
         $schemaPath = dirname(__DIR__, 3) . '/schema/core.sql';
         $tables = $this->parser->parseFile($schemaPath);
 
-        $this->assertCount(53, $tables);
+        $this->assertCount(54, $tables);
 
         $tableNames = array_map(fn($t) => $t->name, $tables);
         $this->assertContains('sent_email_claims', $tableNames);
@@ -198,6 +198,9 @@ class SqlParserTest extends TestCase
         $this->assertContains('mail_lane_entries', $tableNames);
         $this->assertContains('mail_send_counters', $tableNames);
         $this->assertContains('operational_alerts', $tableNames);
+        // Declared destinations for bytes (Core\Storage\Location) — in
+        // core, not in the gallery that was only its first consumer.
+        $this->assertContains('storage_locations', $tableNames);
         $this->assertContains('scout_years', $tableNames);
         $this->assertContains('members', $tableNames);
         $this->assertContains('user_accounts', $tableNames);

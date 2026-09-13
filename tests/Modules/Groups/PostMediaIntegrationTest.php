@@ -18,16 +18,15 @@ use Core\Security\EncryptionService;
 use Core\Security\Role;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\MediaRepository;
-use Modules\Gallery\Repository\ObjectStorageSecretRepository;
-use Modules\Gallery\Repository\StorageLocation;
-use Modules\Gallery\Repository\StorageLocationRepository;
+use Core\Storage\Location\StorageLocation;
+use Core\Storage\Location\StorageLocationRepository;
 use Modules\Gallery\Service\DelegatedAlbumService;
 use Modules\Gallery\Service\FfmpegAvailability;
 use Modules\Gallery\Service\GalleryAccessService;
 use Modules\Gallery\Service\MediaService;
-use Modules\Gallery\Service\Storage\StorageBackendFactory;
-use Modules\Gallery\Service\Storage\StorageBackendInterface;
-use Modules\Gallery\Service\StorageLocationService;
+use Core\Storage\Location\Backend\StorageBackendFactory;
+use Core\Storage\Location\Backend\StorageBackendInterface;
+use Core\Storage\Location\StorageLocationService;
 use Modules\Groups\File\GroupFileOwnershipChecker;
 use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Repository\PostMediaRepository;
@@ -39,6 +38,11 @@ use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Gallery\GalleryTestHelper;
+use Modules\Gallery\Service\GalleryStorageWiring;
+use Core\Storage\Location\StorageLocationType;
+use Core\Storage\Location\Config\LocalLocationConfig;
+use Core\Storage\Location\Config\ObjectStorageLocationConfig;
+use Modules\Gallery\Service\GalleryLocationService;
 
 /**
  * PostMediaService wired against the REAL gallery stack (unlike
@@ -53,6 +57,8 @@ use Tests\Modules\Gallery\GalleryTestHelper;
 #[Group('database')]
 class PostMediaIntegrationTest extends TestCase
 {
+    private GalleryLocationService $galleryLocationService;
+
     private \PDO $pdo;
     private GroupRepository $groupRepo;
     private StorageLocationRepository $storageLocationRepo;
@@ -100,7 +106,7 @@ class PostMediaIntegrationTest extends TestCase
         $this->storageBackendFactory = new StorageBackendFactory($this->storageLocationRepo, $this->storagePath);
 
         $this->storageLocationRepo->create(
-            StorageLocation::TYPE_LOCAL, 'Stockage local', 'gallery', null, null, null, null, null, null, null
+            StorageLocationType::Local, 'Stockage local', new LocalLocationConfig('gallery'), null
         );
     }
 
@@ -111,21 +117,22 @@ class PostMediaIntegrationTest extends TestCase
         $settingService->method('get')->willReturnCallback(fn($key, $module, $default) => $default);
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
 
-        $storageLocationService = new StorageLocationService(
-            $this->storageLocationRepo, $albumRepository, $this->storageBackendFactory,
-            $settingService, new ObjectStorageSecretRepository($this->pdo, $encryption), $this->storagePath
-        );
+        $storageWiring = GalleryStorageWiring::build(
+                $this->pdo, $encryption, $settingService, $this->storagePath, $albumRepository
+            );
+        $storageLocationService = $storageWiring->locationService;
+        $this->galleryLocationService = $storageWiring->galleryLocations;
         $accessService = $this->createMock(GalleryAccessService::class);
         $uploadHandler = new UploadHandler($this->fileRepo, $this->storagePath);
         $mediaService = new MediaService(
             $this->mediaRepo, $albumRepository, $uploadHandler, $this->createMock(\Core\Scheduler\SchedulerService::class),
-            $settingService, $accessService, $this->storageBackendFactory, $storageLocationService,
+            $settingService, $accessService, $this->storageBackendFactory, $this->galleryLocationService,
             $this->createMock(FfmpegAvailability::class)
         );
 
         return new DelegatedAlbumService(
             $albumRepository, $this->mediaRepo, $mediaService, $this->storageLocationRepo,
-            $storageLocationService, $this->storageBackendFactory, new ScoutYearService($this->pdo)
+            $storageLocationService, $this->galleryLocationService, $this->storageBackendFactory, new ScoutYearService($this->pdo)
         );
     }
 
@@ -170,19 +177,19 @@ class PostMediaIntegrationTest extends TestCase
         $racingRepository = new class ($this->pdo) extends AlbumRepository {
             public function create(
                 string $type, string $title, ?string $subtitle, string $albumDate, ?int $sectionId,
-                int $scoutYearId, ?string $externalUrl, ?int $storageLocationId, int $createdBy,
+                int $scoutYearId, ?string $externalUrl, ?int $locationId, int $createdBy,
                 ?string $ownerType = null, ?int $ownerId = null
             ): int {
                 // Another member's post wins the race for the same
                 // group's first album, landing its own INSERT first.
                 parent::create(
                     $type, 'Compétiteur', $subtitle, $albumDate, $sectionId, $scoutYearId,
-                    $externalUrl, $storageLocationId, $createdBy, $ownerType, $ownerId
+                    $externalUrl, $locationId, $createdBy, $ownerType, $ownerId
                 );
 
                 return parent::create(
                     $type, $title, $subtitle, $albumDate, $sectionId, $scoutYearId,
-                    $externalUrl, $storageLocationId, $createdBy, $ownerType, $ownerId
+                    $externalUrl, $locationId, $createdBy, $ownerType, $ownerId
                 );
             }
         };
@@ -288,8 +295,9 @@ class PostMediaIntegrationTest extends TestCase
     public function testDeletingAPostRemovesStoredObjectsOnAnS3Location(): void
     {
         $s3LocationId = $this->storageLocationRepo->create(
-            StorageLocation::TYPE_S3, 'Bucket privé', null, 'custom', 'https://s3.example.com', 'eu',
-            'bucket', 'ak', null, 'sk'
+            StorageLocationType::ObjectStorage, 'Bucket privé', new ObjectStorageLocationConfig(
+                'https://s3.example.com', 'eu', 'bucket', 'ak', 'custom', null
+            ), 'sk'
         );
 
         $backend = $this->createMock(StorageBackendInterface::class);

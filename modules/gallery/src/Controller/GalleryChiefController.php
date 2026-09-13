@@ -19,12 +19,12 @@ use Core\Service\IntegerInput;
 use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\Media;
 use Modules\Gallery\Repository\MediaRepository;
-use Modules\Gallery\Repository\StorageLocationRepository;
+use Core\Storage\Location\StorageLocationRepository;
 use Modules\Gallery\Service\AlbumService;
 use Modules\Gallery\Service\GalleryAccessService;
 use Modules\Gallery\Api\GalleryException;
 use Modules\Gallery\Service\MediaService;
-use Modules\Gallery\Service\StorageLocationService;
+use Core\Storage\Location\StorageLocationService;
 use Core\Member\SectionService;
 use Twig\Environment;
 
@@ -101,7 +101,7 @@ class GalleryChiefController extends AbstractController
             $albumRows
         );
 
-        $this->storageLocationService->ensureLegacyLocationBackfilled();
+        $this->storageLocationService->ensureDefaultExists();
 
         return $this->render('@gallery/manage.html.twig', [
             'albums' => $albums,
@@ -534,7 +534,7 @@ class GalleryChiefController extends AbstractController
         // "the gallery is not available" during migration).
         $media = $album !== null && !$album->isMigrating() ? $this->mediaRepository->findByAlbumId($album->id) : [];
 
-        $this->storageLocationService->ensureLegacyLocationBackfilled();
+        $this->storageLocationService->ensureDefaultExists();
         $locations = $this->storageLocationRepository->findAll();
         $defaultLocation = $this->storageLocationRepository->findDefault();
 

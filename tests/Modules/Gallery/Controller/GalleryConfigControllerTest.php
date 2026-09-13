@@ -20,17 +20,16 @@ use Modules\Gallery\Controller\GalleryConfigController;
 use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\MediaRepository;
-use Modules\Gallery\Repository\ObjectStorageSecretRepository;
-use Modules\Gallery\Repository\StorageLocation;
-use Modules\Gallery\Repository\StorageLocationRepository;
+use Core\Storage\Location\StorageLocation;
+use Core\Storage\Location\StorageLocationRepository;
 use Modules\Gallery\Service\AlbumService;
 use Modules\Gallery\Service\FfmpegAvailability;
 use Modules\Gallery\Service\GalleryAccessService;
 use Modules\Gallery\Service\OgScraperService;
 use Modules\Gallery\Service\ObjectStorageErrorExplainerService;
 use Modules\Gallery\Service\ObjectStorageTestFailure;
-use Modules\Gallery\Service\Storage\StorageBackendFactory;
-use Modules\Gallery\Service\StorageLocationService;
+use Core\Storage\Location\Backend\StorageBackendFactory;
+use Core\Storage\Location\StorageLocationService;
 use Modules\LlmConnector\Api\LlmConnectorInterface;
 use Modules\LlmConnector\Api\LlmException;
 use Modules\LlmConnector\Api\LlmResponse;
@@ -40,6 +39,11 @@ use Tests\Modules\Gallery\GalleryTestHelper;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 use Twig\TwigFunction;
+use Modules\Gallery\Service\GalleryStorageWiring;
+use Core\Storage\Location\StorageLocationType;
+use Core\Storage\Location\Config\LocalLocationConfig;
+use Core\Storage\Location\Config\ObjectStorageLocationConfig;
+use Modules\Gallery\Service\GalleryLocationService;
 
 /**
  * @group database
@@ -47,6 +51,8 @@ use Twig\TwigFunction;
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class GalleryConfigControllerTest extends TestCase
 {
+    private GalleryLocationService $galleryLocationService;
+
     private \PDO $pdo;
     private GalleryConfigController $controller;
     private SettingService $settingService;
@@ -79,10 +85,11 @@ class GalleryConfigControllerTest extends TestCase
         $this->albumRepository = new AlbumRepository($this->pdo);
         $this->storageLocationRepository = new StorageLocationRepository($this->pdo, $encryption);
         $storageBackendFactory = new StorageBackendFactory($this->storageLocationRepository, sys_get_temp_dir());
-        $this->storageLocationService = new StorageLocationService(
-            $this->storageLocationRepository, $this->albumRepository, $storageBackendFactory,
-            $this->settingService, new ObjectStorageSecretRepository($this->pdo, $encryption), sys_get_temp_dir()
-        );
+        $storageWiring = GalleryStorageWiring::build(
+                $this->pdo, $encryption, $this->settingService, sys_get_temp_dir(), $this->albumRepository
+            );
+        $this->storageLocationService = $storageWiring->locationService;
+        $this->galleryLocationService = $storageWiring->galleryLocations;
         $ffmpegAvailability = $this->createMock(FfmpegAvailability::class);
         $ffmpegAvailability->method('check')->willReturn(false);
         $journalService = new JournalService(new JournalRepository($this->pdo));
@@ -94,7 +101,7 @@ class GalleryConfigControllerTest extends TestCase
         $this->albumService = new AlbumService(
             $this->albumRepository, new MediaRepository($this->pdo), $accessService,
             $this->createMock(OgScraperService::class), $storageBackendFactory, $this->storageLocationRepository,
-            $this->storageLocationService, new ScoutYearService($this->pdo), $this->settingService, $schedulerService,
+            $this->storageLocationService, $this->galleryLocationService, new ScoutYearService($this->pdo), $this->settingService, $schedulerService,
             $uploadHandler
         );
 
@@ -104,7 +111,7 @@ class GalleryConfigControllerTest extends TestCase
         $stmt->execute(['enc', 'idx']);
         $this->authorId = (int) $this->pdo->lastInsertId();
         $this->locationId = $this->storageLocationRepository->create(
-            StorageLocation::TYPE_LOCAL, 'Stockage local', 'gallery', null, null, null, null, null, null, null
+            StorageLocationType::Local, 'Stockage local', new LocalLocationConfig('gallery'), null
         );
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
@@ -129,7 +136,7 @@ class GalleryConfigControllerTest extends TestCase
 
         $this->controller = new GalleryConfigController(
             $this->twig, $this->settingService, $ffmpegAvailability, $journalService,
-            new ObjectStorageErrorExplainerService(), $this->storageLocationService, $this->storageLocationRepository,
+            new ObjectStorageErrorExplainerService(), $this->storageLocationService, $this->galleryLocationService, $this->storageLocationRepository,
             $this->albumService
         );
 
@@ -208,8 +215,9 @@ class GalleryConfigControllerTest extends TestCase
     public function testIndexShowsNoDiskSpaceForAnS3Location(): void
     {
         $this->storageLocationRepository->create(
-            StorageLocation::TYPE_S3, 'Bucket', null, 'custom',
-            'https://example.invalid', 'eu', 'bucket', 'access-key', null, 'secret'
+            StorageLocationType::ObjectStorage, 'Bucket', new ObjectStorageLocationConfig(
+                'https://example.invalid', 'eu', 'bucket', 'access-key', 'custom', null
+            ), 'secret'
         );
 
         $body = $this->controller->index(new Request('GET', '/config/gallery', [], [], [], []), [])->getBody();
@@ -223,7 +231,7 @@ class GalleryConfigControllerTest extends TestCase
 
         $locations = $this->storageLocationRepository->findAll();
         $this->assertCount(1, $locations);
-        $this->assertFalse($locations[0]->isS3());
+        $this->assertFalse($locations[0]->type === StorageLocationType::ObjectStorage);
     }
 
     public function testSaveRequiresCsrf(): void
@@ -344,7 +352,7 @@ class GalleryConfigControllerTest extends TestCase
         $controller = new GalleryConfigController(
             $this->twig, $this->settingService, $this->createMock(FfmpegAvailability::class),
             new JournalService(new JournalRepository($this->pdo)), new ObjectStorageErrorExplainerService($llmConnector),
-            $this->storageLocationService, $this->storageLocationRepository, $this->albumService
+            $this->storageLocationService, $this->galleryLocationService, $this->storageLocationRepository, $this->albumService
         );
 
         // The controller action's signature has no "secret_key" field at
@@ -384,7 +392,7 @@ class GalleryConfigControllerTest extends TestCase
         $controller = new GalleryConfigController(
             $this->twig, $this->settingService, $this->createMock(FfmpegAvailability::class),
             new JournalService(new JournalRepository($this->pdo)), new ObjectStorageErrorExplainerService($llmConnector),
-            $this->storageLocationService, $this->storageLocationRepository, $this->albumService
+            $this->storageLocationService, $this->galleryLocationService, $this->storageLocationRepository, $this->albumService
         );
 
         ObjectStorageTestFailure::forget();
@@ -412,7 +420,7 @@ class GalleryConfigControllerTest extends TestCase
         $controller = new GalleryConfigController(
             $this->twig, $this->settingService, $this->createMock(FfmpegAvailability::class),
             new JournalService(new JournalRepository($this->pdo)), new ObjectStorageErrorExplainerService($llmConnector),
-            $this->storageLocationService, $this->storageLocationRepository, $this->albumService
+            $this->storageLocationService, $this->galleryLocationService, $this->storageLocationRepository, $this->albumService
         );
 
         ObjectStorageTestFailure::remember('Connexion impossible : vérifiez vos identifiants.', 'SignatureDoesNotMatch');
@@ -432,7 +440,7 @@ class GalleryConfigControllerTest extends TestCase
         $controller = new GalleryConfigController(
             $this->twig, $this->settingService, $this->createMock(FfmpegAvailability::class),
             new JournalService(new JournalRepository($this->pdo)), new ObjectStorageErrorExplainerService($llmConnector),
-            $this->storageLocationService, $this->storageLocationRepository, $this->albumService
+            $this->storageLocationService, $this->galleryLocationService, $this->storageLocationRepository, $this->albumService
         );
 
         ObjectStorageTestFailure::remember('Connexion impossible.', 'AccessDenied');
@@ -458,7 +466,7 @@ class GalleryConfigControllerTest extends TestCase
     {
         $id = $this->createLocalAlbum();
         $targetId = $this->storageLocationRepository->create(
-            StorageLocation::TYPE_LOCAL, 'Autre emplacement', 'gallery2', null, null, null, null, null, null, null
+            StorageLocationType::Local, 'Autre emplacement', new LocalLocationConfig('gallery2'), null
         );
         $this->storageLocationRepository->recordCheckResult($targetId, true, null);
         $token = $this->csrfToken();
@@ -476,7 +484,7 @@ class GalleryConfigControllerTest extends TestCase
     {
         $id = $this->createLocalAlbum();
         $targetId = $this->storageLocationRepository->create(
-            StorageLocation::TYPE_LOCAL, 'Autre emplacement', 'gallery2', null, null, null, null, null, null, null
+            StorageLocationType::Local, 'Autre emplacement', new LocalLocationConfig('gallery2'), null
         );
         $this->storageLocationRepository->recordCheckResult($targetId, true, null);
         $this->albumRepository->startMigration($id, $targetId);
@@ -508,7 +516,7 @@ class GalleryConfigControllerTest extends TestCase
     {
         $id = $this->createLocalAlbum();
         $targetId = $this->storageLocationRepository->create(
-            StorageLocation::TYPE_LOCAL, 'Cassé', 'gallery2', null, null, null, null, null, null, null
+            StorageLocationType::Local, 'Cassé', new LocalLocationConfig('gallery2'), null
         );
         $this->storageLocationRepository->recordCheckResult($targetId, false, 'Dossier inaccessible.');
         $token = $this->csrfToken();
@@ -525,7 +533,7 @@ class GalleryConfigControllerTest extends TestCase
     {
         $id = $this->albumRepository->create(Album::TYPE_EXTERNAL, 'Externe', null, '2026-01-01', null, $this->scoutYearId, 'https://example.com', null, $this->authorId);
         $targetId = $this->storageLocationRepository->create(
-            StorageLocation::TYPE_LOCAL, 'Autre emplacement', 'gallery2', null, null, null, null, null, null, null
+            StorageLocationType::Local, 'Autre emplacement', new LocalLocationConfig('gallery2'), null
         );
         $this->storageLocationRepository->recordCheckResult($targetId, true, null);
         $token = $this->csrfToken();
@@ -645,8 +653,9 @@ class GalleryConfigControllerTest extends TestCase
     public function testTestConnectionFallsBackToTheStoredSecretWhenTheFieldIsBlank(): void
     {
         $locationId = $this->storageLocationRepository->create(
-            StorageLocation::TYPE_S3, 'Bucket', null, 'custom',
-            'http://127.0.0.1:1', 'eu', 'bucket', 'access-key', null, 'stored-secret'
+            StorageLocationType::ObjectStorage, 'Bucket', new ObjectStorageLocationConfig(
+                'http://127.0.0.1:1', 'eu', 'bucket', 'access-key', 'custom', null
+            ), 'stored-secret'
         );
 
         $response = $this->controller->testConnection($this->jsonRequest([
@@ -684,7 +693,7 @@ class GalleryConfigControllerTest extends TestCase
         $controller = new GalleryConfigController(
             $this->twig, $settingService, $this->createMock(FfmpegAvailability::class),
             new JournalService(new JournalRepository($this->pdo)), new ObjectStorageErrorExplainerService(),
-            $this->storageLocationService, $this->storageLocationRepository, $this->albumService
+            $this->storageLocationService, $this->galleryLocationService, $this->storageLocationRepository, $this->albumService
         );
 
         $response = $controller->save(new Request('POST', '/config/gallery', [], [
@@ -728,7 +737,7 @@ class GalleryConfigControllerTest extends TestCase
     public function testTheDeleteButtonOfAReferencedLocationRendersRealAttributes(): void
     {
         $locationId = $this->storageLocationRepository->create(
-            StorageLocation::TYPE_LOCAL, 'Utilisé', 'gallery-used', null, null, null, null, null, null, null
+            StorageLocationType::Local, 'Utilisé', new LocalLocationConfig('gallery-used'), null
         );
         $this->albumRepository->create(
             Album::TYPE_LOCAL, 'Camp', null, '2026-01-01', null, $this->scoutYearId, null, $locationId, $this->authorId

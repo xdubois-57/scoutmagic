@@ -2,9 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Tests\Modules\Gallery\Service\Storage;
+namespace Tests\Core\Storage\Location\Backend;
 
-use Modules\Gallery\Service\Storage\LocalStorageBackend;
+use Core\Storage\Location\Backend\LocalStorageBackend;
+use Core\Storage\Location\StorageCapabilities;
+use Core\Storage\Location\StorageCapability;
+use Core\Storage\Location\UnsupportedCapabilityException;
 use PHPUnit\Framework\TestCase;
 
 class LocalStorageBackendTest extends TestCase
@@ -14,8 +17,8 @@ class LocalStorageBackendTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->storagePath = sys_get_temp_dir() . '/gallery_test_' . uniqid();
-        $this->backend = new LocalStorageBackend($this->storagePath, 'gallery');
+        $this->storagePath = sys_get_temp_dir() . '/storage_location_test_' . uniqid();
+        $this->backend = new LocalStorageBackend($this->storagePath . '/gallery');
     }
 
     protected function tearDown(): void
@@ -175,5 +178,125 @@ class LocalStorageBackendTest extends TestCase
         $this->backend->put('9/./thumb_1.jpg', 'ok', 'image/jpeg');
 
         $this->assertSame('ok', $this->backend->get('9/thumb_1.jpg'));
+    }
+
+    public function testItDeclaresRangeReadingAndServerSideCopyAndNothingElse(): void
+    {
+        $this->assertSame(
+            [StorageCapability::RangeRead, StorageCapability::ServerSideCopy],
+            $this->backend->capabilities()
+        );
+        $this->assertTrue($this->backend->supports(StorageCapability::RangeRead));
+        // Not signed URLs: the local disk hands a visitor nothing, which
+        // is why directUrl() answers null and the consumer serves the
+        // bytes through its own access-controlled route.
+        $this->assertFalse($this->backend->supports(StorageCapability::SignedUrl));
+        $this->assertFalse($this->backend->supports(StorageCapability::Quota));
+    }
+
+    public function testAnAbsentCapabilityIsRefusedWithAFrenchSentenceRatherThanAMissingMethod(): void
+    {
+        $this->expectException(UnsupportedCapabilityException::class);
+        $this->expectExceptionMessage("L'emplacement « Disque du serveur » ne sait pas reprendre un envoi interrompu.");
+
+        StorageCapabilities::require(
+            $this->backend,
+            StorageCapability::ResumableUpload,
+            'Disque du serveur'
+        );
+    }
+
+    public function testRequiringACapabilityTheBackendHasPassesSilently(): void
+    {
+        StorageCapabilities::require($this->backend, StorageCapability::RangeRead, 'Disque du serveur');
+
+        $this->expectNotToPerformAssertions();
+    }
+
+    public function testNoUrlIsServedDirectlyByTheDisk(): void
+    {
+        $this->backend->put('1/thumb.jpg', 'x', 'image/jpeg');
+
+        $this->assertNull($this->backend->directUrl('1/thumb.jpg'));
+        $this->assertNull($this->backend->stableDirectUrl('1/thumb.jpg'));
+    }
+
+    public function testDeletingAKeyThatIsNotThereSucceeds(): void
+    {
+        // Every mechanism that deletes derives its keys from something
+        // that can be older than the storage — an inventory, a database
+        // restored to last week — so « already gone » is the ordinary
+        // case and the desired end state either way.
+        $this->backend->delete('1/never-existed.jpg');
+
+        $this->assertFalse($this->backend->exists('1/never-existed.jpg'));
+    }
+
+    public function testCopyDuplicatesWithinTheLocation(): void
+    {
+        $this->backend->put('1/med.jpg', 'bytes', 'image/jpeg');
+
+        $this->backend->copy('1/med.jpg', '2/med.jpg');
+
+        $this->assertSame('bytes', $this->backend->get('2/med.jpg'));
+        $this->assertSame('bytes', $this->backend->get('1/med.jpg'));
+    }
+
+    public function testListReturnsTheFilesUnderAPrefixWithTheirSizes(): void
+    {
+        $this->backend->put('7/thumb.jpg', 'abc', 'image/jpeg');
+        $this->backend->put('7/med.jpg', 'abcdef', 'image/jpeg');
+        $this->backend->put('8/other.jpg', 'x', 'image/jpeg');
+
+        $listing = $this->backend->list('7');
+
+        $this->assertTrue($listing->isComplete());
+        $this->assertSame(['7/med.jpg', '7/thumb.jpg'], array_map(fn($o) => $o->key, $listing->objects));
+        $this->assertSame([6, 3], array_map(fn($o) => $o->sizeBytes, $listing->objects));
+        // A filesystem announces no checksum: a caller that wants one has
+        // the file in front of it.
+        $this->assertNull($listing->objects[0]->announcedChecksum);
+    }
+
+    public function testListPagesWithACursorThatResumesExactlyWhereItStopped(): void
+    {
+        foreach (['a', 'b', 'c', 'd'] as $name) {
+            $this->backend->put("9/{$name}.jpg", $name, 'image/jpeg');
+        }
+
+        $first = $this->backend->list('9', null, 2);
+        $this->assertSame(['9/a.jpg', '9/b.jpg'], array_map(fn($o) => $o->key, $first->objects));
+        $this->assertFalse($first->isComplete());
+
+        $second = $this->backend->list('9', $first->cursor, 2);
+        $this->assertSame(['9/c.jpg', '9/d.jpg'], array_map(fn($o) => $o->key, $second->objects));
+        $this->assertTrue($second->isComplete());
+    }
+
+    public function testListOfAMissingPrefixIsEmptyRatherThanAnError(): void
+    {
+        $listing = $this->backend->list('does-not-exist');
+
+        $this->assertSame([], $listing->objects);
+        $this->assertTrue($listing->isComplete());
+    }
+
+    public function testTheConnectionTestWritesReadsAndRemovesAWitness(): void
+    {
+        $this->assertNull($this->backend->testConnection());
+
+        // Nothing is left behind — a stray witness file would eventually
+        // be taken for real content.
+        $this->assertSame([], $this->backend->list('')->objects);
+    }
+
+    public function testTheConnectionTestNamesTheProblemInFrenchWhenTheFolderCannotExist(): void
+    {
+        $backend = new LocalStorageBackend('/proc/self/cmdline/impossible');
+
+        $error = $backend->testConnection();
+
+        $this->assertNotNull($error);
+        $this->assertStringContainsString('dossier', $error);
     }
 }

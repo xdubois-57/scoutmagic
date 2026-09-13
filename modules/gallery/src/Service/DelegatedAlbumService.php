@@ -9,6 +9,12 @@ declare(strict_types=1);
 namespace Modules\Gallery\Service;
 
 use Core\Config\ScoutYearService;
+use Core\Storage\Location\Backend\StorageBackendFactory;
+use Core\Storage\Location\Backend\ServerSideCopyBackend;
+use Core\Storage\Location\Backend\StorageBackendInterface;
+use Core\Storage\Location\StorageLocation;
+use Core\Storage\Location\StorageLocationRepository;
+use Core\Storage\Location\StorageLocationService;
 use Modules\Gallery\Api\DelegatedAlbum;
 use Modules\Gallery\Api\DelegatedAlbumManager;
 use Modules\Gallery\Api\DelegatedMedia;
@@ -17,9 +23,6 @@ use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\Media;
 use Modules\Gallery\Repository\MediaRepository;
-use Modules\Gallery\Repository\StorageLocationRepository;
-use Modules\Gallery\Service\Storage\StorageBackendFactory;
-use Modules\Gallery\Service\Storage\StorageBackendInterface;
 
 /**
  * The concrete implementation behind Api\DelegatedAlbumManager — a thin
@@ -41,6 +44,7 @@ class DelegatedAlbumService implements DelegatedAlbumManager
         private MediaService $mediaService,
         private StorageLocationRepository $storageLocationRepository,
         private StorageLocationService $storageLocationService,
+        private GalleryLocationService $galleryLocationService,
         private StorageBackendFactory $storageBackendFactory,
         private ScoutYearService $scoutYearService
     ) {
@@ -52,7 +56,7 @@ class DelegatedAlbumService implements DelegatedAlbumManager
         string $title,
         string $albumDate,
         int $createdBy,
-        ?int $storageLocationId = null
+        ?int $locationId = null
     ): DelegatedAlbum {
         $existing = $this->albumRepository->findByOwner($ownerType, $ownerId);
         if ($existing !== null) {
@@ -63,17 +67,17 @@ class DelegatedAlbumService implements DelegatedAlbumManager
         // self-healing as an ordinary local album (Service\AlbumService::
         // create()) — a fresh/upgraded install always ends up with at
         // least one location once this has run.
-        $this->storageLocationService->ensureLegacyLocationBackfilled();
-        $location = $storageLocationId !== null
-            ? $this->storageLocationRepository->findById($storageLocationId)
+        $this->storageLocationService->ensureDefaultExists();
+        $location = $locationId !== null
+            ? $this->storageLocationRepository->findById($locationId)
             : $this->storageLocationRepository->findDefault();
         if ($location === null) {
             throw new GalleryException('Aucun emplacement de stockage disponible pour héberger cet album.');
         }
-        if ($location->s3PublicUrl !== null && $location->s3PublicUrl !== '') {
-            // The one storage restriction on a delegated album: a public-
-            // prefix S3 location serves objects straight from that public
-            // URL, so a presigned URL changes nothing — the media would be
+        if ($location->servesPubliclyWithoutExpiry()) {
+            // The one storage restriction on a delegated album: a location
+            // that serves objects from a permanent public URL makes a
+            // short-lived grant meaningless — the media would be
             // world-readable by anyone with the link, defeating the whole
             // point of delegated access control.
             throw new GalleryException(
@@ -167,8 +171,8 @@ class DelegatedAlbumService implements DelegatedAlbumManager
         // media landing in an album on another location would look for its
         // bytes on a backend that never held them. Refused rather than
         // silently half-done.
-        $fromLocation = $this->storageLocationService->resolveLocationForAlbum($from);
-        $toLocation = $this->storageLocationService->resolveLocationForAlbum($to);
+        $fromLocation = $this->galleryLocationService->resolveLocationForAlbum($from);
+        $toLocation = $this->galleryLocationService->resolveLocationForAlbum($to);
         if ($fromLocation === null || $toLocation === null || $fromLocation->id !== $toLocation->id) {
             throw new GalleryException(
                 'Ces deux albums ne sont pas hébergés sur le même emplacement de stockage : '
@@ -225,7 +229,7 @@ class DelegatedAlbumService implements DelegatedAlbumManager
         // DB cascade removes gallery_media rows on its own (schema.sql's
         // ON DELETE CASCADE), but never touches the storage backend — that
         // cleanup is explicit here, same as Service\AlbumService::delete().
-        $location = $this->storageLocationService->resolveLocationForAlbum($album);
+        $location = $this->galleryLocationService->resolveLocationForAlbum($album);
         if ($location !== null) {
             $this->storageBackendFactory->create($location)->deletePrefix((string) $albumId);
         }
@@ -281,6 +285,17 @@ class DelegatedAlbumService implements DelegatedAlbumManager
         }
 
         $newPath = $toAlbumId . '/' . substr($path, strlen($prefix));
+        // The caller has already refused the cross-location case, so this
+        // is always one backend copying inside itself. Whether it can do
+        // that without the bytes passing through PHP is a declared
+        // capability; a backend without it is refused here with a French
+        // sentence rather than dying on a missing method three frames
+        // down.
+        if (!$backend instanceof ServerSideCopyBackend) {
+            throw new GalleryException(
+                "L'emplacement de stockage de cet album ne sait pas déplacer un fichier en interne."
+            );
+        }
         $backend->copy($path, $newPath);
         $movedKeys[] = $path;
 

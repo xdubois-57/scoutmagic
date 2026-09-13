@@ -6,27 +6,13 @@ namespace Tests\Modules\Gallery;
 
 class GalleryTestHelper
 {
+    /**
+     * The gallery's own tables. `storage_locations` is NOT among them —
+     * it is core's, created by Tests\DatabaseTestHelper, because the
+     * gallery is one consumer of it rather than its owner.
+     */
     public static function createTables(\PDO $pdo): void
     {
-        $pdo->exec('CREATE TABLE gallery_storage_locations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            type TEXT NOT NULL,
-            label TEXT NOT NULL,
-            is_default INTEGER NOT NULL DEFAULT 0,
-            subdir TEXT NULL,
-            s3_provider TEXT NULL,
-            s3_endpoint TEXT NULL,
-            s3_region TEXT NULL,
-            s3_bucket TEXT NULL,
-            s3_access_key TEXT NULL,
-            s3_public_url TEXT NULL,
-            secret_key_encrypted BLOB NULL,
-            last_checked_at TEXT NULL,
-            last_check_ok INTEGER NULL,
-            last_check_error TEXT NULL,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )');
-
         $pdo->exec('CREATE TABLE gallery_albums (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             type TEXT NOT NULL,
@@ -41,19 +27,19 @@ class GalleryTestHelper
             og_description TEXT NULL,
             og_image_url TEXT NULL,
             og_image_file_id INTEGER NULL,
-            storage_location_id INTEGER NULL,
+            location_id INTEGER NULL,
             owner_type TEXT NULL,
             owner_id INTEGER NULL,
             migration_status TEXT NOT NULL DEFAULT "none",
-            migration_target_location_id INTEGER NULL,
+            migration_target_id INTEGER NULL,
             migration_error TEXT NULL,
             created_by INTEGER NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (section_id) REFERENCES sections(id),
             FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
             FOREIGN KEY (created_by) REFERENCES user_accounts(id),
-            FOREIGN KEY (storage_location_id) REFERENCES gallery_storage_locations(id),
-            FOREIGN KEY (migration_target_location_id) REFERENCES gallery_storage_locations(id),
+            FOREIGN KEY (location_id) REFERENCES storage_locations(id),
+            FOREIGN KEY (migration_target_id) REFERENCES storage_locations(id),
             FOREIGN KEY (og_image_file_id) REFERENCES files(id),
             UNIQUE (owner_type, owner_id)
         )');
@@ -75,12 +61,6 @@ class GalleryTestHelper
             original_filename TEXT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (album_id) REFERENCES gallery_albums(id)
-        )');
-
-        $pdo->exec('CREATE TABLE gallery_s3_secret (
-            id INTEGER PRIMARY KEY,
-            secret_key_encrypted BLOB NULL,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )');
 
         $pdo->exec('CREATE TABLE gallery_link_preview_cache (
