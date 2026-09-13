@@ -1,0 +1,93 @@
+{% extends 'base.html.twig' %}
+{% block title %}Courrier sortant — {{ site_name }}{% endblock %}
+{% block content %}
+{% include 'partials/page_header.html.twig' with {
+    title: 'Courrier sortant',
+    subtitle: "Par où partent les messages du site. Un seul relais suffit pour commencer ; un deuxième est ce qui évite que tout s'arrête quand le premier tombe ou atteint son quota.",
+    action_label: 'Ajouter un fournisseur',
+    action_url: '/config/courrier-sortant/fournisseurs/nouveau',
+} only %}
+
+{% include 'config/outbound_mail/_nav.html.twig' %}
+
+{% for provider in providers %}
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+                <div>
+                    <h2 class="h5 mb-0">
+                        {{ provider.name }}
+                        {% if provider.is_local %}
+                            <span class="badge text-bg-secondary align-middle">Toujours présent</span>
+                        {% endif %}
+                    </h2>
+                    <div class="small text-body-secondary">{{ provider.host }}</div>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <a href="/config/courrier-sortant/fournisseurs/{{ provider.id }}"
+                       class="btn btn-sm btn-outline-secondary">
+                        <i class="bi bi-pencil" aria-hidden="true"></i>
+                        {{ provider.is_local ? 'Régler la cadence' : 'Modifier' }}
+                    </a>
+                    {% if not provider.is_local %}
+                        <form method="post"
+                              action="/config/courrier-sortant/fournisseurs/{{ provider.id }}/suppression"
+                              data-confirm="Supprimer {{ provider.name }} ? Les messages partiront par le fournisseur suivant de chaque voie."
+                              class="d-inline">
+                            {{ csrf_field()|raw }}
+                            <button type="submit" class="btn btn-sm btn-outline-danger" aria-label="Supprimer {{ provider.name }}" title="Supprimer">
+                                <i class="bi bi-trash" aria-hidden="true"></i>
+                            </button>
+                        </form>
+                    {% endif %}
+                </div>
+            </div>
+
+            {% if provider.daily_quota is not null %}
+                {% set used_ratio = provider.daily_quota > 0 ? (provider.used_today / provider.daily_quota * 100)|round : 0 %}
+                <div class="progress mt-3" role="progressbar"
+                     aria-label="Quota utilisé aujourd'hui"
+                     aria-valuenow="{{ provider.used_today }}" aria-valuemin="0" aria-valuemax="{{ provider.daily_quota }}"
+                     style="height: .5rem;">
+                    <div class="progress-bar" style="width: {{ min(used_ratio, 100) }}%;"></div>
+                </div>
+                <p class="small text-body-secondary mt-1 mb-0">
+                    {{ provider.used_today }} / {{ provider.daily_quota }} aujourd'hui
+                </p>
+            {% elseif provider.is_local %}
+                <div class="alert alert-warning small mt-3 mb-0">
+                    Aucun quota journalier connu. Les messages partent directement depuis le serveur, sans relais :
+                    la délivrabilité dépend de la réputation de son adresse IP, et beaucoup d'hébergeurs bloquent
+                    le port 25 sortant. À garder en dernier recours.
+                </div>
+            {% else %}
+                <p class="small text-body-secondary mt-3 mb-0">
+                    {{ provider.used_today }} message{{ provider.used_today > 1 ? 's' : '' }} aujourd'hui —
+                    aucun quota journalier déclaré pour ce fournisseur.
+                </p>
+            {% endif %}
+
+            {% if not provider.configured %}
+                <div class="alert alert-warning small mt-3 mb-0">
+                    Ce fournisseur n'a pas de serveur SMTP renseigné : les voies où il est actif l'ignorent
+                    et passent au suivant.
+                </div>
+            {% endif %}
+
+            <div class="mt-3 d-flex flex-wrap gap-1">
+                {% for lane in provider.lanes %}
+                    <span class="badge text-bg-light border">{{ lane }}</span>
+                {% else %}
+                    <span class="badge text-bg-light border">Actif dans aucune voie</span>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+{% endfor %}
+
+<p class="text-body-secondary small">
+    Un fournisseur ajouté arrive en bas des trois listes, désactivé partout : il n'est utilisé nulle part
+    tant que vous ne l'avez pas activé dans une voie, depuis
+    <a href="{{ routing_url }}">Acheminement</a>.
+</p>
+{% endblock %}

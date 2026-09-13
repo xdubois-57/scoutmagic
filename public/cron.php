@@ -244,9 +244,30 @@ $installationProfile = \Core\Module\InstallationProfile::resolve(
     (string) ($settingService->get('statistics_destination') ?? '')
 );
 
-$mailService = MailServiceFactory::create(
-    $secrets,
-    $dkimManager,
+// **La chaîne de fournisseurs vaut ici aussi** (Core\Mail\Transport,
+// ARCHITECTURE.md §8.106) — et pour la même raison que le bac à sable
+// ci-dessus : la moitié du courrier du site part d'une tâche planifiée,
+// publipostage compris, qui est précisément la voie que ce chantier
+// existe pour paginer et faire basculer. Un `MailService` construit ici
+// sans chaîne enverrait tout par le relais historique, en ignorant les
+// quotas comme les replis.
+//
+// Le semis n'est PAS refait ici : `public/index.php` l'a posé, et une
+// passe de cron qui poserait des chaînes sur une installation dont
+// personne n'a encore ouvert une page écrirait une configuration que
+// personne n'a choisie. Une chaîne illisible laisse la chaîne rendre la
+// main au transport, ce qui est exactement la dégradation voulue.
+$providerConnections = new \Core\Mail\Transport\ProviderConnections($secrets);
+$mailProviderDirectory = new \Core\Mail\Transport\MailProviderDirectory(
+    new \Core\Mail\Transport\MailProviderRepository($pdo),
+    $providerConnections,
+    $settingService
+);
+$mailTransportChain = new \Core\Mail\Transport\MailTransportChain(
+    $mailProviderDirectory,
+    new \Core\Mail\Transport\LaneChainRepository($pdo),
+    new \Core\Mail\Transport\SendCounterRepository($pdo),
+    new \Core\Mail\Transport\TransportConfigurator($providerConnections),
     \Modules\TestTools\Mail\CaptureTransportFactory::forInstallation(
         $installationProfile,
         new ModuleRegistryRepository($pdo),
@@ -254,7 +275,14 @@ $mailService = MailServiceFactory::create(
         $pdo,
         $encryptionService,
         dirname(__DIR__) . '/storage'
-    ),
+    ) ?? new \Core\Mail\PhpMailerTransport(),
+    $journalService
+);
+
+$mailService = MailServiceFactory::create(
+    $secrets,
+    $dkimManager,
+    $mailTransportChain,
     $journalService
 );
 
@@ -406,7 +434,8 @@ scoutmagicBootstrapScheduler(
     $settingService,
     $userAccountRepo,
     dirname(__DIR__) . '/storage',
-    $notificationService
+    $notificationService,
+    $mailProviderDirectory
 );
 
 // Migrate the whole declared schema, before anything else runs.

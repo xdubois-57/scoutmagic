@@ -17,6 +17,7 @@ trouve être exécutable ailleurs.
 | `maquette-config-courrier-v2.jsx` | Courrier entrant transversal | `/config/courrier-entrant` — superadmin | IT-05 |
 | `maquette-courrier-entrant.jsx` | Courrier entrant transversal | `/courrier` — Chef d'Unité, et le composant de tri métier | IT-06, IT-07 |
 | `maquette-trombinoscope-pdf.jsx` | Trombinoscope imprimable | Le PDF A4 — page d'annuaire et page de section | IT-02, IT-03 |
+| `maquette-courrier-sortant.jsx` | Courrier sortant | `/config/courrier-sortant` — superadmin, les sept sous-pages | IT-01 à IT-07 |
 
 ## Le cas du trombinoscope imprimable
 

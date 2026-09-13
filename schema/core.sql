@@ -1492,3 +1492,95 @@ CREATE TABLE IF NOT EXISTS operational_alerts (
     last_notified_at DATETIME,
     last_reading VARCHAR(255)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------
+-- Outbound mail transport (Core\Mail\Transport, ARCHITECTURE.md §8.106).
+--
+-- The site used to know exactly one SMTP relay. When it stopped
+-- answering — or when a 400-recipient mailing had spent its daily quota
+-- — the magic links stopped with it, and nobody could sign in any more,
+-- including the super-admin who would have come to repair it. Three
+-- ordered chains of providers, one per delivery lane, are what removes
+-- that single point of failure.
+-- ---------------------------------------------------------------------
+
+-- One relay the site may send through.
+--
+-- **No connection detail is stored here.** Host, port, user and password
+-- all live in `secrets.enc` under this row's `secret_prefix`, read
+-- through Core\Mail\Transport\ProviderConnections: a credential in
+-- `settings` would render on Configuration > Réglages, greyed or not,
+-- and a credential in a table is one `SELECT` away from a support
+-- archive. The first provider of an installation carries the prefix
+-- `smtp`, which is to say the historic `smtp_host`/`smtp_port`/
+-- `smtp_user`/`smtp_password` keys the setup wizard has always written —
+-- so the wizard and the Fournisseurs page edit ONE storage and can never
+-- drift apart. Every later provider gets `mail_provider_<id>`.
+--
+-- The LOCAL send is deliberately NOT a row here. It is a permanent entry
+-- of all three chains (id 0 everywhere below), which is what makes
+-- « jamais supprimable » structural rather than a check somebody can
+-- forget: there is no row to delete. Its cadence is the two core
+-- settings `mail_local_batch_size`/`mail_local_batch_interval_minutes`,
+-- and it has no quota at all — nobody knows what a shared host accepts
+-- per day, and inventing a number would be a number nobody can set.
+CREATE TABLE IF NOT EXISTS mail_providers (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    secret_prefix VARCHAR(64) NOT NULL,
+    -- NULL means "no known daily ceiling", never "unlimited": the chain
+    -- simply never steps past this provider for a quota reason.
+    daily_quota INT UNSIGNED NULL,
+    -- The cadence, and it applies to the BULK lane only. Authentication
+    -- and transactional mail leaves immediately, under the quota alone —
+    -- a magic link waiting for the next slot of a mailing is not a magic
+    -- link, the token lives fifteen minutes.
+    batch_size INT UNSIGNED NOT NULL DEFAULT 50,
+    batch_interval_minutes INT UNSIGNED NOT NULL DEFAULT 10,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_mail_providers_secret_prefix (secret_prefix)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- One provider's position in one lane's fallback chain.
+--
+-- `provider_id` = 0 is the local send (see above). There is deliberately
+-- NO foreign key: 0 references nothing, and the same reasoning as
+-- §7.5's cross-module columns applies — a row pointing at a provider
+-- that no longer exists degrades to "skipped", never to a delete that
+-- fails.
+--
+-- Order is what the chain means: the first ENABLED entry is tried, then
+-- the next when it fails or has spent its quota. A lane may never be
+-- left with zero enabled entries — Core\Mail\Transport\TransportService
+-- refuses the toggle that would do it, because an empty authentication
+-- lane locks everybody out of the site.
+CREATE TABLE IF NOT EXISTS mail_lane_entries (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    lane VARCHAR(20) NOT NULL,
+    provider_id INT UNSIGNED NOT NULL DEFAULT 0,
+    position INT UNSIGNED NOT NULL DEFAULT 0,
+    is_enabled TINYINT(1) NOT NULL DEFAULT 1,
+    UNIQUE KEY uniq_mail_lane_entries_lane_provider (lane, provider_id),
+    INDEX idx_mail_lane_entries_lane_position (lane, position)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- How many messages each provider has sent today, per lane.
+--
+-- Per LANE and not only per provider, because two questions are asked of
+-- this table and only one of them is the quota. The quota is the sum over
+-- the lanes of one provider for one day; the reserve (IT-02) is the
+-- highest daily NON-BULK total of the last thirty days, which cannot be
+-- derived from a single figure per provider.
+--
+-- Counters are operational data with a short life: rows older than the
+-- history the reserve reads are dropped by
+-- Core\Mail\Transport\Task\PurgeSendCountersHandler.
+CREATE TABLE IF NOT EXISTS mail_send_counters (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    provider_id INT UNSIGNED NOT NULL DEFAULT 0,
+    count_date DATE NOT NULL,
+    lane VARCHAR(20) NOT NULL,
+    sent_count INT UNSIGNED NOT NULL DEFAULT 0,
+    UNIQUE KEY uniq_mail_send_counters_day (provider_id, count_date, lane),
+    INDEX idx_mail_send_counters_date (count_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

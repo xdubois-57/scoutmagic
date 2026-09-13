@@ -462,6 +462,34 @@ class CaptureTransportTest extends TestCase
         $this->assertFalse($email->delivered);
     }
 
+    /**
+     * The exemption is one CATEGORY, and a third category exists now.
+     *
+     * `MailPurpose::Bulk` arrived with the provider chain
+     * (ARCHITECTURE.md §8.106), which routes a message from the same
+     * enum. Nothing about that makes a publipostage exempt — it is
+     * precisely the thing an operator most wants to see captured before
+     * four hundred families receive it — so this pins that the exemption
+     * did not quietly widen when the enum did.
+     */
+    public function testAMailingIsCapturedEvenWithTheSignInExemptionArmed(): void
+    {
+        $passThrough = $this->recordingPassThrough();
+
+        $this->service(transport: $this->exemptingTransport($passThrough))->send(
+            to: 'famille@example.be',
+            subject: 'Infos camp',
+            bodyHtml: '<p>Le camp approche</p>',
+            bodyText: 'Le camp approche',
+            purpose: MailPurpose::Bulk
+        );
+
+        $this->assertSame(0, $passThrough->calls, 'Nothing left the server.');
+        $email = $this->repository->findPage(10, 0)[0];
+        $this->assertFalse($email->delivered);
+        $this->assertSame('[25SV] Infos camp', $email->subject);
+    }
+
     public function testTheExemptionLetsASignInLinkOutAndStillFilesIt(): void
     {
         $passThrough = $this->recordingPassThrough();

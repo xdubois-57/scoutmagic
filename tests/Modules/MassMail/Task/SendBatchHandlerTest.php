@@ -17,6 +17,13 @@ use Core\Notification\NotificationService;
 use Core\Notification\PushSubscriptionRepository;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
+use Core\Mail\Transport\BulkCadence;
+use Core\Mail\Transport\LaneChainRepository;
+use Core\Mail\Transport\MailLane;
+use Core\Mail\Transport\MailProviderDirectory;
+use Core\Mail\Transport\MailProviderRepository;
+use Core\Mail\Transport\ProviderConnections;
+use Core\Mail\Transport\SendCounterRepository;
 use Core\Scheduler\TaskContext;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
@@ -70,11 +77,30 @@ class SendBatchHandlerTest extends TestCase
             $this->recipientRepository->create($this->emailId, $this->memberId, $this->scoutYearId, "member{$i}@test.be", Recipient::STATUS_PENDING, null);
         }
 
-        $settingRepository = new SettingRepository($this->pdo);
-        $settingService = new SettingService($settingRepository);
-        $settingService->register('batch_size', '2', 'number', 'label', 'desc', 'mass_mail');
-        $settingService->register('batch_interval_minutes', '5', 'number', 'label', 'desc', 'mass_mail');
+        // How fast the mailing lane may go is a property of the relay
+        // carrying it, not a setting of this module any more (D6,
+        // ARCHITECTURE.md §8.106) — so the fixture is a provider on the
+        // « Masse » lane whose cadence is two messages every five
+        // minutes, which is exactly what the two removed settings used to
+        // say.
+        $providers = new MailProviderRepository($this->pdo);
+        $chains = new LaneChainRepository($this->pdo);
+        $providerId = $providers->create('Relais de test', null, 2, 5);
+        $chains->append(MailLane::Bulk, $providerId, true);
+        $this->bulkCadence = new BulkCadence(
+            new MailProviderDirectory(
+                $providers,
+                new ProviderConnections([
+                    ProviderConnections::prefixFor($providerId) . '_host' => 'smtp.test',
+                ]),
+                new SettingService(new SettingRepository($this->pdo))
+            ),
+            $chains,
+            new SendCounterRepository($this->pdo)
+        );
     }
+
+    private ?BulkCadence $bulkCadence = null;
 
     private function buildContext(MailService $mailService): TaskContext
     {
@@ -85,7 +111,10 @@ class SendBatchHandlerTest extends TestCase
             new JournalService(new JournalRepository($this->pdo)),
             new SettingService(new SettingRepository($this->pdo)),
             $this->userAccountRepository,
-            sys_get_temp_dir()
+            sys_get_temp_dir(),
+            null,
+            null,
+            $this->bulkCadence
         );
     }
 
@@ -99,7 +128,9 @@ class SendBatchHandlerTest extends TestCase
             new SettingService(new SettingRepository($this->pdo)),
             $this->userAccountRepository,
             sys_get_temp_dir(),
-            $notificationService
+            $notificationService,
+            null,
+            $this->bulkCadence
         );
     }
 
@@ -240,11 +271,15 @@ class SendBatchHandlerTest extends TestCase
             $journal,
             new SettingService(new SettingRepository($this->pdo)),
             $this->userAccountRepository,
-            sys_get_temp_dir()
+            sys_get_temp_dir(),
+            null,
+            null,
+            $this->bulkCadence
         ));
 
         $sent = array_values(array_filter($logged, fn(array $e) => $e['type'] === 'recipient_sent'));
-        // batch_size is 2 in setUp(), and this run sends that lot.
+        // The « Masse » lane's provider sends two per lot (setUp()), and
+        // this run sends that lot.
         $this->assertCount(2, $sent);
         foreach ($sent as $entry) {
             $this->assertSame('info', $entry['level']);

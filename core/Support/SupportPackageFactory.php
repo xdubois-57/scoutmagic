@@ -27,6 +27,7 @@ use Core\Support\Collector\PhpInfoCollector;
 use Core\Support\Collector\RequestTimelinesCollector;
 use Core\Support\Collector\ScheduledTasksCollector;
 use Core\Support\Collector\StatisticsCollector;
+use Core\Support\Collector\OutboundMailCollector;
 use Core\Support\Collector\UpdateHistoryCollector;
 use Core\Support\Collector\WebServerCollector;
 
@@ -79,6 +80,7 @@ final class SupportPackageFactory
             new CommandsCollector(),
             new BackgroundExecutionCollector(),
             new CronCadenceCollector(),
+            self::outboundMailCollector($context),
             new WebServerCollector(),
             new LogsCollector(),
         ];
@@ -113,9 +115,48 @@ final class SupportPackageFactory
             'commands',
             'background_execution',
             'cron_cadence',
+            'outbound_mail',
             'webserver',
             'logs',
         ];
+    }
+
+    /**
+     * The outbound chains, resolved (ARCHITECTURE.md §8.106).
+     *
+     * A provider's host and port live in `secrets.enc` beside its
+     * credentials, so resolving one means reading that file — which this
+     * factory already does, once, for the redaction needles. Nothing
+     * that comes back carries a password: `MailProvider` has no property
+     * for one, and only `TransportConfigurator` ever asks
+     * `ProviderConnections` for it.
+     */
+    private static function outboundMailCollector(TaskContext $context): OutboundMailCollector
+    {
+        $pdo = $context->connection->getPdo();
+        $secretManager = StatisticsServiceFactory::secretManager($context);
+
+        $secrets = [];
+        if ($secretManager->isInitialized()) {
+            try {
+                $secrets = $secretManager->readSecrets();
+            } catch (\Throwable) {
+                // Unreadable secrets mean hosts printed as « (vide) » —
+                // the chains, the order and the counters are still worth
+                // having, and a collector that threw would contribute
+                // nothing at all.
+                $secrets = [];
+            }
+        }
+
+        return new OutboundMailCollector(
+            new \Core\Mail\Transport\MailProviderDirectory(
+                new \Core\Mail\Transport\MailProviderRepository($pdo),
+                new \Core\Mail\Transport\ProviderConnections($secrets),
+                $context->settings
+            ),
+            new \Core\Mail\Transport\LaneChainRepository($pdo)
+        );
     }
 
     /**

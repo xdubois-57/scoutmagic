@@ -30,6 +30,19 @@ use PHPMailer\PHPMailer\PHPMailer;
  * off by default and the operator turns it on knowingly
  * (`mail_capture_deliver_magic_links`).
  *
+ * **A third purpose exists and is deliberately NOT exempted.**
+ * `MailPurpose::Bulk` was added for the provider chain
+ * (`Core\Mail\Transport`, ARCHITECTURE.md §8.106), which routes a
+ * message from the same enum. It changes nothing here, and that is the
+ * decision rather than an omission: the sandbox's whole value is
+ * answering « qu'est-ce que cette fonctionnalité a réellement envoyé ? »,
+ * and a publipostage to four hundred parents is the single thing an
+ * operator most wants captured before it leaves. The exemption stays
+ * what it was — the one category without which the tool deadlocks the
+ * installation it is testing — and `Tests\Modules\TestTools\
+ * CaptureTransportTest` pins that a `Bulk` message is captured even with
+ * the sign-in exemption armed.
+ *
  * There is still no whitelist of addresses that really go out and no
  * per-recipient exception, and there never will be: an operator who has to
  * reason about which half of the mail left the server has a tool that

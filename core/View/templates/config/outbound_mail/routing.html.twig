@@ -1,0 +1,66 @@
+{% extends 'base.html.twig' %}
+{% block title %}Acheminement — {{ site_name }}{% endblock %}
+{% block content %}
+{% include 'partials/page_header.html.twig' with {
+    title: 'Acheminement',
+    subtitle: "Pour chaque type de message, l'ordre de la liste donne la chaîne de repli : on essaie le premier actif, puis le suivant s'il échoue ou atteint son quota.",
+} only %}
+
+{% include 'config/outbound_mail/_nav.html.twig' %}
+
+{% for lane in lanes %}
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5 mb-0">{{ lane.label }}</h2>
+            <p class="small text-body-secondary">{{ lane.detail }}</p>
+
+            {% embed 'partials/list_editor.html.twig' with {
+                list_id: 'lane-' ~ lane.key,
+                items: lane.items,
+                reorder_url: '/config/courrier-sortant/acheminement/' ~ lane.key ~ '/ordre',
+                active_url: '/config/courrier-sortant/acheminement/' ~ lane.key ~ '/activation',
+                empty_label: 'Aucun fournisseur dans cette voie.',
+            } %}
+                {% block item_content %}
+                    <div>
+                        {% if item.rank is not null %}
+                            <span class="text-body-secondary small me-1">{{ item.rank }}.</span>
+                        {% endif %}
+                        <span class="{{ item.is_active ? '' : 'text-body-secondary' }}">{{ item.name }}</span>
+                        {% if item.is_local %}
+                            <span class="badge text-bg-secondary">Toujours présent</span>
+                        {% endif %}
+                        {% if item.discouraged %}
+                            <span class="badge text-bg-warning">Déconseillé ici</span>
+                        {% endif %}
+                        {% if not item.configured %}
+                            <span class="badge text-bg-warning">Sans serveur SMTP</span>
+                        {% endif %}
+                    </div>
+                    <div class="small text-body-secondary">{{ item.host }}</div>
+                {% endblock %}
+            {% endembed %}
+        </div>
+    </div>
+{% endfor %}
+
+<div class="card mb-3">
+    <div class="card-body small text-body-secondary">
+        <p>
+            Désactiver un fournisseur dans la voie « Masse » est ce qui empêche un publipostage de consommer
+            le quota dont dépendent les liens de connexion. L'envoi local reste en dernier recours partout ;
+            il ne peut pas être retiré, seulement désactivé.
+        </p>
+        <p class="mb-0">
+            Quand une voie bascule sur le fournisseur suivant — échec ou quota atteint — elle adopte
+            <strong>sa</strong> cadence et <strong>son</strong> quota, jamais ceux du précédent. Et une voie
+            garde toujours au moins un fournisseur actif : sans elle, la voie « Authentification » laisserait
+            tout le monde à la porte du site, y compris vous.
+        </p>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ asset('/assets/js/sortable.js') }}" defer></script>
+<script src="{{ asset('/assets/js/list-editor.js') }}" defer></script>
+{% endblock %}

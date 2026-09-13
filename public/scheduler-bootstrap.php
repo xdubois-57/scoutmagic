@@ -72,7 +72,19 @@ function scoutmagicBootstrapScheduler(
     \Core\Config\SettingService $settingService,
     \Core\Security\UserAccountRepository $userAccountRepo,
     string $storagePath,
-    ?\Core\Notification\NotificationService $notificationService
+    ?\Core\Notification\NotificationService $notificationService,
+    /**
+     * The resolved outbound providers (Core\Mail\Transport). Both entry
+     * points already build one for their own MailService; handing that
+     * same object over is what lets a scheduled mailing pace itself on
+     * the relay it is actually going through, rather than on a setting
+     * that could not express a fallback (ARCHITECTURE.md §8.106).
+     *
+     * Nullable so a caller that predates this — a test harness — still
+     * wires a context, in which case the mailing falls back to the local
+     * send's prudent cadence.
+     */
+    ?\Core\Mail\Transport\MailProviderDirectory $mailProviderDirectory = null
 ): \Core\Scheduler\TaskContext {
     $pdo = $connection->getPdo();
 
@@ -229,7 +241,12 @@ function scoutmagicBootstrapScheduler(
         $userAccountRepo,
         $storagePath,
         $notificationService,
-        $capabilities
+        $capabilities,
+        $mailProviderDirectory === null ? null : new \Core\Mail\Transport\BulkCadence(
+            $mailProviderDirectory,
+            new \Core\Mail\Transport\LaneChainRepository($pdo),
+            new \Core\Mail\Transport\SendCounterRepository($pdo)
+        )
     );
     $runner->setModuleManager($moduleManager);
     $runner->setTaskContext($context);

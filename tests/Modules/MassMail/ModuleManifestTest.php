@@ -91,15 +91,27 @@ class ModuleManifestTest extends TestCase
      * Configuration > Réglages already edits them — the module's own
      * duplicate editor (POST /config/mass-mail/settings) is gone, and the
      * settings themselves must survive that removal.
+     *
+     * **Two of them left, and that is the point of the first assertion
+     * below.** `batch_size` and `batch_interval_minutes` described how
+     * fast a RELAY may be written to, which is a property of the relay
+     * and not of this module (D6): they are now a column of
+     * `mail_providers`, read back through
+     * `Core\Mail\Transport\BulkCadence`, so a lane that falls back to
+     * its next provider adopts that one's pace — something a single
+     * global number could not express at all. The manifest version was
+     * bumped in the same change, which is what makes
+     * `SettingService::pruneUndeclared()` remove the two rows from every
+     * installation that already had them (§7.3).
      */
     public function testTheSendingSettingsSurviveTheRemovalOfTheirOwnForm(): void
     {
         $keys = array_map(fn(array $s) => $s['key'], $this->manifest->settings);
 
+        $this->assertNotContains('batch_size', $keys);
+        $this->assertNotContains('batch_interval_minutes', $keys);
         $this->assertSame(
             [
-                'batch_size',
-                'batch_interval_minutes',
                 'merge_retention_months',
                 'former_members_min_scout_years',
                 'former_members_max_years_since_departure',

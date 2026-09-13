@@ -27,7 +27,23 @@ class TaskContext
         public readonly UserAccountRepository $userAccounts,
         public readonly string $storagePath,
         public readonly ?NotificationService $notifications = null,
-        private readonly ?TaskCapabilities $capabilities = null
+        private readonly ?TaskCapabilities $capabilities = null,
+        /**
+         * How fast the mailing lane may go right now
+         * (Core\Mail\Transport\BulkCadence, ARCHITECTURE.md §8.106).
+         *
+         * Nullable for the same reason `$notifications` is: a test
+         * double builds a context without one, and a handler must
+         * degrade rather than fatal. It carries numbers and a provider's
+         * name — never a credential; a relay's password is read in one
+         * place, `TransportConfigurator`, and is on no object that
+         * reaches a handler.
+         *
+         * On the context rather than rebuilt by each handler because a
+         * handler is auto-resolved with `new $class()` and receives only
+         * this object — the same reason `MailService` is here.
+         */
+        public readonly ?\Core\Mail\Transport\BulkCadence $bulkCadence = null
     ) {
     }
 

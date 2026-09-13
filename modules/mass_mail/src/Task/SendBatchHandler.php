@@ -28,18 +28,29 @@ use Modules\MassMail\Service\MergeRenderer;
 /**
  * The one and only task type mass_mail ever schedules (module spec —
  * explicitly never one job per recipient). Each run pulls the oldest
- * `batch_size` 'pending' recipients across every email combined (FIFO,
+ * pending recipients across every email combined (FIFO,
  * Repository\RecipientRepository::findOldestPending()), sends each via
  * Core\Mail\MailService, and — as long as any 'pending' row remains
- * anywhere — reschedules itself `batch_interval_minutes` later. Both
- * settings are GLOBAL (module spec), never per-email.
+ * anywhere — reschedules itself.
+ *
+ * **How big a lot is, and how long to wait after it, is no longer this
+ * module's to decide.** Those were two of its own settings; they are now
+ * read off whichever provider the mailing lane would actually use
+ * (`Core\Mail\Transport\BulkCadence`, ARCHITECTURE.md §8.106). The
+ * reason is D6: a cadence describes what a RELAY accepts, so it belongs
+ * to the relay — and when the lane falls back to the next provider it
+ * adopts that one's cadence, which a module-level setting could never
+ * express. Nothing was migrated (D14): the old values were a global
+ * number nobody had tuned, and a carried-over number nobody chose is
+ * worse than a default whose reasoning is written down.
+ *
+ * Every copy is sent under `MailPurpose::Bulk`, which is what puts it on
+ * the mailing lane in the first place. It is stated here and nowhere
+ * else: a transport cannot tell a mailing from a notification by looking
+ * at the message.
  */
 class SendBatchHandler implements TaskHandlerInterface
 {
-    private const SETTING_BATCH_SIZE = 'batch_size';
-    private const SETTING_BATCH_INTERVAL_MINUTES = 'batch_interval_minutes';
-    private const DEFAULT_BATCH_SIZE = 20;
-    private const DEFAULT_BATCH_INTERVAL_MINUTES = 5;
 
     /**
      * @param array<string, mixed> $payload
@@ -56,14 +67,8 @@ class SendBatchHandler implements TaskHandlerInterface
         $mergeRenderer = new MergeRenderer();
         $massMailService = $this->buildMassMailService($context);
 
-        $batchSize = (int) $context->settings->get(
-            self::SETTING_BATCH_SIZE,
-            'mass_mail',
-            (string) self::DEFAULT_BATCH_SIZE
-        );
-        if ($batchSize <= 0) {
-            $batchSize = self::DEFAULT_BATCH_SIZE;
-        }
+        $cadence = $this->cadence($context);
+        $batchSize = $cadence['batch_size'];
 
         $batch = $recipientRepository->findOldestPending($batchSize);
 
@@ -180,7 +185,8 @@ class SendBatchHandler implements TaskHandlerInterface
                     [
                         'List-Unsubscribe' => '<' . $unsubscribeUrl . '>',
                         'List-Unsubscribe-Post' => 'List-Unsubscribe=One-Click',
-                    ]
+                    ],
+                    \Core\Mail\MailPurpose::Bulk
                 );
                 $recipientRepository->recordSendSuccess($recipient->id);
                 // One line per copy that actually left — see
@@ -333,20 +339,39 @@ class SendBatchHandler implements TaskHandlerInterface
         return 'Un email personnalisé vous a été envoyé.';
     }
 
+    /**
+     * How fast the mailing lane may go right now — read off the provider
+     * it would actually use (D6, D7).
+     *
+     * It comes from the TaskContext rather than being rebuilt here,
+     * because resolving a provider means reading `secrets.enc` and a task
+     * handler is auto-resolved with `new $class()`: the shared scheduler
+     * bootstrap is the one place that can compose it, exactly as it
+     * composes `MailService`. A context without one — a narrow test
+     * double — falls back to the local send's prudent default rather
+     * than stopping the mailing.
+     *
+     * @return array{batch_size: int, interval_minutes: int}
+     */
+    private function cadence(TaskContext $context): array
+    {
+        return $context->bulkCadence?->current() ?? [
+            'batch_size' => \Core\Mail\Transport\MailProviderDirectory::DEFAULT_LOCAL_BATCH_SIZE,
+            'interval_minutes' => \Core\Mail\Transport\MailProviderDirectory::DEFAULT_LOCAL_BATCH_INTERVAL,
+        ];
+    }
+
     private function rescheduleIfPendingRemain(TaskContext $context, RecipientRepository $recipientRepository): void
     {
         if ($recipientRepository->findOldestPending(1) === []) {
             return;
         }
 
-        $intervalMinutes = (int) $context->settings->get(
-            self::SETTING_BATCH_INTERVAL_MINUTES,
-            'mass_mail',
-            (string) self::DEFAULT_BATCH_INTERVAL_MINUTES
-        );
-        if ($intervalMinutes <= 0) {
-            $intervalMinutes = self::DEFAULT_BATCH_INTERVAL_MINUTES;
-        }
+        // Re-read rather than carried from the top of the run: the lane
+        // may have fallen back to the next provider mid-batch — a quota
+        // spent, a relay that stopped answering — and D7 says the lane
+        // adopts THAT provider's cadence, not the one it started on.
+        $intervalMinutes = $this->cadence($context)['interval_minutes'];
 
         $schedulerService = new SchedulerService(
             new \Core\Scheduler\SchedulerRepository($context->connection->getPdo())
