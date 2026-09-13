@@ -191,6 +191,18 @@ administrateur en saisisse un ; et pour le publipostage,
 `POST /mass-mail/recipients/{id}/resend` existe déjà pour rattraper les
 destinataires marqués en échec. IT-02 referme la fenêtre.
 
+**Couverture.** Le portail qualité de SonarCloud a refusé le premier
+passage à **77,5 % de couverture sur le code neuf** (seuil : 80 %). Trois
+trous, tous réels et tous comblés plutôt que contournés :
+`OutboundMailCollector` et `Task\PurgeSendCountersHandler` n'avaient aucun
+test, `SendCounterRepository::dailyNonBulkTotals()` — la requête sur
+laquelle IT-02 calculera la réserve — non plus, et le contrôleur n'était
+testé qu'en lecture. Les quatre fichiers de tests ajoutés valent au-delà du
+seuil : celui du collecteur épingle surtout une assertion **négative**,
+qu'aucun identifiant ni destinataire n'entre dans une archive qui part
+chez un tiers, contre un jeu d'essai dont le mot de passe est une chaîne
+reconnaissable.
+
 **RGPD.** La section « Sous-traitants essentiels » de
 `core/View/rgpd_default.html` est mise à jour : le relais SMTP y était au
 singulier, il y est désormais au pluriel, avec la phrase qui dit qu'une

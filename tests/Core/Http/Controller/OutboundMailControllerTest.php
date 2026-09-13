@@ -46,6 +46,8 @@ class OutboundMailControllerTest extends TestCase
     private MailProviderRepository $providers;
     private LaneChainRepository $chains;
     private OutboundMailController $controller;
+    private string $secretsDirectory = '';
+    private SettingService $settings;
 
     protected function setUp(): void
     {
@@ -63,10 +65,23 @@ class OutboundMailControllerTest extends TestCase
         $twig->addGlobal('current_path', '/config/courrier-sortant');
 
         $settings = new SettingService(new SettingRepository($this->pdo));
-        $connections = new ProviderConnections([]);
+        // A real SecretManager over a scratch directory: a provider's host
+        // and credentials live in secrets.enc, so saving one writes there
+        // — and a null manager would leave the write paths untestable
+        // rather than merely unexercised.
+        $this->secretsDirectory = sys_get_temp_dir() . '/scoutmagic-outbound-ctrl-' . bin2hex(random_bytes(6));
+        mkdir($this->secretsDirectory, 0700, true);
+        $secretManager = new \Core\Security\SecretManager(
+            $this->secretsDirectory . '/master.key',
+            $this->secretsDirectory . '/secrets.enc'
+        );
+        $secretManager->generateMasterKey();
+        $secretManager->writeSecrets([]);
+        $connections = new ProviderConnections([], $secretManager);
         $counters = new SendCounterRepository($this->pdo);
         $directory = new MailProviderDirectory($this->providers, $connections, $settings);
 
+        $this->settings = $settings;
         $this->controller = new OutboundMailController(
             $twig,
             $directory,
@@ -95,6 +110,14 @@ class OutboundMailControllerTest extends TestCase
     {
         $_SESSION = [];
         $_POST = [];
+
+        if ($this->secretsDirectory === '') {
+            return;
+        }
+        foreach (glob($this->secretsDirectory . '/*') ?: [] as $file) {
+            unlink($file);
+        }
+        rmdir($this->secretsDirectory);
     }
 
     // ── the RBAC floor ────────────────────────────────────────────────
@@ -259,6 +282,265 @@ class OutboundMailControllerTest extends TestCase
     private function getRequest(): Request
     {
         return new Request('GET', '/config/courrier-sortant', [], [], [], []);
+    }
+
+    // ── the write paths ───────────────────────────────────────────────
+
+    public function testAddingAProviderPutsItLastInEveryLaneAndDisabledEverywhere(): void
+    {
+        $response = $this->controller->create($this->formRequest([
+            'name' => 'Brevo',
+            'host' => 'smtp-relay.brevo.test',
+            'port' => '587',
+            'username' => 'unite@exemple.be',
+            'password' => 'secret',
+            'daily_quota' => '300',
+        ]), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+
+        $providers = $this->providers->findAll();
+        $this->assertCount(1, $providers);
+        $this->assertSame('Brevo', $providers[0]['name']);
+        $this->assertSame(300, $providers[0]['daily_quota']);
+
+        foreach (MailLane::ordered() as $lane) {
+            $entries = $this->chains->forLane($lane);
+            $this->assertCount(1, $entries);
+            $this->assertFalse(
+                $entries[0]->enabled,
+                'A relay that started carrying the sign-in links the moment it was saved would be a '
+                    . 'routing decision nobody took.'
+            );
+        }
+    }
+
+    /**
+     * An empty quota field means « no known daily ceiling », which is
+     * null — never zero, which would read as « this relay accepts
+     * nothing » and step every lane past it for ever.
+     */
+    public function testAnEmptyQuotaFieldStoresNoCeilingRatherThanZero(): void
+    {
+        $this->controller->create($this->formRequest([
+            'name' => 'Sans quota',
+            'host' => 'smtp.exemple.test',
+            'port' => '587',
+            'daily_quota' => '',
+        ]), []);
+
+        $this->assertNull($this->providers->findAll()[0]['daily_quota']);
+    }
+
+    public function testANamelessProviderIsRefusedWithAnExplanation(): void
+    {
+        $response = $this->controller->create($this->formRequest([
+            'name' => '   ',
+            'host' => 'smtp.exemple.test',
+        ]), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame([], $this->providers->findAll(), 'Nothing was stored.');
+    }
+
+    public function testAProviderWithNoHostIsRefused(): void
+    {
+        $this->controller->create($this->formRequest(['name' => 'Sans hôte', 'host' => '']), []);
+
+        $this->assertSame([], $this->providers->findAll());
+    }
+
+    public function testSavingAProviderKeepsItsCadenceAndQuota(): void
+    {
+        $id = $this->providers->create('Ancien nom', 300, 50, 10);
+
+        $this->controller->update($this->formRequest([
+            'name' => 'Nouveau nom',
+            'host' => 'smtp.exemple.test',
+            'port' => '465',
+            'daily_quota' => '500',
+            'batch_size' => '100',
+            'batch_interval_minutes' => '2',
+        ]), ['id' => (string) $id]);
+
+        $row = $this->providers->findById($id);
+        $this->assertNotNull($row);
+        $this->assertSame('Nouveau nom', $row['name']);
+        $this->assertSame(500, $row['daily_quota']);
+        $this->assertSame(100, $row['batch_size']);
+        $this->assertSame(2, $row['batch_interval_minutes']);
+    }
+
+    public function testSavingAProviderThatIsGoneIsRefusedRatherThanRecreatingIt(): void
+    {
+        $response = $this->controller->update(
+            $this->formRequest(['name' => 'Fantôme', 'host' => 'smtp.exemple.test']),
+            ['id' => '4242']
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame([], $this->providers->findAll());
+    }
+
+    public function testDeletingAProviderRemovesItFromEveryLane(): void
+    {
+        $id = $this->providers->create('À supprimer', null, 50, 10);
+        foreach (MailLane::ordered() as $lane) {
+            $this->chains->append($lane, MailProvider::LOCAL_ID, true);
+            $this->chains->append($lane, $id, true);
+        }
+
+        $this->controller->delete($this->formRequest([]), ['id' => (string) $id]);
+
+        $this->assertNull($this->providers->findById($id));
+        foreach (MailLane::ordered() as $lane) {
+            $this->assertFalse($this->chains->exists($lane, $id));
+        }
+    }
+
+    public function testReorderingALaneIsPersisted(): void
+    {
+        $first = $this->providers->create('Premier', null, 50, 10);
+        $this->chains->append(MailLane::Bulk, $first, true);
+        $this->chains->append(MailLane::Bulk, MailProvider::LOCAL_ID, true);
+
+        $response = $this->controller->reorder(
+            $this->jsonRequest(['ids' => [MailProvider::LOCAL_ID, $first]]),
+            ['lane' => MailLane::Bulk->value]
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $order = array_map(
+            static fn($entry): int => $entry->providerId,
+            $this->chains->forLane(MailLane::Bulk)
+        );
+        $this->assertSame([MailProvider::LOCAL_ID, $first], $order);
+    }
+
+    public function testReorderingRefusesABodyThatIsNotAList(): void
+    {
+        $response = $this->controller->reorder(
+            $this->jsonRequest(['ids' => 'pas-une-liste']),
+            ['lane' => MailLane::Bulk->value]
+        );
+
+        $this->assertSame(400, $response->getStatusCode());
+    }
+
+    public function testAnEntryIsEnabledWhenAnotherKeepsTheLaneAlive(): void
+    {
+        $relay = $this->providers->create('Relais', null, 50, 10);
+        $this->chains->append(MailLane::Bulk, MailProvider::LOCAL_ID, true);
+        $this->chains->append(MailLane::Bulk, $relay, false);
+
+        $response = $this->controller->toggle(
+            $this->jsonRequest(['id' => $relay, 'active' => true]),
+            ['lane' => MailLane::Bulk->value]
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(2, $this->chains->countEnabled(MailLane::Bulk));
+    }
+
+    public function testTogglingAnEntryThatIsNotInThatLaneIsRefused(): void
+    {
+        $response = $this->controller->toggle(
+            $this->jsonRequest(['id' => 4242, 'active' => true]),
+            ['lane' => MailLane::Bulk->value]
+        );
+
+        $this->assertSame(409, $response->getStatusCode());
+    }
+
+    /**
+     * The local send has no row, so « saving » it writes the two settings
+     * that carry its cadence — and nothing else. It has no host, no
+     * credentials and, deliberately, no quota (D6).
+     */
+    public function testSavingTheLocalSendWritesItsCadenceAndNothingElse(): void
+    {
+        $this->registerLocalCadenceSettings();
+
+        $response = $this->controller->update(
+            $this->formRequest(['batch_size' => '4', 'batch_interval_minutes' => '30']),
+            ['id' => (string) MailProvider::LOCAL_ID]
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('4', $this->settings->get(MailProviderDirectory::SETTING_LOCAL_BATCH_SIZE));
+        $this->assertSame('30', $this->settings->get(MailProviderDirectory::SETTING_LOCAL_BATCH_INTERVAL));
+        $this->assertSame([], $this->providers->findAll(), 'The local send never becomes a row.');
+    }
+
+    /**
+     * Zero messages per lot would stop the mailing lane outright, and a
+     * zero interval would busy-loop it. Both are floored at one rather
+     * than refused: the field is a cadence, not a switch.
+     */
+    public function testTheLocalCadenceIsFlooredRatherThanAcceptedAtZero(): void
+    {
+        $this->registerLocalCadenceSettings();
+
+        $this->controller->update(
+            $this->formRequest(['batch_size' => '0', 'batch_interval_minutes' => '0']),
+            ['id' => (string) MailProvider::LOCAL_ID]
+        );
+
+        $this->assertSame('1', $this->settings->get(MailProviderDirectory::SETTING_LOCAL_BATCH_SIZE));
+        $this->assertSame('1', $this->settings->get(MailProviderDirectory::SETTING_LOCAL_BATCH_INTERVAL));
+    }
+
+    /**
+     * A setting that vanished under the form must not 500 the page: the
+     * exception is user-facing by construction, so its own sentence is
+     * what the person reads.
+     */
+    public function testSavingTheLocalCadenceWithNoSettingDeclaredIsARedirectRatherThanACrash(): void
+    {
+        $response = $this->controller->update(
+            $this->formRequest(['batch_size' => '4', 'batch_interval_minutes' => '30']),
+            ['id' => (string) MailProvider::LOCAL_ID]
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+    }
+
+    private function registerLocalCadenceSettings(): void
+    {
+        $this->settings->register(
+            MailProviderDirectory::SETTING_LOCAL_BATCH_SIZE,
+            (string) MailProviderDirectory::DEFAULT_LOCAL_BATCH_SIZE,
+            'number',
+            'Envoi local — messages par lot',
+            'Test'
+        );
+        $this->settings->register(
+            MailProviderDirectory::SETTING_LOCAL_BATCH_INTERVAL,
+            (string) MailProviderDirectory::DEFAULT_LOCAL_BATCH_INTERVAL,
+            'number',
+            'Envoi local — minutes entre deux lots',
+            'Test'
+        );
+    }
+
+    /**
+     * A form POST, with the CSRF token the guard will look for.
+     *
+     * @param array<string, mixed> $body
+     */
+    private function formRequest(array $body): Request
+    {
+        $token = CsrfGuard::generateToken();
+        $_POST['_csrf_token'] = $token;
+
+        return new Request(
+            'POST',
+            '/config/courrier-sortant',
+            [],
+            $body + ['_csrf_token' => $token],
+            [],
+            []
+        );
     }
 
     /**
