@@ -1453,6 +1453,7 @@ $settingService->register(
 \Core\Statistics\InstallationIdentityService::register($settingService);
 \Core\Maintenance\Remote\RemoteBackupConnection::register($settingService);
 \Core\Maintenance\Remote\RemotePassphrase::register($settingService);
+\Core\Maintenance\Remote\RemoteRetention::register($settingService);
 $settingService->register(
     'support_email',
     'support@scoutmagic.be',
