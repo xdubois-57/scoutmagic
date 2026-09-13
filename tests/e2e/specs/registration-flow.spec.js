@@ -110,6 +110,7 @@ const FAMILY_PHONE = '+32 470 11 22 33';
 const FAMILY_STREET = 'Rue des Écureuils';
 const CHILD_FIRST_NAME = `Zoé${Date.now() % 100000}`;
 const CHILD_LAST_NAME = 'Verstraeten';
+const PREVIOUS_UNIT = '57e Unité Saint-Michel, Etterbeek';
 
 test('a family registers a child, follows the mailed tracking link, and the admin\'s decisions surface exactly when they should', async ({ page, browser }) => {
     /** @type {string[]} */
@@ -246,6 +247,14 @@ test('a family registers a child, follows the mailed tracking link, and the admi
         await expect(familyPage.locator('#birth-date-branch-hint')).not.toBeEmpty();
 
         await form.getByLabel(/^Genre/).selectOption('F');
+
+        // « Déjà membre d'une autre unité Les Scouts ? » is required, and
+        // answering « Oui » is what unfolds « Laquelle ? » — the whole
+        // point of the question, since the unit is what changes the
+        // chief's encoding procedure in Desk (issue #331).
+        await form.getByLabel(/^Déjà membre d'une autre unité/).selectOption('yes');
+        await form.getByLabel(/^Laquelle/).fill(PREVIOUS_UNIT);
+
         await form.getByRole('checkbox', { name: /J'accepte/ }).check();
 
         await waitOutHumanCheckDelay(familyPage, form);
@@ -298,6 +307,9 @@ test('a family registers a child, follows the mailed tracking link, and the admi
         await page.waitForURL(/\/config\/inscriptions\/demandes\/\d+$/, { waitUntil: 'domcontentloaded' });
 
         await expect(page.getByText(CHILD_LAST_NAME).first()).toBeVisible();
+        // What the family answered about a previous unit reaches the
+        // fiche the chief encodes from, not just the database.
+        await expect(page.getByText(`Oui — ${PREVIOUS_UNIT}`)).toBeVisible();
         await page.getByRole('button', { name: 'Accepter', exact: true }).click();
         await page.waitForURL(/\/config\/inscriptions\/demandes\/\d+$/, { waitUntil: 'domcontentloaded' });
 
