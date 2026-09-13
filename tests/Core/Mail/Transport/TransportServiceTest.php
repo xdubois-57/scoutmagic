@@ -162,6 +162,63 @@ class TransportServiceTest extends TestCase
         }
     }
 
+    /**
+     * The credentials are erased BEFORE the row, so a failure to erase
+     * them leaves something to retry.
+     *
+     * `ProviderConnections::forget()` is file I/O on `secrets.enc`. Done
+     * after the row was deleted, a failure there stranded that relay's
+     * host, user and password in the file for good: the retry finds no
+     * row and returns having done nothing, and nothing else in the site
+     * knows the prefix. A third party's password would have outlived the
+     * fournisseur that justified keeping it, with the screen reporting
+     * « Fournisseur supprimé. » every time.
+     *
+     * A service whose `ProviderConnections` has no `SecretManager` is
+     * exactly the shape of that failure — `mutate()` refuses — and it
+     * checks the second half too: the refusal arrives as a
+     * `TransportException`, which the controller catches, rather than the
+     * bare `RuntimeException` that would have reached a visitor as a 500.
+     */
+    public function testARelayWhoseCredentialsCannotBeErasedIsNotDeleted(): void
+    {
+        $settings = new SettingService(new SettingRepository($this->pdo));
+        $unwritable = new ProviderConnections([]);
+        $service = new TransportService(
+            $this->providers,
+            $this->chains,
+            new SendCounterRepository($this->pdo),
+            $unwritable,
+            new MailProviderDirectory($this->providers, $unwritable, $settings),
+            new JournalService($this->journalRepository)
+        );
+
+        $relay = $this->providers->create('Relais', null, 50, 10, 'mail_provider_9');
+        foreach (MailLane::ordered() as $lane) {
+            $this->chains->append($lane, MailProvider::LOCAL_ID, true);
+            $this->chains->append($lane, $relay, true);
+        }
+
+        try {
+            $service->deleteProvider($relay);
+            $this->fail('Deleting a provider whose credentials cannot be erased must be refused.');
+        } catch (TransportException $e) {
+            $this->assertStringNotContainsString(
+                $this->secretsDirectory,
+                $e->getMessage(),
+                'The message reaches a screen, so it never names a path on the server.'
+            );
+        }
+
+        $this->assertNotNull(
+            $this->providers->findById($relay),
+            'The row is still there, so the administrator can try again.'
+        );
+        foreach (MailLane::ordered() as $lane) {
+            $this->assertTrue($this->chains->exists($lane, $relay), 'And its lane entries are untouched.');
+        }
+    }
+
     // ── what the journal keeps ────────────────────────────────────────
 
     /**

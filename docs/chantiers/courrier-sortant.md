@@ -310,3 +310,36 @@ jamais contredire un ordre choisi par un administrateur.
 
 Les quatre morceaux du correctif sont tenus chacun par un test vérifié en
 échec sur le code fautif.
+
+**Supprimer un fournisseur effaçait sa ligne avant ses identifiants.**
+Troisième constat d'une relecture complète, et le seul de cette PR qui
+touche à la confidentialité plutôt qu'à l'acheminement.
+`TransportService::deleteProvider()` supprimait la ligne, puis appelait
+`ProviderConnections::forget()`. Or `forget()` est une écriture de fichier
+sur `secrets.enc` et peut échouer. Dans ce cas l'hôte, l'identifiant et le
+mot de passe du relais restaient dans le fichier **pour toujours** : la
+tentative suivante ne trouve plus de ligne, sort au garde `findById()`
+sans rien faire, et aucun autre chemin du site ne connaît ce préfixe. Le
+mot de passe d'un tiers aurait survécu au fournisseur qui justifiait de le
+garder, l'écran répondant « Fournisseur supprimé. » à chaque essai.
+
+L'ordre est inversé : les identifiants d'abord, la ligne ensuite. L'échec
+devient propre — rien d'autre n'a bougé, donc réessayer est un essai
+ordinaire — et la fenêtre que cela ouvre est la bonne : une ligne dont les
+secrets ont disparu n'a plus d'hôte, donc `MailProvider::isUsable()` est
+faux et la chaîne l'enjambe comme elle enjambe un fournisseur épuisé.
+
+Second effet du même constat : `ProviderConnections` lève un
+`RuntimeException` nu et `TransportException` est `final`, donc le
+`catch (TransportException)` du contrôleur ne l'attrapait pas et la panne
+serait arrivée au visiteur en 500. Elle est désormais convertie, avec un
+message écrit sur place plutôt que repris de l'exception — celle-ci nomme
+un chemin sur le serveur (SECURITY.md §11).
+
+**Et les commentaires Twig.** `main` a gagné entre-temps le cliquet
+`TwigCommentsAreEnglishTest` (#327 / #329). Deux de mes gabarits portaient
+un commentaire français ; ils sont traduits, et non ajoutés à la liste
+d'exemption, qui ne fait que rétrécir. À noter pour la suite : la CI
+construit `refs/pull/328/merge`, donc elle voyait ce test avant que mon
+arbre de travail ne l'ait — la suite complète passait ici et échouait
+là-bas.

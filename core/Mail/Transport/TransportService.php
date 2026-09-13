@@ -176,10 +176,40 @@ final class TransportService
             }
         }
 
+        // **The credentials go first, and the row second.** `forget()` is
+        // file I/O on `secrets.enc` and can fail — an unreadable file, a
+        // disk that is full. Erasing after the row is gone would strand
+        // that relay's host, user and password there for good: the retry
+        // finds no row, returns at the `findById()` guard above having
+        // done nothing, and no code path anywhere else knows the prefix
+        // to erase. A third party's password would outlive the
+        // fournisseur that justified keeping it.
+        //
+        // Doing it first fails cleanly instead — nothing else has moved,
+        // so a retry is an ordinary retry — and the window it opens is
+        // the harmless one: a provider row whose secrets are gone has no
+        // host, so `MailProvider::isUsable()` is false and the chain
+        // steps over it exactly as it steps over a spent one.
+        try {
+            $this->connections->forget($row['secret_prefix']);
+        } catch (\Throwable $e) {
+            // `ProviderConnections` throws a plain `RuntimeException`, and
+            // `TransportException` is final, so this would otherwise leave
+            // the controller's `catch (TransportException)` untouched and
+            // reach the visitor as a 500. The message is written here
+            // rather than taken from $e: that one names a path on the
+            // server (SECURITY.md §11).
+            throw new TransportException(
+                'Les identifiants de ce fournisseur n’ont pas pu être effacés, donc il n’a pas été supprimé. '
+                . 'Vérifiez que le fichier des secrets est accessible en écriture, puis réessayez.',
+                0,
+                $e
+            );
+        }
+
         $this->chains->removeProvider($id);
         $this->counters->forgetProvider($id);
         $this->providers->delete($id);
-        $this->connections->forget($row['secret_prefix']);
         $this->directory->refresh();
 
         $this->journal->log(
