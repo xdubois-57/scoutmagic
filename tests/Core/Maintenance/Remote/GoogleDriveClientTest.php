@@ -193,11 +193,10 @@ final class GoogleDriveClientTest extends TestCase
      */
     public function testALargeUploadIsSentInPiecesAndTheContinueStatusIsNotAFailure(): void
     {
-        // Two chunks and a bit: the chunk size is eight mebibytes.
-        // Through fileOf(), so tearDown() removes the twenty mebibytes
-        // whatever happens — an upload that throws half way would
-        // otherwise leave them behind on every failing run.
         // Two chunks and a bit, whatever the chunk size happens to be.
+        // Through fileOf(), so tearDown() removes the bytes whatever
+        // happens — an upload that throws half way would otherwise leave
+        // them behind on every failing run.
         $chunk = GoogleDriveClient::UPLOAD_CHUNK_BYTES;
         $size = ($chunk * 2) + ($chunk / 2);
         $path = $this->fileOf(str_repeat('x', (int) $size));
@@ -211,7 +210,7 @@ final class GoogleDriveClientTest extends TestCase
 
             return str_starts_with($headers['Content-Range'] ?? '', 'bytes ' . ($chunk * 2) . '-')
                 ? ['status' => 200, 'body' => '{"id":"drive-file-9"}']
-                : ['status' => 308, 'body' => ''];
+                : ['status' => 308, 'body' => '', 'range' => 'bytes=0-' . (($chunk * count($ranges)) - 1)];
         });
 
         $id = $client->uploadFile('token', 'folder-1', $path, 'sauvegarde.zip');
@@ -268,34 +267,45 @@ final class GoogleDriveClientTest extends TestCase
     }
 
     /**
-     * And with no `Range` at all — some intermediaries strip it — the
-     * client's own reckoning stands, which is right whenever Google kept
-     * everything it was given.
+     * **A 308 that names no `Range` kept nothing**, and assuming
+     * otherwise corrupts the archive silently.
+     *
+     * The protocol lets Google commit fewer bytes than were sent and say
+     * how many; a silent answer is the limit case of that, not permission
+     * to believe the chunk landed. Advancing by what was written would
+     * leave a hole in the middle of a backup that every later chunk
+     * widens — an archive that uploads, is accepted, and is unreadable on
+     * the one day it matters. A refusal instead costs a run, and the next
+     * one probes and resumes from where the destination really is.
      */
-    public function testAContinueWithoutARangeHeaderFallsBackToWhatWasSent(): void
+    public function testAContinueWithoutARangeHeaderIsRefusedRatherThanAssumedComplete(): void
     {
         $chunk = GoogleDriveClient::UPLOAD_CHUNK_BYTES;
         $size = $chunk * 6;
         $path = $this->fileOf(str_repeat('x', $size));
 
         $ranges = [];
-        $client = $this->clientAnswering(function (string $method, string $url, array $headers) use (&$ranges, $chunk): array {
+        $client = $this->clientAnswering(function (string $method, string $url, array $headers) use (&$ranges): array {
             if ($method === 'POST') {
                 return ['status' => 200, 'body' => '{}', 'location' => 'https://upload.example/session-1'];
             }
             $ranges[] = $headers['Content-Range'] ?? '';
 
-            return count($ranges) === 1
-                ? ['status' => 308, 'body' => '']
-                : ['status' => 200, 'body' => '{"id":"drive-file-8"}'];
+            return ['status' => 308, 'body' => ''];
         });
 
-        $client->uploadFile('token', 'folder-1', $path, 'sauvegarde.zip');
+        try {
+            $client->uploadFile('token', 'folder-1', $path, 'sauvegarde.zip');
+            $this->fail('A 308 that reported no committed range was treated as progress.');
+        } catch (RemoteBackupException $e) {
+            $this->assertStringContainsString('aucun octet', $e->getMessage());
+        }
 
-        $this->assertSame([
-            sprintf('bytes 0-%d/%d', $chunk - 1, $size),
-            sprintf('bytes %d-%d/%d', $chunk, ($chunk * 2) - 1, $size),
-        ], $ranges);
+        $this->assertSame(
+            [sprintf('bytes 0-%d/%d', $chunk - 1, $size)],
+            $ranges,
+            'the upload carried on past a chunk the destination never acknowledged'
+        );
     }
 
     /**
@@ -685,11 +695,15 @@ final class GoogleDriveClientTest extends TestCase
         $size = $chunk * 5;
         $path = $this->fileOf(str_repeat('x', $size));
 
+        // Each 308 names what Google kept, which is what the real
+        // service does — a silent 308 means it kept NOTHING and is
+        // refused (testAContinueWithoutARangeHeaderIsRefusedRatherThan-
+        // AssumedComplete).
         $sent = 0;
-        $client = $this->clientAnswering(function () use (&$sent): array {
+        $client = $this->clientAnswering(function () use (&$sent, $chunk): array {
             $sent++;
 
-            return ['status' => 308, 'body' => ''];
+            return ['status' => 308, 'body' => '', 'range' => 'bytes=0-' . (($chunk * $sent) - 1)];
         });
 
         // Room for two chunks and no more.
@@ -728,11 +742,15 @@ final class GoogleDriveClientTest extends TestCase
         $path = $this->fileOf(str_repeat('x', $size));
 
         $ranges = [];
-        $client = $this->clientAnswering(function (string $method, string $url, array $headers) use (&$ranges): array {
-            $ranges[] = $headers['Content-Range'] ?? '';
+        $client = $this->clientAnswering(
+            function (string $method, string $url, array $headers) use (&$ranges, $chunk): array {
+                $ranges[] = $headers['Content-Range'] ?? '';
 
-            return count($ranges) < 2 ? ['status' => 308, 'body' => ''] : ['status' => 200, 'body' => '{"id":"f"}'];
-        });
+                return count($ranges) < 2
+                    ? ['status' => 308, 'body' => '', 'range' => 'bytes=0-' . (($chunk * 2) - 1)]
+                    : ['status' => 200, 'body' => '{"id":"f"}'];
+            }
+        );
 
         $client->sendChunks('https://upload.example/s1', $path, $size, $chunk, static fn(): bool => true);
 

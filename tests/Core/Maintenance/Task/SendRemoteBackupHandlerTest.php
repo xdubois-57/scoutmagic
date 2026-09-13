@@ -91,7 +91,7 @@ final class SendRemoteBackupHandlerTest extends TestCase
         $this->secrets->generateMasterKey();
         // `secrets.enc` has to exist before anything reads it: SecretManager
         // refuses to write one key over a file it cannot read, precisely so
-        // that raccording a destination never erases the SMTP password.
+        // that connecting a destination never erases the SMTP password.
         $this->secrets->writeSecrets(['smtp_password' => 'le-mot-de-passe-smtp']);
 
         $this->settings = new RefusingSettingService();
@@ -549,7 +549,50 @@ final class SendRemoteBackupHandlerTest extends TestCase
 
         $this->assertSame(0, $target->sessionsOpened);
         $this->assertSame([], glob($this->storagePath . '/maintenance/*') ?: []);
-        $this->assertNotNull($this->pending(), 'the chain died on a site that had simply not raccordé yet');
+        $this->assertNotNull($this->pending(), 'the chain died on a site that had simply not connected one yet');
+    }
+
+    /**
+     * **A destination can vanish mid-send, and the archive must go with
+     * it.**
+     *
+     * A multi-run upload crosses runs; between two of them an operator
+     * can disconnect, or Google can withdraw the grant — which clears the
+     * refresh token, so the very next run takes the "nothing connected"
+     * branch. The half-sent archive carries `master.key` and the phrase
+     * that opens it sits in `secrets.enc` beside it, and nothing else
+     * would ever remove it: it is never registered in `BackupRepository`,
+     * so `PortableBackupLingerCheck` — a query over `backups`, not a walk
+     * of the disk — cannot see it either.
+     */
+    public function testDisconnectingMidSendTakesTheHalfSentArchiveWithIt(): void
+    {
+        $archive = $this->archiveOf(1000);
+        $target = new RecordingTarget($this);
+        $target->chunkBytes = 100;
+        $target->secondsPerChunk = SendRemoteBackupHandler::TIME_BUDGET_SECONDS;
+
+        $this->runOnce($this->payloadFor($archive), $target);
+        $inFlight = $this->pending();
+        $this->assertNotNull($inFlight);
+        $this->assertFileExists($archive, 'the send did not get as far as carrying an archive');
+
+        // The grant is withdrawn between the two runs.
+        (new RemoteBackupConnection($this->settings, $this->secrets))
+            ->markNeedsReauthorisation('Google n\'accepte plus l\'autorisation de ce site.');
+
+        $this->runOnce($inFlight['payload'], $target);
+
+        $this->assertFileDoesNotExist(
+            $archive,
+            'an archive carrying the site\'s master key was left in storage/ with nothing able to remove it'
+        );
+        $this->assertSame(
+            ['remote_backup_archive_discarded'],
+            $this->events(['remote_backup_archive_discarded']),
+            'a file holding the master key disappeared without a line saying so'
+        );
+        $this->assertNotNull($this->pending(), 'the chain died when the destination went away');
     }
 
     // ---------------------------------------------------------------
@@ -557,7 +600,7 @@ final class SendRemoteBackupHandlerTest extends TestCase
     // ---------------------------------------------------------------
 
     /**
-     * Marks the site as raccordé to a destination, exactly as
+     * Marks the site as connected to a destination, exactly as
      * `RemoteBackupConnection::saveConnection()` would.
      */
     private function connect(): void

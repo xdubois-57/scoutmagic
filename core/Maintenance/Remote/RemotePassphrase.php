@@ -102,7 +102,7 @@ final class RemotePassphrase
     /**
      * The phrase in force, generating one on first use.
      *
-     * Generating here rather than at raccordement means a site that has
+     * Generating here rather than at connection time means a site that has
      * never sent anything has no phrase to lose, and the first scheduled
      * send creates it — no step for the operator to forget.
      *

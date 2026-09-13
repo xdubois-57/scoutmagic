@@ -222,8 +222,8 @@ final class RemoteBackupController extends AbstractController
         // Through SessionStore, never `$_SESSION` directly:
         // public/index.php closes the session early, so a direct write is
         // silently lost — which here would mean the callback never finding
-        // a state to compare against, and every raccordement being refused
-        // for a reason nobody could see (ARCHITECTURE.md §8.20).
+        // a state to compare against, and every connection attempt being
+        // refused for a reason nobody could see (ARCHITECTURE.md §8.20).
         $state = bin2hex(random_bytes(16));
         SessionStore::set(self::STATE_SESSION_KEY, $state);
 

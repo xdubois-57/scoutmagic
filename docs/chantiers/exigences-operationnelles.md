@@ -1898,6 +1898,33 @@ ne désignaient pas les bons) et deux broutilles : un `max-width` en
 ligne là où `design.md` §7.6 impose les classes partagées, et deux
 commentaires de section en français dans un test.
 
+**Quatre constats du relecteur Claude, en plus.** Le plus lourd n'avait
+été vu par personne d'autre : quand plus aucune destination n'est
+raccordée, la tâche laissait tomber sa charge utile sans regarder si
+elle portait une archive en cours d'envoi. Or une destination peut
+cesser de l'être *pendant* un envoi qui traverse plusieurs passages — un
+opérateur déraccorde, ou Google retire l'autorisation et
+`markNeedsReauthorisation()` efface le jeton, de sorte que le passage
+suivant prend exactement cette branche. L'archive à demi envoyée
+transporte `master.key`, la phrase qui l'ouvre dort dans `secrets.enc`
+juste à côté, et rien d'autre ne l'aurait jamais supprimée : elle n'est
+pas enregistrée dans `BackupRepository`, donc `PortableBackupLingerCheck`
+— une requête sur `backups`, pas un parcours du disque — ne la voit pas
+non plus. C'était le contraire de ce que `SECURITY.md` §5 affirme.
+
+Le deuxième porte sur un 308 sans en-tête `Range`. Le commentaire écrit
+deux lignes plus haut dit que l'endroit où reprendre appartient à
+Google et non à nous — et le repli faisait précisément l'inverse, en
+avançant de toute la longueur écrite. Or, chez Google, un 308 muet
+signifie qu'aucun octet n'a été retenu : le repli creusait donc un trou
+au milieu d'une archive que chaque tranche suivante élargit. Trois
+tests s'appuyaient sur cette indulgence ; leurs faux services répondent
+maintenant comme le vrai.
+
+Les deux derniers sont des mots français restés dans du commentaire
+anglais — « raccordement », « raccording » — que ma propre passe avait
+manqués.
+
 **Le constat décliné.** « Le bouton Afficher reste désactivé si la
 requête échoue » : `ScoutMagicApi.postJson()` ne rejette jamais — son
 docbloc l'écrit en toutes lettres et son `.catch()` interne résout en

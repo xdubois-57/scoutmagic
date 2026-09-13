@@ -526,7 +526,7 @@ final class GoogleDriveClient
                 // chunk widens. The archive would upload, be accepted, and
                 // be unreadable on the day it was needed.
                 if ($response['status'] === 308) {
-                    $committed = $this->committedOffset($response, $offset + $length);
+                    $committed = $this->committedOffset($response, $offset);
                     if ($committed <= $offset) {
                         throw RemoteBackupException::of(
                             'Google Drive n\'a retenu aucun octet de la dernière tranche envoyée.'
@@ -577,20 +577,32 @@ final class GoogleDriveClient
     }
 
     /**
-     * How far Google says it has actually got, in bytes.
+     * How far Google says it has actually got, from the `Range` header it
+     * answers a 308 with.
+
+     * **A 308 with no `Range` means it kept NOTHING**, and that is the
+     * whole reason `$whenSilent` exists rather than a convenient default.
+     * The protocol lets Google commit fewer bytes than were sent and
+     * report how many; a silent answer is the limit case of that, not
+     * permission to assume the chunk landed. This used to fall back to
+     * "everything we wrote", which is precisely the assumption the
+     * comment at the call site argues against — and a wrong one leaves a
+     * hole in the middle of an archive that every later chunk widens,
+     * producing a backup that uploads, is accepted, and cannot be read on
+     * the day it is needed.
      *
-     * The header is `Range: bytes=0-N`, N being the last byte COMMITTED —
-     * so the next chunk starts at N+1. Absent (some intermediaries strip
-     * it) the caller's own reckoning stands, which is the old behaviour
-     * and correct whenever Google kept everything it was sent.
+     * Callers therefore pass what a silence means for THEM: a probe
+     * passes 0 (nothing is committed yet), and a chunk send passes the
+     * offset it started from, so no progress is recorded and the guard
+     * above turns it into a refusal the next run can recover from.
      *
-     * @param array{status: int, body: string, location?: string, range?: string} $response
+     * @param array<string, mixed> $response
      */
-    private function committedOffset(array $response, int $sentThrough): int
+    private function committedOffset(array $response, int $whenSilent): int
     {
         $range = $response['range'] ?? '';
         if ($range === '' || preg_match('/bytes=0-(\d+)/i', $range, $matches) !== 1) {
-            return $sentThrough;
+            return $whenSilent;
         }
 
         return (int) $matches[1] + 1;

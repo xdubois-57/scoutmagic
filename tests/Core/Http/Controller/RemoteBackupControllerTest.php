@@ -395,7 +395,7 @@ final class RemoteBackupControllerTest extends TestCase
     }
 
     /**
-     * The same, on the raccordement path — where the consequence is
+     * The same, on the connection path — where the consequence is
      * sharper still, since a wrong reading there deletes a valid grant.
      */
     public function testARefusedCallbackRecordsWhatGoogleActuallySaid(): void

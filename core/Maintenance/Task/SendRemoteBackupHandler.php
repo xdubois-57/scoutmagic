@@ -107,6 +107,15 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
             // No destination connected: nothing to send, and nothing
             // wrong. The chain keeps ticking so that connecting one later
             // starts the sends without anybody re-arming it by hand.
+            //
+            // **But a send may have been under way.** A destination goes
+            // from connected to not WHILE a multi-run upload is crossing
+            // runs — an operator disconnects, or Google withdraws the
+            // grant and `markNeedsReauthorisation()` clears the token —
+            // and this branch then fires on the very next run. The
+            // half-sent archive it was carrying has to go with the
+            // payload it lived in.
+            $this->discardArchive($payload, $context);
             $this->scheduleNext($context, []);
 
             return;
@@ -386,6 +395,36 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
             // The run that failed may have committed bytes before it did.
             'offset_is_certain' => false,
         ]));
+    }
+
+    /**
+     * Throws away a local archive no run will ever send.
+     *
+     * **Nothing else would.** This file is a portable archive — it
+     * carries `master.key` and `secrets.enc`, opened by a phrase sitting
+     * in `secrets.enc` right beside it — and it is deliberately never
+     * registered in `BackupRepository`, so {@see
+     * \Core\Alert\Check\PortableBackupLingerCheck} cannot see it: that
+     * check queries the `backups` table, it does not walk the disk.
+     * Dropping the payload without this would leave the site's own keys
+     * in `storage/maintenance/` for ever, which is exactly what
+     * SECURITY.md §5 says this feature does not do.
+     *
+     * Journaled rather than silent: a file holding the master key does
+     * not disappear without a line saying so.
+     *
+     * @param array<string, mixed> $payload
+     */
+    private function discardArchive(array $payload, TaskContext $context): void
+    {
+        $archivePath = (string) ($payload['archive_path'] ?? '');
+        if ($archivePath === '' || !is_file($archivePath)) {
+            return;
+        }
+
+        @unlink($archivePath);
+        $context->journal->log('core', 'remote_backup_archive_discarded', 'info',
+            'Archive hors site supprimée : plus aucune destination n\'est raccordée');
     }
 
     /**

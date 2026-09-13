@@ -3125,8 +3125,8 @@ $schedulerService->seed(
 // Same bootstrap for the recurring off-site send (Core\Maintenance\Task\
 // SendRemoteBackupHandler). Armed unconditionally, destination connected
 // or not: the handler's first act is to ask, and a run that finds nothing
-// raccordé simply re-arms. Arming it only when a destination exists would
-// mean the chain never starts on the request that raccords one — and
+// connected simply re-arms. Arming it only when a destination exists
+// would mean the chain never starts on the request that connects one — and
 // nothing would ever start it afterwards.
 $schedulerService->seed(
     'core',
