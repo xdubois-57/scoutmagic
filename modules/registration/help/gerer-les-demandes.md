@@ -50,8 +50,8 @@ journalisées.
 
 La ligne « Autre unité Les Scouts » se lit avant l'encodage : la
 procédure dans Desk n'est pas la même pour quelqu'un que la fédération
-connaît déjà. Une demande antérieure à la question le dit — ce n'est
-pas un « non ».
+connaît déjà. Une demande antérieure à cette question ne porte aucune
+réponse : ce n'est pas un « non ».
 
 ## Sortir la liste
 
@@ -76,5 +76,5 @@ rapprochées », à encoder à la main avec le numéro de tiers Desk.
 
 L'encart « Demandes non clôturées » compte ce qui reste ouvert, avec
 « Tout refuser » et « Tout retirer » en masse. Tant qu'il en reste, la
-bascule du site vers la nouvelle année scoute est bloquée — la page
+bascule vers la nouvelle année scoute est bloquée — la page
 « Année scoute » vous y renverra.

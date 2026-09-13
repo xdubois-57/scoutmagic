@@ -15,6 +15,7 @@ use Core\Mail\MailException;
 use Core\Mail\MailService;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\View\EditableContentService;
+use Modules\Registration\Repository\RegistrationRequest;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\RegistrationYearCodeRepository;
 
@@ -102,6 +103,8 @@ class RegistrationService
      *   previous_unit_answer?: ?string, previous_unit_name?: ?string
      * } $fields
      * @param array<int> $siblingMemberIds
+     * @throws RegistrationException when the answer about a previous unit
+     *         says « oui » without naming one
      */
     public function submit(
         int $targetScoutYearId,
@@ -111,6 +114,8 @@ class RegistrationService
         array $siblingMemberIds,
         string $slotLabel
     ): int {
+        $this->assertPreviousUnitIsNamedWhenClaimed($fields);
+
         $created = $this->requestRepository->create($targetScoutYearId, $fields, $desiredSectionId, $siblingMemberIds);
         $requestId = $created['id'];
         $trackingToken = $created['tracking_token'];
@@ -137,6 +142,39 @@ class RegistrationService
         $this->sendUnitAlertEmail($fields['child_first_name'], $targetScoutYearLabel, $slotLabel, $ficheUrl);
 
         return $requestId;
+    }
+
+    /**
+     * « Oui » without a unit is a request nobody can act on: the unit is
+     * exactly what changes the chief's encoding procedure in Desk (issue
+     * #331), so a bare yes says nothing the fiche can use.
+     *
+     * Controller\PublicRegistrationController::validate() already refuses
+     * that pair on the public form, with a sentence of its own next to
+     * the form's other field errors and the family's entered data kept.
+     * This is the module's own invariant rather than that form's: no
+     * second caller exists today, and the day one does — an import, a
+     * back-office entry — it must not be able to file a claim the site
+     * cannot substantiate. Nothing on the public path ever reaches this
+     * throw, which is exactly what makes it a guard.
+     *
+     * A request that does not carry the question AT ALL is untouched: a
+     * missing key means nobody was asked (schema.sql), which is a third
+     * state and a legitimate one.
+     *
+     * @param array<string, mixed> $fields
+     * @throws RegistrationException
+     */
+    private function assertPreviousUnitIsNamedWhenClaimed(array $fields): void
+    {
+        $answer = $fields['previous_unit_answer'] ?? null;
+        $name = $fields['previous_unit_name'] ?? null;
+
+        if ($answer === RegistrationRequest::PREVIOUS_UNIT_YES && ($name === null || trim((string) $name) === '')) {
+            throw new RegistrationException(
+                'Merci d\'indiquer de quelle unité il s\'agit.'
+            );
+        }
     }
 
     private function sendReceiptEmail(

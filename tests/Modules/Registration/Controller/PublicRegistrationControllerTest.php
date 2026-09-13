@@ -411,9 +411,11 @@ class PublicRegistrationControllerTest extends TestCase
             []
         );
 
-        $stored = (string) $this->pdo
-            ->query('SELECT previous_unit_name_encrypted FROM registration_requests ORDER BY id DESC LIMIT 1')
-            ->fetchColumn();
+        $stmt = $this->pdo->prepare(
+            'SELECT previous_unit_name_encrypted FROM registration_requests ORDER BY id DESC LIMIT 1'
+        );
+        $stmt->execute();
+        $stored = (string) $stmt->fetchColumn();
         $this->assertNotSame('', $stored);
         $this->assertStringNotContainsString('Saint-Michel', $stored);
     }
