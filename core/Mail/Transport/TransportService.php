@@ -73,14 +73,32 @@ final class TransportService
             $this->normaliseInterval($batchIntervalMinutes)
         );
 
-        $this->connections->store(
-            ProviderConnections::prefixFor($id),
-            $host,
-            $this->normalisePort($port),
-            $username,
-            $password
-        );
-        $this->chains->appendToEveryLane($id, false);
+        // The row has to exist first — `prefixFor($id)` needs the id — so
+        // this failure cannot be ordered away as `deleteProvider()` orders
+        // its own. It is compensated instead: a provider whose credentials
+        // were never written is in no lane, has no host, and would sit on
+        // the page as a fournisseur that cannot be used, one more on every
+        // retry. Taking the row back makes the retry an ordinary retry.
+        try {
+            $this->connections->store(
+                ProviderConnections::prefixFor($id),
+                $host,
+                $this->normalisePort($port),
+                $username,
+                $password
+            );
+            $this->chains->appendToEveryLane($id, false);
+        } catch (\Throwable $e) {
+            $this->rollBack($id);
+
+            throw new TransportException(
+                'Les identifiants de ce fournisseur n’ont pas pu être enregistrés, donc il n’a pas été créé. '
+                . 'Vérifiez que le fichier des secrets est accessible en écriture, puis réessayez.',
+                0,
+                $e
+            );
+        }
+
         $this->directory->refresh();
 
         $this->journal->log(
@@ -126,14 +144,44 @@ final class TransportService
             throw new TransportException('Indiquez le serveur SMTP de ce fournisseur.');
         }
 
-        $this->providers->update(
-            $id,
-            $name,
-            $this->normaliseQuota($dailyQuota),
-            $this->normaliseBatchSize($batchSize),
-            $this->normaliseInterval($batchIntervalMinutes)
-        );
-        $this->connections->store($row['secret_prefix'], $host, $this->normalisePort($port), $username, $password);
+        // Credentials first, metadata second — the same reasoning as
+        // `deleteProvider()`. Written the other way round, a failed secret
+        // write left the new name, quota and cadence saved beside the OLD
+        // host and password, splitting one fournisseur's state across two
+        // stores with nothing saying so. This way a failure changes
+        // nothing at all. The remaining window is the harmless one: new
+        // credentials under the previous name, which the retry finishes
+        // and which sends correctly meanwhile.
+        try {
+            $this->connections->store(
+                $row['secret_prefix'],
+                $host,
+                $this->normalisePort($port),
+                $username,
+                $password
+            );
+            $this->providers->update(
+                $id,
+                $name,
+                $this->normaliseQuota($dailyQuota),
+                $this->normaliseBatchSize($batchSize),
+                $this->normaliseInterval($batchIntervalMinutes)
+            );
+        } catch (\Throwable $e) {
+            // `TransportException` is final and `ProviderConnections`
+            // throws a plain `RuntimeException`, so without this the
+            // controller's `catch (TransportException)` misses it and a
+            // superadmin gets a 500 instead of a sentence. The message is
+            // written here rather than taken from $e, which names a path
+            // on the server (SECURITY.md §11).
+            throw new TransportException(
+                'Ce fournisseur n’a pas pu être enregistré. Vérifiez que le fichier des secrets est '
+                . 'accessible en écriture, puis réessayez.',
+                0,
+                $e
+            );
+        }
+
         $this->directory->refresh();
 
         $this->journal->log(
@@ -144,6 +192,31 @@ final class TransportService
             ['provider_id' => $id, 'provider' => $name, 'host' => $host, 'port' => $this->normalisePort($port)],
             $actorId
         );
+    }
+
+    /**
+     * Undo a provider whose creation could not be finished.
+     *
+     * Best effort, and deliberately silent: it runs inside a `catch` whose
+     * exception is the one worth reporting, so a failure here must not
+     * replace it with a second one. `forget()` first, for the reason
+     * {@see deleteProvider()} spells out — a secret outliving its row is
+     * worse than a row outliving its secret.
+     */
+    private function rollBack(int $id): void
+    {
+        try {
+            $this->connections->forget(ProviderConnections::prefixFor($id));
+        } catch (\Throwable) {
+            // Nothing to add: the caller is already throwing.
+        }
+
+        try {
+            $this->chains->removeProvider($id);
+            $this->providers->delete($id);
+        } catch (\Throwable) {
+            // Same.
+        }
     }
 
     /**

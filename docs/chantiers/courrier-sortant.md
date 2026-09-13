@@ -396,3 +396,26 @@ Enfin, `@group database` en doc-comment est inerte sous PHPUnit 13, que
 n'en exécutait aucun, ce qui s'est vu en direct : la commande répondait
 « No tests executed ». L'attribut, que le reste du dépôt utilise déjà,
 les sélectionne.
+
+**Le correctif précédent en a créé un, et la relecture l'a vu.** Rendre
+`SecretManager::writeSecrets()` bruyant était juste, mais cela a donné à
+`addProvider()` et `updateProvider()` un nouveau chemin d'échec :
+`store()` peut désormais lever, `TransportException` est `final`, donc le
+`catch (TransportException)` du contrôleur ne l'attrapait pas et un
+super-admin recevait un 500. Pire, l'ordre aggravait : `addProvider()`
+avait déjà créé la ligne, laissant un fournisseur sans voie et sans hôte
+qu'aucun écran ne pouvait réparer et que chaque réessai dupliquait ;
+`updateProvider()` avait déjà enregistré le nom, le quota et la cadence à
+côté de l'ANCIEN hôte et de l'ANCIEN mot de passe.
+
+Le même principe que pour la suppression, appliqué aux deux, avec la
+nuance que l'un des deux ne peut pas choisir son ordre. `updateProvider()`
+le peut : identifiants d'abord, métadonnées ensuite, et un échec ne change
+plus rien du tout. `addProvider()` ne le peut pas — `prefixFor($id)` a
+besoin de l'id, donc la ligne doit exister avant le secret. Il compense :
+`rollBack()` reprend la ligne, et le réessai redevient un essai ordinaire.
+
+C'est la troisième fois sur cette PR qu'un correctif ouvre la porte
+suivante, et les trois fois la relecture complète l'a trouvée. Vaut d'être
+noté pour la suite du chantier : les corrections d'ordonnancement se
+propagent aux appelants, et il faut les relire ensemble.

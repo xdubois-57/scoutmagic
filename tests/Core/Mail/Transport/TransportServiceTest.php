@@ -169,6 +169,75 @@ class TransportServiceTest extends TestCase
     }
 
     /**
+     * A provider whose credentials cannot be written is not half-created.
+     *
+     * The row has to exist before `prefixFor($id)` can name the secret, so
+     * this failure cannot be ordered away — it is compensated. Without
+     * that, a failed write left a fournisseur in no lane, with no host,
+     * that the page would show as unusable and that every retry would
+     * duplicate. And the bare `RuntimeException` would have reached a
+     * superadmin as a 500, `TransportException` being final.
+     */
+    public function testAProviderWhoseCredentialsCannotBeWrittenIsNotCreated(): void
+    {
+        $service = $this->serviceThatCannotWriteSecrets();
+
+        try {
+            $service->addProvider('Brevo', 'smtp-relay.brevo.com', 587, 'u', 'p', 300, 50, 10);
+            $this->fail('A provider whose credentials cannot be stored must not be created.');
+        } catch (TransportException $e) {
+            $this->assertStringNotContainsString($this->secretsDirectory, $e->getMessage());
+        }
+
+        $this->assertSame([], $this->providers->findAll(), 'No orphan row is left for the retry to duplicate.');
+        foreach (MailLane::ordered() as $lane) {
+            $this->assertSame([], $this->chains->forLane($lane));
+        }
+    }
+
+    /**
+     * And an edit that cannot store its credentials changes nothing.
+     *
+     * Here the order CAN be chosen, so it is: credentials first. Written
+     * the other way round, the new name and cadence were saved beside the
+     * OLD host and password — one fournisseur's state split across two
+     * stores, with nothing on the screen saying so.
+     */
+    public function testAnEditThatCannotStoreItsCredentialsLeavesTheProviderAlone(): void
+    {
+        $relay = $this->providers->create('Ancien nom', null, 50, 10, 'mail_provider_7');
+        $service = $this->serviceThatCannotWriteSecrets();
+
+        try {
+            $service->updateProvider($relay, 'Nouveau nom', 'smtp.exemple.test', 587, 'u', 'p', 900, 99, 33);
+            $this->fail('An edit whose credentials cannot be stored must be refused.');
+        } catch (TransportException) {
+            // Asserted inside the path that actually runs.
+            $row = $this->providers->findById($relay);
+            $this->assertNotNull($row);
+            $this->assertSame('Ancien nom', $row['name'], 'The metadata is untouched, so the retry is clean.');
+        }
+    }
+
+    /**
+     * A service whose `ProviderConnections` has no `SecretManager`, which
+     * is exactly the shape of a secrets file that cannot be written.
+     */
+    private function serviceThatCannotWriteSecrets(): TransportService
+    {
+        $unwritable = new ProviderConnections([]);
+
+        return new TransportService(
+            $this->providers,
+            $this->chains,
+            new SendCounterRepository($this->pdo),
+            $unwritable,
+            new MailProviderDirectory($this->providers, $unwritable, new SettingService(new SettingRepository($this->pdo))),
+            new JournalService($this->journalRepository)
+        );
+    }
+
+    /**
      * The credentials are erased BEFORE the row, so a failure to erase
      * them leaves something to retry.
      *
@@ -188,16 +257,7 @@ class TransportServiceTest extends TestCase
      */
     public function testARelayWhoseCredentialsCannotBeErasedIsNotDeleted(): void
     {
-        $settings = new SettingService(new SettingRepository($this->pdo));
-        $unwritable = new ProviderConnections([]);
-        $service = new TransportService(
-            $this->providers,
-            $this->chains,
-            new SendCounterRepository($this->pdo),
-            $unwritable,
-            new MailProviderDirectory($this->providers, $unwritable, $settings),
-            new JournalService($this->journalRepository)
-        );
+        $service = $this->serviceThatCannotWriteSecrets();
 
         $relay = $this->providers->create('Relais', null, 50, 10, 'mail_provider_9');
         foreach (MailLane::ordered() as $lane) {
