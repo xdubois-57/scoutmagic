@@ -268,7 +268,7 @@
             // markup a browser leaves behind, and showing our own copy
             // meant a heading survived until the next page load and no
             // longer (issue #306).
-            if (ok && data && data.content !== undefined) {
+            if (ok && data?.content !== undefined) {
                 preview.innerHTML = data.content;
             }
         });
