@@ -56,7 +56,8 @@ final class RemotePassphraseTest extends TestCase
     }
 
     /**
-     * **It is generated on first use, not at raccordement.**
+     * **It is generated on first use, not when the destination is
+     * connected.**
      *
      * A site that has never sent anything has no phrase to lose, and the
      * first scheduled send creates one — no step for an operator to

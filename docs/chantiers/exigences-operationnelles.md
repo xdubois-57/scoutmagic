@@ -1934,6 +1934,24 @@ désormais absorbé, chaque échec journalisé là où il y a encore un endroit
 où le dire — et en silence là où il n'y en a plus, le journal étant le
 canal qui vient de tomber.
 
+Trois de plus à la ronde d'après, et deux sont la même erreur d'un cran
+plus loin. `purge()` gardait encore son propre `catch`, dont le corps
+appelait `journal->log()` à nu : un verrou sur la table du journal
+pendant qu'il signalait une purge ratée repartait donc dans le `catch`
+de `handle()` — une archive livrée comptée en échec par le gestionnaire
+d'erreur du gestionnaire d'erreur. Une seule garde, écrite une fois, est
+ce qui empêche de la réinventer chaque fois légèrement de travers.
+
+Et les deux suppressions d'archive annonçaient « archive supprimée »
+sans regarder si `unlink()` avait réussi. Ici, cette affirmation coûte
+plus cher qu'ailleurs : l'archive n'est jamais enregistrée dans
+`BackupRepository`, donc `PortableBackupLingerCheck` ne la voit pas, et
+cette ligne de journal est la seule chose qui pourrait jamais signaler
+un fichier porteur de `master.key` resté sur le disque. Le verdict est
+désormais `is_file()` après la tentative plutôt que la valeur de retour
+d'`unlink()` — ce sont deux questions différentes, et une archive qu'un
+autre balai avait déjà emportée aurait fait crier au reliquat inexistant.
+
 Les deux derniers sont des mots français restés dans du commentaire
 anglais — « raccordement », « raccording » — que ma propre passe avait
 manqués.

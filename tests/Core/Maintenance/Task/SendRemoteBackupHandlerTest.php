@@ -508,6 +508,73 @@ final class SendRemoteBackupHandlerTest extends TestCase
         );
     }
 
+    /**
+     * **The purge's own failure report must not undo the delivery
+     * either.**
+     *
+     * `purge()` used to roll its own `catch`, whose body then called
+     * `journal->log()` bare — so a lock-wait on the journal table while
+     * reporting a failed purge threw out of `purge()`, out of `finish()`,
+     * and into `handle()`'s catch. A delivered archive recorded as a
+     * failed send, by the error handler of the error handler.
+     */
+    public function testAJournalFailureWhileReportingAFailedPurgeDoesNotUndoTheDelivery(): void
+    {
+        $archive = $this->archiveOf(50);
+        $target = new RecordingTarget($this);
+        $target->failListWith = 'Google ne répond plus.';
+        $this->journalBreakingOn('remote_backup_purge_failed');
+
+        $this->runOnce($this->payloadFor($archive), $target);
+
+        $this->assertFileDoesNotExist($archive);
+        $this->assertSame(
+            ['remote_backup_sent'],
+            $this->events(['remote_backup_sent', 'remote_backup_failed', 'remote_backup_abandoned']),
+            'a delivered archive was recorded as a failed send by the purge\'s own error handler'
+        );
+    }
+
+    /**
+     * **The journal says whether the archive actually went, not that it
+     * did.**
+     *
+     * Both call sites used to journal the deletion unconditionally, so a
+     * failed `unlink()` produced « archive supprimée » over a file still
+     * holding `master.key`. That claim matters more here than almost
+     * anywhere: the archive is never registered in `BackupRepository`,
+     * so `PortableBackupLingerCheck` cannot see it either, and this line
+     * is the only thing that could ever surface a leftover.
+     *
+     * The permission-failure branch has no test of its own, and that is
+     * stated rather than faked: this suite runs as root, and root
+     * unlinks regardless of permissions. What is covered is that the
+     * claim is derived from the outcome instead of asserted — including
+     * the case where something else removed the file first, which
+     * `unlink()` reports as a failure and which must NOT raise a warning
+     * about a leftover that does not exist.
+     */
+    public function testTheDeliveryReportsWhetherTheLocalCopyIsActuallyGone(): void
+    {
+        $archive = $this->archiveOf(50);
+        $target = new RecordingTarget($this);
+        // Swept away mid-send, as a stray clean-up would: `unlink()` then
+        // answers false for a file that is nonetheless gone.
+        $target->onSend = function () use ($archive): void {
+            unlink($archive);
+        };
+
+        $this->runOnce($this->payloadFor($archive), $target);
+
+        $this->assertSame(
+            [],
+            $this->events(['remote_backup_archive_undeletable']),
+            'a warning was raised about a leftover archive that was not there'
+        );
+        $entry = $this->journalContextOf('remote_backup_sent');
+        $this->assertTrue($entry['local_copy_removed'] ?? null, 'the entry does not record what became of the copy');
+    }
+
     // ---------------------------------------------------------------
     // Giving up
     // ---------------------------------------------------------------
@@ -678,6 +745,24 @@ final class SendRemoteBackupHandlerTest extends TestCase
     }
 
     /** A file of `$bytes` standing in for a portable archive. */
+    /**
+     * The decoded context of one journal entry.
+     *
+     * @return array<string, mixed>
+     */
+    private function journalContextOf(string $eventType): array
+    {
+        foreach ((new JournalRepository($this->pdo))->search() as $entry) {
+            if ($entry['event_type'] === $eventType) {
+                $decoded = is_string($entry['context'] ?? null) ? json_decode((string) $entry['context'], true) : null;
+
+                return is_array($decoded) ? $decoded : [];
+            }
+        }
+
+        return [];
+    }
+
     /** Makes the journal refuse one event type, as a broken table would. */
     private function journalBreakingOn(string $eventType): void
     {

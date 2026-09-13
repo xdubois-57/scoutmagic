@@ -358,15 +358,15 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
         // the site's master key; IT-04's quota of one portable archive
         // exists so that such a file does not sit on the server it is
         // meant to outlive, and this one was never asked for by a human.
-        @unlink($archivePath);
+        $deleted = $this->deleteArchive($context, $archivePath);
 
-        $this->quietly($context, static function () use ($context, $fileId): void {
+        $this->quietly($context, static function () use ($context, $fileId, $deleted): void {
             $context->journal->log(
                 'core',
                 'remote_backup_sent',
                 'info',
                 'Sauvegarde envoyée hors site',
-                ['remote_id' => $fileId]
+                ['remote_id' => $fileId, 'local_copy_removed' => $deleted]
             );
         });
 
@@ -418,23 +418,28 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
     /**
      * Brings the destination back inside both bounds.
      *
-     * Guarded: an upload that worked is worth recording even if the
-     * tidying after it does not, and a purge that throws must not make
-     * the next run believe the send failed.
+     * **Guarded by {@see quietly()} like every other post-delivery step,
+     * and not by a `catch` of its own.** It used to roll its own, whose
+     * `catch` then called `journal->log()` bare — so a lock-wait on the
+     * journal table while reporting a failed purge threw out of here,
+     * out of `finish()`, and into `handle()`'s catch, which recorded a
+     * delivered archive as a failed send. One guard, written once, is
+     * what stops that from being reinvented slightly wrong each time.
      */
     private function purge(TaskContext $context, RemoteBackupTarget $target): void
     {
-        try {
-            $retention = new RemoteRetention($context->settings);
-            $report = $retention->purge($target, $target->list());
-            if ($report['deleted'] > 0 || $report['failed'] > 0) {
-                $context->journal->log('core', 'remote_backup_purged', 'info',
-                    'Archives distantes supprimées au-delà des bornes de conservation', $report);
-            }
-        } catch (\Throwable $e) {
-            $context->journal->log('core', 'remote_backup_purge_failed', 'info',
-                'La purge des archives distantes a échoué', ['error' => $e->getMessage()]);
-        }
+        $this->quietly(
+            $context,
+            static function () use ($context, $target): void {
+                $report = (new RemoteRetention($context->settings))->purge($target, $target->list());
+                if ($report['deleted'] > 0 || $report['failed'] > 0) {
+                    $context->journal->log('core', 'remote_backup_purged', 'info',
+                        'Archives distantes supprimées au-delà des bornes de conservation', $report);
+                }
+            },
+            'remote_backup_purge_failed',
+            'La purge des archives distantes a échoué'
+        );
     }
 
     /**
@@ -458,8 +463,11 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
 
         if ($failures >= $ceiling) {
             $archivePath = (string) ($payload['archive_path'] ?? '');
-            if ($archivePath !== '') {
-                @unlink($archivePath);
+            if ($archivePath !== '' && is_file($archivePath)) {
+                // Same reporting as everywhere else: a key-bearing file
+                // that refuses to go must say so rather than be claimed
+                // gone.
+                $this->deleteArchive($context, $archivePath);
             }
 
             $context->journal->log('core', 'remote_backup_abandoned', 'warning',
@@ -494,7 +502,8 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
      * SECURITY.md §5 says this feature does not do.
      *
      * Journaled rather than silent: a file holding the master key does
-     * not disappear without a line saying so.
+     * not disappear without a line saying so — and, when it turns out not
+     * to disappear at all, that is the line that says so instead.
      *
      * @param array<string, mixed> $payload
      */
@@ -505,9 +514,60 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
             return;
         }
 
+        $this->deleteArchive($context, $archivePath, 'Archive hors site supprimée : aucune destination raccordée');
+    }
+
+    /**
+     * Removes a local archive and reports what actually happened.
+     *
+     * **The report branches on the return value, and that is the whole
+     * point of this method existing.** Both callers used to journal the
+     * deletion unconditionally — so a failed `unlink()` (a permission
+     * mismatch between the process that wrote the archive and the one
+     * discarding it, a read-only mount) produced a line saying « archive
+     * supprimée » over a file still sitting there with `master.key` in
+     * it. That claim is worse than no claim here than almost anywhere
+     * else in this codebase: this archive is deliberately never
+     * registered in `BackupRepository`, so
+     * {@see \Core\Alert\Check\PortableBackupLingerCheck} cannot see it
+     * either, and the journal line is the ONLY thing that could ever
+     * surface a leftover.
+     *
+     * **The verdict is `is_file()` after the attempt, not `unlink()`'s
+     * return value.** What the caller is reporting is whether the file is
+     * gone, and those are different questions: an archive a previous run
+     * or a sweeper already removed makes `unlink()` answer false while
+     * being exactly as absent as one this call deleted. Keying on the
+     * return would raise a warning about a leftover that does not exist.
+     *
+     * The failure entry names the path, because the operator's next move
+     * is to go and delete it by hand. A filesystem path is not personal
+     * data (AGENTS.md § security checklist), and without it the warning
+     * says there is a problem without saying where.
+     *
+     * @return bool whether the file is gone
+     */
+    private function deleteArchive(TaskContext $context, string $archivePath, string $onSuccess = ''): bool
+    {
         @unlink($archivePath);
-        $context->journal->log('core', 'remote_backup_archive_discarded', 'info',
-            'Archive hors site supprimée : plus aucune destination n\'est raccordée');
+
+        if (!is_file($archivePath)) {
+            if ($onSuccess !== '') {
+                $this->quietly($context, static function () use ($context, $onSuccess): void {
+                    $context->journal->log('core', 'remote_backup_archive_discarded', 'info', $onSuccess);
+                });
+            }
+
+            return true;
+        }
+
+        $this->quietly($context, static function () use ($context, $archivePath): void {
+            $context->journal->log('core', 'remote_backup_archive_undeletable', 'warning',
+                'Une archive hors site contenant les clés du site n\'a pas pu être supprimée du serveur',
+                ['path' => $archivePath]);
+        });
+
+        return false;
     }
 
     /**
