@@ -45,6 +45,27 @@ class StorageLocationConsumerRegistry
     }
 
     /**
+     * Whether anything at all consumes storage locations on this
+     * installation — **answered from memory, without a query**.
+     *
+     * The difference from `all() === []` matters: that one ASKS every
+     * consumer, and each of them reads the database to answer. This one
+     * only knows whether anybody registered, which is what a caller
+     * deciding « is it worth looking at the locations at all » needs.
+     *
+     * The response tail uses it: the Content-Security-Policy only has to
+     * name a storage origin when something is going to render an image
+     * from one, and nothing renders anything when no consumer exists.
+     * Without it, every request on the site — JSON endpoints and health
+     * checks included — paid for a `SELECT` against `storage_locations`
+     * on an installation that has no gallery and never will.
+     */
+    public function isEmpty(): bool
+    {
+        return $this->consumers === [];
+    }
+
+    /**
      * The French names of everything standing on $locationId, in
      * registration order and without duplicates.
      *

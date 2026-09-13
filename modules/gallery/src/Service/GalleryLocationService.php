@@ -101,19 +101,6 @@ class GalleryLocationService
     }
 
     /**
-     * Where a NEW album should be created — the location an administrator
-     * chose for new albums, falling back to the site's default.
-     *
-     * The distinction matters and the interface states it in French:
-     * changing this moves nothing. Albums already created stay where their
-     * files are, and moving one is a deliberate, background migration.
-     */
-    public function locationForNewAlbums(): ?StorageLocation
-    {
-        return $this->locations->ensureDefaultExists();
-    }
-
-    /**
      * How much room is left for a LOCAL location, for the gallery's own
      * configuration page — null for any other kind (its capacity is the
      * provider's business) and null whenever the host will not answer at

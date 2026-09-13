@@ -7362,6 +7362,7 @@ if ($isEnabled('gallery')) {
             $settingService,
             $storageLocationRepository,
             $storageLocationService,
+            $galleryLocationService,
             new \Core\File\ChunkedUploadStore($storagePath, $diskBudget),
             $scoutYearService,
             $scoutYearResolver
@@ -10155,8 +10156,19 @@ $response->setCspNonce($cspNonce);
 // visibly do not load, while the site itself keeps working. The
 // administrator meets the real error on the storage page, where it is
 // raised inside the route boundary and says what is wrong.
+// Nothing consumes a storage location on this installation — no gallery,
+// nothing that renders an image from one — so there is no origin to
+// allow and no reason to read the table. Asked of the registry, which
+// answers from memory: `all()` would ASK each consumer, and each of those
+// reads the database to reply, which is the cost being avoided.
 try {
-    foreach ($storageLocationRepository->findAll() as $locationForCsp) {
+    if ($storageLocationConsumers->isEmpty()) {
+        $storageLocationsForCsp = [];
+    } else {
+        $storageLocationsForCsp = $storageLocationRepository->findAll();
+    }
+
+    foreach ($storageLocationsForCsp as $locationForCsp) {
         $configForCsp = $locationForCsp->config;
         if (!$configForCsp instanceof \Core\Storage\Location\Config\ObjectStorageLocationConfig) {
             continue;

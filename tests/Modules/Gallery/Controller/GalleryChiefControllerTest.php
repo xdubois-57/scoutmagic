@@ -158,7 +158,7 @@ class GalleryChiefControllerTest extends TestCase
         mkdir($this->chunkStorageDir, 0755, true);
         $this->controller = new GalleryChiefController(
             $twig, $albumService, $mediaService, $this->mediaRepository, $accessService, $sectionService, $settingService,
-            $storageLocationRepository, $storageLocationService, new \Core\File\ChunkedUploadStore($this->chunkStorageDir)
+            $storageLocationRepository, $storageLocationService, $this->galleryLocationService, new \Core\File\ChunkedUploadStore($this->chunkStorageDir)
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -199,7 +199,7 @@ class GalleryChiefControllerTest extends TestCase
 
         return new GalleryChiefController(
             $this->twig, $this->albumService, $this->mediaService, $this->mediaRepository, $accessService,
-            $this->sectionService, $this->settingService, $this->storageLocationRepository, $this->storageLocationService,
+            $this->sectionService, $this->settingService, $this->storageLocationRepository, $this->storageLocationService, $this->galleryLocationService,
             new \Core\File\ChunkedUploadStore($this->chunkStorageDir)
         );
     }
@@ -345,6 +345,36 @@ class GalleryChiefControllerTest extends TestCase
         );
 
         $this->assertSame(200, $response->getStatusCode());
+    }
+
+    /**
+     * An album that pins no location sits on the default and has not been
+     * told so. The edit page read the raw column, so it announced « Non
+     * défini » about an album whose files are plainly somewhere — the
+     * same defect fixed on the configuration screen, on the one other
+     * page that prints a location.
+     *
+     * Opening a form must also write nothing: resolving pins the album,
+     * which is right before touching its files and wrong for a page that
+     * is only being looked at.
+     */
+    public function testEditNamesTheDefaultLocationForAnAlbumThatPinsNoneAndWritesNothing(): void
+    {
+        $id = $this->albumRepository->create(
+            Album::TYPE_LOCAL, 'Camp', null, '2026-01-01', null, $this->scoutYearId, null, null, $this->authorId
+        );
+        $this->storageLocationRepository->setDefault($this->locationId);
+        $expected = $this->storageLocationRepository->findById($this->locationId)?->label;
+        $this->assertNotNull($expected);
+
+        $body = $this->controller->edit(
+            new Request('GET', '/gallery/' . $id . '/edit', [], [], [], []),
+            ['id' => (string) $id]
+        )->getBody();
+
+        $this->assertStringContainsString($expected, $body);
+        $this->assertStringNotContainsString('Non défini', $body);
+        $this->assertNull($this->albumRepository->findById($id)?->locationId);
     }
 
     /**
@@ -755,7 +785,7 @@ class GalleryChiefControllerTest extends TestCase
         );
         $denying = new GalleryChiefController(
             $this->twig, $this->albumService, $denyingMediaService, $this->mediaRepository, $accessService,
-            $this->sectionService, $this->settingService, $this->storageLocationRepository, $this->storageLocationService,
+            $this->sectionService, $this->settingService, $this->storageLocationRepository, $this->storageLocationService, $this->galleryLocationService,
             new \Core\File\ChunkedUploadStore($this->chunkStorageDir)
         );
 
@@ -787,7 +817,7 @@ class GalleryChiefControllerTest extends TestCase
         $withoutStore = new GalleryChiefController(
             $this->twig, $this->albumService, $this->mediaService, $this->mediaRepository,
             $this->createConfiguredMock(GalleryAccessService::class, ['canManageAlbum' => true, 'getManagedSectionIds' => []]),
-            $this->sectionService, $this->settingService, $this->storageLocationRepository, $this->storageLocationService
+            $this->sectionService, $this->settingService, $this->storageLocationRepository, $this->storageLocationService, $this->galleryLocationService
         );
 
         $response = $withoutStore->uploadMedia($this->chunkRequest($id, 'abcdef', 0, false, $token), ['id' => (string) $id]);

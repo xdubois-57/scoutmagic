@@ -289,6 +289,24 @@ aller la corriger. Le bloc est désormais gardé, et
 queue de réponse entière : ce qui vient après la frontière d'erreur ne
 lève pas, parce qu'une panne y coûte un en-tête et jamais le site.
 
+**Le nul « pas encore résolu » avait une troisième page.** Corrigé dans
+`AlbumService`, puis sur l'écran de configuration, il restait sur la fiche
+d'édition d'album — la seule autre page qui imprime un emplacement.
+Mêmes remèdes : le contrôleur résout, sans écrire.
+
+**La requête du bandeau CSP tournait à chaque requête.** Sortie de son
+`isset()`, elle lisait `storage_locations` sur toutes les routes, y
+compris sur une installation sans galerie. Le registre sait maintenant
+répondre « personne ne consomme d'emplacement ici » **de mémoire** —
+`isEmpty()` et non `all()`, qui interrogerait chaque consommateur, donc
+la base, exactement le coût qu'on voulait éviter.
+
+**Et une méthode morte est partie plutôt que d'être testée.**
+`locationForNewAlbums()` n'avait aucun appelant, et son docblock décrivait
+un réglage « emplacement des nouveaux albums » qui n'existe pas encore :
+elle se lisait comme du comportement livré. C'est IT-02 qui apporte ce
+réglage, et qui écrira la méthode contre lui.
+
 ### Reporté à l'itération suivante, explicitement
 
 `GalleryLocationService::diskSpaceFor()` est gardé tel quel pour une

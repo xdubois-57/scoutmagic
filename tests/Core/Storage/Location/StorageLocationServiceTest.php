@@ -61,6 +61,44 @@ class StorageLocationServiceTest extends TestCase
         @rmdir($this->storagePath);
     }
 
+    /**
+     * `isEmpty()` answers from memory, and that is the whole reason it
+     * exists next to `all()`.
+     *
+     * The response tail asks it on **every** request to decide whether
+     * the Content-Security-Policy has a storage origin to name. Asking
+     * `all()` there would have each registered consumer read the database
+     * to answer — the cost being avoided rather than paid — and reading
+     * the locations unconditionally made every route of a site with no
+     * gallery pay for a query against a table it will never use.
+     */
+    public function testTheRegistryKnowsWhetherAnybodyConsumesStorageWithoutAskingThem(): void
+    {
+        $this->assertTrue($this->consumers->isEmpty());
+
+        $asked = false;
+        $this->consumers->register(new class ($asked) implements StorageLocationConsumer {
+            public function __construct(private bool &$asked)
+            {
+            }
+
+            public function usageLabel(): string
+            {
+                return 'Galeries photo';
+            }
+
+            public function locationIdsInUse(): array
+            {
+                $this->asked = true;
+
+                return [];
+            }
+        });
+
+        $this->assertFalse($this->consumers->isEmpty());
+        $this->assertFalse($asked, 'isEmpty() must not ask a consumer anything — that is what costs a query.');
+    }
+
     public function testEnsureDefaultExistsCreatesOneOnAFreshInstallation(): void
     {
         $this->assertNull($this->repository->findDefault());
