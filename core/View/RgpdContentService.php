@@ -802,6 +802,13 @@ photo, ni contenu), uniquement des compteurs agrégés et des informations techn
 (c bis) que si le site a été remonté ailleurs depuis une sauvegarde emportée, le rapport porte en plus l'identifiant
 technique de l'installation d'origine, pour qu'un déménagement ne soit pas compté comme deux unités — c'est un
 identifiant de site, jamais une donnée de personne, et il n'apparaît que sur une installation effectivement restaurée ;
+(c ter) que le paragraphe « Sauvegarde hors site » de la même section décrit une fonctionnalité optionnelle que
+l'unité raccorde et déraccorde elle-même, et doit conserver : que le compte Google et le projet appartiennent à
+l'unité et que l'équipe ScoutMagic ne reçoit rien ; que l'autorisation demandée est la portée étroite `drive.file`,
+limitée aux fichiers créés par ce site ; que ce qui est déposé est une sauvegarde portable chiffrée par une phrase de
+passe que l'unité seule connaît, donc illisible pour Google ; et que le déraccordement efface le jeton et les
+identifiants mais laisse à l'unité les sauvegardes déjà déposées. Ne décris jamais ce raccordement comme actif par
+défaut, ni comme donnant à qui que ce soit un accès au Drive au-delà des fichiers que ce site a créés ;
 (d) que l'archive de diagnostic reste sur le serveur et n'est **jamais transmise automatiquement** (ni tâche
 planifiée, ni courriel, ni envoi décidé par le site), mais qu'un administrateur peut la transmettre lui-même au
 support ScoutMagic en la joignant à un ticket, après avoir vu son contenu et sa taille et coché explicitement qu'il

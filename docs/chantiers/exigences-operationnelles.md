@@ -1648,3 +1648,110 @@ en n'ayant jamais dit oui.
 rétention distante (IT-09). Le téléversement fragmenté de l'assistant ne
 consulte pas le budget disque, faute de base de données où lire un quota
 à ce moment-là ; le magasin de fragments applique son propre plafond.
+
+## IT-08 — Le raccordement à Google Drive
+
+Le raccordement, et rien que lui : s'authentifier, prouver qu'on sait
+écrire et supprimer un fichier. Aucune sauvegarde n'est encore envoyée —
+c'est ce qui rend cette itération relisible, et c'est délibéré.
+
+**Ce qui a été livré.** `RemoteBackupTarget` déclare ce qu'une
+destination distante sait faire ; `GoogleDriveClient` parle HTTP à Google
+et rien d'autre ; `GoogleDriveTarget` fait le lien ; `RemoteBackupConnection`
+sait où vivent les identifiants. Un bloc « Sauvegarde hors site » sur la
+page Maintenance, cinq routes au plancher `admin`, un sujet d'aide décrivant
+la création du projet Google pas à pas, et le paragraphe RGPD qui va avec.
+
+**Aucune dépendance Composer ajoutée.** Ce que Google demande ici, c'est
+un `POST` encodé en formulaire pour rafraîchir un jeton, des `PUT` avec
+un en-tête `Content-Range`, et trois `GET`. `google/apiclient` apporte
+Guzzle, PSR-7, PSR-18 et un générateur de définitions de services pour y
+arriver. `ARCHITECTURE.md` §1 demande à une dépendance de se justifier, et
+le dépôt répond déjà trois fois à la même question : `GitHubReleaseClient`,
+`OvhApiClient` et le fournisseur Anthropic de `llm_connector` sont tous des
+clients HTTP écrits à la main. Celui-ci est le quatrième, avec la fermeture
+de transport injectable qu'`OvhApiClient` a établie — parce que rien de tout
+cela ne peut être exercé contre le vrai service dans une suite de tests : il
+faudrait un compte Google, un projet et un écran de consentement publié.
+
+**Décision autonome : l'identifiant client reste dans `settings`.** Le
+document demande que le jeton de rafraîchissement aille dans `secrets.enc`
+et jamais dans `settings` ; le secret client suit la même règle pour la
+même raison. L'identifiant, lui, voyage dans l'URL d'autorisation que le
+navigateur de l'opérateur suit : il est public par construction, et le
+garder visible est ce qui permet de vérifier qu'on a collé le bon.
+
+**Décision autonome : un contrôleur à lui.** `MaintenanceController` est
+déjà au-delà de chaque seuil PHPMD que le projet mesure, et ce que cette
+fonctionnalité configure est une conversation avec un tiers — un compte,
+un écran de consentement, une autorisation révocable. La page Maintenance
+affiche le bloc ; rien d'autre ne lui appartient.
+
+**Le rappel OAuth est au plancher `admin`, comme les quatre autres
+routes.** C'est la seule qu'un navigateur atteint depuis ailleurs, et la
+seule qui écrit un jeton de rafraîchissement : ouverte, elle serait une
+route où quiconque sait composer une URL décide vers quel compte Google ce
+site sauvegarde. Le paramètre `state` à usage unique vérifié contre la
+session s'ajoute à ce plancher, il ne le remplace pas — et un test lit
+`public/index.php` plutôt que de redéclarer le rôle lui-même, faute de
+quoi il ne prouverait que ce qu'on aurait tapé dedans.
+
+**Les sept jours sont écrits sur l'écran, en toutes lettres.** Un jeton de
+rafraîchissement délivré par un projet dont l'écran de consentement est
+resté en « Test » expire au bout d'une semaine, en silence : les
+sauvegardes s'arrêtent et personne ne le découvre avant d'en avoir besoin.
+Le nombre vient de `GoogleDriveClient::TESTING_TOKEN_LIFETIME_DAYS` et le
+gabarit le lit, pour que les deux ne puissent pas diverger.
+
+**Ce qu'un test a trouvé.** Le cas « les secrets du site sont illisibles »
+a montré que `disconnect()` réécrivait `secrets.enc` sans l'avoir lu. Or ce
+fichier est un seul document JSON : le mot de passe SMTP, la clé de
+chiffrement des colonnes et la clé VAPID y sont avec ceux de Drive. Un
+« Déraccorder » obligeant sur un fichier corrompu aurait transformé une
+mauvaise journée en installation irrécupérable. L'écriture refuse
+désormais, et dit pourquoi.
+
+**Six constats de revue, tous justes.** Le premier est le plus lourd :
+`disconnect()` et `saveCredentials()` écrivaient les lignes de `settings`
+*avant* l'écriture chiffrée qui, elle, peut refuser en disant « Rien n'a
+été modifié ». Cette phrase aurait donc été un mensonge écrit par le code
+qui la prononce — et un mensonge précis : la page aurait annoncé
+« déraccordé » sur des identifiants encore valides, le bouton qui
+défait cela masqué, et l'identifiant client dont il a besoin déjà effacé.
+L'ordre est inversé partout dans la classe.
+
+Le deuxième : le docbloc promettait que la suppression du fichier témoin
+était dans un `finally`, et seule celle du fichier local y était. Un jeton
+expiré entre l'envoi et la suppression, un 503, et le témoin restait sur
+le Drive de l'opérateur — un de plus à chaque appui sur un bouton dont
+c'est tout le métier.
+
+Le troisième : quatre docblocs en français, manquement à `AGENTS.md`
+§ Langue, à moi. Les quatrième et cinquième vont ensemble : l'adresse du
+compte Google est une donnée personnelle. Elle était écrite en clair dans
+la description d'une entrée de journal — lue à l'écran et emportée dans
+l'archive de diagnostic — et stockée en clair dans une ligne de
+`settings`, donc affichée sur la page générique des Réglages et exportée
+sans caviardage. Elle rejoint `secrets.enc`, le journal ne la nomme plus,
+et un cliquet interdit au contrôleur de l'y remettre. `SECURITY.md`
+posait déjà le précédent pour la sonde courriel : « le journal compte les
+boîtes et n'en nomme aucune ».
+
+Le sixième dit quelque chose sur la manière dont un test peut passer au
+vert au-dessus d'un défaut. « Aucun jeton de rafraîchissement » et
+« l'autorisation a été retirée » levaient la même exception : tester un
+site jamais raccordé enregistrait donc une révocation qui n'avait jamais
+eu lieu, et tester un site déjà en attente de reconnexion remplaçait le
+motif que Google avait donné par un « aucun compte » générique. Le test
+existant n'assertait que le message rendu — jamais l'état écrit à côté —
+et c'est exactement l'écart par lequel le défaut est passé. Le bouton
+Tester répond maintenant avant de toucher à quoi que ce soit quand rien
+n'est raccordé, la levée « jamais raccordé » n'est plus marquée « à
+ré-autoriser », et le test lit l'état, le dernier motif et le nombre
+d'appels à Google.
+
+**Reporté.** L'envoi récurrent et la rétention distante (IT-09) : rien
+n'appelle encore `upload()` en dehors du fichier témoin du bouton
+« Tester ». Le quota distant n'est pas lu au rendu de la page — cela
+coûterait une requête vers Google à chaque affichage, et la réponse dont
+l'opérateur a besoin, « ça marche », c'est le bouton qui la donne.
