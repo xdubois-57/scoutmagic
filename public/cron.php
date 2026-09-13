@@ -259,14 +259,27 @@ $mailService = MailServiceFactory::create(
 );
 
 // Web Push (Core\Notification) — same construction as public/index.php.
-// Null when VAPID keys aren't provisioned yet (e.g. this script running
-// before the site has ever been reached over HTTP, where the keys are
-// self-healed) or aren't actually valid (VAPID::createVapidKeys() has been
-// observed to intermittently produce a key WebPush's own constructor
-// rejects — see VapidKeyPairFactory) — TaskContext::$notifications is
-// nullable and every handler calls it via ?->, so either case degrades to
-// "no push, everything else still runs" rather than crashing the whole
-// cron pass silently and invisibly.
+//
+// **$webPush is what VAPID decides, and nothing else.** It is null when
+// the keys aren't provisioned yet (e.g. this script running before the
+// site has ever been reached over HTTP, where the keys are self-healed) or
+// aren't actually valid (VAPID::createVapidKeys() has been observed to
+// intermittently produce a key WebPush's own constructor rejects — see
+// VapidKeyPairFactory). `NotificationService` takes `?WebPush` precisely
+// so that degrades to "no push, everything else still runs":
+// queuePushForAccount() and flushQueuedPush() return early on null.
+//
+// **The SERVICE is built either way, and that distinction is issue #318.**
+// This block used to construct it INSIDE the VAPID guard, so an
+// installation whose keys were missing or invalid handed `null` to the
+// TaskContext — and `notify()` returns on its first line when its
+// NotificationService is null. Every notification raised by a scheduled
+// task was then lost in silence: not just the push, but the e-mail and
+// the `notifications` row too. The four operational alerts of
+// Task\RunOperationalChecksHandler (disk, backup age, mail delivery,
+// development mode) wrote their state and told nobody, on precisely the
+// installation least able to notice — a fresh one, or one whose key
+// generation had just failed.
 //
 // Built BEFORE ModuleManager on purpose: loadEnabledModules() below is
 // what registers each module's notification TYPES into this service, and
@@ -277,7 +290,7 @@ $mailService = MailServiceFactory::create(
 // mid-batch on "Undeclared notification type" — stranding every recipient
 // after that one as 'pending' forever (caught by
 // tests/e2e/specs/mass-mail-merge.spec.js).
-$notificationService = null;
+$webPush = null;
 if (VapidKeyPairFactory::isValid(
     (string) ($secrets['vapid_public_key'] ?? ''),
     (string) ($secrets['vapid_private_key'] ?? '')
@@ -288,45 +301,60 @@ if (VapidKeyPairFactory::isValid(
     $vapidSubject = $vapidSubjectEmail !== ''
         ? 'mailto:' . $vapidSubjectEmail
         : (string) ($settingService->get('base_url') ?: 'https://localhost');
-    $webPush = new WebPush(['VAPID' => [
-        'subject' => $vapidSubject,
-        'publicKey' => (string) $secrets['vapid_public_key'],
-        'privateKey' => (string) $secrets['vapid_private_key'],
-    ]]);
-    $notificationService = new NotificationService(
-        new NotificationRepository($pdo, $encryptionService),
-        new PushSubscriptionRepository($pdo, $encryptionService),
-        new NotificationPreferenceRepository($pdo),
-        $webPush,
-        $settingService,
-        $journalService,
-        new SchedulerService($schedulerRepo),
-        $userAccountRepo,
-        // RoleResolver/ScoutYearService, same as public/index.php (§8.17:
-        // the two entry points must not drift). This used to be left out
-        // deliberately, on the reading that a cron-triggered dispatch()
-        // never had a real recipient list — which stopped being true the
-        // moment a background task started ANNOUNCING something to an
-        // audience defined by role rather than answering the person who
-        // asked for it. Without these, dispatch() skips the role_min
-        // re-check entirely: an automatic update installed by the real
-        // crontab would notify every account on the site, member and
-        // parent included, instead of the superadmins the type is
-        // declared for.
-        $roleResolver,
-        $scoutYearService,
-        // Same set the web path judges on: a dispatch from the real
-        // crontab must not filter out an animateur the site itself lets
-        // in (ARCHITECTURE.md §4 « Scout year »).
-        $authorizationYearService,
-        // Same reasoning one collaborator later: an immediate delivery
-        // wired into one entry point and not the other would send the
-        // alerts raised on a page view and queue the ones raised by this
-        // pass. Costs nothing here — the factory builds Twig only when a
-        // message is actually rendered.
-        new \Core\Notification\NotificationMailerFactory($mailService, $pdo, $settingService, $journalService)
-    );
+    // The same try/catch as public/index.php, and for the same reason:
+    // `isValid()` answers what it can check, WebPush's constructor
+    // validates again and throws on anything else. A pass that cannot
+    // push must still run every task it was started for.
+    try {
+        $webPush = new WebPush(['VAPID' => [
+            'subject' => $vapidSubject,
+            'publicKey' => (string) $secrets['vapid_public_key'],
+            'privateKey' => (string) $secrets['vapid_private_key'],
+        ]]);
+    } catch (\Throwable $e) {
+        $webPush = null;
+        $journalService->log(
+            'core',
+            'vapid_construction_failed',
+            'info',
+            'Configuration VAPID invalide : notifications push désactivées pour cette passe',
+            ['message' => $e->getMessage()]
+        );
+    }
 }
+$notificationService = new NotificationService(
+    new NotificationRepository($pdo, $encryptionService),
+    new PushSubscriptionRepository($pdo, $encryptionService),
+    new NotificationPreferenceRepository($pdo),
+    $webPush,
+    $settingService,
+    $journalService,
+    new SchedulerService($schedulerRepo),
+    $userAccountRepo,
+    // RoleResolver/ScoutYearService, same as public/index.php (§8.17:
+    // the two entry points must not drift). This used to be left out
+    // deliberately, on the reading that a cron-triggered dispatch()
+    // never had a real recipient list — which stopped being true the
+    // moment a background task started ANNOUNCING something to an
+    // audience defined by role rather than answering the person who
+    // asked for it. Without these, dispatch() skips the role_min
+    // re-check entirely: an automatic update installed by the real
+    // crontab would notify every account on the site, member and
+    // parent included, instead of the superadmins the type is
+    // declared for.
+    $roleResolver,
+    $scoutYearService,
+    // Same set the web path judges on: a dispatch from the real
+    // crontab must not filter out an animateur the site itself lets
+    // in (ARCHITECTURE.md §4 « Scout year »).
+    $authorizationYearService,
+    // Same reasoning one collaborator later: an immediate delivery
+    // wired into one entry point and not the other would send the
+    // alerts raised on a page view and queue the ones raised by this
+    // pass. Costs nothing here — the factory builds Twig only when a
+    // message is actually rendered.
+    new \Core\Notification\NotificationMailerFactory($mailService, $pdo, $settingService, $journalService)
+);
 
 // Load enabled modules so their scheduled task handlers (module.json
 // "scheduled_tasks") are resolvable — without this, every module-registered
