@@ -924,7 +924,7 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
         $args = self::claudeArgs();
         $decided = self::deliberateDenials();
 
-        foreach (['Write', 'WebFetch', 'ScheduleWakeup'] as $tool) {
+        foreach (['Write', 'WebFetch', 'ScheduleWakeup', 'Monitor'] as $tool) {
             $this->assertContains(
                 $tool,
                 $decided,
@@ -947,6 +947,14 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
             '`ScheduleWakeup` has been granted. A workflow run is one-shot: there is no later turn to '
             . 'schedule, and a reviewer that reaches for one ends the run with its agents still reading.',
         );
+
+        $this->assertDoesNotMatchRegularExpression(
+            '/--allowedTools "[^"]*\bMonitor\b/',
+            $args,
+            '`Monitor` has been granted, and it is the same refusal as `ScheduleWakeup` under another '
+            . 'name: arranging to be called back later, in a run nothing calls back. Issue #300 is what '
+            . 'happens when only one of the two is closed.',
+        );
     }
 
     /**
@@ -961,16 +969,39 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
      * A reviewer that schedules a wake-up has ended its turn, and nothing
      * wakes a workflow up: the SDK closes the run a success with four
      * agents still reading. Telling it so costs a sentence.
+     *
+     * **It happened again on 2026-09-10, and that is why the sentence
+     * names two tools.** Run 34447638775 stopped at 7 launched and 3
+     * finished — the same figures — with `ScheduleWakeup` absent from its
+     * tool list entirely and `Monitor` in its place, the only refusal of
+     * that run outside the decided list (issue #300). Refusing a tool by
+     * name had closed the door taken first rather than the behaviour, and
+     * the behaviour is one sentence: nothing will wake this run up, so do
+     * not stop. A THIRD name on a truncated pass means this assertion, and
+     * the list it reads, should stop being an enumeration.
      */
     public function testTheReviewerIsToldWhyItCannotScheduleAWakeUp(): void
     {
         $args = self::claudeArgs();
 
         $this->assertStringContainsString(
-            'ScheduleWakeup is not granted and cannot help you',
+            'ScheduleWakeup and Monitor are not granted and cannot help you',
             $args,
-            'The prompt no longer tells the reviewer that scheduling a wake-up cannot work here. That is '
-            . 'what every truncated review of 2026-09-08 did instead of waiting for its agents.',
+            'The prompt no longer tells the reviewer that arranging to be called back later cannot work '
+            . 'here. That is what every truncated review of 2026-09-08 and 2026-09-10 did instead of '
+            . 'waiting for its agents — under two different tool names.',
+        );
+
+        // The two names above are the spellings already met; this is the
+        // rule they are spellings OF. Without it the prompt would still
+        // pass the assertion above while saying nothing at all about a
+        // third tool, which is precisely how #262's fix left #300 open.
+        $this->assertStringContainsString(
+            'Any other way of arranging to be called back later is the same mistake under a third name',
+            $args,
+            'The prompt names the refused tools but no longer states the rule behind them. An enumeration '
+            . 'only covers what somebody has already met: the general sentence is the only part that can '
+            . 'reach a tool nobody has seen truncate a review yet.',
         );
 
         foreach (self::deliberateDenials() as $tool) {

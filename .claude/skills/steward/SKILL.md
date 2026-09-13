@@ -200,13 +200,18 @@ docs/quality-pipeline.md § Code review). Which is why the comment's verdict
 now rests on three rows — **`Review agents launched`**, **`Review agents
 finished`** and **`Tool calls refused`** — read from the run's own
 transcript. Agents launched at zero, fewer finished than launched, or a
-tool refused **outside `Bash`**, and no review happened, whatever the check
-says.
+tool refused **outside the decided refusals**, and no review happened,
+whatever the check says.
 
-**`Bash` is the one entry granted command by command**, so a refused shell
-line there is the allowlist working and does not fail the check — the row
-still counts them. Every other tool is granted whole, so a refusal of one
-is a gap in `claude_args`. That distinction was bought on #217: a review
+**Those decided refusals are one list, `DELIBERATE_DENIALS`, at the top of
+`.github/workflows/claude-review.yml`**, with the reason for each written
+beside it — that file is where they are read, not repeated here, because a
+second copy would be the one that goes stale. `Bash` is on it as the entry
+granted command by command, so a refused shell line is the allowlist
+working; the others are on it as refusals decided on purpose. A tool
+refused that is **not** on that list is a gap in `claude_args`.
+
+That distinction was bought on #217: a review
 that launched sixteen agents, finished all sixteen, spent 6.46 USD and
 posted five findings was reported as "not a review" because it had also
 tried nineteen exploratory one-liners and then done without them.
