@@ -918,13 +918,20 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
      * workspace is inert, an outbound request to a URL the agent chose,
      * from a job holding CLAUDE_CODE_OAUTH_TOKEN and `id-token: write`
      * while reading an untrusted diff, is an exfiltration channel.
+     *
+     * **Each of the two is named here with its pair**, because a pair is
+     * one decision and half of one is what the list already cost: `Edit`
+     * is the other door into `Write`, `WebSearch` the other door out of
+     * `WebFetch`, and a list that pins only one half of each lets the
+     * other be dropped with this test still green — which is the accident
+     * this very change repairs.
      */
     public function testTheToolsThatStayRefusedAreNotQuietlyGrantedInstead(): void
     {
         $args = self::claudeArgs();
         $decided = self::deliberateDenials();
 
-        foreach (['Write', 'WebFetch', 'ScheduleWakeup', 'Monitor'] as $tool) {
+        foreach (['Write', 'Edit', 'WebFetch', 'WebSearch', 'ScheduleWakeup', 'Monitor'] as $tool) {
             $this->assertContains(
                 $tool,
                 $decided,
@@ -939,6 +946,13 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
             '`WebFetch` has been granted. This job holds the maintainer\'s subscription token and '
             . '`id-token: write` while reading a diff anybody can write, and an outbound request to a URL '
             . 'the agent chose is the one refusal in this file that cannot be traded for convenience.',
+        );
+
+        $this->assertDoesNotMatchRegularExpression(
+            '/--allowedTools "[^"]*\bWebSearch\b/',
+            $args,
+            '`WebSearch` has been granted, and it is `WebFetch`\'s refusal under another name: a query '
+            . 'leaves this job for something the agent chose, and the diff it is reading can choose it.',
         );
 
         $this->assertDoesNotMatchRegularExpression(
