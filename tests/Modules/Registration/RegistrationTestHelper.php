@@ -38,6 +38,8 @@ class RegistrationTestHelper
             refused_email_sent_at TEXT,
             final_at TEXT,
             address_normalized_blind_index TEXT,
+            previous_unit_answer TEXT,
+            previous_unit_name_encrypted BLOB,
             FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
             FOREIGN KEY (desired_section_id) REFERENCES sections(id),
             FOREIGN KEY (intended_section_id) REFERENCES sections(id),

@@ -21,6 +21,7 @@ use Core\Security\CsrfGuard;
 use Core\Security\HumanCheck\HumanCheckService;
 use Core\Service\DateInput;
 use Modules\Registration\Repository\AgeBracketRepository;
+use Modules\Registration\Repository\RegistrationRequest;
 use Modules\Registration\Service\RegistrationService;
 use Modules\Registration\Service\RegistrationSubmissionReceipt;
 use Modules\Registration\Repository\ReenrollmentRepository;
@@ -58,6 +59,7 @@ class PublicRegistrationController extends AbstractController
         'phone1' => 30,
         'phone2' => 30,
         'remarks' => 2000,
+        'previous_unit_name' => 150,
     ];
 
     public function __construct(
@@ -383,13 +385,19 @@ class PublicRegistrationController extends AbstractController
      *   parent_name: string, child_last_name: string, child_first_name: string,
      *   gender: string, birth_date: string, street: string, number: string,
      *   postal_code: string, city: string, email: string, phone1: string,
-     *   phone2: ?string, remarks: ?string
+     *   phone2: ?string, remarks: ?string,
+     *   previous_unit_answer: ?string, previous_unit_name: ?string
      * }
      */
     private function extractFields(Request $request): array
     {
         $phone2 = trim((string) $request->getBody('phone2', ''));
         $remarks = trim((string) $request->getBody('remarks', ''));
+        // Issue #331. The answer is validated below against the two values
+        // the column accepts; anything else is « not answered », which is
+        // what validate() then refuses rather than silently storing.
+        $previousUnitAnswer = trim((string) $request->getBody('previous_unit_answer', ''));
+        $previousUnitName = trim((string) $request->getBody('previous_unit_name', ''));
 
         return [
             'parent_name' => trim((string) $request->getBody('parent_name', '')),
@@ -405,6 +413,15 @@ class PublicRegistrationController extends AbstractController
             'phone1' => trim((string) $request->getBody('phone1', '')),
             'phone2' => $phone2 !== '' ? $phone2 : null,
             'remarks' => $remarks !== '' ? $remarks : null,
+            'previous_unit_answer' => $previousUnitAnswer !== '' ? $previousUnitAnswer : null,
+            // Dropped when the answer is « non »: a name typed, then
+            // corrected back to « non », must not survive as a claim the
+            // family did not make. The Repository refuses it a second time
+            // for a caller that never came through this form.
+            'previous_unit_name' => $previousUnitAnswer === RegistrationRequest::PREVIOUS_UNIT_YES
+                && $previousUnitName !== ''
+                    ? $previousUnitName
+                    : null,
         ];
     }
 
@@ -438,6 +455,23 @@ class PublicRegistrationController extends AbstractController
 
         if ($request->getBody('rgpd_accepted') === null) {
             $errors[] = 'Merci d\'accepter la politique de confidentialité.';
+        }
+
+        // Issue #331 — both halves of the question, and the second one only
+        // when the first says « oui ». The unit the child comes from is what
+        // changes the chief's encoding procedure in Desk, so a « oui » with
+        // no unit named is a request nobody can act on.
+        if (!in_array(
+            $fields['previous_unit_answer'],
+            [RegistrationRequest::PREVIOUS_UNIT_NO, RegistrationRequest::PREVIOUS_UNIT_YES],
+            true
+        )) {
+            $errors[] = 'Merci d\'indiquer si cette personne fait ou a fait partie d\'une autre unité Les Scouts.';
+        } elseif (
+            $fields['previous_unit_answer'] === RegistrationRequest::PREVIOUS_UNIT_YES
+            && ($fields['previous_unit_name'] ?? null) === null
+        ) {
+            $errors[] = 'Merci d\'indiquer de quelle unité il s\'agit.';
         }
 
         foreach (self::MAX_LENGTHS as $key => $max) {

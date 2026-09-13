@@ -7,6 +7,7 @@ role_min: public
 question: Comment inscrire mon enfant chez les scouts ?
 question: Reste-t-il de la place dans la section ?
 question: Que se passe-t-il après l'envoi de ma demande ?
+question: Mon enfant vient d'une autre unité, que dois-je indiquer ?
 paths: /inscriptions, /inscriptions/envoyee
 related: suivre-une-demande, decouvrir-le-site
 ---
@@ -25,6 +26,13 @@ section — elle reste indicative : la section sera confirmée par
 l'unité selon l'âge, l'équilibre des groupes et les places. Un champ
 de remarques est à votre disposition, et la case de protection des
 données est obligatoire.
+
+Une question est obligatoire et mérite un mot : « Déjà membre d'une
+autre unité Les Scouts ? ». Répondez « Oui » si la personne inscrite
+fait ou a fait partie d'une autre unité de la fédération, à n'importe
+quel titre — animé, animateur ou intendant — et indiquez alors
+laquelle. L'unité en a besoin : l'encodage dans Desk suit une autre
+procédure pour quelqu'un que la fédération connaît déjà.
 
 Envoyer la demande **n'est pas encore une inscription** : la page de
 confirmation le rappelle, et l'unité examinera votre demande avant de

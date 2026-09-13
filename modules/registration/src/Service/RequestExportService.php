@@ -66,6 +66,7 @@ final class RequestExportService
             'Numéro',
             'Code postal',
             'Localité',
+            'Autre unité Les Scouts',
             'Remarques',
             'Email envoyé le',
         ];
@@ -108,12 +109,29 @@ final class RequestExportService
                 $registrationRequest->number,
                 $registrationRequest->postalCode,
                 $registrationRequest->city,
+                $this->previousUnitLabel($registrationRequest),
                 $registrationRequest->remarks ?? '',
                 $this->emailSentLabel($registrationRequest),
             ];
         }
 
         return TabularSpreadsheet::buildSpreadsheet(self::headers(), $sheetRows, 'Demandes');
+    }
+
+    /**
+     * Issue #331 — the answer, and the unit when there is one, in the
+     * same cell. An empty cell is a request filed before the question
+     * existed: « Non » is written out, so the two never read alike in a
+     * spreadsheet somebody sorts on.
+     */
+    private function previousUnitLabel(RegistrationRequest $registrationRequest): string
+    {
+        return match ($registrationRequest->previousUnitAnswer) {
+            RegistrationRequest::PREVIOUS_UNIT_YES => 'Oui — '
+                . ($registrationRequest->previousUnitName ?? 'unité non précisée'),
+            RegistrationRequest::PREVIOUS_UNIT_NO => 'Non',
+            default => '',
+        };
     }
 
     /**

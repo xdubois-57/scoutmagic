@@ -33,11 +33,18 @@ class RegistrationRequestRepository
     }
 
     /**
+     * `previous_unit_answer`/`previous_unit_name` are OPTIONAL keys, not
+     * missing ones: a caller that predates issue #331 — the reference
+     * dataset's own seeder among them — files a request on which the
+     * question was never put, which is exactly the NULL schema.sql
+     * describes. The public form always supplies the answer.
+     *
      * @param array{
      *   parent_name: string, child_last_name: string, child_first_name: string,
      *   gender: string, birth_date: string, street: string, number: string,
      *   postal_code: string, city: string, email: string, phone1: string,
-     *   phone2: ?string, remarks: ?string
+     *   phone2: ?string, remarks: ?string,
+     *   previous_unit_answer?: ?string, previous_unit_name?: ?string
      * } $fields
      * @param array<int> $siblingMemberIds
      * @return array{id: int, tracking_token: string} the raw tracking token, never
@@ -104,6 +111,18 @@ class RegistrationRequestRepository
                 RegistrationRequest::STATUS_PENDING,
                 $trackingTokenHash,
                 $addressBlind,
+                self::normalizePreviousUnitAnswer($fields['previous_unit_answer'] ?? null),
+                // Only ever stored with a « oui »: a name left over from a
+                // family who changed their answer back to « non » would say
+                // the opposite of what they told the unit.
+                ($fields['previous_unit_answer'] ?? null) === RegistrationRequest::PREVIOUS_UNIT_YES
+                    && ($fields['previous_unit_name'] ?? null) !== null
+                    && $fields['previous_unit_name'] !== ''
+                        ? $this->encryption->encrypt(
+                            (string) $fields['previous_unit_name'],
+                            'registration_requests.previous_unit_name'
+                        )
+                        : null,
             ], $siblingMemberIds);
 
             $this->pdo->commit();
@@ -127,8 +146,9 @@ class RegistrationRequestRepository
                 gender_encrypted, birth_date_encrypted, street_encrypted, number_encrypted,
                 postal_code_encrypted, city_encrypted, email_encrypted, email_blind_index,
                 phone1_encrypted, phone2_encrypted, remarks_encrypted, name_dob_blind_index,
-                desired_section_id, status, tracking_token_hash, address_normalized_blind_index
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                desired_section_id, status, tracking_token_hash, address_normalized_blind_index,
+                previous_unit_answer, previous_unit_name_encrypted
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute($requestParams);
 
@@ -659,7 +679,31 @@ class RegistrationRequestRepository
             refusedEmailSentAt: DateInput::fromStorage(
                 $row['refused_email_sent_at'] === null ? null : (string) $row['refused_email_sent_at']
             ),
-            finalAt: DateInput::fromStorage($row['final_at'] === null ? null : (string) $row['final_at'])
+            finalAt: DateInput::fromStorage($row['final_at'] === null ? null : (string) $row['final_at']),
+            previousUnitAnswer: $row['previous_unit_answer'] !== null
+                ? (string) $row['previous_unit_answer']
+                : null,
+            previousUnitName: $row['previous_unit_name_encrypted'] !== null
+                ? $this->encryption->decrypt(
+                    $row['previous_unit_name_encrypted'],
+                    'registration_requests.previous_unit_name'
+                )
+                : null
         );
+    }
+
+    /**
+     * The column is an ENUM of two values plus NULL, and NULL carries its
+     * own meaning — « the question was not put » (schema.sql). Anything
+     * that is neither answer lands there rather than in a value MySQL
+     * would silently coerce to the empty string.
+     */
+    private static function normalizePreviousUnitAnswer(?string $answer): ?string
+    {
+        return in_array(
+            $answer,
+            [RegistrationRequest::PREVIOUS_UNIT_NO, RegistrationRequest::PREVIOUS_UNIT_YES],
+            true
+        ) ? $answer : null;
     }
 }
