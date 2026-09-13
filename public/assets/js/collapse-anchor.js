@@ -1,0 +1,137 @@
+/*!
+ * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+ */
+
+// Opens the collapsible section a URL fragment points at.
+//
+// A page whose boxes are folded breaks every deep link into it, and it
+// breaks them SILENTLY: the browser cannot scroll to a target inside a
+// `display: none` subtree, so the visitor lands at the top of the page
+// with no hint that what they were sent to see is three boxes down,
+// closed. Configuration > Maintenance sends itself such links on every
+// round trip through Google — `Http\Controller\RemoteBackupController`
+// redirects to `/config/maintenance#remote-backup` after connecting,
+// disconnecting, testing and regenerating — and the operational alerts
+// link to the same page to show a reading.
+//
+// Two shapes are accepted, because a fragment names what a human would
+// name: the collapse itself, or the card that contains it. Anything
+// else is left alone, and so is a fragment naming nothing.
+//
+// **The trigger is clicked rather than the collapse shown directly.**
+// Bootstrap's delegated click handler is what keeps `aria-expanded`, the
+// `.collapsed` class on the button and the chevron's rotation in step
+// with the panel; showing the panel through the Collapse API would open
+// it under a button still claiming it is closed. It also means this file
+// has no dependency on the `bootstrap` global — if the bundle has not
+// run yet, the click is a no-op on a page that still renders correctly.
+(function () {
+    /**
+     * Every `.collapse` that has to open for `node` to be on screen:
+     * itself if it is one, then each of its ancestors — a section nested
+     * in a folded section is opened from the outside in.
+     *
+     * @param {Element} node
+     * @returns {Element[]}
+     */
+    function collapsesAround(node) {
+        /** @type {Element[]} */
+        var chain = [];
+        var current = /** @type {Element|null} */ (node);
+
+        while (current) {
+            if (current.classList.contains('collapse')) {
+                chain.unshift(current);
+            }
+            current = current.parentElement;
+        }
+
+        return chain;
+    }
+
+    /**
+     * @param {Element} anchor
+     * @returns {Element[]}
+     */
+    function sectionsFor(anchor) {
+        var chain = collapsesAround(anchor);
+        if (chain.length > 0) {
+            return chain;
+        }
+
+        // The fragment named the card, not the panel inside it. The
+        // first `.collapse` in document order is that panel; a nested
+        // one ("Voir plus") comes later and is not what was asked for.
+        var inner = anchor.querySelector('.collapse');
+
+        return inner ? [inner] : [];
+    }
+
+    /**
+     * @param {Element} section
+     * @returns {void}
+     */
+    function open(section) {
+        if (section.classList.contains('show')) {
+            return;
+        }
+
+        var trigger = document.querySelector(
+            '[data-bs-toggle="collapse"][data-bs-target="#' + section.id + '"]'
+        );
+        if (trigger instanceof HTMLElement) {
+            trigger.click();
+        }
+    }
+
+    /**
+     * @param {string} hash
+     * @returns {boolean} whether a section was found for it
+     */
+    function openFromHash(hash) {
+        if (!hash || hash.length < 2) {
+            return false;
+        }
+
+        // A fragment is attacker-writable, and `getElementById` is the
+        // only lookup here that cannot be made to mean anything else —
+        // no selector is ever built from it.
+        var anchor = document.getElementById(decodeURIComponent(hash.slice(1)));
+        if (!anchor) {
+            return false;
+        }
+
+        var sections = sectionsFor(anchor);
+        if (sections.length === 0) {
+            return false;
+        }
+
+        sections.forEach(open);
+
+        // After the last panel finishes opening, not before: the anchor
+        // has no height while the animation runs, so scrolling now would
+        // land somewhere above it. Waiting on the OUTERMOST panel is not
+        // enough when sections are nested, so every one of them is
+        // listened to and the last to finish wins — scrolling twice to
+        // the same place costs nothing.
+        sections.forEach(function (section) {
+            section.addEventListener('shown.bs.collapse', function () {
+                anchor.scrollIntoView();
+            }, { once: true });
+        });
+
+        return true;
+    }
+
+    window.ScoutMagicCollapseAnchor = { openFromHash: openFromHash };
+
+    openFromHash(window.location.hash);
+
+    // A link to a fragment of the page already open in the browser
+    // changes the hash without reloading anything, so the load-time pass
+    // above never sees it.
+    window.addEventListener('hashchange', function () {
+        openFromHash(window.location.hash);
+    });
+})();

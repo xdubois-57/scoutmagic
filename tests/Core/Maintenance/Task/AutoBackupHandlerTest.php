@@ -157,6 +157,39 @@ class AutoBackupHandlerTest extends TestCase
         $this->assertNotSame('', $this->settings->get('backup_auto_last_run'));
     }
 
+    /**
+     * With nothing stored, the handler backs up at the frequency the
+     * screen displays.
+     *
+     * `public/index.php` registers `backup_auto_frequency` with
+     * « weekly » and `MaintenanceController::index()` shows « weekly »
+     * when it reads nothing, but this handler's own fallback still said
+     * « monthly » — the value issue #286 moved away from. Unreachable on
+     * an installation whose settings row exists, and precisely for that
+     * reason the worst place to disagree: the one situation that reaches
+     * it is the one where the screen and the scheduler would tell an
+     * operator two different things about the same setting.
+     *
+     * The row is removed rather than emptied, because `set()` refuses an
+     * empty value outright — a missing row is the only way this fallback
+     * is ever reached, which is the whole reason it went unnoticed.
+     */
+    public function testAnUnsetFrequencyBacksUpAtTheFrequencyTheScreenShows(): void
+    {
+        $this->pdo->exec("DELETE FROM settings WHERE module_id IS NULL AND setting_key = 'backup_auto_frequency'");
+        $this->settings->clearCache();
+        $handler = new AutoBackupHandler($this->fakeBackupService());
+
+        $handler->handle([], $this->context);
+
+        $this->assertCount(1, $this->backupRepository->findRecent(5));
+        $scheduled = $this->schedulerRepository->findByModuleAndKey('core', 'auto_backup', 'auto');
+        $this->assertNotNull($scheduled);
+        $runAt = strtotime($scheduled['run_at']);
+        $this->assertGreaterThan(strtotime('+6 days'), $runAt);
+        $this->assertLessThan(strtotime('+8 days'), $runAt);
+    }
+
     public function testHandleSkipsBackupWhenFrequencyIsNone(): void
     {
         $this->settings->set('backup_auto_frequency', 'none');

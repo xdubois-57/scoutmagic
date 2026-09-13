@@ -36,10 +36,22 @@
                         {{ backup.createdAt }}{% if backup.sizeLabel %} · {{ backup.sizeLabel }}{% endif %}
                     </div>
                 </div>
+                {# Deux icônes plutôt que deux boutons libellés. Une ligne
+                   porte déjà trois pastilles, une date et une taille ;
+                   « Télécharger » et « Supprimer » écrits en toutes lettres
+                   la faisaient passer à la ligne dès qu'une pastille
+                   d'intégrité s'y ajoutait, sur un téléphone comme sur un
+                   écran large. Le nom accessible reste complet et nomme la
+                   sauvegarde — il y a jusqu'à une quinzaine de lignes, et
+                   quinze « Supprimer » identiques ne se distinguent pas
+                   (design.md §7.4 : une action icône seule porte son
+                   libellé dans title et aria-label). #}
                 {% if backup.status == 'completed' and backup.fileId %}
                     {% include 'partials/file_link.html.twig' with {
                         href: '/files/' ~ backup.fileId,
-                        label: 'Télécharger',
+                        label: '',
+                        aria_label: 'Télécharger la sauvegarde « ' ~ backup.typeLabel ~ ' » du ' ~ backup.createdAt,
+                        title: 'Télécharger',
                         classes: 'btn btn-sm btn-outline-secondary',
                         icon: 'download',
                     } only %}
@@ -59,13 +71,51 @@
                       data-confirm="Supprimer la sauvegarde « {{ backup.typeLabel }} » du {{ backup.createdAt }}{% if backup.sizeLabel %} ({{ backup.sizeLabel }}){% endif %} ?{% if backup.isOperational %} C'est la sauvegarde de sécurité d'une opération : tant qu'elle existe, un retour en arrière automatique reste possible.{% endif %}"
                       data-confirm-label="Supprimer">
                     {{ csrf_field()|raw }}
-                    <button type="submit" class="btn btn-sm btn-outline-danger">
-                        <i class="bi bi-trash" aria-hidden="true"></i> Supprimer
+                    <button type="submit" class="btn btn-sm btn-outline-danger" title="Supprimer"
+                            aria-label="Supprimer la sauvegarde « {{ backup.typeLabel }} » du {{ backup.createdAt }}">
+                        <i class="bi bi-trash" aria-hidden="true"></i>
                     </button>
                 </form>
             </li>
         {% endfor %}
     </ul>
+{% endmacro %}
+
+{# L'en-tête d'une boîte de cette page : un bouton qui replie son corps.
+
+   La page porte huit boîtes, dont trois ne servent qu'une fois par an et
+   une qu'on espère ne jamais ouvrir. À plat, elle se parcourt à la
+   molette ; repliée, elle est son propre sommaire — le même mouvement que
+   Réglages et Support ont déjà fait, avec exactement leur bouton
+   (« btn w-100 … border rounded-3 p-3 text-start » et le chevron que
+   `app.css` fait pivoter sur `:not(.collapsed)`). Deux façons de replier
+   une section sur un même site seraient une de trop.
+
+   `open` n'est vrai que pour les deux premières : l'état du site et la
+   mise à jour sont ce pour quoi on vient ici, tout le reste se cherche.
+
+   **Le bouton est DANS le <h2>, pas à sa place.** Chaque boîte contient
+   des <h3> ; un titre remplacé par un <span> les laisserait sans parent
+   dans le plan du document, et une page de maintenance parcourue au
+   lecteur d'écran deviendrait une liste de sous-titres orphelins. C'est
+   aussi le motif que WAI-ARIA décrit pour un accordéon.
+
+   `heading_class` va sur le BOUTON et non sur le <h2>, et la taille du
+   titre sur le <span> et non sur le <h2> non plus : `.btn` fixe sa propre
+   couleur ET sa propre taille de police, donc un `h5 text-danger` posé
+   sur le titre ne donnerait ni l'une ni l'autre. C'est exactement la
+   composition de Réglages et de Support. #}
+{% macro section_header(target_id, title, open, icon, heading_class) %}
+    <h2 class="mb-0">
+        <button type="button"
+                class="btn w-100 d-flex align-items-center gap-2 border rounded-3 p-3 text-start{{ heading_class ? ' ' ~ heading_class }}{{ open ? '' : ' collapsed' }}"
+                data-bs-toggle="collapse" data-bs-target="#{{ target_id }}"
+                aria-expanded="{{ open ? 'true' : 'false' }}" aria-controls="{{ target_id }}">
+            {% if icon %}<i class="bi bi-{{ icon }}" aria-hidden="true"></i>{% endif %}
+            <span class="h5 mb-0 flex-grow-1">{{ title }}</span>
+            <i class="bi bi-chevron-down text-body-tertiary" aria-hidden="true"></i>
+        </button>
+    </h2>
 {% endmacro %}
 
 {% block content %}
@@ -110,599 +160,625 @@
        que la page Installation & serveur et que le paquet de support. #}
     <div class="card mb-4" id="maintenance-health">
         <div class="card-body">
-            <h2 class="h5 mb-3">État</h2>
-
-            {% set _cadence = null %}
-            {% if cron_median_interval_seconds %}
-                {% set _cadence = cron_median_interval_seconds < 60
-                    ? cron_median_interval_seconds ~ ' s'
-                    : (cron_median_interval_seconds // 60) ~ ' min' %}
-            {% endif %}
-            <p class="small mb-2" id="maintenance-cron-health">
-                <span class="text-body-secondary">Tâche cron réelle :</span>
-                {% if cron_state == 'active' %}
-                    <span class="badge text-bg-success">Actif</span>
-                    <span class="text-body-secondary">— dernier passage il y a {{ cron_seconds_since_last_pass ?? 0 }} s{% if _cadence %}, cadence ~{{ _cadence }}{% endif %}</span>
-                {% elseif cron_state == 'stale' %}
-                    <span class="badge text-bg-danger">Plus détecté</span>
-                    <span class="text-body-secondary">— dernier passage il y a {{ (cron_seconds_since_last_pass ?? 0) // 60 }} min</span>
-                {% else %}
-                    <span class="badge text-bg-danger">Jamais détecté</span>
+            {{ _self.section_header('maintenance-health-body', 'État', true) }}
+            <div class="collapse show mt-3" id="maintenance-health-body">
+                {% set _cadence = null %}
+                {% if cron_median_interval_seconds %}
+                    {% set _cadence = cron_median_interval_seconds < 60
+                        ? cron_median_interval_seconds ~ ' s'
+                        : (cron_median_interval_seconds // 60) ~ ' min' %}
                 {% endif %}
-            </p>
-
-            {% if cron_state != 'active' %}
-                <div class="alert alert-danger small" role="alert" id="maintenance-cron-warning">
-                    <p class="mb-2">
-                        Sans tâche cron, rien ne tourne en dehors des visites : ni sauvegarde automatique,
-                        ni mise à jour, ni rappel, ni notification. Ajoutez cette ligne chez votre hébergeur
-                        (rubrique « Tâches planifiées » ou « Cron ») :
-                    </p>
-                    <div class="input-group input-group-sm mb-2">
-                        <input type="text" class="form-control font-monospace" value="{{ cron_crontab_line }}" readonly id="maintenance-cron-line" aria-label="Ligne crontab">
-                    </div>
-                    <p class="mb-0">
-                        Le mot <code>php</code> au début est obligatoire : un panneau d'hébergement qui
-                        accepte un simple chemin de fichier n'exécute rien du tout, et ne le signale pas.
-                    </p>
-                </div>
-            {% endif %}
-
-            <p class="small mb-0" id="maintenance-auto-update-health">
-                <span class="text-body-secondary">Mise à jour automatique :</span>
-                {% if auto_update_last_success %}
-                    <strong>{{ auto_update_last_success|datetime_fr }}</strong>
-                    {%- if auto_update_last_success_version %} ({{ auto_update_last_success_version }}){% endif -%}
-                    {%- if auto_update_silent_days is not null %}
-                        <span class="text-body-secondary"> — il y a {{ auto_update_silent_days }} jour{{ auto_update_silent_days > 1 ? 's' : '' }}</span>
-                    {%- endif -%}
-                {% else %}
-                    <span class="text-body-secondary">aucune installée à ce jour</span>
-                {% endif %}
-            </p>
-
-            {% if update_last_attempt_failed %}
-                <p class="small text-danger mb-0 mt-1" id="maintenance-update-last-attempt">
-                    La dernière tentative
-                    {%- if update_last_attempt_at %} ({{ update_last_attempt_at|datetime_fr }}){% endif %}
-                    {{ update_last_attempt_status == 'rolled_back'
-                        ? 'a échoué et le site a été restauré automatiquement'
-                        : 'a échoué' }} — voir l'historique des mises à jour ci-dessous.
+                <p class="small mb-2" id="maintenance-cron-health">
+                    <span class="text-body-secondary">Tâche cron réelle :</span>
+                    {% if cron_state == 'active' %}
+                        <span class="badge text-bg-success">Actif</span>
+                        <span class="text-body-secondary">— dernier passage il y a {{ cron_seconds_since_last_pass ?? 0 }} s{% if _cadence %}, cadence ~{{ _cadence }}{% endif %}</span>
+                    {% elseif cron_state == 'stale' %}
+                        <span class="badge text-bg-danger">Plus détecté</span>
+                        <span class="text-body-secondary">— dernier passage il y a {{ (cron_seconds_since_last_pass ?? 0) // 60 }} min</span>
+                    {% else %}
+                        <span class="badge text-bg-danger">Jamais détecté</span>
+                    {% endif %}
                 </p>
-            {% endif %}
+
+                {% if cron_state != 'active' %}
+                    <div class="alert alert-danger small" role="alert" id="maintenance-cron-warning">
+                        <p class="mb-2">
+                            Sans tâche cron, rien ne tourne en dehors des visites : ni sauvegarde automatique,
+                            ni mise à jour, ni rappel, ni notification. Ajoutez cette ligne chez votre hébergeur
+                            (rubrique « Tâches planifiées » ou « Cron ») :
+                        </p>
+                        <div class="input-group input-group-sm mb-2">
+                            <input type="text" class="form-control font-monospace" value="{{ cron_crontab_line }}" readonly id="maintenance-cron-line" aria-label="Ligne crontab">
+                        </div>
+                        <p class="mb-0">
+                            Le mot <code>php</code> au début est obligatoire : un panneau d'hébergement qui
+                            accepte un simple chemin de fichier n'exécute rien du tout, et ne le signale pas.
+                        </p>
+                    </div>
+                {% endif %}
+
+                <p class="small mb-0" id="maintenance-auto-update-health">
+                    <span class="text-body-secondary">Mise à jour automatique :</span>
+                    {% if auto_update_last_success %}
+                        <strong>{{ auto_update_last_success|datetime_fr }}</strong>
+                        {%- if auto_update_last_success_version %} ({{ auto_update_last_success_version }}){% endif -%}
+                        {%- if auto_update_silent_days is not null %}
+                            <span class="text-body-secondary"> — il y a {{ auto_update_silent_days }} jour{{ auto_update_silent_days > 1 ? 's' : '' }}</span>
+                        {%- endif -%}
+                    {% else %}
+                        <span class="text-body-secondary">aucune installée à ce jour</span>
+                    {% endif %}
+                </p>
+
+                {% if update_last_attempt_failed %}
+                    <p class="small text-danger mb-0 mt-1" id="maintenance-update-last-attempt">
+                        La dernière tentative
+                        {%- if update_last_attempt_at %} ({{ update_last_attempt_at|datetime_fr }}){% endif %}
+                        {{ update_last_attempt_status == 'rolled_back'
+                            ? 'a échoué et le site a été restauré automatiquement'
+                            : 'a échoué' }} — voir l'historique des mises à jour ci-dessous.
+                    </p>
+                {% endif %}
+            </div>
         </div>
     </div>
 
     {# ————— Mise à jour ————— #}
     <div class="card mb-4" id="maintenance-update">
         <div class="card-body">
-            <h2 class="h5 mb-3">Mise à jour</h2>
-
-            <p class="small text-body-secondary mb-1">
-                Version installée : <strong>{{ installed_version }}</strong>{% if installed_version_commit %} <span class="text-body-secondary">({{ installed_version_commit }})</span>{% endif %}
-                {% if installed_version_notes_url %}
-                    (<a href="{{ installed_version_notes_url }}" target="_blank" rel="noopener">notes de version</a>)
+            {{ _self.section_header('maintenance-update-body', 'Mise à jour', true) }}
+            <div class="collapse show mt-3" id="maintenance-update-body">
+                <p class="small text-body-secondary mb-1">
+                    Version installée : <strong>{{ installed_version }}</strong>{% if installed_version_commit %} <span class="text-body-secondary">({{ installed_version_commit }})</span>{% endif %}
+                    {% if installed_version_notes_url %}
+                        (<a href="{{ installed_version_notes_url }}" target="_blank" rel="noopener">notes de version</a>)
+                    {% endif %}
+                </p>
+                {% if installed_version_notes %}
+                    {% include 'partials/clampable_notes.html.twig' with {
+                        id: 'installed-version-notes',
+                        notes: installed_version_notes,
+                        classes: 'small text-body-secondary mb-1'
+                    } only %}
                 {% endif %}
-            </p>
-            {% if installed_version_notes %}
-                {% include 'partials/clampable_notes.html.twig' with {
-                    id: 'installed-version-notes',
-                    notes: installed_version_notes,
-                    classes: 'small text-body-secondary mb-1'
-                } only %}
-            {% endif %}
-            <p class="small text-body-secondary">
-                Dernière vérification :
-                {% if update_checked_at %}{{ update_checked_at }}{% else %}jamais{% endif %}
-            </p>
+                <p class="small text-body-secondary">
+                    Dernière vérification :
+                    {% if update_checked_at %}{{ update_checked_at }}{% else %}jamais{% endif %}
+                </p>
 
-            <button type="button" class="btn btn-outline-secondary btn-sm mb-3" id="update-check-now">
-                <i class="bi bi-arrow-repeat" aria-hidden="true"></i> Vérifier maintenant
-            </button>
-            <output class="mt-2 mb-3 small d-none d-block" id="update-check-now-progress">
-                <span class="spinner-border spinner-border-sm"></span> Vérification en cours…
-            </output>
-            <div class="mt-2 mb-3 small text-danger d-none" id="update-check-now-error" role="alert"></div>
+                <button type="button" class="btn btn-outline-secondary btn-sm mb-3" id="update-check-now">
+                    <i class="bi bi-arrow-repeat" aria-hidden="true"></i> Vérifier maintenant
+                </button>
+                <output class="mt-2 mb-3 small d-none d-block" id="update-check-now-progress">
+                    <span class="spinner-border spinner-border-sm"></span> Vérification en cours…
+                </output>
+                <div class="mt-2 mb-3 small text-danger d-none" id="update-check-now-error" role="alert"></div>
 
-            {# Populated by JS from POST /config/maintenance/update/check-now
-               — a manual, on-demand equivalent of the alert below, which
-               only reflects the webhook's last cached result. Its install
-               form POSTs to the same /config/maintenance/update/install
-               endpoint and is polled the same way (see maintenance.js). #}
-            <div class="alert alert-primary d-none" id="update-check-now-dialog">
-                <p class="mb-2" id="update-check-now-message"></p>
-                <div class="small mb-3" id="update-check-now-notes"></div>
-                <form id="update-check-now-install-form">
-                    {{ csrf_field()|raw }}
-                    <button type="submit" class="btn btn-primary btn-sm" id="update-check-now-install-submit">
-                        <i class="bi bi-cloud-arrow-down" aria-hidden="true"></i> Installer maintenant
-                    </button>
-                    <button type="button" class="btn btn-outline-secondary btn-sm" id="update-check-now-dismiss">Plus tard</button>
-                    <output class="mt-2 small d-none d-block" id="update-check-now-install-progress">
-                        <span class="spinner-border spinner-border-sm"></span> Installation en cours…<span data-role="migration-detail"></span>
-                    </output>
-                    <div class="mt-2 small text-danger d-none" id="update-check-now-install-error" role="alert"></div>
-                </form>
-            </div>
-
-            {% if update_available %}
-                <div class="alert alert-primary">
-                    <p class="mb-2">
-                        Une nouvelle version est disponible : <strong>{{ update_latest_version }}</strong>
-                        {% if update_release_html_url %}
-                            (<a href="{{ update_release_html_url }}" target="_blank" rel="noopener">notes de version</a>)
-                        {% endif %}
-                    </p>
-                    {% if update_release_notes %}
-                        {% include 'partials/clampable_notes.html.twig' with {
-                            id: 'update-release-notes',
-                            notes: update_release_notes,
-                            classes: 'small mb-2'
-                        } only %}
-                    {% endif %}
-                    {% if update_dependencies_changed %}
-                        <div class="alert alert-warning small mb-2">
-                            Cette version modifie les dépendances (composer.lock changé). Vérifiez la compatibilité avant d'installer.
-                        </div>
-                    {% endif %}
-                    <p class="small mb-3">
-                        Une sauvegarde complète (base de données + fichiers) sera prise automatiquement avant l'installation.
-                    </p>
-                    <form id="update-install-form">
+                {# Populated by JS from POST /config/maintenance/update/check-now
+                   — a manual, on-demand equivalent of the alert below, which
+                   only reflects the webhook's last cached result. Its install
+                   form POSTs to the same /config/maintenance/update/install
+                   endpoint and is polled the same way (see maintenance.js). #}
+                <div class="alert alert-primary d-none" id="update-check-now-dialog">
+                    <p class="mb-2" id="update-check-now-message"></p>
+                    <div class="small mb-3" id="update-check-now-notes"></div>
+                    <form id="update-check-now-install-form">
                         {{ csrf_field()|raw }}
-                        <button type="submit" class="btn btn-primary btn-sm" id="update-install-submit">
-                            <i class="bi bi-cloud-arrow-down" aria-hidden="true"></i> Installer la mise à jour
+                        <button type="submit" class="btn btn-primary btn-sm" id="update-check-now-install-submit">
+                            <i class="bi bi-cloud-arrow-down" aria-hidden="true"></i> Installer maintenant
                         </button>
-                        <output class="mt-2 small d-none d-block" id="update-install-progress">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" id="update-check-now-dismiss">Plus tard</button>
+                        <output class="mt-2 small d-none d-block" id="update-check-now-install-progress">
                             <span class="spinner-border spinner-border-sm"></span> Installation en cours…<span data-role="migration-detail"></span>
                         </output>
-                        <div class="mt-2 small text-danger d-none" id="update-install-error" role="alert"></div>
+                        <div class="mt-2 small text-danger d-none" id="update-check-now-install-error" role="alert"></div>
                     </form>
                 </div>
-            {% else %}
-                <p class="small mb-0">Le site est à jour.</p>
-            {% endif %}
 
-            {% if update_history is not empty %}
-                <hr class="my-4">
-                <h3 class="h6">Historique des mises à jour</h3>
-                <div class="table-responsive">
-                    <table class="table table-sm align-middle mb-0">
-                        <thead>
-                            <tr>
-                                <th>Version</th>
-                                <th>Date</th>
-                                <th>Statut</th>
-                            </tr>
-                        </thead>
-                        {# Five, then the rest on demand. The page's job is
-                           "install the update in front of me"; twenty rows of
-                           history pushed that below the fold. The rows beyond
-                           the fifth are rendered all the same — the controller
-                           already fetched them, and a reader who opens the list
-                           should not wait for a round trip. #}
-                        <tbody>
-                            {% for entry in update_history|slice(0, 5) %}
-                                {% include 'partials/update_history_row.html.twig' with { entry: entry } only %}
-                            {% endfor %}
-                        </tbody>
-                        {% if update_history|length > 5 %}
-                            <tbody class="collapse" id="update-history-more">
-                                {% for entry in update_history|slice(5) %}
+                {% if update_available %}
+                    <div class="alert alert-primary">
+                        <p class="mb-2">
+                            Une nouvelle version est disponible : <strong>{{ update_latest_version }}</strong>
+                            {% if update_release_html_url %}
+                                (<a href="{{ update_release_html_url }}" target="_blank" rel="noopener">notes de version</a>)
+                            {% endif %}
+                        </p>
+                        {% if update_release_notes %}
+                            {% include 'partials/clampable_notes.html.twig' with {
+                                id: 'update-release-notes',
+                                notes: update_release_notes,
+                                classes: 'small mb-2'
+                            } only %}
+                        {% endif %}
+                        {% if update_dependencies_changed %}
+                            <div class="alert alert-warning small mb-2">
+                                Cette version modifie les dépendances (composer.lock changé). Vérifiez la compatibilité avant d'installer.
+                            </div>
+                        {% endif %}
+                        <p class="small mb-3">
+                            Une sauvegarde complète (base de données + fichiers) sera prise automatiquement avant l'installation.
+                        </p>
+                        <form id="update-install-form">
+                            {{ csrf_field()|raw }}
+                            <button type="submit" class="btn btn-primary btn-sm" id="update-install-submit">
+                                <i class="bi bi-cloud-arrow-down" aria-hidden="true"></i> Installer la mise à jour
+                            </button>
+                            <output class="mt-2 small d-none d-block" id="update-install-progress">
+                                <span class="spinner-border spinner-border-sm"></span> Installation en cours…<span data-role="migration-detail"></span>
+                            </output>
+                            <div class="mt-2 small text-danger d-none" id="update-install-error" role="alert"></div>
+                        </form>
+                    </div>
+                {% else %}
+                    <p class="small mb-0">Le site est à jour.</p>
+                {% endif %}
+
+                {% if update_history is not empty %}
+                    <hr class="my-4">
+                    <h3 class="h6">Historique des mises à jour</h3>
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Version</th>
+                                    <th>Date</th>
+                                    <th>Statut</th>
+                                </tr>
+                            </thead>
+                            {# Five, then the rest on demand. The page's job is
+                               "install the update in front of me"; twenty rows of
+                               history pushed that below the fold. The rows beyond
+                               the fifth are rendered all the same — the controller
+                               already fetched them, and a reader who opens the list
+                               should not wait for a round trip. #}
+                            <tbody>
+                                {% for entry in update_history|slice(0, 5) %}
                                     {% include 'partials/update_history_row.html.twig' with { entry: entry } only %}
                                 {% endfor %}
                             </tbody>
-                        {% endif %}
-                    </table>
-                </div>
-                {% if update_history|length > 5 %}
-                    <button type="button" class="btn btn-outline-secondary btn-sm mt-2 collapsed"
-                            data-bs-toggle="collapse" data-bs-target="#update-history-more"
-                            aria-expanded="false" aria-controls="update-history-more"
-                            data-collapse-label-expanded="Afficher moins">
-                        <span data-collapse-label>Afficher les {{ update_history|length - 5 }} précédentes</span>
-                        <i class="bi bi-chevron-down ms-1" aria-hidden="true"></i>
-                    </button>
+                            {% if update_history|length > 5 %}
+                                <tbody class="collapse" id="update-history-more">
+                                    {% for entry in update_history|slice(5) %}
+                                        {% include 'partials/update_history_row.html.twig' with { entry: entry } only %}
+                                    {% endfor %}
+                                </tbody>
+                            {% endif %}
+                        </table>
+                    </div>
+                    {% if update_history|length > 5 %}
+                        <button type="button" class="btn btn-outline-secondary btn-sm mt-2 collapsed"
+                                data-bs-toggle="collapse" data-bs-target="#update-history-more"
+                                aria-expanded="false" aria-controls="update-history-more"
+                                data-collapse-label-expanded="Afficher moins">
+                            <span data-collapse-label>Afficher les {{ update_history|length - 5 }} précédentes</span>
+                            <i class="bi bi-chevron-down ms-1" aria-hidden="true"></i>
+                        </button>
+                    {% endif %}
                 {% endif %}
-            {% endif %}
+            </div>
         </div>
     </div>
 
     {# ————— Mises à jour automatiques ————— #}
     <div class="card mb-4" id="maintenance-auto-update">
         <div class="card-body">
-            <h2 class="h5 mb-3">Mises à jour automatiques</h2>
+            {{ _self.section_header('maintenance-auto-update-body', 'Mises à jour automatiques', false) }}
+            <div class="collapse mt-3" id="maintenance-auto-update-body">
+                {% if webhook_warning %}
+                    <div class="alert alert-warning small">
+                        Les mises à jour automatiques sont activées mais le webhook GitHub n'est pas configuré.
+                        Les nouvelles versions ne seront pas détectées automatiquement.
+                    </div>
+                {% endif %}
 
-            {% if webhook_warning %}
-                <div class="alert alert-warning small">
-                    Les mises à jour automatiques sont activées mais le webhook GitHub n'est pas configuré.
-                    Les nouvelles versions ne seront pas détectées automatiquement.
-                </div>
-            {% endif %}
-
-            <div class="form-check form-switch mb-3">
-                <input class="form-check-input" type="checkbox" id="auto-update-enabled" {{ auto_update_enabled ? 'checked' : '' }}>
-                <label class="form-check-label" for="auto-update-enabled">Activer les mises à jour automatiques</label>
-            </div>
-
-            <div id="auto-update-details" class="{{ auto_update_enabled ? '' : 'd-none' }}">
-                <h3 class="h6">Types de versions à installer</h3>
-                <div class="form-check">
-                    <input class="form-check-input" type="radio" name="auto-update-level" id="auto-update-level-patch" value="patch" {{ auto_update_level == 'patch' ? 'checked' : '' }}>
-                    <label class="form-check-label small" for="auto-update-level-patch">
-                        Patch uniquement (ex : 2.4.1 → 2.4.2)
-                    </label>
-                </div>
-                <div class="form-check">
-                    <input class="form-check-input" type="radio" name="auto-update-level" id="auto-update-level-minor" value="minor" {{ auto_update_level == 'minor' ? 'checked' : '' }}>
-                    <label class="form-check-label small" for="auto-update-level-minor">
-                        Patch + Mineur (ex : 2.4.1 → 2.5.0) <span class="badge text-bg-success">Recommandé</span>
-                    </label>
-                </div>
-                <div class="form-check">
-                    <input class="form-check-input" type="radio" name="auto-update-level" id="auto-update-level-major" value="major" {{ auto_update_level == 'major' ? 'checked' : '' }}>
-                    <label class="form-check-label small" for="auto-update-level-major">
-                        Patch + Mineur + Majeur (ex : 2.4.1 → 3.0.0) <span class="badge text-bg-danger">⚠ Risqué</span>
-                    </label>
-                </div>
-                <div class="form-check mb-2">
-                    <input class="form-check-input" type="radio" name="auto-update-level" id="auto-update-level-dev" value="dev" {{ auto_update_level == 'dev' ? 'checked' : '' }}>
-                    <label class="form-check-label small" for="auto-update-level-dev">
-                        Développement (installation immédiate à chaque commit d'une branche) <span class="badge text-bg-danger">⚠ Réservé aux tests</span>
-                    </label>
-                </div>
-                <div class="alert alert-danger small {{ auto_update_level == 'major' ? '' : 'd-none' }}" id="auto-update-major-warning">
-                    Les versions majeures peuvent modifier le fonctionnement du site de manière significative.
-                    Il est recommandé de ne pas installer ces versions automatiquement sur un site en production.
-                </div>
-                <div class="alert alert-danger small {{ auto_update_level == 'dev' ? '' : 'd-none' }}" id="auto-update-dev-warning">
-                    Réservé aux environnements de test. Chaque commit poussé sur la branche ci-dessous est installé
-                    automatiquement et immédiatement (sans attendre de créneau planifié) — ces versions peuvent être
-                    instables, incomplètes, ou contenir des bugs. Ne jamais activer sur un site en production.
+                <div class="form-check form-switch mb-3">
+                    <input class="form-check-input" type="checkbox" id="auto-update-enabled" {{ auto_update_enabled ? 'checked' : '' }}>
+                    <label class="form-check-label" for="auto-update-enabled">Activer les mises à jour automatiques</label>
                 </div>
 
-                <p class="small mb-2">
-                    <a href="#" id="auto-update-semver-toggle">Qu'est-ce que ça veut dire ?</a>
-                </p>
-                <div class="small text-body-secondary mb-3 d-none" id="auto-update-semver-explainer">
-                    <p class="mb-1"><strong>Z (Patch)</strong> : corrections de bugs et de sécurité, aucun changement fonctionnel.</p>
-                    <p class="mb-1"><strong>Y (Mineur)</strong> : nouvelles fonctionnalités, compatibles avec l'existant.</p>
-                    <p class="mb-0"><strong>X (Majeur)</strong> : changements importants, potentiellement incompatibles.</p>
-                </div>
+                <div id="auto-update-details" class="{{ auto_update_enabled ? '' : 'd-none' }}">
+                    <h3 class="h6">Types de versions à installer</h3>
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="auto-update-level" id="auto-update-level-patch" value="patch" {{ auto_update_level == 'patch' ? 'checked' : '' }}>
+                        <label class="form-check-label small" for="auto-update-level-patch">
+                            Patch uniquement (ex : 2.4.1 → 2.4.2)
+                        </label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="auto-update-level" id="auto-update-level-minor" value="minor" {{ auto_update_level == 'minor' ? 'checked' : '' }}>
+                        <label class="form-check-label small" for="auto-update-level-minor">
+                            Patch + Mineur (ex : 2.4.1 → 2.5.0) <span class="badge text-bg-success">Recommandé</span>
+                        </label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="auto-update-level" id="auto-update-level-major" value="major" {{ auto_update_level == 'major' ? 'checked' : '' }}>
+                        <label class="form-check-label small" for="auto-update-level-major">
+                            Patch + Mineur + Majeur (ex : 2.4.1 → 3.0.0) <span class="badge text-bg-danger">⚠ Risqué</span>
+                        </label>
+                    </div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="radio" name="auto-update-level" id="auto-update-level-dev" value="dev" {{ auto_update_level == 'dev' ? 'checked' : '' }}>
+                        <label class="form-check-label small" for="auto-update-level-dev">
+                            Développement (installation immédiate à chaque commit d'une branche) <span class="badge text-bg-danger">⚠ Réservé aux tests</span>
+                        </label>
+                    </div>
+                    <div class="alert alert-danger small {{ auto_update_level == 'major' ? '' : 'd-none' }}" id="auto-update-major-warning">
+                        Les versions majeures peuvent modifier le fonctionnement du site de manière significative.
+                        Il est recommandé de ne pas installer ces versions automatiquement sur un site en production.
+                    </div>
+                    <div class="alert alert-danger small {{ auto_update_level == 'dev' ? '' : 'd-none' }}" id="auto-update-dev-warning">
+                        Réservé aux environnements de test. Chaque commit poussé sur la branche ci-dessous est installé
+                        automatiquement et immédiatement (sans attendre de créneau planifié) — ces versions peuvent être
+                        instables, incomplètes, ou contenir des bugs. Ne jamais activer sur un site en production.
+                    </div>
 
-                <div id="auto-update-webhook-section" class="{{ auto_update_level == 'dev' ? '' : 'd-none' }}">
-                    <h3 class="h6">Détection des nouvelles versions</h3>
                     <p class="small mb-2">
-                        Webhook GitHub :
-                        <span class="badge {{ webhook_configured ? 'text-bg-success' : 'text-bg-secondary' }}" id="webhook-status-badge">
-                            {{ webhook_configured ? '✓ Configuré' : '✗ Non configuré' }}
-                        </span>
+                        <a href="#" id="auto-update-semver-toggle">Qu'est-ce que ça veut dire ?</a>
                     </p>
+                    <div class="small text-body-secondary mb-3 d-none" id="auto-update-semver-explainer">
+                        <p class="mb-1"><strong>Z (Patch)</strong> : corrections de bugs et de sécurité, aucun changement fonctionnel.</p>
+                        <p class="mb-1"><strong>Y (Mineur)</strong> : nouvelles fonctionnalités, compatibles avec l'existant.</p>
+                        <p class="mb-0"><strong>X (Majeur)</strong> : changements importants, potentiellement incompatibles.</p>
+                    </div>
 
-                    {# « Configuré » ne dit que la moitié : le webhook répond 200
-                       même quand il ignore la poussée, donc le journal GitHub
-                       reste vert alors que plus rien ne s'installe. Cette ligne
-                       est le seul endroit du site qui dise si le canal a
-                       réellement installé quelque chose — voir
-                       MaintenanceController::autoUpdateHealth(). #}
-                    <p class="small mb-2" id="auto-update-last-success">
-                        Dernière mise à jour automatique installée :
-                        {% if auto_update_last_success %}
-                            <strong>{{ auto_update_last_success|datetime_fr }}</strong>
-                            {%- if auto_update_last_success_version %} ({{ auto_update_last_success_version }}){% endif -%}
-                            {%- if auto_update_silent_days is not null %}
-                                <span class="text-body-secondary">
-                                    — il y a {{ auto_update_silent_days }} jour{{ auto_update_silent_days > 1 ? 's' : '' }}
-                                </span>
-                            {%- endif -%}
-                        {% else %}
-                            <strong>aucune</strong>
-                        {% endif %}
-                    </p>
+                    <div id="auto-update-webhook-section" class="{{ auto_update_level == 'dev' ? '' : 'd-none' }}">
+                        <h3 class="h6">Détection des nouvelles versions</h3>
+                        <p class="small mb-2">
+                            Webhook GitHub :
+                            <span class="badge {{ webhook_configured ? 'text-bg-success' : 'text-bg-secondary' }}" id="webhook-status-badge">
+                                {{ webhook_configured ? '✓ Configuré' : '✗ Non configuré' }}
+                            </span>
+                        </p>
 
-                    {# La raison du rejet, en clair. Le webhook la renvoyait à
-                       GitHub puis l'oubliait ; elle est désormais conservée
-                       (GitHubWebhookService::recordPushOutcome()) pour que le
-                       diagnostic soit ici plutôt qu'à aller chercher dans le
-                       journal de livraisons GitHub. #}
-                    {% set _push_reasons = {
-                        'ok': null,
-                        'dev_mode_disabled': "les mises à jour automatiques sont désactivées, ou le niveau n'est pas « développement »",
-                        'repository_mismatch': "la poussée vient d'un autre dépôt que celui configuré ci-dessus",
-                        'invalid_payload': 'la poussée reçue était illisible',
-                        'update_in_progress': "une autre mise à jour était déjà en cours (état transitoire)",
-                    } %}
-                    {% if auto_update_last_push_at %}
-                        <p class="small mb-2" id="auto-update-last-push">
-                            Dernière poussée GitHub examinée : <strong>{{ auto_update_last_push_at|datetime_fr }}</strong>
-                            {% if auto_update_last_push_result == 'ok' %}
-                                — <span class="text-success">installation programmée</span>.
+                        {# « Configuré » ne dit que la moitié : le webhook répond 200
+                           même quand il ignore la poussée, donc le journal GitHub
+                           reste vert alors que plus rien ne s'installe. Cette ligne
+                           est le seul endroit du site qui dise si le canal a
+                           réellement installé quelque chose — voir
+                           MaintenanceController::autoUpdateHealth(). #}
+                        <p class="small mb-2" id="auto-update-last-success">
+                            Dernière mise à jour automatique installée :
+                            {% if auto_update_last_success %}
+                                <strong>{{ auto_update_last_success|datetime_fr }}</strong>
+                                {%- if auto_update_last_success_version %} ({{ auto_update_last_success_version }}){% endif -%}
+                                {%- if auto_update_silent_days is not null %}
+                                    <span class="text-body-secondary">
+                                        — il y a {{ auto_update_silent_days }} jour{{ auto_update_silent_days > 1 ? 's' : '' }}
+                                    </span>
+                                {%- endif -%}
                             {% else %}
-                                — <span class="text-danger">ignorée</span>
-                                {%- if _push_reasons[auto_update_last_push_result] is defined and _push_reasons[auto_update_last_push_result] %}
-                                    : {{ _push_reasons[auto_update_last_push_result] }}.
-                                {%- else %} (<code>{{ auto_update_last_push_result }}</code>).
-                                {%- endif %}
+                                <strong>aucune</strong>
                             {% endif %}
                         </p>
-                    {% endif %}
 
-                    {% if auto_update_silence_warning %}
-                        <div class="alert alert-warning small" id="auto-update-silence-warning">
-                            {% if auto_update_last_success %}
-                                Aucune mise à jour automatique n'a été installée depuis
-                                {{ auto_update_silent_days }} jours, alors que ce site suit la branche de
-                                développement et devrait s'installer à chaque poussée.
-                            {% else %}
-                                Aucune mise à jour automatique n'a jamais été installée sur ce site, alors
-                                qu'il suit la branche de développement et devrait s'installer à chaque poussée.
-                            {% endif %}
+                        {# La raison du rejet, en clair. Le webhook la renvoyait à
+                           GitHub puis l'oubliait ; elle est désormais conservée
+                           (GitHubWebhookService::recordPushOutcome()) pour que le
+                           diagnostic soit ici plutôt qu'à aller chercher dans le
+                           journal de livraisons GitHub. #}
+                        {% set _push_reasons = {
+                            'ok': null,
+                            'dev_mode_disabled': "les mises à jour automatiques sont désactivées, ou le niveau n'est pas « développement »",
+                            'repository_mismatch': "la poussée vient d'un autre dépôt que celui configuré ci-dessus",
+                            'invalid_payload': 'la poussée reçue était illisible',
+                            'update_in_progress': "une autre mise à jour était déjà en cours (état transitoire)",
+                        } %}
+                        {% if auto_update_last_push_at %}
+                            <p class="small mb-2" id="auto-update-last-push">
+                                Dernière poussée GitHub examinée : <strong>{{ auto_update_last_push_at|datetime_fr }}</strong>
+                                {% if auto_update_last_push_result == 'ok' %}
+                                    — <span class="text-success">installation programmée</span>.
+                                {% else %}
+                                    — <span class="text-danger">ignorée</span>
+                                    {%- if _push_reasons[auto_update_last_push_result] is defined and _push_reasons[auto_update_last_push_result] %}
+                                        : {{ _push_reasons[auto_update_last_push_result] }}.
+                                    {%- else %} (<code>{{ auto_update_last_push_result }}</code>).
+                                    {%- endif %}
+                                {% endif %}
+                            </p>
+                        {% endif %}
 
-                            {% if auto_update_last_push_result and auto_update_last_push_result != 'ok' %}
-                                La dernière poussée examinée a été ignorée — voir la ligne ci-dessus,
-                                qui en donne la raison.
-                            {% elseif auto_update_last_push_at %}
-                                La dernière poussée examinée avait pourtant été acceptée : l'installation
-                                a donc échoué après coup — voir l'historique des mises à jour plus bas.
-                            {% else %}
-                                Aucune poussée n'a jamais été reçue : vérifiez que le webhook GitHub
-                                parvient bien au site (dans le dépôt, Settings → Webhooks → Recent
-                                Deliveries). Une livraison peut répondre « 200 » tout en étant ignorée.
-                            {% endif %}
+                        {% if auto_update_silence_warning %}
+                            <div class="alert alert-warning small" id="auto-update-silence-warning">
+                                {% if auto_update_last_success %}
+                                    Aucune mise à jour automatique n'a été installée depuis
+                                    {{ auto_update_silent_days }} jours, alors que ce site suit la branche de
+                                    développement et devrait s'installer à chaque poussée.
+                                {% else %}
+                                    Aucune mise à jour automatique n'a jamais été installée sur ce site, alors
+                                    qu'il suit la branche de développement et devrait s'installer à chaque poussée.
+                                {% endif %}
+
+                                {% if auto_update_last_push_result and auto_update_last_push_result != 'ok' %}
+                                    La dernière poussée examinée a été ignorée — voir la ligne ci-dessus,
+                                    qui en donne la raison.
+                                {% elseif auto_update_last_push_at %}
+                                    La dernière poussée examinée avait pourtant été acceptée : l'installation
+                                    a donc échoué après coup — voir l'historique des mises à jour plus bas.
+                                {% else %}
+                                    Aucune poussée n'a jamais été reçue : vérifiez que le webhook GitHub
+                                    parvient bien au site (dans le dépôt, Settings → Webhooks → Recent
+                                    Deliveries). Une livraison peut répondre « 200 » tout en étant ignorée.
+                                {% endif %}
+                            </div>
+                        {% endif %}
+                        <div class="small mb-3 {{ webhook_configured ? 'd-none' : '' }}" id="webhook-setup-instructions">
+                            <p class="mb-1">Dans les paramètres du dépôt GitHub (Settings → Webhooks → Add webhook), configurez :</p>
+                            <ul class="mb-2">
+                                <li>Payload URL : <code>{{ webhook_url }}</code></li>
+                                <li>Content type : <code>application/json</code></li>
+                                <li>Events : « Releases » et « Pushes »</li>
+                            </ul>
                         </div>
-                    {% endif %}
-                    <div class="small mb-3 {{ webhook_configured ? 'd-none' : '' }}" id="webhook-setup-instructions">
-                        <p class="mb-1">Dans les paramètres du dépôt GitHub (Settings → Webhooks → Add webhook), configurez :</p>
-                        <ul class="mb-2">
-                            <li>Payload URL : <code>{{ webhook_url }}</code></li>
-                            <li>Content type : <code>application/json</code></li>
-                            <li>Events : « Releases » et « Pushes »</li>
-                        </ul>
+                        <button type="button" class="btn btn-outline-{{ webhook_configured ? 'secondary' : 'primary' }} btn-sm mb-2" id="webhook-generate-secret">
+                            <i class="bi {{ webhook_configured ? 'bi-arrow-repeat' : 'bi-key' }}" aria-hidden="true"></i>
+                            <span id="webhook-generate-secret-label">{{ webhook_configured ? 'Régénérer le secret' : 'Générer le secret' }}</span>
+                        </button>
+                        <div class="mt-2 mb-3 d-none" id="webhook-secret-display">
+                            <p class="small mb-1 text-danger">Copiez ce secret maintenant — il ne sera plus jamais affiché :</p>
+                            <code class="user-select-all d-block p-2 bg-body-secondary rounded" id="webhook-secret-value"></code>
+                        </div>
                     </div>
-                    <button type="button" class="btn btn-outline-{{ webhook_configured ? 'secondary' : 'primary' }} btn-sm mb-2" id="webhook-generate-secret">
-                        <i class="bi {{ webhook_configured ? 'bi-arrow-repeat' : 'bi-key' }}" aria-hidden="true"></i>
-                        <span id="webhook-generate-secret-label">{{ webhook_configured ? 'Régénérer le secret' : 'Générer le secret' }}</span>
-                    </button>
-                    <div class="mt-2 mb-3 d-none" id="webhook-secret-display">
-                        <p class="small mb-1 text-danger">Copiez ce secret maintenant — il ne sera plus jamais affiché :</p>
-                        <code class="user-select-all d-block p-2 bg-body-secondary rounded" id="webhook-secret-value"></code>
+
+                    <div id="auto-update-schedule-section" class="{{ auto_update_level == 'dev' ? 'd-none' : '' }}">
+                        <h3 class="h6">Moment d'installation</h3>
+                        <p class="small text-body-secondary mb-2">
+                            Quand une nouvelle version est détectée, elle sera installée automatiquement au prochain créneau prévu
+                            (heure locale belge — Europe/Bruxelles).
+                        </p>
+                        <div class="d-flex align-items-center gap-2 flex-wrap mb-3">
+                            <select class="form-select form-select-sm w-auto" id="auto-update-day" aria-label="Jour de la semaine">
+                                <option value="monday" {{ auto_update_day == 'monday' ? 'selected' : '' }}>Lundi</option>
+                                <option value="tuesday" {{ auto_update_day == 'tuesday' ? 'selected' : '' }}>Mardi</option>
+                                <option value="wednesday" {{ auto_update_day == 'wednesday' ? 'selected' : '' }}>Mercredi</option>
+                                <option value="thursday" {{ auto_update_day == 'thursday' ? 'selected' : '' }}>Jeudi</option>
+                                <option value="friday" {{ auto_update_day == 'friday' ? 'selected' : '' }}>Vendredi</option>
+                                <option value="saturday" {{ auto_update_day == 'saturday' ? 'selected' : '' }}>Samedi</option>
+                                <option value="sunday" {{ auto_update_day == 'sunday' ? 'selected' : '' }}>Dimanche</option>
+                            </select>
+                            <input type="time" class="form-control form-control-sm w-auto" id="auto-update-time" value="{{ auto_update_time }}" aria-label="Heure d'installation">
+                        </div>
+                    </div>
+
+                    <div id="auto-update-branch-section" class="{{ auto_update_level == 'dev' ? '' : 'd-none' }}">
+                        <h3 class="h6">Branche à surveiller</h3>
+                        <p class="small text-body-secondary mb-2">
+                            Chaque commit poussé sur cette branche sera installé immédiatement.
+                        </p>
+                        <input type="text" class="form-control form-control-sm mb-3" id="auto-update-branch" value="{{ dev_update_branch }}" style="max-width:300px;" aria-label="Nom de la branche">
                     </div>
                 </div>
 
-                <div id="auto-update-schedule-section" class="{{ auto_update_level == 'dev' ? 'd-none' : '' }}">
-                    <h3 class="h6">Moment d'installation</h3>
-                    <p class="small text-body-secondary mb-2">
-                        Quand une nouvelle version est détectée, elle sera installée automatiquement au prochain créneau prévu
-                        (heure locale belge — Europe/Bruxelles).
-                    </p>
-                    <div class="d-flex align-items-center gap-2 flex-wrap mb-3">
-                        <select class="form-select form-select-sm w-auto" id="auto-update-day" aria-label="Jour de la semaine">
-                            <option value="monday" {{ auto_update_day == 'monday' ? 'selected' : '' }}>Lundi</option>
-                            <option value="tuesday" {{ auto_update_day == 'tuesday' ? 'selected' : '' }}>Mardi</option>
-                            <option value="wednesday" {{ auto_update_day == 'wednesday' ? 'selected' : '' }}>Mercredi</option>
-                            <option value="thursday" {{ auto_update_day == 'thursday' ? 'selected' : '' }}>Jeudi</option>
-                            <option value="friday" {{ auto_update_day == 'friday' ? 'selected' : '' }}>Vendredi</option>
-                            <option value="saturday" {{ auto_update_day == 'saturday' ? 'selected' : '' }}>Samedi</option>
-                            <option value="sunday" {{ auto_update_day == 'sunday' ? 'selected' : '' }}>Dimanche</option>
-                        </select>
-                        <input type="time" class="form-control form-control-sm w-auto" id="auto-update-time" value="{{ auto_update_time }}" aria-label="Heure d'installation">
-                    </div>
-                </div>
-
-                <div id="auto-update-branch-section" class="{{ auto_update_level == 'dev' ? '' : 'd-none' }}">
-                    <h3 class="h6">Branche à surveiller</h3>
-                    <p class="small text-body-secondary mb-2">
-                        Chaque commit poussé sur cette branche sera installé immédiatement.
-                    </p>
-                    <input type="text" class="form-control form-control-sm mb-3" id="auto-update-branch" value="{{ dev_update_branch }}" style="max-width:300px;" aria-label="Nom de la branche">
-                </div>
+                <button type="button" class="btn btn-primary btn-sm" id="auto-update-save">Enregistrer</button>
+                <output class="small text-success d-none" id="auto-update-saved">Enregistré</output>
+                <div class="mt-2 small text-danger d-none" id="auto-update-error" role="alert"></div>
             </div>
-
-            <button type="button" class="btn btn-primary btn-sm" id="auto-update-save">Enregistrer</button>
-            <output class="small text-success d-none" id="auto-update-saved">Enregistré</output>
-            <div class="mt-2 small text-danger d-none" id="auto-update-error" role="alert"></div>
         </div>
     </div>
 
-    {# ————— Sauvegardes —————
+    {# ————— Sauvegarde manuelle —————
 
-       Trois sections <h2 class="h5"> là où il y en avait une, exactement
-       comme la page sépare déjà « Mise à jour » et « Mises à jour
-       automatiques » : une seule boîte portant l'espace disque, la
-       fréquence, trois déclenchements manuels, la liste et la suppression
-       ne se lit plus. Les quatre autres sections de la page ne bougent
-       pas. #}
+       Trois boîtes là où il y en avait une, exactement comme la page
+       sépare déjà « Mise à jour » et « Mises à jour automatiques » : une
+       seule boîte portant l'espace disque, la fréquence, trois
+       déclenchements manuels, la liste et la suppression ne se lit plus.
+
+       Le titre dit « manuelle » depuis que la boîte suivante dit
+       « automatique » : ce sont les deux moitiés d'une même distinction,
+       et « Sauvegardes » tout court ne disait de quel côté on était. #}
     <div class="card mb-4" id="maintenance-backups">
         <div class="card-body">
-            <h2 class="h5 mb-3">Sauvegardes</h2>
-
-            {# L'espace disque vient en tête : c'est la contrainte qui
-               décide si les boutons en dessous vont fonctionner. Toutes les
-               décisions (unité d'affichage, libellés des dossiers, quelle
-               mesure sert de base) sont prises dans
-               Core\Storage\StorageUsage — un choix pris dans un fichier
-               Twig est un choix que personne ne peut tester. #}
-            <h3 class="h6">Espace disque</h3>
-            {% set _percent = storage_usage.usedPercent %}
-            {% if _percent is not null %}
-                {# Décorative : le pourcentage est écrit en toutes lettres
-                   juste en dessous, et une barre qui le répète ne fait que
-                   le faire lire deux fois (même choix que
-                   modules/finance/views/campaigns/list.html.twig). #}
-                <div aria-hidden="true" class="progress mb-2" style="height: 6px;">
-                    <div class="progress-bar" style="width: {{ _percent }}%"></div>
-                </div>
-                <p class="small text-body-secondary mb-1">
-                    <strong>{{ storage_usage.usedLabel }}</strong> utilisés sur {{ storage_usage.totalLabel }} —
-                    {{ _percent }} %.
-                    {% if storage_usage.basis == 'volume' %}
-                        Le site occupe {{ storage_usage.storageLabel }}.
-                    {% endif %}
-                </p>
-            {% else %}
-                <p class="small text-body-secondary mb-1">
-                    Le site occupe <strong>{{ storage_usage.storageLabel }}</strong>.
-                </p>
-            {% endif %}
-            {% if storage_usage.breakdownSentence %}
-                <p class="small text-body-secondary mb-1">{{ storage_usage.breakdownSentence }}</p>
-            {% endif %}
-            <p class="small text-body-secondary mb-3">{{ storage_usage.basisSentence }}</p>
-
-            {% if not zip_encryption_supported %}
-                <div class="alert alert-warning small">
-                    Le serveur ne supporte pas le chiffrement des archives — la sauvegarde complète est indisponible.
-                    Contactez votre hébergeur. La sauvegarde de la base de données seule reste utilisable.
-                </div>
-            {% endif %}
-
-            <hr class="my-4">
-
-            <div class="row g-4">
-                <div class="col-12 col-md-6">
-                    <h3 class="h6">Base de données seule</h3>
-                    <p class="text-body-secondary small">
-                        Export SQL complet de la base de données. Les champs personnels y restent chiffrés,
-                        mais le fichier reste sensible — réservé aux administrateurs.
-                    </p>
-                    <form method="post" action="/config/maintenance/backup/database">
-                        {{ csrf_field()|raw }}
-                        <button type="submit" class="btn btn-outline-primary btn-sm">
-                            <i class="bi bi-database-down" aria-hidden="true"></i> Générer
-                        </button>
-                    </form>
-                </div>
-
-                <div class="col-12 col-md-6">
-                    <h3 class="h6">Sauvegarde complète (chiffrée)</h3>
-                    <p class="text-body-secondary small">
-                        Archive ZIP protégée par mot de passe, générée en arrière-plan. Vous recevrez une
-                        notification lorsqu'elle sera prête.
-                        <strong>Sans les secrets</strong> : elle se restaure sur cette installation, pas sur
-                        une autre.
-                    </p>
-                    {# Core\Maintenance\BackupService exclut storage/keys et
-                       storage/config de l'archive (« secrets never leave the
-                       server in a backup »). C'est voulu, et l'écran ne le
-                       disait nulle part : restaurée sur un autre hébergement,
-                       une sauvegarde donne une base illisible sans que rien
-                       n'explique pourquoi. #}
-                    <p class="small text-warning-emphasis">
-                        <i class="bi bi-key"></i>
-                        <strong>Les clés de chiffrement ne sont pas dans l'archive</strong> — elles ne quittent
-                        jamais le serveur. Restaurée <em>ici</em>, cette sauvegarde se relit normalement ;
-                        restaurée sur un autre hébergement, la base reste illisible tant que
-                        <code>storage/keys/</code> et <code>storage/config/</code> n'y ont pas été recopiés
-                        séparément, par un autre moyen.
-                    </p>
-                    <form id="full-backup-form" {{ not zip_encryption_supported ? 'class="d-none"' : '' }}>
-                        {# A group of radios is labelled by a legend inside a
-                           fieldset, not by a loose label pointing at nothing: a
-                           screen reader announces the legend with each option,
-                           which is the whole point of the grouping.
-
-                           Tag names spelled in words on purpose — Sonar's HTML
-                           parser does not know Twig comments, so writing them in
-                           angle brackets here makes it see a stray element and
-                           report it (Web:S8732 did exactly that on this block). #}
-                        <fieldset class="mb-2 border-0 p-0">
-                            <legend class="form-label small float-none w-auto">Portée</legend>
-                            <div class="form-check">
-                                <input class="form-check-input" type="radio" name="scope" id="scope-config" value="full_config" checked>
-                                <label class="form-check-label small" for="scope-config">Configuration seule (paramètres, structure — sans les données membres)</label>
-                            </div>
-                            <div class="form-check">
-                                <input class="form-check-input" type="radio" name="scope" id="scope-no-gallery" value="full_no_gallery">
-                                <label class="form-check-label small" for="scope-no-gallery">Site complet, sans la galerie photo</label>
-                            </div>
-                            {% if gallery_enabled %}
-                                <div class="form-check">
-                                    <input class="form-check-input" type="radio" name="scope" id="scope-with-gallery" value="full_with_gallery">
-                                    <label class="form-check-label small" for="scope-with-gallery">Site complet, avec la galerie photo</label>
-                                </div>
-                            {% endif %}
-                        </fieldset>
-                        {% include 'partials/form_field.html.twig' with {
-                            field_id: 'full-backup-password', type: 'password',
-                            label: "Mot de passe de l'archive", required: true,
-                            size: 'sm', wrapper_class: 'mb-2',
-                        } only %}
-                        <button type="submit" class="btn btn-primary btn-sm" id="full-backup-submit">
-                            <i class="bi bi-shield-lock" aria-hidden="true"></i> Générer
-                        </button>
-                        <output class="mt-2 small d-none d-block" id="full-backup-progress">
-                            <span class="spinner-border spinner-border-sm"></span> Génération en cours…
-                        </output>
-                        <div class="mt-2 small text-danger d-none" id="full-backup-error" role="alert"></div>
-                    </form>
-                </div>
-
-                {# Un troisième bloc à part entière, jamais une quatrième
-                   portée du bloc chiffré au-dessus : sa sémantique et son
-                   avertissement n'ont rien à voir. Pleine largeur parce que
-                   l'avertissement est ce qu'on doit lire avant le bouton,
-                   pas à côté. #}
-                <div class="col-12">
-                    <h3 class="h6">Sauvegarde portable</h3>
-                    <div class="alert alert-warning small">
-                        <strong>Contient les clés de chiffrement du site.</strong> C'est ce qui permet de la
-                        restaurer sur une installation neuve, chez un autre hébergeur — et c'est aussi ce qui
-                        fait que son mot de passe protège, à lui seul, toutes les données de l'unité.
-                        Téléchargez-la puis supprimez-la du serveur.
+            {{ _self.section_header('maintenance-backups-body', 'Sauvegarde manuelle', false) }}
+            <div class="collapse mt-3" id="maintenance-backups-body">
+                {# L'espace disque vient en tête : c'est la contrainte qui
+                   décide si les boutons en dessous vont fonctionner. Toutes les
+                   décisions (unité d'affichage, libellés des dossiers, quelle
+                   mesure sert de base) sont prises dans
+                   Core\Storage\StorageUsage — un choix pris dans un fichier
+                   Twig est un choix que personne ne peut tester. #}
+                <h3 class="h6">Espace disque</h3>
+                {% set _percent = storage_usage.usedPercent %}
+                {% if _percent is not null %}
+                    {# Décorative : le pourcentage est écrit en toutes lettres
+                       juste en dessous, et une barre qui le répète ne fait que
+                       le faire lire deux fois (même choix que
+                       modules/finance/views/campaigns/list.html.twig). #}
+                    <div aria-hidden="true" class="progress mb-2" style="height: 6px;">
+                        <div class="progress-bar" style="width: {{ _percent }}%"></div>
                     </div>
-                    <form id="portable-backup-form" {{ not zip_encryption_supported ? 'class="d-none"' : '' }}>
-                        {% include 'partials/form_field.html.twig' with {
-                            field_id: 'portable-backup-passphrase', type: 'password',
-                            label: 'Phrase de passe',
-                            help: 'Au moins ' ~ portable_passphrase_min_length ~ ' caractères. Elle n\'est jamais enregistrée en clair : le site en garde une copie chiffrée dans la tâche de sauvegarde, jusqu\'à la suppression de cette tâche. Une archive dont la phrase de passe est perdue est définitivement illisible.',
-                            required: true, minlength: portable_passphrase_min_length,
-                            size: 'sm', wrapper_class: 'mb-2',
-                        } only %}
-                        <button type="submit" class="btn btn-primary btn-sm" id="portable-backup-submit">
-                            <i class="bi bi-box-seam" aria-hidden="true"></i> Créer une sauvegarde portable
-                        </button>
-                        <output class="mt-2 small d-none d-block" id="portable-backup-progress">
-                            <span class="spinner-border spinner-border-sm"></span> Génération en cours…
-                        </output>
-                        <div class="mt-2 small text-danger d-none" id="portable-backup-error" role="alert"></div>
-                    </form>
-                    <p class="small text-body-secondary mt-2 mb-0">
-                        Une seule est conservée : la nouvelle remplace la précédente.
+                    <p class="small text-body-secondary mb-1">
+                        <strong>{{ storage_usage.usedLabel }}</strong> utilisés sur {{ storage_usage.totalLabel }} —
+                        {{ _percent }} %.
+                        {% if storage_usage.basis == 'volume' %}
+                            Le site occupe {{ storage_usage.storageLabel }}.
+                        {% endif %}
                     </p>
+                {% else %}
+                    <p class="small text-body-secondary mb-1">
+                        Le site occupe <strong>{{ storage_usage.storageLabel }}</strong>.
+                    </p>
+                {% endif %}
+                {% if storage_usage.breakdownSentence %}
+                    <p class="small text-body-secondary mb-1">{{ storage_usage.breakdownSentence }}</p>
+                {% endif %}
+                <p class="small text-body-secondary mb-3">{{ storage_usage.basisSentence }}</p>
+
+                {% if not zip_encryption_supported %}
+                    <div class="alert alert-warning small">
+                        Le serveur ne supporte pas le chiffrement des archives — la sauvegarde complète est indisponible.
+                        Contactez votre hébergeur. La sauvegarde de la base de données seule reste utilisable.
+                    </div>
+                {% endif %}
+
+                <hr class="my-4">
+
+                <div class="row g-4">
+                    <div class="col-12 col-md-6">
+                        <h3 class="h6">Base de données seule</h3>
+                        <p class="text-body-secondary small">
+                            Export SQL complet de la base de données. Les champs personnels y restent chiffrés,
+                            mais le fichier reste sensible — réservé aux administrateurs.
+                        </p>
+                        <form method="post" action="/config/maintenance/backup/database">
+                            {{ csrf_field()|raw }}
+                            <button type="submit" class="btn btn-outline-primary btn-sm">
+                                <i class="bi bi-database-down" aria-hidden="true"></i> Générer
+                            </button>
+                        </form>
+                    </div>
+
+                    <div class="col-12 col-md-6">
+                        <h3 class="h6">Sauvegarde complète (chiffrée)</h3>
+                        <p class="text-body-secondary small">
+                            Archive ZIP protégée par mot de passe, générée en arrière-plan. Vous recevrez une
+                            notification lorsqu'elle sera prête.
+                            <strong>Sans les secrets</strong> : elle se restaure sur cette installation, pas sur
+                            une autre.
+                        </p>
+                        {# Core\Maintenance\BackupService exclut storage/keys et
+                           storage/config de l'archive (« secrets never leave the
+                           server in a backup »). C'est voulu, et l'écran ne le
+                           disait nulle part : restaurée sur un autre hébergement,
+                           une sauvegarde donne une base illisible sans que rien
+                           n'explique pourquoi. #}
+                        <p class="small text-warning-emphasis">
+                            <i class="bi bi-key"></i>
+                            <strong>Les clés de chiffrement ne sont pas dans l'archive</strong> — elles ne quittent
+                            jamais le serveur. Restaurée <em>ici</em>, cette sauvegarde se relit normalement ;
+                            restaurée sur un autre hébergement, la base reste illisible tant que
+                            <code>storage/keys/</code> et <code>storage/config/</code> n'y ont pas été recopiés
+                            séparément, par un autre moyen.
+                        </p>
+                        <form id="full-backup-form" {{ not zip_encryption_supported ? 'class="d-none"' : '' }}>
+                            {# A group of radios is labelled by a legend inside a
+                               fieldset, not by a loose label pointing at nothing: a
+                               screen reader announces the legend with each option,
+                               which is the whole point of the grouping.
+
+                               Tag names spelled in words on purpose — Sonar's HTML
+                               parser does not know Twig comments, so writing them in
+                               angle brackets here makes it see a stray element and
+                               report it (Web:S8732 did exactly that on this block). #}
+                            <fieldset class="mb-2 border-0 p-0">
+                                <legend class="form-label small float-none w-auto">Portée</legend>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="scope" id="scope-config" value="full_config" checked>
+                                    <label class="form-check-label small" for="scope-config">Configuration seule (paramètres, structure — sans les données membres)</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="scope" id="scope-no-gallery" value="full_no_gallery">
+                                    <label class="form-check-label small" for="scope-no-gallery">Site complet, sans la galerie photo</label>
+                                </div>
+                                {% if gallery_enabled %}
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="radio" name="scope" id="scope-with-gallery" value="full_with_gallery">
+                                        <label class="form-check-label small" for="scope-with-gallery">Site complet, avec la galerie photo</label>
+                                    </div>
+                                {% endif %}
+                            </fieldset>
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'full-backup-password', type: 'password',
+                                label: "Mot de passe de l'archive", required: true,
+                                size: 'sm', wrapper_class: 'mb-2',
+                            } only %}
+                            <button type="submit" class="btn btn-primary btn-sm" id="full-backup-submit">
+                                <i class="bi bi-shield-lock" aria-hidden="true"></i> Générer
+                            </button>
+                            <output class="mt-2 small d-none d-block" id="full-backup-progress">
+                                <span class="spinner-border spinner-border-sm"></span> Génération en cours…
+                            </output>
+                            <div class="mt-2 small text-danger d-none" id="full-backup-error" role="alert"></div>
+                        </form>
+                    </div>
+
+                    {# Un troisième bloc à part entière, jamais une quatrième
+                       portée du bloc chiffré au-dessus : sa sémantique et son
+                       avertissement n'ont rien à voir. Pleine largeur parce que
+                       l'avertissement est ce qu'on doit lire avant le bouton,
+                       pas à côté. #}
+                    <div class="col-12">
+                        <h3 class="h6">Sauvegarde portable</h3>
+                        <div class="alert alert-warning small">
+                            <strong>Contient les clés de chiffrement du site.</strong> C'est ce qui permet de la
+                            restaurer sur une installation neuve, chez un autre hébergeur — et c'est aussi ce qui
+                            fait que son mot de passe protège, à lui seul, toutes les données de l'unité.
+                            Téléchargez-la puis supprimez-la du serveur.
+                        </div>
+                        <form id="portable-backup-form" {{ not zip_encryption_supported ? 'class="d-none"' : '' }}>
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'portable-backup-passphrase', type: 'password',
+                                label: 'Phrase de passe',
+                                help: 'Au moins ' ~ portable_passphrase_min_length ~ ' caractères. Elle n\'est jamais enregistrée en clair : le site en garde une copie chiffrée dans la tâche de sauvegarde, jusqu\'à la suppression de cette tâche. Une archive dont la phrase de passe est perdue est définitivement illisible.',
+                                required: true, minlength: portable_passphrase_min_length,
+                                size: 'sm', wrapper_class: 'mb-2',
+                            } only %}
+                            <button type="submit" class="btn btn-primary btn-sm" id="portable-backup-submit">
+                                <i class="bi bi-box-seam" aria-hidden="true"></i> Créer une sauvegarde portable
+                            </button>
+                            <output class="mt-2 small d-none d-block" id="portable-backup-progress">
+                                <span class="spinner-border spinner-border-sm"></span> Génération en cours…
+                            </output>
+                            <div class="mt-2 small text-danger d-none" id="portable-backup-error" role="alert"></div>
+                        </form>
+                        <p class="small text-body-secondary mt-2 mb-0">
+                            Une seule est conservée : la nouvelle remplace la précédente.
+                        </p>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
-    {# ————— Sauvegardes automatiques et distantes —————
+    {# ————— Sauvegarde automatique —————
 
        Ce qui part tout seul, par opposition à ce qu'on déclenche à la main
-       au-dessus. Pour l'instant la seule fréquence ; la destination
-       distante et sa phrase de passe rejoindront cette section. #}
+       au-dessus.
+
+       **« et distantes » a été retiré du titre.** Il annonçait une section
+       à venir — la destination distante et sa phrase de passe devaient
+       rejoindre celle-ci — et elles ont finalement atterri dans leur propre
+       boîte, « Sauvegarde hors site ». Le titre est resté, et une unité a
+       lu la fréquence choisie ici comme la cadence des envois chez Google :
+       elle ne l'est pas et ne l'a jamais été. Les deux mécanismes n'ont
+       aucun réglage en commun — Core\Maintenance\Task\AutoBackupHandler
+       écrit sur ce serveur à la fréquence ci-dessous, et
+       Core\Maintenance\Task\SendRemoteBackupHandler construit sa PROPRE
+       archive portable toutes les INTERVAL_HOURS heures. La phrase sous le
+       menu le dit désormais, parce que personne ne lit un commentaire
+       Twig. #}
     <div class="card mb-4" id="maintenance-backups-automatic">
         <div class="card-body">
-            <h2 class="h5 mb-3">Sauvegardes automatiques et distantes</h2>
-
-            <h3 class="h6">Fréquence</h3>
-            <div class="d-flex align-items-center gap-2 flex-wrap mb-1">
-                <label class="form-label small mb-0" for="auto-backup-frequency">Sauvegarde automatique complète (sans galerie)</label>
-                <select class="form-select form-select-sm w-auto" id="auto-backup-frequency">
-                    <option value="none" {{ backup_auto_frequency == 'none' ? 'selected' : '' }}>Aucune</option>
-                    <option value="daily" {{ backup_auto_frequency == 'daily' ? 'selected' : '' }}>Quotidienne</option>
-                    <option value="weekly" {{ backup_auto_frequency == 'weekly' ? 'selected' : '' }}>Hebdomadaire</option>
-                    <option value="biweekly" {{ backup_auto_frequency == 'biweekly' ? 'selected' : '' }}>Toutes les 2 semaines</option>
-                    <option value="monthly" {{ backup_auto_frequency == 'monthly' ? 'selected' : '' }}>Mensuelle</option>
-                </select>
+            {{ _self.section_header('maintenance-backups-automatic-body', 'Sauvegarde automatique', false) }}
+            <div class="collapse mt-3" id="maintenance-backups-automatic-body">
+                <h3 class="h6">Fréquence</h3>
+                <div class="d-flex align-items-center gap-2 flex-wrap mb-1">
+                    <label class="form-label small mb-0" for="auto-backup-frequency">Sauvegarde automatique complète (sans galerie)</label>
+                    <select class="form-select form-select-sm w-auto" id="auto-backup-frequency">
+                        <option value="none" {{ backup_auto_frequency == 'none' ? 'selected' : '' }}>Aucune</option>
+                        <option value="daily" {{ backup_auto_frequency == 'daily' ? 'selected' : '' }}>Quotidienne</option>
+                        <option value="weekly" {{ backup_auto_frequency == 'weekly' ? 'selected' : '' }}>Hebdomadaire</option>
+                        <option value="biweekly" {{ backup_auto_frequency == 'biweekly' ? 'selected' : '' }}>Toutes les 2 semaines</option>
+                        <option value="monthly" {{ backup_auto_frequency == 'monthly' ? 'selected' : '' }}>Mensuelle</option>
+                    </select>
+                </div>
+                <p class="small text-body-secondary mb-0">
+                    {% if backup_auto_last_run %}
+                        Dernière sauvegarde automatique : {{ backup_auto_last_run }}.
+                    {% else %}
+                        Aucune sauvegarde automatique effectuée pour le moment.
+                    {% endif %}
+                    {{ backup_keep_scheduled }} sauvegardes planifiées sont conservées sur le serveur ; elles ne
+                    prennent pas la place des sauvegardes que vous créez vous-même.
+                </p>
+                <p class="small text-body-secondary mb-0 mt-2">
+                    Cette fréquence ne gouverne <strong>que</strong> ce qui s'écrit sur ce serveur. Elle ne
+                    décide rien de ce qui part chez Google : « Sauvegarde hors site » a sa propre cadence,
+                    fixée à {{ remote_backup_interval_hours }} heures, et ce qu'elle envoie est une archive
+                    portable qu'elle construit elle-même à ce moment-là — jamais la sauvegarde automatique
+                    ci-dessus, qui n'est pas chiffrée et n'a donc rien à faire chez un tiers.
+                </p>
             </div>
-            <p class="small text-body-secondary mb-0">
-                {% if backup_auto_last_run %}
-                    Dernière sauvegarde automatique : {{ backup_auto_last_run }}.
-                {% else %}
-                    Aucune sauvegarde automatique effectuée pour le moment.
-                {% endif %}
-                {{ backup_keep_scheduled }} sauvegardes planifiées sont conservées sur le serveur ; elles ne
-                prennent pas la place des sauvegardes que vous créez vous-même.
-            </p>
         </div>
     </div>
 
@@ -721,28 +797,29 @@
        encore l'ancienne feuille (voir ce fichier-là). #}
     <div class="card mb-4" id="maintenance-backups-list">
         <div class="card-body">
-            <h2 class="h5 mb-3">Sauvegardes récentes</h2>
-
-            {% if backups is empty %}
-                {% include 'partials/empty_state.html.twig' with {
-                    message: 'Aucune sauvegarde pour le moment.',
-                    compact: true,
-                } only %}
-            {% else %}
-                {{ _self.backup_rows(backups|slice(0, backups_shown_at_once)) }}
-                {% if backups|length > backups_shown_at_once %}
-                    <div class="collapse" id="backups-more">
-                        {{ _self.backup_rows(backups|slice(backups_shown_at_once)) }}
-                    </div>
-                    <button type="button" class="btn btn-outline-secondary btn-sm mt-2 collapsed"
-                            data-bs-toggle="collapse" data-bs-target="#backups-more"
-                            aria-expanded="false" aria-controls="backups-more"
-                            data-collapse-label-expanded="Réduire">
-                        <span data-collapse-label>Voir plus ({{ backups|length - backups_shown_at_once }})</span>
-                        <i class="bi bi-chevron-down ms-1" aria-hidden="true"></i>
-                    </button>
+            {{ _self.section_header('maintenance-backups-list-body', 'Sauvegardes récentes', false) }}
+            <div class="collapse mt-3" id="maintenance-backups-list-body">
+                {% if backups is empty %}
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucune sauvegarde pour le moment.',
+                        compact: true,
+                    } only %}
+                {% else %}
+                    {{ _self.backup_rows(backups|slice(0, backups_shown_at_once)) }}
+                    {% if backups|length > backups_shown_at_once %}
+                        <div class="collapse" id="backups-more">
+                            {{ _self.backup_rows(backups|slice(backups_shown_at_once)) }}
+                        </div>
+                        <button type="button" class="btn btn-outline-secondary btn-sm mt-2 collapsed"
+                                data-bs-toggle="collapse" data-bs-target="#backups-more"
+                                aria-expanded="false" aria-controls="backups-more"
+                                data-collapse-label-expanded="Réduire">
+                            <span data-collapse-label>Voir plus ({{ backups|length - backups_shown_at_once }})</span>
+                            <i class="bi bi-chevron-down ms-1" aria-hidden="true"></i>
+                        </button>
+                    {% endif %}
                 {% endif %}
-            {% endif %}
+            </div>
         </div>
     </div>
 
@@ -754,331 +831,346 @@
        nothing in the three sections above has that shape. #}
     <div class="card mb-4" id="remote-backup">
         <div class="card-body">
-            <h2 class="h5 mb-3">Sauvegarde hors site</h2>
-
-            <p class="text-body-secondary small">
-                Une sauvegarde qui dort sur le même serveur que le site ne protège de rien le jour où c'est
-                le serveur qui disparaît. Raccordez un compte Google Drive : ce site pourra y déposer des
-                sauvegardes portables.
-                <a href="/aide/sauvegarde-hors-site">Comment créer le projet Google, pas à pas.</a>
-            </p>
-
-            {# The seven-day trap, said in full and said first. A refresh
-               token issued by a project whose consent screen is still in
-               « Test » dies after a week, silently: the backups stop and
-               nobody finds out until the day they are needed. It is the
-               single most common way this kind of integration fails. #}
-            <div class="alert alert-warning small" role="alert" id="remote-backup-testing-warning">
-                <strong>Publiez l'écran de consentement de votre projet Google.</strong>
-                Tant qu'il reste en statut « Test », Google fait expirer l'autorisation au bout de
-                {{ remote_backup_testing_token_days }} jours : les sauvegardes s'arrêteraient sans prévenir, et
-                vous ne le découvririez que le jour où vous en auriez besoin. La publication ne demande
-                aucune vérification de Google tant que ce site se limite aux fichiers qu'il a lui-même créés,
-                ce qu'il fait.
-            </div>
-
-            <h3 class="h6">État</h3>
-            {% if remote_backup_state == 'connected' %}
-                <p class="small mb-3">
-                    <span class="badge text-bg-success">Raccordé</span>
-                    {{ remote_backup_account }}
-                    {% if remote_backup_connected_at %}
-                        <span class="text-body-secondary">— depuis le {{ remote_backup_connected_at|date('d/m/Y') }}</span>
-                    {% endif %}
-                    {% if remote_backup_quota_free is not null %}
-                        <br><span class="text-body-secondary">{{ remote_backup_quota_free }} libres sur ce compte</span>
-                    {% endif %}
+            {{ _self.section_header('remote-backup-body', 'Sauvegarde hors site', false) }}
+            <div class="collapse mt-3" id="remote-backup-body">
+                <p class="text-body-secondary small">
+                    Une sauvegarde qui dort sur le même serveur que le site ne protège de rien le jour où c'est
+                    le serveur qui disparaît. Raccordez un compte Google Drive : ce site pourra y déposer des
+                    sauvegardes portables.
+                    <a href="/aide/sauvegarde-hors-site">Comment créer le projet Google, pas à pas.</a>
                 </p>
-            {% elseif remote_backup_state == 'needs_reauth' %}
-                <div class="alert alert-danger small" role="alert">
-                    <strong>Google n'accepte plus l'autorisation de ce site.</strong>
-                    Le compte {{ remote_backup_account }} était raccordé ; il faut le reconnecter.
-                    {% if remote_backup_last_error %}<br>{{ remote_backup_last_error }}{% endif %}
+
+                {# The seven-day trap, said in full and said first. A refresh
+                   token issued by a project whose consent screen is still in
+                   « Test » dies after a week, silently: the backups stop and
+                   nobody finds out until the day they are needed. It is the
+                   single most common way this kind of integration fails. #}
+                <div class="alert alert-warning small" role="alert" id="remote-backup-testing-warning">
+                    <strong>Publiez l'écran de consentement de votre projet Google.</strong>
+                    Tant qu'il reste en statut « Test », Google fait expirer l'autorisation au bout de
+                    {{ remote_backup_testing_token_days }} jours : les sauvegardes s'arrêteraient sans prévenir, et
+                    vous ne le découvririez que le jour où vous en auriez besoin. La publication ne demande
+                    aucune vérification de Google tant que ce site se limite aux fichiers qu'il a lui-même créés,
+                    ce qu'il fait.
                 </div>
-            {% else %}
-                <p class="small mb-3"><span class="badge text-bg-secondary">Non raccordé</span></p>
-            {% endif %}
 
-            <h3 class="h6">Identifiants du client OAuth</h3>
-            <p class="small text-body-secondary">
-                Ils viennent du projet que vous créez dans la console Google. Le secret n'est jamais affiché
-                ensuite : il est chiffré avec la clé de ce site, comme le mot de passe SMTP.
-            </p>
-            {% if remote_backup_redirect_uri %}
-                <p class="small">
-                    Adresse de redirection à déclarer dans le projet Google, au caractère près :<br>
-                    <code class="user-select-all">{{ remote_backup_redirect_uri }}</code>
-                </p>
-            {% else %}
-                {# Composed from the site's own address, so there is nothing
-                   to show until that address is known — and showing a bare
-                   path would be worse than showing nothing: Google's console
-                   refuses it, and the operator would have registered it. #}
-                <div class="alert alert-warning small" role="alert">
-                    <strong>Ce site ne connaît pas encore sa propre adresse.</strong>
-                    Renseignez-la dans <a href="/config/settings">Configuration &gt; Réglages</a>
-                    (« Adresse du site ») : l'adresse de redirection à déclarer chez Google s'en déduit,
-                    et le raccordement ne peut pas commencer sans elle.
-                </div>
-            {% endif %}
-            <form method="post" action="/config/maintenance/remote/credentials" class="mb-3">
-                {{ csrf_field()|raw }}
-                <div class="mb-2" style="max-width:480px;">
-                    <label class="form-label small" for="remote-backup-client-id">Identifiant client</label>
-                    <input type="text" class="form-control form-control-sm" id="remote-backup-client-id"
-                           name="client_id" value="{{ remote_backup_client_id }}" autocomplete="off">
-                </div>
-                <div class="mb-2" style="max-width:480px;">
-                    <label class="form-label small" for="remote-backup-client-secret">Secret client</label>
-                    <input type="password" class="form-control form-control-sm" id="remote-backup-client-secret"
-                           name="client_secret" autocomplete="new-password"
-                           placeholder="{{ remote_backup_has_secret ? 'Enregistré — saisissez-le à nouveau pour le remplacer' : '' }}">
-                </div>
-                <button type="submit" class="btn btn-outline-primary btn-sm">Enregistrer les identifiants</button>
-            </form>
-
-            <h3 class="h6">Raccordement</h3>
-            {% if remote_backup_has_credentials %}
-                <a class="btn btn-primary btn-sm" href="/config/maintenance/remote/connect" id="remote-backup-connect">
-                    {{ remote_backup_state == 'disconnected' ? 'Raccorder un compte Google Drive' : 'Reconnecter le compte' }}
-                </a>
-            {% else %}
-                <p class="small text-body-secondary mb-2">Enregistrez d'abord les identifiants ci-dessus.</p>
-            {% endif %}
-
-            {% if remote_backup_state != 'disconnected' %}
-                <button type="button" class="btn btn-outline-secondary btn-sm" id="remote-backup-test">
-                    Tester
-                </button>
-                <output class="ms-2 small d-none d-inline-block" id="remote-backup-test-result"></output>
-                <form method="post" action="/config/maintenance/remote/disconnect" class="d-inline"
-                      data-confirm="Déraccorder le compte ? Ce site ne pourra plus écrire chez Google, et les identifiants du client OAuth seront effacés.">
-                    {{ csrf_field()|raw }}
-                    <button type="submit" class="btn btn-outline-danger btn-sm">Déraccorder</button>
-                </form>
-            {% endif %}
-
-            {# ————— Envois —————
-
-               Only what this site knows without asking Google. The
-               occupation of the account and the number of archives there
-               cost a request each and would be paid on every render of
-               this page by an administrator who came to look at something
-               else; the « Tester » button above answers both on demand. #}
-            <hr class="my-4">
-            <h3 class="h6">Envois</h3>
-            <p class="small text-body-secondary mb-2">
-                Quand une destination est raccordée, ce site y dépose une <strong>sauvegarde portable</strong>
-                toutes les {{ remote_backup_interval_hours }} heures, par tranches : sur un hébergement
-                mutualisé, une archive de plusieurs gigaoctets ne tient pas dans une seule requête.
-            </p>
-            <p class="small mb-2">
-                {% if remote_backup_last_success %}
-                    Dernier envoi arrivé à son terme le
-                    {{ remote_backup_last_success|date('d/m/Y \\à H:i') }}.
-                {% elseif remote_backup_state == 'connected' %}
-                    Aucun envoi n'est encore arrivé à son terme.
+                <h3 class="h6">État</h3>
+                {% if remote_backup_state == 'connected' %}
+                    <p class="small mb-3">
+                        <span class="badge text-bg-success">Raccordé</span>
+                        {{ remote_backup_account }}
+                        {% if remote_backup_connected_at %}
+                            <span class="text-body-secondary">— depuis le {{ remote_backup_connected_at|date('d/m/Y') }}</span>
+                        {% endif %}
+                        {% if remote_backup_quota_free is not null %}
+                            <br><span class="text-body-secondary">{{ remote_backup_quota_free }} libres sur ce compte</span>
+                        {% endif %}
+                    </p>
+                {% elseif remote_backup_state == 'needs_reauth' %}
+                    <div class="alert alert-danger small" role="alert">
+                        <strong>Google n'accepte plus l'autorisation de ce site.</strong>
+                        Le compte {{ remote_backup_account }} était raccordé ; il faut le reconnecter.
+                        {% if remote_backup_last_error %}<br>{{ remote_backup_last_error }}{% endif %}
+                    </div>
                 {% else %}
-                    Aucune destination n'est raccordée : rien ne quitte ce serveur.
+                    <p class="small mb-3"><span class="badge text-bg-secondary">Non raccordé</span></p>
                 {% endif %}
-            </p>
-            <p class="small text-body-secondary mb-2">
-                Conservation chez la destination : {{ remote_backup_keep }} archives au maximum, et
-                {{ remote_backup_max_bytes }} au plus — la plus contraignante des deux s'applique.
-                {% if remote_backup_include_gallery %}
-                    La galerie fait partie des envois.
-                {% else %}
-                    La galerie n'est pas envoyée : elle se compte en gigaoctets et remplirait le compte
-                    distant en quelques semaines.
-                {% endif %}
-                Ces trois réglages se modifient dans
-                <a href="/config/settings">Configuration &gt; Réglages</a>.
-            </p>
 
-            {# ————— La phrase de passe —————
-
-               Shown on demand rather than once and never again — the
-               opposite choice from the webhook secret, and deliberately.
-               That one can be regenerated for free; this one opens
-               archives that already exist, on a service this site may no
-               longer be able to reach. It has to live in secrets.enc
-               anyway, because the scheduled send encrypts with it at four
-               in the morning with nobody there to type anything. #}
-            <hr class="my-4">
-            <h3 class="h6">Phrase de passe des sauvegardes distantes</h3>
-            <p class="small text-body-secondary mb-2">
-                Ce qui part est une <strong>sauvegarde portable</strong> : restaurable sur une installation
-                neuve, chez un autre hébergeur — donc chiffrée, avec cette phrase, générée une fois pour
-                votre unité. Google ne peut rien en lire.
-            </p>
-            {% if remote_backup_passphrase_generation > 0 %}
-                <p class="small text-body-secondary mb-2">
-                    Génération {{ remote_backup_passphrase_generation }}
-                    {% if remote_backup_passphrase_created_at %}
-                        · créée le {{ remote_backup_passphrase_created_at|date('d/m/Y') }}
-                    {% endif %}
-                    · ce numéro figure dans le nom de chaque fichier envoyé.
-                </p>
-
-                <div class="border rounded bg-body-tertiary text-center py-3 px-3 font-monospace user-select-all"
-                     id="remote-backup-passphrase" data-mask="{{ remote_backup_passphrase_mask }}">{{ remote_backup_passphrase_mask }}</div>
-                <div class="d-flex gap-2 mt-2 page-narrow">
-                    <button type="button" class="btn btn-outline-secondary btn-sm flex-fill"
-                            id="remote-backup-passphrase-reveal">Afficher la phrase de passe</button>
-                    <button type="button" class="btn btn-outline-secondary btn-sm flex-fill d-none"
-                            id="remote-backup-passphrase-copy">Copier</button>
-                </div>
-
-                <div class="alert alert-warning small mt-3" role="alert">
-                    <strong>Notez-la hors du site.</strong>
-                    Sans elle, aucune archive distante ne peut être restaurée — et le jour où vous en aurez
-                    besoin, ce site ne sera peut-être plus accessible.
-                </div>
+                <h3 class="h6">Identifiants du client OAuth</h3>
                 <p class="small text-body-secondary">
-                    Elle reste consultable ici tant que le site fonctionne : la cacher ne protégerait de rien,
-                    puisqu'elle doit rester sur le serveur pour chiffrer chaque sauvegarde.
+                    Ils viennent du projet que vous créez dans la console Google. Le secret n'est jamais affiché
+                    ensuite : il est chiffré avec la clé de ce site, comme le mot de passe SMTP.
                 </p>
-
-                <form method="post" action="/config/maintenance/remote/passphrase/regenerate"
-                      data-confirm="Régénérer la phrase de passe ? Les archives déjà envoyées chez la destination ne s'ouvriront plus qu'avec l'ancienne, et rien ne les rechiffrera.">
+                {% if remote_backup_redirect_uri %}
+                    <p class="small">
+                        Adresse de redirection à déclarer dans le projet Google, au caractère près :<br>
+                        <code class="user-select-all">{{ remote_backup_redirect_uri }}</code>
+                    </p>
+                {% else %}
+                    {# Composed from the site's own address, so there is nothing
+                       to show until that address is known — and showing a bare
+                       path would be worse than showing nothing: Google's console
+                       refuses it, and the operator would have registered it. #}
+                    <div class="alert alert-warning small" role="alert">
+                        <strong>Ce site ne connaît pas encore sa propre adresse.</strong>
+                        Renseignez-la dans <a href="/config/settings">Configuration &gt; Réglages</a>
+                        (« Adresse du site ») : l'adresse de redirection à déclarer chez Google s'en déduit,
+                        et le raccordement ne peut pas commencer sans elle.
+                    </div>
+                {% endif %}
+                <form method="post" action="/config/maintenance/remote/credentials" class="mb-3">
                     {{ csrf_field()|raw }}
-                    <button type="submit" class="btn btn-link btn-sm text-danger p-0">
-                        Régénérer la phrase de passe
+                    <div class="mb-2" style="max-width:480px;">
+                        <label class="form-label small" for="remote-backup-client-id">Identifiant client</label>
+                        <input type="text" class="form-control form-control-sm" id="remote-backup-client-id"
+                               name="client_id" value="{{ remote_backup_client_id }}" autocomplete="off">
+                    </div>
+                    <div class="mb-2" style="max-width:480px;">
+                        <label class="form-label small" for="remote-backup-client-secret">Secret client</label>
+                        <input type="password" class="form-control form-control-sm" id="remote-backup-client-secret"
+                               name="client_secret" autocomplete="new-password"
+                               placeholder="{{ remote_backup_has_secret ? 'Enregistré — saisissez-le à nouveau pour le remplacer' : '' }}">
+                    </div>
+                    <button type="submit" class="btn btn-outline-primary btn-sm">Enregistrer les identifiants</button>
+                </form>
+
+                <h3 class="h6">Raccordement</h3>
+                {% if remote_backup_has_credentials %}
+                    <a class="btn btn-primary btn-sm" href="/config/maintenance/remote/connect" id="remote-backup-connect">
+                        {{ remote_backup_state == 'disconnected' ? 'Raccorder un compte Google Drive' : 'Reconnecter le compte' }}
+                    </a>
+                {% else %}
+                    <p class="small text-body-secondary mb-2">Enregistrez d'abord les identifiants ci-dessus.</p>
+                {% endif %}
+
+                {% if remote_backup_state != 'disconnected' %}
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="remote-backup-test">
+                        Tester
                     </button>
-                </form>
-            {% else %}
-                <p class="small text-body-secondary">
-                    Aucune phrase n'existe encore : elle est créée au premier envoi, et s'affichera ici.
+                    <output class="ms-2 small d-none d-inline-block" id="remote-backup-test-result"></output>
+                    <form method="post" action="/config/maintenance/remote/disconnect" class="d-inline"
+                          data-confirm="Déraccorder le compte ? Ce site ne pourra plus écrire chez Google, et les identifiants du client OAuth seront effacés.">
+                        {{ csrf_field()|raw }}
+                        <button type="submit" class="btn btn-outline-danger btn-sm">Déraccorder</button>
+                    </form>
+                {% endif %}
+
+                {# ————— Envois —————
+
+                   Only what this site knows without asking Google. The
+                   occupation of the account and the number of archives there
+                   cost a request each and would be paid on every render of
+                   this page by an administrator who came to look at something
+                   else; the « Tester » button above answers both on demand. #}
+                <hr class="my-4">
+                <h3 class="h6">Envois</h3>
+                <p class="small text-body-secondary mb-2">
+                    Quand une destination est raccordée, ce site y dépose une <strong>sauvegarde portable</strong>
+                    toutes les {{ remote_backup_interval_hours }} heures, par tranches : sur un hébergement
+                    mutualisé, une archive de plusieurs gigaoctets ne tient pas dans une seule requête.
                 </p>
-            {% endif %}
+                {# La question qu'on nous a posée, répondue des deux côtés :
+                   la fréquence de « Sauvegarde automatique » ne règle rien
+                   ici, et cette cadence-ci n'est réglable nulle part. Une
+                   unité qui voit « Hebdomadaire » là-haut et « toutes les
+                   24 heures » ici conclut que l'un des deux écrans ment. #}
+                <p class="small text-body-secondary mb-2">
+                    Cette cadence est celle de l'envoi, et elle lui appartient : la fréquence choisie dans
+                    « Sauvegarde automatique » n'a aucun effet dessus, et celle-ci ne se règle pas. Les deux
+                    ne produisent d'ailleurs pas la même chose — là-haut une archive qui reste sur ce serveur,
+                    sans les clés et sans mot de passe ; ici une archive portable, fraîchement construite et
+                    chiffrée avec la phrase de passe ci-dessous.
+                </p>
+                <p class="small mb-2">
+                    {% if remote_backup_last_success %}
+                        Dernier envoi arrivé à son terme le
+                        {{ remote_backup_last_success|date('d/m/Y \\à H:i') }}.
+                    {% elseif remote_backup_state == 'connected' %}
+                        Aucun envoi n'est encore arrivé à son terme.
+                    {% else %}
+                        Aucune destination n'est raccordée : rien ne quitte ce serveur.
+                    {% endif %}
+                </p>
+                <p class="small text-body-secondary mb-2">
+                    Conservation chez la destination : {{ remote_backup_keep }} archives au maximum, et
+                    {{ remote_backup_max_bytes }} au plus — la plus contraignante des deux s'applique.
+                    {% if remote_backup_include_gallery %}
+                        La galerie fait partie des envois.
+                    {% else %}
+                        La galerie n'est pas envoyée : elle se compte en gigaoctets et remplirait le compte
+                        distant en quelques semaines.
+                    {% endif %}
+                    Ces trois réglages se modifient dans
+                    <a href="/config/settings">Configuration &gt; Réglages</a>.
+                </p>
+
+                {# ————— La phrase de passe —————
+
+                   Shown on demand rather than once and never again — the
+                   opposite choice from the webhook secret, and deliberately.
+                   That one can be regenerated for free; this one opens
+                   archives that already exist, on a service this site may no
+                   longer be able to reach. It has to live in secrets.enc
+                   anyway, because the scheduled send encrypts with it at four
+                   in the morning with nobody there to type anything. #}
+                <hr class="my-4">
+                <h3 class="h6">Phrase de passe des sauvegardes distantes</h3>
+                <p class="small text-body-secondary mb-2">
+                    Ce qui part est une <strong>sauvegarde portable</strong> : restaurable sur une installation
+                    neuve, chez un autre hébergeur — donc chiffrée, avec cette phrase, générée une fois pour
+                    votre unité. Google ne peut rien en lire.
+                </p>
+                {% if remote_backup_passphrase_generation > 0 %}
+                    <p class="small text-body-secondary mb-2">
+                        Génération {{ remote_backup_passphrase_generation }}
+                        {% if remote_backup_passphrase_created_at %}
+                            · créée le {{ remote_backup_passphrase_created_at|date('d/m/Y') }}
+                        {% endif %}
+                        · ce numéro figure dans le nom de chaque fichier envoyé.
+                    </p>
+
+                    <div class="border rounded bg-body-tertiary text-center py-3 px-3 font-monospace user-select-all"
+                         id="remote-backup-passphrase" data-mask="{{ remote_backup_passphrase_mask }}">{{ remote_backup_passphrase_mask }}</div>
+                    <div class="d-flex gap-2 mt-2 page-narrow">
+                        <button type="button" class="btn btn-outline-secondary btn-sm flex-fill"
+                                id="remote-backup-passphrase-reveal">Afficher la phrase de passe</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm flex-fill d-none"
+                                id="remote-backup-passphrase-copy">Copier</button>
+                    </div>
+
+                    <div class="alert alert-warning small mt-3" role="alert">
+                        <strong>Notez-la hors du site.</strong>
+                        Sans elle, aucune archive distante ne peut être restaurée — et le jour où vous en aurez
+                        besoin, ce site ne sera peut-être plus accessible.
+                    </div>
+                    <p class="small text-body-secondary">
+                        Elle reste consultable ici tant que le site fonctionne : la cacher ne protégerait de rien,
+                        puisqu'elle doit rester sur le serveur pour chiffrer chaque sauvegarde.
+                    </p>
+
+                    <form method="post" action="/config/maintenance/remote/passphrase/regenerate"
+                          data-confirm="Régénérer la phrase de passe ? Les archives déjà envoyées chez la destination ne s'ouvriront plus qu'avec l'ancienne, et rien ne les rechiffrera.">
+                        {{ csrf_field()|raw }}
+                        <button type="submit" class="btn btn-link btn-sm text-danger p-0">
+                            Régénérer la phrase de passe
+                        </button>
+                    </form>
+                {% else %}
+                    <p class="small text-body-secondary">
+                        Aucune phrase n'existe encore : elle est créée au premier envoi, et s'affichera ici.
+                    </p>
+                {% endif %}
+            </div>
         </div>
     </div>
 
     {# ————— Réinitialisation ————— #}
     <div class="card mb-4 border-danger" id="maintenance-reset">
         <div class="card-body">
-            <h2 class="h5 mb-3 text-danger"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i> Réinitialisation</h2>
-            <p class="text-body-secondary small">
-                Ces actions sont irréversibles sans restauration manuelle. Une sauvegarde de sécurité est prise
-                automatiquement avant chaque action.
-            </p>
+            {{ _self.section_header('maintenance-reset-body', 'Réinitialisation', false, 'exclamation-triangle', 'text-danger') }}
+            <div class="collapse mt-3" id="maintenance-reset-body">
+                <p class="text-body-secondary small">
+                    Ces actions sont irréversibles sans restauration manuelle. Une sauvegarde de sécurité est prise
+                    automatiquement avant chaque action.
+                </p>
 
-            <div class="row g-4">
-                <div class="col-12 col-md-4">
-                    <h3 class="h6">Paramètres par défaut</h3>
-                    <p class="text-body-secondary small">
-                        Réinitialise tous les paramètres (généraux et modules) à leurs valeurs par défaut. Ne
-                        touche ni aux comptes, ni aux membres, ni aux contenus, ni aux fichiers.
-                    </p>
-                    <form id="reset-settings-form">
-                        {{ csrf_field()|raw }}
-                        <label class="form-label small" for="reset-settings-keyword">Tapez <strong>REINITIALISER</strong> pour confirmer</label>
-                        <input type="text" class="form-control form-control-sm mb-2" id="reset-settings-keyword" autocomplete="off">
-                        <button type="submit" class="btn btn-outline-danger btn-sm" id="reset-settings-submit" disabled>
-                            Réinitialiser les paramètres
-                        </button>
-                        <output class="mt-2 small d-none d-block" id="reset-settings-progress"><span class="spinner-border spinner-border-sm"></span> En cours…</output>
-                        <div class="mt-2 small text-danger d-none" id="reset-settings-error" role="alert"></div>
-                    </form>
-                </div>
+                <div class="row g-4">
+                    <div class="col-12 col-md-4">
+                        <h3 class="h6">Paramètres par défaut</h3>
+                        <p class="text-body-secondary small">
+                            Réinitialise tous les paramètres (généraux et modules) à leurs valeurs par défaut. Ne
+                            touche ni aux comptes, ni aux membres, ni aux contenus, ni aux fichiers.
+                        </p>
+                        <form id="reset-settings-form">
+                            {{ csrf_field()|raw }}
+                            <label class="form-label small" for="reset-settings-keyword">Tapez <strong>REINITIALISER</strong> pour confirmer</label>
+                            <input type="text" class="form-control form-control-sm mb-2" id="reset-settings-keyword" autocomplete="off">
+                            <button type="submit" class="btn btn-outline-danger btn-sm" id="reset-settings-submit" disabled>
+                                Réinitialiser les paramètres
+                            </button>
+                            <output class="mt-2 small d-none d-block" id="reset-settings-progress"><span class="spinner-border spinner-border-sm"></span> En cours…</output>
+                            <div class="mt-2 small text-danger d-none" id="reset-settings-error" role="alert"></div>
+                        </form>
+                    </div>
 
-                <div class="col-12 col-md-4">
-                    <h3 class="h6">Restaurer un backup</h3>
-                    <p class="text-body-secondary small">
-                        Restaure la base de données et les fichiers depuis une sauvegarde existante ou un fichier
-                        téléversé.
-                    </p>
-                    <p class="small text-warning-emphasis">
-                        <i class="bi bi-key"></i>
-                        Une archive ne contient <strong>pas les clés de chiffrement</strong> : elle ne se relit
-                        que sur l'installation qui l'a produite, ou sur une installation dont
-                        <code>storage/keys/</code> et <code>storage/config/</code> ont été recopiés depuis
-                        celle-là.
-                    </p>
-                    <form id="restore-backup-form" method="post" action="/config/maintenance/reset/restore" enctype="multipart/form-data">
-                        {{ csrf_field()|raw }}
-                        {# Set by maintenance.js after a large archive has been
-                           sent as chunks (audit M2); the classic POST then
-                           references the assembled file instead of carrying it. #}
-                        <input type="hidden" name="upload_id" id="restore-upload-id" value="">
+                    <div class="col-12 col-md-4">
+                        <h3 class="h6">Restaurer un backup</h3>
+                        <p class="text-body-secondary small">
+                            Restaure la base de données et les fichiers depuis une sauvegarde existante ou un fichier
+                            téléversé.
+                        </p>
+                        <p class="small text-warning-emphasis">
+                            <i class="bi bi-key"></i>
+                            Une archive ne contient <strong>pas les clés de chiffrement</strong> : elle ne se relit
+                            que sur l'installation qui l'a produite, ou sur une installation dont
+                            <code>storage/keys/</code> et <code>storage/config/</code> ont été recopiés depuis
+                            celle-là.
+                        </p>
+                        <form id="restore-backup-form" method="post" action="/config/maintenance/reset/restore" enctype="multipart/form-data">
+                            {{ csrf_field()|raw }}
+                            {# Set by maintenance.js after a large archive has been
+                               sent as chunks (audit M2); the classic POST then
+                               references the assembled file instead of carrying it. #}
+                            <input type="hidden" name="upload_id" id="restore-upload-id" value="">
 
-                        <div class="mb-2">
-                            <div class="form-check">
-                                <input class="form-check-input" type="radio" name="source" id="restore-source-server" value="server" checked>
-                                <label class="form-check-label small" for="restore-source-server">Depuis le serveur</label>
+                            <div class="mb-2">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="source" id="restore-source-server" value="server" checked>
+                                    <label class="form-check-label small" for="restore-source-server">Depuis le serveur</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="source" id="restore-source-upload" value="upload">
+                                    <label class="form-check-label small" for="restore-source-upload">Depuis un fichier téléversé</label>
+                                </div>
                             </div>
-                            <div class="form-check">
-                                <input class="form-check-input" type="radio" name="source" id="restore-source-upload" value="upload">
-                                <label class="form-check-label small" for="restore-source-upload">Depuis un fichier téléversé</label>
+                            <div class="mb-2" id="restore-server-picker">
+                                <label class="visually-hidden" for="restore-backup-id">Sauvegarde à restaurer</label>
+                                <select class="form-select form-select-sm" name="backup_id" id="restore-backup-id" {% if backups is empty %}disabled{% endif %}>
+                                    {# `not backup.isPortable` : une archive portable
+                                       sert à repartir sur une installation NEUVE, pas
+                                       à écraser celle-ci. L'offrir ici mènerait à une
+                                       restauration destructive suivie d'un retour en
+                                       arrière, pour une opération qui ne peut pas
+                                       aboutir — le contrôleur la refuse aussi, et
+                                       c'est lui qui fait foi ; ceci évite d'avoir à
+                                       le découvrir. #}
+                                    {% for backup in backups %}
+                                        {% if backup.status == 'completed' and not backup.isPortable %}
+                                            <option value="{{ backup.id }}">{{ backup.typeLabel }} — {{ backup.createdAt }}</option>
+                                        {% endif %}
+                                    {% endfor %}
+                                </select>
                             </div>
-                        </div>
-                        <div class="mb-2" id="restore-server-picker">
-                            <label class="visually-hidden" for="restore-backup-id">Sauvegarde à restaurer</label>
-                            <select class="form-select form-select-sm" name="backup_id" id="restore-backup-id" {% if backups is empty %}disabled{% endif %}>
-                                {# `not backup.isPortable` : une archive portable
-                                   sert à repartir sur une installation NEUVE, pas
-                                   à écraser celle-ci. L'offrir ici mènerait à une
-                                   restauration destructive suivie d'un retour en
-                                   arrière, pour une opération qui ne peut pas
-                                   aboutir — le contrôleur la refuse aussi, et
-                                   c'est lui qui fait foi ; ceci évite d'avoir à
-                                   le découvrir. #}
-                                {% for backup in backups %}
-                                    {% if backup.status == 'completed' and not backup.isPortable %}
-                                        <option value="{{ backup.id }}">{{ backup.typeLabel }} — {{ backup.createdAt }}</option>
-                                    {% endif %}
-                                {% endfor %}
-                            </select>
-                        </div>
-                        <div class="mb-2 d-none" id="restore-upload-picker">
-                            <input type="file" class="form-control form-control-sm" name="backup_file" id="restore-backup-file" accept=".zip" aria-label="Fichier de sauvegarde">
-                        </div>
-                        <div class="mb-2">
-                            {# One field for both: the password of an
-                               encrypted full backup, or the passphrase of a
-                               portable one. The site tells which it received
-                               from the archive's own header, so asking the
-                               same thing twice in two fields would only make
-                               the operator choose between them. #}
-                            {% include 'partials/form_field.html.twig' with {
-                                field_id: 'restore-backup-password', field_name: 'password',
-                                type: 'password', label: "Mot de passe ou phrase de passe de l'archive",
-                                help: "Nécessaire pour une sauvegarde complète chiffrée, et pour une sauvegarde portable venue d'une autre installation. Laissez vide sinon.",
-                                size: 'sm', wrapper_class: '',
-                            } only %}
-                        </div>
-                        <label class="form-label small" for="restore-backup-keyword">Tapez <strong>RESTAURER</strong> pour confirmer</label>
-                        <input type="text" class="form-control form-control-sm mb-2" name="confirm_keyword" id="restore-backup-keyword" autocomplete="off">
-                        <button type="submit" class="btn btn-outline-danger btn-sm" id="restore-backup-submit" disabled>
-                            Restaurer
-                        </button>
-                        <output class="mt-2 small d-none d-block" id="restore-backup-progress"><span class="spinner-border spinner-border-sm"></span> Restauration en cours…</output>
-                        <div class="mt-2 small text-danger d-none" id="restore-backup-error" role="alert"></div>
-                    </form>
-                </div>
+                            <div class="mb-2 d-none" id="restore-upload-picker">
+                                <input type="file" class="form-control form-control-sm" name="backup_file" id="restore-backup-file" accept=".zip" aria-label="Fichier de sauvegarde">
+                            </div>
+                            <div class="mb-2">
+                                {# One field for both: the password of an
+                                   encrypted full backup, or the passphrase of a
+                                   portable one. The site tells which it received
+                                   from the archive's own header, so asking the
+                                   same thing twice in two fields would only make
+                                   the operator choose between them. #}
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'restore-backup-password', field_name: 'password',
+                                    type: 'password', label: "Mot de passe ou phrase de passe de l'archive",
+                                    help: "Nécessaire pour une sauvegarde complète chiffrée, et pour une sauvegarde portable venue d'une autre installation. Laissez vide sinon.",
+                                    size: 'sm', wrapper_class: '',
+                                } only %}
+                            </div>
+                            <label class="form-label small" for="restore-backup-keyword">Tapez <strong>RESTAURER</strong> pour confirmer</label>
+                            <input type="text" class="form-control form-control-sm mb-2" name="confirm_keyword" id="restore-backup-keyword" autocomplete="off">
+                            <button type="submit" class="btn btn-outline-danger btn-sm" id="restore-backup-submit" disabled>
+                                Restaurer
+                            </button>
+                            <output class="mt-2 small d-none d-block" id="restore-backup-progress"><span class="spinner-border spinner-border-sm"></span> Restauration en cours…</output>
+                            <div class="mt-2 small text-danger d-none" id="restore-backup-error" role="alert"></div>
+                        </form>
+                    </div>
 
-                <div class="col-12 col-md-4">
-                    <h3 class="h6">Réinitialisation complète</h3>
-                    <p class="text-body-secondary small">
-                        Efface définitivement toutes les données du site. Le prochain accès déclenchera
-                        l'assistant d'installation, comme pour un site neuf.
-                    </p>
-                    <form id="full-reset-form">
-                        {{ csrf_field()|raw }}
-                        <div class="form-check mb-2">
-                            <input class="form-check-input" type="checkbox" id="full-reset-checkbox">
-                            <label class="form-check-label small" for="full-reset-checkbox">
-                                Je comprends que toutes les données seront définitivement supprimées
-                            </label>
-                        </div>
-                        <label class="form-label small" for="full-reset-keyword">Tapez <strong>EFFACER</strong> pour confirmer</label>
-                        <input type="text" class="form-control form-control-sm mb-2" id="full-reset-keyword" autocomplete="off">
-                        <button type="submit" class="btn btn-danger btn-sm" id="full-reset-submit" disabled>
-                            Tout effacer
-                        </button>
-                        <output class="mt-2 small d-none d-block" id="full-reset-progress"><span class="spinner-border spinner-border-sm"></span> Réinitialisation en cours — ne fermez pas cette page…</output>
-                        <div class="mt-2 small text-danger d-none" id="full-reset-error" role="alert"></div>
-                    </form>
+                    <div class="col-12 col-md-4">
+                        <h3 class="h6">Réinitialisation complète</h3>
+                        <p class="text-body-secondary small">
+                            Efface définitivement toutes les données du site. Le prochain accès déclenchera
+                            l'assistant d'installation, comme pour un site neuf.
+                        </p>
+                        <form id="full-reset-form">
+                            {{ csrf_field()|raw }}
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" id="full-reset-checkbox">
+                                <label class="form-check-label small" for="full-reset-checkbox">
+                                    Je comprends que toutes les données seront définitivement supprimées
+                                </label>
+                            </div>
+                            <label class="form-label small" for="full-reset-keyword">Tapez <strong>EFFACER</strong> pour confirmer</label>
+                            <input type="text" class="form-control form-control-sm mb-2" id="full-reset-keyword" autocomplete="off">
+                            <button type="submit" class="btn btn-danger btn-sm" id="full-reset-submit" disabled>
+                                Tout effacer
+                            </button>
+                            <output class="mt-2 small d-none d-block" id="full-reset-progress"><span class="spinner-border spinner-border-sm"></span> Réinitialisation en cours — ne fermez pas cette page…</output>
+                            <div class="mt-2 small text-danger d-none" id="full-reset-error" role="alert"></div>
+                        </form>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1090,4 +1182,10 @@
     <script src="{{ asset('/assets/js/maintenance.js') }}" defer nonce="{{ csp_nonce }}"></script>
     <script src="{{ asset('/assets/js/notes-clamp.js') }}" defer nonce="{{ csp_nonce }}"></script>
     <script src="{{ asset('/assets/js/collapse-label.js') }}" defer nonce="{{ csp_nonce }}"></script>
+    {# Les huit boîtes de la page sont repliables et six arrivent fermées :
+       sans ce script, `/config/maintenance#remote-backup` — l'adresse vers
+       laquelle Http\Controller\RemoteBackupController renvoie après chaque
+       aller-retour chez Google — déposerait l'utilisateur en haut de la
+       page, sans rien dire de la boîte fermée trois écrans plus bas. #}
+    <script src="{{ asset('/assets/js/collapse-anchor.js') }}" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

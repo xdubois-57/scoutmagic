@@ -88,6 +88,11 @@ interface Window {
         bind: (root?: ParentNode) => void;
         describe: (zone: HTMLElement, files: FileList) => void;
     };
+    // public/assets/js/collapse-anchor.js — opens the collapsible section
+    // a URL fragment points at, loaded by the pages whose boxes fold.
+    ScoutMagicCollapseAnchor?: {
+        openFromHash: (hash: string) => boolean;
+    };
     // public/assets/js/section-editor.js — the « Modifier » dialogs of a
     // settings screen (design.md §1.9), loaded only by the pages that
     // split their sections into read cards and editing dialogs.

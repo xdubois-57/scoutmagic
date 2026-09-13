@@ -23,7 +23,7 @@ use Core\Storage\DiskBudget;
  * excluded — module spec: "complete website - without photo gallery"),
  * frequency configurable from Configuration > Maintenance
  * (Core\Config\SettingService key backup_auto_frequency: none/daily/
- * weekly/biweekly/monthly, default monthly). Self-reschedules at the end
+ * weekly/biweekly/monthly, default weekly). Self-reschedules at the end
  * of every run (same pattern as Modules\LlmConnector\Task\
  * RefreshModelsHandler's weekly refresh — Core\Scheduler has no
  * first-class recurring-task concept), re-reading the setting each time so
@@ -57,7 +57,17 @@ class AutoBackupHandler implements TaskHandlerInterface
      */
     public function handle(array $payload, TaskContext $context): void
     {
-        $frequency = (string) ($context->settings->get('backup_auto_frequency') ?: 'monthly');
+        // 'weekly', the same literal `public/index.php` registers and
+        // `MaintenanceController::index()` falls back to. The three used
+        // to be two: this one still said 'monthly', the value issue #286
+        // moved away from because it authorises four times the data loss
+        // docs/exigences-non-fonctionnelles.md §3 accepts. The row exists
+        // on every installation, so the divergence was never reached —
+        // but a fallback that is reached only when something has already
+        // gone wrong is the worst place to disagree with the screen,
+        // which would go on displaying « Hebdomadaire » while the site
+        // backed up monthly.
+        $frequency = (string) ($context->settings->get('backup_auto_frequency') ?: 'weekly');
 
         if (isset(self::INTERVALS[$frequency])) {
             $this->performBackup($context);

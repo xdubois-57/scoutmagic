@@ -25,18 +25,25 @@
   autre.
 
   Paramètres :
-    href      l'URL du fichier
-    label     le texte du lien
-    classes   classes CSS (défaut : aucune)
-    icon      nom d'icône Bootstrap, sans le préfixe « bi- » (optionnel)
-    filename  nom de sauvegarde proposé (optionnel)
-    title     attribut title (optionnel)
+    href        l'URL du fichier
+    label       le texte du lien ; vide pour un lien réduit à son icône,
+                et il faut alors `aria_label` — une icône n'a pas de nom
+                (design.md §7.4)
+    classes     classes CSS (défaut : aucune)
+    icon        nom d'icône Bootstrap, sans le préfixe « bi- » (optionnel)
+    filename    nom de sauvegarde proposé (optionnel)
+    title       attribut title (optionnel)
+    aria_label  nom accessible, quand le texte visible ne suffit pas —
+                soit qu'il n'y en ait aucun, soit qu'une liste répète
+                « Télécharger » à chaque ligne sans dire de quoi
+                (optionnel)
 #}
 <a href="{{ href }}"
    class="{{ classes|default('') }}"
    {% if title is defined and title %}title="{{ title }}"{% endif %}
+   {% if aria_label is defined and aria_label %}aria-label="{{ aria_label }}"{% endif %}
    download{% if filename is defined and filename %}="{{ filename }}"{% endif %}
    target="_blank" rel="noopener">
-    {%- if icon is defined and icon %}<i class="bi bi-{{ icon }}" aria-hidden="true"></i> {% endif -%}
+    {%- if icon is defined and icon %}<i class="bi bi-{{ icon }}" aria-hidden="true"></i>{% if label %} {% endif %}{% endif -%}
     {{ label }}
 </a>
