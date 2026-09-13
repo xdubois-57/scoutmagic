@@ -1921,6 +1921,19 @@ au milieu d'une archive que chaque tranche suivante élargit. Trois
 tests s'appuyaient sur cette indulgence ; leurs faux services répondent
 maintenant comme le vrai.
 
+Un cinquième, à la ronde suivante, sur le même `finish()` : son docbloc
+affirme « nothing in here may throw », et la première version ne gardait
+que l'horodatage. Or l'écriture du journal et la reprogrammation passent
+toutes deux par la base, et `PDOException` est une `RuntimeException` —
+un verrou mortel sur `scheduled_actions`, la table la plus disputée du
+site, serait donc reparti dans le `catch` de `handle()` **après** la
+suppression de l'archive locale. Le test écrit pour le vérifier en a
+révélé un troisième cas, une ligne plus haut : `cancelPending()` s'exécute
+lui aussi après la livraison. Tout ce qui suit la dernière tranche est
+désormais absorbé, chaque échec journalisé là où il y a encore un endroit
+où le dire — et en silence là où il n'y en a plus, le journal étant le
+canal qui vient de tomber.
+
 Les deux derniers sont des mots français restés dans du commentaire
 anglais — « raccordement », « raccording » — que ma propre passe avait
 manqués.

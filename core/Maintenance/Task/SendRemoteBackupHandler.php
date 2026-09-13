@@ -222,8 +222,9 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
             // application could make from what it had handed over.
             $probe = $target->probeUpload($sessionUrl, $size);
             if ($probe->isComplete()) {
-                // Nothing to cancel: this run has written no row yet, and
-                // the one it was claimed from is `processing`.
+                // finish() cancels whatever pending row exists, guarded
+                // like everything else it does; this run has written none
+                // yet, so there is normally nothing to cancel.
                 $this->finish($context, $target, $archivePath, $probe->fileId);
 
                 return;
@@ -256,13 +257,20 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
             fn(): bool => $this->clock() < $deadline
         );
 
-        $this->cancelPending($context);
-
         if ($upload->isComplete()) {
+            // The cancel goes INSIDE finish(), not here. Once the
+            // destination has the last byte, every remaining step is
+            // post-delivery bookkeeping and none of it may reach
+            // recordFailure() — and `cancelPending()` is a write to the
+            // most contended table on the site.
             $this->finish($context, $target, $archivePath, $upload->fileId);
 
             return;
         }
+
+        // Still going, so a failure from here IS a failure: nothing was
+        // delivered, and recordFailure() is the right place for it.
+        $this->cancelPending($context);
 
         // Still going: replace the pessimistic row with what this run
         // actually achieved, so the next one resumes without a probe. The
@@ -292,10 +300,27 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
      * safely on the destination, uncounted, with the next run about to
      * upload the whole thing again.
      *
-     * The stamp is therefore guarded on its own, like the purge below it:
-     * a lost `LAST_SUCCESS_SETTING` makes the age alert pessimistic,
-     * which is a wrong reading in the safe direction, and it is journaled
-     * rather than swallowed.
+     * **Every step is guarded, not just the interesting one.** The first
+     * version of this guarded the settings stamp and left the journal
+     * write and the re-arm bare — so the docblock above was a claim the
+     * method did not keep. `JournalRepository::insert()` and the
+     * scheduler's writes both go to the database, and a `PDOException`
+     * is a `RuntimeException`: a deadlock or a lost connection on the
+     * contended `scheduled_actions` table would have escaped into
+     * {@see handle()}'s catch, AFTER the local archive was deleted —
+     * re-arming a failure whose `archive_path` no longer exists, so the
+     * next run rebuilt and re-uploaded gibibytes, and the ceiling
+     * journaled a delivered backup as abandoned.
+     *
+     * Each failure is journaled where there is somewhere to journal it,
+     * and swallowed where there is not: the journal is the reporting
+     * channel, so a journal that is down cannot report that the journal
+     * is down.
+     *
+     * A re-arm that fails is the one loss with no in-process remedy, and
+     * it has an out-of-process one: `public/index.php` seeds this chain
+     * on every request ({@see \Core\Scheduler\SchedulerService::seed()}),
+     * so the next page view puts it back.
      */
     private function finish(
         TaskContext $context,
@@ -303,16 +328,31 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
         string $archivePath,
         string $fileId
     ): void {
-        try {
-            $context->settings->setInternal(
-                self::LAST_SUCCESS_SETTING,
-                (new \DateTimeImmutable())->format('Y-m-d H:i:s')
-            );
-        } catch (\Throwable $e) {
-            $context->journal->log('core', 'remote_backup_stamp_failed', 'warning',
-                'L\'envoi hors site a abouti mais sa date n\'a pas pu être enregistrée',
-                ['error' => $e->getMessage()]);
-        }
+        // The pessimistic row this run wrote before sending: a write to
+        // `scheduled_actions`, and therefore a thing that can fail. Left
+        // behind, the next run picks it up, finds the archive gone and
+        // builds a fresh one — wasteful, not wrong, which is why this is
+        // absorbed like the rest.
+        $this->quietly(
+            $context,
+            function () use ($context): void {
+                $this->cancelPending($context);
+            },
+            'remote_backup_rearm_failed',
+            'L\'envoi hors site a abouti mais la file des tâches n\'a pas pu être mise à jour'
+        );
+
+        $this->quietly(
+            $context,
+            static function () use ($context): void {
+                $context->settings->setInternal(
+                    self::LAST_SUCCESS_SETTING,
+                    (new \DateTimeImmutable())->format('Y-m-d H:i:s')
+                );
+            },
+            'remote_backup_stamp_failed',
+            'L\'envoi hors site a abouti mais sa date n\'a pas pu être enregistrée'
+        );
 
         // **Deleted here rather than left for a later pass.** It carries
         // the site's master key; IT-04's quota of one portable archive
@@ -320,16 +360,59 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
         // meant to outlive, and this one was never asked for by a human.
         @unlink($archivePath);
 
-        $context->journal->log(
-            'core',
-            'remote_backup_sent',
-            'info',
-            'Sauvegarde envoyée hors site',
-            ['remote_id' => $fileId]
-        );
+        $this->quietly($context, static function () use ($context, $fileId): void {
+            $context->journal->log(
+                'core',
+                'remote_backup_sent',
+                'info',
+                'Sauvegarde envoyée hors site',
+                ['remote_id' => $fileId]
+            );
+        });
 
         $this->purge($context, $target);
-        $this->scheduleNext($context, []);
+
+        $this->quietly(
+            $context,
+            function () use ($context): void {
+                $this->scheduleNext($context, []);
+            },
+            'remote_backup_rearm_failed',
+            'L\'envoi hors site a abouti mais la prochaine échéance n\'a pas pu être inscrite'
+        );
+    }
+
+    /**
+     * Runs one piece of post-delivery bookkeeping, absorbing whatever it
+     * throws.
+     *
+     * @param \Closure(): void $step
+     * @param string|null $eventType null for the journal write itself —
+     *        reporting a journal failure through the journal is circular,
+     *        so that one is absorbed in silence rather than pretending to
+     *        have somewhere to go.
+     */
+    private function quietly(
+        TaskContext $context,
+        \Closure $step,
+        ?string $eventType = null,
+        string $description = ''
+    ): void {
+        try {
+            $step();
+        } catch (\Throwable $e) {
+            if ($eventType === null) {
+                return;
+            }
+
+            try {
+                $context->journal->log('core', $eventType, 'warning', $description, ['error' => $e->getMessage()]);
+            } catch (\Throwable) {
+                // The reporting channel is what failed. There is nowhere
+                // left to say so, and saying it by throwing would undo a
+                // delivery that actually happened.
+            }
+        }
     }
 
     /**

@@ -60,6 +60,7 @@ final class SendRemoteBackupHandlerTest extends TestCase
     private string $basePath;
     private string $storagePath;
     private RefusingSettingService $settings;
+    private ?BreakableJournalService $journal = null;
     private SecretManager $secrets;
     private SchedulerRepository $scheduler;
 
@@ -440,6 +441,73 @@ final class SendRemoteBackupHandlerTest extends TestCase
         );
     }
 
+    /**
+     * **The docblock says nothing in `finish()` may throw; this is what
+     * makes that true of the journal write too.**
+     *
+     * The first guard covered only the settings stamp. But
+     * `JournalRepository::insert()` writes to the database, and a
+     * `PDOException` is a `RuntimeException` — a deadlock or a lost
+     * connection would have escaped into `handle()`'s catch AFTER the
+     * local archive was deleted, re-arming a failure whose
+     * `archive_path` no longer exists. The next run would rebuild and
+     * re-upload gibibytes, and the ceiling would journal a delivered
+     * backup as abandoned.
+     */
+    public function testAJournalFailureDoesNotUndoADeliveredArchive(): void
+    {
+        $archive = $this->archiveOf(50);
+        $this->journalBreakingOn('remote_backup_sent');
+
+        $this->runOnce($this->payloadFor($archive), new RecordingTarget($this));
+
+        $this->assertFileDoesNotExist($archive);
+        $this->assertSame([], $this->events(['remote_backup_failed', 'remote_backup_abandoned']),
+            'a delivered archive was recorded as a failed send because the journal was down');
+
+        $next = $this->pending();
+        $this->assertNotNull($next, 'the chain died on a journal failure');
+        $this->assertSame([], $next['payload'], 'the finished send was queued for retry');
+    }
+
+    /**
+     * And of the re-arm — the one loss with no in-process remedy, which
+     * still must not become a recorded failure.
+     *
+     * `scheduled_actions` is the most contended table on the site: cron
+     * writes it and so does every page view. The chain itself is put
+     * back by the seed in `public/index.php` on the next request; what
+     * must not happen is a delivered archive going down the failure
+     * path on its way there.
+     */
+    public function testARearmFailureDoesNotUndoADeliveredArchiveEither(): void
+    {
+        $archive = $this->archiveOf(50);
+        $target = new RecordingTarget($this);
+        // Broken DURING the send, not before it: the queue has to survive
+        // long enough for this run to write its pessimistic row and for
+        // the destination to take the bytes, so that what fails is the
+        // POST-delivery bookkeeping and nothing else. `journal_entries`
+        // is a different table and stays readable, which is how the
+        // assertions below can see what happened.
+        $target->onSend = function (): void {
+            $this->pdo->exec('DROP TABLE scheduled_actions');
+        };
+
+        $this->runOnce($this->payloadFor($archive), $target);
+
+        $this->assertFileDoesNotExist($archive, 'a delivered archive was kept because the re-arm failed');
+        $this->assertSame(
+            // Twice, because two distinct writes to that table failed —
+            // the cancel of this run's own pessimistic row, and the
+            // re-arm of the next send.
+            ['remote_backup_rearm_failed', 'remote_backup_rearm_failed', 'remote_backup_sent'],
+            $this->events(['remote_backup_sent', 'remote_backup_rearm_failed', 'remote_backup_failed',
+                'remote_backup_abandoned']),
+            'the delivery was not recorded, or was recorded as a failure'
+        );
+    }
+
     // ---------------------------------------------------------------
     // Giving up
     // ---------------------------------------------------------------
@@ -610,6 +678,13 @@ final class SendRemoteBackupHandlerTest extends TestCase
     }
 
     /** A file of `$bytes` standing in for a portable archive. */
+    /** Makes the journal refuse one event type, as a broken table would. */
+    private function journalBreakingOn(string $eventType): void
+    {
+        $this->journal = new BreakableJournalService(new JournalRepository($this->pdo));
+        $this->journal->breakOn = $eventType;
+    }
+
     private function archiveOf(int $bytes): string
     {
         $path = $this->storagePath . '/maintenance/backup_' . uniqid() . '.zip';
@@ -700,7 +775,7 @@ final class SendRemoteBackupHandlerTest extends TestCase
             Connection::withPdo($this->pdo),
             $encryption,
             $this->createStub(MailService::class),
-            new JournalService(new JournalRepository($this->pdo)),
+            $this->journal ??= new BreakableJournalService(new JournalRepository($this->pdo)),
             $this->settings,
             new UserAccountRepository($this->pdo, $encryption),
             $this->storagePath
@@ -851,5 +926,33 @@ final class RecordingTarget implements RemoteBackupTarget
     public function testConnection(): RemoteConnectionCheck
     {
         return RemoteConnectionCheck::success('unite@example.org', null);
+    }
+}
+
+/**
+ * A journal with one event type that refuses to be written.
+ *
+ * The journal is a database write like any other, and `PDOException`
+ * extends `RuntimeException` — so what this double stands in for is an
+ * ordinary deadlock on a busy site, not an exotic failure.
+ */
+final class BreakableJournalService extends JournalService
+{
+    public string $breakOn = '';
+
+    /** @param array<string, mixed> $context */
+    public function log(
+        string $category,
+        string $type,
+        string $level,
+        string $description,
+        array $context = [],
+        ?int $userId = null
+    ): void {
+        if ($this->breakOn !== '' && $type === $this->breakOn) {
+            throw new \RuntimeException('le journal est indisponible');
+        }
+
+        parent::log($category, $type, $level, $description, $context, $userId);
     }
 }
