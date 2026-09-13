@@ -244,19 +244,19 @@ $installationProfile = \Core\Module\InstallationProfile::resolve(
     (string) ($settingService->get('statistics_destination') ?? '')
 );
 
-// **La chaîne de fournisseurs vaut ici aussi** (Core\Mail\Transport,
-// ARCHITECTURE.md §8.106) — et pour la même raison que le bac à sable
-// ci-dessus : la moitié du courrier du site part d'une tâche planifiée,
-// publipostage compris, qui est précisément la voie que ce chantier
-// existe pour paginer et faire basculer. Un `MailService` construit ici
-// sans chaîne enverrait tout par le relais historique, en ignorant les
-// quotas comme les replis.
+// **The provider chain holds here too** (Core\Mail\Transport,
+// ARCHITECTURE.md §8.106), and for the same reason as the sandbox above:
+// half of this site's mail leaves from a scheduled task, the publipostage
+// included — which is precisely the lane this whole mechanism exists to
+// pace and to fall back. A `MailService` built here without a chain would
+// send everything through the historic relay, ignoring both the quotas
+// and the fallbacks.
 //
-// Le semis n'est PAS refait ici : `public/index.php` l'a posé, et une
-// passe de cron qui poserait des chaînes sur une installation dont
-// personne n'a encore ouvert une page écrirait une configuration que
-// personne n'a choisie. Une chaîne illisible laisse la chaîne rendre la
-// main au transport, ce qui est exactement la dégradation voulue.
+// The seeding is deliberately NOT repeated here: `public/index.php` lays
+// the chains down, and a cron pass that laid them on an installation
+// nobody has opened a page on yet would be writing a configuration nobody
+// chose. A chain that cannot be read hands the message back to the
+// transport, which is exactly the degradation intended.
 $providerConnections = new \Core\Mail\Transport\ProviderConnections($secrets);
 $mailProviderDirectory = new \Core\Mail\Transport\MailProviderDirectory(
     new \Core\Mail\Transport\MailProviderRepository($pdo),
