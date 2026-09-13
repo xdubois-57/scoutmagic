@@ -493,6 +493,31 @@ lets it actually open `ARCHITECTURE.md`, `SECURITY.md`, `design.md` and
 `CONTRIBUTING.md` — the built-in defaults cover `AGENTS.md` and `CLAUDE.md`
 and not those.
 
+**Reviewing once has a cost, and it is not the missed findings.** Everything
+CodeRabbit posts is pinned to the commit range it first read — not just the
+findings, but the walkthrough, the file list, the merge-risk line and the
+**pre-merge checks**. The comment carrying all of it is rewritten in place
+on every push, so it reads as current at a glance. On #320, ten commits in,
+its Title check reported that the title announced rich-text editor changes
+« qui ne figurent pas dans les changements fournis ». They were there, in
+commits 2 to 10; it had read commit 1. **A verdict pinned to an old diff
+does not announce itself as stale — it announces the pull request as
+wrong.** Its own « Commits » block names the range it actually read
+(`Reviewing files that changed … between <base> and <sha>`), and that line
+is what to check before treating any of the rest as a statement about the
+pull request in front of you. `@coderabbitai review` re-reads the current
+head.
+
+**And it reads the diff, and only the diff.** It runs no test, computes no
+coverage, starts no browser: everything under § Tests above is invisible to
+it, and so is every runtime behaviour those layers exist to catch. That is
+the division of labour between the three readers rather than a shortcoming
+— but it means a CodeRabbit finding, like any reader's, is a claim to check
+against the code, not a result. The habit at the end of § The failure mode
+this repository keeps meeting applies here in both directions: ask what its
+comment would look like if it had not read this diff. Pinned to commit 1,
+it looks exactly the same.
+
 **Claude review** — `.github/workflows/claude-review.yml`, running
 `anthropics/claude-code-action` against the maintainer's Claude subscription
 via `CLAUDE_CODE_OAUTH_TOKEN`. Runs on open, ready-for-review, reopen and
