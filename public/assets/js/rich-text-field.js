@@ -39,7 +39,6 @@
     // #306). The shared wiring is idempotent per button: whichever of the
     // two gets there first wires them, the other finds them wired.
     window.ScoutMagicRichText.wireToolbar(modalEl, editorContent);
-    window.ScoutMagicRichText.wirePaste(editorContent);
 
     function escapeAttr(value) {
         return value.replace(/["\\]/g, String.raw`\$&`);
@@ -58,9 +57,7 @@
     document.getElementById('richTextEditorSave').addEventListener('click', function () {
         if (!currentKey) return;
 
-        // Cleaned before it is sent, so that what is stored and what the
-        // preview shows are the same string. See editable.js for the why.
-        var html = window.ScoutMagicRichText.cleanHtml(editorContent.innerHTML);
+        var html = editorContent.innerHTML;
         var csrfMeta = /** @type {HTMLMetaElement | null} */ (document.querySelector('meta[name="csrf-token"]'));
         var csrf = csrfMeta ? csrfMeta.content : '';
 
@@ -72,7 +69,8 @@
         .then(function (res) { return res.json(); })
         .then(function (json) {
             if (json.success) {
-                if (currentPreview) currentPreview.innerHTML = html;
+                // The stored string, not the sent one. See editable.js.
+                if (currentPreview) currentPreview.innerHTML = json.value === undefined ? html : json.value;
                 modal.hide();
             } else {
                 window.ScoutMagicToast.show(json.error || 'Erreur lors de l\'enregistrement.', { variant: 'error' });

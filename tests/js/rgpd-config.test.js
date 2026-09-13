@@ -62,7 +62,7 @@ async function boot(mode, running) {
     // order in production).
     await import('../../public/assets/js/api.js');
     // The shared rich-text toolbox: this page grafts its own save button
-    // onto the shared modal, and that save cleans the HTML (issue #306).
+    // onto the shared modal (issue #306).
     await import('../../public/assets/js/rich-text-link.js');
     await import('../../public/assets/js/rgpd-config.js');
 }
@@ -298,20 +298,21 @@ describe('rgpd-config.js: the custom save grafted onto the shared modal', () => 
         expect(document.getElementById('rgpd-modal-save').style.display).toBe('inline-block');
     });
 
-    it('saves and shows the same HTML the server will keep (issue #306)', async () => {
+    it('repaints the preview with what the SERVER stored (issue #306)', async () => {
+        const sent = '<div><h1>Titre</h1><span style="font-weight: bold">Gras</span></div>';
+        const stored = '<h2>Titre</h2>Gras';
+        global.fetch = vi.fn(() => jsonResponse({ success: true, content: stored }));
         await openEditor();
-        document.getElementById('richTextEditorContent').innerHTML =
-            '<div><h1>Titre</h1><span style="font-weight: bold">Gras</span></div>';
+        document.getElementById('richTextEditorContent').innerHTML = sent;
 
         document.getElementById('rgpd-modal-save').dispatchEvent(new Event('click'));
         await settle();
 
-        const cleaned = '<h2>Titre</h2><strong>Gras</strong>';
         // The page stores the text through EditableContentService, which
-        // sanitises: echoing the raw markup showed a heading that the next
-        // page load did not.
-        expect(bodyOf(0).content).toBe(cleaned);
-        expect(document.querySelector('.rich-text-field-preview').innerHTML).toBe(cleaned);
+        // sanitises: showing the raw markup instead left a heading on
+        // screen that the next page load did not have.
+        expect(bodyOf(0).content).toBe(sent);
+        expect(document.querySelector('.rich-text-field-preview').innerHTML).toBe(stored);
         expect(fetchedUrls()[0]).toBe('/config/rgpd/save');
     });
 

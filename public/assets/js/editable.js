@@ -50,13 +50,12 @@
     var currentKey = null;
     var currentElement = null;
 
-    // Toolbar commands and paste cleaning — both shared, both for issue
-    // #306. This script used to wire `[data-command]` itself, document-wide
-    // and without `data-value`, which cost the H2/H3/« Paragraphe » buttons
-    // their argument and double-wired every other button against
-    // rich-text-field.js on the pages that load both. See rich-text-link.js.
+    // Toolbar commands — shared, for issue #306. This script used to wire
+    // `[data-command]` itself, document-wide and without `data-value`,
+    // which cost the H2/H3/« Paragraphe » buttons their argument and
+    // double-wired every other button against rich-text-field.js on the
+    // pages that load both. See rich-text-link.js.
     window.ScoutMagicRichText.wireToolbar(modalEl, editorContent);
-    window.ScoutMagicRichText.wirePaste(editorContent);
 
     // Open editor on rich text edit click
     document.querySelectorAll('.editable-content .editable-edit-btn').forEach(function (btn) {
@@ -83,13 +82,7 @@
         // for the same reason.
         if (currentKey === null) return;
 
-        // Cleaned BEFORE it is sent, not only before it is shown: the
-        // server sanitises what it stores whatever we send, so sending the
-        // browser's own wrapper markup means storing something other than
-        // what the page then displays. Cleaning once, here, makes the saved
-        // value and the echoed one the same string — which is the « visible
-        // une fois sauvé, disparaît au rechargement » half of issue #306.
-        var html = window.ScoutMagicRichText.cleanHtml(editorContent.innerHTML);
+        var html = editorContent.innerHTML;
         var csrfMeta = /** @type {HTMLMetaElement | null} */ (document.querySelector('meta[name="csrf-token"]'));
         var csrf = csrfMeta ? csrfMeta.content : '';
 
@@ -102,7 +95,12 @@
         .then(function (json) {
             if (json.success) {
                 var overlay = currentElement.querySelector('.editable-overlay');
-                currentElement.innerHTML = html;
+                // What the SERVER stored, not what we sent it: the
+                // sanitiser prunes markup a browser leaves behind, and
+                // repainting with our own copy showed a heading that the
+                // next page load did not (issue #306). `html` only stands
+                // in for a save route that does not answer with its value.
+                currentElement.innerHTML = json.value === undefined ? html : json.value;
                 if (overlay) currentElement.prepend(overlay);
                 modal.hide();
             } else {

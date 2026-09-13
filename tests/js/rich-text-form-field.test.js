@@ -13,8 +13,8 @@
 // pinned here.
 //
 // rich-text-link.js is imported for its side effect, as base.html.twig
-// loads it on every page: since issue #306 the toolbar and the paste are
-// its job, and a stub would assert against the stub.
+// loads it on every page: since issue #306 the toolbar is its job, and a
+// stub would assert against the stub.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '../../public/assets/js/rich-text-link.js';
 import {
@@ -353,18 +353,8 @@ describe('rich-text-form-field.js: DOMContentLoaded wiring', () => {
     });
 });
 
-// Issue #306: the toolbar and the paste are the shared toolbox's now, and
-// this field has one thing the shared modal has not — chips.
-describe('rich-text-form-field.js: the shared toolbar and paste (issue #306)', () => {
-    /** A paste event carrying `html`. */
-    function pasteEvent(html) {
-        const event = new Event('paste', { bubbles: true, cancelable: true });
-        Object.defineProperty(event, 'clipboardData', {
-            value: { getData: (type) => (type === 'text/html' ? html : '') },
-        });
-        return event;
-    }
-
+// Issue #306: the toolbar is the shared toolbox's now.
+describe('rich-text-form-field.js: the shared toolbar (issue #306)', () => {
     it('gives formatBlock its heading through the shared wiring', () => {
         document.body.innerHTML = `
             <form>
@@ -380,30 +370,5 @@ describe('rich-text-form-field.js: the shared toolbar and paste (issue #306)', (
         document.querySelector('[data-command="formatBlock"]').dispatchEvent(new Event('click'));
 
         expect(document.execCommand).toHaveBeenCalledWith('formatBlock', false, '<h2>');
-    });
-
-    it('cleans a paste to what can be stored', () => {
-        buildField('Texte');
-
-        surface().dispatchEvent(pasteEvent('<div><h1>Titre</h1><p>Suite.</p></div>'));
-
-        expect(document.execCommand)
-            .toHaveBeenCalledWith('insertHTML', false, '<h2>Titre</h2><p>Suite.</p>');
-    });
-
-    it('makes a pasted chip a chip again rather than loose braces', () => {
-        buildField('Texte');
-        // Cleaning unwraps the chip's <span>, which would otherwise leave
-        // `{{ prix_total }}` as ordinary text the author can split in half.
-        // Only chipify() puts it back, and only for a known keyword.
-        surface().innerHTML = 'Total : {{ prix_total }} et {{ inconnu }}';
-
-        surface().dispatchEvent(pasteEvent('<p>x</p>'));
-
-        expect(surface().querySelectorAll('[data-keyword]')).toHaveLength(1);
-        expect(surface().querySelector('[data-keyword]').dataset.keyword).toBe('prix_total');
-        expect(surface().textContent).toContain('{{ inconnu }}');
-        // …and the hidden input is back in step with the surface.
-        expect(input().value).toContain('{{ prix_total }}');
     });
 });

@@ -4,14 +4,25 @@
  */
 
 // The shared rich-text toolbox — window.ScoutMagicRichText: inserting a
-// link, wiring a [data-command] toolbar, and cleaning what a paste brings
-// in.
+// link, and wiring a [data-command] toolbar.
 //
-// **The file is still named for the link**, which is now the smallest of
-// the three. Renaming it would touch `public/sw.js`'s precache list, the
-// base template, the type declarations and four comments, for no change in
-// behaviour; the global has always been `ScoutMagicRichText` rather than
-// `…Link`, so the module's identity was already the broader one.
+// **The file is still named for the link.** Renaming it would touch
+// `public/sw.js`'s precache list, the base template, the type declarations
+// and four comments, for no change in behaviour; the global has always
+// been `ScoutMagicRichText` rather than `…Link`, so the module's identity
+// was already the broader one.
+//
+// WHAT IS DELIBERATELY NOT HERE: a sanitiser. A first cut of the issue
+// #306 fix carried one — an allowlist mirroring
+// `Core\Security\HtmlSanitizer`, so the editor could show what the server
+// was going to keep instead of markup it was about to drop. It was the
+// wrong answer twice over. It was a second copy of a security-relevant
+// list, guessing at the real one. And it meant parsing untrusted markup
+// in the visitor's page to do it, which CodeQL flagged as an XSS sink and
+// was right to: the safety of the whole thing rested on a hand-rolled
+// sanitiser nothing could verify. The server already knows exactly what it
+// kept, so it now SAYS so — every save route returns the stored string and
+// the editors repaint with that. One list, no drift, nothing to parse.
 //
 // THE TOOLBAR IS HERE FOR THE REASON THE LINK IS. Three toolbars wired
 // `[data-command]` separately — editable.js, rich-text-field.js and
@@ -218,300 +229,9 @@
         });
     }
 
-    // ————— What a paste, or a browser, is allowed to leave behind —————
-
-    /**
-     * The tags `Core\Security\HtmlSanitizer` keeps, and nothing else.
-     *
-     * **This list exists twice on purpose, and the duplicate is checked.**
-     * The server is the authority — everything stored goes through the PHP
-     * sanitiser whatever happens here (SECURITY.md), and this copy adds no
-     * security of its own. What it adds is HONESTY: without it the editor
-     * shows, and then saves back into the page, markup the server is about
-     * to drop, so a heading looks applied until the next page load — the
-     * second half of issue #306. `Tests\Core\Security\
-     * RichTextAllowlistsAgreeTest` fails when the two lists drift.
-     *
-     * @type {Record<string, string[]>}
-     */
-    var ALLOWED = {
-        p: [], br: [], strong: [], b: [], em: [], i: [], u: [],
-        a: ['href', 'title', 'target', 'rel'],
-        ul: [], ol: [], li: [],
-        h2: [], h3: [], h4: [],
-        blockquote: [],
-        img: ['src', 'alt', 'width', 'height']
-    };
-
-    /**
-     * What a disallowed tag becomes instead of being dropped.
-     *
-     * Unwrapping is the server's answer, and it is the right one for a
-     * `<span class="Apple-style-span">`: keep the words, lose the wrapper.
-     * Applied to a paste it is too blunt — `<div>` is how every browser
-     * spells a line inside a contenteditable, and `<h1>` is how every word
-     * processor spells a title — so the whole of a pasted document arrives
-     * as one unbroken paragraph. These four keep the author's intent in a
-     * tag the server accepts.
-     *
-     * @type {Record<string, string>}
-     */
-    var REMAPPED = { div: 'p', h1: 'h2', h5: 'h4', h6: 'h4' };
-
-    /**
-     * Everything that already stands on its own line.
-     *
-     * A `<div>` only earns a `<p>` when it holds a line of its own: the
-     * `<div>` that wraps a whole pasted document holds paragraphs and
-     * headings, and `<p><h2>…</h2></p>` is not a tree any parser will give
-     * back — the browser breaks the `<p>` open and the shape the author
-     * pasted is lost. That one is unwrapped, as the server would.
-     */
-    var BLOCK_LEVEL = 'address,article,aside,blockquote,div,dl,figure,footer,h1,h2,h3,h4,h5,h6,'
-        + 'header,hr,li,main,nav,ol,p,pre,section,table,ul';
-
-    /**
-     * The tags `HtmlSanitizer` removes WITH their content, rather than
-     * unwrapping. Kept in step with the PHP by the same ratchet test: a
-     * `<textarea>`'s text is content to the DOM and nothing at all to the
-     * server, so unwrapping one here would show words the save then loses.
-     *
-     * @type {string[]}
-     */
-    var STRIPPED_WITH_CONTENT = ['script', 'style', 'iframe', 'object', 'embed', 'form', 'textarea', 'select'];
-
-    /**
-     * The inline styles worth a tag of their own.
-     *
-     * A browser asked to embolden a selection may answer `<b>`, or
-     * `<span style="font-weight: bold">`, depending on the browser and on
-     * `styleWithCSS`. The first survives the sanitiser and the second does
-     * not, which is why « ça marche parfois » was a fair description.
-     *
-     * @param {HTMLElement} element
-     * @returns {string|null} the tag to wrap this element's children in
-     */
-    function tagForInlineStyle(element) {
-        var style = element.style;
-        var weight = style.fontWeight;
-        if (weight === 'bold' || weight === 'bolder' || (/^\d+$/.test(weight) && Number(weight) >= 600)) {
-            return 'strong';
-        }
-        if (style.fontStyle === 'italic' || style.fontStyle === 'oblique') {
-            return 'em';
-        }
-        if (style.textDecorationLine === 'underline' || style.textDecoration.indexOf('underline') === 0) {
-            return 'u';
-        }
-        return null;
-    }
-
-    /**
-     * The server's `isSafeUrlValue()`, to the letter — including stripping
-     * tab/CR/LF first, because a browser ignores them inside a scheme and
-     * `java&#9;script:` would otherwise read as "no scheme at all".
-     *
-     * @param {string} value
-     * @returns {boolean}
-     */
-    function isSafeUrlValue(value) {
-        var normalized = String(value).replace(/[\t\r\n]+/g, '').trim().toLowerCase();
-        var scheme = /^([a-z][a-z0-9+.-]*):/.exec(normalized);
-
-        return scheme === null || ALLOWED_SCHEMES.has(scheme[1]);
-    }
-
-    /**
-     * @param {Element} element
-     * @param {string} tagName
-     * @returns {void}
-     */
-    function keepAllowedAttributes(element, tagName) {
-        var allowed = ALLOWED[tagName] || [];
-        Array.prototype.slice.call(element.attributes).forEach(function (attribute) {
-            var name = attribute.name.toLowerCase();
-            // `on…` first: the server removes every event handler whatever
-            // the tag, and none of them is in any allowlist anyway — saying
-            // so here keeps the two readable side by side.
-            if (name.indexOf('on') === 0 || allowed.indexOf(name) === -1) {
-                element.removeAttribute(attribute.name);
-                return;
-            }
-            if ((name === 'href' || name === 'src') && !isSafeUrlValue(attribute.value)) {
-                element.removeAttribute(attribute.name);
-            }
-        });
-
-        // An <img> that lost its src is an empty broken element; the server
-        // drops it rather than leave it behind, so neither do we.
-        if (tagName === 'img' && !element.hasAttribute('src')) {
-            element.parentNode?.removeChild(element);
-            return;
-        }
-
-        if (tagName === 'a' && element.getAttribute('target') === '_blank') {
-            element.setAttribute('rel', 'noopener noreferrer');
-        }
-    }
-
-    /**
-     * @param {Element} element the element to replace by $tagName
-     * @param {string} tagName
-     * @returns {Element} the replacement, already holding the children
-     */
-    function rename(element, tagName) {
-        var replacement = element.ownerDocument.createElement(tagName);
-        while (element.firstChild) {
-            replacement.appendChild(element.firstChild);
-        }
-        element.parentNode?.replaceChild(replacement, element);
-        return replacement;
-    }
-
-    /**
-     * Replaces an element by its own children, in place.
-     *
-     * @param {Element} element
-     * @returns {void}
-     */
-    function unwrap(element) {
-        var parent = element.parentNode;
-        while (element.firstChild) {
-            parent?.insertBefore(element.firstChild, element);
-        }
-        parent?.removeChild(element);
-    }
-
-    /**
-     * Cleans every descendant of $node, deepest first.
-     *
-     * Bottom-up on purpose: an element is judged once its own contents are
-     * already settled, so unwrapping it hands the parent children that need
-     * no second pass — and a `<div>` is asked whether it still holds a block
-     * after its children have been remapped, not before.
-     *
-     * @param {Node} node
-     * @returns {void}
-     */
-    function cleanNode(node) {
-        Array.prototype.slice.call(node.childNodes).forEach(function (child) {
-            if (child.nodeType === Node.TEXT_NODE) {
-                return;
-            }
-            if (child.nodeType !== Node.ELEMENT_NODE) {
-                // Comments and processing instructions, as the server does.
-                child.parentNode?.removeChild(child);
-                return;
-            }
-
-            var element = /** @type {HTMLElement} */ (child);
-            var tagName = element.tagName.toLowerCase();
-
-            // The same tags the server removes with their content, for the
-            // same reason. A paste is untrusted text like any other.
-            if (STRIPPED_WITH_CONTENT.indexOf(tagName) !== -1) {
-                element.parentNode?.removeChild(element);
-                return;
-            }
-
-            cleanNode(element);
-
-            var target = REMAPPED[tagName];
-            if (target !== undefined) {
-                if (target === 'p' && element.querySelector(BLOCK_LEVEL) !== null) {
-                    unwrap(element);
-                } else {
-                    keepAllowedAttributes(rename(element, target), target);
-                }
-                return;
-            }
-
-            if (!Object.prototype.hasOwnProperty.call(ALLOWED, tagName)) {
-                var carried = tagForInlineStyle(element);
-                if (carried !== null) {
-                    rename(element, carried);
-                } else {
-                    // Keep the words, lose the wrapper.
-                    unwrap(element);
-                }
-                return;
-            }
-
-            keepAllowedAttributes(element, tagName);
-        });
-    }
-
-    /**
-     * The parser the untrusted markup is read with.
-     *
-     * A document from `parseFromString` is INERT: it loads no resource and
-     * fires no event handler, so `<img src=x onerror=…>` is dead markup
-     * inside it. A detached `<div>` is NOT — assigning that same string to
-     * its `innerHTML` starts the image load, the load fails, and `onerror`
-     * runs, in a page holding the author's session. Being detached buys
-     * nothing; being inert is the whole of it. Same parser and same reason
-     * as `news-form-builder.js`'s own sanitiser.
-     */
-    var PARSER = new DOMParser();
-
-    /**
-     * The HTML as it will come back from the server, computed here.
-     *
-     * @param {string} html
-     * @returns {string}
-     */
-    function cleanHtml(html) {
-        var doc = PARSER.parseFromString(
-            '<!DOCTYPE html><html><body>' + String(html == null ? '' : html) + '</body></html>',
-            'text/html'
-        );
-        cleanNode(doc.body);
-
-        return doc.body.innerHTML;
-    }
-
-    /**
-     * Makes a paste bring in only what the site can store.
-     *
-     * Without this the editor accepts a whole word processor's markup,
-     * shows it, saves it, and the server keeps the words while dropping
-     * the formatting — so the text changes shape on the next page load
-     * rather than at the moment anybody could react to it.
-     *
-     * @param {HTMLElement} surface
-     * @param {(() => void)|null} [afterPaste]
-     * @returns {void}
-     */
-    function wirePaste(surface, afterPaste) {
-        if (surface.dataset.richTextPasteWired === 'yes') {
-            return;
-        }
-        surface.dataset.richTextPasteWired = 'yes';
-
-        surface.addEventListener('paste', function (event) {
-            var clipboard = /** @type {ClipboardEvent} */ (event).clipboardData;
-            if (!clipboard) {
-                return;
-            }
-
-            var html = clipboard.getData('text/html');
-            event.preventDefault();
-
-            if (html !== '') {
-                document.execCommand('insertHTML', false, cleanHtml(html));
-            } else {
-                document.execCommand('insertText', false, clipboard.getData('text/plain'));
-            }
-
-            if (afterPaste) afterPaste();
-        });
-    }
-
     window.ScoutMagicRichText = {
         insertLink: insertLink,
         normalizeUrl: normalizeUrl,
-        wireToolbar: wireToolbar,
-        wirePaste: wirePaste,
-        cleanHtml: cleanHtml
+        wireToolbar: wireToolbar
     };
 })();

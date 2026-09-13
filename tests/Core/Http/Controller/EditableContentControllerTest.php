@@ -147,6 +147,49 @@ class EditableContentControllerTest extends TestCase
     }
 
     /**
+     * Both writing routes answer with the STORED string, not the sent one.
+     * `public/assets/js/editable.js` and `rich-text-field.js` repaint the
+     * page with it; repainting with their own copy is what left a heading
+     * on screen that the next page load did not have (issue #306).
+     */
+    public function testUpdateAnswersWithTheStoredValue(): void
+    {
+        ConfigurationMode::activate('superadmin');
+        $token = $this->csrfToken();
+
+        $response = $this->controller->update(
+            $this->jsonRequest([
+                'key' => 'home.intro',
+                'value' => '<h2>Titre</h2><span class="x">Texte</span>',
+                '_csrf_token' => $token,
+            ]),
+            []
+        );
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $this->assertSame('<h2>Titre</h2>Texte', $decoded['value']);
+    }
+
+    public function testUpdateFieldAnswersWithTheStoredValue(): void
+    {
+        $token = $this->csrfToken();
+
+        $response = $this->controller->updateField(
+            $this->jsonRequest([
+                'key' => 'rental.contract',
+                'value' => '<p>Contrat <font color="red">signé</font></p>',
+                '_csrf_token' => $token,
+            ]),
+            []
+        );
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $this->assertSame('<p>Contrat signé</p>', $decoded['value']);
+    }
+
+    /**
      * A chief d'unité (admin, not superadmin) saves in-place edited content.
      * ConfigurationMode has been admin-or-higher since the toggle left the
      * Configuration menu, but this route stayed superadmin, so the save this

@@ -269,17 +269,6 @@ export function wireField(root) {
     // otherwise never reach the hidden field.
     window.ScoutMagicRichText.wireToolbar(root, surface, sync);
 
-    // A paste is cleaned to what the site can store, which unwraps a chip
-    // copied from elsewhere in this field back into its `{{ keyword }}`
-    // text. chipify() then makes it a chip again — the same round trip
-    // toStoredHtml() already performs on save, so a pasted placeholder and
-    // a typed one end up identical rather than one of them staying loose
-    // text that the author can split in half.
-    window.ScoutMagicRichText.wirePaste(surface, function () {
-        chipify(surface, known);
-        sync();
-    });
-
     root.querySelectorAll('[data-insert-keyword]').forEach(function (button) {
         button.addEventListener('click', function () {
             insertKeyword(surface, /** @type {HTMLElement} */ (button).dataset.insertKeyword || '');

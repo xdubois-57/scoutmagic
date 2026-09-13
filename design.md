@@ -730,27 +730,33 @@ that loses focus loses its range), a bare host becomes `https://…` rather
 than a relative link that 404s, and a `javascript:` URL is refused with a
 reason rather than silently stripped later by the server-side sanitiser.
 
-**The toolbar and the paste are the same module's, for the same reason**
-(`wireToolbar()`, `wirePaste()`, `cleanHtml()`). A toolbar is wired by
-calling `wireToolbar(root, surface)` — never by a script's own
-`[data-command]` loop. Three of them existed, and each of the three
-things they disagreed about was a bug a visitor could see (issue #306):
-one passed no `formatBlock` argument, so its H2/H3/« Paragraphe » buttons
-did nothing at all; two selected the same buttons of the same shared
-modal, so in configuration mode every toggle was applied and undone in
-one click; and all three echoed the editor's raw HTML back into the page
-while the server kept only its own allowlist of it, so a heading stayed
-visible until the next page load. `wireToolbar()` is idempotent per
-button, which is what makes the second of those impossible to
-reintroduce.
+**The toolbar is the same module's, for the same reason**
+(`wireToolbar()`). A toolbar is wired by calling
+`wireToolbar(root, surface)` — never by a script's own `[data-command]`
+loop. Three of them existed, and what they disagreed about was a bug a
+visitor could see (issue #306): one passed no `formatBlock` argument, so
+its H2/H3/« Paragraphe » buttons did nothing at all; and two selected the
+same buttons of the same shared modal, so in configuration mode every
+toggle was applied and undone in one click. `wireToolbar()` is idempotent
+per button, which is what makes the second impossible to reintroduce.
 
-`cleanHtml()` answers « what will the server keep of this? » without
-asking it, and everything that saves rich text runs its value through it
-first — the save and the on-screen echo are then the same string. It adds
-**no security**: `Core\Security\HtmlSanitizer` is the authority and runs
-on everything stored (SECURITY.md). Its copy of that allowlist is checked
-against the PHP one by `Tests\Core\Security\RichTextAllowlistsAgreeTest`,
-which fails when the two drift.
+**A save route answers with the string it stored.** The third half of that
+issue was the editors repainting the page with their own copy of what they
+had just sent, while `Core\Security\HtmlSanitizer` had already pruned it
+on the way in: a heading stayed on screen until the next page load, then
+vanished. So `/api/editable-content`, `/api/rich-text-content`,
+`/config/rgpd/save` and `/config/emails/{id}/corps` each return what they
+kept, and the editors paint that.
+
+**There is deliberately no sanitiser in the browser.** A first cut of that
+fix put one there — an allowlist mirroring the PHP one, so the editor
+could show what the server was going to keep. It was wrong twice over: a
+second copy of a security-relevant list, guessing at the real one; and it
+meant parsing untrusted markup in the visitor's own page, which CodeQL
+flagged as an XSS sink and was right to, since the safety of the whole
+thing rested on a hand-rolled sanitiser nothing could verify. Asking the
+server what it kept costs one field in a response that was already being
+made.
 
 **Images inside rich text are bounded once, by `.rich-text`.** Everything
 written through a rich-text editor is stored as HTML and printed with

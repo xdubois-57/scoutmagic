@@ -9,9 +9,9 @@
 // imports afterwards — the tests/js/finance-receipts.test.js pattern.
 //
 // rich-text-link.js is imported alongside, as base.html.twig loads it on
-// every page: since issue #306 the toolbar and the paste cleaning are its
-// job, and stubbing window.ScoutMagicRichText here would assert against a
-// stub rather than against the wiring the visitor gets.
+// every page: since issue #306 the toolbar is its job, and stubbing
+// window.ScoutMagicRichText here would assert against a stub rather than
+// against the wiring the visitor gets.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const modalStub = { show: vi.fn(), hide: vi.fn() };
@@ -260,20 +260,35 @@ describe('editable.js: the toolbar (issue #306)', () => {
         expect(document.execCommand).toHaveBeenCalledTimes(1);
     });
 
-    it('saves and echoes the same HTML the server will keep', async () => {
+    it('repaints the block with what the SERVER stored, not with what it sent', async () => {
+        // The sanitiser prunes the wrapper markup a browser leaves behind
+        // when a heading is applied, so the two differ — and repainting
+        // with the sent copy is what made a heading survive the save and
+        // then vanish on the next page load (issue #306).
+        global.fetch = vi.fn(() => jsonResponse({ success: true, value: '<h2>Titre</h2>Texte.' }));
         await boot();
 
         document.querySelector('.editable-content .editable-edit-btn').dispatchEvent(new Event('click'));
-        // What Safari leaves behind when a heading is applied inside a
-        // contenteditable: the words survive the server, the wrapper does
-        // not — so an uncleaned echo showed a heading that the next page
-        // load did not.
         document.getElementById('richTextEditorContent').innerHTML =
-            '<div><h1 style="font-weight: bold">Titre</h1><span class="x">Texte.</span></div>';
+            '<div><h1>Titre</h1><span class="x">Texte.</span></div>';
         document.getElementById('richTextEditorSave').dispatchEvent(new Event('click'));
         await settle();
 
-        expect(postedBody().value).toBe('<h2>Titre</h2>Texte.');
+        expect(postedBody().value).toBe('<div><h1>Titre</h1><span class="x">Texte.</span></div>');
         expect(block().innerHTML).toContain('<h2>Titre</h2>');
+        expect(block().innerHTML).not.toContain('<h1>');
+    });
+
+    it('falls back to what it sent when a save route answers without a value', async () => {
+        // rich-text-field.js posts to a caller-supplied URL; a module that
+        // grows one later must not blank the block for want of the field.
+        await boot();
+
+        document.querySelector('.editable-content .editable-edit-btn').dispatchEvent(new Event('click'));
+        document.getElementById('richTextEditorContent').innerHTML = '<p>Texte modifié.</p>';
+        document.getElementById('richTextEditorSave').dispatchEvent(new Event('click'));
+        await settle();
+
+        expect(block().innerHTML).toContain('<p>Texte modifié.</p>');
     });
 });

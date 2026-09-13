@@ -114,7 +114,7 @@ class RgpdConfigController extends AbstractController
         $this->settingService->setInternal('rgpd_custom_prompt', $prompt);
 
         // Save content
-        $this->editableContentService->set('rgpd.text', $content, 'rich_text', $userId);
+        $stored = $this->editableContentService->set('rgpd.text', $content, 'rich_text', $userId);
 
         $this->journalService->log(
             'core',
@@ -125,7 +125,10 @@ class RgpdConfigController extends AbstractController
             $userId
         );
 
-        return $this->json(['success' => true]);
+        // `content` is what was STORED, which the sanitizer may have
+        // pruned; the page repaints its preview with it. See
+        // Core\View\EditableContentService::set() and issue #306.
+        return $this->json(['success' => true, 'content' => $stored]);
     }
 
     /**

@@ -10,9 +10,10 @@
 //     at all. Vitest can assert that the toolbar CALLS it with `<h2>`; only
 //     a browser can say whether an `<h2>` appears.
 //   - The heading that DID survive the click was then dropped by the
-//     server's sanitiser on the way in, so it stayed visible until the page
-//     was reloaded. Nothing that stops at the save request can see that:
-//     the assertion has to be made after a round trip.
+//     server's sanitiser on the way in, while the editor repainted the page
+//     with its own copy of what it had sent — so it stayed visible until
+//     the page was reloaded. Nothing that stops at the save request can see
+//     that: the assertion has to be made after a round trip.
 //
 // So this scenario does what the reporter did: turn configuration mode on,
 // edit a block, apply a heading, save, reload, look.
@@ -135,7 +136,8 @@ test('a heading applied in the shared editor is still a heading after the page i
         expect(await applyAndSave(page, 'H2')).toMatchObject({ success: true });
 
         // Before the reload, because the two are the same claim only when
-        // the client sends what the server keeps.
+        // the block is repainted with what the server stored rather than
+        // with the editor's own copy of what it sent.
         await expect(page.locator('.editable-content[data-key="contact.text"] h2')).toBeVisible();
 
         await page.reload({ waitUntil: 'load' });

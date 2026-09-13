@@ -16,9 +16,9 @@
 // cheaper than.
 //
 // rich-text-link.js is imported alongside, as base.html.twig loads it on
-// every page: since issue #306 the toolbar and the paste cleaning are its
-// job, and stubbing window.ScoutMagicRichText here would assert against a
-// stub rather than against the wiring the visitor gets.
+// every page: since issue #306 the toolbar is its job, and stubbing
+// window.ScoutMagicRichText here would assert against a stub rather than
+// against the wiring the visitor gets.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const modalStub = { show: vi.fn(), hide: vi.fn() };
@@ -255,7 +255,9 @@ describe('rich-text-field.js: the toolbar (issue #306)', () => {
         expect(document.execCommand).toHaveBeenCalledWith('formatBlock', false, '<h3>');
     });
 
-    it('saves and echoes the same HTML the server will keep', async () => {
+    it('repaints the preview with what the SERVER stored, not with what it sent', async () => {
+        // <font> is not on the server's list; <b> is. See editable.test.js.
+        global.fetch = vi.fn(() => jsonResponse({ success: true, value: '<p>Contrat <b>signé</b>.</p>' }));
         await boot();
 
         editButton(0).dispatchEvent(new Event('click'));
@@ -264,8 +266,18 @@ describe('rich-text-field.js: the toolbar (issue #306)', () => {
         save();
         await settle();
 
-        // <font> is not on the server's list; <b> is.
-        expect(postedBody().value).toBe('<p>Contrat <b>signé</b>.</p>');
+        expect(postedBody().value).toBe('<p><font color="red">Contrat</font> <b>signé</b>.</p>');
         expect(preview('rental.contract').innerHTML).toBe('<p>Contrat <b>signé</b>.</p>');
+    });
+
+    it('falls back to what it sent when a save route answers without a value', async () => {
+        await boot();
+
+        editButton(0).dispatchEvent(new Event('click'));
+        document.getElementById('richTextEditorContent').innerHTML = '<p>Nouveau contrat.</p>';
+        save();
+        await settle();
+
+        expect(preview('rental.contract').innerHTML).toBe('<p>Nouveau contrat.</p>');
     });
 });
