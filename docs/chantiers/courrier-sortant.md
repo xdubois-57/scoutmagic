@@ -230,6 +230,18 @@ aucun n'était un détail.
    se fait désormais sur le préfixe de secret (`findBySecretPrefix()`), et
    un test rejoue précisément la tentative interrompue.
 
+**Une fabrique partagée pour la chaîne** (`MailTransportFactory`), née
+d'un constat de couverture mais justifiée ailleurs : je construisais la
+chaîne à la main dans les *deux* racines de composition, ce qui est
+exactement la dérive que §8.17 raconte deux fois (`create_backup`
+enregistré dans `index.php` et absent de `cron.php` ; `NotificationService`
+construit avec la résolution de rôle d'un côté et sans de l'autre). Une
+chaîne construite différemment sur les deux chemins donnerait un
+publipostage qui respecte les quotas sous un déclencheur et les ignore
+sous l'autre. La fabrique supprime le risque et, accessoirement, déplace
+une quarantaine de lignes de `public/cron.php` — que rien ne peut couvrir,
+ni PHPUnit ni le bout-en-bout — vers une classe qui a ses tests.
+
 **Couverture.** Le portail qualité de SonarCloud a refusé le premier
 passage à **77,5 % de couverture sur le code neuf** (seuil : 80 %). Trois
 trous, tous réels et tous comblés plutôt que contournés :

@@ -257,17 +257,10 @@ $installationProfile = \Core\Module\InstallationProfile::resolve(
 // nobody has opened a page on yet would be writing a configuration nobody
 // chose. A chain that cannot be read hands the message back to the
 // transport, which is exactly the degradation intended.
-$providerConnections = new \Core\Mail\Transport\ProviderConnections($secrets);
-$mailProviderDirectory = new \Core\Mail\Transport\MailProviderDirectory(
-    new \Core\Mail\Transport\MailProviderRepository($pdo),
-    $providerConnections,
-    $settingService
-);
-$mailTransportChain = new \Core\Mail\Transport\MailTransportChain(
-    $mailProviderDirectory,
-    new \Core\Mail\Transport\LaneChainRepository($pdo),
-    new \Core\Mail\Transport\SendCounterRepository($pdo),
-    new \Core\Mail\Transport\TransportConfigurator($providerConnections),
+$mailTransport = \Core\Mail\Transport\MailTransportFactory::build(
+    $pdo,
+    $secrets,
+    $settingService,
     \Modules\TestTools\Mail\CaptureTransportFactory::forInstallation(
         $installationProfile,
         new ModuleRegistryRepository($pdo),
@@ -275,14 +268,15 @@ $mailTransportChain = new \Core\Mail\Transport\MailTransportChain(
         $pdo,
         $encryptionService,
         dirname(__DIR__) . '/storage'
-    ) ?? new \Core\Mail\PhpMailerTransport(),
+    ),
     $journalService
 );
+$mailProviderDirectory = $mailTransport['directory'];
 
 $mailService = MailServiceFactory::create(
     $secrets,
     $dkimManager,
-    $mailTransportChain,
+    $mailTransport['chain'],
     $journalService
 );
 

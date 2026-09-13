@@ -1986,28 +1986,33 @@ $mailCaptureTransport = \Modules\TestTools\Mail\CaptureTransportFactory::forInst
 // it to the transport MailService would otherwise have used — the mail
 // sandbox included, so a captured message is still routed and counted
 // exactly as a real one.
-$providerConnections = new \Core\Mail\Transport\ProviderConnections($secrets, $secretManager);
 $mailProviderRepository = new \Core\Mail\Transport\MailProviderRepository($pdo);
 $laneChainRepository = new \Core\Mail\Transport\LaneChainRepository($pdo);
 $sendCounterRepository = new \Core\Mail\Transport\SendCounterRepository($pdo);
-$mailProviderDirectory = new \Core\Mail\Transport\MailProviderDirectory(
-    $mailProviderRepository,
-    $providerConnections,
-    $settingService
-);
 // The chains an installation starts with: the relay the setup wizard
 // already configured, plus the local send in all three lanes. Idempotent,
-// and one settings read on every boot after the first.
+// and one settings read on every boot after the first. Run from HERE and
+// not from cron.php: a cron pass laying chains down on an installation
+// nobody has opened a page on yet would be writing a configuration nobody
+// chose.
 (new \Core\Mail\Transport\TransportSeeder($mailProviderRepository, $laneChainRepository, $settingService))
     ->seed($secrets);
-$mailTransportChain = new \Core\Mail\Transport\MailTransportChain(
-    $mailProviderDirectory,
-    $laneChainRepository,
-    $sendCounterRepository,
-    new \Core\Mail\Transport\TransportConfigurator($providerConnections),
-    $mailCaptureTransport ?? new \Core\Mail\PhpMailerTransport(),
-    $journalService
+// Built by the shared factory both entry points call, never by hand here:
+// two composition roots wiring the same graph is what left `create_backup`
+// registered on one side only (§8.17), and a chain built differently on
+// the two paths would mean a mailing obeying quotas under one trigger and
+// ignoring them under the other.
+$mailTransport = \Core\Mail\Transport\MailTransportFactory::build(
+    $pdo,
+    $secrets,
+    $settingService,
+    $mailCaptureTransport,
+    $journalService,
+    $secretManager
 );
+$mailTransportChain = $mailTransport['chain'];
+$mailProviderDirectory = $mailTransport['directory'];
+$providerConnections = $mailTransport['connections'];
 
 $mailService = MailServiceFactory::create($secrets, $dkimManager, $mailTransportChain, $journalService);
 

@@ -3859,6 +3859,20 @@ IT-02 is the highest daily **non-bulk** total of the last thirty days
 PurgeSendCountersHandler` keeps ninety days — three times the window the
 reserve reads, so « d'où sort ce nombre » stays answerable.
 
+**One factory builds the chain, for both entry points**
+(`MailTransportFactory`), and that is not tidiness. Two composition roots
+wiring the same graph by hand is how this project broke production twice
+— `create_backup` registered in `index.php` and missing from `cron.php`,
+then `NotificationService` built with role resolution on one side and
+without it on the other (§8.17). The chain has exactly that shape:
+`index.php` needs it for a visitor's mail, `cron.php` for the half of
+this site's mail that leaves from a scheduled task, the publipostage
+included. Built differently on the two paths, a mailing would obey quotas
+under one trigger and ignore them under the other — a divergence nobody
+notices until a relay is spent. The one thing the roots legitimately
+differ on is passed in: the delivery transport underneath, which is the
+sandbox's on an installation whose capture is armed.
+
 **Seeding is what makes this land on a site that has been sending for a
 year** (`TransportSeeder`): the relay the wizard already configured
 becomes provider #1 under the `smtp` prefix, and the local send is placed
