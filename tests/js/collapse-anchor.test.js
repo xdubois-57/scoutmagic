@@ -30,7 +30,12 @@ const MARKUP = `
             <h2><button type="button" id="health-trigger"
                     data-bs-toggle="collapse" data-bs-target="#maintenance-health-body"
                     aria-expanded="true">État</button></h2>
-            <div class="collapse show" id="maintenance-health-body"><p>Tâche cron réelle</p></div>
+            <div class="collapse show" id="maintenance-health-body">
+                <p>Tâche cron réelle</p>
+                <button type="button" id="health-more-trigger" class="collapsed"
+                        data-bs-toggle="collapse" data-bs-target="#health-more">Afficher les précédentes</button>
+                <div class="collapse" id="health-more"><p id="deep-in-open">Au fond d'une boîte ouverte</p></div>
+            </div>
         </div>
     </div>`;
 
@@ -95,6 +100,28 @@ describe('collapse-anchor.js', () => {
         const { clicked } = await load('#maintenance-health');
 
         expect(clicked).toEqual([]);
+    });
+
+    it('leaves no listener on a section it did not have to open', async () => {
+        // The shape « Mise à jour » has on the real page: it ships open
+        // and holds a nested « Afficher les précédentes ».
+        const { clicked } = await load('#deep-in-open');
+
+        // Only the inner panel needed opening.
+        expect(clicked).toEqual(['health-more-trigger']);
+
+        // Bootstrap fires `shown.bs.collapse` on a panel it opens, and
+        // nothing on one that was already showing — so a `{ once: true }`
+        // listener registered on the outer section would never be
+        // consumed. It would get its event the next time the reader
+        // folded and unfolded that section BY HAND, jumping the page back
+        // to a fragment they left long ago.
+        shown('maintenance-health-body');
+        expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
+
+        // The panel that did open still scrolls, as it must.
+        shown('health-more');
+        expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
     });
 
     it('scrolls to the target once the panel has finished opening', async () => {

@@ -149,6 +149,14 @@ test('maintenance backups run to completion, the auto-save saves, and the danger
     await page.waitForLoadState('load');
     await openCard(page, 'maintenance-backups-list');
     await expect(backupsList.getByText('Configuration seule', { exact: true }).first()).toBeVisible();
+
+    // `#full-backup-error` lives in « Sauvegarde manuelle », which the
+    // reload folded back — and `toBeHidden()` is satisfied by ANY hidden
+    // ancestor, so asserting it against a folded card passes whatever the
+    // element says. The card is reopened first so the assertion is about
+    // the error's own `d-none` again, which is what it was written to
+    // check.
+    await openCard(page, 'maintenance-backups');
     await expect(page.locator('#full-backup-error')).toBeHidden();
 
     // ---------------------------------------------------------------

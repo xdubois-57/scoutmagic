@@ -70,19 +70,26 @@
 
     /**
      * @param {Element} section
-     * @returns {void}
+     * @returns {boolean} whether THIS call opened it — a section that was
+     *          already showing, or whose trigger is missing, answers
+     *          false, and the caller must not wait on an event it will
+     *          therefore never get.
      */
     function open(section) {
         if (section.classList.contains('show')) {
-            return;
+            return false;
         }
 
         var trigger = document.querySelector(
             '[data-bs-toggle="collapse"][data-bs-target="#' + section.id + '"]'
         );
-        if (trigger instanceof HTMLElement) {
-            trigger.click();
+        if (!(trigger instanceof HTMLElement)) {
+            return false;
         }
+
+        trigger.click();
+
+        return true;
     }
 
     /**
@@ -121,7 +128,18 @@
             return false;
         }
 
-        sections.forEach(open);
+        // Only the panels this pass actually opened, and that is the
+        // whole point of `open()` reporting back. Bootstrap fires
+        // `shown.bs.collapse` on a panel it opens; on one that was
+        // already showing it fires nothing, so a `{ once: true }`
+        // listener put there is never consumed and simply waits. It gets
+        // its event the next time the reader folds and unfolds that
+        // section BY HAND — and the page jumps to a fragment they left
+        // long ago. This page makes that reachable: « Mise à jour »
+        // ships open and holds a nested « Afficher les précédentes »,
+        // so a fragment aimed at the nested one used to leave a listener
+        // armed on the outer one for the rest of the visit.
+        var opening = sections.filter(open);
 
         // After the last panel finishes opening, not before: the anchor
         // has no height while the animation runs, so scrolling now would
@@ -129,7 +147,11 @@
         // enough when sections are nested, so every one of them is
         // listened to and the last to finish wins — scrolling twice to
         // the same place costs nothing.
-        sections.forEach(function (section) {
+        //
+        // Nothing to open means nothing to wait for: the anchor was
+        // already on screen, and the browser's own fragment handling has
+        // scrolled to it.
+        opening.forEach(function (section) {
             section.addEventListener('shown.bs.collapse', function () {
                 anchor.scrollIntoView();
             }, { once: true });
