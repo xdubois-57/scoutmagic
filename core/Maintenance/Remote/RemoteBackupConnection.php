@@ -49,6 +49,15 @@ final class RemoteBackupConnection
      * that neither name is ever registered as a setting — a rule that only
      * holds if both halves read the same list.
      *
+     * **The phrase that encrypts the off-site archives is on this list
+     * and is nonetheless shown on screen**, which is not a contradiction:
+     * what this list governs is the `settings` table, not the operator's
+     * eyes. {@see RemotePassphrase} explains why it is revealable — it
+     * has to be legible to somebody standing in front of a server that no
+     * longer exists — and it is exactly that value which must never sit
+     * in a row rendered on Configuration > Réglages and exported in a
+     * diagnostic archive.
+     *
      * **The account address is one of them, and that is not obvious.**
      * It is not a credential — but it is the e-mail address of a real
      * person, and a `settings` row renders in clear on Configuration >
@@ -63,6 +72,7 @@ final class RemoteBackupConnection
         'remote_backup_client_secret',
         'remote_backup_refresh_token',
         'remote_backup_account',
+        RemotePassphrase::SECRET_KEY,
     ];
 
     public const PROVIDER_NONE = 'none';
