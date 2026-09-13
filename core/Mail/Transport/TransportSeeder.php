@@ -82,8 +82,20 @@ final class TransportSeeder
         $legacyHost = trim((string) ($secrets[ProviderConnections::LEGACY_PREFIX . '_host'] ?? ''));
         $relayId = null;
 
-        if ($legacyHost !== '' && $this->providers->countAll() === 0) {
-            $relayId = $this->providers->create(
+        if ($legacyHost !== '') {
+            // **Resumed by prefix, never by a count of providers**, and
+            // the difference is a permanent gap rather than a retry.
+            // Laying the chains down is several writes: the row, then one
+            // entry per lane. A transient failure between them leaves the
+            // row committed and the seed unmarked, so the next boot tries
+            // again — and a `countAll() === 0` guard would then conclude
+            // there is nothing to create, leave `$relayId` null, and skip
+            // the lanes the first attempt never reached. The relay would
+            // be missing from them for the life of the installation, with
+            // no screen able to put it back and mail still flowing, so
+            // nothing would ever say so.
+            $existing = $this->providers->findBySecretPrefix(ProviderConnections::LEGACY_PREFIX);
+            $relayId = $existing['id'] ?? $this->providers->create(
                 $this->nameFor($legacyHost),
                 null,
                 self::DEFAULT_RELAY_BATCH_SIZE,

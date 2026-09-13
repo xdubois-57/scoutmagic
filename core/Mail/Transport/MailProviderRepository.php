@@ -54,6 +54,31 @@ final class MailProviderRepository
         return is_array($row) ? $this->hydrate($row) : null;
     }
 
+    /**
+     * The provider stored under one `secret_prefix`, if any.
+     *
+     * `TransportSeeder` resumes on this rather than on « are there any
+     * providers at all »: a seed that created the legacy relay's row and
+     * then failed before placing it in all three lanes would otherwise be
+     * unresumable — the row exists, so a count-based guard concludes
+     * there is nothing to create, and the lanes it never reached stay
+     * empty for the life of the installation.
+     *
+     * @return array{id: int, name: string, secret_prefix: string, daily_quota: int|null,
+     *     batch_size: int, batch_interval_minutes: int}|null
+     */
+    public function findBySecretPrefix(string $secretPrefix): ?array
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT id, name, secret_prefix, daily_quota, batch_size, batch_interval_minutes
+             FROM mail_providers WHERE secret_prefix = ?'
+        );
+        $statement->execute([$secretPrefix]);
+        $row = $statement->fetch(PDO::FETCH_ASSOC);
+
+        return is_array($row) ? $this->hydrate($row) : null;
+    }
+
     public function countAll(): int
     {
         $statement = $this->pdo->query('SELECT COUNT(*) FROM mail_providers');

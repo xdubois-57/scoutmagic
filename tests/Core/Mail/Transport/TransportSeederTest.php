@@ -100,6 +100,44 @@ class TransportSeederTest extends TestCase
     }
 
     /**
+     * A seed that died between creating the relay's row and placing it in
+     * every lane must finish the job on the next boot.
+     *
+     * Laying the chains down is several writes. A guard reading « are
+     * there any providers at all » would conclude, on the retry, that
+     * there is nothing to create — and the lanes the first attempt never
+     * reached would stay empty for the life of the installation, silently,
+     * because mail keeps flowing through the local entry. Resuming on the
+     * secret prefix is what closes that.
+     */
+    public function testASeedInterruptedPartWayFinishesOnTheNextBoot(): void
+    {
+        $secrets = ['smtp_host' => 'smtp-relay.brevo.test'];
+
+        // What a half-finished first attempt leaves behind: the row, and
+        // the relay in one lane out of three.
+        $relayId = $this->providers->create(
+            'Brevo',
+            null,
+            TransportSeeder::DEFAULT_RELAY_BATCH_SIZE,
+            TransportSeeder::DEFAULT_RELAY_BATCH_INTERVAL,
+            ProviderConnections::LEGACY_PREFIX
+        );
+        $this->chains->append(MailLane::Authentication, $relayId, true);
+
+        $this->seed($secrets);
+
+        $this->assertCount(1, $this->providers->findAll(), 'No second row for the same relay.');
+        foreach (MailLane::ordered() as $lane) {
+            $this->assertTrue(
+                $this->chains->exists($lane, $relayId),
+                "The relay must have reached the {$lane->value} lane on the retry."
+            );
+            $this->assertTrue($this->chains->exists($lane, MailProvider::LOCAL_ID));
+        }
+    }
+
+    /**
      * D14: the old `mass_mail` numbers are deliberately not carried over.
      */
     public function testItDoesNotCarryTheOldMassMailCadenceOver(): void

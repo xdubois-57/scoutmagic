@@ -297,7 +297,12 @@ class OutboundMailController extends AbstractController
      */
     public function reorder(Request $request, array $params): Response
     {
-        if (($guard = $this->guardCsrfJson($request)) !== null) {
+        $payload = $this->jsonPayload($request);
+        if ($payload === null) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+
+        if (($guard = $this->guardCsrfJson($request, (string) ($payload['_csrf_token'] ?? ''))) !== null) {
             return $guard;
         }
 
@@ -306,14 +311,17 @@ class OutboundMailController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Voie inconnue.'], 404);
         }
 
-        $ids = $request->getBody('ids', []);
+        $ids = $payload['ids'] ?? null;
         if (!is_array($ids)) {
             return $this->json(['success' => false, 'error' => 'Ordre invalide.'], 400);
         }
 
         $this->transport->reorderLane(
             $lane,
-            array_map(static fn($id): int => (int) $id, array_values($ids)),
+            array_map(
+                static fn(mixed $id): int => is_scalar($id) ? (int) $id : -1,
+                array_values($ids)
+            ),
             AuthSession::getUserAccountId()
         );
 
@@ -327,7 +335,12 @@ class OutboundMailController extends AbstractController
      */
     public function toggle(Request $request, array $params): Response
     {
-        if (($guard = $this->guardCsrfJson($request)) !== null) {
+        $payload = $this->jsonPayload($request);
+        if ($payload === null) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+
+        if (($guard = $this->guardCsrfJson($request, (string) ($payload['_csrf_token'] ?? ''))) !== null) {
             return $guard;
         }
 
@@ -339,8 +352,8 @@ class OutboundMailController extends AbstractController
         try {
             $this->transport->setEntryEnabled(
                 $lane,
-                (int) $request->getBody('id', -1),
-                (bool) $request->getBody('active', false),
+                (int) ($payload['id'] ?? -1),
+                (bool) ($payload['active'] ?? false),
                 AuthSession::getUserAccountId()
             );
         } catch (TransportException $e) {
@@ -348,6 +361,34 @@ class OutboundMailController extends AbstractController
         }
 
         return $this->json(['success' => true]);
+    }
+
+    /**
+     * The body of a request this screen's JavaScript sent, decoded.
+     *
+     * **`Request::getBody()` cannot be used here, and the reason is not
+     * obvious from the call site.** `public/assets/js/list-editor.js`
+     * posts through `ScoutMagicApi.postJson()`, which sends
+     * `Content-Type: application/json` — and PHP never populates `$_POST`
+     * for a JSON body, so `Request::fromGlobals()` builds its `body` from
+     * an empty array. Read that way, every field silently comes back as
+     * its default: a reorder would apply an empty order and answer
+     * `success`, and a toggle would look up entry `-1` and refuse every
+     * provider anybody tried to enable.
+     *
+     * So the raw body is decoded explicitly, the way every other
+     * list-editor endpoint in this codebase already does
+     * (`ConfigModulesController`, `SectionDocumentController`). Null means
+     * « this is not a JSON object », which is a 400 rather than a set of
+     * defaults quietly standing in for what the caller meant.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function jsonPayload(Request $request): ?array
+    {
+        $decoded = json_decode($request->getRawBody(), true);
+
+        return is_array($decoded) ? $decoded : null;
     }
 
     /**

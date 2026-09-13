@@ -191,6 +191,45 @@ administrateur en saisisse un ; et pour le publipostage,
 `POST /mass-mail/recipients/{id}/resend` existe déjà pour rattraper les
 destinataires marqués en échec. IT-02 referme la fenêtre.
 
+**Trois trouvailles de relecture, toutes réelles, toutes corrigées.** Le
+relecteur automatique s'était arrêté à mi-course deux fois (voir plus bas),
+mais il a tout de même posé trois commentaires avant de s'arrêter, et
+aucun n'était un détail.
+
+1. **Le bloc de commentaire ajouté à `public/cron.php` était en
+   français.** `AGENTS.md` § Language est explicite : le code et ses
+   commentaires sont en anglais, seul ce qui est écrit *à propos* d'un
+   changement est en français. Je l'avais calqué sur le bloc voisin, qui
+   est en français et antérieur à cette PR — celui-là reste tel quel,
+   le corriger élargirait le changement.
+
+2. **`reorder()` et `toggle()` lisaient `$request->getBody()`, alors que
+   l'écran envoie du JSON.** C'était une panne de fonctionnalité, pas une
+   imprécision : `ScoutMagicApi.postJson()` envoie
+   `Content-Type: application/json`, PHP ne remplit jamais `$_POST` pour
+   un corps JSON, donc `Request::fromGlobals()` construit un `body` vide.
+   Conséquences exactes : un réordonnancement appliquait une liste vide,
+   journalisait un ordre vide en `security` et répondait `success` ; et
+   une activation cherchait l'entrée `-1`, donc **aucun fournisseur
+   nouvellement ajouté ne pouvait jamais être activé dans une voie depuis
+   l'écran**. Le corps brut est désormais décodé explicitement, comme le
+   font déjà `ConfigModulesController` et `SectionDocumentController`.
+   Mes tests ne l'avaient pas vu parce que leur aide `jsonRequest()`
+   construisait un `Request` avec le `body` prérempli, ce qui court-
+   circuitait toute la distinction : elle envoie maintenant un vrai corps
+   brut, et les trois tests concernés échouent bien contre l'ancien code.
+
+3. **Le semis n'était pas reprenable.** Poser les chaînes, c'est plusieurs
+   écritures : la ligne du relais, puis une entrée par voie. Une panne
+   passagère entre les deux laissait la ligne écrite et le drapeau non
+   posé — donc une nouvelle tentative au prochain démarrage, sauf que le
+   garde lisait « y a-t-il des fournisseurs ? », concluait qu'il n'y avait
+   rien à créer, et n'atteignait jamais les voies manquées. Le relais
+   restait absent de ces voies pour la vie de l'installation, en silence,
+   puisque le courrier continue de partir par l'entrée locale. La reprise
+   se fait désormais sur le préfixe de secret (`findBySecretPrefix()`), et
+   un test rejoue précisément la tentative interrompue.
+
 **Couverture.** Le portail qualité de SonarCloud a refusé le premier
 passage à **77,5 % de couverture sur le code neuf** (seuil : 80 %). Trois
 trous, tous réels et tous comblés plutôt que contournés :

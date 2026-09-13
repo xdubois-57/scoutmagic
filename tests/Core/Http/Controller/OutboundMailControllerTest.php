@@ -248,18 +248,28 @@ class OutboundMailControllerTest extends TestCase
         $_POST = [];
         $_SERVER['HTTP_X_CSRF_TOKEN'] = 'périmé';
 
-        $request = new Request(
-            'POST',
-            '/config/courrier-sortant/acheminement/bulk/ordre',
-            [],
-            ['ids' => [0]],
-            [],
-            []
+        $response = $this->controller->reorder(
+            $this->rawJsonRequest('{"ids":[0],"_csrf_token":"périmé"}'),
+            ['lane' => MailLane::Bulk->value]
         );
-        $response = $this->controller->reorder($request, ['lane' => MailLane::Bulk->value]);
 
         unset($_SERVER['HTTP_X_CSRF_TOKEN']);
         $this->assertSame(403, $response->getStatusCode());
+    }
+
+    /**
+     * A body this endpoint cannot read is a 400 and not a set of
+     * defaults: an empty order applied silently, answered `success`, is
+     * the failure this whole decoding path exists to prevent.
+     */
+    public function testABodyThatIsNotJsonIsRefused(): void
+    {
+        $response = $this->controller->reorder(
+            $this->rawJsonRequest('pas du json'),
+            ['lane' => MailLane::Bulk->value]
+        );
+
+        $this->assertSame(400, $response->getStatusCode());
     }
 
     public function testOneProviderFormIs404ForAnIdThatDoesNotExist(): void
@@ -544,20 +554,86 @@ class OutboundMailControllerTest extends TestCase
     }
 
     /**
+     * The same double as jsonRequest(), with the raw body written out by
+     * the caller — for the cases where the body is deliberately malformed
+     * or carries a token the guard must refuse.
+     */
+    private function rawJsonRequest(string $raw): Request
+    {
+        return new class ('POST', '/config/courrier-sortant', [], [], [], [], $raw) extends Request {
+            /**
+             * @param array<string, mixed> $query
+             * @param array<string, mixed> $body
+             * @param array<string, mixed> $cookies
+             * @param array<string, mixed> $server
+             */
+            public function __construct(
+                string $method,
+                string $path,
+                array $query,
+                array $body,
+                array $cookies,
+                array $server,
+                private string $raw
+            ) {
+                parent::__construct($method, $path, $query, $body, $cookies, $server);
+            }
+
+            public function getRawBody(): string
+            {
+                return $this->raw;
+            }
+        };
+    }
+
+    /**
+     * A request shaped like the one this screen's JavaScript really sends.
+     *
+     * **The empty `body` array is the point of this helper**, and an
+     * earlier version of it got that wrong. `public/assets/js/
+     * list-editor.js` posts through `ScoutMagicApi.postJson()`, which
+     * sends `Content-Type: application/json` — and PHP never populates
+     * `$_POST` for a JSON body, so the real `Request::fromGlobals()`
+     * builds `body` from an empty array and everything travels in the raw
+     * body instead. A helper that pre-filled `body` bypassed that
+     * distinction entirely and reported a controller reading `$_POST` as
+     * working, while on the real screen no provider could ever be enabled
+     * in a lane.
+     *
+     * `getRawBody()` reads `php://input`, which no unit test can write,
+     * so it is overridden here — the one thing this double does.
+     *
      * @param array<string, mixed> $body
      */
     private function jsonRequest(array $body): Request
     {
         $token = CsrfGuard::generateToken();
         $_POST['_csrf_token'] = $token;
+        $raw = (string) json_encode($body + ['_csrf_token' => $token]);
 
-        return new Request(
-            'POST',
-            '/config/courrier-sortant',
-            [],
-            $body + ['_csrf_token' => $token],
-            [],
-            []
-        );
+        return new class ('POST', '/config/courrier-sortant', [], [], [], [], $raw) extends Request {
+            /**
+             * @param array<string, mixed> $query
+             * @param array<string, mixed> $body
+             * @param array<string, mixed> $cookies
+             * @param array<string, mixed> $server
+             */
+            public function __construct(
+                string $method,
+                string $path,
+                array $query,
+                array $body,
+                array $cookies,
+                array $server,
+                private string $raw
+            ) {
+                parent::__construct($method, $path, $query, $body, $cookies, $server);
+            }
+
+            public function getRawBody(): string
+            {
+                return $this->raw;
+            }
+        };
     }
 }
