@@ -442,18 +442,32 @@
     }
 
     /**
+     * The parser the untrusted markup is read with.
+     *
+     * A document from `parseFromString` is INERT: it loads no resource and
+     * fires no event handler, so `<img src=x onerror=…>` is dead markup
+     * inside it. A detached `<div>` is NOT — assigning that same string to
+     * its `innerHTML` starts the image load, the load fails, and `onerror`
+     * runs, in a page holding the author's session. Being detached buys
+     * nothing; being inert is the whole of it. Same parser and same reason
+     * as `news-form-builder.js`'s own sanitiser.
+     */
+    var PARSER = new DOMParser();
+
+    /**
      * The HTML as it will come back from the server, computed here.
      *
      * @param {string} html
      * @returns {string}
      */
     function cleanHtml(html) {
-        var holder = document.createElement('div');
-        // Parsed detached: nothing here is inserted into the page, so an
-        // `onerror` on a pasted <img> has nothing to fire against.
-        holder.innerHTML = String(html == null ? '' : html);
-        cleanNode(holder);
-        return holder.innerHTML;
+        var doc = PARSER.parseFromString(
+            '<!DOCTYPE html><html><body>' + String(html == null ? '' : html) + '</body></html>',
+            'text/html'
+        );
+        cleanNode(doc.body);
+
+        return doc.body.innerHTML;
     }
 
     /**

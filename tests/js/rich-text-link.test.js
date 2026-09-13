@@ -382,6 +382,25 @@ describe('ScoutMagicRichText.cleanHtml()', () => {
         expect(rt.cleanHtml('')).toBe('');
         expect(rt.cleanHtml(null)).toBe('');
     });
+
+    it('never builds an element of THIS page to read untrusted markup into', async () => {
+        const rt = await loadHelper();
+        const created = vi.spyOn(document, 'createElement');
+
+        rt.cleanHtml('<img src="x" onerror="alert(1)"><span style="font-weight:bold">a</span>');
+
+        // The first version of this read the paste into a detached
+        // `document.createElement('div')`, on the grounds that a detached
+        // element is not in the page. It is not, and that buys nothing: a
+        // detached <div> still STARTS the image load, the load fails, and
+        // `onerror` runs — in a page holding the author's session. CodeQL
+        // was right and the comment above it was wrong. A DOMParser
+        // document is inert instead, which is the actual property needed;
+        // the rename() path creates its elements in that document, never
+        // in this one.
+        expect(created).not.toHaveBeenCalled();
+        created.mockRestore();
+    });
 });
 
 describe('ScoutMagicRichText.wirePaste()', () => {
