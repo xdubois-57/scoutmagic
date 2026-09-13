@@ -642,6 +642,29 @@ fourth line. What makes the enumeration survivable meanwhile is that the
 launched-against-finished guard catches the truncation every time; the
 cost of a new name is a review to re-run, not a diff nobody read.
 
+**Two more names went on the list, and they are a different shape — the
+truncation rule above is not what they trip.** Pull request #321 went red
+three times over two tools: `Edit` on run 34735356561 (12 agents launched,
+12 finished) and `WebSearch` on 34737982651 and 34740739636 (16 of 16, then
+10 of 10). Every one of those runs completed every agent it started, posted
+its findings inline, and was then reported as "not a review". Nothing was
+truncated, so « a third name on a truncated pass » had not happened; what
+had happened is smaller and duller. `Edit` is `Write`'s other door and
+`WebSearch` is `WebFetch`'s — each pair is one decision, and only one half
+of each had been written down. The reasons carry over unchanged: a reviewer
+has nothing in the checkout to modify, and a search query leaves this job
+for something the agent chose exactly as a fetched URL does, from a run
+holding the subscription token while reading an untrusted diff.
+
+**What that cost is worth noting, because it is the argument for naming
+both halves of a pair at once.** The check is the one required context a
+review can fail on its own, and it was red on four of five heads of a
+single pull request while the reviewer was doing its job perfectly — on
+the last of them posting « No issues found ». A gate that cries on a clean
+diff is a gate people learn to merge past, which is the same extinction
+mechanism `docs/exigences-non-fonctionnelles.md` §4 describes for an alert
+with no re-arm gap.
+
 The fix has a delivery problem of its own, and it is this file's §
 Reading a green result in miniature: the action refuses to run Claude when
 `.github/workflows/claude-review.yml` differs from the copy on `main`, and
