@@ -248,7 +248,7 @@
                                                     <label class="visually-hidden" for="gallery-migrate-target-{{ album.id }}">Emplacement de destination pour {{ entry.label }}</label>
                                                     <select class="form-select form-select-sm gallery-migrate-target" id="gallery-migrate-target-{{ album.id }}" data-album-id="{{ album.id }}" style="width:auto;">
                                                         {% for location in other_locations %}
-                                                            <option value="{{ location.id }}">{{ location.label }} ({{ location.type.value == 's3' ? 'S3' : 'Disque local' }})</option>
+                                                            <option value="{{ location.id }}">{{ location.label }} ({{ location.type.frenchLabel }})</option>
                                                         {% endfor %}
                                                     </select>
                                                     <button type="button" class="btn btn-sm btn-outline-primary gallery-migrate-start"

@@ -315,3 +315,105 @@ libre est une propriété d'un **volume**, pas d'un dossier, et trois
 emplacements sur un même disque y afficheraient chacun la même place. La
 mesure par volume et l'écran qui l'énonce sont IT-02 ; cette méthode part
 avec eux.
+
+### La seconde relecture, et ce qu'elle a durci
+
+La première relecture avait trouvé des nuls mal lus. La seconde a trouvé
+autre chose : **des retours qu'on ne regardait pas**.
+
+**Le disque pouvait refuser d'écrire sans que personne le sache.**
+`LocalStorageBackend` appelait `mkdir()`, `file_put_contents()`,
+`unlink()` et `rmdir()` sans lire ce qu'ils répondaient. Un disque plein,
+un dossier en lecture seule, un quota atteint : la photo n'était pas
+écrite, et l'appelant enchaînait comme si elle l'était — vignette
+générée depuis un fichier absent, ligne en base pointant vers rien. Les
+quatre lèvent désormais, et une écriture partielle (moins d'octets que
+demandé) est traitée comme un échec, parce que c'en est un.
+
+**Le contrôle de chemin lisait le texte, le système suivait les liens.**
+La vérification lexicale d'échappement empêchait un `..` dans une clé,
+mais pas un lien symbolique déposé dans le dossier de l'emplacement et
+pointant ailleurs : le texte du chemin reste sous la racine, le système
+de fichiers, lui, sort. `assertNoSymbolicEscape()` remonte jusqu'au
+premier ancêtre qui existe, le résout réellement, et compare à la racine
+résolue.
+
+**Deux créations simultanées pouvaient poser deux défauts.**
+`create()` comptait les lignes puis insérait, hors transaction ; l'index
+UNIQUE sur le libellé ne rattrape rien quand les deux libellés diffèrent.
+Le couple compte-puis-insère est maintenant dans une transaction. Dans
+le même esprit, `setDefault()` refuse une promotion qui n'a touché aucune
+ligne : MySQL rapporte zéro ligne affectée aussi bien pour « cette ligne
+n'existe pas » que pour « elle était déjà le défaut », donc `rowCount()`
+seul ne pouvait pas distinguer les deux, et l'un des deux doit échouer.
+
+**Et `ensureDefaultExists()` avalait trop large.** Le `catch
+(\PDOException)` était écrit pour une seule situation — la course perdue
+contre une requête concurrente — mais il attrapait aussi bien une table
+absente qu'une connexion morte, et les transformait en « cette
+installation n'a pas d'emplacement par défaut ». Une phrase qui envoie
+l'administrateur chercher dans la configuration du stockage une panne qui
+est dans la base. La course est maintenant reconnue à son SQLSTATE, et
+le reste voyage.
+
+**L'ETag d'un listage ne dit rien du chiffrement.** `announcedChecksum()`
+écartait déjà l'ETag multipart, mais `list()` en annonçait un à partir
+d'une entrée de listage — or `ListObjectsV2` ne dit pas si l'objet a été
+écrit en SSE-C ou SSE-KMS, et dans ces deux cas l'ETag n'est pas une
+empreinte du contenu du tout, sans que sa forme le trahisse. Un listage
+n'annonce donc plus d'empreinte, et `announcedChecksum()`, qui interroge
+`HeadObject` et reçoit les en-têtes de chiffrement, écarte aussi ces
+deux modes.
+
+**Et deux `rtrim()` perdaient la racine.** `rtrim('/', '/')` rend la
+chaîne vide, ce qui a deux conséquences distinctes. Côté galerie, un
+emplacement absolu configuré à `/` ne recevait plus de mesure de place
+libre : `is_dir('')` est faux, donc ou bien « inconnu », ou bien — pire —
+le chiffre de la racine de stockage affiché sous le nom d'un autre
+volume. Côté disque, `fullPath()` comparait la clé à `$base . '/'`,
+c'est-à-dire `//` pour un emplacement à la racine : aucune clé ne
+commence par ça, donc **toutes** étaient refusées comme des évasions.
+Les deux sont corrigés au même endroit qu'ils sont écrits, et
+`GalleryLocationSpaceTest` mesure avec une racine de stockage absente,
+pour que le repli ne puisse pas sauver la réponse à la place du correctif.
+
+**Enfin, `ExplicitDropsTargetRetiredColumnsTest` lisait un schéma à la
+fois.** Un `drops.sql` de module visant une colonne d'une table déclarée
+par le **cœur** passait pour « une table que ce schéma n'a jamais
+possédée ». C'est précisément la forme de ce chantier — une table qui
+quitte un module pour le cœur —, donc exactement le cas qui laisse une
+ligne périmée pointer vers le schéma du voisin. Le test construit
+maintenant la carte des tables déclarées sur l'ensemble de
+`SchemaFiles::all()`, et son message nomme le fichier qui déclare encore.
+
+### Divergences constatées avec les maquettes, et ce qui fait foi
+
+Les deux maquettes déposées dans `docs/chantiers/maquettes/` sont la
+spécification écrite par le mainteneur. Elles sont déposées telles
+quelles — les corriger pour satisfaire une relecture reviendrait à
+réécrire en silence la spécification qu'on a reçue. Trois écarts ont
+néanmoins été relevés en les lisant, et ils sont consignés ici plutôt que
+dans les fichiers :
+
+1. **`storage/modules/gallery` dans la maquette, `storage/gallery` dans
+   le code.** Le dossier par défaut ne peut pas bouger : deux endroits du
+   cœur le résolvent par son nom — `BackupService::excludedArchivePrefixes()`,
+   qui tient les photos hors d'une archive qui a demandé à ne pas les
+   porter, et `DiskBudget::measureNow()`, qui les compte comme la part de
+   la galerie. Le renommer aurait fait une sauvegarde qui embarque
+   silencieusement ce qu'on lui avait dit d'exclure. D16 porte sur les
+   **lignes** d'emplacement redéclarées, pas sur le déplacement de
+   photographies sur le disque. `Tests\Core\Storage\DefaultStorageFolderTest`
+   tient les trois lectures ensemble.
+2. **« lire par plage d'octets » apparaît tel quel dans l'onglet Vidéos
+   de la maquette.** C'est le vocabulaire du code, et D3 interdit de
+   montrer une capacité comme elle est écrite. L'écran énonce la
+   conséquence — les vidéos ne pourront pas être lues en avançant dans la
+   barre de lecture —, pas le mécanisme.
+3. **`USED_BY` place les albums autrement que l'autre maquette.** Les
+   deux fichiers ne sont pas d'accord entre eux sur ce point ; l'affectation
+   d'un album à un emplacement suit D4 (elle appartient au consommateur) et
+   c'est ce que le code fait.
+
+Là où une maquette et une décision verrouillée se contredisent, c'est la
+décision qui l'emporte, et l'écart est noté ici.

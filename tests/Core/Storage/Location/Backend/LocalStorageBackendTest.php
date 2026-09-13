@@ -35,7 +35,14 @@ class LocalStorageBackendTest extends TestCase
             \RecursiveIteratorIterator::CHILD_FIRST
         );
         foreach ($items as $item) {
-            $item->isDir() ? rmdir((string) $item) : unlink((string) $item);
+            // isLink() first: a symlink pointing at a directory answers
+            // true to isDir(), and rmdir() on it fails — leaving the whole
+            // tree behind.
+            if ($item->isLink() || !$item->isDir()) {
+                unlink((string) $item);
+                continue;
+            }
+            rmdir((string) $item);
         }
         rmdir($dir);
     }
@@ -169,6 +176,35 @@ class LocalStorageBackendTest extends TestCase
     {
         $this->expectException(\RuntimeException::class);
         $this->backend->get('../../etc/passwd');
+    }
+
+    public function testAWriteThatTheFilesystemRefusedIsRaisedRatherThanReportedAsDone(): void
+    {
+        // A full disk, a read-only mount, a quota: mkdir() and
+        // file_put_contents() return false and the caller used to carry
+        // on as if the photo were there — a thumbnail generated from an
+        // absent file, a row in the database pointing at nothing. The
+        // refusal staged here is a parent that is a FILE, because it is
+        // the one the test process cannot be privileged out of: the
+        // container runs as root, for whom a chmod 0500 is no obstacle.
+        $this->backend->put('1/thumb_1.jpg', 'ok', 'image/jpeg');
+
+        $this->expectException(\RuntimeException::class);
+        $this->backend->put('1/thumb_1.jpg/nested.jpg', 'refused', 'image/jpeg');
+    }
+
+    public function testASymbolicLinkOutOfTheLocationIsRefusedEvenThoughItsPathReadsAsInside(): void
+    {
+        // The lexical check reads the TEXT of the path; the filesystem
+        // follows the link. "1/away/x.jpg" never leaves the location on
+        // paper, and lands outside it on disk.
+        $outside = $this->storagePath . '/outside';
+        mkdir($outside, 0700, true);
+        mkdir($this->storagePath . '/gallery/1', 0700, true);
+        symlink($outside, $this->storagePath . '/gallery/1/away');
+
+        $this->expectException(\RuntimeException::class);
+        $this->backend->put('1/away/x.jpg', 'payload', 'image/jpeg');
     }
 
     public function testADotSegmentInsideTheLocationStillResolves(): void

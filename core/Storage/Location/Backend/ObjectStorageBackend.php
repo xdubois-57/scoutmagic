@@ -291,10 +291,15 @@ class ObjectStorageBackend implements RangeReadableBackend, ServerSideCopyBacken
             $objects[] = new StoredObject(
                 key: $key,
                 sizeBytes: (int) ($entry['Size'] ?? 0),
-                // The ETag a listing carries is the same one HeadObject
-                // returns, multipart trap included — see
-                // announcedChecksum(), which is where that is decided.
-                announcedChecksum: self::comparableChecksum($entry['ETag'] ?? null),
+                // **No checksum from a listing, ever.** ListObjectsV2
+                // carries an ETag, but it carries nothing that says
+                // whether the object was encrypted with SSE-C or SSE-KMS
+                // — and for those the ETag is not a digest of the content
+                // at all. Announcing it would report « empreinte
+                // différente » for a copy that is perfectly intact.
+                // HeadObject does return that metadata, so the decision
+                // belongs there alone: see announcedChecksum().
+                announcedChecksum: null,
                 lastModifiedAt: $modified instanceof \DateTimeInterface
                     ? $modified->format('Y-m-d H:i:s')
                     : null
@@ -325,6 +330,14 @@ class ObjectStorageBackend implements RangeReadableBackend, ServerSideCopyBacken
      * backend does not declare {@see StorageCapability::Checksum}: it can
      * answer sometimes, and « sometimes » is not a capability a consumer
      * can plan around.
+     *
+     * **Server-side encryption breaks the equality a second way.** For an
+     * object written with SSE-C or SSE-KMS, the ETag is not an MD5 of the
+     * content at all, and nothing in its shape says so — it is thirty-two
+     * hexadecimal characters like any other. That is why this reads the
+     * HEAD response rather than a listing entry: the encryption headers
+     * only come back here, and without them the 32-hex test alone would
+     * happily announce a value that can never match.
      */
     public function announcedChecksum(string $key): ?string
     {
@@ -337,7 +350,36 @@ class ObjectStorageBackend implements RangeReadableBackend, ServerSideCopyBacken
             return null;
         }
 
+        if (self::isServerSideEncrypted($result)) {
+            return null;
+        }
+
         return self::comparableChecksum($result['ETag'] ?? null);
+    }
+
+    /**
+     * Whether the HEAD response says the object was encrypted with a mode
+     * that detaches the ETag from the content's MD5.
+     *
+     * `AES256` is S3-managed encryption (SSE-S3), which leaves the ETag an
+     * ordinary MD5; every other value — `aws:kms`, `aws:kms:dsse` — and
+     * any customer-provided key does not.
+     *
+     * @param mixed $head
+     */
+    private static function isServerSideEncrypted($head): bool
+    {
+        if (!is_array($head) && !$head instanceof \ArrayAccess) {
+            return false;
+        }
+
+        if (isset($head['SSECustomerAlgorithm'])) {
+            return true;
+        }
+
+        $mode = $head['ServerSideEncryption'] ?? null;
+
+        return is_string($mode) && strtolower($mode) !== 'aes256';
     }
 
     /** @param mixed $etag */

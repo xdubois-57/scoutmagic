@@ -233,6 +233,13 @@ class StorageLocationService
      * concurrent first-ever requests both see an empty table and both
      * insert; the UNIQUE index on the label rejects the loser, which then
      * adopts what the winner created rather than failing the request.
+     *
+     * **Only that one failure is swallowed.** Catching every `PDOException`
+     * here would turn a missing table, a dead connection or a refused
+     * write into « cette installation n'a pas d'emplacement par défaut » —
+     * a sentence that sends an administrator looking at the storage
+     * configuration for a fault that is in the database. So the race is
+     * recognised by its SQLSTATE and everything else is left to travel.
      */
     public function ensureDefaultExists(): ?StorageLocation
     {
@@ -248,13 +255,33 @@ class StorageLocationService
                 new LocalLocationConfig(self::DEFAULT_PATH),
                 null
             );
-        } catch (\PDOException) {
+        } catch (\PDOException $e) {
+            if (!self::isDuplicateEntry($e)) {
+                throw $e;
+            }
             // Lost the race — see above.
         }
 
         $this->locationsById = [];
 
         return $this->repository->findDefault();
+    }
+
+    /**
+     * Whether this failure is a UNIQUE index refusing a duplicate, as
+     * opposed to any other reason an INSERT can fail.
+     *
+     * SQLSTATE `23000` is « integrity constraint violation » and covers
+     * the foreign keys too, so the driver's own code decides: MySQL and
+     * MariaDB both report 1062 for a duplicate key.
+     */
+    private static function isDuplicateEntry(\PDOException $e): bool
+    {
+        if ($e->getCode() !== '23000') {
+            return false;
+        }
+
+        return (int) ($e->errorInfo[1] ?? 0) === 1062;
     }
 
     /**

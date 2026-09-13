@@ -43,9 +43,8 @@ class GalleryStorageConsumerTest extends TestCase
         $this->consumer = new GalleryStorageConsumer($this->albumRepository, $this->locations);
 
         [$label, $start, $end] = DatabaseTestHelper::scoutYear();
-        $this->pdo->exec(
-            "INSERT INTO scout_years (label, start_date, end_date) VALUES ('{$label}', '{$start}', '{$end}')"
-        );
+        $this->pdo->prepare('INSERT INTO scout_years (label, start_date, end_date) VALUES (?, ?, ?)')
+            ->execute([$label, $start, $end]);
         $this->scoutYearId = (int) $this->pdo->lastInsertId();
         $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
         $stmt->execute(['enc', 'idx']);
@@ -122,7 +121,7 @@ class GalleryStorageConsumerTest extends TestCase
             null
         );
         $albumId = $this->createAlbum($defaultId);
-        $this->pdo->exec('UPDATE gallery_albums SET location_id = NULL WHERE id = ' . $albumId);
+        $this->pdo->prepare('UPDATE gallery_albums SET location_id = NULL WHERE id = ?')->execute([$albumId]);
 
         $this->assertSame([$defaultId], $this->consumer->locationIdsInUse());
     }
@@ -133,7 +132,7 @@ class GalleryStorageConsumerTest extends TestCase
         $secondId = $this->locations->create(StorageLocationType::Local, 'Second', new LocalLocationConfig('b'), null);
         $this->locations->setDefault($secondId);
         $albumId = $this->createAlbum($firstId);
-        $this->pdo->exec('UPDATE gallery_albums SET location_id = NULL WHERE id = ' . $albumId);
+        $this->pdo->prepare('UPDATE gallery_albums SET location_id = NULL WHERE id = ?')->execute([$albumId]);
 
         // Read at call time, never cached: the answer follows the default,
         // because that is what the album will actually resolve onto.

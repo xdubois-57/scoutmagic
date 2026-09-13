@@ -525,6 +525,45 @@ class ObjectStorageBackendTest extends TestCase
         $this->assertNull($backend->announcedChecksum('multipart.mp4'));
     }
 
+    public function testAnEncryptedObjectAnnouncesNoChecksumEvenThoughItsEtagLooksLikeOne(): void
+    {
+        // With SSE-C or SSE-KMS the ETag is not a digest of the content at
+        // all, and nothing in its SHAPE says so — thirty-two hexadecimal
+        // characters like any other. Announcing it would report « empreinte
+        // différente » for a copy that is perfectly intact.
+        $md5 = str_repeat('c', 32);
+        $backend = $this->backendWithMockedResponses([
+            new Result(['ETag' => '"' . $md5 . '"', 'SSECustomerAlgorithm' => 'AES256']),
+            new Result(['ETag' => '"' . $md5 . '"', 'ServerSideEncryption' => 'aws:kms']),
+            // SSE-S3, on the other hand, leaves the ETag an ordinary MD5.
+            new Result(['ETag' => '"' . $md5 . '"', 'ServerSideEncryption' => 'AES256']),
+        ]);
+
+        $this->assertNull($backend->announcedChecksum('customer-key.jpg'));
+        $this->assertNull($backend->announcedChecksum('kms.jpg'));
+        $this->assertSame($md5, $backend->announcedChecksum('sse-s3.jpg'));
+    }
+
+    public function testAListingNeverAnnouncesAChecksumBecauseItCannotSeeTheEncryption(): void
+    {
+        // ListObjectsV2 carries an ETag but no encryption metadata, so it
+        // has no way to tell an MD5 from a value that can never match one.
+        // The decision belongs to announcedChecksum(), which asks HEAD.
+        $backend = $this->backendWithMockedResponses([
+            new Result([
+                'Contents' => [
+                    ['Key' => '7/a.jpg', 'Size' => 3, 'ETag' => '"' . str_repeat('b', 32) . '"'],
+                ],
+                'IsTruncated' => false,
+            ]),
+        ]);
+
+        $listing = $backend->list('7');
+
+        $this->assertSame(3, $listing->objects[0]->sizeBytes);
+        $this->assertNull($listing->objects[0]->announcedChecksum);
+    }
+
     public function testListPagesThroughTheProvidersOwnContinuationToken(): void
     {
         $backend = $this->backendWithMockedResponses([
@@ -543,7 +582,6 @@ class ObjectStorageBackendTest extends TestCase
 
         $first = $backend->list('7');
         $this->assertSame(['7/a.jpg'], array_map(fn($o) => $o->key, $first->objects));
-        $this->assertSame(str_repeat('b', 32), $first->objects[0]->announcedChecksum);
         $this->assertSame('tok-1', $first->cursor);
 
         $second = $backend->list('7', $first->cursor);

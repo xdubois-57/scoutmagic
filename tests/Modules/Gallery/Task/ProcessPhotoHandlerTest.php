@@ -247,8 +247,8 @@ class ProcessPhotoHandlerTest extends TestCase
      */
     public function testPutsAnAlbumWithNoLocationOnTheDefaultOneRatherThanFailing(): void
     {
-        $this->pdo->exec('UPDATE gallery_albums SET location_id = NULL WHERE id = ' . $this->albumId);
-        $this->pdo->exec('DELETE FROM storage_locations');
+        $this->pdo->prepare('UPDATE gallery_albums SET location_id = NULL WHERE id = ?')->execute([$this->albumId]);
+        $this->pdo->prepare('DELETE FROM storage_locations')->execute();
         $fileId = $this->createOriginalFile();
         $mediaId = $this->mediaRepository->create($this->albumId, Media::TYPE_PHOTO, $fileId, 0, 'test.jpg');
 

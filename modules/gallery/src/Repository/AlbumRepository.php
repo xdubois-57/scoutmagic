@@ -185,14 +185,12 @@ class AlbumRepository
      */
     public function distinctLocationIds(): array
     {
-        $stmt = $this->pdo->query(
+        $stmt = $this->pdo->prepare(
             'SELECT DISTINCT location_id AS id FROM gallery_albums WHERE location_id IS NOT NULL
              UNION
              SELECT DISTINCT migration_target_id AS id FROM gallery_albums WHERE migration_target_id IS NOT NULL'
         );
-        if ($stmt === false) {
-            return [];
-        }
+        $stmt->execute();
 
         return array_values(array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN)));
     }
@@ -210,11 +208,12 @@ class AlbumRepository
      */
     public function hasAlbumsWithoutLocation(): bool
     {
-        $stmt = $this->pdo->query(
-            "SELECT 1 FROM gallery_albums WHERE type = 'local' AND location_id IS NULL LIMIT 1"
+        $stmt = $this->pdo->prepare(
+            'SELECT 1 FROM gallery_albums WHERE type = ? AND location_id IS NULL LIMIT 1'
         );
+        $stmt->execute([Album::TYPE_LOCAL]);
 
-        return $stmt !== false && $stmt->fetchColumn() !== false;
+        return $stmt->fetchColumn() !== false;
     }
 
     public function setLocationId(int $id, int $locationId): void

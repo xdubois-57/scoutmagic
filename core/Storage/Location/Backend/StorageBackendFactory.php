@@ -93,8 +93,27 @@ class StorageBackendFactory
      */
     private function resolveLocalDirectory(LocalLocationConfig $config): string
     {
-        return $config->isAbsolute()
-            ? rtrim($config->path, '/')
-            : rtrim($this->storagePath, '/') . '/' . trim($config->path, '/');
+        if ($config->isAbsolute()) {
+            return rtrim($config->path, '/') !== '' ? rtrim($config->path, '/') : '/';
+        }
+
+        // A relative path is relative, and `../public` is not. Refused
+        // here rather than normalised away: an administrator who typed it
+        // meant somewhere outside `storage/`, and quietly reinterpreting
+        // that as a folder inside it is a surprise rather than a fix —
+        // while accepting it would put every rendition in the web root.
+        // Wanting a directory outside `storage/` is legitimate (a network
+        // mount, a second volume); it is spelled as an absolute path,
+        // which says so.
+        foreach (explode('/', trim($config->path, '/')) as $segment) {
+            if ($segment === '..') {
+                throw new StorageLocationException(
+                    'Le dossier de cet emplacement remonte hors du dossier de stockage du site. Indiquez un '
+                        . 'chemin relatif sans « .. », ou un chemin absolu si le dossier est ailleurs.'
+                );
+            }
+        }
+
+        return rtrim($this->storagePath, '/') . '/' . trim($config->path, '/');
     }
 }

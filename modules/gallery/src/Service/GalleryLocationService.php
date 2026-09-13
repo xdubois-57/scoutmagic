@@ -160,14 +160,29 @@ class GalleryLocationService
     private function measurableDirectory(LocalLocationConfig $config): ?string
     {
         $dir = $config->isAbsolute()
-            ? rtrim($config->path, '/')
-            : rtrim($this->storagePath, '/') . '/' . trim($config->path, '/');
+            ? self::withoutTrailingSlash($config->path)
+            : self::withoutTrailingSlash($this->storagePath) . '/' . trim($config->path, '/');
 
         if (is_dir($dir)) {
             return $dir;
         }
 
         return is_dir($this->storagePath) ? $this->storagePath : null;
+    }
+
+    /**
+     * `rtrim($path, '/')` with the one path it gets wrong handled: the
+     * filesystem root, which it turns into the empty string. `is_dir('')`
+     * is false, so an absolute location configured at `/` lost its
+     * free-space figure — reported as « inconnu », or quietly replaced by
+     * the storage root's when that directory happened to exist, which is a
+     * different volume's number printed under this location's name.
+     */
+    private static function withoutTrailingSlash(string $path): string
+    {
+        $trimmed = rtrim($path, '/');
+
+        return $trimmed === '' ? '/' : $trimmed;
     }
 
     /**

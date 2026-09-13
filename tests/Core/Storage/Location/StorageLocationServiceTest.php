@@ -124,6 +124,75 @@ class StorageLocationServiceTest extends TestCase
         $this->assertCount(1, $this->repository->findAll());
     }
 
+    public function testEnsureDefaultExistsAdoptsWhatARaceCreatedRatherThanFailingTheRequest(): void
+    {
+        // Two first-ever requests both see an empty table and both insert;
+        // the UNIQUE index on the label rejects the loser. That is the one
+        // failure this method is allowed to swallow.
+        $winner = $this->repository->create(
+            StorageLocationType::Local,
+            StorageLocationService::DEFAULT_LABEL,
+            new LocalLocationConfig(StorageLocationService::DEFAULT_PATH),
+            null
+        );
+        $service = $this->serviceWhoseCreateThrows(
+            self::pdoException('23000', 1062, 'Duplicate entry')
+        );
+
+        $this->assertSame($winner, $service->ensureDefaultExists()?->id);
+    }
+
+    public function testAFailureThatIsNotALostRaceTravelsRatherThanBecomingNoDefaultLocation(): void
+    {
+        // A missing table, a dead connection, a refused write: swallowing
+        // those turns a database fault into « cette installation n'a pas
+        // d'emplacement par défaut », a sentence that sends an
+        // administrator looking at the storage configuration instead.
+        $service = $this->serviceWhoseCreateThrows(
+            self::pdoException('42S02', 1146, "Table 'storage_locations' doesn't exist")
+        );
+
+        $this->expectException(\PDOException::class);
+        $service->ensureDefaultExists();
+    }
+
+    private function serviceWhoseCreateThrows(\PDOException $failure): StorageLocationService
+    {
+        $repository = new class ($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $failure) extends StorageLocationRepository {
+            public function __construct(\PDO $pdo, EncryptionService $encryption, private \PDOException $failure)
+            {
+                parent::__construct($pdo, $encryption);
+            }
+
+            public function create(
+                StorageLocationType $type,
+                string $label,
+                \Core\Storage\Location\Config\LocationConfig $config,
+                ?string $secret
+            ): int {
+                throw $this->failure;
+            }
+        };
+
+        return new StorageLocationService(
+            $repository,
+            new StorageBackendFactory($repository, $this->storagePath),
+            $this->consumers
+        );
+    }
+
+    private static function pdoException(string $sqlState, int $driverCode, string $message): \PDOException
+    {
+        return new class ($sqlState, $driverCode, $message) extends \PDOException {
+            public function __construct(string $sqlState, int $driverCode, string $message)
+            {
+                parent::__construct($message);
+                $this->code = $sqlState;
+                $this->errorInfo = [$sqlState, $driverCode, $message];
+            }
+        };
+    }
+
     public function testTwoLocationsCannotShareALabel(): void
     {
         $this->service->create(StorageLocationType::Local, 'Nextcloud', new LocalLocationConfig('a'), null);

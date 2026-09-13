@@ -106,24 +106,55 @@ class StorageLocationRepository
         LocationConfig $config,
         ?string $secret
     ): int {
-        $isFirst = (int) $this->pdo->query('SELECT COUNT(*) FROM storage_locations')->fetchColumn() === 0;
+        // Counted and inserted in one transaction, and the count takes a
+        // WRITE lock. Two callers creating different locations on an
+        // empty installation would otherwise both see zero rows and both
+        // insert `is_default = 1` — the UNIQUE index on the label does
+        // not catch it, because their labels differ, and two defaults is
+        // a state every read of this table is written never to see.
+        //
+        // A transaction alone would not be enough either: under
+        // REPEATABLE READ a plain SELECT reads a snapshot and takes no
+        // lock at all, so both would still count zero. `FOR UPDATE` on an
+        // empty table takes the gap lock that makes the second caller
+        // wait for the first to commit. The cost is a table-wide lock on
+        // an action an administrator performs by hand, a few times in the
+        // life of a site.
+        //
+        // SQLite, which some of the tests run on, has no `FOR UPDATE` and
+        // needs none — it serialises writers itself — so the clause is
+        // added only for the engines that have it.
+        $forUpdate = $this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'sqlite' ? '' : ' FOR UPDATE';
 
-        $stmt = $this->pdo->prepare(
-            'INSERT INTO storage_locations (type, label, is_default, config, secret_encrypted, created_at)
-             VALUES (?, ?, ?, ?, ?, ?)'
-        );
-        $stmt->execute([
-            $type->value,
-            $label,
-            $isFirst ? 1 : 0,
-            self::encodeConfig($config),
-            $secret !== null && $secret !== ''
-                ? $this->encryption->encrypt($secret, 'storage_locations.secret')
-                : null,
-            date('Y-m-d H:i:s'),
-        ]);
+        $this->pdo->beginTransaction();
+        try {
+            $count = $this->pdo->prepare('SELECT COUNT(*) FROM storage_locations' . $forUpdate);
+            $count->execute();
+            $isFirst = (int) $count->fetchColumn() === 0;
 
-        return (int) $this->pdo->lastInsertId();
+            $stmt = $this->pdo->prepare(
+                'INSERT INTO storage_locations (type, label, is_default, config, secret_encrypted, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?)'
+            );
+            $stmt->execute([
+                $type->value,
+                $label,
+                $isFirst ? 1 : 0,
+                self::encodeConfig($config),
+                $secret !== null && $secret !== ''
+                    ? $this->encryption->encrypt($secret, 'storage_locations.secret')
+                    : null,
+                date('Y-m-d H:i:s'),
+            ]);
+            $id = (int) $this->pdo->lastInsertId();
+            $this->pdo->commit();
+
+            return $id;
+        } catch (\Throwable $e) {
+            $this->pdo->rollBack();
+
+            throw $e;
+        }
     }
 
     /**
@@ -160,14 +191,44 @@ class StorageLocationRepository
     {
         $this->pdo->beginTransaction();
         try {
-            $this->pdo->exec('UPDATE storage_locations SET is_default = 0');
+            $this->pdo->prepare('UPDATE storage_locations SET is_default = 0')->execute();
             $stmt = $this->pdo->prepare('UPDATE storage_locations SET is_default = 1 WHERE id = ?');
             $stmt->execute([$id]);
+
+            // Promoted nothing, having demoted everything. An id that
+            // matches no row would otherwise leave the installation with
+            // ZERO defaults — the other half of the state this
+            // transaction exists to prevent, and the easier one to miss
+            // because the statement itself succeeds.
+            if ($stmt->rowCount() === 0 && $this->findByIdWithin($id) === null) {
+                throw new StorageLocationException(
+                    'Cet emplacement de stockage n\'existe plus — la page a peut-être été rouverte après sa '
+                        . 'suppression.'
+                );
+            }
+
             $this->pdo->commit();
         } catch (\Throwable $e) {
             $this->pdo->rollBack();
             throw $e;
         }
+    }
+
+    /**
+     * Does this row exist, read inside the open transaction?
+     *
+     * `rowCount()` alone cannot answer: MySQL reports zero affected rows
+     * for an UPDATE that matched a row already holding the value, so a
+     * re-promotion of the current default is indistinguishable from an id
+     * that matches nothing.
+     */
+    private function findByIdWithin(int $id): ?int
+    {
+        $stmt = $this->pdo->prepare('SELECT id FROM storage_locations WHERE id = ?');
+        $stmt->execute([$id]);
+        $found = $stmt->fetchColumn();
+
+        return $found === false ? null : (int) $found;
     }
 
     /**
@@ -204,11 +265,23 @@ class StorageLocationRepository
         $stmt->execute([date('Y-m-d H:i:s'), $ok ? 1 : 0, $error, $id]);
     }
 
+    /**
+     * Refuses rather than substituting `{}`.
+     *
+     * An empty record does not read as « this failed to encode »; it
+     * reads as a location configured with nothing, which resolves to the
+     * default folder for a local one and loses the endpoint and the
+     * bucket for an object store. Silently writing it turns an encoding
+     * failure into a location pointing somewhere else entirely.
+     *
+     * @throws \JsonException
+     */
     private static function encodeConfig(LocationConfig $config): string
     {
-        $json = json_encode($config->toArray(), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-
-        return $json !== false ? $json : '{}';
+        return json_encode(
+            $config->toArray(),
+            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
+        );
     }
 
     /**

@@ -253,6 +253,36 @@ class StorageLocationRepositoryTest extends TestCase
         );
     }
 
+    public function testPromotingALocationThatIsGoneLeavesTheExistingDefaultAlone(): void
+    {
+        // setDefault() demotes everything and then promotes one row. An id
+        // that matches nothing would leave the installation with ZERO
+        // defaults — and the promoting statement itself succeeds, which is
+        // what makes it easy to miss.
+        $firstId = $this->repository->create(StorageLocationType::Local, 'Premier', new LocalLocationConfig('a'), null);
+
+        try {
+            $this->repository->setDefault($firstId + 12_345);
+            $this->fail('Promoting a location that does not exist should be refused.');
+        } catch (\Core\Storage\Location\StorageLocationException) {
+            // Expected — the message names what the administrator should do.
+        }
+
+        $this->assertSame($firstId, $this->repository->findDefault()?->id);
+    }
+
+    public function testPromotingTheLocationThatIsAlreadyTheDefaultIsAccepted(): void
+    {
+        // MySQL reports zero affected rows for an UPDATE that matched a row
+        // already holding the value, so rowCount() alone cannot tell this
+        // apart from the case above.
+        $id = $this->repository->create(StorageLocationType::Local, 'Premier', new LocalLocationConfig('a'), null);
+
+        $this->repository->setDefault($id);
+
+        $this->assertSame($id, $this->repository->findDefault()?->id);
+    }
+
     public function testFindDefaultReturnsTheFlaggedLocation(): void
     {
         $this->repository->create(StorageLocationType::Local, 'Premier', new LocalLocationConfig('a'), null);

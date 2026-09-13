@@ -61,14 +61,28 @@ class LocalStorageBackend implements RangeReadableBackend, ServerSideCopyBackend
         return in_array($capability, self::declaredCapabilities(), true);
     }
 
+    /**
+     * A write that failed must say so.
+     *
+     * `mkdir()` and `file_put_contents()` return false rather than
+     * raising, and ignoring that made this method report success for
+     * bytes that never landed — a full disk, a read-only mount, a
+     * directory the web user cannot enter. The caller then records a
+     * media as processed, or a copy as made, over nothing at all. This is
+     * the one failure whose whole cost is that it is silent.
+     */
     public function put(string $key, string $contents, string $mimeType): void
     {
         $path = $this->fullPath($key);
         $dir = dirname($path);
-        if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
+        if (!is_dir($dir) && !@mkdir($dir, 0755, true) && !is_dir($dir)) {
+            throw new \RuntimeException("Storage directory could not be created for: {$key}");
         }
-        file_put_contents($path, $contents);
+
+        $written = @file_put_contents($path, $contents);
+        if ($written === false || $written !== strlen($contents)) {
+            throw new \RuntimeException("Stored file could not be written: {$key}");
+        }
     }
 
     public function get(string $key): string
@@ -138,8 +152,11 @@ class LocalStorageBackend implements RangeReadableBackend, ServerSideCopyBackend
     public function delete(string $key): void
     {
         $path = $this->fullPath($key);
-        if (is_file($path)) {
-            unlink($path);
+        if (!is_file($path)) {
+            return;
+        }
+        if (!@unlink($path) && is_file($path)) {
+            throw new \RuntimeException("Stored file could not be removed: {$key}");
         }
     }
 
@@ -162,9 +179,18 @@ class LocalStorageBackend implements RangeReadableBackend, ServerSideCopyBackend
             \RecursiveIteratorIterator::CHILD_FIRST
         );
         foreach ($items as $item) {
-            $item->isDir() ? rmdir((string) $item) : unlink((string) $item);
+            $path = (string) $item;
+            $removed = $item->isDir() ? @rmdir($path) : @unlink($path);
+            if (!$removed && file_exists($path)) {
+                // Partially deleted and reported as done is how a caller
+                // comes to believe an album's files are gone while they
+                // are still occupying — and still being paid for.
+                throw new \RuntimeException("Stored files under the prefix could not all be removed: {$prefix}");
+            }
         }
-        rmdir($dir);
+        if (!@rmdir($dir) && is_dir($dir)) {
+            throw new \RuntimeException("Storage directory could not be removed: {$prefix}");
+        }
     }
 
     /**
@@ -318,11 +344,60 @@ class LocalStorageBackend implements RangeReadableBackend, ServerSideCopyBackend
         $base = $this->normalize($this->baseDirectory);
         $full = $this->normalize($base . '/' . ltrim($key, '/'));
 
-        if ($full !== $base && !str_starts_with($full, $base . '/')) {
+        // `$base . '/'` would be `//` for a location at the filesystem
+        // root, which nothing starts with — every key would be read as an
+        // escape. rtrim() first, and the root becomes the single slash
+        // every absolute path does start with.
+        if ($full !== $base && !str_starts_with($full, rtrim($base, '/') . '/')) {
             throw new \RuntimeException("Storage key escapes its location: {$key}");
         }
 
+        $this->assertNoSymbolicEscape($base, $full, $key);
+
         return $full;
+    }
+
+    /**
+     * The lexical check above reads the TEXT of the path; the filesystem
+     * reads its links. A directory below the root that is a symbolic link
+     * elsewhere makes a perfectly well-formed key resolve outside the
+     * location — and `deletePrefix()` would then remove somebody else's
+     * files with this process's permissions.
+     *
+     * So the deepest ancestor that actually exists is resolved, and has
+     * to still be inside the root. Only what exists can be resolved:
+     * the target of a `put()` does not yet, which is why the lexical
+     * check stays and this one climbs to the first real directory rather
+     * than failing on a missing leaf.
+     *
+     * @throws \RuntimeException when a real path below the root leads out of it
+     */
+    private function assertNoSymbolicEscape(string $base, string $full, string $key): void
+    {
+        $realBase = realpath($base);
+        if ($realBase === false) {
+            // The location's own directory does not exist yet — there is
+            // no link to follow, and creating it is put()'s business.
+            return;
+        }
+
+        $existing = $full;
+        while ($existing !== $base && !file_exists($existing)) {
+            $parent = dirname($existing);
+            if ($parent === $existing) {
+                return;
+            }
+            $existing = $parent;
+        }
+
+        $realExisting = realpath($existing);
+        if ($realExisting === false) {
+            return;
+        }
+
+        if ($realExisting !== $realBase && !str_starts_with($realExisting, rtrim($realBase, '/') . '/')) {
+            throw new \RuntimeException("Storage key resolves outside its location through a link: {$key}");
+        }
     }
 
     /** The inverse of {@see fullPath()}, for a path this walk produced. */
