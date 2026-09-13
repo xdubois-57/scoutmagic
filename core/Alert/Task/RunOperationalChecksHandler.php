@@ -14,10 +14,17 @@ use Core\Alert\Check\DevelopmentModeCheck;
 use Core\Alert\Check\DiskUsageCheck;
 use Core\Alert\Check\MailDeliveryCheck;
 use Core\Alert\Check\PortableBackupLingerCheck;
+use Core\Alert\Check\RemoteBackupAgeCheck;
+use Core\Alert\Check\RemoteQuotaCheck;
 use Core\Alert\OperationalAlertRepository;
 use Core\Alert\OperationalAlertService;
 use Core\Journal\JournalRepository;
 use Core\Maintenance\BackupRepository;
+use Core\Maintenance\Remote\GoogleDriveClient;
+use Core\Maintenance\Remote\GoogleDriveTarget;
+use Core\Maintenance\Remote\RemoteBackupConnection;
+use Core\Maintenance\Remote\RemoteBackupTarget;
+use Core\Security\SecretManager;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
@@ -74,11 +81,43 @@ class RunOperationalChecksHandler implements TaskHandlerInterface
             // storage/ is the site's encryption sitting next to what it
             // protects (Core\Alert\Check\PortableBackupLingerCheck).
             new PortableBackupLingerCheck(new BackupRepository($pdo)),
+            // « Could we get the site back if the hosting account itself
+            // were gone » — a different question from BackupAgeCheck's,
+            // and one a site backing up perfectly to its own disk fails
+            // completely (Core\Alert\Check\RemoteBackupAgeCheck).
+            new RemoteBackupAgeCheck($context->settings, $this->secrets($context)),
+            new RemoteQuotaCheck($this->remoteTarget($context)),
             new MailDeliveryCheck(new JournalRepository($pdo)),
             new DevelopmentModeCheck($context->settings),
         ]);
 
         $this->scheduleNext($context);
+    }
+
+    /**
+     * The destination to ask about free space, or null when there is
+     * none.
+     *
+     * Built here rather than inside the check so that the check itself
+     * stays a thing a test can hand a double to — the whole point of
+     * {@see RemoteBackupTarget} — and so that the ONE network call this
+     * daily pass makes is visible at the place the pass is assembled.
+     */
+    private function remoteTarget(TaskContext $context): ?RemoteBackupTarget
+    {
+        $connection = new RemoteBackupConnection($context->settings, $this->secrets($context));
+
+        return $connection->isConnected()
+            ? new GoogleDriveTarget($connection, new GoogleDriveClient())
+            : null;
+    }
+
+    private function secrets(TaskContext $context): SecretManager
+    {
+        return new SecretManager(
+            $context->storagePath . '/keys/master.key',
+            $context->storagePath . '/config/secrets.enc'
+        );
     }
 
     /**

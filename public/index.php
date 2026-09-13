@@ -1454,6 +1454,7 @@ $settingService->register(
 \Core\Maintenance\Remote\RemoteBackupConnection::register($settingService);
 \Core\Maintenance\Remote\RemotePassphrase::register($settingService);
 \Core\Maintenance\Remote\RemoteRetention::register($settingService);
+\Core\Maintenance\Task\SendRemoteBackupHandler::register($settingService);
 $settingService->register(
     'support_email',
     'support@scoutmagic.be',
@@ -3118,6 +3119,19 @@ $schedulerService->seed(
     'core',
     'backup_integrity',
     \Core\Maintenance\Task\VerifyBackupIntegrityHandler::REFERENCE,
+    new DateTimeImmutable()
+);
+
+// Same bootstrap for the recurring off-site send (Core\Maintenance\Task\
+// SendRemoteBackupHandler). Armed unconditionally, destination connected
+// or not: the handler's first act is to ask, and a run that finds nothing
+// raccordé simply re-arms. Arming it only when a destination exists would
+// mean the chain never starts on the request that raccords one — and
+// nothing would ever start it afterwards.
+$schedulerService->seed(
+    'core',
+    \Core\Maintenance\Task\SendRemoteBackupHandler::TASK_KEY,
+    \Core\Maintenance\Task\SendRemoteBackupHandler::REFERENCE,
     new DateTimeImmutable()
 );
 

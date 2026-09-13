@@ -242,27 +242,38 @@ class BackupService implements BackupServiceInterface
      * and paid by {@see \Core\Maintenance\Portable\SecretEnvelope}: the
      * zip layer alone would not be enough for this one archive.
      *
-     * **No gallery, and no scope to choose.** One button, one archive:
-     * this is the copy that leaves the server, and an operator deciding
-     * between four flavours of it under a warning about master keys is an
-     * operator who picks wrong once. The gallery is excluded because this
-     * archive is meant to be carried away and, from IT-08, uploaded on a
-     * schedule — the photos are what makes an archive too big for both.
+     * **One button, one archive — for the operator who presses it.** The
+     * Maintenance page offers no choice of flavour here: this is the copy
+     * that leaves the server, and somebody deciding between four of them
+     * under a warning about master keys is somebody who picks wrong once.
+     * So `$includeGallery` is not a fifth scope on that button; it
+     * defaults to false and only the RECURRING off-site send
+     * ({@see \Core\Maintenance\Task\SendRemoteBackupHandler}) ever
+     * passes true, from a setting configured once rather than chosen in
+     * the moment. Photographs are what makes an archive too big to carry
+     * away and too big to upload weekly, which is why the default is the
+     * same on both paths.
      *
      * @param string      $passphrase    already length-checked by
      *        {@see \Core\Maintenance\Portable\PortablePassphrase}; this
      *        class only refuses an empty one, as its sibling does.
      * @param string      $version       what to write in the manifest
      * @param string|null $installationId the origin, or null when unknown
+     * @param bool        $includeGallery whether `storage/gallery/` travels
      * @return array{zipPath: string, dbDumpPath: string}
      * @throws BackupException
      */
-    public function createPortableBackup(string $passphrase, string $version, ?string $installationId): array
-    {
+    public function createPortableBackup(
+        string $passphrase,
+        string $version,
+        ?string $installationId,
+        bool $includeGallery = false
+    ): array {
         return $this->writeArchive(
             Backup::PORTABLE_TYPE,
             $passphrase,
-            new PortableManifest($version, $installationId, false, new \DateTimeImmutable())
+            new PortableManifest($version, $installationId, false, new \DateTimeImmutable()),
+            $includeGallery
         );
     }
 
@@ -277,11 +288,20 @@ class BackupService implements BackupServiceInterface
      * @param PortableManifest|null $manifest present exactly when this is a
      *        portable archive; its presence is what adds the sealed secrets
      *        and the manifest member, so the two can never be separated.
+     * @param bool $alsoGallery forces the gallery in for a scope that does
+     *        not name it — the portable one, whose caller decides. The
+     *        four named scopes still decide it by name, so nothing can
+     *        turn a `full_no_gallery` into an archive with photographs in
+     *        it by passing a flag.
      * @return array{zipPath: string, dbDumpPath: string}
      * @throws BackupException
      */
-    private function writeArchive(string $scope, string $password, ?PortableManifest $manifest): array
-    {
+    private function writeArchive(
+        string $scope,
+        string $password,
+        ?PortableManifest $manifest,
+        bool $alsoGallery = false
+    ): array {
         if ($password === '') {
             throw new BackupException('Un mot de passe est requis.');
         }
@@ -312,11 +332,18 @@ class BackupService implements BackupServiceInterface
         // time would let the dump succeed and the archive run out of room
         // half-written — the exact mid-write truncation this guard exists
         // to prevent, arrived at through the guard itself.
+        // The gallery is in exactly when the scope names it, or when a
+        // portable caller asked for it. Resolved once, here, so the
+        // estimate below and the walk further down cannot disagree — and
+        // an estimate that forgot the photographs is a reservation that
+        // runs out half way through writing them.
+        $includeGallery = $scope === 'full_with_gallery' || ($manifest !== null && $alsoGallery);
+
         $this->diskBudget?->ensureRoom(
             $this->estimateDatabaseDumpBytes()
             + ($scope === 'full_config'
                 ? 0
-                : $this->estimateFileBackupBytes($scope === 'full_with_gallery', self::FULL_BACKUP_TOP_LEVEL))
+                : $this->estimateFileBackupBytes($includeGallery, self::FULL_BACKUP_TOP_LEVEL))
             + ($manifest !== null ? $this->estimateSecretMemberBytes() : 0)
         );
 
@@ -334,7 +361,6 @@ class BackupService implements BackupServiceInterface
             $manifest?->addMember('database.sql', $this->digestOf($dbDumpPath), (int) filesize($dbDumpPath));
 
             if ($scope !== 'full_config') {
-                $includeGallery = $scope === 'full_with_gallery';
                 // Deliberately NOT BACKED_UP_TOP_LEVEL: this archive is
                 // the operator's own downloadable backup, and every entry
                 // in it is separately AES-256 encrypted
