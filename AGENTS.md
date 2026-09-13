@@ -20,7 +20,7 @@ This file is automatically loaded by Devin, Cursor, Copilot, and other AI coding
 - No exceptions beyond that one. A French variable name or an English UI
   label is always a bug, and so is an English commit message or PR title.
 - **A Twig comment is a comment**, so it is English, and the repository does
-  not yet match: 119 French ones survive across 37 template files, against
+  not yet match: 144 French ones survive across 45 template files, against
   roughly a thousand English (issue #327). That is the rule being owed a
   correction, not the rule being softer than it reads — so write yours in
   English, and translate a file's comments when a change takes you into it

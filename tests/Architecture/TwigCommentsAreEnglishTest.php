@@ -17,13 +17,13 @@ use PHPUnit\Framework\TestCase;
  *
  * Issue #327 measured the gap rather than asserting it: 122 substantial
  * French comments across 38 template files, against roughly a thousand
- * English ones — 119 across 37 by the time this landed, #325 having
- * translated `partials/file_link.html.twig` and part of
- * `config/maintenance.html.twig` in between, which is the file-by-file
- * correction this rule expects rather than an exception to it.
- * So English IS the convention here — the divergence is old,
+ * English ones. This detector, which is stricter than the issue's, finds
+ * **144 across 45** — #325 having translated `partials/file_link.html.twig`
+ * and part of `config/maintenance.html.twig` in between, which is the
+ * file-by-file correction this rule expects rather than an exception to
+ * it. So English IS the convention here — the divergence is old,
  * concentrated and minority — but a rule stated as absolute over a corpus
- * that is 89 % compliant tells the next contributor nothing about which
+ * that is 86 % compliant tells the next contributor nothing about which
  * half is authoritative. That ambiguity is what produced two review
  * findings on #325, and a wrong call in between them.
  *
@@ -45,10 +45,18 @@ use PHPUnit\Framework\TestCase;
  * that silencing a finding of your own by adding it to a baseline is not
  * allowed, and every entry here predates the rule.
  *
- * Nothing is translated in bulk. Forty files rewritten in one commit would
- * cost the `git blame` of every one of them, for prose in the maintainer's
- * own voice; the issue asks for it file by file, as pull requests touch
- * them anyway.
+ * Nothing is translated in bulk. Forty-five files rewritten in one commit
+ * would cost the `git blame` of every one of them, for prose in the
+ * maintainer's own voice; the issue asks for it file by file, as pull
+ * requests touch them anyway.
+ *
+ * **What this does NOT promise.** It is a floor, not a proof. A short
+ * comment carrying few function words — « Zone dangereuse — seulement là
+ * où passer outre a un sens. » scores 0.10 — stays under the threshold,
+ * and no statistical detector will ever settle every case. The claim is
+ * the ordinary one: a French comment written the way the 144 below are
+ * written fails this test. Read the rule, do not test against the
+ * detector.
  */
 final class TwigCommentsAreEnglishTest extends TestCase
 {
@@ -60,19 +68,34 @@ final class TwigCommentsAreEnglishTest extends TestCase
     private const MINIMUM_WORDS = 8;
 
     /**
-     * How many French function words must appear before a comment counts
-     * as French. Deliberately high. A detector that fires on a legitimate
-     * English comment quoting a French interface string — which several
-     * comments here do, at length — would make this test a nuisance that
-     * gets deleted, and the rule would go back to being unenforced. The
-     * cost of erring this way is a short French comment slipping through,
-     * which is the cheaper mistake.
+     * What share of a comment's words must be French function words.
+     *
+     * A DENSITY, not a count, and the difference is the whole accuracy of
+     * this. Counting hits made length the real test: « La conservation est
+     * annoncée AVANT le dépôt, pas découverte après. » is unmistakably
+     * French and scores four, so a threshold of six let it — and anything
+     * else short — through, while the class claimed new French comments
+     * fail. As a share it is 0.40 and nothing about it is borderline.
+     *
+     * 0.16 comes from the corpus rather than from taste. Measured over all
+     * 1045 substantial comments, every one scoring 0.167 or more is French
+     * and the highest-scoring English one reaches 0.130 — so the threshold
+     * sits in the gap, with the margin on the side that matters.
      */
-    private const MINIMUM_FRENCH_MARKERS = 6;
+    private const MINIMUM_FRENCH_DENSITY = 0.16;
 
+    /**
+     * Unambiguous French function words only. `a`, `on`, `en` and `plus`
+     * were in an earlier version and had to go: they are ordinary English
+     * words too, and they alone pushed « A GET form: a reading has to
+     * survive being bookmarked and sent on. » to within a hair of the
+     * threshold.
+     */
     private const FRENCH_MARKERS = [
-        'le', 'la', 'les', 'des', 'une', 'un', 'qui', 'que', 'pour',
-        'dans', 'est', 'pas', 'ce', 'sur', 'du', 'au', 'et', 'ne',
+        'le', 'la', 'les', 'des', 'une', 'un', 'qui', 'que', 'pour', 'dans',
+        'est', 'pas', 'ce', 'cette', 'sur', 'du', 'au', 'aux', 'et', 'ne',
+        'de', 'elle', 'il', 'se', 'par', 'avec', 'ou', 'sa', 'ses', 'leur',
+        'mais', 'donc', 'sont', 'être', 'été',
     ];
 
     /**
@@ -87,38 +110,46 @@ final class TwigCommentsAreEnglishTest extends TestCase
      * @var array<string, int>
      */
     private const FRENCH_COMMENT_ALLOWLIST = [
+        'core/View/templates/admin/attention.html.twig' => 1,
         'core/View/templates/admin/duplicates.html.twig' => 1,
+        'core/View/templates/admin/import.html.twig' => 1,
         'core/View/templates/admin/import_barrier.html.twig' => 4,
-        'core/View/templates/admin/members/show.html.twig' => 6,
+        'core/View/templates/admin/import_history.html.twig' => 1,
+        'core/View/templates/admin/import_report.html.twig' => 1,
+        'core/View/templates/admin/members/show.html.twig' => 7,
         'core/View/templates/base.html.twig' => 2,
         'core/View/templates/config/maintenance.html.twig' => 12,
         'core/View/templates/config/support.html.twig' => 18,
         'core/View/templates/members/show.html.twig' => 1,
         'core/View/templates/setup/index.html.twig' => 2,
         'modules/camps/views/camp.html.twig' => 1,
-        'modules/camps/views/camp_form.html.twig' => 2,
+        'modules/camps/views/camp_form.html.twig' => 3,
         'modules/camps/views/documents.html.twig' => 1,
+        'modules/camps/views/place_form.html.twig' => 1,
         'modules/finance/views/campaigns/list.html.twig' => 1,
         'modules/finance/views/dashboard.html.twig' => 1,
-        'modules/finance/views/partials/receivable_picker.html.twig' => 1,
         'modules/finance/views/receipts/_grid.html.twig' => 1,
         'modules/finance/views/reconciliation.html.twig' => 1,
         'modules/gallery/views/config.html.twig' => 1,
         'modules/inbound_mail/views/config/index.html.twig' => 1,
+        'modules/leadership/views/obligations.html.twig' => 1,
+        'modules/leadership/views/partials/_person_list.html.twig' => 1,
         'modules/leadership/views/training.html.twig' => 1,
         'modules/presences/views/anime.html.twig' => 4,
-        'modules/presences/views/index.html.twig' => 4,
-        'modules/presences/views/sheet.html.twig' => 2,
+        'modules/presences/views/index.html.twig' => 7,
+        'modules/presences/views/partials/_presence_line.html.twig' => 1,
+        'modules/presences/views/sheet.html.twig' => 4,
+        'modules/registration/views/_passage_statistics.html.twig' => 1,
         'modules/registration/views/config.html.twig' => 6,
-        'modules/registration/views/forecast.html.twig' => 1,
+        'modules/registration/views/forecast.html.twig' => 3,
         'modules/registration/views/public.html.twig' => 1,
         'modules/rental/views/management/booking.html.twig' => 1,
         'modules/support_dashboard/views/_nav.html.twig' => 1,
-        'modules/support_dashboard/views/index.html.twig' => 6,
+        'modules/support_dashboard/views/index.html.twig' => 12,
         'modules/support_dashboard/views/partials/detail.html.twig' => 2,
         'modules/support_dashboard/views/partials/probes_table.html.twig' => 4,
-        'modules/support_dashboard/views/ticket.html.twig' => 8,
-        'modules/support_dashboard/views/tickets.html.twig' => 8,
+        'modules/support_dashboard/views/ticket.html.twig' => 9,
+        'modules/support_dashboard/views/tickets.html.twig' => 9,
         'modules/usage_stats/views/modules.html.twig' => 3,
         'modules/usage_stats/views/overview.html.twig' => 5,
         'modules/usage_stats/views/pages.html.twig' => 3,
@@ -162,19 +193,40 @@ final class TwigCommentsAreEnglishTest extends TestCase
         return $paths;
     }
 
+    /**
+     * Quoted interface text is stripped before scoring, and that is a rule
+     * rather than a convenience: `AGENTS.md` says user-facing text IS
+     * French, so an English comment quoting the label it describes — « Ne
+     * plus me proposer », say — is correct on both counts. Scoring the
+     * quotation would punish the comment for obeying the other half of the
+     * same rule.
+     */
+    private static function frenchDensity(string $comment): float
+    {
+        $prose = preg_replace('/«.*?»/su', ' ', $comment) ?? $comment;
+        $prose = mb_strtolower($prose, 'UTF-8');
+
+        // An elided article — l', d', qu', n' — is French and has no
+        // English equivalent, so it counts as a marker in its own right.
+        $hits = preg_match_all("/\b(?:l|d|n|j|m|s|t|c|qu)['’]/u", $prose);
+
+        $words = preg_split('/[^a-zà-ÿ]+/u', $prose, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        if (count($words) < self::MINIMUM_WORDS) {
+            return 0.0;
+        }
+
+        foreach ($words as $word) {
+            if (in_array($word, self::FRENCH_MARKERS, true)) {
+                $hits++;
+            }
+        }
+
+        return $hits / count($words);
+    }
+
     private static function looksFrench(string $comment): bool
     {
-        $words = preg_split('/\s+/', trim($comment), -1, PREG_SPLIT_NO_EMPTY) ?: [];
-        if (count($words) < self::MINIMUM_WORDS) {
-            return false;
-        }
-
-        $hits = 0;
-        foreach (self::FRENCH_MARKERS as $marker) {
-            $hits += preg_match_all('/\b' . $marker . '\b/i', $comment);
-        }
-
-        return $hits >= self::MINIMUM_FRENCH_MARKERS;
+        return self::frenchDensity($comment) >= self::MINIMUM_FRENCH_DENSITY;
     }
 
     public function testNoTwigTemplateGainsAFrenchComment(): void
@@ -224,6 +276,14 @@ final class TwigCommentsAreEnglishTest extends TestCase
             . "l'application ne parte pas sur le fichier."
         ));
 
+        // The real comment (admin/import.html.twig) that the first version
+        // of this detector let through: French beyond argument, but only
+        // ten words long, so counting markers made length the test rather
+        // than language. As a density it is nowhere near the line.
+        $this->assertTrue(self::looksFrench(
+            'La conservation est annoncée AVANT le dépôt, pas découverte après.'
+        ));
+
         $this->assertFalse(self::looksFrench(
             'The link opens in a new tab so the installed application window does not navigate away '
             . 'to the file itself.'
@@ -234,6 +294,12 @@ final class TwigCommentsAreEnglishTest extends TestCase
         $this->assertFalse(self::looksFrench(
             'The button reads « Enregistrer les modifications » here rather than « Valider », '
             . 'because the form saves in place and never leaves the page.'
+        ));
+
+        // The English comment that came closest to tripping the earlier
+        // marker list, and the reason `a` and `on` are no longer in it.
+        $this->assertFalse(self::looksFrench(
+            'A GET form: a reading has to survive being bookmarked and sent on.'
         ));
 
         // And the floor: too short to judge, so left alone either way.
