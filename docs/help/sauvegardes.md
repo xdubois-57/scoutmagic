@@ -11,14 +11,10 @@ paths: /config/maintenance
 related: sauvegarde-portable, sauvegardes-conserver, mises-a-jour, reinitialisation
 ---
 
-Le bloc « Sauvegarde manuelle » de la page Maintenance protège votre
-site : il produit des copies de la base de données et des fichiers, à la
-demande. Le bloc suivant, « Sauvegarde automatique », fait la même chose
-seul, à la fréquence que vous choisissez.
-
-Les blocs de cette page arrivent repliés, sauf les deux premiers
-(« État » et « Mise à jour ») : cliquez sur le titre d'un bloc pour
-l'ouvrir.
+Le bloc « Sauvegarde manuelle » de la page Maintenance copie la base de
+données et les fichiers à la demande ; « Sauvegarde automatique », juste
+en dessous, fait la même chose seul. Les blocs de cette page arrivent
+repliés : cliquez sur un titre pour l'ouvrir.
 
 ## L'espace disque, avant tout le reste
 
@@ -65,11 +61,9 @@ les clés. Il prend aussi une sauvegarde de sécurité avant chaque mise à
 jour et chaque action de réinitialisation, sans que vous ayez rien à
 faire.
 
-Cette fréquence ne décide **que** de ce qui s'écrit sur votre serveur.
-Elle ne règle en rien les envois vers un compte distant : ceux-là ont
-leur propre cadence, dans le bloc « Sauvegarde hors site », et le sujet
-« Envoyer les sauvegardes chez Google » explique pourquoi les deux ne
-se rejoignent pas.
+Cette fréquence ne décide que de ce qui reste sur le serveur : les
+envois hors site ont la leur, et « Ce que le site envoie sur Drive, et
+la phrase qui l'ouvre » l'explique.
 
 Ce qui devient de ces copies — combien le site en garde, comment les
 télécharger et les supprimer — est le sujet « Conserver et supprimer

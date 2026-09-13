@@ -23,20 +23,9 @@ envoie un morceau. Un envoi interrompu — serveur redémarré, connexion
 coupée — reprend où il s'était arrêté plutôt que de tout recommencer.
 
 **Ce rythme n'est pas celui du bloc « Sauvegarde automatique ».** Les
-deux mécanismes ne partagent aucun réglage, et il est normal de lire
-« Hebdomadaire » dans l'un et « toutes les 24 heures » dans l'autre :
-
-- « Sauvegarde automatique » écrit une archive **sur votre serveur**, à
-  la fréquence que vous choisissez. Elle n'est pas chiffrée — personne
-  n'est là à trois heures du matin pour taper un mot de passe — et c'est
-  précisément pour cela qu'elle ne part jamais chez un tiers.
-- « Sauvegarde hors site » construit **sa propre archive** au moment de
-  l'envoi, portable et chiffrée avec la phrase de passe ci-dessous, et
-  c'est celle-là qui monte sur le Drive. Sa cadence de vingt-quatre
-  heures ne se règle pas.
-
-Changer la fréquence du premier bloc ne change donc rien au rythme des
-envois, et mettre le premier sur « Aucune » ne les arrête pas.
+deux ne partagent aucun réglage : celui-là garde une archive non
+chiffrée sur votre serveur, celui-ci construit la sienne, chiffrée, et
+c'est elle qui part.
 
 La **galerie photo n'est pas envoyée**. Elle se compte en gigaoctets, et
 un envoi quotidien remplirait un Drive gratuit en quelques semaines ;
