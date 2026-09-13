@@ -83,7 +83,7 @@ class EditableContentController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Non authentifié.'], 403);
         }
 
-        $this->editableContentService->set($key, $value, $type, $userId);
+        $stored = $this->editableContentService->set($key, $value, $type, $userId);
 
         $this->journalService?->log(
             'core',
@@ -95,7 +95,11 @@ class EditableContentController extends AbstractController
             $userId
         );
 
-        return $this->json(['success' => true]);
+        // `value` is what was STORED, which the sanitizer may have pruned.
+        // The editor repaints the block with it rather than with its own
+        // copy of what it sent, so the page and the database agree from
+        // the moment the save returns (issue #306).
+        return $this->json(['success' => true, 'value' => $stored]);
     }
 
     /**
@@ -150,7 +154,7 @@ class EditableContentController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Non authentifié.'], 403);
         }
 
-        $this->editableContentService->set($key, $value, $type, $userId);
+        $stored = $this->editableContentService->set($key, $value, $type, $userId);
 
         $this->journalService?->log(
             'core',
@@ -162,6 +166,10 @@ class EditableContentController extends AbstractController
             $userId
         );
 
-        return $this->json(['success' => true]);
+        // `value` is what was STORED, which the sanitizer may have pruned.
+        // The editor repaints the block with it rather than with its own
+        // copy of what it sent, so the page and the database agree from
+        // the moment the save returns (issue #306).
+        return $this->json(['success' => true, 'value' => $stored]);
     }
 }

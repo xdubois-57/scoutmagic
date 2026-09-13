@@ -12,11 +12,11 @@
 // character; toStoredHtml() turns them back into source. Both halves are
 // pinned here.
 //
-// The toolbar's createLink branch is deliberately not pinned: it still
-// opens a native prompt() for the URL — the last native dialog in this file
-// — and asserting it would lock in behaviour waiting on a replacement
-// component (design.md §7.5).
+// rich-text-link.js is imported for its side effect, as base.html.twig
+// loads it on every page: since issue #306 the toolbar is its job, and a
+// stub would assert against the stub.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import '../../public/assets/js/rich-text-link.js';
 import {
     chipHtml,
     chipify,
@@ -92,6 +92,8 @@ beforeEach(() => {
     // jsdom implements no editing commands at all — every execCommand call
     // in this file is a browser-side effect this suite does not own.
     document.execCommand = vi.fn(() => true);
+    window.ScoutMagicToast = { show: vi.fn() };
+    window.ScoutMagicConfirm = { prompt: vi.fn(() => Promise.resolve(null)) };
 });
 
 describe('rich-text-form-field.js: keywordOf()', () => {
@@ -348,5 +350,25 @@ describe('rich-text-form-field.js: DOMContentLoaded wiring', () => {
         expect(surfaces[0].getAttribute('contenteditable')).toBe('true');
         expect(surfaces[0].querySelectorAll('[data-keyword]')).toHaveLength(1);
         expect(surfaces[1].getAttribute('contenteditable')).toBe('true');
+    });
+});
+
+// Issue #306: the toolbar is the shared toolbox's now.
+describe('rich-text-form-field.js: the shared toolbar (issue #306)', () => {
+    it('gives formatBlock its heading through the shared wiring', () => {
+        document.body.innerHTML = `
+            <form>
+                <div class="rich-text-form-field" data-keywords='["prix_total"]'>
+                    <button type="button" data-command="formatBlock" data-value="h2">H2</button>
+                    <div class="rich-text-form-surface" aria-hidden="true">Texte</div>
+                    <input type="hidden" class="rich-text-form-value" value="Texte">
+                </div>
+            </form>
+        `;
+        wireField(/** @type {HTMLElement} */ (document.querySelector('.rich-text-form-field')));
+
+        document.querySelector('[data-command="formatBlock"]').dispatchEvent(new Event('click'));
+
+        expect(document.execCommand).toHaveBeenCalledWith('formatBlock', false, '<h2>');
     });
 });

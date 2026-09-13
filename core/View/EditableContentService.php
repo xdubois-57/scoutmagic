@@ -60,13 +60,24 @@ class EditableContentService
      * An `image` value is a `files` id (Core\Photo\PhotoIngestionService),
      * which the sanitizer leaves untouched — so this costs that type
      * nothing and closes the hole for good.
+     *
+     * **Returns what was actually stored**, which is not always what was
+     * sent. The editors repaint the page with their own copy of the text
+     * the moment the save succeeds, and the sanitizer had already dropped
+     * part of it: a heading applied in the editor stayed on screen until
+     * the next page load, then vanished (issue #306). Handing the stored
+     * string back is the whole fix, and it is the only one that cannot
+     * drift — a second allowlist in JavaScript would be a guess at this
+     * one, checked by nothing the day this list changes.
      */
-    public function set(string $key, string $value, string $type, int $modifiedBy): void
+    public function set(string $key, string $value, string $type, int $modifiedBy): string
     {
         $value = $this->sanitizer->sanitize($value);
 
         $this->repository->upsert($key, $type, $value, null, $modifiedBy);
         unset($this->rows[$key]);
+
+        return $value;
     }
 
     /**

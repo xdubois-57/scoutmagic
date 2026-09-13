@@ -62,6 +62,35 @@ class EditableContentServiceTest extends TestCase
         $this->assertSame('second', $this->service->get('memo.key'));
     }
 
+    /**
+     * The editors repaint the page the moment a save succeeds, and what
+     * they repainted with was their own copy of what they sent — which the
+     * sanitizer had already pruned. A heading applied in the shared modal
+     * therefore stayed on screen until the next page load and then
+     * vanished (issue #306). set() answers with what it stored so the two
+     * cannot disagree.
+     */
+    public function testSetAnswersWithWhatItStoredRatherThanWhatItWasGiven(): void
+    {
+        $stored = $this->service->set(
+            'test.returned',
+            '<h2>Titre</h2><span class="x">Texte</span><script>alert(1)</script>',
+            'rich_text',
+            1
+        );
+
+        $this->assertSame('<h2>Titre</h2>Texte', $stored);
+        $this->assertSame($stored, $this->service->get('test.returned'));
+    }
+
+    public function testSetAnswersWithTheValueUnchangedWhenNothingNeededPruning(): void
+    {
+        $this->assertSame(
+            '<p>Déjà propre.</p>',
+            $this->service->set('test.clean', '<p>Déjà propre.</p>', 'rich_text', 1)
+        );
+    }
+
     public function testDeleteRefreshesWhatGetReturnsInTheSameRequest(): void
     {
         $this->service->set('memo.key', 'value', 'text', 1);

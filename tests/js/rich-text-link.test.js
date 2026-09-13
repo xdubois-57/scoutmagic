@@ -9,6 +9,12 @@
 // fixed are invisible until asserted: a bare host used to become a
 // relative href, and the caret used to be lost the moment a modal took
 // focus.
+//
+// Since issue #306 it also owns the toolbar, for the same reason: three
+// copies of it disagreed about `data-value`, and two of them wired the same
+// modal at once. What it deliberately does NOT own is a sanitiser — the
+// server answers each save with the string it stored, and the editors
+// repaint with that, so there is no second allowlist here to test.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 async function loadHelper() {
@@ -196,5 +202,92 @@ describe('ScoutMagicRichText.insertLink()', () => {
 
         await expect(rt.insertLink(null)).resolves.toBe(true);
         expect(execCommand).toHaveBeenCalledWith('createLink', false, 'https://lesscouts.be');
+    });
+});
+
+describe('ScoutMagicRichText.wireToolbar()', () => {
+    /** The shared modal's markup, reduced to what the toolbar needs. */
+    function toolbar() {
+        document.body.innerHTML = `
+            <div id="modal">
+                <button data-command="bold">B</button>
+                <button data-command="formatBlock" data-value="h2">H2</button>
+                <button data-command="formatBlock">P</button>
+                <button data-command="createLink">Lien</button>
+            </div>
+            <div id="surface" contenteditable="true"></div>
+        `;
+        return {
+            root: document.getElementById('modal'),
+            surface: document.getElementById('surface'),
+        };
+    }
+
+    /** @param {string} command */
+    function click(command) {
+        document.querySelector('[data-command="' + command + '"]').dispatchEvent(new Event('click'));
+    }
+
+    it('gives formatBlock the button\'s data-value, in the angle brackets browsers want', async () => {
+        const rt = await loadHelper();
+        const { root, surface } = toolbar();
+
+        rt.wireToolbar(root, surface);
+        click('formatBlock');
+
+        // editable.js passed null here, so H2, H3 and « Paragraphe » did
+        // nothing at all on every page of the site.
+        expect(execCommand).toHaveBeenCalledWith('formatBlock', false, '<h2>');
+    });
+
+    it('falls back to a paragraph rather than <undefined> on a button with no value', async () => {
+        const rt = await loadHelper();
+        const { root, surface } = toolbar();
+
+        rt.wireToolbar(root, surface);
+        document.querySelectorAll('[data-command="formatBlock"]')[1].dispatchEvent(new Event('click'));
+
+        expect(execCommand).toHaveBeenCalledWith('formatBlock', false, '<p>');
+    });
+
+    it('wires a button once however many callers ask for it', async () => {
+        const rt = await loadHelper();
+        const { root, surface } = toolbar();
+
+        // editable.js and rich-text-field.js, on a configuration-mode page.
+        rt.wireToolbar(root, surface);
+        rt.wireToolbar(root, surface);
+        click('bold');
+
+        // Twice would apply the toggle and undo it in the same click —
+        // « la plupart du temps impossible d'appliquer une mise en page ».
+        expect(execCommand).toHaveBeenCalledTimes(1);
+    });
+
+    it('hands createLink to the shared dialog rather than running it raw', async () => {
+        window.ScoutMagicConfirm.prompt = vi.fn(() => Promise.resolve('lesscouts.be'));
+        const rt = await loadHelper();
+        const { root, surface } = toolbar();
+        const afterCommand = vi.fn();
+
+        rt.wireToolbar(root, surface, afterCommand);
+        click('createLink');
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(execCommand).toHaveBeenCalledWith('createLink', false, 'https://lesscouts.be');
+        // After the dialog, never before it: a hidden input synced first
+        // would never see the link.
+        expect(afterCommand).toHaveBeenCalledTimes(1);
+    });
+
+    it('runs the after-command hook once per ordinary command too', async () => {
+        const rt = await loadHelper();
+        const { root, surface } = toolbar();
+        const afterCommand = vi.fn();
+
+        rt.wireToolbar(root, surface, afterCommand);
+        click('bold');
+
+        expect(afterCommand).toHaveBeenCalledTimes(1);
     });
 });

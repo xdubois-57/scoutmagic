@@ -50,20 +50,12 @@
     var currentKey = null;
     var currentElement = null;
 
-    // Toolbar commands
-    document.querySelectorAll('[data-command]').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            var cmd = /** @type {HTMLElement} */ (btn).dataset.command;
-            if (cmd === 'createLink') {
-                // Shared: captures the selection, asks, normalizes the URL
-                // and gives focus back. See rich-text-link.js.
-                window.ScoutMagicRichText.insertLink(editorContent);
-                return;
-            }
-            document.execCommand(cmd, false, null);
-            editorContent.focus();
-        });
-    });
+    // Toolbar commands — shared, for issue #306. This script used to wire
+    // `[data-command]` itself, document-wide and without `data-value`,
+    // which cost the H2/H3/« Paragraphe » buttons their argument and
+    // double-wired every other button against rich-text-field.js on the
+    // pages that load both. See rich-text-link.js.
+    window.ScoutMagicRichText.wireToolbar(modalEl, editorContent);
 
     // Open editor on rich text edit click
     document.querySelectorAll('.editable-content .editable-edit-btn').forEach(function (btn) {
@@ -103,7 +95,12 @@
         .then(function (json) {
             if (json.success) {
                 var overlay = currentElement.querySelector('.editable-overlay');
-                currentElement.innerHTML = html;
+                // What the SERVER stored, not what we sent it: the
+                // sanitiser prunes markup a browser leaves behind, and
+                // repainting with our own copy showed a heading that the
+                // next page load did not (issue #306). `html` only stands
+                // in for a save route that does not answer with its value.
+                currentElement.innerHTML = json.value === undefined ? html : json.value;
                 if (overlay) currentElement.prepend(overlay);
                 modal.hide();
             } else {

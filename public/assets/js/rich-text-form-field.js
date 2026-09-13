@@ -263,26 +263,11 @@ export function wireField(root) {
         form.addEventListener('submit', sync);
     }
 
-    root.querySelectorAll('[data-command]').forEach(function (button) {
-        button.addEventListener('click', function () {
-            const command = /** @type {HTMLElement} */ (button).dataset.command;
-            if (command === 'createLink') {
-                // Shared: captures the selection, asks, normalizes the URL
-                // and gives focus back. See rich-text-link.js. sync() runs
-                // after the dialog, not before it, or the inserted link
-                // would never reach the hidden field.
-                window.ScoutMagicRichText.insertLink(surface).then(sync);
-                return;
-            }
-            if (command === 'formatBlock') {
-                document.execCommand(command, false, '<' + /** @type {HTMLElement} */ (button).dataset.value + '>');
-            } else {
-                document.execCommand(command, false, null);
-            }
-            surface.focus();
-            sync();
-        });
-    });
+    // The shared toolbar wiring (rich-text-link.js). sync() is passed as
+    // the after-command hook rather than called here, so that it runs after
+    // the link dialog resolves and not before it — an inserted link would
+    // otherwise never reach the hidden field.
+    window.ScoutMagicRichText.wireToolbar(root, surface, sync);
 
     root.querySelectorAll('[data-insert-keyword]').forEach(function (button) {
         button.addEventListener('click', function () {
