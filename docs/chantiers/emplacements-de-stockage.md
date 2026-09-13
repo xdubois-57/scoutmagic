@@ -267,6 +267,28 @@ les appelants qui peuvent se la permettre : le service l'attrape pour les
 quand ils divergent — une page dont la ligne « Sert : … » est sortie vide
 propose le bouton, et le bouton tombe sur le refus.
 
+**Et le garde de service lisait encore les champs d'un backend.** Le
+re-contrôle au moment de servir les octets — celui que `SECURITY.md`
+exige, parce que l'invariant n'est autrement tenu qu'à la création de
+l'album — était écrit « est-ce une configuration S3 portant un préfixe
+public ». Or cette question répond « non » pour toute forme de stockage
+qui n'existait pas quand elle a été écrite, et répondre « non » ici
+livre les octets. C'est précisément ce que
+`servesPubliclyWithoutExpiry()` avait été mis sur l'interface pour
+empêcher, et le seul des trois appels à ne pas l'utiliser.
+
+**Et une ligne illisible pouvait éteindre le site entier.** Le calcul
+des origines `img-src` a été sorti de son `isset()` et posé **après**
+`ErrorHandler::guard()`, là où la réponse est déjà construite — alors que
+lire ces lignes peut lever, puisqu'une ligne dont le `type` est inconnu
+de cette version est refusée plutôt que mal lue. Une seule ligne
+abîmée, et c'est une réponse terminée qu'on jette, sur toutes les routes
+du site à la fois, y compris la page de configuration où il faudrait
+aller la corriger. Le bloc est désormais gardé, et
+`Tests\Architecture\ResponseTailCannotThrowTest` pose la règle pour la
+queue de réponse entière : ce qui vient après la frontière d'erreur ne
+lève pas, parce qu'une panne y coûte un en-tête et jamais le site.
+
 ### Reporté à l'itération suivante, explicitement
 
 `GalleryLocationService::diskSpaceFor()` est gardé tel quel pour une

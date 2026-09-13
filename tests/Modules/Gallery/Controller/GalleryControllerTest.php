@@ -176,6 +176,86 @@ class GalleryControllerTest extends TestCase
         );
     }
 
+    /**
+     * The serving-time guard must be asked of the LOCATION, never of one
+     * backend's own fields.
+     *
+     * SECURITY.md requires this re-check because the invariant is only
+     * enforced at album creation otherwise. It was written as « is this an
+     * S3 configuration carrying a public prefix », which answers « no »
+     * for every kind of storage that did not exist when it was written —
+     * and answering « no » here hands out the bytes. This test stands in
+     * for that future kind: a location whose configuration says it serves
+     * publicly, and which is nothing the controller has heard of.
+     */
+    public function testServeMediaRefusesADelegatedAlbumOnAnyLocationThatSaysItServesPublicly(): void
+    {
+        $locationId = $this->createPrivateS3Location();
+        $albumId = $this->createDelegatedAlbum($locationId);
+        $mediaId = $this->createDoneMedia($albumId);
+
+        $backend = $this->createMock(\Core\Storage\Location\Backend\StorageBackendInterface::class);
+        $backend->expects($this->never())->method('directUrl');
+        $backend->expects($this->never())->method('get');
+        $this->storageBackendFactory->method('create')->willReturn($backend);
+
+        $galleryLocations = $this->createMock(GalleryLocationService::class);
+        $galleryLocations->method('resolveLocationForAlbum')->willReturn(
+            $this->locationWhoseConfigServesPublicly($locationId)
+        );
+
+        $controller = new GalleryController(
+            $this->twig, $this->albumService, $this->mediaService, $this->mediaRepository, $this->memberService,
+            $this->sectionService, $this->scoutYearService, $this->storageBackendFactory,
+            $this->storageLocationService, $galleryLocations, $this->allowingRegistry()
+        );
+
+        $response = $controller->serveMedia(
+            new Request('GET', '/gallery/media/' . $mediaId . '/thumb', [], [], [], []),
+            ['media_id' => (string) $mediaId, 'size' => 'thumb']
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    /**
+     * A location of no kind in particular, whose configuration answers the
+     * one question that decides this — so the test cannot pass merely
+     * because the controller recognised an S3 record.
+     */
+    private function locationWhoseConfigServesPublicly(int $id): StorageLocation
+    {
+        $config = new class implements \Core\Storage\Location\Config\LocationConfig {
+            public function toArray(): array
+            {
+                return [];
+            }
+
+            public function describe(): string
+            {
+                return 'un stockage inconnu de ce contrôleur';
+            }
+
+            public function servesPubliclyWithoutExpiry(): bool
+            {
+                return true;
+            }
+        };
+
+        return new StorageLocation(
+            $id,
+            StorageLocationType::Local,
+            'Emplacement public',
+            false,
+            $config,
+            false,
+            null,
+            null,
+            null,
+            '2026-01-01 00:00:00'
+        );
+    }
+
     private function controllerWithRegistry(DelegatedAlbumAccessRegistry $registry): GalleryController
     {
         return new GalleryController(

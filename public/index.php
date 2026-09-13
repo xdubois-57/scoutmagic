@@ -10141,19 +10141,39 @@ $response->setCspNonce($cspNonce);
 // explicitly allowed in img-src — computed for every configured location
 // of that kind (there can be several at once), never hardcoded to one
 // provider's hostname.
-foreach ($storageLocationRepository->findAll() as $locationForCsp) {
-    $configForCsp = $locationForCsp->config;
-    if (!$configForCsp instanceof \Core\Storage\Location\Config\ObjectStorageLocationConfig) {
-        continue;
+//
+// Wrapped, and that is not defensive habit: this runs AFTER
+// ErrorHandler::guard(), which only wraps the controller, and the
+// response is already built. Reading these rows can throw — a row whose
+// `type` this version does not know is refused rather than misread
+// (StorageLocationRepository::hydrate()) — and unguarded, one such row
+// would discard a finished response on EVERY route of the site,
+// including the configuration page somebody would need to go and fix it.
+//
+// What a failure costs instead: an origin missing from img-src, so
+// images served straight from a bucket are blocked by the browser and
+// visibly do not load, while the site itself keeps working. The
+// administrator meets the real error on the storage page, where it is
+// raised inside the route boundary and says what is wrong.
+try {
+    foreach ($storageLocationRepository->findAll() as $locationForCsp) {
+        $configForCsp = $locationForCsp->config;
+        if (!$configForCsp instanceof \Core\Storage\Location\Config\ObjectStorageLocationConfig) {
+            continue;
+        }
+        $originForCsp = \Core\Storage\Location\Backend\ObjectStorageBackend::servingOrigin(
+            $configForCsp->endpoint,
+            $configForCsp->bucket,
+            $configForCsp->publicUrl
+        );
+        if ($originForCsp !== null) {
+            $response->addImgSrcOrigin($originForCsp);
+        }
     }
-    $originForCsp = \Core\Storage\Location\Backend\ObjectStorageBackend::servingOrigin(
-        $configForCsp->endpoint,
-        $configForCsp->bucket,
-        $configForCsp->publicUrl
-    );
-    if ($originForCsp !== null) {
-        $response->addImgSrcOrigin($originForCsp);
-    }
+} catch (\Throwable) {
+    // Deliberately silent, and deliberately not journalled: this is the
+    // response-building tail, reached by every request, so a broken row
+    // would write a journal line per page view.
 }
 
 // The camps map draws OpenStreetMap tiles, which are <img> from another

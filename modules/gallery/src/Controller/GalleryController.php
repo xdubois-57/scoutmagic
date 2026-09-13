@@ -26,7 +26,6 @@ use Modules\Gallery\Service\MediaFileName;
 use Modules\Gallery\Service\MediaService;
 use Core\Storage\Location\Backend\RangeReadableBackend;
 use Core\Storage\Location\Backend\StorageBackendFactory;
-use Core\Storage\Location\Config\ObjectStorageLocationConfig;
 use Core\Storage\Location\Backend\StorageBackendInterface;
 use Core\Storage\Location\StorageLocationService;
 use Twig\Environment;
@@ -631,17 +630,21 @@ class GalleryController extends AbstractController
         }
 
         // Service\DelegatedAlbumService::ensureAlbum() refuses to create a
-        // delegated album on a location with a public URL, because a public
-        // URL is world-readable and defeats the access control entirely. That
-        // invariant was only enforced at creation time: a superadmin adding
-        // a public URL to a location later would silently turn the short
-        // presign below into a permanent, unauthenticated link (a public
-        // URL prefix ignores the TTL entirely). Re-assert it here, where
-        // the bytes are actually handed out.
-        $config = $location->config;
-        if ($config instanceof ObjectStorageLocationConfig
-            && $config->publicUrl !== null && $config->publicUrl !== ''
-        ) {
+        // delegated album on a location that serves permanent public URLs,
+        // because such a URL is world-readable and defeats the access
+        // control entirely. That invariant was only enforced at creation
+        // time: a superadmin adding a public URL to a location later would
+        // silently turn the short presign below into a permanent,
+        // unauthenticated link. Re-assert it here, where the bytes are
+        // actually handed out (SECURITY.md § Gallery).
+        //
+        // Asked of the LOCATION, never of one backend's own fields. The
+        // question lives on Config\LocationConfig so that every kind of
+        // storage has to answer it — a check written as « is this an S3
+        // config with a public prefix » answers « no » for every kind that
+        // did not exist when it was written, which is the one way this
+        // guard can fail and publish somebody's private photographs.
+        if ($location->servesPubliclyWithoutExpiry()) {
             return new Response('Not Found', 404);
         }
 
