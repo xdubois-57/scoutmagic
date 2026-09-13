@@ -1168,22 +1168,17 @@
             return;
         }
 
-        var base = '/gallery/media/' + encodeURIComponent(String(item.id)) + '/';
         var image = document.createElement('img');
+        // The same rendition media_thumb.html.twig picks, and for the same
+        // reason (issue #330): the 300px thumbnail is too small for a cell
+        // that fills a phone's width on a screen with 2 to 3 physical
+        // pixels per CSS pixel. A video keeps its poster — its 'medium' is
+        // an MP4, and the poster is already the video's own resolution.
+        //
         // Built from the id the server just sent back, never from a URL
         // it sent: a path this file assembles cannot be pointed elsewhere.
-        image.src = base + 'thumb';
-        // The two renditions media_thumb.html.twig offers, and why (issue
-        // #330): the 300px thumbnail is too small for a cell that fills a
-        // phone's width on a screen with 2 to 3 physical pixels per CSS
-        // pixel. A video is excluded there and here alike — its 'medium'
-        // is an MP4, and its poster is already full resolution.
-        if (item.media_type !== 'video') {
-            image.srcset = base + 'thumb 300w, ' + base + 'medium 1200w';
-            // Written by the template that drew this cell, so the swap and
-            // the first render cannot disagree on how wide the cell is.
-            image.sizes = cell.dataset.thumbSizes || '100vw';
-        }
+        image.src = '/gallery/media/' + encodeURIComponent(String(item.id))
+            + (item.media_type === 'video' ? '/thumb' : '/medium');
         image.alt = '';
         image.className = 'w-100 h-100';
         image.style.objectFit = 'cover';

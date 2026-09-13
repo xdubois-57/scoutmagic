@@ -25,29 +25,12 @@
   thumbnail with no page reload.
 #}
 {% if media is not empty %}
-    {% set media_count = media|length %}
-    <div class="groups-media-grid groups-media-grid-{{ media_count }} mt-2">
+    <div class="groups-media-grid groups-media-grid-{{ media|length }} mt-2">
         {% for m in media %}
-            {# How wide this cell actually draws, as a share of the grid —
-               the `sizes` hint media_thumb.html.twig needs to pick between
-               the two renditions it offers (issue #330). The shares mirror
-               components.css' own .groups-media-grid-{count} rules: one
-               media fills the grid, two and four take half of it, and three
-               is a 2fr cell beside two 1fr ones. The grid itself is the
-               feed's width below 992px and is capped at 420px above it. #}
-            {% set cell_share = media_count == 1
-                ? 1
-                : (media_count == 3 ? (loop.first ? 0.67 : 0.33) : 0.5) %}
-            {% set cell_sizes = '(min-width: 992px) ' ~ (420 * cell_share)|round ~ 'px, ' ~ (100 * cell_share)|round ~ 'vw' %}
             <a href="/gallery/media/{{ m.id }}/{{ m.mediaType == 'video' ? 'original' : 'large' }}"
                target="_blank" rel="noopener" class="groups-media-cell text-decoration-none gallery-lightbox-trigger"
                data-media-id="{{ m.id }}" data-status="{{ m.processingStatus }}"
                data-type="{{ m.mediaType }}"
-               {# Same `sizes` the <img> below carries, kept on the cell so
-                  groups.js can repeat it on the thumbnail it builds when a
-                  still-processing media finishes — the two renders of the
-                  same cell must not disagree about how wide it is. #}
-               data-thumb-sizes="{{ cell_sizes }}"
                {# Only a finished media has renditions to show; gallery.js
                   skips a trigger with no data-medium-url and marks it
                   aria-disabled, which is exactly right for one still
@@ -61,7 +44,7 @@
                       this group's access on its own. #}
                    data-download-url="/gallery/media/{{ m.id }}/download"
                {% endif %}>
-                {% include '@groups/partials/media_thumb.html.twig' with { media: m, sizes: cell_sizes } %}
+                {% include '@groups/partials/media_thumb.html.twig' with { media: m } %}
             </a>
         {% endfor %}
     </div>
