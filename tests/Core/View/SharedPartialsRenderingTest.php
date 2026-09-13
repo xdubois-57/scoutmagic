@@ -544,4 +544,56 @@ final class SharedPartialsRenderingTest extends TestCase
         $this->assertStringNotContainsString('offcanvas', $html);
         $this->assertStringNotContainsString('<details', $html);
     }
+
+    /**
+     * A file link reduced to its icon still has a name, and a list of
+     * them says which file each one takes.
+     *
+     * « Sauvegardes récentes » renders up to fifteen of these rows; the
+     * visible text on each is the same icon, so the accessible name is
+     * the only thing telling them apart. `download` and the `_blank`
+     * fallback are not optional decoration either — they are what stops
+     * the installed PWA being stranded on a file with no way back
+     * (UxConventionsTest::testEveryFileLinkDownloadsOrOpensInTheInAppViewer).
+     */
+    public function testFileLinkKeepsANameWhenItIsReducedToItsIcon(): void
+    {
+        $html = $this->render(
+            "{% include 'partials/file_link.html.twig' with {
+                href: '/files/12', label: '', icon: 'download', title: 'Télécharger',
+                aria_label: 'Télécharger la sauvegarde « Complète (sans galerie) » du 03/02/2026',
+                classes: 'btn btn-sm btn-outline-secondary',
+            } only %}"
+        );
+
+        $this->assertStringContainsString('aria-label="Télécharger la sauvegarde « Complète (sans galerie) » du 03/02/2026"', $html);
+        $this->assertStringContainsString('title="Télécharger"', $html);
+        $this->assertStringContainsString('<i class="bi bi-download" aria-hidden="true"></i>', $html);
+
+        // `download` the ATTRIBUTE, and matched as one. This fixture asks
+        // for the download ICON, so a bare substring assertion is
+        // satisfied by `class="bi bi-download"` and stays green with both
+        // attributes deleted from the partial — which is precisely the
+        // regression the docblock above claims this test prevents.
+        $this->assertMatchesRegularExpression('~<a\b[^>]*\sdownload[\s>]~', $html);
+        $this->assertStringContainsString('target="_blank"', $html);
+        $this->assertStringContainsString('rel="noopener"', $html);
+
+        // No stray separator where the label used to be: the space
+        // between icon and text only exists when there is text.
+        $this->assertStringNotContainsString('</i> ', $html);
+    }
+
+    public function testFileLinkStillRendersItsLabelWhenItHasOne(): void
+    {
+        $html = $this->render(
+            "{% include 'partials/file_link.html.twig' with {
+                href: '/files/12', label: 'Rapport.pdf', icon: 'paperclip', filename: 'rapport.pdf',
+            } only %}"
+        );
+
+        $this->assertStringContainsString('</i> Rapport.pdf', $html);
+        $this->assertStringContainsString('download="rapport.pdf"', $html);
+        $this->assertStringNotContainsString('aria-label', $html);
+    }
 }

@@ -29,6 +29,7 @@ import { expect, test } from '@playwright/test';
 
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { loginAsAdmin } from '../support/admin-login.js';
+import { openCard } from '../support/collapsible-card.js';
 import { runScheduler } from '../support/scheduler.js';
 import { scaled } from '../support/timeouts.js';
 
@@ -56,8 +57,21 @@ test('maintenance backups run to completion, the auto-save saves, and the danger
     await expect(page.getByRole('heading', { level: 1, name: 'Maintenance' })).toBeVisible();
 
     // ---------------------------------------------------------------
+    // The page arrives folded, except the two boxes it is opened for.
+    // ---------------------------------------------------------------
+    // Asserted here rather than trusted: every interaction below reaches
+    // into a box this spec had to open, so a page that quietly stopped
+    // folding would make the rest of the scenario pass while testing
+    // something else.
+    await expect(page.locator('#maintenance-health-body')).toBeVisible();
+    await expect(page.locator('#maintenance-update-body')).toBeVisible();
+    await expect(page.locator('#maintenance-backups-body')).toBeHidden();
+    await expect(page.locator('#maintenance-reset-body')).toBeHidden();
+
+    // ---------------------------------------------------------------
     // The auto-backup frequency select saves on change — no button.
     // ---------------------------------------------------------------
+    await openCard(page, 'maintenance-backups-automatic');
     // The acknowledgement is a toast now (public/assets/js/maintenance.js
     // → window.ScoutMagicToast, design.md §7.5), not the inline
     // « Enregistré » span this used to reveal. Same promise, said in the
@@ -68,7 +82,10 @@ test('maintenance backups run to completion, the auto-save saves, and the danger
     await frequency.selectOption('weekly');
     await expect(savedToast).toBeVisible();
 
+    // A reload folds every box back, so the select has to be reached
+    // again before it can be read or changed.
     await page.reload({ waitUntil: 'domcontentloaded' });
+    await openCard(page, 'maintenance-backups-automatic');
     await expect(page.locator('#auto-backup-frequency')).toHaveValue('weekly');
 
     await page.locator('#auto-backup-frequency').selectOption('none');
@@ -81,6 +98,7 @@ test('maintenance backups run to completion, the auto-save saves, and the danger
     // Two buttons on the page say "Générer" (database-only, and the full
     // backup's submit); the database one is the plain form targeting the
     // synchronous endpoint.
+    await openCard(page, 'maintenance-backups');
     await page.locator('form[action="/config/maintenance/backup/database"]')
         .getByRole('button', { name: 'Générer' }).click();
     await page.waitForURL('**/config/maintenance', { waitUntil: 'domcontentloaded' });
@@ -89,13 +107,21 @@ test('maintenance backups run to completion, the auto-save saves, and the danger
     // are a list rather than a table — the family badge carries the type
     // label, so the assertion is on the badge's text, not on a cell.
     const backupsList = page.locator('#maintenance-backups-list');
+    await openCard(page, 'maintenance-backups-list');
     await expect(backupsList.getByText('Base de données', { exact: true }).first()).toBeVisible();
+
+    // Each row's two actions are icons since the boxes started folding —
+    // the accessible name is what names the backup, and it is all a
+    // screen reader has to tell fifteen identical trash icons apart.
+    await expect(backupsList.getByLabel(/^Télécharger la sauvegarde/).first()).toBeVisible();
+    await expect(backupsList.getByLabel(/^Supprimer la sauvegarde/).first()).toBeVisible();
 
     // ---------------------------------------------------------------
     // Full encrypted backup (configuration-only scope): started by a
     // hand-built fetch, finished by the status-polling loop — the page
     // reloads itself when the poll reports done, and the row appears.
     // ---------------------------------------------------------------
+    await openCard(page, 'maintenance-backups');
     await page.locator('#scope-config').check();
     await page.locator('#full-backup-password').fill(ARCHIVE_PASSWORD);
     await page.locator('#full-backup-submit').click();
@@ -111,20 +137,36 @@ test('maintenance backups run to completion, the auto-save saves, and the danger
     // The polling loop ends in window.location.reload(); waiting for the
     // finished row IS waiting for the poll to have seen 'done'. The
     // ceiling is generous — the job zips core/, modules/ and public/.
+    //
+    // Attached, not visible: that reload brings the page back with every
+    // box folded again, so the row is rendered and hidden until the list
+    // is opened. Waiting on visibility here would wait for a click this
+    // spec has not made yet.
     await expect(
         backupsList.getByText('Configuration seule', { exact: true }).first(),
         'the background backup must complete and its row appear',
-    ).toBeVisible({ timeout: scaled(120_000) });
+    ).toBeAttached({ timeout: scaled(120_000) });
+    await page.waitForLoadState('load');
+    await openCard(page, 'maintenance-backups-list');
+    await expect(backupsList.getByText('Configuration seule', { exact: true }).first()).toBeVisible();
+
+    // `#full-backup-error` lives in « Sauvegarde manuelle », which the
+    // reload folded back — and `toBeHidden()` is satisfied by ANY hidden
+    // ancestor, so asserting it against a folded card passes whatever the
+    // element says. The card is reopened first so the assertion is about
+    // the error's own `d-none` again, which is what it was written to
+    // check.
+    await openCard(page, 'maintenance-backups');
     await expect(page.locator('#full-backup-error')).toBeHidden();
 
     // ---------------------------------------------------------------
     // The webhook secret (dev-level auto-updates): revealed only by the
     // superadmin POST, shown exactly once.
     // ---------------------------------------------------------------
-    // The backup poll ended in the page's own location.reload() — wait
-    // for the fresh document to fully load, or the toggles below race
+    // The backup poll ended in the page's own location.reload() — the
+    // load state was awaited above, or the toggles below would race
     // maintenance.js re-attaching its listeners.
-    await page.waitForLoadState('load');
+    await openCard(page, 'maintenance-auto-update');
     await page.locator('#auto-update-enabled').check();
     await page.locator('#auto-update-level-dev').check();
     await expect(page.locator('#auto-update-webhook-section')).toBeVisible();
@@ -142,6 +184,7 @@ test('maintenance backups run to completion, the auto-save saves, and the danger
     // until its exact keyword is typed, and arms the moment it is.
     // Nothing is clicked while armed.
     // ---------------------------------------------------------------
+    await openCard(page, 'maintenance-reset');
     for (const [keywordField, submit, keyword] of [
         ['#reset-settings-keyword', '#reset-settings-submit', 'REINITIALISER'],
         ['#restore-backup-keyword', '#restore-backup-submit', 'RESTAURER'],
