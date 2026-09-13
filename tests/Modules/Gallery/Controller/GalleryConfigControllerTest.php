@@ -475,6 +475,48 @@ class GalleryConfigControllerTest extends TestCase
      * the missing attribute to null with `strict_variables` off, and
      * « not null » is true for every location there is.
      */
+    /**
+     * An album that pins no location is not an album without one: it sits
+     * on the default and has not been told so. Comparing the raw column
+     * made the table say « Non défini » about such an album AND offer it
+     * the very location it is already on as somewhere to move to — the
+     * same defect already fixed in `AlbumService::startMigration()`,
+     * surviving on the path that draws the screen.
+     */
+    public function testAnUnpinnedAlbumShowsTheDefaultAsItsCurrentLocationAndIsNotOfferedIt(): void
+    {
+        $id = $this->albumRepository->create(
+            Album::TYPE_LOCAL, 'Camp', null, '2026-01-01', null, $this->scoutYearId, null, null, $this->authorId
+        );
+        $this->storageLocationRepository->setDefault($this->locationId);
+        $elsewhereId = $this->storageLocationRepository->create(
+            StorageLocationType::Local, 'Ailleurs', new LocalLocationConfig('gallery2'), null
+        );
+
+        $body = $this->controller->index(new Request('GET', '/config/gallery', [], [], [], []), [])->getBody();
+        $row = $this->albumRow($body, 'Camp');
+
+        $this->assertStringContainsString('Stockage local', $row);
+        $this->assertStringNotContainsString('Non défini', $row);
+        // Its own location is not somewhere to move to; the other one is.
+        $this->assertStringNotContainsString('value="' . $this->locationId . '"', $row);
+        $this->assertStringContainsString('value="' . $elsewhereId . '"', $row);
+
+        // And nothing was written: a page that merely lists albums must
+        // not pin a row per line on a GET.
+        $this->assertNull($this->albumRepository->findById($id)?->locationId);
+    }
+
+    /** One album's own table row, by the label the table prints for it. */
+    private function albumRow(string $html, string $label): string
+    {
+        $start = strpos($html, htmlspecialchars($label, ENT_QUOTES));
+        $this->assertNotFalse($start, "The album « {$label} » is not listed at all.");
+        $end = strpos($html, '</tr>', $start);
+
+        return substr($html, $start, $end === false ? null : $end - $start);
+    }
+
     public function testAPublicLocationIsNotOfferedAsAMigrationTargetForADelegatedAlbum(): void
     {
         $publicId = $this->storageLocationRepository->create(

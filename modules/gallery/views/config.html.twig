@@ -176,12 +176,16 @@
                   moving it is gallery's job. Listing it nowhere is how an
                   administrator ends up unable to explain their storage bill.
                 #}
+                {# location_id is the album's EFFECTIVE location, resolved by the
+                   controller: an album that pins nothing is sitting on the default,
+                   and the raw column would say « Non défini » about it and offer it
+                   its own location to move to. #}
                 {% set migratable = [] %}
-                {% for album in local_albums %}
-                    {% set migratable = migratable|merge([{album: album, label: album.title, owner: null}]) %}
+                {% for row in local_albums %}
+                    {% set migratable = migratable|merge([{album: row.album, location_id: row.location_id, label: row.album.title, owner: null}]) %}
                 {% endfor %}
                 {% for row in delegated_albums %}
-                    {% set migratable = migratable|merge([{album: row.album, label: row.owner_label, owner: row.album.ownerType}]) %}
+                    {% set migratable = migratable|merge([{album: row.album, location_id: row.location_id, label: row.owner_label, owner: row.album.ownerType}]) %}
                 {% endfor %}
 
                 {% if migratable is empty %}
@@ -203,7 +207,7 @@
                             <tbody>
                                 {% for entry in migratable %}
                                     {% set album = entry.album %}
-                                    {% set current_location = locations|filter(l => l.id == album.locationId)|first %}
+                                    {% set current_location = locations|filter(l => l.id == entry.location_id)|first %}
                                     {# A delegated album must stay somewhere ScoutMagic can serve
                                        it through an access-controlled path: migrating one onto a
                                        public-prefix location would publish a group's photos to
@@ -211,7 +215,7 @@
                                        (Service\AlbumService::startMigration); not offering it is
                                        so nobody has to find out by trying. #}
                                     {% set other_locations = locations|filter(l =>
-                                        l.id != album.locationId
+                                        l.id != entry.location_id
                                         and (entry.owner is null or not l.servesPubliclyWithoutExpiry)
                                     ) %}
                                     <tr>

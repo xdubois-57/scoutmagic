@@ -359,6 +359,14 @@ class GalleryStorageLocationControllerTest extends TestCase
         $this->assertSame('medias/gallery', $this->localPathOf($this->storageLocationRepository->findByLabel('Disque imbriqué')));
     }
 
+    /**
+     * And the fallback is the folder the site ALREADY made, not a second
+     * spelling of « the default ». They were two — 'gallery' here,
+     * 'modules/gallery' in `ensureDefaultExists()` — so accepting this
+     * form blank created a location pointing at a different directory
+     * from the automatic one, both presented as the default local
+     * storage.
+     */
     public function testStoreFallsBackToTheDefaultSubdirWhenBlank(): void
     {
         $token = $this->csrfToken();
@@ -371,7 +379,10 @@ class GalleryStorageLocationControllerTest extends TestCase
 
         $this->controller->store($request, []);
 
-        $this->assertSame('gallery', $this->localPathOf($this->storageLocationRepository->findByLabel('Sans sous-dossier')));
+        $this->assertSame(
+            StorageLocationService::DEFAULT_PATH,
+            $this->localPathOf($this->storageLocationRepository->findByLabel('Sans sous-dossier'))
+        );
     }
 
     /**
@@ -405,5 +416,26 @@ class GalleryStorageLocationControllerTest extends TestCase
     private function localPathOf(?StorageLocation $location): ?string
     {
         return $location?->config instanceof LocalLocationConfig ? $location->config->path : null;
+    }
+
+    /**
+     * The « nouvel emplacement » form and the location the site creates by
+     * itself must propose the same folder. Two spellings meant an
+     * administrator accepting the form as-is got `storage/gallery` while
+     * the automatic default was `storage/modules/gallery` — two
+     * directories, both called the default local storage, and the photos
+     * in whichever one the album happened to resolve to.
+     */
+    public function testTheCreationFormProposesTheSameFolderTheSiteWouldCreateByItself(): void
+    {
+        $body = $this->controller->create(
+            new Request('GET', '/config/gallery/locations/new', [], [], [], []),
+            []
+        )->getBody();
+
+        $this->assertStringContainsString(
+            'value="' . StorageLocationService::DEFAULT_PATH . '"',
+            $body
+        );
     }
 }

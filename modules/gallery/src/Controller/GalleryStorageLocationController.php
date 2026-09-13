@@ -287,6 +287,13 @@ class GalleryStorageLocationController extends AbstractController
             // administrator to guess three what.
             'usages' => $location !== null ? $this->storageLocationService->usagesOf($location->id) : [],
             'gallery_s3_ai_available' => $this->s3ErrorExplainerService->isAvailable(),
+            // One spelling of « the default folder », shared with
+            // StorageLocationService::ensureDefaultExists() and with
+            // normalizeSubdir()'s blank-submit fallback. Two spellings is
+            // how a form accepted as-is creates a location pointing at a
+            // different directory from the one the site already made,
+            // both presented as the default local storage.
+            'default_local_path' => StorageLocationService::DEFAULT_PATH,
             'csrf_token' => CsrfGuard::generateToken(),
         ];
     }
@@ -315,7 +322,13 @@ class GalleryStorageLocationController extends AbstractController
 
         $subdir = trim($raw, " \t\n\r\0\x0B/");
         if ($subdir === '') {
-            return 'gallery';
+            // The SAME folder ensureDefaultExists() creates, not a second
+            // spelling of « the default ». They were 'gallery' here and
+            // 'modules/gallery' there, so accepting this form blank
+            // produced a location pointing at a different directory from
+            // the one the site had already made — both presented as the
+            // default local storage.
+            return StorageLocationService::DEFAULT_PATH;
         }
         if (mb_strlen($subdir) > 255) {
             throw new GalleryException('Le sous-dossier ne peut pas dépasser 255 caractères.');

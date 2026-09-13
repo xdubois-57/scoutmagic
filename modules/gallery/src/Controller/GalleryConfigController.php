@@ -344,10 +344,21 @@ class GalleryConfigController extends AbstractController
             'ffmpeg_available' => $this->ffmpegAvailability->check(),
             'gallery_s3_ai_available' => $this->s3ErrorExplainerService->isAvailable(),
             'locations' => $locations,
-            'local_albums' => array_values(array_filter(
-                $this->albumService->findAllForManage(),
-                fn(Album $a) => $a->isLocal()
-            )),
+            // Each album with the location it is ACTUALLY on, resolved
+            // rather than read: an album that has not been pinned yet is
+            // sitting on the default, and the raw column would have the
+            // screen say « Non défini » about it and offer its own
+            // location as somewhere to move it to.
+            'local_albums' => array_map(
+                fn(Album $a) => [
+                    'album' => $a,
+                    'location_id' => $this->galleryLocationService->effectiveLocationId($a),
+                ],
+                array_values(array_filter(
+                    $this->albumService->findAllForManage(),
+                    fn(Album $a) => $a->isLocal()
+                ))
+            ),
             // Albums another module owns. Listed HERE and nowhere else in
             // gallery: what they hold and who may see them belong to their
             // owner, but they take real space on a real location and moving
@@ -356,6 +367,7 @@ class GalleryConfigController extends AbstractController
             'delegated_albums' => array_map(
                 fn(Album $a) => [
                     'album' => $a,
+                    'location_id' => $this->galleryLocationService->effectiveLocationId($a),
                     'owner_label' => $this->delegatedAlbumDescriberRegistry->describe(
                         (string) $a->ownerType,
                         (int) $a->ownerId

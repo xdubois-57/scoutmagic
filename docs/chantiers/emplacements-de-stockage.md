@@ -200,6 +200,23 @@ l'emplacement avant de comparer, et le handler marque la migration en
 échec au lieu de se taire. Une migration qui ne peut pas démarrer doit le
 dire, sans quoi elle est indiscernable d'une migration en cours.
 
+**La même valeur nulle, une troisième fois, sur le chemin qui dessine
+l'écran.** Corrigée dans `AlbumService`, elle survivait dans le gabarit :
+le tableau de migration comparait la colonne brute, disait donc
+« Non défini » d'un album qui se tient visiblement sur le défaut, et lui
+proposait comme cible l'emplacement où il est déjà. Le contrôleur résout
+maintenant l'emplacement effectif — par un
+`GalleryLocationService::effectiveLocationId()` **qui n'écrit rien** :
+épingler est juste au moment où quelque chose va toucher les fichiers,
+pas quand un écran se contente de lister.
+
+**Et deux orthographes du même dossier par défaut.** Le formulaire et le
+repli de `normalizeSubdir()` disaient `gallery` là où
+`ensureDefaultExists()` crée `modules/gallery` : accepter le formulaire
+tel quel produisait un emplacement pointant vers un autre répertoire que
+celui que le site avait déjà fait, tous deux présentés comme le stockage
+local par défaut. Une seule constante désormais.
+
 **Et le défaut pouvait être supprimé sous les pieds des albums.**
 `distinctLocationIds()` ne comptait que les identifiants écrits, donc un
 emplacement par défaut sur lequel se tenaient des albums non encore

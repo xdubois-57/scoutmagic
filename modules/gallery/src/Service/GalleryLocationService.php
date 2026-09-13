@@ -73,6 +73,34 @@ class GalleryLocationService
     }
 
     /**
+     * The location an album's files are ACTUALLY on, without writing
+     * anything down.
+     *
+     * The read-only half of {@see resolveLocationForAlbum()}, and the
+     * distinction is the point. Resolving pins the album to the default
+     * and is right where something is about to touch its files; a screen
+     * that merely LISTS albums must not write a row per line on a GET —
+     * and must not show « Non défini » for an album that is plainly
+     * sitting on the default either, which is what reading the raw column
+     * gave.
+     *
+     * Null only for an album that hosts nothing (external), or on an
+     * installation with no location at all.
+     */
+    public function effectiveLocationId(Album $album): ?int
+    {
+        if ($album->locationId !== null) {
+            return $album->locationId;
+        }
+
+        if (!$album->isLocal()) {
+            return null;
+        }
+
+        return $this->locations->findDefault()?->id;
+    }
+
+    /**
      * Where a NEW album should be created — the location an administrator
      * chose for new albums, falling back to the site's default.
      *
