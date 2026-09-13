@@ -1,38 +1,37 @@
 {#
-  Un lien vers un fichier qui ne peut pas emprisonner l'application
-  installée.
+  A link to a file that cannot strand the installed application.
 
-  **Le défaut, et pourquoi il ne se voit que dans la PWA.** Le manifeste
-  déclare « display: standalone » avec « scope: / » : la fenêtre n'a ni
-  barre d'adresse ni bouton retour, et toutes les URL du site y restent.
-  Un clic sur un fichier est une NAVIGATION — la fenêtre quitte
-  l'application et va sur le fichier. Sur iOS il ne reste alors plus rien
-  à presser : « aucun moyen de revenir sauf tuer l'application ».
+  **The defect, and why it only shows in the PWA.** The manifest declares
+  « display: standalone » with « scope: / »: the window has no address
+  bar and no back button, and every URL of this site stays inside it. A
+  click on a file is a NAVIGATION — the window leaves the application and
+  lands on the file. On iOS there is then nothing left to press: « aucun
+  moyen de revenir sauf tuer l'application », reported in exactly those
+  words.
 
-  Deux attributs suffisent, et c'est pourquoi ce partial existe plutôt
-  qu'une consigne :
+  Two attributes are enough, and that is why this partial exists rather
+  than a guideline:
 
-    download                  le navigateur ENREGISTRE au lieu de naviguer.
-                              La fenêtre ne bouge pas. Sur iOS depuis la 13.
-    target/rel                le filet des navigateurs qui ignorent
-                              « download » : le fichier s'ouvre ailleurs,
-                              l'application reste intacte derrière.
+    download                  the browser SAVES instead of navigating.
+                              The window does not move. On iOS since 13.
+    target/rel                the net for browsers that ignore
+                              « download »: the file opens elsewhere and
+                              the application stays intact behind it.
 
-  Sur dix liens vers /files/… écrits à la main, quatre portaient
-  « target=_blank » et six non. Personne n'avait tort : il n'existait
-  aucune convention à suivre. Il y en a une, et
-  tests/Core/View/UxConventionsTest.php refuse d'en laisser repartir une
-  autre.
+  Of ten hand-written links to /files/…, four carried « target=_blank »
+  and six carried nothing. Nobody was wrong: there was no convention to
+  follow. There is one now, and tests/Core/View/UxConventionsTest.php
+  refuses to let another one get away.
 
-  Paramètres :
-    href        l'URL du fichier
+  Parameters:
+    href        the file's URL
     label       the link text; empty for a link reduced to its icon,
                 in which case `aria_label` is required — an icon has no
                 name (design.md §7.4)
-    classes     classes CSS (défaut : aucune)
-    icon        nom d'icône Bootstrap, sans le préfixe « bi- » (optionnel)
-    filename    nom de sauvegarde proposé (optionnel)
-    title       attribut title (optionnel)
+    classes     CSS classes (default: none)
+    icon        Bootstrap icon name, without the « bi- » prefix (optional)
+    filename    suggested save name (optional)
+    title       title attribute (optional)
     aria_label  accessible name, when the visible text is not enough —
                 either there is none, or a list repeats « Télécharger »
                 on every row without saying of what (optional)
