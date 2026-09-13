@@ -210,12 +210,34 @@ maintenant l'emplacement effectif — par un
 épingler est juste au moment où quelque chose va toucher les fichiers,
 pas quand un écran se contente de lister.
 
-**Et deux orthographes du même dossier par défaut.** Le formulaire et le
-repli de `normalizeSubdir()` disaient `gallery` là où
-`ensureDefaultExists()` crée `modules/gallery` : accepter le formulaire
-tel quel produisait un emplacement pointant vers un autre répertoire que
-celui que le site avait déjà fait, tous deux présentés comme le stockage
-local par défaut. Une seule constante désormais.
+**Et deux orthographes du même dossier par défaut** — puis une troisième,
+que la correction a créée. Le formulaire et le repli de
+`normalizeSubdir()` disaient `gallery` là où j'avais écrit
+`modules/gallery` dans la constante : accepter le formulaire tel quel
+produisait un emplacement pointant vers un autre répertoire que celui que
+le site avait déjà fait, tous deux présentés comme le stockage local par
+défaut.
+
+Unifier était juste ; avoir unifié **vers `modules/gallery`** ne l'était
+pas. Deux endroits du cœur nomment encore ce dossier à la main —
+`BackupService::excludedArchivePrefixes()`, qui est ce qui tient les
+photos hors d'une archive à qui on a demandé de ne pas les porter, et
+`DiskBudget::measureNow()`, qui est ce qui les compte comme la part de la
+galerie plutôt que comme « divers » — et les deux se sont retrouvés à
+désigner un répertoire vide. Une sauvegarde emportait donc en silence les
+gigaoctets qu'on lui avait dit de laisser, et la répartition annonçait
+une galerie à zéro. Rien n'échoue dans les deux cas : l'archive est
+produite, la page s'affiche, les chiffres sont simplement faux.
+
+**D16 parle des lignes de configuration, pas des photographies.** Il
+autorise à redéclarer les emplacements en base ; il ne dit rien d'un
+déplacement de fichiers sur le disque, et une constante ne doit pas le
+faire discrètement. La constante vaut donc `gallery` — le répertoire qui
+contient déjà quelque chose — et `Tests\Core\Storage\
+DefaultStorageFolderTest` tient les trois lectures ensemble, par deux
+assertions de comportement : les octets écrits sous ce dossier sont
+comptés comme la galerie, et une archive priée de l'exclure est plus
+petite que celle qui l'emporte.
 
 **Et le défaut pouvait être supprimé sous les pieds des albums.**
 `distinctLocationIds()` ne comptait que les identifiants écrits, donc un

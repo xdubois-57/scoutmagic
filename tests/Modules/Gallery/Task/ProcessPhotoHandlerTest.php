@@ -26,6 +26,7 @@ use Tests\DatabaseTestHelper;
 use Tests\Modules\Gallery\GalleryTestHelper;
 use Core\Storage\Location\StorageLocationType;
 use Core\Storage\Location\Config\LocalLocationConfig;
+use Core\Storage\Location\StorageLocationService;
 
 /**
  * @group database
@@ -256,7 +257,9 @@ class ProcessPhotoHandlerTest extends TestCase
         $media = $this->mediaRepository->findById($mediaId);
         $this->assertSame(Media::STATUS_DONE, $media->processingStatus);
         $this->assertNotNull((new AlbumRepository($this->pdo))->findById($this->albumId)?->locationId);
-        $this->assertTrue(is_file($this->storagePath . '/modules/gallery/' . $media->thumbPath));
+        $this->assertTrue(is_file(
+            $this->storagePath . '/' . StorageLocationService::DEFAULT_PATH . '/' . $media->thumbPath
+        ));
     }
 
     public function testIsANoOpWhenAlreadyDone(): void

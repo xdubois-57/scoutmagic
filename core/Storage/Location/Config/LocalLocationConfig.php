@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Storage\Location\Config;
 
+use Core\Storage\Location\StorageLocationService;
+
 /**
  * A directory on a filesystem this server can see.
  *
@@ -36,9 +38,13 @@ final class LocalLocationConfig implements LocationConfig
      */
     public static function fromArray(array $raw): self
     {
+        // The same folder StorageLocationService::DEFAULT_PATH names, and
+        // for its reasons: a record with no path is one this version could
+        // not read, and answering with a directory that holds nothing
+        // would be worse than answering with the one that does.
         $path = isset($raw['path']) && is_string($raw['path']) && $raw['path'] !== ''
             ? $raw['path']
-            : 'modules/gallery';
+            : StorageLocationService::DEFAULT_PATH;
 
         return new self($path);
     }

@@ -42,9 +42,26 @@ class StorageLocationService
      * anything — so that a gallery works on a fresh install with no
      * storage configuration at all, which is the case this whole feature
      * must not make harder.
+     *
+     * **`gallery` and not something tidier, deliberately.** This names a
+     * directory that ALREADY HOLDS FILES on every existing installation,
+     * and two other places in the core still resolve it by that name:
+     * `Core\Maintenance\BackupService::excludedArchivePrefixes()`, which
+     * is what keeps the photos out of an archive that asked not to carry
+     * them, and `Core\Storage\DiskBudget::measureNow()`, which is what
+     * reports them as the gallery's share rather than as « divers ».
+     * Renaming the constant alone would have left those two pointing at
+     * an empty directory — a backup silently including gigabytes it was
+     * told to exclude, and a breakdown reporting zero.
+     *
+     * The decision to redeclare configuration rather than convert it
+     * (D16 of the chantier) is about the location ROWS in the database.
+     * It says nothing about moving photographs on disk, and this constant
+     * must not quietly do that. `Tests\Core\Storage\
+     * DefaultStorageFolderTest` holds the three readings together.
      */
     public const DEFAULT_LABEL = 'Disque du serveur';
-    public const DEFAULT_PATH = 'modules/gallery';
+    public const DEFAULT_PATH = 'gallery';
 
     public function __construct(
         private StorageLocationRepository $repository,
