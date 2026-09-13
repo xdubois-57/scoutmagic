@@ -97,7 +97,21 @@
         // A fragment is attacker-writable, and `getElementById` is the
         // only lookup here that cannot be made to mean anything else —
         // no selector is ever built from it.
-        var anchor = document.getElementById(decodeURIComponent(hash.slice(1)));
+        //
+        // **Decoding is the part that can throw.** `#%E0%A4%A` is not
+        // valid percent-encoding and `decodeURIComponent` answers a
+        // URIError rather than a string; uncaught at load time it would
+        // take the `hashchange` registration below down with it, so one
+        // malformed fragment would stop the page reacting to every
+        // well-formed one after it.
+        var fragment;
+        try {
+            fragment = decodeURIComponent(hash.slice(1));
+        } catch {
+            return false;
+        }
+
+        var anchor = document.getElementById(fragment);
         if (!anchor) {
             return false;
         }

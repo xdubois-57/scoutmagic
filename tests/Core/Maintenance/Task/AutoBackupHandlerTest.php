@@ -176,7 +176,10 @@ class AutoBackupHandlerTest extends TestCase
      */
     public function testAnUnsetFrequencyBacksUpAtTheFrequencyTheScreenShows(): void
     {
-        $this->pdo->exec("DELETE FROM settings WHERE module_id IS NULL AND setting_key = 'backup_auto_frequency'");
+        $statement = $this->pdo->prepare(
+            'DELETE FROM settings WHERE module_id IS NULL AND setting_key = ?'
+        );
+        $statement->execute(['backup_auto_frequency']);
         $this->settings->clearCache();
         $handler = new AutoBackupHandler($this->fakeBackupService());
 

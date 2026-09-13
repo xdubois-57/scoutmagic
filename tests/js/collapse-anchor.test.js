@@ -117,6 +117,21 @@ describe('collapse-anchor.js', () => {
         expect(plain.clicked).toEqual([]);
     });
 
+    it('survives a fragment that is not valid percent-encoding', async () => {
+        // `decodeURIComponent('%E0%A4%A')` throws a URIError. Uncaught at
+        // load time it would take the `hashchange` registration with it,
+        // so one malformed fragment would stop the page reacting to every
+        // well-formed one after it — which is what the second half of
+        // this test proves does not happen.
+        const { clicked } = await load('#%E0%A4%A');
+        expect(clicked).toEqual([]);
+
+        window.location.hash = '#remote-backup';
+        window.dispatchEvent(new Event('hashchange'));
+
+        expect(clicked).toContain('remote-trigger');
+    });
+
     it('reacts to a fragment followed without a reload', async () => {
         const { clicked } = await load('');
         expect(clicked).toEqual([]);

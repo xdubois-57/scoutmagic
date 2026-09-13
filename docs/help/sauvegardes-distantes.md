@@ -22,7 +22,7 @@ secondes et une sauvegarde pèse des gigaoctets, donc chaque passage en
 envoie un morceau. Un envoi interrompu — serveur redémarré, connexion
 coupée — reprend où il s'était arrêté plutôt que de tout recommencer.
 
-**Ce rythme n'est pas celui du bloc « Sauvegarde automatique. »** Les
+**Ce rythme n'est pas celui du bloc « Sauvegarde automatique ».** Les
 deux mécanismes ne partagent aucun réglage, et il est normal de lire
 « Hebdomadaire » dans l'un et « toutes les 24 heures » dans l'autre :
 
