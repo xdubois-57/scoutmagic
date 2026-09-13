@@ -53,11 +53,10 @@
         } only %}
 
         {#
-          Un mot de passe de relais, pas un mot de passe de compte : pas de
-          partials/password_field.html.twig ici, dont la liste de contrôle
-          de complexité et le champ de confirmation décrivent un mot de
-          passe que quelqu'un CHOISIT. Celui-ci est donné par le
-          fournisseur.
+          A relay password, not an account password: no
+          partials/password_field.html.twig here, whose complexity
+          checklist and confirmation field describe a password somebody
+          CHOOSES. This one is handed out by the provider.
         #}
         {% include 'partials/form_field.html.twig' with {
             field_id: 'provider-password',

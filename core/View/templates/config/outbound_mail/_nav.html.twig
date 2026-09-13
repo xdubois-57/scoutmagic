@@ -3,15 +3,15 @@
  Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
 #}
 {#
-  Le rail de sous-pages de « Courrier sortant » — le composant partagé
-  partials/page_picker.html.twig, celui que modules/finance/views/config/
-  _nav.html.twig utilise déjà (design.md §7.6).
+  The « Courrier sortant » sub-page rail — the shared
+  partials/page_picker.html.twig component, the one
+  modules/finance/views/config/_nav.html.twig already uses (design.md §7.6).
 
-  Deux entrées pour l'instant. Les cinq autres sous-pages annoncées par le
-  chantier — Tableau de bord, Authentification, Rapports DMARC, Sonde,
-  Boîtes témoins, Rebonds — s'ajoutent ici au fil des itérations qui les
-  livrent : un onglet vers une page qui n'existe pas encore est un 404 à
-  un clic.
+  Two entries for now. The five other sub-pages the chantier announces —
+  Tableau de bord, Authentification, Rapports DMARC, Sonde, Boîtes
+  témoins, Rebonds — join this list as the iterations that deliver them
+  land: a tab pointing at a page that does not exist yet is a 404 one
+  click away.
 #}
 {% include 'partials/page_picker.html.twig' with {
     picker_id: 'outbound-mail-picker',
