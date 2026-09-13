@@ -137,21 +137,26 @@ final class HelpDiscoveryDialogTest extends TestCase
      * title alone and leaving the summary outside it — which looks
      * deliberate in a diff and wrong on screen.
      */
-    public function testTheTitleAndItsSummaryShareOneBorderedFrame(): void
+    public function testTheTitleItsSummaryAndItsLinkShareOneBorderedFrame(): void
     {
         $html = $this->render(['help_discovery' => $this->dialog([
             $this->card('publipostage', 'Comment fusionner un e-mail ?'),
         ])]);
 
+        // « En savoir plus » is INSIDE the frame, after the summary
+        // (issue #307). It used to be rendered just after the closing
+        // </div>, which read as a fourth item on the card rather than as
+        // the way into the topic the frame describes.
         $this->assertSame(
             1,
             preg_match(
                 '/<div class="border rounded[^"]*">\s*'
                     . '<p[^>]*>Titre de publipostage<\/p>\s*'
-                    . '<p[^>]*>Résumé de publipostage<\/p>\s*<\/div>/u',
+                    . '<p[^>]*>Résumé de publipostage<\/p>\s*'
+                    . '<a href="[^"]*publipostage[^"]*"[^>]*>.*?En savoir plus\s*<\/a>\s*<\/div>/us',
                 $html
             ),
-            'The topic title and its summary belong in one light frame, together.'
+            'The topic title, its summary and its link belong in one light frame, together.'
         );
 
         // The question stays OUTSIDE the frame: it is what the reader

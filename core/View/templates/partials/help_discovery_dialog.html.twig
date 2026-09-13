@@ -45,21 +45,26 @@
                     <p class="fs-5 fw-semibold mb-3">{{ card.question }}</p>
                 {% endif %}
                 {# The answer, framed. The question above is the reader's
-                   own words; the two lines below are the help topic that
-                   answers it, and a light border is what says so at a
-                   glance. Without it the three paragraphs are one wall of
-                   text in which the title stops being a title. The frame
-                   holds the title AND its summary — they are one thing,
-                   and a border around the title alone would separate the
-                   two halves of the same answer. #}
+                   own words; what follows is the help topic that answers
+                   it, and a light border is what says so at a glance.
+                   Without it the three paragraphs are one wall of text in
+                   which the title stops being a title.
+
+                   The frame holds the title, its summary AND the link
+                   that opens the topic — one answer, one box (issue
+                   #307). The link used to sit just below the frame, where
+                   it read as a fourth thing on the card rather than as
+                   the way into the one being described. A border drawn
+                   around two thirds of an answer separates halves that
+                   belong together. #}
                 <div class="border rounded p-3 mb-3">
                     <p class="fw-semibold mb-1">{{ card.title }}</p>
-                    <p class="text-body-secondary mb-0">{{ card.summary }}</p>
+                    <p class="text-body-secondary mb-2">{{ card.summary }}</p>
+                    <a href="{{ card.url }}" class="icon-link">
+                        <i class="bi bi-book" aria-hidden="true"></i>
+                        En savoir plus
+                    </a>
                 </div>
-                <a href="{{ card.url }}" class="icon-link">
-                    <i class="bi bi-book" aria-hidden="true"></i>
-                    En savoir plus
-                </a>
             </div>
         {% endfor %}
     {% endblock %}
