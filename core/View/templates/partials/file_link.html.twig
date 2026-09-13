@@ -26,17 +26,16 @@
 
   Paramètres :
     href        l'URL du fichier
-    label       le texte du lien ; vide pour un lien réduit à son icône,
-                et il faut alors `aria_label` — une icône n'a pas de nom
-                (design.md §7.4)
+    label       the link text; empty for a link reduced to its icon,
+                in which case `aria_label` is required — an icon has no
+                name (design.md §7.4)
     classes     classes CSS (défaut : aucune)
     icon        nom d'icône Bootstrap, sans le préfixe « bi- » (optionnel)
     filename    nom de sauvegarde proposé (optionnel)
     title       attribut title (optionnel)
-    aria_label  nom accessible, quand le texte visible ne suffit pas —
-                soit qu'il n'y en ait aucun, soit qu'une liste répète
-                « Télécharger » à chaque ligne sans dire de quoi
-                (optionnel)
+    aria_label  accessible name, when the visible text is not enough —
+                either there is none, or a list repeats « Télécharger »
+                on every row without saying of what (optional)
 #}
 <a href="{{ href }}"
    class="{{ classes|default('') }}"
