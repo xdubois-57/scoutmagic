@@ -212,7 +212,7 @@
                                        so nobody has to find out by trying. #}
                                     {% set other_locations = locations|filter(l =>
                                         l.id != album.locationId
-                                        and (entry.owner is null or not l.s3PublicUrl)
+                                        and (entry.owner is null or not l.servesPubliclyWithoutExpiry)
                                     ) %}
                                     <tr>
                                         <td>

@@ -462,6 +462,83 @@ class GalleryConfigControllerTest extends TestCase
         $this->assertStringContainsString('Migration d\'album', $response->getBody());
     }
 
+    /**
+     * A delegated album must stay somewhere ScoutMagic can serve through an
+     * access-controlled path: a location with a permanent public URL would
+     * publish a group's photos to anyone holding the link.
+     *
+     * `AlbumService::startMigration()` refuses it server-side either way —
+     * so this is about the OTHER half, the one nothing else defends: the
+     * « Migrer vers » list must not offer the destination at all. That
+     * guard is one Twig expression, and it was inert for a while without
+     * anything noticing: it read a property that had moved, Twig resolved
+     * the missing attribute to null with `strict_variables` off, and
+     * « not null » is true for every location there is.
+     */
+    public function testAPublicLocationIsNotOfferedAsAMigrationTargetForADelegatedAlbum(): void
+    {
+        $publicId = $this->storageLocationRepository->create(
+            StorageLocationType::ObjectStorage,
+            'Bucket public',
+            new ObjectStorageLocationConfig(
+                'https://s3.example.test',
+                'eu',
+                'bucket',
+                'ak',
+                'custom',
+                'https://cdn.example.test'
+            ),
+            'sk'
+        );
+        $privateId = $this->storageLocationRepository->create(
+            StorageLocationType::ObjectStorage,
+            'Bucket privé',
+            new ObjectStorageLocationConfig('https://s3.example.test', 'eu', 'bucket', 'ak', 'custom'),
+            'sk'
+        );
+        $this->albumRepository->create(
+            Album::TYPE_LOCAL,
+            'Photos du groupe',
+            null,
+            '2026-01-01',
+            null,
+            $this->scoutYearId,
+            null,
+            $this->locationId,
+            $this->authorId,
+            'discussion_group',
+            7
+        );
+        // With no describer registered, the page names a delegated album
+        // by its owner — which is what the row is found by below.
+        $rowLabel = 'discussion_group #7';
+
+        $body = $this->controller->index(new Request('GET', '/config/gallery', [], [], [], []), [])->getBody();
+
+        $row = $this->delegatedAlbumRow($body, $rowLabel);
+        $this->assertStringContainsString('Bucket privé', $row, 'A private location must still be offered.');
+        $this->assertStringNotContainsString(
+            'value="' . $publicId . '"',
+            $row,
+            'A location serving permanent public URLs must not be offered as a target for a delegated album.'
+        );
+        $this->assertStringContainsString('value="' . $privateId . '"', $row);
+    }
+
+    /**
+     * The delegated album's own table row, isolated so an assertion about
+     * what is NOT offered cannot be satisfied by some other row of the
+     * page that legitimately names the same location.
+     */
+    private function delegatedAlbumRow(string $html, string $label): string
+    {
+        $start = strpos($html, htmlspecialchars($label, ENT_QUOTES));
+        $this->assertNotFalse($start, 'The delegated album is not listed at all.');
+        $end = strpos($html, '</tr>', $start);
+
+        return substr($html, $start, $end === false ? null : $end - $start);
+    }
+
     public function testMigrateAlbumStorageStartsAMigrationToAHealthyOtherLocation(): void
     {
         $id = $this->createLocalAlbum();

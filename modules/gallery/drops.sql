@@ -19,8 +19,8 @@
 -- foreign key into the core one would have accepted them.
 ALTER TABLE gallery_albums DROP FOREIGN KEY fk_gallery_albums_storage_location;
 ALTER TABLE gallery_albums DROP FOREIGN KEY fk_gallery_albums_migration_target;
-ALTER TABLE gallery_albums DROP COLUMN location_id;
-ALTER TABLE gallery_albums DROP COLUMN migration_target_id;
+ALTER TABLE gallery_albums DROP COLUMN storage_location_id;
+ALTER TABLE gallery_albums DROP COLUMN migration_target_location_id;
 
 -- The module's own location table, superseded by core's storage_locations.
 -- Its rows are not migrated: the project is in its test phase and the
