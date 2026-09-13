@@ -54,7 +54,11 @@ final class RemoteRetention
             'Archives distantes conservées',
             'Le nombre d\'archives gardées sur la destination hors site. La borne en volume s\'applique aussi.',
             null, null, null, true, 320);
-        $settings->register(self::MAX_BYTES_SETTING, (string) self::DEFAULT_MAX_BYTES, 'text',
+        // Registered as « 10,0 Go », not as 10737418240. The description
+        // below offers the human spelling and `maxBytes()` accepts both,
+        // so a default of eleven raw digits would be the one value on the
+        // page that contradicts its own help text.
+        $settings->register(self::MAX_BYTES_SETTING, ByteFormatter::format(self::DEFAULT_MAX_BYTES), 'text',
             'Volume distant maximal',
             'L\'espace total que les archives hors site peuvent occuper, par exemple « 10 Go ».',
             null, null, null, true, 321);

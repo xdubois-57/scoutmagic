@@ -191,6 +191,30 @@ final class RemoteRetentionTest extends TestCase
 
         return $files;
     }
+
+    /**
+     * **The default an operator actually sees.**
+     *
+     * The description offers « 10 Go » as the spelling, and the field is
+     * free text. A default of eleven raw digits would be the one value on
+     * the page that contradicts its own help — and the first thing
+     * somebody would "correct", which is how a ten-gibibyte ceiling
+     * becomes a ten-gigabyte one by accident.
+     */
+    public function testTheRegisteredCeilingIsReadableAndMeansWhatItSays(): void
+    {
+        $settings = new InMemorySettingService();
+        RemoteRetention::register($settings);
+
+        $registered = (string) $settings->get(RemoteRetention::MAX_BYTES_SETTING);
+        $this->assertStringContainsString('Go', $registered, 'the default is a raw byte count on a screen');
+        $this->assertSame(
+            RemoteRetention::DEFAULT_MAX_BYTES,
+            (new RemoteRetention($settings))->maxBytes(),
+            'the value written into the settings row does not read back as the constant it came from'
+        );
+    }
+
 }
 
 /**

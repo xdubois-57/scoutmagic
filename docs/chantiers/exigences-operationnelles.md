@@ -1755,3 +1755,98 @@ n'appelle encore `upload()` en dehors du fichier témoin du bouton
 « Tester ». Le quota distant n'est pas lu au rendu de la page — cela
 coûterait une requête vers Google à chaque affichage, et la réponse dont
 l'opérateur a besoin, « ça marche », c'est le bouton qui la donne.
+
+## IT-09 — L'envoi récurrent et la rétention distante
+
+IT-08 avait posé le tuyau. Celle-ci fait passer quelque chose dedans.
+
+**Ce qui a été livré.** La tâche `send_remote_backup` construit une
+archive portable, l'envoie par tranches sous un budget de vingt secondes
+et reprogramme le reliquat ; `RemotePassphrase` détient la phrase qui la
+chiffre ; `RemoteRetention` ramène le dossier distant dans ses deux
+bornes ; deux alertes opérationnelles surveillent l'âge du dernier envoi
+et l'occupation du compte. Sur la page Maintenance, deux sections
+nouvelles : ce que ce site sait des envois, et la phrase de passe,
+affichable et régénérable. Le RGPD, `SECURITY.md`, `ARCHITECTURE.md` et
+un deuxième sujet d'aide disent ce qui a changé.
+
+**Ce qui survit entre deux passages est le vrai sujet.** Le budget de
+vingt secondes vient de `SendNotificationsHandler` et la forme est
+reprise telle quelle, mais un lot de notifications c'est une liste
+d'identifiants, alors qu'ici c'est une URI de session reprenable et un
+offset. La ligne qui les porte est écrite **avant** que la première
+tranche ne parte : un processus tué en plein envoi ne laisse rien
+d'autre, et perdre l'URI de session, c'est reconstruire plusieurs
+gibioctets pour rien. Cette ligne dit `offset_is_certain: false`, et le
+passage suivant demande donc au destinataire ce qu'il détient au lieu de
+déduire de ce qu'il avait émis — un passage peut remettre huit mébioctets
+et n'en voir valider qu'un, et seul le second nombre est sûr. Un passage
+qui se termine normalement remplace cette ligne par l'offset réellement
+atteint, de sorte que le cas ordinaire ne coûte aucune sonde.
+
+**Décision autonome : la galerie passe par un paramètre, pas par un
+scope.** Le document demande un réglage explicite pour l'inclure. Or
+`createPortableBackup()` ne connaissait pas la galerie : son scope est
+`portable`, et `writeArchive()` n'inclut `storage/gallery/` que pour
+`full_with_gallery`. Enregistrer le réglage sans toucher au constructeur
+aurait donné un interrupteur qui ne commande rien — la faute que la revue
+d'IT-08 a relevée cinq fois. Ajouter un cinquième scope aurait au
+contraire cassé le raisonnement qu'IT-06 a écrit noir sur blanc : « un
+bouton, une archive », parce qu'un opérateur qui choisit entre quatre
+saveurs sous un avertissement sur les clés maîtresses se trompe une fois.
+D'où un paramètre `includeGallery` par défaut faux : le bouton de
+Maintenance passe toujours faux et garde sa promesse, seul l'envoi
+récurrent lit un réglage — configuré une fois, pas choisi dans l'instant.
+
+**Divergence avec le dépôt : pas de second `ensureRoom()`.** Le document
+demande que `DiskBudget::ensureRoom()` s'applique avant de construire
+l'archive. Il s'applique déjà : `writeArchive()` réserve la place du dump
+et de l'archive en une seule lecture avant d'en commencer aucun des deux.
+Le rappeler depuis la tâche aurait facturé les mêmes octets deux fois au
+même budget, donc refusé des envois qui tiennent. Le commentaire de la
+tâche dit pourquoi il n'y est pas, faute de quoi quelqu'un l'ajoutera.
+
+**La phrase de passe est un écart assumé, et l'écrire quelque part ne
+suffisait pas.** Le secret du webhook n'est montré qu'une fois ; celui-ci
+est affichable à volonté. La raison tient en une ligne : il doit vivre
+dans `secrets.enc` pour que l'envoi de quatre heures du matin chiffre
+sans personne, donc quiconque lit le serveur l'a déjà, et le cacher à
+l'administrateur ne protège de rien tout en garantissant qu'un jour, le
+site encore debout, personne ne pourra ouvrir un an d'envois. Ce qui
+compense le stockage en clair, c'est l'entropie : trente caractères sur
+un alphabet de trente et un symboles, environ 148 bits, là où IT-06
+imposait seize caractères choisis par un humain. `SECURITY.md` §5 énonce
+les deux conditions de l'exception portable que cette copie ne remplit
+pas, plutôt que de laisser croire qu'elle les remplit toutes.
+
+**Ce que les tests ont trouvé.** Le premier essai enveloppait la
+construction de l'archive et l'envoi dans un seul `try`. L'échec était
+alors rapporté avec la charge utile *reçue* — donc sans le chemin de
+l'archive qui venait d'être construite : un envoi mort sur sa première
+tranche reconstruisait plusieurs gibioctets au passage suivant et
+laissait le précédent orphelin sur le disque. Les deux moitiés ont
+désormais leur propre `try`, et la seconde rapporte ce qu'elle porte.
+
+Le deuxième est un test qui mesurait mon double au lieu du code : il
+plafonnait les octets par passage lui-même, si bien que « le budget de
+temps est respecté » était vrai par construction et serait resté vert
+avec le budget supprimé. La fausse destination avance maintenant une
+horloge et ne s'arrête que sur `hasTimeLeft()`.
+
+Le troisième : la branche « la sonde répond que le fichier est déjà
+complet » n'était couverte par rien. C'est pourtant le passage mort après
+la validation de la dernière tranche — envoyer dans une session close est
+refusé, et cinq refus auraient abandonné une archive effectivement
+arrivée.
+
+**Une fragilité de la suite, corrigée en passant.**
+`InMemorySettingService` vivait au pied de `GoogleDriveTargetTest` : il
+n'était trouvé que si PHPUnit avait chargé ce fichier-là en premier, et
+PHPStan ne le voyait pas du tout. Il a désormais un fichier à son nom.
+
+**Reporté.** Rien de cette itération. Les points sortis de la revue non
+fonctionnelle et explicitement laissés de côté par le document restent
+hors chantier : la route `/health`, la rétention globale des lignes
+`scheduled_actions` terminées, la boucle de retour sur les rebonds
+d'e-mail, un seuil sur les requêtes lentes, `axe-core` dans la suite
+Playwright, et le chapitre de `README.md` sur la reprise humaine.

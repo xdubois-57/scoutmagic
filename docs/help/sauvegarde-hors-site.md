@@ -8,7 +8,7 @@ discovery: off
 question: Comment envoyer mes sauvegardes sur Google Drive ?
 question: Pourquoi mon raccordement Google Drive s'arrête-t-il au bout d'une semaine ?
 paths: /config/maintenance
-related: sauvegarde-portable, sauvegardes, restaurer-ailleurs
+related: sauvegardes-distantes, sauvegarde-portable, sauvegardes, restaurer-ailleurs
 ---
 
 Une sauvegarde posée sur le serveur qui héberge le site ne protège de
@@ -67,9 +67,16 @@ pas un compte qui accepte d'être écrit.
 ## Ce que Google voit, et ne voit pas
 
 L'autorisation `drive.file` ne donne accès qu'aux fichiers créés par ce
-site : le reste de votre Drive lui reste invisible. Ce qui y sera déposé
-est une **sauvegarde portable**, chiffrée par une phrase de passe que
-vous seul connaissez — illisible pour Google.
+site : le reste de votre Drive lui reste invisible. Ce qui y est déposé
+est une **sauvegarde portable** chiffrée — Google détient un fichier dont
+il n'a pas la clé.
 
 **Déraccorder** efface le jeton et les identifiants. Les sauvegardes déjà
-déposées restent chez vous.
+déposées restent chez vous, et vous seul pouvez les supprimer.
+
+## Et ensuite ?
+
+À partir de là, le site envoie tout seul. Ce qu'il envoie, à quel rythme,
+ce qu'il conserve et — surtout — **la phrase de passe à recopier hors du
+site** : voir [Ce que le site envoie sur Drive, et la phrase qui
+l'ouvre](/aide/sauvegardes-distantes).
