@@ -231,8 +231,8 @@ class NotificationRepository
     }
 
     /**
-     * Erasure purge for ONE type — read or not, unlike the retention purge
-     * above.
+     * Erasure purge for NAMED notifications — read or not, unlike the
+     * retention purge above.
      *
      * The two answer different questions, and that is why this exists
      * rather than a flag on the other. `deleteReadOlderThan()` serves
@@ -243,23 +243,39 @@ class NotificationRepository
      * to be read, because nobody may ever read it — and `read_at IS NOT
      * NULL` is precisely what made such a row immortal (issue #292).
      *
-     * `body` is written once at dispatch and never recomputed, so the
-     * only way a stored value stops existing is for the row to go. Deleting
-     * an unread notification is a real loss of a UI record, and it is the
-     * cheaper of the two: the alternative is a personal value outliving
-     * every retention window the site declares.
+     * `body` is written once at dispatch and never recomputed, so the only
+     * way a stored value stops existing is for the row to go.
      *
-     * Scoped to one `type_id` on purpose. A caller asks for the erasure it
-     * is responsible for; nothing here decides retention for types it does
-     * not own, and the site-wide rule above is untouched.
+     * **It takes the exact urls, not a type and an age**, and that is the
+     * whole safety of it. A type is not a data class: a module can dispatch
+     * one declared type from several paths, only some of which store
+     * something erasable, and deleting by type would silently take the
+     * others with it — unread, under a retention rule that was never about
+     * them. So the caller names the rows: it knows which records it is
+     * erasing, and `url` is what ties a notification to one of them.
+     * Anything this method is not handed keeps the site-wide promise above.
+     *
+     * `type_id` narrows rather than selects — a url belongs to a route, and
+     * pairing it with the type the caller owns is what stops a collision
+     * with some other type pointing at the same page.
      *
      * @param string $typeId the declared notification type, e.g.
      *        `mass_mail.email_received`
+     * @param string[] $urls exact `notifications.url` values; an empty list
+     *        deletes nothing
      */
-    public function deleteOfTypeOlderThan(string $typeId, \DateTimeInterface $cutoff): int
+    public function deleteOfTypeWithUrls(string $typeId, array $urls): int
     {
-        $stmt = $this->pdo->prepare('DELETE FROM notifications WHERE type_id = ? AND created_at < ?');
-        $stmt->execute([$typeId, $cutoff->format('Y-m-d H:i:s')]);
+        $urls = array_values(array_unique($urls));
+        if ($urls === []) {
+            return 0;
+        }
+
+        $placeholders = implode(',', array_fill(0, count($urls), '?'));
+        $stmt = $this->pdo->prepare(
+            'DELETE FROM notifications WHERE type_id = ? AND url IN (' . $placeholders . ')'
+        );
+        $stmt->execute(array_merge([$typeId], $urls));
 
         return $stmt->rowCount();
     }

@@ -14,6 +14,7 @@ use Core\Scheduler\TaskContext;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
 use Modules\MassMail\Repository\AudienceRepository;
+use Modules\MassMail\Service\RecipientEmailLink;
 use Modules\MassMail\Task\PurgeMergeAudiencesHandler;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -39,6 +40,9 @@ class PurgeMergeAudiencesHandlerTest extends TestCase
     private EncryptionService $encryption;
     private AudienceRepository $audienceRepository;
     private int $sectionId;
+    private int $memberId;
+    private int $scoutYearId;
+    private int $memberYearId;
 
     protected function setUp(): void
     {
@@ -54,6 +58,27 @@ class PurgeMergeAudiencesHandlerTest extends TestCase
 
         (new SettingService(new SettingRepository($this->pdo)))
             ->register('merge_retention_months', '18', 'number', 'label', 'desc', 'mass_mail', null, null, false);
+
+        // One member with a profile for one year: what a notification's
+        // deep link is built from, and therefore what the purge needs in
+        // order to rebuild it.
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('D1')");
+        $this->memberId = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec(
+            "INSERT INTO scout_years (label, start_date, end_date) VALUES ('2020-2021', '2020-09-01', '2021-08-31')"
+        );
+        $this->scoutYearId = (int) $this->pdo->lastInsertId();
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted)
+             VALUES (?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            $this->memberId,
+            $this->scoutYearId,
+            $this->encryption->encrypt('Kaa', 'member_years.first_name'),
+            $this->encryption->encrypt('Python', 'member_years.last_name'),
+        ]);
+        $this->memberYearId = (int) $this->pdo->lastInsertId();
     }
 
     private function buildContext(): TaskContext
@@ -76,7 +101,7 @@ class PurgeMergeAudiencesHandlerTest extends TestCase
         return $id;
     }
 
-    private function createEmail(int $audienceId, string $status, ?string $sentAt): int
+    private function createEmail(?int $audienceId, string $status, ?string $sentAt): int
     {
         $stmt = $this->pdo->prepare(
             "INSERT INTO mass_mail_emails (subject, body_html, section_id, list_type, audience_id, status, sent_at)
@@ -86,21 +111,55 @@ class PurgeMergeAudiencesHandlerTest extends TestCase
         return (int) $this->pdo->lastInsertId();
     }
 
-    private function insertEmailReceivedNotification(string $body, string $createdAt): int
-    {
-        return $this->insertNotification('mass_mail.email_received', $body, $createdAt);
-    }
-
-    private function insertNotification(string $typeId, string $body, string $createdAt): int
+    private function createRecipient(int $emailId, ?int $audienceRowId): int
     {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO notifications (user_account_id, type_id, title, body, created_at, read_at)
-             VALUES (1, ?, ?, ?, ?, NULL)'
+            "INSERT INTO mass_mail_recipients (email_id, member_id, scout_year_id, audience_row_id, status)
+             VALUES (?, ?, ?, ?, 'sent')"
+        );
+        $stmt->execute([$emailId, $this->memberId, $this->scoutYearId, $audienceRowId]);
+
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    /**
+     * One whole merge, as the send leaves it behind: an audience, a sent
+     * email referencing it, the row the recipient was frozen from, and the
+     * « Nouvel email » notification carrying the substituted subject — at
+     * the exact url Task\SendBatchHandler writes, which is what the purge
+     * rebuilds to find it again.
+     *
+     * @return array{audienceId: int, notificationId: int}
+     */
+    private function createMergeRecipientWithNotification(string $subject, string $sentAt): array
+    {
+        $audienceId = $this->createAudience('2020-01-01 00:00:00');
+        $emailId = $this->createEmail($audienceId, 'sent', $sentAt);
+        $rowId = $this->audienceRepository->createRow($audienceId, 0, null, 'a@test.be', ['Prenom' => 'Kaa']);
+        $recipientId = $this->createRecipient($emailId, $rowId);
+
+        return [
+            'audienceId' => $audienceId,
+            'notificationId' => $this->insertNotification(
+                'mass_mail.email_received',
+                $subject,
+                $sentAt,
+                RecipientEmailLink::url($this->memberYearId, $recipientId)
+            ),
+        ];
+    }
+
+    private function insertNotification(string $typeId, string $body, string $createdAt, ?string $url): int
+    {
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO notifications (user_account_id, type_id, title, body, url, created_at, read_at)
+             VALUES (1, ?, ?, ?, ?, ?, NULL)'
         );
         $stmt->execute([
             $typeId,
             $this->encryption->encrypt('Nouvel email', 'notifications.title'),
             $this->encryption->encrypt($body, 'notifications.body'),
+            $url,
             $createdAt,
         ]);
 
@@ -197,31 +256,112 @@ class PurgeMergeAudiencesHandlerTest extends TestCase
      * Unread is the whole point of this test: a read one was already
      * covered by the core purge.
      */
-    public function testPurgesTheUnreadNotificationsCarryingASubstitutedSubject(): void
+    public function testPurgesTheUnreadNotificationOfAPurgedAudiencesRecipient(): void
     {
-        $old = $this->insertEmailReceivedNotification('Camp de Kaa', '2020-01-01 00:00:00');
-        $recent = $this->insertEmailReceivedNotification(
+        $purged = $this->createMergeRecipientWithNotification('Camp de Kaa', '2020-06-01 00:00:00');
+        $kept = $this->createMergeRecipientWithNotification(
             'Camp de Baloo',
-            (new \DateTimeImmutable('-1 day'))->format('Y-m-d H:i:s')
+            (new \DateTimeImmutable('-1 month'))->format('Y-m-d H:i:s')
         );
 
         (new PurgeMergeAudiencesHandler())->handle([], $this->buildContext());
 
         $bodies = $this->notificationBodies();
-        $this->assertNotContains('Camp de Kaa', $bodies, 'A substituted subject may not outlive the retention.');
-        $this->assertContains('Camp de Baloo', $bodies, 'A notification inside the window is left alone.');
-        $this->assertSame([$recent], $this->notificationIds());
-        $this->assertNotContains($old, $this->notificationIds());
+        $this->assertNotContains('Camp de Kaa', $bodies, 'A substituted subject may not outlive its audience.');
+        $this->assertContains('Camp de Baloo', $bodies, 'A notification whose audience survives is left alone.');
+        $this->assertSame([$kept['notificationId']], $this->notificationIds());
+        $this->assertNull($this->audienceRepository->findById($purged['audienceId']));
+    }
+
+    /**
+     * The reason this purge names its rows instead of deleting a whole
+     * `type_id` older than the cutoff.
+     *
+     * Task\SendBatchHandler dispatches `mass_mail.email_received` for
+     * EVERY send, not just merges — the merge branch only substitutes the
+     * subject, it does not gate the notification. So a type-wide purge
+     * would also delete the notification of an ordinary list send: unread,
+     * carrying the one subject everybody got, nothing to erase, and under
+     * a setting whose own label is about imported publipostage files. The
+     * site-wide promise is that an unread notification is never purged,
+     * and this is where it has to keep holding.
+     */
+    public function testLeavesAnOrdinaryListSendsNotificationAloneHoweverOldItIs(): void
+    {
+        // A merge IS purged in the same run — without one the handler has
+        // nothing to delete and this test would pass on the broken code
+        // too.
+        $merge = $this->createMergeRecipientWithNotification('Camp de Kaa', '2020-06-01 00:00:00');
+
+        // No audience_row_id: a criteria-resolved recipient of a plain list
+        // send, the case the schema calls out as NULL. Same type, same age,
+        // same member — only the audience row tells them apart.
+        $email = $this->createEmail(null, 'sent', '2020-06-01 00:00:00');
+        $recipientId = $this->createRecipient($email, null);
+        $this->insertNotification(
+            'mass_mail.email_received',
+            'Réunion de rentrée',
+            '2020-06-01 00:00:00',
+            RecipientEmailLink::url($this->memberYearId, $recipientId)
+        );
+
+        (new PurgeMergeAudiencesHandler())->handle([], $this->buildContext());
+
+        $bodies = $this->notificationBodies();
+        $this->assertContains('Réunion de rentrée', $bodies, 'A plain list send carries nothing to erase.');
+        $this->assertNotContains('Camp de Kaa', $bodies, 'The merge beside it is still purged.');
+        $this->assertNull($this->audienceRepository->findById($merge['audienceId']));
+    }
+
+    /**
+     * An audience a draft still references is never purged, however old —
+     * and now neither is its notification. The two erasures are one
+     * decision rather than two that happen to agree.
+     */
+    public function testKeepsTheNotificationOfAnAudienceADraftStillHolds(): void
+    {
+        // Again, a merge that IS purged in the same run, so the assertion
+        // below is about the draft and not about a handler that did
+        // nothing at all.
+        $this->createMergeRecipientWithNotification('Camp de Baloo', '2020-06-01 00:00:00');
+
+        $audience = $this->createAudience('2020-01-01 00:00:00');
+        $this->createEmail($audience, 'draft', null);
+        $rowId = $this->audienceRepository->createRow($audience, 0, null, 'a@test.be', ['Prenom' => 'Kaa']);
+        $recipientId = $this->createRecipient($this->createEmail($audience, 'sent', '2020-06-01 00:00:00'), $rowId);
+        $this->insertNotification(
+            'mass_mail.email_received',
+            'Camp de Kaa',
+            '2020-06-01 00:00:00',
+            RecipientEmailLink::url($this->memberYearId, $recipientId)
+        );
+
+        (new PurgeMergeAudiencesHandler())->handle([], $this->buildContext());
+
+        $bodies = $this->notificationBodies();
+        $this->assertContains('Camp de Kaa', $bodies, 'A draft still holds this audience, so nothing is erased.');
+        $this->assertNotContains('Camp de Baloo', $bodies, 'The merge beside it is still purged.');
     }
 
     /**
      * The purge is scoped to the type this module owns. Deleting somebody
      * else's unread notifications would be a site-wide change of
-     * behaviour smuggled in as a module's retention.
+     * behaviour smuggled in as a module's retention — and a url alone is
+     * not enough, since a url belongs to a route and not to a type.
      */
     public function testLeavesOtherTypesAloneHoweverOldTheyAre(): void
     {
-        $this->insertNotification('calendar.event_created', 'Réunion de 2019', '2019-01-01 00:00:00');
+        $audience = $this->createAudience('2020-01-01 00:00:00');
+        $rowId = $this->audienceRepository->createRow($audience, 0, null, 'a@test.be', ['Prenom' => 'Kaa']);
+        $recipientId = $this->createRecipient($this->createEmail($audience, 'sent', '2020-06-01 00:00:00'), $rowId);
+
+        // Same url, another type: still not this module's to delete.
+        $this->insertNotification(
+            'calendar.event_created',
+            'Réunion de 2019',
+            '2019-01-01 00:00:00',
+            RecipientEmailLink::url($this->memberYearId, $recipientId)
+        );
 
         (new PurgeMergeAudiencesHandler())->handle([], $this->buildContext());
 

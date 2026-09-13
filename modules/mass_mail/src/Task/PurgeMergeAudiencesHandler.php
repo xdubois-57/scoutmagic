@@ -31,9 +31,11 @@ use Modules\MassMail\Repository\AudienceRepository;
  * suppression list is deliberately NOT purged here: an unsubscribe must
  * outlive any retention window.
  *
- * The « Nouvel email » notifications of sent merges go on the same horizon,
- * for the same reason and in the same pass — see the call below. That purge
- * is what lets one of them carry a substituted subject at all (issue #292).
+ * The « Nouvel email » notification of each recipient frozen from a purged
+ * audience goes with it, in the same pass and for the same reason — see the
+ * call below. That purge is what lets one of them carry a substituted
+ * subject at all (issue #292). A notification of an ordinary, non-merge send
+ * is never touched: it carries the one subject everybody got.
  *
  * Self-reschedules daily (same pattern as Modules\Registration\Task\
  * PurgeRegistrationRequestsHandler), bootstrapped once from
@@ -68,27 +70,39 @@ class PurgeMergeAudiencesHandler implements TaskHandlerInterface
             $repository->findOrphanAudienceIds($now->modify('-' . self::ORPHAN_RETENTION_DAYS . ' days'))
         )));
 
+        // Read BEFORE the deletion loop: `mass_mail_recipients.audience_row_id`
+        // is what ties a notification's recipient to the audience it was
+        // frozen from, and deleteById() sets it to NULL. Afterwards there
+        // is no way left to find these rows.
+        $notificationLinks = $repository->findRecipientEmailLinksForAudiences($ids);
+
         foreach ($ids as $id) {
             $repository->deleteById($id);
         }
 
-        // The « Nouvel email » notifications go on the same horizon, and
-        // that is what lets one of them carry a substituted subject at all
-        // (issue #292). `notifications.body` is written once at dispatch
-        // and never recomputed, so a subject like « Camp de Kaa » stored
-        // there would otherwise outlive the audience it came from —
-        // indefinitely, since the core retention purge only ever touches
-        // notifications somebody has read.
+        // The « Nouvel email » notifications of these same recipients go
+        // with them, and that is what lets one of them carry a substituted
+        // subject at all (issue #292). `notifications.body` is written once
+        // at dispatch and never recomputed, so a subject like « Camp de
+        // Kaa » stored there would otherwise outlive the audience it came
+        // from — indefinitely, since the core retention purge only ever
+        // touches notifications somebody has read.
         //
-        // Same cutoff, computed once, in the same pass: a notification is
-        // created when its email is sent, and an audience is deleted
-        // `$months` after the most recent send that references it. Running
-        // both here rather than from two daily tasks is what removes the
-        // skew between them — the alternative was a `LIKE` over
-        // `notifications.url`, the only column that links the two today,
-        // or a correlation column in a core table to serve one module.
+        // The correlation is the notification's own url, rebuilt for the
+        // recipients just erased, rather than the `type_id` and an age.
+        // That distinction is not cosmetic: Task\SendBatchHandler
+        // dispatches this one declared type for EVERY send, so purging by
+        // type would also delete the notification of an ordinary list send
+        // — unread, carrying nothing personal, under a setting whose own
+        // label is about imported publipostage files. Naming the rows is
+        // what keeps this a merge retention.
+        //
+        // It also makes the two erasures the same decision rather than two
+        // that agree today: an audience still referenced by a draft is not
+        // purged, and now neither is its notification. There is no cutoff
+        // here at all — `$ids` already is the answer.
         $notificationsPurged = (new NotificationRepository($pdo, $context->encryption))
-            ->deleteOfTypeOlderThan('mass_mail.email_received', $now->modify("-{$months} months"));
+            ->deleteOfTypeWithUrls('mass_mail.email_received', $notificationLinks);
 
         if ($ids !== [] || $notificationsPurged > 0) {
             $context->journal->log(

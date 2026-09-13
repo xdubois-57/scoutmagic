@@ -493,7 +493,12 @@ animateur peut importer un fichier Excel dont chaque ligne définit un email (me
 Tiers » ou adresse libre de la colonne « Email », y compris hors de l'unité), toutes les valeurs importées sont
 chiffrées au repos, le fichier est supprimé dès sa lecture, les données importées sont purgées automatiquement et
 définitivement 18 mois après l'envoi (durée fixe non modifiable), et la désinscription d'un destinataire externe est
-conservée sous forme d'empreinte irréversible de l'adresse, sans limite de durée
+conservée sous forme d'empreinte irréversible de l'adresse, sans limite de durée ; (e) conserver, dans la liste des
+durées de conservation de la section 3.1, l'exception qui accompagne (d) : la notification « Nouvel email » d'un
+publipostage est supprimée avec les données importées qu'elle décrit, lue ou non, alors que toute autre notification
+non lue est conservée sans limite — son texte peut reprendre le sujet personnalisé du destinataire, et le garder
+reviendrait à conserver cette valeur après l'avoir effacée partout ailleurs ; préciser que les notifications d'un
+envoi groupé ordinaire, dont le sujet est le même pour tout le monde, ne sont pas concernées
 10ter. **Actualités et formulaires** : Si news actif, conserver explicitement dans la section 2.4 : (a) que chaque
 article peut inclure un formulaire collectant une adresse email de contact (toujours obligatoire) et les réponses aux
 champs configurés par l'auteur de l'article (qui peuvent inclure nom, téléphone, email, texte libre) ; (b) que ces
