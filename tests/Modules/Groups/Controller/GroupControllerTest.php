@@ -1389,6 +1389,105 @@ class GroupControllerTest extends TestCase
     }
 
     /**
+     * Issue #330: a photo in the feed used to be served as the 300px
+     * thumbnail whatever the cell measured — a message holding ONE photo
+     * draws it at the phone's full width, which on a 2x/3x screen is
+     * three to four times that. The cell now offers the 1200px « medium »
+     * too (the rendition the lightbox already opens, so nothing has to be
+     * re-processed) and tells the browser how wide it really is.
+     */
+    public function testShowOffersTheMediumRenditionForAPhotoInTheFeed(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'CSR1');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1);
+        $this->groupRepo->setGalleryAlbumId($groupId, 42);
+        $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MSR1', $this->sectionId, $this->currentYearId);
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Une photo', '2026-01-01 10:00:00', 1, $creator);
+        (new \Modules\Groups\Repository\PostMediaRepository($this->pdo))->attach($postId, 1, 0);
+
+        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager->method('listMedia')->willReturn([
+            new DelegatedMedia(1, 'photo', 'done', 0, 'a.jpg', '2026-01-01 10:00:00'),
+        ]);
+
+        $body = $this->controller([$member], 'identified', true, $manager)
+            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
+            ->getBody();
+
+        $this->assertStringContainsString(
+            'srcset="/gallery/media/1/thumb 300w, /gallery/media/1/medium 1200w"',
+            $body
+        );
+        // A single photo fills the grid, which is the feed's own width
+        // below 992px and capped at 420px above it (components.css).
+        $this->assertStringContainsString('sizes="(min-width: 992px) 420px, 100vw"', $body);
+        // groups.js repeats the same hint when it resolves a cell that
+        // was still processing when the page was drawn.
+        $this->assertStringContainsString('data-thumb-sizes="(min-width: 992px) 420px, 100vw"', $body);
+    }
+
+    /**
+     * Four photos share the grid two by two, so each cell is half of it —
+     * and asking the browser for the full width there would download a
+     * 1200px rendition to draw a 200px cell.
+     */
+    public function testShowNarrowsTheWidthHintWhenSeveralPhotosShareTheGrid(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'CSR2');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1);
+        $this->groupRepo->setGalleryAlbumId($groupId, 42);
+        $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MSR2', $this->sectionId, $this->currentYearId);
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Quatre photos', '2026-01-01 10:00:00', 1, $creator);
+        $mediaRepo = new \Modules\Groups\Repository\PostMediaRepository($this->pdo);
+        foreach ([1, 2, 3, 4] as $index => $mediaId) {
+            $mediaRepo->attach($postId, $mediaId, $index);
+        }
+
+        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager->method('listMedia')->willReturn([
+            new DelegatedMedia(1, 'photo', 'done', 0, 'a.jpg', '2026-01-01 10:00:00'),
+            new DelegatedMedia(2, 'photo', 'done', 1, 'b.jpg', '2026-01-01 10:00:00'),
+            new DelegatedMedia(3, 'photo', 'done', 2, 'c.jpg', '2026-01-01 10:00:00'),
+            new DelegatedMedia(4, 'photo', 'done', 3, 'd.jpg', '2026-01-01 10:00:00'),
+        ]);
+
+        $body = $this->controller([$member], 'identified', true, $manager)
+            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
+            ->getBody();
+
+        $this->assertStringContainsString('sizes="(min-width: 992px) 210px, 50vw"', $body);
+        $this->assertStringNotContainsString('sizes="(min-width: 992px) 420px, 100vw"', $body);
+    }
+
+    /**
+     * A video's « medium » and « large » are MP4 files (Modules\Gallery\
+     * Task\ProcessVideoHandler), never images, and its « thumb » is an
+     * unscaled frame of the video itself. Listing that MP4 as an <img>
+     * candidate would hand the browser a video to decode as a picture.
+     */
+    public function testShowNeverOffersAVideoTheMediumRenditionAsAnImage(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'CSR3');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1);
+        $this->groupRepo->setGalleryAlbumId($groupId, 42);
+        $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MSR3', $this->sectionId, $this->currentYearId);
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Une vidéo', '2026-01-01 10:00:00', 1, $creator);
+        (new \Modules\Groups\Repository\PostMediaRepository($this->pdo))->attach($postId, 5, 0);
+
+        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager->method('listMedia')->willReturn([
+            new DelegatedMedia(5, 'video', 'done', 0, 'a.mp4', '2026-01-01 10:00:00'),
+        ]);
+
+        $body = $this->controller([$member], 'identified', true, $manager)
+            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
+            ->getBody();
+
+        $this->assertStringContainsString('/gallery/media/5/thumb', $body);
+        $this->assertStringNotContainsString('srcset=', $body);
+    }
+
+    /**
      * groups.js's own poll (public/assets/js/groups.js): a still-pending
      * cell asks again until the background resize finishes.
      */

@@ -1,14 +1,46 @@
 {#
   One media cell's inner content — the caller wraps this in a
   .groups-media-cell (position:relative, sized by its own grid). `media`
-  is a Modules\Gallery\Api\DelegatedMedia.
+  is a Modules\Gallery\Api\DelegatedMedia. `sizes` is the caller's
+  description of how wide that cell actually draws, in CSS `sizes`
+  syntax — see the srcset note below; it defaults to the widest case a
+  cell ever reaches, so a caller that forgets it gets a sharp image
+  rather than a blurry one.
 
   Never a broken image: 'pending'/'processing' shows a spinner, 'failed'
   a discreet notice, and only 'done' actually renders the thumbnail —
   matching modules/gallery's own album grid (album.html.twig).
 #}
 {% if media.processingStatus == 'done' %}
-    <img src="/gallery/media/{{ media.id }}/thumb" alt="" class="w-100 h-100" style="object-fit:cover;" loading="lazy">
+    {#
+      A PHOTO is offered in two renditions rather than one (issue #330).
+      The 300px thumbnail gallery produces (Service\ImageProcessingService
+      ::THUMB_LONG_SIDE) is right for an album's own grid, where a cell is
+      a third to a sixth of the screen — and far too small here, where one
+      photo in a message fills the phone's width (up to 420px on a
+      desktop, components.css) on a screen drawing 2 to 3 physical pixels
+      per CSS pixel. That stretch is exactly the blur the issue reported.
+      So the browser is given the 1200px 'medium' as well — the same
+      rendition the lightbox already opens, so no new size to produce and
+      nothing to re-process for the photos already online — and picks
+      between them from `sizes` and the screen's own density.
+
+      The descriptors are the renditions' LONG sides, which is the width
+      of a landscape photo and an over-estimate for a portrait one: both
+      candidates are over-stated by the same factor, so the choice between
+      them is unaffected, and the only effect is at the boundary where the
+      thumbnail is just wide enough.
+
+      A VIDEO gets no srcset: its 'medium' and 'large' are MP4 files
+      (Task\ProcessVideoHandler), never images, and its 'thumb' is an
+      unscaled frame of the video itself — already sharp.
+    #}
+    <img src="/gallery/media/{{ media.id }}/thumb"
+         {% if media.mediaType != 'video' %}
+             srcset="/gallery/media/{{ media.id }}/thumb 300w, /gallery/media/{{ media.id }}/medium 1200w"
+             sizes="{{ sizes|default('100vw') }}"
+         {% endif %}
+         alt="" class="w-100 h-100" style="object-fit:cover;" loading="lazy">
     {% if media.mediaType == 'video' %}
         <span class="position-absolute top-50 start-50 translate-middle text-white" style="font-size:1.75rem;text-shadow:0 0 6px rgba(0,0,0,.6);">
             <i class="bi bi-play-circle-fill" aria-hidden="true"></i>

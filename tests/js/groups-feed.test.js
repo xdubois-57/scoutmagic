@@ -354,6 +354,91 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
         }
     });
 
+    /**
+     * Issue #330: the 300px thumbnail is too small for a feed cell that
+     * fills a phone's width. A cell resolved by the poll must offer the
+     * same two renditions as one the server rendered directly, and read
+     * its width hint off the cell the template wrote it on — a swap that
+     * disagreed with the first render would be a photo that changes
+     * sharpness the moment it loads.
+     */
+    it('offers the medium rendition, at the cell\'s own width, on a photo it swaps in', async () => {
+        vi.useFakeTimers();
+        try {
+            document.body.innerHTML = `
+                <div id="groups-feed" data-group-id="7">
+                    <div class="groups-load-more-wrapper">
+                        <button class="groups-load-more" data-url="/groups/7/feed?cursor=abc">Charger plus</button>
+                    </div>
+                </div>
+            `;
+            global.fetch = vi.fn()
+                .mockResolvedValueOnce({
+                    ok: true,
+                    text: () => Promise.resolve(
+                        '<a class="groups-media-cell" data-media-id="42" data-status="pending"'
+                        + ' data-thumb-sizes="(min-width: 992px) 420px, 100vw"></a>'
+                    )
+                })
+                .mockResolvedValue({
+                    ok: true,
+                    json: () => Promise.resolve([{ id: 42, status: 'done', media_type: 'photo' }])
+                });
+
+            document.querySelector('.groups-load-more').click();
+            await vi.advanceTimersByTimeAsync(0);
+            await vi.advanceTimersByTimeAsync(2000);
+
+            var thumb = document.querySelector('[data-media-id="42"] img');
+            expect(thumb.getAttribute('src')).toBe('/gallery/media/42/thumb');
+            expect(thumb.getAttribute('srcset'))
+                .toBe('/gallery/media/42/thumb 300w, /gallery/media/42/medium 1200w');
+            expect(thumb.getAttribute('sizes')).toBe('(min-width: 992px) 420px, 100vw');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    /**
+     * A video's « medium » and « large » are MP4 files, never images, so
+     * offering them as <img> candidates would ask the browser to decode a
+     * video as a picture. Its poster is an unscaled frame already.
+     */
+    it('never offers a video the medium rendition as an image candidate', async () => {
+        vi.useFakeTimers();
+        try {
+            document.body.innerHTML = `
+                <div id="groups-feed" data-group-id="7">
+                    <div class="groups-load-more-wrapper">
+                        <button class="groups-load-more" data-url="/groups/7/feed?cursor=abc">Charger plus</button>
+                    </div>
+                </div>
+            `;
+            global.fetch = vi.fn()
+                .mockResolvedValueOnce({
+                    ok: true,
+                    text: () => Promise.resolve(
+                        '<a class="groups-media-cell" data-media-id="11" data-status="processing"'
+                        + ' data-thumb-sizes="(min-width: 992px) 420px, 100vw"></a>'
+                    )
+                })
+                .mockResolvedValue({
+                    ok: true,
+                    json: () => Promise.resolve([{ id: 11, status: 'done', media_type: 'video' }])
+                });
+
+            document.querySelector('.groups-load-more').click();
+            await vi.advanceTimersByTimeAsync(0);
+            await vi.advanceTimersByTimeAsync(2000);
+
+            var thumb = document.querySelector('[data-media-id="11"] img');
+            expect(thumb.getAttribute('src')).toBe('/gallery/media/11/thumb');
+            expect(thumb.getAttribute('srcset')).toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('keeps polling on the next backoff step when a photo is still processing, and stops once nothing is pending', async () => {
         vi.useFakeTimers();
         try {

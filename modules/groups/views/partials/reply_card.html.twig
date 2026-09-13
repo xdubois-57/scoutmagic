@@ -112,10 +112,15 @@
             {% endif %}
 
             {% if row.media %}
+                {# 220px is what components.css caps .groups-reply-image-link
+                   at; the same value is handed to groups.js on the cell so
+                   a media that finishes processing later is drawn from the
+                   same rendition as one that was already done. #}
                 <a href="/gallery/media/{{ row.media.id }}/large" target="_blank" rel="noopener"
                    class="groups-reply-image-link d-block mt-2"
-                   data-media-id="{{ row.media.id }}" data-status="{{ row.media.processingStatus }}">
-                    {% include '@groups/partials/media_thumb.html.twig' with { media: row.media } %}
+                   data-media-id="{{ row.media.id }}" data-status="{{ row.media.processingStatus }}"
+                   data-thumb-sizes="220px">
+                    {% include '@groups/partials/media_thumb.html.twig' with { media: row.media, sizes: '220px' } %}
                 </a>
             {% endif %}
         </div>
