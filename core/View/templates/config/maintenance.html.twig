@@ -36,16 +36,16 @@
                         {{ backup.createdAt }}{% if backup.sizeLabel %} · {{ backup.sizeLabel }}{% endif %}
                     </div>
                 </div>
-                {# Deux icônes plutôt que deux boutons libellés. Une ligne
-                   porte déjà trois pastilles, une date et une taille ;
-                   « Télécharger » et « Supprimer » écrits en toutes lettres
-                   la faisaient passer à la ligne dès qu'une pastille
-                   d'intégrité s'y ajoutait, sur un téléphone comme sur un
-                   écran large. Le nom accessible reste complet et nomme la
-                   sauvegarde — il y a jusqu'à une quinzaine de lignes, et
-                   quinze « Supprimer » identiques ne se distinguent pas
-                   (design.md §7.4 : une action icône seule porte son
-                   libellé dans title et aria-label). #}
+                {# Two icons rather than two labelled buttons. A row
+                   already carries up to three badges, a date and a size;
+                   « Télécharger » and « Supprimer » spelled out wrapped it
+                   onto a second line as soon as an integrity badge
+                   appeared — on a phone and on a wide screen alike. The
+                   accessible name stays whole and names the backup: there
+                   are up to fifteen rows, and fifteen identical
+                   « Supprimer » tell them apart for nobody (design.md
+                   §7.4 — an icon-only action carries its wording in title
+                   and aria-label). #}
                 {% if backup.status == 'completed' and backup.fileId %}
                     {% include 'partials/file_link.html.twig' with {
                         href: '/files/' ~ backup.fileId,
@@ -81,30 +81,30 @@
     </ul>
 {% endmacro %}
 
-{# L'en-tête d'une boîte de cette page : un bouton qui replie son corps.
+{# The header of one box on this page: a button that folds its body.
 
-   La page porte huit boîtes, dont trois ne servent qu'une fois par an et
-   une qu'on espère ne jamais ouvrir. À plat, elle se parcourt à la
-   molette ; repliée, elle est son propre sommaire — le même mouvement que
-   Réglages et Support ont déjà fait, avec exactement leur bouton
-   (« btn w-100 … border rounded-3 p-3 text-start » et le chevron que
-   `app.css` fait pivoter sur `:not(.collapsed)`). Deux façons de replier
-   une section sur un même site seraient une de trop.
+   The page carries eight boxes, three of which are used once a year and
+   one nobody wants to open at all. Flat, it is read with the scroll
+   wheel; folded, it is its own table of contents — the move Réglages and
+   Support already made, with exactly their button
+   (`btn w-100 … border rounded-3 p-3 text-start` and the chevron
+   `app.css` rotates on `:not(.collapsed)`). Two ways of folding a
+   section on one site would be one too many.
 
-   `open` n'est vrai que pour les deux premières : l'état du site et la
-   mise à jour sont ce pour quoi on vient ici, tout le reste se cherche.
+   `open` is true for the first two only: the site's state and the update
+   are what brings anybody here, and everything else is looked up.
 
-   **Le bouton est DANS le <h2>, pas à sa place.** Chaque boîte contient
-   des <h3> ; un titre remplacé par un <span> les laisserait sans parent
-   dans le plan du document, et une page de maintenance parcourue au
-   lecteur d'écran deviendrait une liste de sous-titres orphelins. C'est
-   aussi le motif que WAI-ARIA décrit pour un accordéon.
+   **The button is INSIDE the <h2>, not in its place.** Every box holds
+   <h3> sections; a heading replaced by a <span> would leave them without
+   a parent in the document outline, and this page read through a screen
+   reader would become a list of orphaned subheadings. It is also the
+   pattern WAI-ARIA describes for an accordion.
 
-   `heading_class` va sur le BOUTON et non sur le <h2>, et la taille du
-   titre sur le <span> et non sur le <h2> non plus : `.btn` fixe sa propre
-   couleur ET sa propre taille de police, donc un `h5 text-danger` posé
-   sur le titre ne donnerait ni l'une ni l'autre. C'est exactement la
-   composition de Réglages et de Support. #}
+   `heading_class` goes on the BUTTON rather than the <h2>, and the
+   title's size on the <span> rather than the <h2> either: `.btn` fixes
+   its own colour AND its own font-size, so an `h5 text-danger` put on
+   the heading would deliver neither. That is exactly how Réglages and
+   Support compose it. #}
 {% macro section_header(target_id, title, open, icon, heading_class) %}
     <h2 class="mb-0">
         <button type="button"
@@ -559,14 +559,14 @@
 
     {# ————— Sauvegarde manuelle —————
 
-       Trois boîtes là où il y en avait une, exactement comme la page
-       sépare déjà « Mise à jour » et « Mises à jour automatiques » : une
-       seule boîte portant l'espace disque, la fréquence, trois
-       déclenchements manuels, la liste et la suppression ne se lit plus.
+       Three boxes where there was one, exactly as the page already
+       separates « Mise à jour » from « Mises à jour automatiques »: a
+       single box carrying the disk space, the frequency, three manual
+       triggers, the list and the deletion no longer reads.
 
-       Le titre dit « manuelle » depuis que la boîte suivante dit
-       « automatique » : ce sont les deux moitiés d'une même distinction,
-       et « Sauvegardes » tout court ne disait de quel côté on était. #}
+       The title says « manuelle » now that the next box says
+       « automatique »: they are the two halves of one distinction, and
+       « Sauvegardes » alone never said which side you were on. #}
     <div class="card mb-4" id="maintenance-backups">
         <div class="card-body">
             {{ _self.section_header('maintenance-backups-body', 'Sauvegarde manuelle', false) }}
@@ -732,21 +732,20 @@
 
     {# ————— Sauvegarde automatique —————
 
-       Ce qui part tout seul, par opposition à ce qu'on déclenche à la main
-       au-dessus.
+       What leaves on its own, as opposed to what is triggered by hand
+       above.
 
-       **« et distantes » a été retiré du titre.** Il annonçait une section
-       à venir — la destination distante et sa phrase de passe devaient
-       rejoindre celle-ci — et elles ont finalement atterri dans leur propre
-       boîte, « Sauvegarde hors site ». Le titre est resté, et une unité a
-       lu la fréquence choisie ici comme la cadence des envois chez Google :
-       elle ne l'est pas et ne l'a jamais été. Les deux mécanismes n'ont
-       aucun réglage en commun — Core\Maintenance\Task\AutoBackupHandler
-       écrit sur ce serveur à la fréquence ci-dessous, et
-       Core\Maintenance\Task\SendRemoteBackupHandler construit sa PROPRE
-       archive portable toutes les INTERVAL_HOURS heures. La phrase sous le
-       menu le dit désormais, parce que personne ne lit un commentaire
-       Twig. #}
+       **« et distantes » came out of the title.** It announced a section
+       to come — the remote destination and its passphrase were to join
+       this one — and they ended up in a box of their own,
+       « Sauvegarde hors site ». The title stayed, and a unit read the
+       frequency chosen here as the cadence of the sends to Google: it is
+       not, and never has been. The two mechanisms share no setting at
+       all — Core\Maintenance\Task\AutoBackupHandler writes to this
+       server at the frequency below, and
+       Core\Maintenance\Task\SendRemoteBackupHandler builds its OWN
+       portable archive every INTERVAL_HOURS. The sentence under the menu
+       now says so, because nobody reads a Twig comment. #}
     <div class="card mb-4" id="maintenance-backups-automatic">
         <div class="card-body">
             {{ _self.section_header('maintenance-backups-automatic-body', 'Sauvegarde automatique', false) }}
@@ -949,11 +948,12 @@
                     toutes les {{ remote_backup_interval_hours }} heures, par tranches : sur un hébergement
                     mutualisé, une archive de plusieurs gigaoctets ne tient pas dans une seule requête.
                 </p>
-                {# La question qu'on nous a posée, répondue des deux côtés :
-                   la fréquence de « Sauvegarde automatique » ne règle rien
-                   ici, et cette cadence-ci n'est réglable nulle part. Une
-                   unité qui voit « Hebdomadaire » là-haut et « toutes les
-                   24 heures » ici conclut que l'un des deux écrans ment. #}
+                {# The question a unit actually asked, answered on both
+                   sides: the « Sauvegarde automatique » frequency governs
+                   nothing here, and this cadence is configurable nowhere.
+                   A unit reading « Hebdomadaire » up there and « toutes
+                   les 24 heures » here concludes one of the two screens
+                   is lying. #}
                 <p class="small text-body-secondary mb-2">
                     Cette cadence est celle de l'envoi, et elle lui appartient : la fréquence choisie dans
                     « Sauvegarde automatique » n'a aucun effet dessus, et celle-ci ne se règle pas. Les deux
@@ -1182,10 +1182,10 @@
     <script src="{{ asset('/assets/js/maintenance.js') }}" defer nonce="{{ csp_nonce }}"></script>
     <script src="{{ asset('/assets/js/notes-clamp.js') }}" defer nonce="{{ csp_nonce }}"></script>
     <script src="{{ asset('/assets/js/collapse-label.js') }}" defer nonce="{{ csp_nonce }}"></script>
-    {# Les huit boîtes de la page sont repliables et six arrivent fermées :
-       sans ce script, `/config/maintenance#remote-backup` — l'adresse vers
-       laquelle Http\Controller\RemoteBackupController renvoie après chaque
-       aller-retour chez Google — déposerait l'utilisateur en haut de la
-       page, sans rien dire de la boîte fermée trois écrans plus bas. #}
+    {# All eight boxes fold and six arrive closed: without this script,
+       `/config/maintenance#remote-backup` — where
+       Http\Controller\RemoteBackupController redirects after every round
+       trip through Google — would drop the visitor at the top of the
+       page, saying nothing about the closed box three screens down. #}
     <script src="{{ asset('/assets/js/collapse-anchor.js') }}" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}
