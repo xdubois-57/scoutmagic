@@ -45,10 +45,19 @@
 
             {% if provider.daily_quota is not null %}
                 {% set used_ratio = provider.daily_quota > 0 ? (provider.used_today / provider.daily_quota * 100)|round : 0 %}
-                <div class="progress mt-3" role="progressbar"
-                     aria-label="Quota utilisé aujourd'hui"
-                     aria-valuenow="{{ provider.used_today }}" aria-valuemin="0" aria-valuemax="{{ provider.daily_quota }}"
-                     style="height: .5rem;">
+                {# The bar draws the sentence below it; the sentence IS the reading.
+                   So it is decoration, not a `role="progressbar"` — which would make
+                   a screen reader announce the same two numbers twice, once as a
+                   widget and once as the text that follows. It also settles what
+                   Sonar objects to in the div-based bar: a div can only ever
+                   DESCRIBE a determinate value to assistive technology, where the
+                   native `<progress>` element would be it — and reaching for that
+                   element here would mean loading a whole stylesheet onto this page
+                   to repaint it, since `base.html.twig` deliberately leaves
+                   `components.css` out and Bootstrap 5 does not style `<progress>`.
+                   Nothing is lost by making the bar silent: the figure is right
+                   there in French, and it is the half that survives without CSS. #}
+                <div class="progress mt-3" aria-hidden="true" style="height: .5rem;">
                     <div class="progress-bar" style="width: {{ min(used_ratio, 100) }}%;"></div>
                 </div>
                 <p class="small text-body-secondary mt-1 mb-0">
