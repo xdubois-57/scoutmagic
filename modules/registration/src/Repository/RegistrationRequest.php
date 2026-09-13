@@ -28,6 +28,14 @@ final class RegistrationRequest
     public const FINAL_STATUSES = [self::STATUS_ENCODED, self::STATUS_REFUSED, self::STATUS_WITHDRAWN];
 
     /**
+     * The two answers to « déjà membre d'une autre unité Les Scouts ? ».
+     * `null` is a third state and never one of these: the question was
+     * not asked at all (schema.sql).
+     */
+    public const PREVIOUS_UNIT_NO = 'no';
+    public const PREVIOUS_UNIT_YES = 'yes';
+
+    /**
      * @var array<string, string>
      */
     public const STATUS_LABELS = [
@@ -63,8 +71,23 @@ final class RegistrationRequest
         public readonly ?int $linkedMemberId = null,
         public readonly ?\DateTimeImmutable $acceptedEmailSentAt = null,
         public readonly ?\DateTimeImmutable $refusedEmailSentAt = null,
-        public readonly ?\DateTimeImmutable $finalAt = null
+        public readonly ?\DateTimeImmutable $finalAt = null,
+        // Issue #331. `null` means the question was never put — not that
+        // the family answered « non » — and `previousUnitName` is only
+        // ever set alongside PREVIOUS_UNIT_YES.
+        public readonly ?string $previousUnitAnswer = null,
+        public readonly ?string $previousUnitName = null
     ) {
+    }
+
+    /**
+     * Whether this family declared a past or present membership in
+     * another unit of the federation — the case whose Desk encoding
+     * procedure differs (issue #331).
+     */
+    public function hasPreviousUnit(): bool
+    {
+        return $this->previousUnitAnswer === self::PREVIOUS_UNIT_YES;
     }
 
     public function birthYear(): ?int

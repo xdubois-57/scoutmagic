@@ -104,6 +104,26 @@ CREATE TABLE registration_requests (
     -- to NULL if a chief reverts a final state back to pending (module
     -- spec's manual "revenir en attente" transition).
     final_at DATETIME NULL,
+    -- « Cette personne fait-elle ou a-t-elle fait partie d'une autre unité
+    -- Les Scouts ? », asked on the public form since the chief's encoding
+    -- procedure in Desk differs for somebody the federation already knows
+    -- (issue #331). Three states, and NULL is not 'no': NULL means the
+    -- question was never put — every request submitted before this column
+    -- existed — while 'no' is a family that answered it. A chief reading a
+    -- fiche has to be able to tell those apart, or an unasked question
+    -- reads as a denial.
+    --
+    -- In clear rather than an encrypted BLOB: this is a flag, which
+    -- SECURITY.md § Personal data lists among the columns that stay
+    -- readable, and the answer alone identifies nobody. The unit's NAME is
+    -- the personal datum here and is encrypted below, next to the rest of
+    -- the fiche.
+    previous_unit_answer ENUM('no', 'yes') NULL,
+    -- The unit named when the answer is 'yes', free text as the family
+    -- typed it — never matched against anything, never indexed: no list of
+    -- the federation's units exists here, and a blind index on it would
+    -- only build an oracle over where a child used to go.
+    previous_unit_name_encrypted BLOB NULL,
     -- Blind index of the comparison-normalized submitted address (Core\
     -- Member\AddressNormalizer, same technique as member_addresses) —
     -- feeds the module's Api\HouseholdRegistrationCountProvider

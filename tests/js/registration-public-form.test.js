@@ -43,6 +43,14 @@ function page(data) {
             <option value="">Aucune préférence</option>
             ${sectionOptions()}
         </select>
+        <select id="previous_unit_answer" name="previous_unit_answer" required>
+            <option value="" selected>Choisissez…</option>
+            <option value="no">Non</option>
+            <option value="yes">Oui</option>
+        </select>
+        <div id="previous-unit-name-zone">
+            <input type="text" id="previous_unit_name" name="previous_unit_name">
+        </div>
         <script type="application/json" id="registration-slots-data">${JSON.stringify(data)}<\/script>`;
 }
 
@@ -297,6 +305,83 @@ describe('registration-public-form.js', () => {
             type('2018-05-04');
 
             expect(offered()).toHaveLength(SECTIONS.length + 1);
+        });
+    });
+
+    /**
+     * Issue #331 — « Déjà membre d'une autre unité Les Scouts ? » and the
+     * unit it was. The template renders BOTH fields visible, so a page
+     * whose JavaScript never ran keeps a form a family can complete; what
+     * this file adds is folding the second one away until it is needed.
+     */
+    describe('« Laquelle ? », shown only for a « Oui »', () => {
+        const answer = () => /** @type {HTMLSelectElement} */ (
+            document.getElementById('previous_unit_answer')
+        );
+        const zone = () => document.getElementById('previous-unit-name-zone');
+        const name = () => /** @type {HTMLInputElement} */ (
+            document.getElementById('previous_unit_name')
+        );
+
+        function answerWith(value) {
+            answer().value = value;
+            answer().dispatchEvent(new Event('change'));
+        }
+
+        it('folds the unit away while the question is unanswered', async () => {
+            await boot();
+
+            expect(zone().classList.contains('d-none')).toBe(true);
+            expect(name().required).toBe(false);
+        });
+
+        it('asks which unit, and requires it, on a « Oui »', async () => {
+            await boot();
+            answerWith('yes');
+
+            expect(zone().classList.contains('d-none')).toBe(false);
+            expect(name().required).toBe(true);
+        });
+
+        it('folds it away again on a « Non », and stops requiring it', async () => {
+            await boot();
+            answerWith('yes');
+            answerWith('no');
+
+            expect(zone().classList.contains('d-none')).toBe(true);
+            // A hidden field still carrying `required` blocks the submit
+            // button with a message the browser cannot point at — a form
+            // that refuses to send and says nothing.
+            expect(name().required).toBe(false);
+        });
+
+        it('keeps a name already typed when the answer goes back to « Non »', async () => {
+            await boot();
+            answerWith('yes');
+            name().value = '57e Unité Saint-Michel';
+            answerWith('no');
+
+            // Nothing is stored for a « Non » — the server drops it — but a
+            // family correcting an answer twice finds their text intact.
+            expect(name().value).toBe('57e Unité Saint-Michel');
+        });
+
+        it('unfolds on load when a rejected submission comes back with « Oui » selected', async () => {
+            document.body.innerHTML = page(DEFAULT_DATA);
+            answer().value = 'yes';
+            await boot();
+
+            expect(zone().classList.contains('d-none')).toBe(false);
+            expect(name().required).toBe(true);
+        });
+
+        it('does nothing at all on a page that does not ask the question', async () => {
+            document.body.innerHTML = `
+                <input type="date" id="birth_date" value="">
+                <div id="birth-date-branch-hint"></div>
+                <script type="application/json" id="registration-slots-data">${JSON.stringify(DEFAULT_DATA)}<\/script>`;
+
+            await expect(boot()).resolves.not.toThrow();
         });
     });
 });

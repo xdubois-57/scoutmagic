@@ -98,7 +98,8 @@ class RegistrationService
      *   parent_name: string, child_last_name: string, child_first_name: string,
      *   gender: string, birth_date: string, street: string, number: string,
      *   postal_code: string, city: string, email: string, phone1: string,
-     *   phone2: ?string, remarks: ?string
+     *   phone2: ?string, remarks: ?string,
+     *   previous_unit_answer?: ?string, previous_unit_name?: ?string
      * } $fields
      * @param array<int> $siblingMemberIds
      */

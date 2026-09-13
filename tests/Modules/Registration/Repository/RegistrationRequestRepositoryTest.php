@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Modules\Registration\Repository;
 
 use Core\Security\EncryptionService;
+use Modules\Registration\Repository\RegistrationRequest;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -35,7 +36,8 @@ class RegistrationRequestRepositoryTest extends TestCase
      *   parent_name: string, child_last_name: string, child_first_name: string,
      *   gender: string, birth_date: string, street: string, number: string,
      *   postal_code: string, city: string, email: string, phone1: string,
-     *   phone2: ?string, remarks: ?string
+     *   phone2: ?string, remarks: ?string,
+     *   previous_unit_answer?: ?string, previous_unit_name?: ?string
      * }
      */
     private function sampleFields(array $overrides = []): array
@@ -74,6 +76,78 @@ class RegistrationRequestRepositoryTest extends TestCase
         $this->assertSame('Dupont', $found->childLastName);
         $this->assertSame('marie.dupont@example.com', $found->email);
         $this->assertSame(RegistrationRequestRepository::normalizeEmail($found->email), 'marie.dupont@example.com');
+    }
+
+    /**
+     * Issue #331 — the question a chief needs answered before encoding in
+     * Desk. A caller that does not supply it at all (the reference
+     * dataset's seeder, every request filed before the column existed)
+     * gets NULL, which means « the question was not put » and is a third
+     * state next to « oui » and « non ».
+     */
+    public function testCreateKeepsTheAnswerAboutAPreviousUnitAndEncryptsTheUnitName(): void
+    {
+        $created = $this->repository->create($this->scoutYearId, $this->sampleFields([
+            'previous_unit_answer' => RegistrationRequest::PREVIOUS_UNIT_YES,
+            'previous_unit_name' => '57e Unité Saint-Michel',
+        ]), null, []);
+
+        $row = $this->pdo->query('SELECT * FROM registration_requests WHERE id = ' . $created['id'])
+            ->fetch(\PDO::FETCH_ASSOC);
+        $this->assertSame('yes', $row['previous_unit_answer']);
+        $this->assertStringNotContainsString('Saint-Michel', (string) $row['previous_unit_name_encrypted']);
+
+        $found = $this->repository->findById($created['id']);
+        $this->assertNotNull($found);
+        $this->assertTrue($found->hasPreviousUnit());
+        $this->assertSame('57e Unité Saint-Michel', $found->previousUnitName);
+    }
+
+    public function testCreateLeavesTheQuestionUnansweredWhenTheCallerDoesNotAskIt(): void
+    {
+        $created = $this->repository->create($this->scoutYearId, $this->sampleFields(), null, []);
+
+        $found = $this->repository->findById($created['id']);
+        $this->assertNotNull($found);
+        $this->assertNull($found->previousUnitAnswer);
+        $this->assertFalse($found->hasPreviousUnit());
+        $this->assertNull($found->previousUnitName);
+    }
+
+    /**
+     * A « non » carrying a unit name is a contradiction, and the name is
+     * the half that goes: the Controller already drops it, and the
+     * Repository refuses it again for any other caller.
+     */
+    public function testCreateNeverStoresAUnitNameAlongsideANegativeAnswer(): void
+    {
+        $created = $this->repository->create($this->scoutYearId, $this->sampleFields([
+            'previous_unit_answer' => RegistrationRequest::PREVIOUS_UNIT_NO,
+            'previous_unit_name' => '57e Unité Saint-Michel',
+        ]), null, []);
+
+        $found = $this->repository->findById($created['id']);
+        $this->assertNotNull($found);
+        $this->assertSame('no', $found->previousUnitAnswer);
+        $this->assertNull($found->previousUnitName);
+    }
+
+    /**
+     * The column is an ENUM of two values plus NULL. Anything else is
+     * stored as « not asked » rather than as a value MySQL would coerce
+     * to the empty string behind everybody's back.
+     */
+    public function testCreateRefusesAnAnswerOutsideTheTwoTheColumnAccepts(): void
+    {
+        $created = $this->repository->create($this->scoutYearId, $this->sampleFields([
+            'previous_unit_answer' => 'peut-être',
+            'previous_unit_name' => '57e Unité Saint-Michel',
+        ]), null, []);
+
+        $found = $this->repository->findById($created['id']);
+        $this->assertNotNull($found);
+        $this->assertNull($found->previousUnitAnswer);
+        $this->assertNull($found->previousUnitName);
     }
 
     public function testCreatePersistsSiblingLinks(): void

@@ -703,7 +703,11 @@ exactement le même traitement, ne migrent jamais les données d'identité elles
 mais reportent les adresses email secondaires confirmées sur la fiche du membre réel, et qu'un cas ambigu (plusieurs
 demandes ou plusieurs membres partageant les mêmes nom/prénom/date de naissance) n'est jamais rapproché
 automatiquement ; (e) que les notes internes du staff sont chiffrées, jamais visibles par la famille et jamais
-consignées dans le journal d'audit ; (f) que deux délais de conservation distincts, tous deux configurables par
+consignées dans le journal d'audit ; (e bis) que la réponse à la question « déjà membre d'une autre
+unité Les Scouts ? » et le nom d'unité qui l'accompagne ne servent qu'à la procédure d'encodage dans
+Desk, que ce nom est chiffré au repos et n'est jamais comparé à une liste d'unités ni recherchable
+par son texte, et qu'une demande déposée avant l'existence de cette question n'en porte aucune trace
+— une absence de réponse n'est jamais un « non » ; (f) que deux délais de conservation distincts, tous deux configurables par
 l'administrateur et comptés depuis la clôture de la demande (jamais depuis son dépôt), s'appliquent une fois la
 demande acceptée dans Desk, refusée ou retirée : disparition de l'espace personnel de la famille (3 mois par défaut)
 puis suppression définitive (2 ans par défaut) — une demande encore en attente ou acceptée n'est, elle, jamais
