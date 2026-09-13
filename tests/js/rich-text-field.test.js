@@ -15,10 +15,10 @@
 // text over another's, which is exactly the kind of regression a test is
 // cheaper than.
 //
-// The toolbar's createLink branch is deliberately not pinned: it still
-// opens a native prompt() for the URL — the last native dialog in this file
-// — and asserting it would lock in behaviour waiting on a replacement
-// component (design.md §7.5).
+// rich-text-link.js is imported alongside, as base.html.twig loads it on
+// every page: since issue #306 the toolbar is its job, and stubbing
+// window.ScoutMagicRichText here would assert against a stub rather than
+// against the wiring the visitor gets.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const modalStub = { show: vi.fn(), hide: vi.fn() };
@@ -48,6 +48,7 @@ function buildDom() {
         </table>
         <div id="richTextEditorModal">
             <button data-command="bold">B</button>
+            <button data-command="formatBlock" data-value="h3">H3</button>
             <div id="richTextEditorContent"></div>
             <button id="richTextEditorSave">Enregistrer</button>
         </div>
@@ -57,6 +58,7 @@ function buildDom() {
 async function boot() {
     buildDom();
     vi.resetModules();
+    await import('../../public/assets/js/rich-text-link.js');
     await import('../../public/assets/js/rich-text-field.js');
 }
 
@@ -86,6 +88,9 @@ beforeEach(() => {
     modalStub.hide = vi.fn();
     global.fetch = vi.fn(() => jsonResponse({ success: true }));
     window.ScoutMagicToast = { show: vi.fn() };
+    // jsdom has no execCommand at all, so the toolbar's effect on the
+    // document is only observable as the call itself.
+    document.execCommand = vi.fn(() => true);
     // rich-text-field.js reads the bare `bootstrap` binding.
     // `function`, not an arrow: the code under test calls `new
     // bootstrap.Modal(...)`, and since Vitest 4 a mock built from an
@@ -107,6 +112,7 @@ describe('rich-text-field.js: opening a field', () => {
         buildDom();
         preview('rental.rules').remove();
         vi.resetModules();
+        await import('../../public/assets/js/rich-text-link.js');
         await import('../../public/assets/js/rich-text-field.js');
 
         editButton(1).dispatchEvent(new Event('click'));
@@ -119,6 +125,7 @@ describe('rich-text-field.js: opening a field', () => {
         buildDom();
         document.getElementById('richTextEditorModal').remove();
         vi.resetModules();
+        await import('../../public/assets/js/rich-text-link.js');
         await import('../../public/assets/js/rich-text-field.js');
 
         editButton(0).dispatchEvent(new Event('click'));
@@ -214,10 +221,63 @@ describe('rich-text-field.js: saving a field', () => {
         preview('rental.rules').setAttribute('data-key', 'rental."odd"');
         editButton(1).setAttribute('data-key', 'rental."odd"');
         vi.resetModules();
+        await import('../../public/assets/js/rich-text-link.js');
         await import('../../public/assets/js/rich-text-field.js');
 
         editButton(1).dispatchEvent(new Event('click'));
 
         expect(document.getElementById('richTextEditorContent').innerHTML).toBe('<p>Règlement actuel.</p>');
+    });
+});
+
+// Issue #306. This file's own toolbar already passed data-value; what it
+// did wrong was wire the shared modal a second time.
+describe('rich-text-field.js: the toolbar (issue #306)', () => {
+    it('runs a command once when editable.js drives the same modal', async () => {
+        buildDom();
+        vi.resetModules();
+        await import('../../public/assets/js/rich-text-link.js');
+        await import('../../public/assets/js/rich-text-field.js');
+        // Configuration mode: both scripts live on one page, against one
+        // modal. A comment here used to claim that could not happen.
+        await import('../../public/assets/js/editable.js');
+
+        document.querySelector('[data-command="bold"]').dispatchEvent(new Event('click'));
+
+        expect(document.execCommand).toHaveBeenCalledTimes(1);
+    });
+
+    it('still gives formatBlock its heading', async () => {
+        await boot();
+
+        document.querySelector('[data-command="formatBlock"]').dispatchEvent(new Event('click'));
+
+        expect(document.execCommand).toHaveBeenCalledWith('formatBlock', false, '<h3>');
+    });
+
+    it('repaints the preview with what the SERVER stored, not with what it sent', async () => {
+        // <font> is not on the server's list; <b> is. See editable.test.js.
+        global.fetch = vi.fn(() => jsonResponse({ success: true, value: '<p>Contrat <b>signé</b>.</p>' }));
+        await boot();
+
+        editButton(0).dispatchEvent(new Event('click'));
+        document.getElementById('richTextEditorContent').innerHTML =
+            '<p><font color="red">Contrat</font> <b>signé</b>.</p>';
+        save();
+        await settle();
+
+        expect(postedBody().value).toBe('<p><font color="red">Contrat</font> <b>signé</b>.</p>');
+        expect(preview('rental.contract').innerHTML).toBe('<p>Contrat <b>signé</b>.</p>');
+    });
+
+    it('falls back to what it sent when a save route answers without a value', async () => {
+        await boot();
+
+        editButton(0).dispatchEvent(new Event('click'));
+        document.getElementById('richTextEditorContent').innerHTML = '<p>Nouveau contrat.</p>';
+        save();
+        await settle();
+
+        expect(preview('rental.contract').innerHTML).toBe('<p>Nouveau contrat.</p>');
     });
 });

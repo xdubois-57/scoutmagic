@@ -3,7 +3,50 @@
  * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
  */
 
-// Inserting a link in a rich-text field — window.ScoutMagicRichText.
+// The shared rich-text toolbox — window.ScoutMagicRichText: inserting a
+// link, and wiring a [data-command] toolbar.
+//
+// **The file is still named for the link.** Renaming it would touch
+// `public/sw.js`'s precache list, the base template, the type declarations
+// and four comments, for no change in behaviour; the global has always
+// been `ScoutMagicRichText` rather than `…Link`, so the module's identity
+// was already the broader one.
+//
+// WHAT IS DELIBERATELY NOT HERE: a sanitiser. A first cut of the issue
+// #306 fix carried one — an allowlist mirroring
+// `Core\Security\HtmlSanitizer`, so the editor could show what the server
+// was going to keep instead of markup it was about to drop. It was the
+// wrong answer twice over. It was a second copy of a security-relevant
+// list, guessing at the real one. And it meant parsing untrusted markup
+// in the visitor's page to do it, which CodeQL flagged as an XSS sink and
+// was right to: the safety of the whole thing rested on a hand-rolled
+// sanitiser nothing could verify. The server already knows exactly what it
+// kept, so it now SAYS so — every save route returns the stored string and
+// the editors repaint with that. One list, no drift, nothing to parse.
+//
+// THE TOOLBAR IS HERE FOR THE REASON THE LINK IS. Three toolbars wired
+// `[data-command]` separately — editable.js, rich-text-field.js and
+// rich-text-form-field.js — and two of them read `data-value` for
+// `formatBlock`. The third, editable.js, called
+// `execCommand('formatBlock', false, null)`: in configuration mode, the
+// H2, H3 and « Paragraphe » buttons of the shared modal did nothing at
+// all, on every page of the site (issue #306).
+//
+// Worse than the copy that was wrong was the copy that was double.
+// editable.js selected `[data-command]` document-wide while
+// rich-text-field.js selected `#richTextEditorModal [data-command]` — the
+// same buttons — so a page loading both in configuration mode (Configuration
+// > RGPD, > E-mails, the banner, registration and Encadrement pages) ran
+// every command TWICE on one click. Bold, italic, underline and the two
+// list commands are toggles: applied and immediately un-applied, which is
+// exactly the « la plupart du temps impossible d'appliquer une mise en
+// page » of that issue. A comment in rich-text-field.js asserted this
+// could not happen — "only when configuration mode is active, so this is
+// never a double-wiring in practice" — and configuration mode is precisely
+// when both are active.
+//
+// One wiring, called by each of them, cannot be double and cannot disagree
+// with itself about `data-value`.
 //
 // Five toolbars implemented this, identically and separately: editable.js,
 // rich-text-field.js, rich-text-form-field.js, mass-mail-list.js and
@@ -136,5 +179,59 @@
         });
     }
 
-    window.ScoutMagicRichText = { insertLink: insertLink, normalizeUrl: normalizeUrl };
+    // ————— The toolbar —————
+
+    /**
+     * Wires every `[data-command]` button under $root to act on $surface.
+     *
+     * Idempotent per button: a second call over the same markup — two
+     * scripts both driving the shared modal, which is what issue #306 was
+     * — leaves the first wiring alone instead of adding a second handler
+     * that undoes it.
+     *
+     * @param {ParentNode} root where the buttons live
+     * @param {HTMLElement} surface the contenteditable they act on
+     * @param {(() => void)|null} [afterCommand] run after each command —
+     *        rich-text-form-field.js syncs its hidden input here
+     * @returns {void}
+     */
+    function wireToolbar(root, surface, afterCommand) {
+        root.querySelectorAll('[data-command]').forEach(function (node) {
+            var button = /** @type {HTMLElement} */ (node);
+            if (button.dataset.richTextWired === 'yes') {
+                return;
+            }
+            button.dataset.richTextWired = 'yes';
+
+            button.addEventListener('click', function () {
+                var command = button.dataset.command;
+                if (command === 'createLink') {
+                    insertLink(surface).then(function () {
+                        if (afterCommand) afterCommand();
+                    });
+                    return;
+                }
+
+                if (command === 'formatBlock') {
+                    // The argument editable.js never passed at all — it
+                    // sent null, and a formatBlock with no block to format
+                    // is a button that does nothing. The angle brackets are
+                    // the form the other two toolbars already used and the
+                    // one every engine accepts; a bare `h2` is not.
+                    document.execCommand(command, false, '<' + (button.dataset.value || 'p') + '>');
+                } else {
+                    document.execCommand(command || '', false, null);
+                }
+
+                surface.focus();
+                if (afterCommand) afterCommand();
+            });
+        });
+    }
+
+    window.ScoutMagicRichText = {
+        insertLink: insertLink,
+        normalizeUrl: normalizeUrl,
+        wireToolbar: wireToolbar
+    };
 })();

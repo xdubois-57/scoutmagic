@@ -185,7 +185,7 @@ class EmailTemplateController extends AbstractController
         }
 
         try {
-            $this->customisation->customise(
+            $stored = $this->customisation->customise(
                 $template->id,
                 $this->currentSubject($template),
                 isset($payload['value']) ? (string) $payload['value'] : '',
@@ -197,7 +197,10 @@ class EmailTemplateController extends AbstractController
 
         $this->journalCustomised($template);
 
-        return $this->json(['success' => true]);
+        // `value` is the body as STORED, which the sanitizer may have
+        // pruned; rich-text-field.js repaints the preview with it rather
+        // than with its own copy of what it sent. See issue #306.
+        return $this->json(['success' => true, 'value' => $stored]);
     }
 
     /**

@@ -263,8 +263,14 @@
         // Auto-save the new content
         var mode = getMode();
         var prompt = aiPromptTextarea.value;
-        saveMode(mode, newContent, prompt, function () {
-            // Silent save - content already updated in preview
+        saveMode(mode, newContent, prompt, function (ok, data) {
+            // Repaint with what the server STORED: the sanitiser prunes
+            // markup a browser leaves behind, and showing our own copy
+            // meant a heading survived until the next page load and no
+            // longer (issue #306).
+            if (ok && data?.content !== undefined) {
+                preview.innerHTML = data.content;
+            }
         });
 
         // Restore default Save button

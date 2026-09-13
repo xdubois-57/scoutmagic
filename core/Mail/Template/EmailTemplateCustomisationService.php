@@ -34,10 +34,17 @@ class EmailTemplateCustomisationService
     }
 
     /**
+     * Returns the body as STORED, which the sanitizer may have pruned —
+     * the editor repaints its preview with it rather than with its own
+     * copy of what it sent. Same reason as
+     * {@see \Core\View\EditableContentService::set()}: this modal is the
+     * shared one, and a heading it kept on screen but the server dropped
+     * was half of issue #306.
+     *
      * @throws EmailTemplateException when the e-mail is unknown, is not
      *         editable, or the subject is empty
      */
-    public function customise(string $templateId, string $subject, string $bodyHtml, ?int $updatedBy): void
+    public function customise(string $templateId, string $subject, string $bodyHtml, ?int $updatedBy): string
     {
         $template = $this->requireEditable($templateId);
 
@@ -46,12 +53,11 @@ class EmailTemplateCustomisationService
             throw new EmailTemplateException('Le sujet ne peut pas être vide.');
         }
 
-        $this->repository->save(
-            $template->id,
-            $subject,
-            $this->sanitizer->sanitize($bodyHtml),
-            $updatedBy
-        );
+        $storedBody = $this->sanitizer->sanitize($bodyHtml);
+
+        $this->repository->save($template->id, $subject, $storedBody, $updatedBy);
+
+        return $storedBody;
     }
 
     /**

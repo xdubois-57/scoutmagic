@@ -205,13 +205,21 @@ interface Window {
             icsAlreadySent: boolean;
         }) => boolean;
     };
-    // public/assets/js/rich-text-link.js — the one "insert a link"
-    // implementation behind five rich-text toolbars, loaded by
-    // base.html.twig on every page. insertLink resolves true when a link
-    // was actually created.
+    // public/assets/js/rich-text-link.js — the shared rich-text toolbox
+    // behind every rich-text toolbar on the site, loaded by base.html.twig
+    // on every page. insertLink resolves true when a link was actually
+    // created; wireToolbar is idempotent per button, so two scripts driving
+    // the same modal wire it once. There is deliberately no sanitiser here:
+    // every save route answers with the string it stored, and the editors
+    // repaint with that — see the file's own header.
     ScoutMagicRichText?: {
         insertLink: (surface: HTMLElement | null) => Promise<boolean>;
         normalizeUrl: (raw: string | null) => string | null;
+        wireToolbar: (
+            root: ParentNode,
+            surface: HTMLElement,
+            afterCommand?: (() => void) | null
+        ) => void;
     };
     // public/assets/js/camps-booked-by.js — the « Réservation faite par »
     // field of the camps stay form, present only on that page. Exposed so

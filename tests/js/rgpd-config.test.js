@@ -61,6 +61,9 @@ async function boot(mode, running) {
     // window.ScoutMagicApi envelope (base.html.twig guarantees the load
     // order in production).
     await import('../../public/assets/js/api.js');
+    // The shared rich-text toolbox: this page grafts its own save button
+    // onto the shared modal (issue #306).
+    await import('../../public/assets/js/rich-text-link.js');
     await import('../../public/assets/js/rgpd-config.js');
 }
 
@@ -277,5 +280,49 @@ describe('rgpd-config.js: the generate button', () => {
 
         expect(/** @type {HTMLButtonElement} */ (document.getElementById('generate-btn')).disabled).toBe(true);
         expect(document.getElementById('generate-status').textContent).toContain('Génération en cours');
+    });
+});
+
+describe('rgpd-config.js: the custom save grafted onto the shared modal', () => {
+    /** Opens the editor through the page's own edit button. */
+    async function openEditor() {
+        await boot('custom');
+        document.getElementById('edit-content-btn').dispatchEvent(new Event('click'));
+    }
+
+    it('loads the preview into the editor and swaps the modal\'s save button for its own', async () => {
+        await openEditor();
+
+        expect(document.getElementById('richTextEditorContent').innerHTML).toBe('<p>Texte actuel.</p>');
+        expect(document.getElementById('richTextEditorSave').style.display).toBe('none');
+        expect(document.getElementById('rgpd-modal-save').style.display).toBe('inline-block');
+    });
+
+    it('repaints the preview with what the SERVER stored (issue #306)', async () => {
+        const sent = '<div><h1>Titre</h1><span style="font-weight: bold">Gras</span></div>';
+        const stored = '<h2>Titre</h2>Gras';
+        global.fetch = vi.fn(() => jsonResponse({ success: true, content: stored }));
+        await openEditor();
+        document.getElementById('richTextEditorContent').innerHTML = sent;
+
+        document.getElementById('rgpd-modal-save').dispatchEvent(new Event('click'));
+        await settle();
+
+        // The page stores the text through EditableContentService, which
+        // sanitises: showing the raw markup instead left a heading on
+        // screen that the next page load did not have.
+        expect(bodyOf(0).content).toBe(sent);
+        expect(document.querySelector('.rich-text-field-preview').innerHTML).toBe(stored);
+        expect(fetchedUrls()[0]).toBe('/config/rgpd/save');
+    });
+
+    it('puts the modal\'s own save button back for whoever opens it next', async () => {
+        await openEditor();
+
+        document.getElementById('rgpd-modal-save').dispatchEvent(new Event('click'));
+        await settle();
+
+        expect(document.getElementById('richTextEditorSave').style.display).toBe('inline-block');
+        expect(document.getElementById('rgpd-modal-save').style.display).toBe('none');
     });
 });

@@ -109,4 +109,51 @@ class NotificationRoleWiringTest extends TestCase
             . ' silently queues its e-mail behind the scheduler it exists to report on.'
         );
     }
+
+    /**
+     * The service exists even when push does not (issue #318).
+     *
+     * `public/cron.php` used to construct it INSIDE
+     * `if (VapidKeyPairFactory::isValid(...))`, so an installation whose
+     * VAPID keys were missing or invalid handed `null` to every scheduled
+     * handler — and `OperationalAlertService::notify()` returns on its
+     * first line when its NotificationService is null. What was lost was
+     * not the push: it was the e-mail and the `notifications` row too, for
+     * every notification a cron pass raises, on the one kind of
+     * installation least able to notice (a fresh one, or one whose key
+     * generation had just failed).
+     *
+     * `NotificationService` takes `?WebPush` precisely so a missing push
+     * transport degrades to "no push, everything else still runs" —
+     * `public/index.php` has always done it that way. This pins that the
+     * two entry points agree, which is the §8.17 failure mode in its
+     * quietest form: the entry point that drifts keeps working perfectly
+     * in every respect anybody would think to check.
+     *
+     * Asserted against the byte offsets rather than the prose, because the
+     * prose around this block is exactly what a later edit rewrites.
+     */
+    public function testCronBuildsTheServiceOutsideTheVapidGuard(): void
+    {
+        $contents = (string) file_get_contents(dirname(__DIR__, 3) . '/public/cron.php');
+
+        $guard = strpos($contents, 'if (VapidKeyPairFactory::isValid(');
+        $construction = strpos($contents, 'new NotificationService(');
+
+        $this->assertNotFalse($guard, 'cron.php no longer guards the push transport on the VAPID keys.');
+        $this->assertNotFalse($construction, 'cron.php must construct a NotificationService.');
+
+        $guardEnd = strpos($contents, "\n}\n", (int) $guard);
+        $this->assertNotFalse($guardEnd, 'The VAPID guard block in cron.php no longer ends at column zero.');
+
+        $this->assertGreaterThan(
+            (int) $guardEnd,
+            (int) $construction,
+            'cron.php constructs its NotificationService inside the VAPID guard. An installation with no '
+            . 'valid VAPID key then loses every notification a scheduled task raises — the e-mail and the '
+            . 'in-app row, not just the push — because TaskContext::$notifications is null and '
+            . 'OperationalAlertService::notify() returns at once. Build the WebPush conditionally and the '
+            . 'service unconditionally, as public/index.php does.'
+        );
+    }
 }
