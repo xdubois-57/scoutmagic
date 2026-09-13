@@ -730,6 +730,28 @@ that loses focus loses its range), a bare host becomes `https://…` rather
 than a relative link that 404s, and a `javascript:` URL is refused with a
 reason rather than silently stripped later by the server-side sanitiser.
 
+**The toolbar and the paste are the same module's, for the same reason**
+(`wireToolbar()`, `wirePaste()`, `cleanHtml()`). A toolbar is wired by
+calling `wireToolbar(root, surface)` — never by a script's own
+`[data-command]` loop. Three of them existed, and each of the three
+things they disagreed about was a bug a visitor could see (issue #306):
+one passed no `formatBlock` argument, so its H2/H3/« Paragraphe » buttons
+did nothing at all; two selected the same buttons of the same shared
+modal, so in configuration mode every toggle was applied and undone in
+one click; and all three echoed the editor's raw HTML back into the page
+while the server kept only its own allowlist of it, so a heading stayed
+visible until the next page load. `wireToolbar()` is idempotent per
+button, which is what makes the second of those impossible to
+reintroduce.
+
+`cleanHtml()` answers « what will the server keep of this? » without
+asking it, and everything that saves rich text runs its value through it
+first — the save and the on-screen echo are then the same string. It adds
+**no security**: `Core\Security\HtmlSanitizer` is the authority and runs
+on everything stored (SECURITY.md). Its copy of that allowlist is checked
+against the PHP one by `Tests\Core\Security\RichTextAllowlistsAgreeTest`,
+which fails when the two drift.
+
 **Images inside rich text are bounded once, by `.rich-text`.** Everything
 written through a rich-text editor is stored as HTML and printed with
 `|raw`, and nothing in this site's CSS or in Bootstrap constrains an

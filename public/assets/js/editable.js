@@ -50,20 +50,13 @@
     var currentKey = null;
     var currentElement = null;
 
-    // Toolbar commands
-    document.querySelectorAll('[data-command]').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            var cmd = /** @type {HTMLElement} */ (btn).dataset.command;
-            if (cmd === 'createLink') {
-                // Shared: captures the selection, asks, normalizes the URL
-                // and gives focus back. See rich-text-link.js.
-                window.ScoutMagicRichText.insertLink(editorContent);
-                return;
-            }
-            document.execCommand(cmd, false, null);
-            editorContent.focus();
-        });
-    });
+    // Toolbar commands and paste cleaning — both shared, both for issue
+    // #306. This script used to wire `[data-command]` itself, document-wide
+    // and without `data-value`, which cost the H2/H3/« Paragraphe » buttons
+    // their argument and double-wired every other button against
+    // rich-text-field.js on the pages that load both. See rich-text-link.js.
+    window.ScoutMagicRichText.wireToolbar(modalEl, editorContent);
+    window.ScoutMagicRichText.wirePaste(editorContent);
 
     // Open editor on rich text edit click
     document.querySelectorAll('.editable-content .editable-edit-btn').forEach(function (btn) {
@@ -90,7 +83,13 @@
         // for the same reason.
         if (currentKey === null) return;
 
-        var html = editorContent.innerHTML;
+        // Cleaned BEFORE it is sent, not only before it is shown: the
+        // server sanitises what it stores whatever we send, so sending the
+        // browser's own wrapper markup means storing something other than
+        // what the page then displays. Cleaning once, here, makes the saved
+        // value and the echoed one the same string — which is the « visible
+        // une fois sauvé, disparaît au rechargement » half of issue #306.
+        var html = window.ScoutMagicRichText.cleanHtml(editorContent.innerHTML);
         var csrfMeta = /** @type {HTMLMetaElement | null} */ (document.querySelector('meta[name="csrf-token"]'));
         var csrf = csrfMeta ? csrfMeta.content : '';
 

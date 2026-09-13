@@ -255,7 +255,10 @@
     customSaveBtn.addEventListener('click', function () {
         var modalEl = document.getElementById('richTextEditorModal');
         var editorContent = document.getElementById('richTextEditorContent');
-        var newContent = editorContent.innerHTML;
+        // Cleaned to what the server will keep, so the preview below and
+        // the stored text are the same string rather than diverging at the
+        // next page load (issue #306). See rich-text-link.js.
+        var newContent = window.ScoutMagicRichText.cleanHtml(editorContent.innerHTML);
         preview.innerHTML = newContent;
         var modal = window.bootstrap ? window.bootstrap.Modal.getOrCreateInstance(modalEl) : null;
         if (modal) modal.hide();

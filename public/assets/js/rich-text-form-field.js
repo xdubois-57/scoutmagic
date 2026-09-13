@@ -263,25 +263,21 @@ export function wireField(root) {
         form.addEventListener('submit', sync);
     }
 
-    root.querySelectorAll('[data-command]').forEach(function (button) {
-        button.addEventListener('click', function () {
-            const command = /** @type {HTMLElement} */ (button).dataset.command;
-            if (command === 'createLink') {
-                // Shared: captures the selection, asks, normalizes the URL
-                // and gives focus back. See rich-text-link.js. sync() runs
-                // after the dialog, not before it, or the inserted link
-                // would never reach the hidden field.
-                window.ScoutMagicRichText.insertLink(surface).then(sync);
-                return;
-            }
-            if (command === 'formatBlock') {
-                document.execCommand(command, false, '<' + /** @type {HTMLElement} */ (button).dataset.value + '>');
-            } else {
-                document.execCommand(command, false, null);
-            }
-            surface.focus();
-            sync();
-        });
+    // The shared toolbar wiring (rich-text-link.js). sync() is passed as
+    // the after-command hook rather than called here, so that it runs after
+    // the link dialog resolves and not before it — an inserted link would
+    // otherwise never reach the hidden field.
+    window.ScoutMagicRichText.wireToolbar(root, surface, sync);
+
+    // A paste is cleaned to what the site can store, which unwraps a chip
+    // copied from elsewhere in this field back into its `{{ keyword }}`
+    // text. chipify() then makes it a chip again — the same round trip
+    // toStoredHtml() already performs on save, so a pasted placeholder and
+    // a typed one end up identical rather than one of them staying loose
+    // text that the author can split in half.
+    window.ScoutMagicRichText.wirePaste(surface, function () {
+        chipify(surface, known);
+        sync();
     });
 
     root.querySelectorAll('[data-insert-keyword]').forEach(function (button) {

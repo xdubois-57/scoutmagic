@@ -8,10 +8,10 @@
 // present at import time, so every test builds its fixture first and
 // imports afterwards — the tests/js/finance-receipts.test.js pattern.
 //
-// The one thing deliberately NOT pinned here is the toolbar's createLink
-// branch: it still opens a native prompt() for the URL, the last native
-// dialog in this file, and a test asserting that would lock in behaviour
-// that is waiting on a replacement component (design.md §7.5).
+// rich-text-link.js is imported alongside, as base.html.twig loads it on
+// every page: since issue #306 the toolbar and the paste cleaning are its
+// job, and stubbing window.ScoutMagicRichText here would assert against a
+// stub rather than against the wiring the visitor gets.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const modalStub = { show: vi.fn(), hide: vi.fn() };
@@ -45,6 +45,7 @@ function buildDom() {
         </div>
         <div id="richTextEditorModal">
             <button data-command="bold">B</button>
+            <button data-command="formatBlock" data-value="h2">H2</button>
             <div id="richTextEditorContent"></div>
             <button id="richTextEditorSave">Enregistrer</button>
         </div>
@@ -54,6 +55,7 @@ function buildDom() {
 async function boot() {
     buildDom();
     vi.resetModules();
+    await import('../../public/assets/js/rich-text-link.js');
     await import('../../public/assets/js/editable.js');
 }
 
@@ -74,6 +76,9 @@ beforeEach(() => {
     modalStub.hide = vi.fn();
     global.fetch = vi.fn(() => jsonResponse({ success: true }));
     window.ScoutMagicToast = { show: vi.fn() };
+    // jsdom has no execCommand at all, so the toolbar's effect on the
+    // document is only observable as the call itself.
+    document.execCommand = vi.fn(() => true);
     // editable.js reads the bare `bootstrap` binding, not window.bootstrap.
     // `function`, not an arrow: the code under test calls `new
     // bootstrap.Modal(...)`, and since Vitest 4 a mock built from an
@@ -121,6 +126,7 @@ describe('editable.js: editable images', () => {
         buildDom();
         document.getElementById('richTextEditorModal').remove();
         vi.resetModules();
+        await import('../../public/assets/js/rich-text-link.js');
         await import('../../public/assets/js/editable.js');
 
         document.querySelector('.editable-image .editable-edit-btn').dispatchEvent(new Event('click'));
@@ -222,5 +228,52 @@ describe('editable.js: editing a rich-text block', () => {
 
         expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Erreur réseau.', { variant: 'error' });
         expect(modalStub.hide).not.toHaveBeenCalled();
+    });
+});
+
+// Issue #306: « la plupart du temps impossible d'appliquer une mise en
+// page » and « visible une fois sauvé, disparaît quand la page est
+// rechargée ». Both were in this file.
+describe('editable.js: the toolbar (issue #306)', () => {
+    it('passes the button\'s data-value to formatBlock instead of null', async () => {
+        await boot();
+
+        document.querySelector('[data-command="formatBlock"]').dispatchEvent(new Event('click'));
+
+        // Was `execCommand('formatBlock', false, null)`, which is the H2,
+        // H3 and « Paragraphe » buttons of every page doing nothing at all.
+        expect(document.execCommand).toHaveBeenCalledWith('formatBlock', false, '<h2>');
+    });
+
+    it('runs a command once when rich-text-field.js drives the same modal', async () => {
+        buildDom();
+        vi.resetModules();
+        await import('../../public/assets/js/rich-text-link.js');
+        await import('../../public/assets/js/editable.js');
+        // The configuration-mode page: both scripts, one modal, the same
+        // buttons. Two handlers on a toggle like bold applied it and undid
+        // it in the same click.
+        await import('../../public/assets/js/rich-text-field.js');
+
+        document.querySelector('[data-command="bold"]').dispatchEvent(new Event('click'));
+
+        expect(document.execCommand).toHaveBeenCalledTimes(1);
+    });
+
+    it('saves and echoes the same HTML the server will keep', async () => {
+        await boot();
+
+        document.querySelector('.editable-content .editable-edit-btn').dispatchEvent(new Event('click'));
+        // What Safari leaves behind when a heading is applied inside a
+        // contenteditable: the words survive the server, the wrapper does
+        // not — so an uncleaned echo showed a heading that the next page
+        // load did not.
+        document.getElementById('richTextEditorContent').innerHTML =
+            '<div><h1 style="font-weight: bold">Titre</h1><span class="x">Texte.</span></div>';
+        document.getElementById('richTextEditorSave').dispatchEvent(new Event('click'));
+        await settle();
+
+        expect(postedBody().value).toBe('<h2>Titre</h2>Texte.');
+        expect(block().innerHTML).toContain('<h2>Titre</h2>');
     });
 });

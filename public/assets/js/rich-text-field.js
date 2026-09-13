@@ -9,9 +9,12 @@
 // modal/toolbar markup as editable.js (partials/rich_text_editor.html.twig)
 // but is never gated behind configuration mode and saves to a caller-supplied
 // URL (data-save-url on the edit button) instead of the fixed
-// /api/editable-content endpoint — safe to load alongside editable.js since
-// that script only ever runs when configuration mode is active, and this one
-// never is.
+// /api/editable-content endpoint.
+//
+// It is loaded alongside editable.js, and in configuration mode BOTH are
+// live on the same modal — the two save handlers already guard on their own
+// currentKey for that reason. The toolbar is shared rather than guarded:
+// see wireToolbar() in rich-text-link.js.
 //
 // The preview and the edit button are deliberately decoupled (matched by
 // data-key, not by DOM nesting/proximity) so a caller can place the edit
@@ -27,26 +30,16 @@
     var currentSaveUrl = null;
     var currentPreview = null;
 
-    // Toolbar commands (bold/italic/lists/link/etc.) — editable.js wires
-    // the exact same [data-command] buttons, but only when configuration
-    // mode is active, so this is never a double-wiring in practice.
-    document.querySelectorAll('#richTextEditorModal [data-command]').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            var cmd = /** @type {HTMLElement} */ (btn).dataset.command;
-            if (cmd === 'createLink') {
-                // Shared: captures the selection, asks, normalizes the URL
-                // and gives focus back. See rich-text-link.js.
-                window.ScoutMagicRichText.insertLink(editorContent);
-                return;
-            }
-            if (cmd === 'formatBlock') {
-                document.execCommand(cmd, false, '<' + /** @type {HTMLElement} */ (btn).dataset.value + '>');
-            } else {
-                document.execCommand(cmd, false, null);
-            }
-            editorContent.focus();
-        });
-    });
+    // Toolbar commands (bold/italic/lists/link/etc.) — editable.js drives
+    // the exact same buttons of the same shared modal. The comment that
+    // used to stand here said that could not collide because editable.js
+    // "only runs when configuration mode is active"; configuration mode is
+    // exactly when both scripts are active, and both wirings fired on one
+    // click, un-applying every toggle as fast as it was applied (issue
+    // #306). The shared wiring is idempotent per button: whichever of the
+    // two gets there first wires them, the other finds them wired.
+    window.ScoutMagicRichText.wireToolbar(modalEl, editorContent);
+    window.ScoutMagicRichText.wirePaste(editorContent);
 
     function escapeAttr(value) {
         return value.replace(/["\\]/g, String.raw`\$&`);
@@ -65,7 +58,9 @@
     document.getElementById('richTextEditorSave').addEventListener('click', function () {
         if (!currentKey) return;
 
-        var html = editorContent.innerHTML;
+        // Cleaned before it is sent, so that what is stored and what the
+        // preview shows are the same string. See editable.js for the why.
+        var html = window.ScoutMagicRichText.cleanHtml(editorContent.innerHTML);
         var csrfMeta = /** @type {HTMLMetaElement | null} */ (document.querySelector('meta[name="csrf-token"]'));
         var csrf = csrfMeta ? csrfMeta.content : '';
 
