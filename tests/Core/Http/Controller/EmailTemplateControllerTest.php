@@ -342,6 +342,32 @@ class EmailTemplateControllerTest extends TestCase
         $this->assertStringNotContainsString('<script', $stored['body_html']);
     }
 
+    /**
+     * `public/assets/js/rich-text-field.js` repaints the preview from this
+     * response. It used to repaint from its own copy of what it had just
+     * sent, while the sanitizer pruned it on the way in — so markup stayed
+     * on screen until the next page load and then vanished (issue #306).
+     * What comes back must be what was stored, to the character.
+     */
+    public function testTheSavedBodyComesBackAsStoredRatherThanAsSubmitted(): void
+    {
+        $response = $this->controller->saveBody(
+            $this->jsonRequest([
+                'key' => 'email_body',
+                'value' => '<p>Bonjour</p><script>alert(1)</script>',
+            ]),
+            ['template' => self::OPEN_TEMPLATE]
+        );
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+
+        $stored = $this->overrides->find(self::OPEN_TEMPLATE);
+        $this->assertNotNull($stored);
+        $this->assertSame($stored['body_html'], $decoded['value']);
+        $this->assertStringNotContainsString('<script', $decoded['value']);
+    }
+
     public function testAnEmptySubjectIsRefusedWithoutTouchingWhatIsStored(): void
     {
         $this->overrides->save(self::OPEN_TEMPLATE, 'Le sujet en place', '<p>Le corps en place.</p>', 1);

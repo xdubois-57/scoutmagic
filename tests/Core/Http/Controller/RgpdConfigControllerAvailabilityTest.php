@@ -28,7 +28,8 @@ class RgpdConfigControllerAvailabilityTest extends TestCase
 {
     private function controller(
         RgpdContentService $rgpdContentService,
-        bool $moduleEnabled = true
+        bool $moduleEnabled = true,
+        ?string $storedContent = null
     ): RgpdConfigController {
         $moduleManager = $this->createStub(ModuleManager::class);
         $moduleManager->method('getEnabledModuleIds')
@@ -39,6 +40,10 @@ class RgpdConfigControllerAvailabilityTest extends TestCase
 
         $editableContentService = $this->createStub(EditableContentService::class);
         $editableContentService->method('get')->willReturn('');
+        // What set() ANSWERS is the behaviour under test in
+        // testSaveAnswersWithTheStoredContent below: the string it stored,
+        // which the sanitizer may have pruned.
+        $editableContentService->method('set')->willReturn($storedContent ?? '');
 
         // The template only has to echo the flag under test.
         $twig = new Environment(new ArrayLoader([
@@ -109,6 +114,52 @@ class RgpdConfigControllerAvailabilityTest extends TestCase
         $_SESSION['_csrf_token'] = $token;
 
         return $token;
+    }
+
+    /**
+     * The page repaints its preview from this response. It used to repaint
+     * from its own copy of what it had just sent, while
+     * EditableContentService sanitised on the way in — so a heading applied
+     * in the shared editor stayed on screen until the next page load and
+     * then vanished (issue #306). What comes back must be what was stored.
+     */
+    public function testSaveAnswersWithTheStoredContentRatherThanTheSubmittedOne(): void
+    {
+        AuthSession::login(1, 'super@example.org', 'superadmin');
+        $stored = '<h2>Titre</h2>Texte.';
+
+        $response = $this->controller($this->rgpdService(true), storedContent: $stored)->save(
+            $this->jsonRequest([
+                '_csrf_token' => $this->csrfToken(),
+                'mode' => 'custom',
+                'content' => '<div><h1>Titre</h1><span class="x">Texte.</span></div>',
+                'prompt' => '',
+            ]),
+            []
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $this->assertSame($stored, $decoded['content']);
+    }
+
+    public function testSaveRefusesAnUnknownGenerationMode(): void
+    {
+        AuthSession::login(1, 'super@example.org', 'superadmin');
+
+        $response = $this->controller($this->rgpdService(true))->save(
+            $this->jsonRequest([
+                '_csrf_token' => $this->csrfToken(),
+                'mode' => 'bogus',
+                'content' => '',
+                'prompt' => '',
+            ]),
+            []
+        );
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertFalse(json_decode($response->getBody(), true)['success']);
     }
 
     public function testGenerateRefusesCleanlyWhenNoTierIsUsable(): void
