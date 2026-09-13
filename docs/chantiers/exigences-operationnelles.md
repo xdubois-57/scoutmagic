@@ -1779,8 +1779,9 @@ tranche ne parte : un processus tué en plein envoi ne laisse rien
 d'autre, et perdre l'URI de session, c'est reconstruire plusieurs
 gibioctets pour rien. Cette ligne dit `offset_is_certain: false`, et le
 passage suivant demande donc au destinataire ce qu'il détient au lieu de
-déduire de ce qu'il avait émis — un passage peut remettre huit mébioctets
-et n'en voir valider qu'un, et seul le second nombre est sûr. Un passage
+déduire de ce qu'il avait émis — un passage peut remettre plusieurs
+tranches et n'en voir valider qu'une partie, et seul ce qui a été validé
+est sûr. Un passage
 qui se termine normalement remplace cette ligne par l'offset réellement
 atteint, de sorte que le cas ordinaire ne coûte aucune sonde.
 
@@ -1843,6 +1844,66 @@ arrivée.
 `InMemorySettingService` vivait au pied de `GoogleDriveTargetTest` : il
 n'était trouvé que si PHPUnit avait chargé ce fichier-là en premier, et
 PHPStan ne le voyait pas du tout. Il a désormais un fichier à son nom.
+
+**Douze constats de revue, un décliné.** Deux touchent la même erreur,
+et c'est celle d'IT-08 revenue ailleurs : `isConnected()` répond faux
+aussi bien pour un site déraccordé que pour un site dont Google a retiré
+l'autorisation — `markNeedsReauthorisation()` efface le jeton. Les deux
+alertes s'y appuyaient, donc elles se seraient tues précisément sur
+l'installation pour laquelle elles existent : une destination
+configurée, un opérateur qui la croit active, et plus rien qui quitte le
+serveur depuis un mois. C'est l'état qui décide maintenant, pas le
+jeton : seul un déraccordement délibéré ré-arme.
+
+Le manifeste de l'archive annonçait `includes_gallery: false` alors que
+le paramètre ajouté plus haut y mettait bel et bien la galerie. Un
+manifeste faux est pire qu'aucun manifeste : c'est ce qu'une
+restauration et un opérateur lisent pour savoir ce que l'archive
+contient, et il est cru.
+
+Deux constats sur la même fonction, et tous deux étaient des pertes
+sèches. L'URI de session ouverte par un passage ne remontait pas au
+`catch` : un échec sur la première tranche renvoyait donc le passage
+suivant ouvrir une deuxième session et repousser plusieurs gibioctets
+depuis zéro, en laissant une session orpheline chez Google. Et
+`finish()` — l'horodatage du succès — vivait dans le `try` dont le
+`catch` appelle `recordFailure()` : une table des réglages qui refuse
+une écriture transformait une archive livrée en envoi échoué, et au
+plafond la branche d'abandon supprimait l'archive locale en journalisant
+« abandonné » pour une sauvegarde posée sans encombre chez la
+destination.
+
+La purge comptait le fichier témoin. `testConnection()` dépose
+`scoutmagic-test.txt` dans le même dossier et ignore l'échec du ménage,
+délibérément — donc un témoin peut survivre, et il est alors le plus
+récent : avec `keep` à 1, la purge gardait le témoin et supprimait
+l'unique sauvegarde distante. Le nom d'une archive et son motif de
+reconnaissance vivent désormais dans la même classe, parce que les tenir
+séparés, c'est deux choses à garder d'accord à l'endroit où se tromper
+détruit une sauvegarde.
+
+`regenerate()` écrit dans deux réservoirs sans transaction qui les
+couvre : la phrase est un fichier, la génération une ligne de réglages.
+Si le numéro ne suivait pas, chaque envoi ultérieur chiffrait avec la
+génération 2 en nommant le fichier `…-g1.zip` — exactement la confusion
+que la génération existe pour empêcher. Rien ici ne peut rendre la paire
+atomique ; ce qu'elle fait maintenant, c'est remettre en place tout ce
+qu'elle avait déjà changé et le dire.
+
+Restent quatre corrections de texte (un exemple en mébioctets que le
+code contredit, « vous seul pouvez les supprimer » alors que la
+rétention en supprime, « rend illisible » là où c'est la nouvelle phrase
+qui n'ouvre pas l'ancien, et une énumération dont « les deux derniers »
+ne désignaient pas les bons) et deux broutilles : un `max-width` en
+ligne là où `design.md` §7.6 impose les classes partagées, et deux
+commentaires de section en français dans un test.
+
+**Le constat décliné.** « Le bouton Afficher reste désactivé si la
+requête échoue » : `ScoutMagicApi.postJson()` ne rejette jamais — son
+docbloc l'écrit en toutes lettres et son `.catch()` interne résout en
+`{ok:false, status:0, data:null}`. Vérifié en le pilotant avec un
+`fetch` qui rejette. Le `.then()` s'exécute donc toujours, et c'est lui
+qui réactive le bouton.
 
 **Reporté.** Rien de cette itération. Les points sortis de la revue non
 fonctionnelle et explicitement laissés de côté par le document restent

@@ -19,6 +19,12 @@ use Core\Config\SettingService;
  * a repository and a database for rows whose whole content is under this
  * test's control anyway.
  *
+ * **Not `final`**: one test needs a table where a single named row
+ * refuses to be written — a blanket `refuseWrites` would fail the
+ * connection's own writes long before the line under test was reached —
+ * and a subclass is the cheapest way to say that without a flag here for
+ * every future variation ({@see RefusingSettingService}).
+ *
  * **In its own file, named after the class**, so that Composer's PSR-4
  * autoloader finds it. It began at the foot of `GoogleDriveTargetTest`,
  * which worked only as long as PHPUnit happened to have loaded that file
@@ -26,7 +32,7 @@ use Core\Config\SettingService;
  * depending on the order the suite ran in, and static analysis could not
  * see it at all.
  */
-final class InMemorySettingService extends SettingService
+class InMemorySettingService extends SettingService
 {
     /** @param array<string, string> $values */
     public function __construct(public array $values = [])

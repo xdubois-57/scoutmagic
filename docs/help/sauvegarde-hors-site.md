@@ -71,12 +71,12 @@ site : le reste de votre Drive lui reste invisible. Ce qui y est déposé
 est une **sauvegarde portable** chiffrée — Google détient un fichier dont
 il n'a pas la clé.
 
-**Déraccorder** efface le jeton et les identifiants. Les sauvegardes déjà
-déposées restent chez vous, et vous seul pouvez les supprimer.
+**Déraccorder** efface le jeton et les identifiants. Le site n'y touche
+alors plus — ni pour déposer, ni pour purger — et les sauvegardes déjà
+déposées sont à vous seul de supprimer.
 
 ## Et ensuite ?
 
-À partir de là, le site envoie tout seul. Ce qu'il envoie, à quel rythme,
-ce qu'il conserve et — surtout — **la phrase de passe à recopier hors du
-site** : voir [Ce que le site envoie sur Drive, et la phrase qui
-l'ouvre](/aide/sauvegardes-distantes).
+Le site envoie tout seul. Le rythme, ce qu'il conserve et — surtout — **la
+phrase de passe à recopier hors du site** :
+voir [Ce que le site envoie sur Drive](/aide/sauvegardes-distantes).

@@ -36,6 +36,29 @@ use Core\Storage\ByteFormatter;
  */
 final class RemoteRetention
 {
+    /**
+     * What an archive this application uploaded is called, and how to
+     * recognise one again.
+     *
+     * **The name and its recogniser live together on purpose.** Nothing
+     * about naming a backup belongs to retention; what belongs to
+     * retention is being unable to get it wrong. The folder holds more
+     * than archives — {@see GoogleDriveTarget::testConnection()} writes
+     * `scoutmagic-test.txt` on every press of the Tester button and
+     * ignores a failed clean-up, deliberately, so a witness CAN survive.
+     * Counting one as an archive is not cosmetic: it is newer than every
+     * real backup, so with `keep` at 1 the purge kept the witness and
+     * deleted the unit's only off-site copy.
+     *
+     * Deliberately tolerant — the prefix and the extension, not the whole
+     * date-and-generation shape. A stricter pattern would make every
+     * archive written under a future naming scheme immortal, and the
+     * folder is visible to this application alone (the `drive.file`
+     * scope), so there is nothing else in it to mistake for a backup.
+     */
+    public const ARCHIVE_PREFIX = 'scoutmagic-';
+    public const ARCHIVE_SUFFIX = '.zip';
+
     public const KEEP_SETTING = 'backup_remote_keep';
     public const MAX_BYTES_SETTING = 'backup_remote_max_bytes';
 
@@ -81,6 +104,11 @@ final class RemoteRetention
      */
     public function beyondTheBounds(array $files): array
     {
+        // Archives only, before anything is sorted or counted. See
+        // ARCHIVE_PREFIX for what a surviving witness file did to a purge
+        // that counted everything in the folder.
+        $files = array_values(array_filter($files, static fn(RemoteFile $f): bool => self::isArchive($f->name)));
+
         // Newest first, decided here rather than trusted from the
         // destination: everything below depends on this order, and a
         // provider that changed its default ordering would otherwise
@@ -136,6 +164,32 @@ final class RemoteRetention
         }
 
         return ['deleted' => $deleted, 'failed' => $failed, 'freedBytes' => $freed];
+    }
+
+    /**
+     * The name an archive uploaded now would take.
+     *
+     * The generation is in it, and that is the point: regenerating the
+     * passphrase leaves every archive already sent openable only by the
+     * old one, and nothing re-encrypts them. Without the number, an
+     * operator facing a folder of archives would try the current phrase,
+     * fail, and conclude the backup was broken.
+     */
+    public static function nameFor(\DateTimeImmutable $at, int $generation): string
+    {
+        return sprintf(
+            '%s%s-g%d%s',
+            self::ARCHIVE_PREFIX,
+            $at->format('Y-m-d-His'),
+            max(1, $generation),
+            self::ARCHIVE_SUFFIX
+        );
+    }
+
+    /** Whether a remote file is one of {@see nameFor()}'s. */
+    public static function isArchive(string $name): bool
+    {
+        return str_starts_with($name, self::ARCHIVE_PREFIX) && str_ends_with($name, self::ARCHIVE_SUFFIX);
     }
 
     public function keep(): int

@@ -35,6 +35,17 @@ use Core\Service\DateInput;
  * instead of freezing it: « I cannot tell » would leave the last reading
  * standing for ever.
  *
+ * **"No destination" means DISCONNECTED, and nothing else.** A site whose
+ * grant Google withdrew is `needs_reauth`, and
+ * {@see RemoteBackupConnection::isConnected()} answers false for it too —
+ * `markNeedsReauthorisation()` clears the refresh token. Keying this check
+ * on that method would therefore silence it on exactly the site it exists
+ * for: a destination configured, an operator who believes it is working,
+ * and nothing having left the server since the day the authorisation
+ * died. So the state decides, not the token: only a deliberate
+ * disconnection re-arms, and a withdrawn grant goes on being measured
+ * until somebody reconnects it.
+ *
  * **A connected destination that has never received anything is measured
  * from the day it was connected**, not declared unknown. Ten days is ten
  * days whether the sends failed or never started, and the second is the
@@ -64,7 +75,7 @@ final class RemoteBackupAgeCheck implements OperationalCheck
     public function read(): AlertReading
     {
         $connection = new RemoteBackupConnection($this->settings, $this->secrets);
-        if (!$connection->isConnected()) {
+        if ($connection->state() === RemoteBackupConnection::STATE_DISCONNECTED) {
             return $this->notApplicable();
         }
 
@@ -104,6 +115,10 @@ final class RemoteBackupAgeCheck implements OperationalCheck
      * destination is not failing at anything, and one that deliberately
      * disconnects theirs must see the alert go out rather than stay lit
      * on a measurement nothing will ever take again.
+     *
+     * Reached only from `disconnected`. A withdrawn grant never lands
+     * here — see the class docblock for why that distinction is the whole
+     * point of this check.
      */
     private function notApplicable(): AlertReading
     {

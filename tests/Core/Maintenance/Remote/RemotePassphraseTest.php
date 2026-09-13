@@ -27,7 +27,7 @@ use PHPUnit\Framework\TestCase;
 final class RemotePassphraseTest extends TestCase
 {
     private string $base;
-    private InMemorySettingService $settings;
+    private RefusingSettingService $settings;
     private SecretManager $secrets;
     private RemotePassphrase $passphrase;
 
@@ -41,7 +41,7 @@ final class RemotePassphraseTest extends TestCase
         $this->secrets->generateMasterKey();
         $this->secrets->writeSecrets(['smtp_password' => 'le-mot-de-passe-smtp']);
 
-        $this->settings = new InMemorySettingService();
+        $this->settings = new RefusingSettingService();
         $this->passphrase = new RemotePassphrase($this->settings, $this->secrets);
     }
 
@@ -170,4 +170,54 @@ final class RemotePassphraseTest extends TestCase
 
         $this->assertCount(20, array_unique($seen));
     }
+    /**
+     * **A half-finished regeneration puts the phrase back.**
+     *
+     * Two stores and no transaction across them: the phrase is a file and
+     * the generation is a settings row. If the number cannot follow the
+     * secret, every later send would encrypt with generation 2 while
+     * `remoteName()` still read 1 — an archive named `…-g1.zip` that the
+     * first phrase does not open, which is the exact confusion the
+     * generation exists to prevent.
+     */
+    public function testAGenerationThatCannotBeRecordedPutsTheOldPhraseBack(): void
+    {
+        $first = $this->passphrase->current();
+        $this->assertSame(1, $this->passphrase->generation());
+
+        $this->settings->refuseKey = RemotePassphrase::GENERATION_SETTING;
+
+        try {
+            $this->passphrase->regenerate();
+            $this->fail('a regeneration that could not record its generation reported success');
+        } catch (RemoteBackupException $e) {
+            $this->assertStringContainsString('ancienne reste en vigueur', $e->getMessage());
+        }
+
+        $this->settings->refuseKey = '';
+        $this->assertSame($first, $this->passphrase->stored(), 'the site now encrypts with a phrase nothing names');
+        $this->assertSame(1, $this->passphrase->generation());
+    }
+
+    /**
+     * The very first phrase is no exception: a failure there leaves the
+     * site with no phrase at all rather than one no file name describes.
+     */
+    public function testAFailedFirstGenerationLeavesNoPhraseBehind(): void
+    {
+        $this->settings->refuseKey = RemotePassphrase::GENERATION_SETTING;
+
+        $this->expectException(RemoteBackupException::class);
+
+        try {
+            $this->passphrase->regenerate();
+        } finally {
+            $this->settings->refuseKey = '';
+            $this->assertSame('', $this->passphrase->stored());
+            $this->assertSame(0, $this->passphrase->generation());
+            // And the neighbours in secrets.enc are untouched.
+            $this->assertSame('le-mot-de-passe-smtp', $this->secrets->readSecrets()['smtp_password'] ?? '');
+        }
+    }
+
 }

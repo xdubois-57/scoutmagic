@@ -60,7 +60,7 @@ final class RemoteBackupChecksTest extends TestCase
         @rmdir($this->base);
     }
 
-    // ————— L'âge du dernier envoi —————
+    // ————— The age of the last send —————
 
     /**
      * **A unit that has not set up a destination is not failing at
@@ -134,6 +134,53 @@ final class RemoteBackupChecksTest extends TestCase
         $this->assertStringContainsString('jamais partie', $reading->title);
     }
 
+    /**
+     * **A withdrawn grant is not a disconnected site**, and reading it as
+     * one silences this alert on exactly the installation it exists for.
+     *
+     * `markNeedsReauthorisation()` clears the refresh token, so
+     * `isConnected()` answers false for a site whose Google authorisation
+     * died — the same shape that cost IT-08 a finding on
+     * `testConnection()`. Keying on it here would mean: a destination
+     * configured, an operator who believes it works, nothing having left
+     * the server for a month, and an alert that says « tout va bien »
+     * because it decided there was nothing to measure.
+     */
+    public function testAWithdrawnGrantIsStillMeasuredRatherThanTreatedAsNoDestination(): void
+    {
+        $this->connect();
+        $this->settings->values[SendRemoteBackupHandler::LAST_SUCCESS_SETTING]
+            = $this->daysBefore(AlertThresholds::REMOTE_BACKUP_AGE_TRIGGER_DAYS + 2);
+
+        (new RemoteBackupConnection($this->settings, $this->secrets))
+            ->markNeedsReauthorisation('Google n\'accepte plus l\'autorisation de ce site.');
+
+        $reading = $this->ageReading();
+
+        $this->assertTrue(
+            $reading->overTrigger,
+            'the alert went quiet on a site whose off-site backups have stopped — the one case it is for'
+        );
+        $this->assertFalse($reading->underRearm);
+        $this->assertNotSame('non raccordé', $reading->value);
+    }
+
+    /** Only a deliberate disconnection re-arms it. */
+    public function testOnlyADeliberateDisconnectionRearmsTheAgeCheck(): void
+    {
+        $this->connect();
+        $this->settings->values[SendRemoteBackupHandler::LAST_SUCCESS_SETTING]
+            = $this->daysBefore(AlertThresholds::REMOTE_BACKUP_AGE_TRIGGER_DAYS + 2);
+        $this->settings->values[RemoteBackupConnection::STATE_SETTING]
+            = RemoteBackupConnection::STATE_DISCONNECTED;
+
+        $reading = $this->ageReading();
+
+        $this->assertFalse($reading->overTrigger);
+        $this->assertTrue($reading->underRearm);
+        $this->assertSame('non raccordé', $reading->value);
+    }
+
     /** And one connected this morning is not yet news. */
     public function testADestinationConnectedThisMorningIsNotYetAlarming(): void
     {
@@ -146,7 +193,7 @@ final class RemoteBackupChecksTest extends TestCase
         $this->assertTrue($reading->underRearm);
     }
 
-    // ————— L'espace distant —————
+    // ————— The remote account's free space —————
 
     public function testAFullDestinationTriggersAndAnEmptierOneRearms(): void
     {

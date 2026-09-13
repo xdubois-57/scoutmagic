@@ -128,9 +128,9 @@ final class RemoteRetentionTest extends TestCase
         $this->settings->values[RemoteRetention::KEEP_SETTING] = '1';
 
         $shuffled = [
-            new RemoteFile('vieux', 'a.zip', 10, '2026-01-01T00:00:00.000Z'),
-            new RemoteFile('recent', 'b.zip', 10, '2026-09-01T00:00:00.000Z'),
-            new RemoteFile('moyen', 'c.zip', 10, '2026-05-01T00:00:00.000Z'),
+            new RemoteFile('vieux', 'scoutmagic-2026-01-01-030000-g1.zip', 10, '2026-01-01T00:00:00.000Z'),
+            new RemoteFile('recent', 'scoutmagic-2026-09-01-030000-g1.zip', 10, '2026-09-01T00:00:00.000Z'),
+            new RemoteFile('moyen', 'scoutmagic-2026-05-01-030000-g1.zip', 10, '2026-05-01T00:00:00.000Z'),
         ];
 
         $doomed = $this->retention->beyondTheBounds($shuffled);
@@ -176,6 +176,12 @@ final class RemoteRetentionTest extends TestCase
 
     /**
      * @return RemoteFile[] newest first, `archive-1` being the newest
+     *
+     * Named through {@see RemoteRetention::nameFor()} rather than by hand:
+     * retention now looks at the name to tell an archive from the witness
+     * file the Tester button leaves behind, so a fixture spelled its own
+     * way would be filtered out — and every count below would pass on an
+     * empty list.
      */
     private function archives(int $count, int $sizeBytes): array
     {
@@ -183,7 +189,7 @@ final class RemoteRetentionTest extends TestCase
         for ($index = 1; $index <= $count; $index++) {
             $files[] = new RemoteFile(
                 'archive-' . $index,
-                'sauvegarde-' . $index . '.zip',
+                RemoteRetention::nameFor(new \DateTimeImmutable(sprintf('2026-09-%02d 03:00:00', 30 - $index)), 1),
                 $sizeBytes,
                 sprintf('2026-09-%02dT03:00:00.000Z', 30 - $index)
             );
@@ -213,6 +219,44 @@ final class RemoteRetentionTest extends TestCase
             (new RemoteRetention($settings))->maxBytes(),
             'the value written into the settings row does not read back as the constant it came from'
         );
+    }
+
+
+    /**
+     * **The witness file is not an archive, and counting it as one
+     * deleted the unit's only off-site backup.**
+     *
+     * `GoogleDriveTarget::testConnection()` writes `scoutmagic-test.txt`
+     * into this same folder on every press of the Tester button, and
+     * ignores a failed clean-up on purpose — so one CAN survive. It is
+     * then the newest thing in the folder, and a purge that counted it
+     * kept it and deleted the real backup underneath.
+     */
+    public function testAWitnessFileIsNeitherCountedNorPurged(): void
+    {
+        $settings = new InMemorySettingService([RemoteRetention::KEEP_SETTING => '1']);
+        $witness = new RemoteFile('w', 'scoutmagic-test.txt', 12, '2026-03-04T00:00:00Z');
+        $backup = new RemoteFile('b', 'scoutmagic-2026-03-03-020400-g1.zip', 900, '2026-03-03T00:00:00Z');
+
+        $doomed = (new RemoteRetention($settings))->beyondTheBounds([$witness, $backup]);
+
+        $this->assertSame([], $doomed, 'the newest witness was kept and the only real backup deleted under it');
+    }
+
+    /**
+     * The name the handler writes is the name retention recognises.
+     *
+     * The two live in one class for this reason: a format on one side and
+     * a pattern on the other are two things to keep in step, and the
+     * purge is where getting it wrong destroys a backup.
+     */
+    public function testTheNameItSpellsIsTheNameItRecognises(): void
+    {
+        $name = RemoteRetention::nameFor(new \DateTimeImmutable('2026-03-03 02:04:00'), 2);
+
+        $this->assertSame('scoutmagic-2026-03-03-020400-g2.zip', $name);
+        $this->assertTrue(RemoteRetention::isArchive($name));
+        $this->assertFalse(RemoteRetention::isArchive('scoutmagic-test.txt'));
     }
 
 }

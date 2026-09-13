@@ -102,14 +102,22 @@ class RunOperationalChecksHandler implements TaskHandlerInterface
      * stays a thing a test can hand a double to — the whole point of
      * {@see RemoteBackupTarget} — and so that the ONE network call this
      * daily pass makes is visible at the place the pass is assembled.
+     *
+     * **Null means DISCONNECTED, never "the grant is gone".** Null is
+     * what makes the check re-arm, and re-arming is « all clear » — so
+     * returning it for a `needs_reauth` site would put the quota alert
+     * out on a destination that has stopped accepting anything. A target
+     * is built for that site too; every call it makes fails, and
+     * {@see RemoteQuotaCheck} turns that into *inconclusive*, which
+     * leaves a standing alert exactly where it was.
      */
     private function remoteTarget(TaskContext $context): ?RemoteBackupTarget
     {
         $connection = new RemoteBackupConnection($context->settings, $this->secrets($context));
 
-        return $connection->isConnected()
-            ? new GoogleDriveTarget($connection, new GoogleDriveClient())
-            : null;
+        return $connection->state() === RemoteBackupConnection::STATE_DISCONNECTED
+            ? null
+            : new GoogleDriveTarget($connection, new GoogleDriveClient());
     }
 
     private function secrets(TaskContext $context): SecretManager

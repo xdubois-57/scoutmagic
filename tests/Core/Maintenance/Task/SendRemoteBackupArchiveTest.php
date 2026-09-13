@@ -170,6 +170,40 @@ final class SendRemoteBackupArchiveTest extends TestCase
             $this->entryNames($target->sent[1]['path']),
             'a unit that asked for its photographs off-site did not get them'
         );
+
+        // **And the manifest agrees with the bytes.** It is what a restore
+        // and an operator read to learn what an archive holds; one saying
+        // `includes_gallery: false` over gibibytes of photographs is worse
+        // than no manifest at all, because it is believed.
+        $this->assertTrue(
+            $this->manifestOf($target->sent[1]['path'])['includes_gallery'] ?? null,
+            'the manifest denies a gallery the archive actually carries'
+        );
+        $this->assertFalse(
+            $this->manifestOf($target->sent[0]['path'])['includes_gallery'] ?? null,
+            'the manifest claims a gallery the archive does not carry'
+        );
+    }
+
+    /**
+     * The archive's own manifest, decrypted with the site's phrase.
+     *
+     * @return array<string, mixed>
+     */
+    private function manifestOf(string $archivePath): array
+    {
+        $zip = new \ZipArchive();
+        $this->assertTrue($zip->open($archivePath) === true);
+        $phrase = (new RemotePassphrase($this->settings, $this->secrets))->stored();
+        $keys = PortableKeys::derive($phrase, PortableKeys::parseComment($zip->getArchiveComment()));
+        $this->assertTrue($zip->setPassword($keys->archivePassword()));
+        $json = $zip->getFromName(\Core\Maintenance\Portable\PortableManifest::MEMBER);
+        $zip->close();
+
+        $decoded = is_string($json) ? json_decode($json, true) : null;
+        $this->assertIsArray($decoded, 'the archive carries no readable manifest');
+
+        return $decoded;
     }
 
     /**

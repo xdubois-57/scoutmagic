@@ -272,7 +272,11 @@ class BackupService implements BackupServiceInterface
         return $this->writeArchive(
             Backup::PORTABLE_TYPE,
             $passphrase,
-            new PortableManifest($version, $installationId, false, new \DateTimeImmutable()),
+            // The SAME flag, not a hardcoded false: the manifest is what a
+            // restore and an operator read to learn what an archive holds,
+            // and one saying `includes_gallery: false` over gibibytes of
+            // photographs is worse than no manifest at all.
+            new PortableManifest($version, $installationId, $includeGallery, new \DateTimeImmutable()),
             $includeGallery
         );
     }

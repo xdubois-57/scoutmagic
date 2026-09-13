@@ -143,7 +143,19 @@ final class RemotePassphrase
      * describe it follow. A number claiming a generation that was never
      * written would put the wrong one in every later file name.
      *
-     * @throws RemoteBackupException when `secrets.enc` cannot be read
+     * **And if the number cannot follow, the secret goes back.** Two
+     * stores, no transaction spanning them: `secrets.enc` is a file and
+     * the generation is a settings row, so between the two writes there
+     * is a window where the phrase is new and the number is old. Left
+     * alone, every later run would encrypt with generation 2 and name the
+     * file `…-g1.zip` — an archive labelled with a phrase that does not
+     * open it, which is the one thing the generation exists to prevent.
+     * Nothing here can make the pair atomic, so what it does instead is
+     * put back every value it had already changed and report the failure,
+     * leaving the site exactly as it was.
+     *
+     * @throws RemoteBackupException when `secrets.enc` cannot be read, or
+     *         when the generation could not be recorded
      */
     public function regenerate(): string
     {
@@ -158,13 +170,65 @@ final class RemotePassphrase
             );
         }
 
+        $previousPhrase = is_string($secrets[self::SECRET_KEY] ?? null) ? (string) $secrets[self::SECRET_KEY] : '';
+        $previousGeneration = (string) ($this->settings->get(self::GENERATION_SETTING) ?: '0');
+        $previousCreatedAt = $this->createdAt();
+
         $secrets[self::SECRET_KEY] = $phrase;
         $this->secrets->writeSecrets($secrets);
 
-        $this->settings->setInternal(self::GENERATION_SETTING, (string) ($this->generation() + 1));
-        $this->settings->setInternal(self::CREATED_AT_SETTING, (new \DateTimeImmutable())->format('Y-m-d H:i:s'));
+        try {
+            $this->settings->setInternal(self::GENERATION_SETTING, (string) ($this->generation() + 1));
+            $this->settings->setInternal(
+                self::CREATED_AT_SETTING,
+                (new \DateTimeImmutable())->format('Y-m-d H:i:s')
+            );
+        } catch (\Throwable $e) {
+            $this->rollBack($secrets, $previousPhrase, $previousGeneration, $previousCreatedAt);
+
+            throw RemoteBackupException::of(
+                'La nouvelle phrase de passe n\'a pas pu être enregistrée : l\'ancienne reste en vigueur.',
+                $e
+            );
+        }
 
         return $phrase;
+    }
+
+    /**
+     * Undoes a half-finished {@see regenerate()}.
+     *
+     * Best effort, and it says so: if the settings table has just refused
+     * a write it may refuse these too. What matters is the ORDER — the
+     * secret goes back first, because that is the value the generation
+     * number describes, and a site left with the old phrase and a bumped
+     * number is in the same broken state this method exists to undo.
+     * Anything that still fails is left to the exception the caller is
+     * about to receive, which says the old phrase remains in force.
+     *
+     * @param array<string, string> $secrets as they were just written
+     */
+    private function rollBack(
+        array $secrets,
+        string $previousPhrase,
+        string $previousGeneration,
+        string $previousCreatedAt
+    ): void {
+        try {
+            if ($previousPhrase === '') {
+                unset($secrets[self::SECRET_KEY]);
+            } else {
+                $secrets[self::SECRET_KEY] = $previousPhrase;
+            }
+            $this->secrets->writeSecrets($secrets);
+
+            $this->settings->setInternal(self::GENERATION_SETTING, $previousGeneration);
+            $this->settings->setInternal(self::CREATED_AT_SETTING, $previousCreatedAt);
+        } catch (\Throwable) {
+            // Deliberately swallowed: the caller is already throwing, and
+            // a second exception from the recovery would replace the one
+            // sentence the operator can act on with one they cannot.
+        }
     }
 
     /** Which phrase is in force, as it appears in uploaded file names. */

@@ -412,7 +412,7 @@ final class RemoteBackupControllerTest extends TestCase
         );
     }
 
-    // ————— La phrase de passe —————
+    // ————— The passphrase —————
 
     /**
      * **Shown on demand, and that is the deliberate departure.** The

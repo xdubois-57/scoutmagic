@@ -29,7 +29,7 @@ use Core\Security\EncryptionService;
 use Core\Security\SecretManager;
 use Core\Security\UserAccountRepository;
 use PHPUnit\Framework\TestCase;
-use Tests\Core\Maintenance\Remote\InMemorySettingService;
+use Tests\Core\Maintenance\Remote\RefusingSettingService;
 use Tests\DatabaseTestHelper;
 
 /**
@@ -59,7 +59,7 @@ final class SendRemoteBackupHandlerTest extends TestCase
     private \PDO $pdo;
     private string $basePath;
     private string $storagePath;
-    private InMemorySettingService $settings;
+    private RefusingSettingService $settings;
     private SecretManager $secrets;
     private SchedulerRepository $scheduler;
 
@@ -94,7 +94,7 @@ final class SendRemoteBackupHandlerTest extends TestCase
         // that raccording a destination never erases the SMTP password.
         $this->secrets->writeSecrets(['smtp_password' => 'le-mot-de-passe-smtp']);
 
-        $this->settings = new InMemorySettingService();
+        $this->settings = new RefusingSettingService();
         $this->connect();
     }
 
@@ -363,6 +363,81 @@ final class SendRemoteBackupHandlerTest extends TestCase
         $this->assertNotNull($next);
         $this->assertSame($archive, $next['payload']['archive_path']);
         $this->assertSame(1, $next['payload']['failures']);
+    }
+
+    /**
+     * **A failure must not throw away the session this run just opened.**
+     *
+     * `send()` opens the resumable session locally; if that state never
+     * reaches the catch in `handle()`, `recordFailure()` re-arms on the
+     * payload it was *called* with — where `session_url` is still empty
+     * for a fresh archive. The next run then opens a SECOND session and
+     * pushes a multi-gibibyte archive from byte zero again, leaving an
+     * orphan session on the destination. Every failure would cost one
+     * whole upload, on exactly the shared hosting this chunked design
+     * exists for.
+     */
+    public function testAFailureKeepsTheSessionThisRunOpened(): void
+    {
+        $archive = $this->archiveOf(1000);
+        $target = new RecordingTarget($this);
+        $target->failSendWith = 'Google a refusé la tranche.';
+
+        $this->runOnce($this->payloadFor($archive), $target);
+
+        $next = $this->pending();
+        $this->assertNotNull($next);
+        $this->assertSame(
+            'https://upload.example/session-1',
+            $next['payload']['session_url'] ?? '',
+            'the session this run opened was lost, so the next run restarts the whole upload'
+        );
+        $this->assertFalse(
+            $next['payload']['offset_is_certain'],
+            'the retry would resume on an offset nobody confirmed'
+        );
+
+        // And the retry really does continue on it rather than opening
+        // another: one session for the whole archive.
+        $target->failSendWith = '';
+        $this->runOnce($next['payload'], $target);
+        $this->assertSame(1, $target->sessionsOpened, 'the retry opened a second session on the same archive');
+    }
+
+    /**
+     * **Bookkeeping after a delivery must not turn it into a failure.**
+     *
+     * `finish()` stamps the success date through `SettingService`, which
+     * can throw. That call used to sit inside the `try` whose catch calls
+     * `recordFailure()` — so a settings table refusing one write counted
+     * a delivered archive as a failed send, and at the ceiling the
+     * abandonment branch deleted the local archive and journaled
+     * « abandonné » for a backup sitting safely on the destination, with
+     * the next run about to upload the whole thing again.
+     */
+    public function testAFailedSuccessStampDoesNotTurnADeliveredArchiveIntoAFailure(): void
+    {
+        $archive = $this->archiveOf(50);
+        $this->settings->refuseKey = SendRemoteBackupHandler::LAST_SUCCESS_SETTING;
+        $target = new RecordingTarget($this);
+
+        $this->runOnce($this->payloadFor($archive), $target);
+
+        $this->assertSame(
+            ['remote_backup_sent', 'remote_backup_stamp_failed'],
+            $this->events(['remote_backup_sent', 'remote_backup_stamp_failed', 'remote_backup_failed',
+                'remote_backup_abandoned']),
+            'an archive the destination had taken was recorded as a failed send'
+        );
+
+        $next = $this->pending();
+        $this->assertNotNull($next);
+        $this->assertSame([], $next['payload'], 'the finished send was queued for retry');
+        $this->assertGreaterThan(
+            time() + (SendRemoteBackupHandler::INTERVAL_HOURS - 1) * 3600,
+            strtotime((string) $next['run_at']),
+            'a delivered archive was re-armed for an immediate retry'
+        );
     }
 
     // ---------------------------------------------------------------

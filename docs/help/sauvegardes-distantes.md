@@ -51,8 +51,9 @@ cacher ne protégerait donc rien.
 
 ## Régénérer : ce que cela coûte
 
-**Régénérer la phrase rend illisible tout ce qui est déjà parti.** Rien
-ne rechiffre les archives déjà chez Google.
+**La nouvelle phrase n'ouvre pas ce qui est déjà parti.** Rien ne
+rechiffre les archives déjà chez Google : seule l'ancienne phrase les
+ouvre encore, et ce site ne la conserve plus une fois régénérée.
 
 C'est pourquoi le numéro de génération figure dans le nom de chaque
 fichier envoyé : devant `scoutmagic-2026-09-13-020400-g2.zip`, vous savez

@@ -250,7 +250,7 @@ class MaintenanceController extends AbstractController
             'remote_backup_has_credentials' => $remoteBackup->hasCredentials(),
             'remote_backup_redirect_uri' => $remoteBackup->redirectUri(),
             'remote_backup_quota_free' => null,
-            // ——— L'envoi récurrent (IT-09) ———
+            // ——— The recurring off-site send (IT-09) ———
             // All local reads: the date of the last send that arrived, the
             // two retention bounds, and which generation of the phrase is
             // in force. Nothing here asks Google anything, for the reason

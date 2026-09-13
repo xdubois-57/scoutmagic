@@ -104,9 +104,9 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
     {
         $connection = new RemoteBackupConnection($context->settings, $this->secrets($context));
         if (!$connection->isConnected()) {
-            // Nothing raccordé: nothing to send, and nothing wrong. The
-            // task keeps ticking so that raccording one later starts
-            // sending without anyone re-arming anything.
+            // No destination connected: nothing to send, and nothing
+            // wrong. The chain keeps ticking so that connecting one later
+            // starts the sends without anybody re-arming it by hand.
             $this->scheduleNext($context, []);
 
             return;
@@ -140,6 +140,15 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
         ];
 
         try {
+            // By reference, and that is not a style choice: `send()` opens
+            // the resumable session, and a failure two lines later has to
+            // report the payload INCLUDING that session. Passing a copy
+            // sent `recordFailure()` the pre-send state, whose
+            // `session_url` is still empty on a fresh archive — so the
+            // next run opened a second session and pushed a multi-gibibyte
+            // archive from byte zero again, leaving an orphan session on
+            // the destination. Every failure cost one whole upload on
+            // exactly the shared hosting this chunked design exists for.
             $this->send($carried, $context, $target);
         } catch (\RuntimeException $e) {
             // RemoteBackupException, BackupException and
@@ -177,10 +186,12 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
 
     /**
      * @param array{archive_path: string, remote_name: string, session_url: string, offset: int,
-     *     offset_is_certain: bool, failures: int} $carried
+     *     offset_is_certain: bool, failures: int} $carried **by reference**: the
+     *     session this run opens has to reach the caller's catch, or a
+     *     failure re-arms on a payload that predates `beginUpload()`
      * @throws \Core\Maintenance\BackupException
      */
-    private function send(array $carried, TaskContext $context, RemoteBackupTarget $target): void
+    private function send(array &$carried, TaskContext $context, RemoteBackupTarget $target): void
     {
         $archivePath = $carried['archive_path'];
         $size = (int) filesize($archivePath);
@@ -190,6 +201,12 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
         if ($sessionUrl === '') {
             $sessionUrl = $target->beginUpload($carried['remote_name'], $size);
             $offset = 0;
+            // Straight back into the caller's copy, BEFORE a single byte
+            // is sent. Everything below can throw, and the catch in
+            // handle() re-arms from this array.
+            $carried['session_url'] = $sessionUrl;
+            $carried['offset'] = 0;
+            $carried['offset_is_certain'] = true;
         } elseif (!$carried['offset_is_certain']) {
             // The previous run died without saying how far it got. Only
             // the destination knows, and its answer beats any guess this
@@ -203,6 +220,8 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
                 return;
             }
             $offset = $probe->offset;
+            $carried['offset'] = $offset;
+            $carried['offset_is_certain'] = true;
         }
 
         // **Written down BEFORE the chunks go.** If this run dies mid-
@@ -252,6 +271,22 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
     /**
      * The archive landed: record it, stop carrying it locally, and bring
      * the destination back inside its bounds.
+     *
+     * **Nothing in here may throw, and that is the point.** Every line
+     * below runs AFTER the destination has taken the last byte, so it is
+     * bookkeeping about something that already happened. It used to sit
+     * inside the `try` in {@see handle()} whose catch calls
+     * {@see recordFailure()} — so a settings table that refused one write
+     * turned a delivered archive into a failed send: the failure counter
+     * climbed, and at the ceiling the abandonment branch deleted the
+     * local archive and journaled « abandonné » for a backup sitting
+     * safely on the destination, uncounted, with the next run about to
+     * upload the whole thing again.
+     *
+     * The stamp is therefore guarded on its own, like the purge below it:
+     * a lost `LAST_SUCCESS_SETTING` makes the age alert pessimistic,
+     * which is a wrong reading in the safe direction, and it is journaled
+     * rather than swallowed.
      */
     private function finish(
         TaskContext $context,
@@ -259,10 +294,16 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
         string $archivePath,
         string $fileId
     ): void {
-        $context->settings->setInternal(
-            self::LAST_SUCCESS_SETTING,
-            (new \DateTimeImmutable())->format('Y-m-d H:i:s')
-        );
+        try {
+            $context->settings->setInternal(
+                self::LAST_SUCCESS_SETTING,
+                (new \DateTimeImmutable())->format('Y-m-d H:i:s')
+            );
+        } catch (\Throwable $e) {
+            $context->journal->log('core', 'remote_backup_stamp_failed', 'warning',
+                'L\'envoi hors site a abouti mais sa date n\'a pas pu être enregistrée',
+                ['error' => $e->getMessage()]);
+        }
 
         // **Deleted here rather than left for a later pass.** It carries
         // the site's master key; IT-04's quota of one portable archive
@@ -395,11 +436,12 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
     {
         $generation = (new RemotePassphrase($context->settings, $this->secrets($context)))->generation();
 
-        return sprintf(
-            'scoutmagic-%s-g%d.zip',
-            (new \DateTimeImmutable())->format('Y-m-d-His'),
-            max(1, $generation)
-        );
+        // Spelled by RemoteRetention, which is also what recognises the
+        // name again when it decides what to purge. One pair, one class:
+        // a name this side and a pattern that side would be two things to
+        // keep in step, and the purge is where getting it wrong deletes a
+        // unit's only off-site copy.
+        return RemoteRetention::nameFor(new \DateTimeImmutable(), $generation);
     }
 
     /**

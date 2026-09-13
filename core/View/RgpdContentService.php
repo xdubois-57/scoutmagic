@@ -813,8 +813,9 @@ l'archive est chiffrée AVANT de quitter le serveur avec une phrase de passe **g
 ses clés — consultable et régénérable par un administrateur depuis Configuration > Maintenance — de sorte que Google
 ne détient qu'un fichier chiffré dont il n'a pas la clé ; que la galerie photo n'est pas envoyée sauf réglage
 explicite ; que le nombre et le volume d'archives conservées chez la destination sont bornés, les plus anciennes
-étant supprimées automatiquement ; et que le déraccordement efface le jeton et les identifiants mais laisse à l'unité
-les sauvegardes déjà déposées, qu'elle seule peut supprimer. Ne décris jamais ce raccordement comme actif par
+étant supprimées automatiquement ; et que le déraccordement efface le jeton et les identifiants et arrête tout —
+dépôts comme purges — en laissant à l'unité les sauvegardes déjà déposées, dont la suppression relève alors d'elle
+seule. Ne décris jamais ce raccordement comme actif par
 défaut, ni l'envoi comme déclenché à la main, ni la phrase de passe comme choisie par l'unité, ni ce dépôt comme un
 simple transit, ni ce raccordement comme donnant à qui que ce soit un accès au Drive au-delà des fichiers que ce site
 a créés ;
