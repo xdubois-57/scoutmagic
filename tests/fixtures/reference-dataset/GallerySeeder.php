@@ -70,7 +70,7 @@ final class GallerySeeder
         $settingService = new SettingService(new SettingRepository($pdo));
         $scoutYearService = new ScoutYearService($pdo);
         $storageConsumers = new StorageLocationConsumerRegistry();
-        $storageConsumers->register(new GalleryStorageConsumer($albumRepository));
+        $storageConsumers->register(new GalleryStorageConsumer($albumRepository, $storageLocationRepository));
         $storageLocationService = new StorageLocationService(
             $storageLocationRepository,
             $storageBackendFactory,

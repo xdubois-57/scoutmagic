@@ -121,6 +121,21 @@ class StorageLocationServiceTest extends TestCase
         $this->assertNotNull($this->service->findById($id));
     }
 
+    public function testAConsumerThatDependsOnTheDefaultWithoutNamingItStillBlocksItsDeletion(): void
+    {
+        // The shape this exists for: a consumer whose rows resolve to
+        // « the default » lazily rather than storing an identifier. Such a
+        // consumer depends on the location as completely as one that names
+        // it, and reporting only the names it has written down is how a
+        // default gets deleted out from under the files standing on it.
+        $defaultId = $this->service->ensureDefaultExists()?->id;
+        $this->assertNotNull($defaultId);
+        $this->consumers->register($this->consumerNamed('Galeries photo', [$defaultId]));
+
+        $this->expectException(StorageLocationException::class);
+        $this->service->delete($defaultId);
+    }
+
     public function testDeletingAnUnusedLocationSucceeds(): void
     {
         $id = $this->service->create(StorageLocationType::Local, 'Disque', new LocalLocationConfig('a'), null);

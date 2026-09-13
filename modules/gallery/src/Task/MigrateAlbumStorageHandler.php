@@ -89,6 +89,17 @@ class MigrateAlbumStorageHandler implements TaskHandlerInterface
             ? $storageLocationRepository->findById($album->locationId)
             : null;
         if ($sourceLocation === null) {
+            // Marked failed, NOT returned from silently. A bare return
+            // here left `migration_status` at 'in_progress' for ever: the
+            // album stayed unavailable, and every retry was refused by the
+            // « une migration est déjà en cours » guard that reads the
+            // same column. A migration that cannot start has to say so, or
+            // it is indistinguishable from one still running.
+            $albumRepository->failMigration(
+                $albumId,
+                "L'emplacement d'origine de cet album est introuvable — la migration n'a pas pu commencer."
+            );
+
             return;
         }
 

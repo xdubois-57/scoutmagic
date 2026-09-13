@@ -164,6 +164,52 @@ sont corrompues) ; la pagination d'un listage, des deux côtés ; une
 suppression de clé absente qui réussit ; une ligne dont le type est
 inconnu de cette version refusée plutôt que lue de travers.
 
+### Ce que la relecture a trouvé, et ce qui manquait sous chaque trouvaille
+
+Quatre défauts, et les quatre avaient le même parent : **une valeur nulle
+qui veut dire « pas encore résolu » et qu'on a lue comme « rien »**.
+
+**Le `drops.sql` visait les nouvelles colonnes.** Le renommage de
+`storage_location_id` a été appliqué à tout le dépôt et a réécrit le
+fichier de suppressions avec le code. Les deux `DROP FOREIGN KEY`
+au-dessus nommaient toujours les anciennes contraintes — c'est
+exactement ce qui rendait le fichier cohérent à la lecture.
+`Tests\Architecture\ExplicitDropsTargetRetiredColumnsTest` pose la règle
+pour tous les `drops.sql` : une suppression explicite ne peut nommer
+qu'une colonne, ou une table, que le schéma d'à côté a cessé de déclarer.
+`applyExplicitDrops()` est le seul mécanisme du chemin de migration qui
+détruit des données, et rien ne le relisait.
+
+**Le garde-fou des albums délégués était inerte.** Le filtre
+« Migrer vers » lisait une propriété partie avec l'ancienne entité ;
+`strict_variables` étant désactivé, Twig résout l'attribut manquant en
+`null`, et « not null » est vrai pour tous les emplacements. Rien n'était
+exposé — le serveur refusait la migration de toute façon — mais la moitié
+qui évite à un administrateur de l'apprendre en essayant ne servait plus
+à rien.
+
+**Une migration pouvait geler un album pour toujours.** Un album dont
+`location_id` est nul ne vit pas nulle part : il vit sur le défaut et on
+ne le lui a pas encore écrit. Comparer la cible au nul brut faisait
+passer « migrer vers le défaut » pour un déplacement vers un autre
+emplacement ; la passe suivante ne trouvait pas de source et **repartait
+sans rien dire**, laissant `migration_status` à `in_progress` pour
+toujours — album indisponible, et chaque reprise refusée par le garde-fou
+qui lit cette même colonne. Corrigé des deux côtés : le service résout
+l'emplacement avant de comparer, et le handler marque la migration en
+échec au lieu de se taire. Une migration qui ne peut pas démarrer doit le
+dire, sans quoi elle est indiscernable d'une migration en cours.
+
+**Et le défaut pouvait être supprimé sous les pieds des albums.**
+`distinctLocationIds()` ne comptait que les identifiants écrits, donc un
+emplacement par défaut sur lequel se tenaient des albums non encore
+épinglés était rapporté comme inutilisé — et un emplacement inutilisé est
+un emplacement que la page propose de supprimer. Suppression propre,
+aucune violation de contrainte, aucun avertissement, et les albums
+résolvaient ensuite vers le défaut suivant, où leurs fichiers ne sont
+pas. Le consommateur rapporte maintenant le défaut dès qu'un album local
+n'épingle rien.
+
 ### Reporté à l'itération suivante, explicitement
 
 `GalleryLocationService::diskSpaceFor()` est gardé tel quel pour une

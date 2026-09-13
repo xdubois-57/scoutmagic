@@ -367,6 +367,53 @@ class AlbumServiceTest extends TestCase
         $this->assertSame($backfilled->id, $album->locationId);
     }
 
+    /**
+     * An album whose `location_id` is still null does not live nowhere: it
+     * lives on the default and has not been told so. Comparing the target
+     * against the raw null let « migrer vers le défaut » read as a move to
+     * a DIFFERENT location, and the pass that followed found no source to
+     * read from — leaving the album at 'in_progress' for ever, unavailable
+     * and un-retryable, since the retry guard reads that same column.
+     */
+    public function testMigratingAnUnpinnedAlbumToItsOwnDefaultIsRefusedRatherThanStarted(): void
+    {
+        $id = $this->albumRepository->create(
+            Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, null, null, $this->authorId
+        );
+        $this->storageLocationRepository->setDefault($this->locationId);
+        $this->storageLocationRepository->recordCheckResult($this->locationId, true, null);
+
+        try {
+            $this->service->startMigration($id, $this->locationId, Role::CHIEF, 'chief@test.com');
+            $this->fail('Migrating an album onto the location it already resolves to must be refused.');
+        } catch (GalleryException $e) {
+            $this->assertStringContainsString('différent', $e->getMessage());
+        }
+
+        $this->assertSame(Album::MIGRATION_NONE, $this->albumRepository->findById($id)?->migrationStatus);
+    }
+
+    public function testMigratingAnUnpinnedAlbumElsewhereFirstPinsItToItsRealSource(): void
+    {
+        $id = $this->albumRepository->create(
+            Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, null, null, $this->authorId
+        );
+        $this->storageLocationRepository->setDefault($this->locationId);
+        $targetId = $this->storageLocationRepository->create(
+            StorageLocationType::Local, 'Ailleurs', new LocalLocationConfig('gallery2'), null
+        );
+        $this->storageLocationRepository->recordCheckResult($targetId, true, null);
+
+        $this->service->startMigration($id, $targetId, Role::CHIEF, 'chief@test.com');
+
+        $album = $this->albumRepository->findById($id);
+        // Resolving wrote the source down, so the background pass has
+        // somewhere to read from instead of aborting.
+        $this->assertSame($this->locationId, $album?->locationId);
+        $this->assertSame($targetId, $album?->migrationTargetId);
+        $this->assertSame(Album::MIGRATION_IN_PROGRESS, $album?->migrationStatus);
+    }
+
     public function testStartMigrationSchedulesTheTaskAndMarksInProgress(): void
     {
         $id = $this->albumRepository->create(Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, null, $this->locationId, $this->authorId);

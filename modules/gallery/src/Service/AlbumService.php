@@ -468,7 +468,19 @@ class AlbumService
         if ($album->migrationStatus === Album::MIGRATION_IN_PROGRESS) {
             throw new GalleryException('Une migration est déjà en cours pour cet album.');
         }
-        if ($targetLocationId === $album->locationId) {
+        // Resolved, not read: an album whose location_id is still null is
+        // not an album that lives nowhere — it is one that lives on the
+        // default and has not been told so yet. Comparing against the raw
+        // null let « migrer vers le défaut » pass as a move to a DIFFERENT
+        // location, and the pass that followed had no source to read from.
+        $currentLocation = $this->galleryLocationService->resolveLocationForAlbum($album);
+        if ($currentLocation === null) {
+            throw new GalleryException(
+                'Cet album n\'a pas encore d\'emplacement de stockage utilisable — testez vos emplacements avant '
+                . 'de le déplacer.'
+            );
+        }
+        if ($targetLocationId === $currentLocation->id) {
             throw new GalleryException('L\'emplacement cible doit être différent de l\'emplacement actuel.');
         }
 

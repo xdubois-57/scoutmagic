@@ -197,6 +197,26 @@ class AlbumRepository
         return array_values(array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN)));
     }
 
+    /**
+     * Whether any album that HOLDS files still has no location recorded.
+     *
+     * A null `location_id` does not mean « this album uses no storage » —
+     * it means « nobody has written down which one yet », and
+     * Service\GalleryLocationService::resolveLocationForAlbum() answers
+     * that question with the site's DEFAULT location the next time the
+     * album is touched. So such an album depends on the default exactly as
+     * much as one that names it, and the storage page has to know, or it
+     * offers to delete a location whose files it is about to orphan.
+     */
+    public function hasAlbumsWithoutLocation(): bool
+    {
+        $stmt = $this->pdo->query(
+            "SELECT 1 FROM gallery_albums WHERE type = 'local' AND location_id IS NULL LIMIT 1"
+        );
+
+        return $stmt !== false && $stmt->fetchColumn() !== false;
+    }
+
     public function setLocationId(int $id, int $locationId): void
     {
         $stmt = $this->pdo->prepare('UPDATE gallery_albums SET location_id = ? WHERE id = ?');

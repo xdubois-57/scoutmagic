@@ -237,6 +237,31 @@ class MigrateAlbumStorageHandlerTest extends TestCase
         $this->assertSame($this->sourceId, $album->locationId);
     }
 
+    /**
+     * The pass cannot start without a source, and saying so is the whole
+     * point: this used to be a bare `return`, so the task « succeeded »,
+     * `migration_status` never left 'in_progress', and the retry guard
+     * that reads the same column refused every attempt to try again. The
+     * album was frozen — unavailable for uploads, edits and serving —
+     * with nothing anywhere saying why.
+     */
+    public function testAMissingSourceLocationFailsTheMigrationInsteadOfFreezingIt(): void
+    {
+        $this->createMediaWithFiles();
+        $this->startMigration();
+        // The source vanishing under an in-flight migration: the one way
+        // a row can reach the handler with nothing to read from.
+        $this->pdo->exec('UPDATE gallery_albums SET location_id = NULL WHERE id = ' . $this->albumId);
+
+        (new MigrateAlbumStorageHandler())->handle(['album_id' => $this->albumId], $this->buildContext());
+
+        $album = $this->albumRepository->findById($this->albumId);
+        $this->assertSame(Album::MIGRATION_FAILED, $album->migrationStatus);
+        // A failed migration does not block availability, so the album is
+        // usable again — and retryable, which is what actually matters.
+        $this->assertNotNull($album->migrationError);
+    }
+
     public function testARetryAfterAFailedMigrationSucceeds(): void
     {
         $mediaId = $this->createMediaWithFiles();
