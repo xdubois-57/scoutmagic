@@ -81,6 +81,33 @@ final class CodeRabbitIsDescribedTest extends TestCase
     }
 
     /**
+     * AGENTS.md § Pipeline documentation maintenance: « A check that can be
+     * green without having run belongs in its last section. [...] When you
+     * find another, write it down there; it is the one part of that
+     * document nothing else in the repository records. »
+     *
+     * A verdict pinned to commit 1 and rewritten in place on every push is
+     * exactly that, and worse than the usual shape of it: the check is not
+     * merely green having proved nothing, it is green having declared the
+     * pull request wrong. Describing it under § Code review is not the same
+     * as listing it where a reader goes looking for this failure mode — so
+     * this asserts the section, not just the document.
+     */
+    public function testTheFailureModeSectionListsTheStaleVerdict(): void
+    {
+        $map = self::read('docs/quality-pipeline.md');
+
+        $heading = '## The failure mode this repository keeps meeting';
+        $position = strpos($map, $heading);
+        self::assertIsInt($position, 'The failure-mode section must exist to carry this.');
+
+        $section = substr($map, $position);
+        $this->assertStringContainsString('CodeRabbit', $section);
+        $this->assertStringContainsString('rewritten in place', $section);
+        $this->assertStringContainsString('« Commits » block', $section);
+    }
+
+    /**
      * A reader who does not know this asks the wrong reader for the wrong
      * guarantee — and, worse, reads its silence as coverage.
      */

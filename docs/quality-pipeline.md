@@ -1281,6 +1281,18 @@ nothing**:
   up, twice. It now reads the run's own transcript — agents launched,
   agents finished, tool calls refused — and goes red when none of them can
   show a review happened.
+- **A CodeRabbit review is green, and current-looking, over a diff it
+  never read.** `auto_incremental_review: false` means it reads a pull
+  request once; the comment carrying the walkthrough, the file list, the
+  merge-risk line and the pre-merge checks is then **rewritten in place**
+  on every push, so a verdict pinned to commit 1 wears a fresh timestamp
+  ten commits later. This one is worse than a silent pass: it does not
+  report nothing, it reports the pull request as wrong. On #326 its Title
+  check called out rich-text changes « qui ne figurent pas dans les
+  changements fournis » — they were in commits 2 to 10. What reads it back
+  is the comment's own « Commits » block (`Reviewing files that changed …
+  between <base> and <sha>`); `@coderabbitai review` re-reads the current
+  head. See § Code review.
 - **An agent's own report of success means only that its turn ended.** It
   is the same reading error as the bullet above and it deserves its own
   line, because it applies to every job in this repository that runs one.
