@@ -1,0 +1,25 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  The « Courrier sortant » sub-page rail — the shared
+  partials/page_picker.html.twig component, the one
+  modules/finance/views/config/_nav.html.twig already uses (design.md §7.6).
+
+  Two entries for now. The five other sub-pages the chantier announces —
+  Tableau de bord, Authentification, Rapports DMARC, Sonde, Boîtes
+  témoins, Rebonds — join this list as the iterations that deliver them
+  land: a tab pointing at a page that does not exist yet is a 404 one
+  click away.
+#}
+{% include 'partials/page_picker.html.twig' with {
+    picker_id: 'outbound-mail-picker',
+    pages: [
+        {'url': '/config/courrier-sortant', 'label': 'Fournisseurs'},
+        {'url': '/config/courrier-sortant/acheminement', 'label': 'Acheminement'},
+    ],
+    current_path: current_path,
+    match_prefix: true,
+    aria_label: 'Pages Courrier sortant',
+} only %}

@@ -44,6 +44,20 @@ class SettingsController extends AbstractController
         'support_email', 'installed_at',
         'statistics_last_success_at', 'statistics_last_failure_at', 'statistics_last_failure_reason',
         'support_package_file_id', 'support_package_generated_at',
+        // The outbound transport's cadence, and the flag that says the
+        // chains have been laid down (Core\Mail\Transport,
+        // ARCHITECTURE.md §8.106). Same reason as the six update keys
+        // above: a cadence means nothing without the provider it belongs
+        // to and the lane it applies to, and this page has room for
+        // neither. Configuration > Courrier sortant pairs each number
+        // with the fournisseur whose card it sits on, and states the one
+        // rule that makes it readable — a cadence applies to the mailing
+        // lane and to nothing else. Quotas never appear here at all:
+        // they are a column of `mail_providers`, not a setting.
+        \Core\Mail\Transport\MailProviderDirectory::SETTING_LOCAL_BATCH_SIZE,
+        \Core\Mail\Transport\MailProviderDirectory::SETTING_LOCAL_BATCH_INTERVAL,
+        \Core\Mail\Transport\TransportSeeder::SETTING_SEEDED,
+        \Core\Mail\Transport\TransportSeeder::SETTING_RELAY_IMPORTED,
     ];
 
     public function __construct(

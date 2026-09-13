@@ -62,6 +62,8 @@ final class CoreTaskHandlers
             \Core\Import\Task\PurgeImportsHandler::TASK_KEY => \Core\Import\Task\PurgeImportsHandler::class,
             \Core\Mail\Task\PurgeSentEmailClaimsHandler::TASK_KEY =>
                 \Core\Mail\Task\PurgeSentEmailClaimsHandler::class,
+            \Core\Mail\Transport\Task\PurgeSendCountersHandler::TASK_KEY =>
+                \Core\Mail\Transport\Task\PurgeSendCountersHandler::class,
         ];
     }
 

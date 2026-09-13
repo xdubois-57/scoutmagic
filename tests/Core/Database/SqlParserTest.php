@@ -189,10 +189,14 @@ class SqlParserTest extends TestCase
         $schemaPath = dirname(__DIR__, 3) . '/schema/core.sql';
         $tables = $this->parser->parseFile($schemaPath);
 
-        $this->assertCount(50, $tables);
+        $this->assertCount(53, $tables);
 
         $tableNames = array_map(fn($t) => $t->name, $tables);
         $this->assertContains('sent_email_claims', $tableNames);
+        // The outbound transport's three (ARCHITECTURE.md §8.106).
+        $this->assertContains('mail_providers', $tableNames);
+        $this->assertContains('mail_lane_entries', $tableNames);
+        $this->assertContains('mail_send_counters', $tableNames);
         $this->assertContains('operational_alerts', $tableNames);
         $this->assertContains('scout_years', $tableNames);
         $this->assertContains('members', $tableNames);

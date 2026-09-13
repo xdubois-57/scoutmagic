@@ -182,6 +182,36 @@ Inside that frame, every e-mail says its things in the same order: a title (`<h2
 
 Everything dynamic in a template comes from a variable its declaration declares (`docs/module-development.md` § E-mails): the shipped template, rendered with those variables standing for themselves, IS the default wording Configuration > E-mails offers an administrator, so anything else is a hole in the text they are handed.
 
+### 4.4 Courrier sortant: the screen
+
+One page, `/config/courrier-sortant`, on the sub-page rail every module
+page already uses (`partials/page_picker.html.twig`, §7.6). Two sub-pages
+today — **Fournisseurs** and **Acheminement** — and the rail grows as the
+iterations that own the other sub-pages land: an onglet pointing at a
+page that does not exist yet is a 404 one click away.
+
+**Fournisseurs** is one card per relay: its name, its host, how much of
+its daily quota today has spent, and the lanes it is currently active in.
+Everything a volunteer does not need in order to answer « ça marche ? »
+— the cadence, the quota — sits behind a dépliant « Avancé » on the
+relay's own form, never on the card. The local send has a card like any
+other and says what it is: no relay, no quota, deliberately slow.
+
+**Acheminement** is three ordered lists, one per lane, each with its own
+sentence saying what travels on it. The order IS the meaning, so it is
+edited the way this site already edits an order —
+`partials/list_editor.html.twig`, drag-and-drop on a large screen, arrows on a
+phone (§7.10). The rank of an enabled entry is printed in front of its
+name, because « premier » and « désactivé » are the two facts a reader
+came for. The two refusals the page can make — emptying a lane, deleting
+the local send — are explained in a sentence naming the lane, never a
+disabled control with no reason attached.
+
+**The one sentence the screen must keep**, on every sub-page that shows a
+figure: a message classed as junk appears nowhere here, because it was
+accepted. Three green numbers otherwise read as « tout va bien » while a
+provider silently bins everything.
+
 ## 5. Scheduler design
 
 Poor man's cron: check every page visit (>1 min since last), process after response. Atomic claim via UPDATE. No auto-retry. Failures journaled and visible in config page.

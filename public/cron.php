@@ -244,9 +244,23 @@ $installationProfile = \Core\Module\InstallationProfile::resolve(
     (string) ($settingService->get('statistics_destination') ?? '')
 );
 
-$mailService = MailServiceFactory::create(
+// **The provider chain holds here too** (Core\Mail\Transport,
+// ARCHITECTURE.md §8.106), and for the same reason as the sandbox above:
+// half of this site's mail leaves from a scheduled task, the publipostage
+// included — which is precisely the lane this whole mechanism exists to
+// pace and to fall back. A `MailService` built here without a chain would
+// send everything through the historic relay, ignoring both the quotas
+// and the fallbacks.
+//
+// The seeding is deliberately NOT repeated here: `public/index.php` lays
+// the chains down, and a cron pass that laid them on an installation
+// nobody has opened a page on yet would be writing a configuration nobody
+// chose. A chain that cannot be read hands the message back to the
+// transport, which is exactly the degradation intended.
+$mailTransport = \Core\Mail\Transport\MailTransportFactory::build(
+    $pdo,
     $secrets,
-    $dkimManager,
+    $settingService,
     \Modules\TestTools\Mail\CaptureTransportFactory::forInstallation(
         $installationProfile,
         new ModuleRegistryRepository($pdo),
@@ -255,6 +269,14 @@ $mailService = MailServiceFactory::create(
         $encryptionService,
         dirname(__DIR__) . '/storage'
     ),
+    $journalService
+);
+$mailProviderDirectory = $mailTransport['directory'];
+
+$mailService = MailServiceFactory::create(
+    $secrets,
+    $dkimManager,
+    $mailTransport['chain'],
     $journalService
 );
 
@@ -406,7 +428,8 @@ scoutmagicBootstrapScheduler(
     $settingService,
     $userAccountRepo,
     dirname(__DIR__) . '/storage',
-    $notificationService
+    $notificationService,
+    $mailProviderDirectory
 );
 
 // Migrate the whole declared schema, before anything else runs.

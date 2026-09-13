@@ -47,6 +47,8 @@ final class ArchiveContents
         'commands' => 'Les outils système disponibles sur le serveur.',
         'background_execution' => "Comment les tâches de fond s'exécutent sur cet hébergement.",
         'cron_cadence' => "À quelle cadence le déclencheur horaire s'exécute réellement.",
+        'outbound_mail' => 'Par où partent les messages du site : fournisseurs, ordre des voies et '
+            . "compteurs d'envoi. Aucun identifiant, aucun destinataire.",
         'webserver' => 'Le serveur web utilisé et ses réglages visibles.',
         'logs' => "Les journaux du serveur web, qui contiennent des adresses IP de visiteurs.",
     ];

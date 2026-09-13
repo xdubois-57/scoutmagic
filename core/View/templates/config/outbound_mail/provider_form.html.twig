@@ -1,0 +1,139 @@
+{% extends 'base.html.twig' %}
+{% block title %}{{ provider is null ? 'Nouveau fournisseur' : provider.name }} — {{ site_name }}{% endblock %}
+{% block content %}
+{% set is_local = provider is not null and provider.is_local %}
+{% include 'partials/page_header.html.twig' with {
+    title: provider is null ? 'Nouveau fournisseur' : provider.name,
+    subtitle: is_local
+        ? "L'envoi local part directement du serveur, sans relais. Il n'a ni identifiants ni quota : seule sa cadence se règle."
+        : "Les identifiants de ce relais sont conservés chiffrés, en dehors de la base de données. Le mot de passe ne vous est jamais réaffiché ; l'identifiant l'est, pour que vous puissiez vérifier lequel sert et le conserver en enregistrant.",
+} only %}
+
+<form method="post" action="{{ provider is null ? '/config/courrier-sortant/fournisseurs' : '/config/courrier-sortant/fournisseurs/' ~ provider.id }}" class="page-narrow">
+    {{ csrf_field()|raw }}
+
+    {% if not is_local %}
+        {% include 'partials/form_field.html.twig' with {
+            field_id: 'provider-name',
+            field_name: 'name',
+            label: 'Nom',
+            value: provider is null ? '' : provider.name,
+            required: true,
+            maxlength: 100,
+            help: "Le nom que les écrans afficheront — « Brevo », « OVH », « Le relais de l'école ».",
+        } only %}
+
+        {% include 'partials/form_field.html.twig' with {
+            field_id: 'provider-host',
+            field_name: 'host',
+            label: 'Serveur SMTP',
+            value: provider is null ? '' : provider.host,
+            required: true,
+            placeholder: 'smtp-relay.exemple.com',
+        } only %}
+
+        {% include 'partials/form_field.html.twig' with {
+            field_id: 'provider-port',
+            field_name: 'port',
+            label: 'Port',
+            type: 'number',
+            value: provider is null ? '587' : provider.port,
+            min: 1,
+            max: 65535,
+            help: 'Le plus souvent 587 (STARTTLS) ou 465 (SSL).',
+        } only %}
+
+        {% include 'partials/form_field.html.twig' with {
+            field_id: 'provider-username',
+            field_name: 'username',
+            label: "Identifiant",
+            value: provider is null ? '' : provider.username,
+            autocomplete: 'off',
+            help: "Laissez vide si le relais n'en demande pas.",
+        } only %}
+
+        {#
+          A relay password, not an account password: no
+          partials/password_field.html.twig here, whose complexity
+          checklist and confirmation field describe a password somebody
+          CHOOSES. This one is handed out by the provider.
+        #}
+        {% include 'partials/form_field.html.twig' with {
+            field_id: 'provider-password',
+            field_name: 'password',
+            label: 'Mot de passe',
+            type: 'password',
+            autocomplete: 'off',
+            help: provider is null
+                ? 'Conservé chiffré, en dehors de la base de données.'
+                : 'Laissez vide pour conserver le mot de passe actuel.',
+        } only %}
+    {% endif %}
+
+    <fieldset class="border rounded-3 p-3 mb-3">
+        <legend class="float-none w-auto px-2 h6">Avancé</legend>
+
+        <p class="text-body-secondary small">
+            La cadence s'applique <strong>à la voie « Masse » uniquement</strong> : l'authentification et le
+            transactionnel partent immédiatement, sous le seul plafond du quota. Quand une voie bascule sur le
+            fournisseur suivant, elle adopte <strong>sa</strong> cadence et <strong>son</strong> quota, jamais
+            ceux du précédent.
+        </p>
+
+        <div class="row g-2">
+            <div class="col-6">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'provider-batch-size',
+                    field_name: 'batch_size',
+                    label: 'Messages par lot',
+                    type: 'number',
+                    value: provider is null ? '50' : provider.batch_size,
+                    min: 1,
+                    size: 'sm',
+                    wrapper_class: 'mb-0',
+                } only %}
+            </div>
+            <div class="col-6">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'provider-batch-interval',
+                    field_name: 'batch_interval_minutes',
+                    label: 'Minutes entre deux lots',
+                    type: 'number',
+                    value: provider is null ? '10' : provider.batch_interval_minutes,
+                    min: 1,
+                    size: 'sm',
+                    wrapper_class: 'mb-0',
+                } only %}
+            </div>
+        </div>
+
+        {% if is_local %}
+            <p class="form-text mt-3 mb-0">
+                Le défaut est volontairement prudent : sans relais pour absorber les à-coups, une file locale qui
+                gonfle est ce qui fait suspendre un compte d'hébergement ou bloquer la sortie. L'envoi local n'a
+                <strong>pas</strong> de quota journalier — aucun n'est connu, et en inventer un serait un nombre
+                arbitraire que personne ne saurait régler.
+            </p>
+        {% else %}
+            <div class="mt-3">
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'provider-daily-quota',
+                    field_name: 'daily_quota',
+                    label: 'Quota journalier',
+                    type: 'number',
+                    value: provider is null or provider.daily_quota is null ? '' : provider.daily_quota,
+                    min: 0,
+                    size: 'sm',
+                    wrapper_class: 'mb-0',
+                    help: "Nombre de messages que ce relais accepte par jour, toutes voies confondues. Laissez vide si vous ne le connaissez pas : la voie ne passera alors jamais au suivant pour une raison de quota.",
+                } only %}
+            </div>
+        {% endif %}
+    </fieldset>
+
+    <div class="d-flex flex-column flex-sm-row gap-2">
+        <button type="submit" class="btn btn-primary w-100 w-sm-auto">Enregistrer</button>
+        <a href="{{ page_url }}" class="btn btn-outline-secondary w-100 w-sm-auto">Annuler</a>
+    </div>
+</form>
+{% endblock %}

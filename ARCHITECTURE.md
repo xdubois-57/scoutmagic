@@ -3734,6 +3734,177 @@ Every write in `RemoteBackupConnection` puts the encrypted half first and the `s
 
 **The passphrase is revealable from Maintenance, and that departs from the webhook secret on purpose.** That one is shown once and regenerated for free; this one opens archives that already exist on a service this site may no longer reach, and it must live in `secrets.enc` for the four-in-the-morning send to encrypt at all — so anybody who can read the server already has it. Hiding it from the administrator protects nothing and guarantees that one day, the server still running, nobody can open a year of uploads. It is fetched by its own CSRF-guarded `POST` rather than rendered into the page, and every reveal is journaled at `security` level without the phrase in the entry. Regenerating re-encrypts nothing already sent — nothing does — which is why the generation number is in every uploaded file name, so an operator holding two phrases can tell which opens which.
 
+### 8.106 Outbound mail: three lanes, three chains (`Core\Mail\Transport`)
+
+**The site had a single point of failure and it was not the mail.**
+`MailServiceFactory` knew exactly one `smtp_*` set. When that relay
+stopped answering — or spent its free daily quota, which a publipostage
+to four hundred parents does in one pass — the magic links stopped with
+it, so **nobody could sign in any more, including the super-admin who
+would have come to repair it**. Everything in this section exists to make
+that state recoverable, and every decision below is downstream of it.
+
+**Everything is in the core, and that is D1.** The chain carries the
+sign-in links; a chain living in a module would make authenticating to
+the site depend on a module an administrator can switch off, on a
+configuration page, with no warning that this is what they are doing.
+`DnsVerifier` was already here for the same family of reasons — the setup
+wizard runs before any module exists. The resulting asymmetry is assumed
+rather than accidental: **receiving mail is optional (`inbound_mail` is a
+module), sending is not**. The names being symmetrical will make somebody
+assume the architecture is; it is not, and the help says so.
+
+**Three lanes, carried by `MailPurpose` and nothing else.** `MailLane::
+fromPurpose()` is the whole routing decision: `MagicLink` →
+Authentification, `Bulk` → Masse, `Ordinary` → Transactionnel. The enum's
+own docblock already said its case exists for « a transport that must
+treat one category differently », which is exactly what a lane selector
+is; `Bulk` is the case added for it, and adding one was a design decision
+rather than a routine addition — it means a third chain to configure and
+a third failure mode to explain. A lane is **never** derived from the
+recipient, the calling class or a per-feature flag: a second way of
+answering the question would be a second answer.
+
+**Each lane is an ordered list of providers, and the order is the
+fallback chain** (D4). `mail_lane_entries` holds one row per (lane,
+provider) with a position and an enabled flag; the screen edits it
+through `partials/list_editor.html.twig`, the component the module list
+and the banners already use — drag-and-drop on a large screen, arrows on
+a phone. **A lane may never be left with no enabled entry**, and
+`TransportService` refuses the toggle that would do it rather than
+letting the list editor do it silently: an empty authentication chain is
+the very failure this mechanism exists to remove, arrived at from the
+configuration page instead of from a relay going down.
+
+**The local send is a permanent entry of all three chains** (D5), and it
+is permanent structurally rather than by a check somebody has to
+remember: it is **not a row**. `MailProvider::LOCAL_ID` is 0, it is
+synthesised by `MailProviderDirectory`, and there is therefore nothing to
+delete. Zero rather than a nullable column for the reason
+`inbound_message_links.attachment_id` already documents (§8.58): MySQL
+considers two NULLs distinct inside a unique index, so a nullable
+provider column would let one lane hold the local entry twice.
+
+**No connection value is stored in the database.** Host, port, user and
+password all live in `secrets.enc`, read through `ProviderConnections` —
+`settings` would render a credential on Configuration > Réglages, greyed
+or not, and a screenshot does not care that a field was disabled. **The
+first provider's prefix is `smtp`**, which is to say the historic
+`smtp_host`/`smtp_port`/`smtp_user`/`smtp_password` keys the setup wizard
+has always written. That is deliberate and it closes a drift this would
+otherwise have created: « Installation & serveur » and the Fournisseurs
+page would each hold their own copy of the same relay, and changing the
+password on one would break the other with no error anywhere. One
+storage, two screens. Every later provider gets `mail_provider_<id>`.
+Only `TransportConfigurator` ever reads a password, and `MailProvider`
+deliberately has no property for one — so a provider object can be handed
+to a template, a journal context or the support collector without a
+credential being one careless `dump()` away.
+
+**Quota and cadence belong to the provider, not to the lane** (D6): they
+describe the same thing, what that relay accepts. The **cadence applies
+to the mailing lane only** — authentication and transactional messages
+leave immediately, under the quota alone, because a sign-in link waiting
+for the next slot of a lot is not a sign-in link: the token lives fifteen
+minutes. `MailLane::honoursCadence()` is that rule, and `BulkCadence` is
+its one consumer. **When a lane switches, it adopts the new provider's
+cadence and quota** (D7), never the previous one's — which a global
+setting could not express at all, and is why `mass_mail`'s `batch_size`
+and `batch_interval_minutes` left its manifest with no migration (D14:
+the project is in test, no production installation is being preserved,
+and a carried-over number nobody chose is worse than a default whose
+reasoning is written down). The local send carries a cadence and **no
+quota**: nobody knows what a shared host accepts per day, so inventing a
+number would be a number nobody could set — while a local queue that
+swells is exactly what gets a hosting account suspended, hence a
+deliberately prudent default. Those two are core settings
+(`mail_local_batch_size`, `mail_local_batch_interval_minutes`) rather
+than columns, since there is no row; they are excluded from Configuration
+> Réglages for the same reason the six automatic-update keys are — a
+cadence means nothing without the provider it belongs to and the lane it
+applies to, and that page has room for neither.
+
+**The chain is a transport in front of the delivery transport, never
+instead of it.** `MailService::send()` is completely unchanged: it
+assembles the message — mode, From, envelope Sender, DKIM block, prefixed
+subject, both body halves — and hands the instance to a
+`MailTransportInterface`, exactly as §8.7 describes. `MailTransportChain`
+is that interface now; it points the instance at whichever provider the
+lane says, then delegates to the transport `MailService` would otherwise
+have used — `PhpMailerTransport`, or `Modules\TestTools`'s
+`CaptureTransport` on an installation whose sandbox is armed, so a
+captured message is still routed and counted exactly as a real one.
+Applying the provider LAST is what makes this work without a single edit
+to `send()`: transports run last, and the last word on which server to
+talk to is the one that counts. `TransportConfigurator::apply()` calls
+`smtpClose()` first, because PHPMailer reuses whatever connection it
+holds regardless of what `Host` now says — without it, the fallback's
+message would go out through the relay that had just refused it.
+
+**There are three states here, not two, and the middle one is where this
+goes wrong if nobody writes it down.** A chain that cannot be READ — a
+setup wizard mid-flight, a migration that has not run — delivers through
+whatever `MailService` had already configured rather than refusing. A
+lane with **no row at all** is handled identically and deliberately: the
+only way to reach it is a database migrated before `TransportSeeder`
+could lay the chains down, and refusing there would mean a site unable to
+send mail during its own installation. A lane that **has rows and no
+usable entry** — every one disabled, spent or unconfigured — is a real
+configuration error, is the one an administrator can act on, and says so
+rather than quietly sending through the relay the chain was built to stop
+using. `candidates()` returns `null` for the first two and `[]` for the
+third, which is why it is nullable rather than merely possibly empty;
+collapsing any two of them buys either a site that cannot install itself
+or a misconfiguration that fails in silence.
+
+**A counter moves after the transport returned, never before.**
+`mail_send_counters` holds one row per (provider, day, lane); a counter
+incremented on an *attempt* would step a lane past a provider that is
+working perfectly the moment anything else fails. The lane column is not
+decoration: a quota is one provider's whole day, while the reserve of
+IT-02 is the highest daily **non-bulk** total of the last thirty days
+(D8), which no single figure per provider can produce. `Task\
+PurgeSendCountersHandler` keeps ninety days — three times the window the
+reserve reads, so « d'où sort ce nombre » stays answerable.
+
+**One factory builds the chain, for both entry points**
+(`MailTransportFactory`), and that is not tidiness. Two composition roots
+wiring the same graph by hand is how this project broke production twice
+— `create_backup` registered in `index.php` and missing from `cron.php`,
+then `NotificationService` built with role resolution on one side and
+without it on the other (§8.17). The chain has exactly that shape:
+`index.php` needs it for a visitor's mail, `cron.php` for the half of
+this site's mail that leaves from a scheduled task, the publipostage
+included. Built differently on the two paths, a mailing would obey quotas
+under one trigger and ignore them under the other — a divergence nobody
+notices until a relay is spent. The one thing the roots legitimately
+differ on is passed in: the delivery transport underneath, which is the
+sandbox's on an installation whose capture is armed.
+
+**Seeding is what makes this land on a site that has been sending for a
+year** (`TransportSeeder`): the relay the wizard already configured
+becomes provider #1 under the `smtp` prefix, and the local send is placed
+in all three lanes, enabled — an installation in `local` mode must go on
+sending exactly as before. Idempotent, guarded by one settings read on
+every boot after the first, and run from `public/index.php` only: a cron
+pass laying down chains on an installation nobody has opened yet would be
+writing a configuration nobody chose.
+
+**Every change to a chain is journaled at `security`**, deliberately: it
+changes where the site's sign-in links leave from, which is a security
+decision even when it is taken in good faith. A relay refusing one
+message is `warning` and not `error` — the next entry is about to be
+tried, and one relay refusing is the ordinary event a chain exists for;
+`MailService` writes the `error` entry if every one of them refuses.
+
+**The screen** is Configuration > Courrier sortant (`/config/courrier-
+sortant`, `role_min: superadmin`, `Core\Http\Controller\
+OutboundMailController`) — the pendant of `/config/courrier-entrant`,
+with sub-pages on the shared `partials/page_picker.html.twig` rail.
+Fournisseurs and Acheminement arrive with the transport itself rather
+than later, for a plain reason: a chain nobody can configure is a chain
+nobody can test.
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php

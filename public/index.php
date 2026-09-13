@@ -1704,6 +1704,68 @@ $settingService->register(
     300
 );
 
+$settingService->register(
+    \Core\Mail\Transport\MailProviderDirectory::SETTING_LOCAL_BATCH_SIZE,
+    (string) \Core\Mail\Transport\MailProviderDirectory::DEFAULT_LOCAL_BATCH_SIZE,
+    'number',
+    'Envoi local — messages par lot',
+    'Nombre de messages de publipostage que le serveur envoie lui-même à chaque passage, sans relais. '
+        . 'Se règle depuis Configuration > Courrier sortant, sur la fiche « Envoi local ».',
+    null,
+    null,
+    null,
+    true,
+    301
+);
+$settingService->register(
+    \Core\Mail\Transport\MailProviderDirectory::SETTING_LOCAL_BATCH_INTERVAL,
+    (string) \Core\Mail\Transport\MailProviderDirectory::DEFAULT_LOCAL_BATCH_INTERVAL,
+    'number',
+    'Envoi local — minutes entre deux lots',
+    'Délai entre deux lots envoyés directement par le serveur. La valeur par défaut est volontairement '
+        . 'prudente : sans relais pour absorber les à-coups, une file locale qui gonfle est ce qui fait '
+        . 'suspendre un compte d\'hébergement.',
+    null,
+    null,
+    null,
+    true,
+    302
+);
+// Bookkeeping, never a control: it says whether the first chains have
+// been laid down. Registered non-editable so nothing invites somebody to
+// hand-edit it, and excluded from Configuration > Réglages along with the
+// two cadence rows above (Core\Http\Controller\SettingsController).
+$settingService->register(
+    \Core\Mail\Transport\TransportSeeder::SETTING_SEEDED,
+    '0',
+    'boolean',
+    'Chaînes d\'envoi initialisées',
+    'Indique si les trois voies d\'envoi ont reçu leur configuration de départ.',
+    null,
+    null,
+    null,
+    false,
+    303
+);
+// Its sibling, and a separate decision: this one says the relay written
+// by « Installation & serveur » has become a provider row. An
+// installation seeded while local-only has no relay to import, so the
+// flag above is set and this one is not — which is what lets a relay
+// configured through the wizard a month later still be picked up
+// (Core\Mail\Transport\TransportSeeder).
+$settingService->register(
+    \Core\Mail\Transport\TransportSeeder::SETTING_RELAY_IMPORTED,
+    '0',
+    'boolean',
+    'Relais d\'installation repris',
+    'Indique si le relais SMTP de l\'assistant d\'installation est devenu un fournisseur.',
+    null,
+    null,
+    null,
+    false,
+    304
+);
+
 // `installed_at` declares itself (Core\Statistics\InstallationDateService::
 // register()) because SetupController writes it before this file has ever
 // run — see that method's own comment. Backfilled here once for every
@@ -1932,7 +1994,45 @@ $mailCaptureTransport = \Modules\TestTools\Mail\CaptureTransportFactory::forInst
     dirname(__DIR__) . '/storage'
 );
 
-$mailService = MailServiceFactory::create($secrets, $dkimManager, $mailCaptureTransport, $journalService);
+// The provider chain (Core\Mail\Transport, ARCHITECTURE.md §8.106).
+//
+// It sits IN FRONT of the delivery transport rather than instead of it,
+// which is what lets the whole mechanism land without touching
+// MailService::send() at all: MailService assembles the message and
+// configures the relay it has always known about, the chain then points
+// the instance at whichever provider the message's lane says, and hands
+// it to the transport MailService would otherwise have used — the mail
+// sandbox included, so a captured message is still routed and counted
+// exactly as a real one.
+$mailProviderRepository = new \Core\Mail\Transport\MailProviderRepository($pdo);
+$laneChainRepository = new \Core\Mail\Transport\LaneChainRepository($pdo);
+$sendCounterRepository = new \Core\Mail\Transport\SendCounterRepository($pdo);
+// The chains an installation starts with: the relay the setup wizard
+// already configured, plus the local send in all three lanes. Idempotent,
+// and one settings read on every boot after the first. Run from HERE and
+// not from cron.php: a cron pass laying chains down on an installation
+// nobody has opened a page on yet would be writing a configuration nobody
+// chose.
+(new \Core\Mail\Transport\TransportSeeder($mailProviderRepository, $laneChainRepository, $settingService))
+    ->seed($secrets);
+// Built by the shared factory both entry points call, never by hand here:
+// two composition roots wiring the same graph is what left `create_backup`
+// registered on one side only (§8.17), and a chain built differently on
+// the two paths would mean a mailing obeying quotas under one trigger and
+// ignoring them under the other.
+$mailTransport = \Core\Mail\Transport\MailTransportFactory::build(
+    $pdo,
+    $secrets,
+    $settingService,
+    $mailCaptureTransport,
+    $journalService,
+    $secretManager
+);
+$mailTransportChain = $mailTransport['chain'];
+$mailProviderDirectory = $mailTransport['directory'];
+$providerConnections = $mailTransport['connections'];
+
+$mailService = MailServiceFactory::create($secrets, $dkimManager, $mailTransportChain, $journalService);
 
 // Automatic e-mails (Core\Mail\Template, ARCHITECTURE.md §8.7bis).
 //
@@ -2963,10 +3063,23 @@ $menuBuilder->addPage(
 );
 $menuBuilder->addPage(
     MenuBuilder::MENU_CONFIGURATION,
+    'Courrier sortant',
+    '/config/courrier-sortant',
+    'superadmin',
+    48,
+    false,
+    null,
+    MenuBuilder::SORT_GROUP_CORE,
+    'bi-send',
+    null,
+    'exploitation'
+);
+$menuBuilder->addPage(
+    MenuBuilder::MENU_CONFIGURATION,
     'Support',
     '/config/support',
     'superadmin',
-    48,
+    49,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
@@ -3087,7 +3200,8 @@ scoutmagicBootstrapScheduler(
     $settingService,
     $userAccountRepo,
     $storagePath,
-    $notificationService
+    $notificationService,
+    $mailProviderDirectory
 );
 
 // Bootstrap the recurring automatic backup — Task\AutoBackupHandler
@@ -3166,6 +3280,17 @@ $schedulerService->rearm(
     'core',
     \Core\Mail\Task\PurgeSentEmailClaimsHandler::TASK_KEY,
     \Core\Mail\Task\PurgeSentEmailClaimsHandler::REFERENCE,
+    new DateTimeImmutable()
+);
+
+// Same bootstrap for the outbound send-counter purge (Core\Mail\Transport
+// \Task\PurgeSendCountersHandler): the daily per-provider tallies, once
+// past the window the quota and the reserve read. seed(), not rearm(),
+// for the reason the operational pass above gives.
+$schedulerService->seed(
+    'core',
+    \Core\Mail\Transport\Task\PurgeSendCountersHandler::TASK_KEY,
+    \Core\Mail\Transport\Task\PurgeSendCountersHandler::REFERENCE,
     new DateTimeImmutable()
 );
 
@@ -3484,6 +3609,86 @@ $router->addRoute(
     '/config/emails/{template}/test',
     \Core\Http\Controller\EmailTemplateController::class,
     'sendTest',
+    'superadmin',
+);
+
+// Configuration > Courrier sortant (Core\Mail\Transport,
+// ARCHITECTURE.md §8.106). Two sub-pages in this iteration — the
+// providers and the three chains — because a chain nobody can configure
+// is a chain nobody can test.
+//
+// `/fournisseurs/nouveau` is declared BEFORE `/fournisseurs/{id}` on
+// purpose: the literal-before-wildcard order is the safe direction
+// (§7.1), and an id-named placeholder matches digits only anyway
+// (SECURITY.md §35).
+$router->addRoute(
+    'GET',
+    '/config/courrier-sortant',
+    \Core\Http\Controller\OutboundMailController::class,
+    'providers',
+    'superadmin',
+    ['label' => 'Courrier sortant', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
+);
+$router->addRoute(
+    'GET',
+    '/config/courrier-sortant/acheminement',
+    \Core\Http\Controller\OutboundMailController::class,
+    'routing',
+    'superadmin',
+    ['label' => 'Acheminement', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Courrier sortant', 'path' => '/config/courrier-sortant']]],
+);
+$router->addRoute(
+    'POST',
+    '/config/courrier-sortant/acheminement/{lane}/ordre',
+    \Core\Http\Controller\OutboundMailController::class,
+    'reorder',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/courrier-sortant/acheminement/{lane}/activation',
+    \Core\Http\Controller\OutboundMailController::class,
+    'toggle',
+    'superadmin',
+);
+$router->addRoute(
+    'GET',
+    '/config/courrier-sortant/fournisseurs/nouveau',
+    \Core\Http\Controller\OutboundMailController::class,
+    'createForm',
+    'superadmin',
+    ['label' => 'Nouveau fournisseur', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Courrier sortant', 'path' => '/config/courrier-sortant']]],
+);
+$router->addRoute(
+    'POST',
+    '/config/courrier-sortant/fournisseurs',
+    \Core\Http\Controller\OutboundMailController::class,
+    'create',
+    'superadmin',
+);
+$router->addRoute(
+    'GET',
+    '/config/courrier-sortant/fournisseurs/{id}',
+    \Core\Http\Controller\OutboundMailController::class,
+    'editForm',
+    'superadmin',
+    ['label' => 'Fournisseur', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Courrier sortant', 'path' => '/config/courrier-sortant']]],
+);
+$router->addRoute(
+    'POST',
+    '/config/courrier-sortant/fournisseurs/{id}',
+    \Core\Http\Controller\OutboundMailController::class,
+    'update',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/courrier-sortant/fournisseurs/{id}/suppression',
+    \Core\Http\Controller\OutboundMailController::class,
+    'delete',
     'superadmin',
 );
 
@@ -4796,6 +5001,30 @@ $frontController->registerController(
         new \Core\Mail\Template\EmailTestSendThrottler($pdo)
     )
 );
+// Configuration > Courrier sortant (Core\Mail\Transport,
+// ARCHITECTURE.md §8.106) — the pendant of /config/courrier-entrant,
+// in the core rather than in a module because the chain that carries
+// the sign-in links must not be something an administrator can disable
+// (D1).
+$frontController->registerController(
+    \Core\Http\Controller\OutboundMailController::class,
+    new \Core\Http\Controller\OutboundMailController(
+        $twig,
+        $mailProviderDirectory,
+        $laneChainRepository,
+        $sendCounterRepository,
+        new \Core\Mail\Transport\TransportService(
+            $mailProviderRepository,
+            $laneChainRepository,
+            $sendCounterRepository,
+            $providerConnections,
+            $mailProviderDirectory,
+            $journalService
+        ),
+        $settingService
+    )
+);
+
 // One connection object for the whole request: it is the only thing that
 // knows where the remote destination's credentials live, and two of them
 // would be two answers to that question.

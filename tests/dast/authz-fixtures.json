@@ -111,6 +111,12 @@
     "/config/courrier-entrant/boites/{id}": {
       "id": "1"
     },
+    "/config/courrier-sortant/acheminement/{lane}": {
+      "lane": "bulk"
+    },
+    "/config/courrier-sortant/fournisseurs/{id}": {
+      "id": "1"
+    },
     "/config/emails/{template}": {
       "template": "member_email_unsubscribe_confirmation"
     },

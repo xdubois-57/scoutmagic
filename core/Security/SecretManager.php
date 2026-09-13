@@ -149,7 +149,17 @@ class SecretManager
             mkdir($dir, 0700, true);
         }
 
-        file_put_contents($this->secretsPath, $encoded);
+        // The return value is checked, and that is not pedantry: every
+        // caller that erases a secret — Core\Mail\Transport's provider
+        // deletion among them — decides whether the thing the secret
+        // described may go away, and decides it on this call not
+        // throwing. A silent `false` here turns « the password is gone »
+        // into « the password is still on disk and nothing knows it »,
+        // which is precisely the failure `TransportService` orders its
+        // steps to avoid.
+        if (file_put_contents($this->secretsPath, $encoded) === false) {
+            throw new \RuntimeException('Failed to write the secrets file.');
+        }
         // Same 0600 as the master key (generateMasterKey): defence in depth so
         // the encrypted blob isn't world-readable under a default umask on
         // shared hosting (audit hardening).

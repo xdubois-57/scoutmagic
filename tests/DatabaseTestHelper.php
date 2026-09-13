@@ -640,6 +640,41 @@ class DatabaseTestHelper
             UNIQUE (scope, recipient_key)
         )');
 
+        // The outbound transport's three tables (schema/core.sql:
+        // mail_providers, mail_lane_entries, mail_send_counters,
+        // ARCHITECTURE.md §8.106). No connection value is declared here
+        // because none is stored: host, port, user and password live in
+        // secrets.enc, read through Core\Mail\Transport\
+        // ProviderConnections.
+        $pdo->exec('CREATE TABLE mail_providers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            secret_prefix TEXT NOT NULL,
+            daily_quota INTEGER,
+            batch_size INTEGER NOT NULL DEFAULT 50,
+            batch_interval_minutes INTEGER NOT NULL DEFAULT 10,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (secret_prefix)
+        )');
+
+        $pdo->exec('CREATE TABLE mail_lane_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            lane TEXT NOT NULL,
+            provider_id INTEGER NOT NULL DEFAULT 0,
+            position INTEGER NOT NULL DEFAULT 0,
+            is_enabled INTEGER NOT NULL DEFAULT 1,
+            UNIQUE (lane, provider_id)
+        )');
+
+        $pdo->exec('CREATE TABLE mail_send_counters (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            provider_id INTEGER NOT NULL DEFAULT 0,
+            count_date TEXT NOT NULL,
+            lane TEXT NOT NULL,
+            sent_count INTEGER NOT NULL DEFAULT 0,
+            UNIQUE (provider_id, count_date, lane)
+        )');
+
         $pdo->exec('CREATE TABLE human_check_rate_limits (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             ip_hash TEXT NOT NULL,

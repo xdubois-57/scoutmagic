@@ -2,7 +2,7 @@
   "id": "mass_mail",
   "name": "Envoi de mails",
   "description": "Envoi de mails groupés aux membres de l'unité : listes de diffusion par défaut ou personnalisées, publipostage depuis un fichier Excel avec variables personnalisées, mode test, envoi en arrière-plan par lots, suivi détaillé des envois. Accueille aussi, lorsque le module inscriptions est actif, une liste prédéfinie non modifiable pour l'année scoute cible.",
-  "version": "1.16.0",
+  "version": "1.17.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -298,20 +298,6 @@
     }
   ],
   "settings": [
-    {
-      "key": "batch_size",
-      "default_value": "20",
-      "type": "number",
-      "label": "Taille des lots d'envoi",
-      "description": "Nombre d'emails envoyés à chaque passage du planificateur. Réglage global à tout le site."
-    },
-    {
-      "key": "batch_interval_minutes",
-      "default_value": "5",
-      "type": "number",
-      "label": "Intervalle entre les lots (minutes)",
-      "description": "Délai entre deux lots d'envoi. Réglage global à tout le site, s'applique à tous les emails de masse en cours d'envoi."
-    },
     {
       "key": "merge_retention_months",
       "default_value": "18",
