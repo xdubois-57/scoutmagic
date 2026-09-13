@@ -97,7 +97,25 @@ final class GoogleDriveClient
     private const STALL_SECONDS = 30;
 
     /** Each `PUT` of a resumable upload. Google requires a multiple of 256 KiB. */
-    private const UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024;
+    /**
+     * How much goes in one `PUT`, a multiple of the 256 KiB the protocol
+     * requires.
+     *
+     * **Sized against the time budget, not against throughput.** A chunk
+     * is one HTTP request and cannot be interrupted politely, so
+     * {@see sendChunks()} can only check its deadline BETWEEN chunks and
+     * the overshoot is one chunk's duration. Two mebibytes is about
+     * seventeen seconds on a one-megabit domestic upstream — the link
+     * this whole mechanism exists for — which keeps the overshoot on the
+     * order of the budget itself rather than several times it. Eight
+     * mebibytes, the first value here, was four times worse on that same
+     * link for no gain that mattered.
+     *
+     * Public because the tests derive their expected `Content-Range`
+     * headers from it: a test that repeats the number is a test that
+     * silently stops matching the code the day it changes.
+     */
+    public const UPLOAD_CHUNK_BYTES = 2 * 1024 * 1024;
 
     /** How many entries one page of a folder listing asks for. */
     private const LIST_PAGE_SIZE = 100;
@@ -368,6 +386,28 @@ final class GoogleDriveClient
             throw RemoteBackupException::of('Le fichier à envoyer est introuvable sur ce serveur.');
         }
 
+        $sessionUrl = $this->beginUpload($accessToken, $folderId, $remoteName, $size);
+        $upload = $this->sendChunks($sessionUrl, $localPath, $size, 0, static fn(): bool => true);
+        if (!$upload->isComplete()) {
+            throw RemoteBackupException::of('L\'envoi vers Google Drive s\'est terminé sans confirmation.');
+        }
+
+        return $upload->fileId;
+    }
+
+    /**
+     * Opens a resumable session and answers with the URI to send to.
+     *
+     * **The URI is the thing worth keeping.** It outlives this request,
+     * this run and this day — Google holds a session for about a week —
+     * and it is what lets a backup too large for one request be finished
+     * across several. The caller stores it; losing it means starting the
+     * whole archive again.
+     *
+     * @throws RemoteBackupException
+     */
+    public function beginUpload(string $accessToken, string $folderId, string $remoteName, int $size): string
+    {
         $session = $this->send(
             'POST',
             self::UPLOAD_BASE . '/files?uploadType=resumable&fields=id',
@@ -387,22 +427,81 @@ final class GoogleDriveClient
             throw RemoteBackupException::of('Google Drive n\'a pas indiqué où envoyer le fichier.');
         }
 
-        return $this->putChunks($sessionUrl, $localPath, $size);
+        return $sessionUrl;
     }
 
     /**
+     * Asks Google how much of this file it already holds.
+     *
+     * **The question after a failure, instead of sending it all again.**
+     * A run that died mid-chunk — the process was killed, the link
+     * dropped — leaves this application unsure how much arrived, and
+     * guessing either resends what was received or skips what was not.
+     * An empty `PUT` with `Content-Range: bytes * / total` is the
+     * protocol's way of asking, and the answer is authoritative in a way
+     * no local bookkeeping can be.
+     *
+     * A 2xx here means the file is in fact already complete — the last
+     * chunk landed and only the answer was lost — which is a resume that
+     * has nothing left to do rather than an error.
+     *
      * @throws RemoteBackupException
      */
-    private function putChunks(string $sessionUrl, string $localPath, int $size): string
+    public function probeUpload(string $sessionUrl, int $size): RemoteUpload
     {
+        $response = $this->send('PUT', $sessionUrl, [
+            'Content-Length' => '0',
+            'Content-Range' => sprintf('bytes */%d', $size),
+        ]);
+
+        if ($response['status'] === 308) {
+            return RemoteUpload::inProgress($sessionUrl, $this->committedOffset($response, 0));
+        }
+        if ($response['status'] >= 200 && $response['status'] < 300) {
+            return RemoteUpload::completed($sessionUrl, $this->acceptedFileId($response));
+        }
+
+        throw $this->errorFor($response, 'Google Drive n\'a pas dit où reprendre l\'envoi.');
+    }
+
+    /**
+     * Sends from `$offset` until the file is done or the budget runs out.
+     *
+     * **`$hasTimeLeft` is checked between chunks, never inside one.** A
+     * chunk is a single HTTP request and cannot be interrupted politely,
+     * so the budget bounds how many are STARTED — the same shape as
+     * `Core\Notification\Task\SendNotificationsHandler`, which is this
+     * feature's precedent for working under a deadline and rescheduling
+     * the remainder. The overshoot is therefore at most one chunk, which
+     * is what {@see UPLOAD_CHUNK_BYTES} is sized for.
+     *
+     * @param \Closure(): bool $hasTimeLeft
+     * @throws RemoteBackupException
+     */
+    public function sendChunks(
+        string $sessionUrl,
+        string $localPath,
+        int $size,
+        int $offset,
+        \Closure $hasTimeLeft
+    ): RemoteUpload {
         $handle = @fopen($localPath, 'rb');
         if ($handle === false) {
             throw RemoteBackupException::of('Le fichier à envoyer n\'a pas pu être lu sur ce serveur.');
         }
 
         try {
-            $offset = 0;
+            if ($offset > 0 && fseek($handle, $offset) !== 0) {
+                throw RemoteBackupException::of('La reprise de la lecture du fichier à envoyer a échoué.');
+            }
+
             while ($offset < $size) {
+                if (!$hasTimeLeft()) {
+                    // Not a failure: what has been sent is committed, and
+                    // the next run continues from here.
+                    return RemoteUpload::inProgress($sessionUrl, $offset);
+                }
+
                 $chunk = (string) fread($handle, self::UPLOAD_CHUNK_BYTES);
                 $length = strlen($chunk);
                 if ($length === 0) {
@@ -443,13 +542,7 @@ final class GoogleDriveClient
                     continue;
                 }
                 if ($response['status'] >= 200 && $response['status'] < 300) {
-                    $decoded = json_decode($response['body'], true);
-                    $id = is_array($decoded) ? (string) ($decoded['id'] ?? '') : '';
-                    if ($id === '') {
-                        throw RemoteBackupException::of('Google Drive a accepté le fichier sans en donner l\'identifiant.');
-                    }
-
-                    return $id;
+                    return RemoteUpload::completed($sessionUrl, $this->acceptedFileId($response));
                 }
 
                 throw $this->errorFor($response, 'L\'envoi vers Google Drive a échoué.');
@@ -458,7 +551,29 @@ final class GoogleDriveClient
             fclose($handle);
         }
 
+        // Every byte was sent and Google never answered with an id: the
+        // file is not confirmed, so it is not reported as finished.
         throw RemoteBackupException::of('L\'envoi vers Google Drive s\'est terminé sans confirmation.');
+    }
+
+    /**
+     * The id Google gave the finished file, refusing an acceptance that
+     * names nothing — the caller needs it to delete the file later, and a
+     * remote file this application cannot address is one it can never
+     * purge.
+     *
+     * @param array{status: int, body: string, location?: string, range?: string} $response
+     * @throws RemoteBackupException
+     */
+    private function acceptedFileId(array $response): string
+    {
+        $decoded = json_decode($response['body'], true);
+        $id = is_array($decoded) ? (string) ($decoded['id'] ?? '') : '';
+        if ($id === '') {
+            throw RemoteBackupException::of('Google Drive a accepté le fichier sans en donner l\'identifiant.');
+        }
+
+        return $id;
     }
 
     /**
