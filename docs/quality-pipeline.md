@@ -1287,7 +1287,7 @@ nothing**:
   merge-risk line and the pre-merge checks is then **rewritten in place**
   on every push, so a verdict pinned to commit 1 wears a fresh timestamp
   ten commits later. This one is worse than a silent pass: it does not
-  report nothing, it reports the pull request as wrong. On #326 its Title
+  report nothing, it reports the pull request as wrong. On #320 its Title
   check called out rich-text changes « qui ne figurent pas dans les
   changements fournis » — they were in commits 2 to 10. What reads it back
   is the comment's own « Commits » block (`Reviewing files that changed …
