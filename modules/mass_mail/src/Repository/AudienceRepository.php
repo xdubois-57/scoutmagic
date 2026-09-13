@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\MassMail\Repository;
 
 use Core\Security\EncryptionService;
+use Modules\MassMail\Service\RecipientEmailLink;
 
 /**
  * mass_mail_audiences / mass_mail_audience_rows — a row's address and
@@ -181,6 +182,57 @@ class AudienceRepository
         );
         $stmt->execute([$createdCutoff->format('Y-m-d H:i:s')]);
         return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
+    /**
+     * The notification deep links of every recipient frozen from these
+     * audiences — what Task\PurgeMergeAudiencesHandler deletes alongside
+     * the audiences themselves (issue #292).
+     *
+     * Must be called BEFORE deleteById(): `audience_row_id` is what ties a
+     * recipient to its audience, and the purge sets it to NULL. Afterwards
+     * the link is gone and so is any way to find these rows again.
+     *
+     * `audience_row_id IS NOT NULL` is also what makes this a *merge*
+     * question rather than a mass-mail one. Task\SendBatchHandler
+     * dispatches the same `mass_mail.email_received` type for every send,
+     * merge or not — an ordinary list send's notification carries the one
+     * subject everybody got, has nothing to do with `merge_retention_months`,
+     * and must keep the site-wide promise that an unread notification is
+     * never purged. Only a recipient with an audience row has a
+     * personalised value to erase.
+     *
+     * A recipient with no member_years row for the year it was resolved
+     * from yields no link and is skipped by the JOIN — see
+     * Task\SendBatchHandler, which refuses to store a personalised subject
+     * it could not later find.
+     *
+     * @param int[] $audienceIds
+     * @return string[]
+     */
+    public function findRecipientEmailLinksForAudiences(array $audienceIds): array
+    {
+        if ($audienceIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($audienceIds), '?'));
+        $stmt = $this->pdo->prepare(
+            'SELECT my.id AS member_year_id, r.id AS recipient_id
+             FROM mass_mail_recipients r
+             JOIN mass_mail_audience_rows ar ON ar.id = r.audience_row_id
+             JOIN member_years my ON my.member_id = r.member_id AND my.scout_year_id = r.scout_year_id
+             WHERE ar.audience_id IN (' . $placeholders . ')'
+        );
+        $stmt->execute(array_map('intval', array_values($audienceIds)));
+
+        return array_map(
+            static fn(array $row): string => RecipientEmailLink::url(
+                (int) $row['member_year_id'],
+                (int) $row['recipient_id']
+            ),
+            $stmt->fetchAll(\PDO::FETCH_ASSOC)
+        );
     }
 
     /**

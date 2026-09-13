@@ -19,6 +19,13 @@ use Core\Scheduler\TaskHandlerInterface;
  * conservation", SettingService key 'notifications_retention_days',
  * default 90) — deletes only READ notifications older than the setting;
  * an unread one is never purged regardless of age, per module spec.
+ *
+ * That promise is about TIDINESS and it is the only rule this task
+ * applies. It is not the only way a notification can disappear: a module
+ * that stored a value it has undertaken to erase deletes its own rows
+ * through NotificationRepository::deleteOfTypeWithUrls(), read or not,
+ * naming them one by one (ARCHITECTURE.md §8.61, issue #292). Nothing
+ * here decides that, and nothing there widens this.
  * Self-reschedules at the end of every run rather than being a first-
  * class recurring task, same precedent as Core\Maintenance\Task\
  * AutoBackupHandler (Core\Scheduler has no first-class recurring-task
