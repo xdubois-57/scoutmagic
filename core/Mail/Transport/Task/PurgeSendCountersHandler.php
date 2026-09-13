@@ -22,7 +22,7 @@ use Core\Scheduler\TaskHandlerInterface;
  * reserve reads the last thirty days (D8). The retention is deliberately
  * wider than the second of those, because the peak the reserve is built
  * on is a number an administrator is shown and may want to understand
- * — « d'où sort ce 42 » is unanswerable the day the rows behind it are
+ * — "where does that 42 come from" is unanswerable the day the rows behind it are
  * gone. Ninety days is three times the window and still a table of a few
  * hundred rows.
  *

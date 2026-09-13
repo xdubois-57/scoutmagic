@@ -6,7 +6,7 @@
     title: provider is null ? 'Nouveau fournisseur' : provider.name,
     subtitle: is_local
         ? "L'envoi local part directement du serveur, sans relais. Il n'a ni identifiants ni quota : seule sa cadence se règle."
-        : "Les identifiants de ce relais sont conservés chiffrés, en dehors de la base de données, et ne sont jamais réaffichés.",
+        : "Les identifiants de ce relais sont conservés chiffrés, en dehors de la base de données. Le mot de passe ne vous est jamais réaffiché ; l'identifiant l'est, pour que vous puissiez vérifier lequel sert et le conserver en enregistrant.",
 } only %}
 
 <form method="post" action="{{ provider is null ? '/config/courrier-sortant/fournisseurs' : '/config/courrier-sortant/fournisseurs/' ~ provider.id }}" class="page-narrow">

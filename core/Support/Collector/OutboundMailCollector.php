@@ -20,7 +20,7 @@ use Core\Support\SupportCollectorInterface;
  * what the chains have been doing (ARCHITECTURE.md §8.106, §8.48).
  *
  * The question it answers is the one nobody can answer from a screenshot:
- * « les messages ne partent plus » is the same sentence whether a relay
+ * "mail stopped going out" is the same sentence whether a relay
  * is refusing, a quota is spent, or a lane was emptied on the
  * configuration page three weeks ago. The chains, the counters and the
  * order are what tell those apart, and none of them was in the archive.
@@ -133,7 +133,10 @@ class OutboundMailCollector implements SupportCollectorInterface
      */
     private function counterRows(SupportCollectorContext $context, array $providers): array
     {
-        $from = (new \DateTimeImmutable('-' . self::COUNTER_DAYS . ' days'))->format('Y-m-d');
+        // `COUNTER_DAYS - 1`, because the filter below is `>=` and today
+        // counts: thirty days back from today is thirty-one dates, and the
+        // heading above this table says thirty.
+        $from = (new \DateTimeImmutable('-' . (self::COUNTER_DAYS - 1) . ' days'))->format('Y-m-d');
 
         $statement = $context->pdo()->prepare(
             'SELECT count_date, provider_id, lane, sent_count

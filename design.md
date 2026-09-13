@@ -199,8 +199,8 @@ other and says what it is: no relay, no quota, deliberately slow.
 
 **Acheminement** is three ordered lists, one per lane, each with its own
 sentence saying what travels on it. The order IS the meaning, so it is
-edited the way this site already edits an order — `partials/
-list_editor.html.twig`, drag-and-drop on a large screen, arrows on a
+edited the way this site already edits an order —
+`partials/list_editor.html.twig`, drag-and-drop on a large screen, arrows on a
 phone (§7.10). The rank of an enabled entry is printed in front of its
 name, because « premier » and « désactivé » are the two facts a reader
 came for. The two refusals the page can make — emptying a lane, deleting

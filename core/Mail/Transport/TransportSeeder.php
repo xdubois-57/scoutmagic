@@ -227,7 +227,17 @@ final class TransportSeeder
             explode('.', strtolower($host)),
             static fn(string $label): bool => $label !== '' && !in_array($label, [
                 'www', 'mail', 'smtp', 'smtp-relay', 'relay', 'mx', 'out', 'send', 'in',
-                'com', 'net', 'org', 'be', 'fr', 'eu', 'io',
+                // Suffixes, named rather than measured. A « drop any
+                // trailing label of three letters or fewer » rule reads
+                // as the same idea and is not: `ssl0.ovh.net` would
+                // become « Ssl0 », because `ovh` IS the provider. The
+                // country codes below are the ones a unit here plausibly
+                // buys a relay in; an unknown suffix names the provider
+                // after its country, which is wrong but visible, and the
+                // Fournisseurs page renames it in one click.
+                'com', 'net', 'org', 'eu', 'io', 'be', 'fr', 'ch', 'de', 'nl',
+                'lu', 'uk', 'es', 'it', 'pt', 'at', 'dk', 'se', 'no', 'fi',
+                'pl', 'cz', 'ie', 'ca',
             ], true)
         ));
 

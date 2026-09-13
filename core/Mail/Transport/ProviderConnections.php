@@ -153,13 +153,18 @@ final class ProviderConnections
         $secrets = $this->secretManager->readSecrets();
         foreach ($values as $key => $value) {
             if ($value === '') {
-                unset($secrets[$key], $this->secrets[$key]);
+                unset($secrets[$key]);
                 continue;
             }
             $secrets[$key] = $value;
-            $this->secrets[$key] = $value;
         }
 
+        // Written first, remembered second. Updating the in-memory copy
+        // inside the loop above left this object describing a file that
+        // a failed write had not changed — and it is the copy the rest of
+        // the request reads, so the screen would have shown the new host
+        // while `secrets.enc` still held the old one.
         $this->secretManager->writeSecrets($secrets);
+        $this->secrets = $secrets;
     }
 }

@@ -113,7 +113,18 @@ final class MailTransportChain implements MailTransportInterface
             // After the transport returned, never before: a counter moved
             // on an attempt would step the lane past a provider that is
             // working perfectly the moment anything else goes wrong.
-            $this->counters->increment($provider->id, $lane);
+            //
+            // And its failure is not the message's. The recipient has the
+            // e-mail; letting a counter write propagate would have
+            // `MailService` report a send that did happen as failed, and
+            // the caller — `mass_mail` above all — retry it, so a
+            // bookkeeping error would put a second copy in somebody's
+            // inbox. The count is worth less than that.
+            try {
+                $this->counters->increment($provider->id, $lane);
+            } catch (\Throwable $e) {
+                $this->journalCounterFailure($provider, $lane, $e);
+            }
 
             return;
         }
@@ -214,6 +225,41 @@ final class MailTransportChain implements MailTransportInterface
             );
         } catch (\Throwable) {
             // Swallowed on purpose — see the docblock.
+        }
+    }
+
+    /**
+     * A counter that could not be written, on a message that DID leave.
+     *
+     * Worth a line precisely because nothing else will show it: the
+     * recipient has the e-mail, the caller was told the send succeeded,
+     * and the only trace of the miscount is the quota being reached later
+     * than the provider thinks. That is the sort of drift somebody
+     * eventually has to explain, and this is where they will look.
+     *
+     * The reason is redacted like every other message this class writes:
+     * a PDO exception quotes the statement, and a statement carries a
+     * lane and a provider id but must not be trusted to carry nothing
+     * else (SECURITY.md §11).
+     */
+    private function journalCounterFailure(MailProvider $provider, MailLane $lane, \Throwable $error): void
+    {
+        try {
+            $this->journal?->log(
+                'core',
+                'mail_send_counter_failed',
+                'warning',
+                'Un envoi réussi n’a pas pu être compté',
+                [
+                    'provider_id' => $provider->id,
+                    'provider' => $provider->name,
+                    'lane' => $lane->value,
+                    'reason' => MailErrorRedaction::withoutAddresses($error->getMessage()),
+                ]
+            );
+        } catch (\Throwable) {
+            // Same posture as above: the message left, and nothing that
+            // happens here may change that.
         }
     }
 }

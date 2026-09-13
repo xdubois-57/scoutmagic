@@ -28,8 +28,8 @@ use Tests\DatabaseTestHelper;
  * and « d'où sort ce nombre » is unanswerable the day the rows behind it
  * are gone.
  *
- * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class PurgeSendCountersHandlerTest extends TestCase
 {
     private \PDO $pdo;

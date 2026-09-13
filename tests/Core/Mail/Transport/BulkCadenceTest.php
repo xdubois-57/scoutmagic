@@ -27,8 +27,8 @@ use Tests\DatabaseTestHelper;
  * to the relay (D6), and the answer changes the moment the mailing lane
  * falls back.
  *
- * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class BulkCadenceTest extends TestCase
 {
     private \PDO $pdo;

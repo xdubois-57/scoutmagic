@@ -33,8 +33,8 @@ use Tests\DatabaseTestHelper;
  * took the sign-in links down with it, and nobody could log in to repair
  * anything. Every case below is one half of that.
  *
- * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class MailTransportChainTest extends TestCase
 {
     private \PDO $pdo;

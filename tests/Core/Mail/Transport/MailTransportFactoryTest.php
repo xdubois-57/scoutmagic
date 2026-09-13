@@ -31,8 +31,8 @@ use Tests\DatabaseTestHelper;
  * mailing obeying quotas under one trigger and ignoring them under the
  * other.
  *
- * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class MailTransportFactoryTest extends TestCase
 {
     private \PDO $pdo;
@@ -99,12 +99,35 @@ class MailTransportFactoryTest extends TestCase
 
         $this->assertInstanceOf(MailTransportChain::class, $built['chain']);
 
-        // Observed through behaviour rather than through reflection: with
-        // no chain laid down, the chain hands the message straight to the
-        // delivery transport — and the default one would really try to
-        // send, so this asserts the seam exists rather than exercising it.
-        $explicit = MailTransportFactory::build($this->pdo, [], $this->settings, new PhpMailerTransport());
-        $this->assertInstanceOf(MailTransportChain::class, $explicit['chain']);
+        // The DELIVERY dependency is what this test is about, and
+        // asserting the chain's own class said nothing about it: the
+        // factory could have swapped `PhpMailerTransport` for anything
+        // and this still passed. Read through reflection because the
+        // alternative is exercising it, and the default transport would
+        // really try to send.
+        $this->assertInstanceOf(PhpMailerTransport::class, $this->deliveryOf($built['chain']));
+
+        $supplied = new PhpMailerTransport();
+        $explicit = MailTransportFactory::build($this->pdo, [], $this->settings, $supplied);
+        $this->assertSame(
+            $supplied,
+            $this->deliveryOf($explicit['chain']),
+            'A transport handed in is the one used — this is the seam the sandbox hangs on.'
+        );
+    }
+
+    /**
+     * The transport the chain delegates to once it has pointed PHPMailer
+     * at a provider.
+     */
+    private function deliveryOf(MailTransportChain $chain): MailTransportInterface
+    {
+        $property = new \ReflectionProperty(MailTransportChain::class, 'delivery');
+
+        $delivery = $property->getValue($chain);
+        $this->assertInstanceOf(MailTransportInterface::class, $delivery);
+
+        return $delivery;
     }
 
     private function message(): PHPMailer

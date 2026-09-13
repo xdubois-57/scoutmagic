@@ -29,8 +29,8 @@ use Tests\DatabaseTestHelper;
  * sends nothing, and on the authentication lane that means nobody can
  * sign in — including whoever emptied it.
  *
- * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class TransportServiceTest extends TestCase
 {
     private \PDO $pdo;
@@ -140,10 +140,16 @@ class TransportServiceTest extends TestCase
         $relay = $this->providers->create('Relais', null, 50, 10);
         $this->chains->append(MailLane::Authentication, $relay, true);
 
-        $this->expectException(TransportException::class);
-        $this->service->deleteProvider($relay);
-
-        $this->assertNotNull($this->providers->findById($relay));
+        try {
+            $this->service->deleteProvider($relay);
+            $this->fail('A lane may never be left with no enabled entry.');
+        } catch (TransportException) {
+            // Asserted HERE rather than after the call: `expectException()`
+            // ends the test at the throw, so the check below never ran and
+            // an implementation that deleted the row and then complained
+            // would have passed.
+            $this->assertNotNull($this->providers->findById($relay));
+        }
     }
 
     public function testDeletingARelayRemovesItsEntriesEverywhere(): void

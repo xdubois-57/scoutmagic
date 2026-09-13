@@ -20,8 +20,8 @@ use Tests\DatabaseTestHelper;
  * afterwards. A single figure per provider could answer the first
  * question and never the second.
  *
- * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class SendCounterRepositoryTest extends TestCase
 {
     private \PDO $pdo;
@@ -63,7 +63,15 @@ class SendCounterRepositoryTest extends TestCase
         $this->counters->increment(MailProvider::LOCAL_ID, MailLane::Transactional);
         $this->counters->increment(MailProvider::LOCAL_ID, MailLane::Transactional);
 
-        $this->assertSame([MailProvider::LOCAL_ID => 2, 1 => 1], $this->counters->totalsForDay());
+        // Sorted before comparing: `assertSame()` on arrays compares key
+        // ORDER too, and `totalsForDay()` groups without an `ORDER BY`,
+        // so a server free to return provider 1 first would fail this on
+        // MySQL while it passed on SQLite. What is asserted is the
+        // mapping, which is what the method promises.
+        $totals = $this->counters->totalsForDay();
+        ksort($totals);
+
+        $this->assertSame([MailProvider::LOCAL_ID => 2, 1 => 1], $totals);
     }
 
     public function testYesterdaysCountersAreNotTodays(): void

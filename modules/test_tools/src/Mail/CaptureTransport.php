@@ -35,7 +35,7 @@ use PHPMailer\PHPMailer\PHPMailer;
  * (`Core\Mail\Transport`, ARCHITECTURE.md §8.106), which routes a
  * message from the same enum. It changes nothing here, and that is the
  * decision rather than an omission: the sandbox's whole value is
- * answering « qu'est-ce que cette fonctionnalité a réellement envoyé ? »,
+ * answering "what did this feature actually send?",
  * and a publipostage to four hundred parents is the single thing an
  * operator most wants captured before it leaves. The exemption stays
  * what it was — the one category without which the tool deadlocks the

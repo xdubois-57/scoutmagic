@@ -24,8 +24,8 @@ use Tests\DatabaseTestHelper;
  * already had keeps working, and the local send is in all three chains
  * so an installation in `local` mode goes on sending exactly as before.
  *
- * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class TransportSeederTest extends TestCase
 {
     private \PDO $pdo;
@@ -244,6 +244,37 @@ class TransportSeederTest extends TestCase
         $this->seed($secrets);
 
         $this->assertSame([], $this->providers->findAll(), 'The administrator removed it; it stays removed.');
+    }
+
+    /**
+     * The first label a volunteer recognises, and not the country.
+     *
+     * The suffixes are named rather than measured on purpose: a rule that
+     * dropped any trailing label of three letters or fewer reads as the
+     * same idea and is not — `ssl0.ovh.net` would come out « Ssl0 »,
+     * because `ovh` IS the provider. That case is in the list below.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('relayHosts')]
+    public function testTheRelayIsNamedAfterItsProviderNotItsCountry(string $host, string $expected): void
+    {
+        $this->seed(['mail_mode' => 'smtp', 'smtp_host' => $host]);
+
+        $this->assertSame($expected, $this->providers->findAll()[0]['name']);
+    }
+
+    /**
+     * @return array<string, array{string, string}>
+     */
+    public static function relayHosts(): array
+    {
+        return [
+            'a Swiss host' => ['mail.infomaniak.ch', 'Infomaniak'],
+            'a German host' => ['smtp.strato.de', 'Strato'],
+            'a Dutch host' => ['smtp.transip.nl', 'Transip'],
+            'a three-letter provider' => ['ssl0.ovh.net', 'Ovh'],
+            'the usual one' => ['smtp-relay.brevo.com', 'Brevo'],
+            'nothing readable left' => ['localhost', 'Localhost'],
+        ];
     }
 
     /**

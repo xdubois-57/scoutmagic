@@ -21,9 +21,10 @@ produit quand ce chemin ne répond plus.
 
 Un **fournisseur** est un relais qui accepte vos messages et les remet.
 Sur sa fiche : son nom, son serveur, son port et ses identifiants. Ceux-ci
-sont conservés chiffrés en dehors de la base de données et ne vous sont
-jamais réaffichés — laissez le mot de passe vide pour conserver celui qui
-est enregistré.
+sont conservés chiffrés en dehors de la base de données. Le **mot de passe**
+ne vous est jamais réaffiché — laissez le champ vide pour conserver celui
+qui est enregistré. L'**identifiant**, lui, reste visible : sans cela vous
+ne sauriez pas quel compte sert, et l'effaceriez en enregistrant.
 
 L'**envoi local** est toujours présent, en bas de liste : le serveur
 expédie lui-même, sans relais. Il ne se supprime pas, seulement se

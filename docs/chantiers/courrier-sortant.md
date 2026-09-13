@@ -343,3 +343,56 @@ d'exemption, qui ne fait que rétrécir. À noter pour la suite : la CI
 construit `refs/pull/328/merge`, donc elle voyait ce test avant que mon
 arbre de travail ne l'ait — la suite complète passait ici et échouait
 là-bas.
+
+**Dix-sept constats de CodeRabbit, dont trois qui comptaient.** Le reste
+est réel mais mineur ; ceux-ci méritent d'être nommés.
+
+`SecretManager::writeSecrets()` ignorait le retour de `file_put_contents()`.
+Une écriture échouée était donc silencieuse — et cela vidait de sa
+substance le correctif précédent, qui fait reposer la suppression d'un
+fournisseur sur le fait que `forget()` lève quand l'effacement rate. Par
+ce chemin-là, la ligne repartait et le mot de passe restait. Le retour est
+vérifié. C'est du cœur, utilisé par l'assistant d'installation comme par
+le reste, et c'est précisément pour cela qu'il fallait le corriger ici
+plutôt que le noter.
+
+`MailTransportChain` comptait l'envoi après la livraison — bien — mais
+laissait l'échec du compteur remonter. Le destinataire a le message,
+`MailService` annonçait un échec, et `mass_mail` réessayait : une erreur
+de comptabilité mettait une seconde copie dans une boîte. Le compte vaut
+moins que ça ; il est désormais journalisé et avalé.
+
+`ProviderConnections::mutate()` mettait à jour sa copie en mémoire dans la
+boucle, avant l'écriture. Un échec laissait l'objet — celui que lit le
+reste de la requête — décrivant un fichier que rien n'avait changé.
+
+**Et un constat juste dont le correctif proposé était faux.**
+`nameFor('mail.infomaniak.ch')` rendait « Ch » : la liste de suffixes ne
+nommait que `.com/.net/.org/.be/.fr/.eu/.io`. Le correctif suggéré —
+retirer tout dernier label de trois lettres ou moins — a été essayé et
+**cassé un test existant** : `ssl0.ovh.net` devenait « Ssl0 », parce que
+`ovh` EST le fournisseur. Les suffixes sont donc nommés, pas mesurés, et
+un test à données couvre les deux cas.
+
+Refusés, avec la raison : la cadence « collante » après une bascule
+(`BulkCadence`) demande de savoir qu'un fournisseur est écarté, ce qui est
+le coupe-circuit de D15 en IT-02 — l'implémenter ici serait anticiper
+l'itération suivante, qu'`AGENTS.md` et le document de chantier
+interdisent tous deux ; la transactionnalité complète d'`addProvider()` et
+d'`updateProvider()` à travers une base ET un fichier (la moitié qui
+comptait — l'écriture silencieuse — est corrigée ci-dessus) ; et des tests
+de routage passant par `FrontController`, que le job `Authorization
+matrix` exerce déjà de bout en bout sur ces routes.
+
+Le formulaire disait « les identifiants … ne sont jamais réaffichés »
+alors que l'identifiant l'est. Le correctif proposé — le vider — aurait
+effacé l'identifiant à chaque enregistrement, `store()` l'écrivant sans
+condition. C'est donc la phrase qui est corrigée, ici et dans le sujet
+d'aide : le mot de passe n'est jamais réaffiché, l'identifiant l'est, et
+on dit pourquoi.
+
+Enfin, `@group database` en doc-comment est inerte sous PHPUnit 13, que
+`composer.lock` fige. Sept fichiers étaient concernés — `--group=database`
+n'en exécutait aucun, ce qui s'est vu en direct : la commande répondait
+« No tests executed ». L'attribut, que le reste du dépôt utilise déjà,
+les sélectionne.
