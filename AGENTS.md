@@ -19,6 +19,14 @@ This file is automatically loaded by Devin, Cursor, Copilot, and other AI coding
   conversation with the person reading it, not part of that record.
 - No exceptions beyond that one. A French variable name or an English UI
   label is always a bug, and so is an English commit message or PR title.
+- **A Twig comment is a comment**, so it is English, and the repository does
+  not yet match: 119 French ones survive across 37 template files, against
+  roughly a thousand English (issue #327). That is the rule being owed a
+  correction, not the rule being softer than it reads — so write yours in
+  English, and translate a file's comments when a change takes you into it
+  anyway. `Tests\Architecture\TwigCommentsAreEnglishTest` holds the count as
+  a ratchet that can only shrink; it is never the place to park a comment
+  written today.
 
 The split is easy to state and easy to get wrong in the same file: **the code
 and its comments are English, everything written *about a change* is
