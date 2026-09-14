@@ -167,12 +167,37 @@ class MailIdentityTest extends TestCase
         $this->assertSame([], $mail->getReplyToAddresses());
     }
 
+    /**
+     * The row says where the site ASKS for reports. Without an address it
+     * asks for none — no `rua=` is proposed and nothing is ever sent — so
+     * showing the expédition address there would put an address next to a
+     * sentence saying nothing is collected, and leave the reader to
+     * choose which half to believe.
+     */
+    public function testWithoutADmarcAddressThatRowIsEmptyRatherThanTheExpeditionAddress(): void
+    {
+        $roles = array_column((new MailIdentity('info@unite.be', 'Unité'))->roles(), null, 'role');
+
+        $this->assertSame('', $roles[MailIdentity::ROLE_DMARC]['address']);
+        $this->assertSame('Aucun rapport demandé', $roles[MailIdentity::ROLE_DMARC]['source']);
+        // The fallback itself stays — it answers « if reports were asked
+        // for, where would they go », which is what builds the suggested
+        // record the day somebody asks for them.
+        $this->assertSame('info@unite.be', (new MailIdentity('info@unite.be'))->dmarcReportAddress());
+    }
+
     public function testTheFourRolesTableNamesWhereEachAddressComesFrom(): void
     {
         $roles = (new MailIdentity('info@unite.be', 'Unité', '', 'dmarc@unite.be'))->roles();
 
         $this->assertCount(4, $roles);
         $byRole = array_column($roles, null, 'role');
+
+        // Every row is a table header cell: one silently missing was a
+        // real edit, caught by PHPStan's shape and not by this test.
+        foreach ($byRole as $role => $row) {
+            $this->assertNotSame('', $row['label'], "Le rôle « {$role} » n'a pas de libellé.");
+        }
 
         $this->assertSame('info@unite.be', $byRole[MailIdentity::ROLE_FROM]['address']);
         $this->assertSame('info@unite.be', $byRole[MailIdentity::ROLE_REPLY]['address']);

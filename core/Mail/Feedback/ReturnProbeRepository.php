@@ -160,9 +160,20 @@ final class ReturnProbeRepository
         return $statement->rowCount();
     }
 
+    /**
+     * Through `EncryptionService::normalizeEmailForIndex()` and never by
+     * hand: it is the project's one rule for this (`mb_strtolower` +
+     * `trim`), and a byte-wise `strtolower()` leaves an accented address
+     * indexing differently from the same address typed in another case —
+     * so a case-only edit would leave a stale encrypted copy behind
+     * instead of replacing it.
+     */
     private function indexOf(string $address): string
     {
-        return $this->encryption->blindIndex(strtolower(trim($address)), self::CONTEXT);
+        return $this->encryption->blindIndex(
+            EncryptionService::normalizeEmailForIndex($address),
+            self::CONTEXT
+        );
     }
 
     /**

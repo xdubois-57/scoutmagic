@@ -199,6 +199,36 @@ class DnsVerifierTest extends TestCase
         $this->assertSame($published, $result['expected']);
     }
 
+    /**
+     * A substring test is satisfied by a longer host on a domain the
+     * operator may not even control: `a:relais.example` is inside
+     * `a:relais.example.net`. The reading would then say « en place » and
+     * propose nothing, leaving the relay that is actually missing
+     * unauthorised with the screen saying it was fine.
+     */
+    public function testALongerHostNameDoesNotSatisfyAShorterOne(): void
+    {
+        $verifier = new FakeDnsVerifier([
+            'unite.be' => ['v=spf1 a:relais.example.net ~all'],
+        ]);
+
+        $result = $verifier->checkSpfForHosts('unite.be', ['relais.example']);
+
+        $this->assertFalse($result['exists']);
+        $this->assertSame('v=spf1 a:relais.example.net a:relais.example ~all', $result['expected']);
+    }
+
+    public function testAMechanismInsideAnotherTokenIsNotAMatchEither(): void
+    {
+        // `include:_spf.relais.example` carries the host as a substring
+        // and authorises nothing of the sort.
+        $verifier = new FakeDnsVerifier([
+            'unite.be' => ['v=spf1 include:_spf.a:relais.example -all'],
+        ]);
+
+        $this->assertFalse($verifier->checkSpfForHosts('unite.be', ['relais.example'])['exists']);
+    }
+
     public function testAnEmptyHostNameNeverBecomesABareMechanism(): void
     {
         // `mode=smtp` with an empty smtp_host used to make the reading

@@ -268,6 +268,110 @@ class SettingServiceTest extends TestCase
         $this->assertSame('new', $this->service->get('editable_key'));
     }
 
+    public function testSetManyWritesEveryValue(): void
+    {
+        $this->service->register('a_key', 'old', 'text', 'L', 'D');
+        $this->service->register('b_key', 'old', 'text', 'L', 'D');
+        $this->service->clearCache();
+
+        $this->service->setMany(['a_key' => 'un', 'b_key' => 'deux']);
+
+        $this->assertSame('un', $this->service->get('a_key'));
+        $this->assertSame('deux', $this->service->get('b_key'));
+    }
+
+    /**
+     * Values that only make sense together — the addresses a site sends
+     * under, say — must not survive half-written. A screen that says
+     * nothing was saved while three of five values were is worse than the
+     * refusal: the next reader cannot tell that half-state from a
+     * configuration somebody meant.
+     *
+     * This one proves the FIRST of the two guards: every value is checked
+     * before any is written, so the ordinary failure — somebody mistyped
+     * an address — never reaches the database at all. The second guard,
+     * the transaction that covers a write failing once they have started,
+     * is {@see self::testAFailureMidWriteRollsBackWhatWasAlreadyWritten()}.
+     */
+    public function testSetManyWritesNothingAtAllWhenOneValueIsRefused(): void
+    {
+        $this->service->register('a_key', 'old', 'text', 'L', 'D');
+        $this->service->register('b_key', 'old', 'email', 'L', 'D');
+        $this->service->clearCache();
+
+        try {
+            $this->service->setMany(['a_key' => 'un', 'b_key' => 'pas-une-adresse']);
+            $this->fail('An invalid value must be refused.');
+        } catch (SettingException) {
+            // expected
+        }
+
+        $this->service->clearCache();
+        $this->assertSame('old', $this->service->get('a_key'), 'The first write must have been rolled back.');
+        $this->assertSame('old', $this->service->get('b_key'));
+    }
+
+    public function testSetManyRefusesANonEditableSettingWithoutWritingTheOthers(): void
+    {
+        $this->service->register('a_key', 'old', 'text', 'L', 'D');
+        $this->service->register('locked_key', 'val', 'text', 'L', 'D', null, null, null, false);
+        $this->service->clearCache();
+
+        $this->expectException(SettingException::class);
+        try {
+            $this->service->setMany(['a_key' => 'un', 'locked_key' => 'changed']);
+        } finally {
+            $this->service->clearCache();
+            $this->assertSame('old', $this->service->get('a_key'));
+        }
+    }
+
+    /**
+     * The second guard, tested where it actually lives: pre-validation
+     * cannot catch a write that fails once the writes have begun, and
+     * without the transaction the rows written before it would stay.
+     */
+    public function testAFailureMidWriteRollsBackWhatWasAlreadyWritten(): void
+    {
+        $this->service->register('a_key', 'old', 'text', 'L', 'D');
+        $this->service->register('b_key', 'old', 'text', 'L', 'D');
+        $this->service->clearCache();
+
+        try {
+            $this->repo->transactionally(function (): void {
+                $this->repo->updateValue(null, 'a_key', 'écrit');
+                throw new \RuntimeException('the database gave up half-way');
+            });
+            $this->fail('The failure must reach the caller.');
+        } catch (\RuntimeException) {
+            // expected — and the point is what it left behind
+        }
+
+        $this->service->clearCache();
+        $this->assertSame('old', $this->service->get('a_key'));
+    }
+
+    /**
+     * A caller that already opened a transaction keeps ownership of it:
+     * committing somebody else's is a subtler bug than the one the
+     * wrapper exists to prevent.
+     */
+    public function testAnAlreadyOpenTransactionIsLeftToItsOwner(): void
+    {
+        $this->service->register('a_key', 'old', 'text', 'L', 'D');
+        $this->service->clearCache();
+
+        $this->pdo->beginTransaction();
+        $this->repo->transactionally(function (): void {
+            $this->repo->updateValue(null, 'a_key', 'écrit');
+        });
+        $this->assertTrue($this->pdo->inTransaction(), 'The outer transaction must still be open.');
+
+        $this->pdo->rollBack();
+        $this->service->clearCache();
+        $this->assertSame('old', $this->service->get('a_key'));
+    }
+
     public function testSetThrowsForNonEditableSetting(): void
     {
         $this->service->register('readonly_key', 'val', 'text', 'L', 'D', null, null, null, false);

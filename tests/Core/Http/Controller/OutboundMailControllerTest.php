@@ -110,7 +110,12 @@ class OutboundMailControllerTest extends TestCase
             $this->deferred,
             $this->queue,
             new \Core\Mail\DkimManager($this->secretsDirectory),
-            new \Core\Mail\DnsVerifier(),
+            // A FAKE, never the real verifier: `checkSpfForHosts()` calls
+            // `dns_get_record()`, so a test that exercises the lookup
+            // would reach out to a real resolver — the suite would then
+            // depend on the network, and hang for as long as an
+            // unanswering resolver takes.
+            self::fakeDnsVerifier(),
             $this->returns = new \Core\Mail\Feedback\ReturnPathVerifier(
                 new \Core\Mail\Feedback\ReturnProbeRepository($this->pdo, $encryption),
                 $this->createMock(\Core\Mail\MailService::class),
@@ -670,6 +675,20 @@ class OutboundMailControllerTest extends TestCase
         }
 
         return $keys;
+    }
+
+    /**
+     * Canned TXT records, through the seam `DnsVerifier::getTxtRecords()`
+     * documents as « overridable for testing ».
+     */
+    private static function fakeDnsVerifier(): \Core\Mail\DnsVerifier
+    {
+        return new class extends \Core\Mail\DnsVerifier {
+            protected function getTxtRecords(string $host): array
+            {
+                return $host === 'unite.be' ? ['v=spf1 a mx ~all'] : [];
+            }
+        };
     }
 
     private function getRequest(): Request

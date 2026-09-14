@@ -101,7 +101,18 @@ final class MailIdentity
         return $this->configuredReplyAddress !== '' ? $this->configuredReplyAddress : $this->fromAddress;
     }
 
-    /** Where the `rua=` tag points, once the fallback is applied. */
+    /**
+     * Where the `rua=` tag would point — the expédition address when
+     * nothing is configured.
+     *
+     * **The fallback answers « if reports were asked for, where would
+     * they go », never « reports are being collected ».** The site
+     * proposes no `_dmarc` record at all while
+     * {@see self::configuredDmarcReportAddress()} is empty, so nothing is
+     * requested and nothing arrives; the four-roles table therefore shows
+     * that row empty rather than showing this address next to a sentence
+     * saying no report is requested.
+     */
     public function dmarcReportAddress(): string
     {
         return $this->configuredDmarcReportAddress !== ''
@@ -183,6 +194,7 @@ final class MailIdentity
     {
         $inherited = 'Reprend l\'adresse d\'expédition';
         $own = 'Adresse renseignée';
+        $none = 'Aucun rapport demandé';
 
         return [
             [
@@ -211,8 +223,15 @@ final class MailIdentity
             [
                 'role' => self::ROLE_DMARC,
                 'label' => 'Rapports DMARC',
-                'address' => $this->dmarcReportAddress(),
-                'source' => $this->configuredDmarcReportAddress !== '' ? $own : $inherited,
+                // Empty when nothing is configured, and NOT the expédition
+                // address: this row says where the site asks for reports,
+                // and without an address it asks for none at all — no
+                // `rua=` is proposed, so no report is ever sent. Showing
+                // the expédition address here would put an address in a
+                // row whose own sentence says nothing is collected, and a
+                // reader would have to choose which half to believe.
+                'address' => $this->configuredDmarcReportAddress,
+                'source' => $this->configuredDmarcReportAddress !== '' ? $own : $none,
                 'explanation' => 'Où les autres opérateurs envoient leur résumé périodique des messages reçus en '
                     . 'votre nom. Facultatif : sans adresse, aucun rapport n\'est demandé.',
             ],

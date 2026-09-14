@@ -10,6 +10,7 @@ namespace Core\Support\Collector;
 
 use Core\Config\SettingService;
 use Core\Mail\DnsCheckMemory;
+use Core\Mail\Feedback\ReturnPathVerifier;
 use Core\Mail\Feedback\ReturnProbeRepository;
 use Core\Mail\Feedback\ReturnState;
 use Core\Mail\MailIdentity;
@@ -22,6 +23,7 @@ use Core\Mail\Transport\MailProviderDirectory;
 use Core\Mail\Transport\MailReserve;
 use Core\Mail\Transport\ProviderHealthRepository;
 use Core\Support\SupportCollectorContext;
+use Modules\InboundMail\Api\InboundMailInterface;
 use Core\Support\SupportCollectorInterface;
 
 /**
@@ -71,7 +73,15 @@ class OutboundMailCollector implements SupportCollectorInterface
         private ?DeferredMailRepository $deferred = null,
         private ?DeferredMailQueue $queue = null,
         private ?SettingService $settings = null,
-        private ?ReturnProbeRepository $returns = null
+        private ?ReturnProbeRepository $returns = null,
+        /**
+         * Read-only, and the contrast with `$returns` is the point: the
+         * rows say what a probe found, this says whether a probe could
+         * have been sent at all. Neither can send one — a support package
+         * must not be able to put mail on the wire while it is being
+         * assembled.
+         */
+        private ?InboundMailInterface $inboundMail = null
     ) {
     }
 
@@ -299,6 +309,20 @@ class OutboundMailCollector implements SupportCollectorInterface
         }
 
         $lines[] = '── Vérification des retours ────────────────────────────────';
+
+        // « Jamais vérifié » and « vérification impossible » send a reader
+        // to opposite places — one is a button nobody pressed, the other
+        // is a module that is off — so the archive has to tell them apart
+        // exactly as the screen does. The rule itself lives on
+        // ReturnPathVerifier, in one copy.
+        if (!ReturnPathVerifier::possibleWith($this->inboundMail)) {
+            $lines[] = ReturnState::IMPOSSIBLE->label()
+                . ' : aucune boîte du courrier entrant ne relève pour « Courrier sortant ».';
+            $lines[] = '';
+
+            return $lines;
+        }
+
         $now = new \DateTimeImmutable();
         $roles = [
             'Expédition (rebonds)' => $identity->bounceAddress(),

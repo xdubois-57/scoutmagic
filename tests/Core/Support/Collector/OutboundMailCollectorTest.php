@@ -24,6 +24,7 @@ use Core\Mail\Transport\MailProviderRepository;
 use Core\Mail\Transport\ProviderConnections;
 use Core\Mail\Transport\SendCounterRepository;
 use Core\Support\Collector\OutboundMailCollector;
+use Modules\InboundMail\Api\InboundMailInterface;
 use Core\Security\EncryptionService;
 use Core\Support\SupportCollectorContext;
 use PHPUnit\Framework\TestCase;
@@ -55,6 +56,7 @@ class OutboundMailCollectorTest extends TestCase
     private ProviderHealthRepository $health;
     private DeferredMailRepository $deferred;
     private ReturnProbeRepository $returnProbes;
+    private ?InboundMailInterface $inboundMail = null;
 
     /** @var array<string, string> */
     private array $secrets = [];
@@ -274,6 +276,7 @@ class OutboundMailCollectorTest extends TestCase
     public function testTheReturnVerificationIsReportedByRoleAndNeverByAddress(): void
     {
         $this->registerIdentity('info@unite.be', 'secretariat@unite.be');
+        $this->inboundMail = $this->collectingGateway();
         $this->returnProbes->issue(
             'info@unite.be',
             'RET-ABCDEFGHJK',
@@ -297,10 +300,50 @@ class OutboundMailCollectorTest extends TestCase
     public function testAnAddressNobodyHasCheckedIsReportedAsSuchRatherThanOmitted(): void
     {
         $this->registerIdentity('info@unite.be', '');
+        $this->inboundMail = $this->collectingGateway();
 
         $report = $this->collect();
 
         $this->assertStringContainsString('Jamais vérifié', $report);
+    }
+
+    /**
+     * « Jamais vérifié » and « vérification impossible » send a reader to
+     * opposite places — a button nobody pressed against a module that is
+     * off — so the archive has to tell them apart exactly as the screen
+     * does.
+     */
+    public function testWithoutTheInboundModuleTheArchiveSaysImpossibleAndNotNeverChecked(): void
+    {
+        $this->registerIdentity('info@unite.be', '');
+        $this->inboundMail = null;
+
+        $report = $this->collect();
+
+        $this->assertStringContainsString('Vérification impossible', $report);
+        $this->assertStringNotContainsString('Jamais vérifié', $report);
+    }
+
+    public function testAModuleCollectingWithNoBoxOpenToTheCheckIsTheSameAnswer(): void
+    {
+        $this->registerIdentity('info@unite.be', '');
+        $gateway = $this->createStub(InboundMailInterface::class);
+        $gateway->method('isCollecting')->willReturn(true);
+        $gateway->method('listMailboxSummaries')->willReturn([]);
+        $this->inboundMail = $gateway;
+
+        $this->assertStringContainsString('Vérification impossible', $this->collect());
+    }
+
+    private function collectingGateway(): InboundMailInterface
+    {
+        $gateway = $this->createStub(InboundMailInterface::class);
+        $gateway->method('isCollecting')->willReturn(true);
+        $gateway->method('listMailboxSummaries')->willReturn([
+            7 => ['name' => 'Boîte de l’unité', 'state' => 'ok', 'is_enabled' => true],
+        ]);
+
+        return $gateway;
     }
 
     private function registerIdentity(string $fromAddress, string $replyAddress): void
@@ -390,7 +433,8 @@ class OutboundMailCollectorTest extends TestCase
             $this->deferred,
             new DeferredMailQueue($this->deferred, $this->settings),
             $this->settings,
-            $this->returnProbes
+            $this->returnProbes,
+            $this->inboundMail
         );
 
         $archivePath = $this->storagePath . '/temp/outbound-' . bin2hex(random_bytes(6)) . '.zip';

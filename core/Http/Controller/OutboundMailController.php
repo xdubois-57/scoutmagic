@@ -1067,11 +1067,18 @@ class OutboundMailController extends AbstractController
         $before = MailIdentity::fromSettings($this->settings);
 
         try {
-            $this->settings->set(MailIdentity::SETTING_FROM_ADDRESS, $fromAddress);
-            $this->settings->set(MailIdentity::SETTING_FROM_NAME, $fromName);
-            $this->settings->set(MailIdentity::SETTING_REPLY_ADDRESS, $replyAddress);
-            $this->settings->set(MailIdentity::SETTING_DMARC_REPORT, $dmarcAddress);
-            $this->settings->set('dkim_selector', $selector);
+            // One decision, one write. Five separate `set()` calls would
+            // each be their own UPDATE: a failure on the fourth would
+            // leave the first three written while the page says nothing
+            // was saved, and the next reader could not tell that
+            // half-state from a configuration somebody meant.
+            $this->settings->setMany([
+                MailIdentity::SETTING_FROM_ADDRESS => $fromAddress,
+                MailIdentity::SETTING_FROM_NAME => $fromName,
+                MailIdentity::SETTING_REPLY_ADDRESS => $replyAddress,
+                MailIdentity::SETTING_DMARC_REPORT => $dmarcAddress,
+                'dkim_selector' => $selector,
+            ]);
         } catch (\Throwable) {
             FlashMessage::set('error', 'Les adresses n’ont pas pu être enregistrées.');
 

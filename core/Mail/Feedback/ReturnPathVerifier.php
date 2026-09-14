@@ -10,6 +10,7 @@ namespace Core\Mail\Feedback;
 
 use Core\Journal\JournalService;
 use Core\Mail\MailService;
+use Core\Security\EncryptionService;
 use Modules\InboundMail\Api\InboundMailInterface;
 
 /**
@@ -68,9 +69,23 @@ final class ReturnPathVerifier
      */
     public function isPossible(): bool
     {
-        return $this->inboundMail !== null
-            && $this->inboundMail->isCollecting()
-            && $this->watchedMailboxes() !== [];
+        return self::possibleWith($this->inboundMail);
+    }
+
+    /**
+     * The same question, asked of a gateway rather than of an instance.
+     *
+     * It exists so that the support collector — which holds the stored
+     * rows and must never be able to SEND a probe — can tell « jamais
+     * vérifié » from « vérification impossible » without a second copy of
+     * the rule. Two copies of a two-line rule is how the screen and the
+     * archive end up disagreeing about the same installation.
+     */
+    public static function possibleWith(?InboundMailInterface $inboundMail): bool
+    {
+        return $inboundMail !== null
+            && $inboundMail->isCollecting()
+            && self::enabledMailboxesOf($inboundMail) !== [];
     }
 
     /** True when the module is there but no box is open to this check. */
@@ -238,12 +253,20 @@ final class ReturnPathVerifier
      */
     public function watchedMailboxes(): array
     {
-        if ($this->inboundMail === null) {
+        return self::enabledMailboxesOf($this->inboundMail);
+    }
+
+    /**
+     * @return array<int, string> mailbox id => name
+     */
+    private static function enabledMailboxesOf(?InboundMailInterface $inboundMail): array
+    {
+        if ($inboundMail === null) {
             return [];
         }
 
         $names = [];
-        foreach ($this->inboundMail->listMailboxSummaries() as $id => $summary) {
+        foreach ($inboundMail->listMailboxSummaries() as $id => $summary) {
             if ($summary['is_enabled']) {
                 $names[(int) $id] = (string) $summary['name'];
             }
@@ -258,9 +281,14 @@ final class ReturnPathVerifier
      */
     private function distinct(array $addresses): array
     {
+        // Normalised the way the repository indexes them, not merely
+        // trimmed: « Info@unite.be » and « info@unite.be » are one row
+        // there, so treating them as two here sends two probes, the
+        // second of which replaces the first's row — and the first key
+        // could then never be claimed.
         $seen = [];
         foreach ($addresses as $address) {
-            $address = trim((string) $address);
+            $address = EncryptionService::normalizeEmailForIndex((string) $address);
             if ($address === '' || in_array($address, $seen, true)) {
                 continue;
             }

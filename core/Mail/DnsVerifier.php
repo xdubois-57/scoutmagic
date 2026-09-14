@@ -64,12 +64,13 @@ class DnsVerifier
         }
 
         $mechanisms = self::mechanismsFor($sendingHosts);
+        $published = self::tokensOf($actual);
 
         $exists = false;
         if ($actual !== null) {
             $exists = true;
             foreach ($mechanisms as $mechanism) {
-                if (!str_contains($actual, $mechanism)) {
+                if (!in_array($mechanism, $published, true)) {
                     $exists = false;
                     break;
                 }
@@ -81,6 +82,31 @@ class DnsVerifier
             'expected' => $this->buildSpfExpected($actual, $mechanisms),
             'actual' => $actual,
         ];
+    }
+
+    /**
+     * An SPF record's mechanisms, as whole tokens.
+     *
+     * **Whole tokens and never a substring search.** An SPF record is a
+     * space-separated list, and `str_contains($record, 'a:relais.example')`
+     * is satisfied by `a:relais.example.net` — a different host, on a
+     * different domain, that the operator may not even control. The
+     * reading would then report « en place » and propose no change, and
+     * the relay that is actually missing would stay unauthorised with the
+     * screen saying it was fine.
+     *
+     * @return list<string>
+     */
+    private static function tokensOf(?string $record): array
+    {
+        if ($record === null) {
+            return [];
+        }
+
+        return array_values(array_filter(
+            preg_split('/\s+/', trim($record)) ?: [],
+            static fn(string $token) => $token !== ''
+        ));
     }
 
     /**
@@ -145,9 +171,13 @@ class DnsVerifier
             return $actual;
         }
 
+        // Whole tokens here too, for the reason {@see self::tokensOf()}
+        // gives: a substring test would decide the record already carries
+        // a mechanism it does not, and propose nothing.
+        $published = self::tokensOf($actual);
         $missing = array_values(array_filter(
             $mechanisms,
-            static fn(string $mechanism) => !str_contains($actual, $mechanism)
+            static fn(string $mechanism) => !in_array($mechanism, $published, true)
         ));
 
         if ($missing === []) {
