@@ -1156,6 +1156,58 @@ récursivement : le premier test à générer une clé DKIM laissait son
 répertoire temporaire derrière lui, et ne le disait que par un
 avertissement PHP que personne ne lit.
 
+**Et deux trous dans `describes()` lui-même** — la relecture est allée
+regarder le correctif de la veille, ce qui était la bonne idée.
+
+Un relevé porte aussi sur **l'adresse de rapport DMARC** : le verdict de
+`checkDmarc()` est une fonction directe d'elle, puisqu'il cherche
+littéralement `rua=mailto:{cette adresse}`. Changer l'adresse de A vers B
+laissait donc « publié » affiché pour un enregistrement qui nomme A. Le
+relevé garde maintenant une **empreinte** de l'adresse — la comparaison ne
+demande que « pareil ou pas », et le blob porte déjà l'adresse une fois,
+dans la valeur `expected` que l'opérateur recopie chez son registraire ;
+en stocker une seconde copie aurait fait un deuxième endroit à tenir à
+jour.
+
+Et il porte sur **la clé DKIM**, que `describes()` ne peut pas voir :
+le relevé contient la clé contre laquelle il a été pris, et rien en lui ne
+peut nommer celle en service aujourd'hui. Seul le code qui change la clé
+sait qu'elle a changé. Après une régénération, le `p=` publié contient
+l'ancienne clé, donc **toutes** les signatures échouent — pendant que le
+relevé annonçait encore `dkim.exists: true`, sur les trois écrans à la
+fois puisqu'ils passent tous par la même porte.
+
+C'est exactement la forme contre laquelle ce chantier s'était prémuni dans
+`ReturnProbeRepository` : « une remise à zéro écrite comme une méthode est
+une remise à zéro qu'on oublie d'appeler depuis le deuxième endroit ». Là
+c'était évitable en indexant l'état sur l'adresse. Ici ça ne l'est pas — il
+faut donc l'appeler, aux quatre endroits qui touchent la paire de clés, et
+`DkimKeyChangeForgetsDnsTest` échoue si un cinquième apparaît sans
+l'appel. La règle est **absolue**, sans liste d'exemptions à tenir en
+phase : `forgetDnsReading()` avale son propre échec, donc les deux chemins
+qui tournent pendant qu'on installe ou qu'on démonte peuvent l'appeler
+aussi sûrement que les deux qui tournent sur un site vivant. Un `forget()`
+et non un drapeau de péremption, parce qu'après un changement de clé
+l'enregistrement publié n'est pas seulement invérifié, il est **faux**, et
+la valeur à recopier est la nouvelle.
+
+Un test à moi a d'ailleurs pris en défaut un commentaire à moi : j'avais
+justifié l'empreinte par « le blob ne doit pas porter d'adresse », ce qui
+est faux — il en porte une, nécessairement, dans `expected`. Le
+commentaire dit maintenant la vraie raison.
+
+**À l'œil du mainteneur, et volontairement pas ouvert en ticket public.**
+`ConfigurationParametersCollector` verse dans le paquet de support la
+valeur courante de **tous** les réglages, ne masquant que ceux de type
+`secret` — dont il note lui-même qu'aucun n'existe encore. Les adresses de
+configuration du site (`mail_from_address`, `dmarc_report_email`, et
+désormais le relevé DNS qui reprend la seconde dans `expected`) y
+figurent donc en clair, alors que `OutboundMailCollector` se donne
+justement pour règle de n'en porter aucune. Ce n'est pas une régression de
+cette itération — les deux réglages y étaient déjà — et ce sont des
+adresses de service, pas de membres ; mais les deux collecteurs appliquent
+deux règles opposées au même fichier, et cela mérite un arbitrage.
+
 ### Reporté
 
 - L'alignement DMARC d'un envoi « au nom de » (ci-dessus), à l'itération

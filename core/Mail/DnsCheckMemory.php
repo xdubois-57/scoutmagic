@@ -56,6 +56,21 @@ final class DnsCheckMemory
         public readonly string $spfDomain,
         public readonly string $dkimDomain,
         public readonly string $selector,
+        /**
+         * A FINGERPRINT of the DMARC report address the reading was
+         * taken for. `checkDmarc()`'s verdict is a direct function of it
+         * — the check is `str_contains($actual, "rua=mailto:{$address}")`
+         * — so a reading taken for one address says nothing at all about
+         * another, and this is what notices.
+         *
+         * A digest rather than the address because the only question
+         * asked of it is « same or not ». The blob does carry the address
+         * once, in the DMARC record's `expected`, and must: that is the
+         * value an operator copies into their registrar's form. Storing
+         * it a second time here would add a second place to keep it, for
+         * a comparison that never needs to read it back.
+         */
+        public readonly string $dmarcTarget,
         public readonly array $records
     ) {
     }
@@ -97,6 +112,7 @@ final class DnsCheckMemory
             (string) ($decoded['spf_domain'] ?? ''),
             (string) ($decoded['dkim_domain'] ?? ''),
             (string) ($decoded['selector'] ?? ''),
+            (string) ($decoded['dmarc_target'] ?? ''),
             $records
         );
     }
@@ -112,6 +128,7 @@ final class DnsCheckMemory
         string $spfDomain,
         string $dkimDomain,
         string $selector,
+        string $dmarcReportAddress,
         array $records,
         ?\DateTimeImmutable $now = null
     ): void {
@@ -125,6 +142,7 @@ final class DnsCheckMemory
             'spf_domain' => $spfDomain,
             'dkim_domain' => $dkimDomain,
             'selector' => $selector,
+            'dmarc_target' => self::fingerprintOf($dmarcReportAddress),
             'records' => $normalised,
         ]);
 
@@ -166,7 +184,17 @@ final class DnsCheckMemory
     {
         return $this->spfDomain === $identity->spfDomain()
             && $this->dkimDomain === $identity->dkimDomain()
-            && $this->selector === $selector;
+            && $this->selector === $selector
+            && $this->dmarcTarget === self::fingerprintOf($identity->configuredDmarcReportAddress());
+    }
+
+    /**
+     * A short, one-way digest — enough to tell « the same value » from
+     * « another value », and useless for anything else.
+     */
+    private static function fingerprintOf(string $value): string
+    {
+        return $value === '' ? '' : substr(hash('sha256', $value), 0, 16);
     }
 
     /**

@@ -24,6 +24,7 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Mail\DkimManager;
+use Core\Mail\DnsCheckMemory;
 use Core\Mail\DnsVerifier;
 use Core\Mail\MailServiceFactory;
 use Core\Maintenance\BackupException;
@@ -1078,6 +1079,7 @@ class SetupController extends AbstractController
         try {
             if (!$this->dkimManager->hasKey()) {
                 $this->dkimManager->generateKey();
+                $this->forgetDnsReading();
             }
 
             return $this->json(['success' => true, 'public_key' => $this->dkimManager->getPublicKey()]);
@@ -1382,6 +1384,7 @@ class SetupController extends AbstractController
             // already have started configuring from that earlier key).
             if (!$this->dkimManager->hasKey()) {
                 $this->dkimManager->generateKey();
+                $this->forgetDnsReading();
             }
 
             // Run migration
@@ -1518,6 +1521,7 @@ class SetupController extends AbstractController
             if ($request->getBody('regenerate_dkim') === '1') {
                 $this->dkimManager->deleteKey();
                 $this->dkimManager->generateKey();
+                $this->forgetDnsReading();
             }
 
             // Run migration
@@ -1859,6 +1863,39 @@ class SetupController extends AbstractController
             @unlink($secrets);
         }
         $this->dkimManager->deleteKey();
+        $this->forgetDnsReading();
+    }
+
+    /**
+     * Drop the remembered DNS reading — what every change of DKIM key
+     * leaves behind.
+     *
+     * `DnsCheckMemory::describes()` catches a domain, a selector or a
+     * DMARC target that moved, because a reading carries all three. It
+     * cannot catch a key that moved: the reading holds the key it was
+     * taken against and nothing in it can name the key in use now. So
+     * this is the one invalidation that has to be called rather than
+     * derived — and `Tests\Architecture\DkimKeyChangeForgetsDnsTest` is
+     * what keeps « called » from decaying into « meant to be called ».
+     *
+     * A `forget()` and not a staleness flag, because after a key change
+     * the published record is not merely unverified, it is **wrong**:
+     * every signature made with the new key fails against the old `p=`.
+     * There is no old value worth keeping for an operator to copy — the
+     * value to copy is the new one, which needs a fresh lookup anyway.
+     *
+     * Guarded, because two of the paths that change a key run while the
+     * installation is being built or torn down and there may be no
+     * settings table to write to. A reading that could not be dropped
+     * there is a reading about an installation that no longer exists.
+     */
+    private function forgetDnsReading(): void
+    {
+        try {
+            DnsCheckMemory::forget($this->settingService);
+        } catch (\Throwable) {
+            // See above: no settings table yet, or no longer.
+        }
     }
 
     /**

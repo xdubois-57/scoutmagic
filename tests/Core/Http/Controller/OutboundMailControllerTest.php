@@ -386,6 +386,51 @@ class OutboundMailControllerTest extends TestCase
     }
 
     /**
+     * And the DMARC report address alone is enough too, because
+     * `checkDmarc()`'s verdict is a direct function of it: it looks for
+     * `rua=mailto:{cette adresse}`. A reading taken for one address says
+     * « publié » about a record that names the other.
+     */
+    public function testChangingOnlyTheDmarcReportAddressAlsoRetiresTheReading(): void
+    {
+        $this->settings->set('mail_from_address', 'info@unite.be');
+        $this->settings->set('dkim_selector', 's2026');
+        $this->settings->set('dmarc_report_email', 'rapports@unite.be');
+        $this->controller->checkDns($this->formRequest([]), []);
+
+        $this->settings->set('dmarc_report_email', 'autre@unite.be');
+
+        $body = (string) $this->controller->dashboard($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('Les adresses ont changé depuis la dernière vérification DNS', $body);
+    }
+
+    /**
+     * The staleness key is a fingerprint, not a second copy of the
+     * address.
+     *
+     * The blob does carry the address once, and must: the DMARC record's
+     * `expected` is the value an operator copies into their registrar's
+     * form, `rua=mailto:…` included. What this pins is that comparing
+     * readings did not add a SECOND place to keep it — the comparison
+     * needs « same or not », which a digest answers.
+     */
+    public function testTheStalenessKeyIsAFingerprintAndNotASecondCopyOfTheAddress(): void
+    {
+        $this->settings->set('mail_from_address', 'info@unite.be');
+        $this->settings->set('dkim_selector', 's2026');
+        $this->settings->set('dmarc_report_email', 'rapports@unite.be');
+        $this->controller->checkDns($this->formRequest([]), []);
+
+        $stored = (string) $this->settings->get(\Core\Mail\DnsCheckMemory::SETTING_KEY);
+        $decoded = json_decode($stored, true);
+
+        $this->assertIsArray($decoded);
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{16}$/', (string) $decoded['dmarc_target']);
+        $this->assertStringNotContainsString('@', (string) $decoded['dmarc_target']);
+    }
+
+    /**
      * The selector alone is enough: the DKIM record lives at
      * `{selector}._domainkey`, so changing it moves the record that was
      * checked without touching a single address.

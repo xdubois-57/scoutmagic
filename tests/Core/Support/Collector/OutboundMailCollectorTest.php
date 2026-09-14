@@ -254,6 +254,7 @@ class OutboundMailCollectorTest extends TestCase
             'unite.be',
             'unite.be',
             's2026',
+            '',
             [
                 DnsCheckMemory::SPF => ['exists' => true, 'expected' => 'v=spf1 a mx ~all'],
                 DnsCheckMemory::DKIM => ['exists' => false, 'expected' => 'v=DKIM1; k=rsa; p=AAAA'],
@@ -288,6 +289,7 @@ class OutboundMailCollectorTest extends TestCase
             'ancien.be',
             'ancien.be',
             's2026',
+            '',
             [DnsCheckMemory::SPF => ['exists' => true, 'expected' => 'v=spf1 a mx ~all']],
             new \DateTimeImmutable('2026-09-01 08:00:00')
         );

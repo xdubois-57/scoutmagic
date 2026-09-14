@@ -1073,6 +1073,7 @@ class OutboundMailController extends AbstractController
             $spfDomain,
             $dkimDomain,
             $selector,
+            $identity->configuredDmarcReportAddress(),
             [
                 // `?? []` deliberately: a relay list that could not be
                 // read and a site with no relay reach the same verdict,
