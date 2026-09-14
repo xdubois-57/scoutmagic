@@ -56,7 +56,25 @@ final class LocalLocationConfig implements LocationConfig
 
     public function isAbsolute(): bool
     {
-        return str_starts_with($this->path, '/') || (bool) preg_match('#^[A-Za-z]:[\\\\/]#', $this->path);
+        return self::isAbsolutePath($this->path);
+    }
+
+    /**
+     * The same question about a bare string — **one definition of
+     * « absolute », reachable by everything that needs it.**
+     *
+     * It was a private judgement inside this class, and three other places
+     * ended up re-deciding it: the browser warning on the location form,
+     * which missed a UNC path; the support collector's path masking, which
+     * missed a drive letter and therefore exported `C:\Users\…` verbatim
+     * into an archive that goes to a third party; and this method. A rule
+     * spelled out three times is a rule that will differ in three ways.
+     */
+    public static function isAbsolutePath(string $path): bool
+    {
+        return str_starts_with($path, '/')
+            || str_starts_with($path, '\\\\')
+            || (bool) preg_match('#^[A-Za-z]:[\\\\/]#', $path);
     }
 
     public function describe(): string

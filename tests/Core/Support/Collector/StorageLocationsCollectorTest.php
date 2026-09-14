@@ -140,6 +140,48 @@ class StorageLocationsCollectorTest extends TestCase
     }
 
     /**
+     * **A Windows path is absolute too, and the export forgot it.**
+     * `normalizeLocalPath()` accepts and persists `C:\Users\…`
+     * unchanged, and a POSIX-only « starts with / » test called it
+     * relative — so the masking returned it verbatim and the OS account
+     * name left the installation inside an archive bound for a third
+     * party. The drive letter and the UNC spelling both count, and
+     * `LocalLocationConfig::isAbsolutePath()` is now the single place that
+     * says so.
+     *
+     * @param string $declared the path exactly as an administrator typed it
+     * @param string $secret   the fragment that must never reach the archive
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('windowsShapedPaths')]
+    public function testAWindowsOrUncPathIsMaskedLikeAnyOtherAbsolutePath(
+        string $declared,
+        string $secret
+    ): void {
+        $this->repository->create(
+            StorageLocationType::Local,
+            'Disque Windows',
+            new LocalLocationConfig($declared),
+            null
+        );
+
+        $report = $this->collect();
+
+        $this->assertStringNotContainsString($secret, $report, 'The account name must not reach the archive.');
+        $this->assertStringNotContainsString($declared, $report, 'Nor the path it sits in.');
+        $this->assertStringContainsString('[hors racine #', $report, 'It is masked like any absolute path.');
+    }
+
+    /** @return array<string, array{string, string}> */
+    public static function windowsShapedPaths(): array
+    {
+        return [
+            'drive letter, backslashes' => ['C:\\Users\\marie.dupont\\photos', 'marie.dupont'],
+            'drive letter, slashes' => ['D:/Users/marie.dupont/photos', 'marie.dupont'],
+            'UNC share' => ['\\\\nas-de-marie.dupont\\photos', 'marie.dupont'],
+        ];
+    }
+
+    /**
      * Two locations under one external tree must still read as two
      * locations under one external tree — that is the whole diagnostic
      * value the absolute path carried, and a fingerprint keeps it.

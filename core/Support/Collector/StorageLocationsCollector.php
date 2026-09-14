@@ -145,11 +145,15 @@ class StorageLocationsCollector implements SupportCollectorInterface
     private function describeVolume(VolumeUsage $volume, SupportCollectorContext $context): array
     {
         $lines = [];
+        // `label()` is either « Volume principal »/« Autre volume » or the
+        // shortest declared path on the volume — so the gate asks the one
+        // question that separates them, with the same definition of
+        // « absolute » the masking itself uses.
         $label = $volume->label();
         $lines[] = sprintf(
             '%s%s',
             $context->redact(
-                str_starts_with($label, '/') ? $this->maskPath($label, $context) : $label,
+                LocalLocationConfig::isAbsolutePath($label) ? $this->maskPath($label, $context) : $label,
                 200
             ),
             $volume->isPrimary ? ' (volume principal)' : ''
@@ -236,11 +240,21 @@ class StorageLocationsCollector implements SupportCollectorInterface
      */
     private function maskPath(string $path, SupportCollectorContext $context): string
     {
-        $path = rtrim($path, '/');
-        $root = rtrim($context->projectRoot(), '/');
+        // **Backslashes first, and this is not cosmetic.** `dirname()` and
+        // `basename()` are POSIX on this server: handed
+        // `C:\Users\marie.dupont\photos` they answer `.` and the WHOLE
+        // string, so the fingerprint branch below would print the entire
+        // path as though it were a folder name and mask nothing at all.
+        $path = rtrim(str_replace('\\', '/', $path), '/');
+        $root = rtrim(str_replace('\\', '/', $context->projectRoot()), '/');
 
-        if ($path === '' || !str_starts_with($path, '/')) {
-            // Already relative — `storage/gallery`, the shape
+        // The codebase's own definition, not a second one. A POSIX-only
+        // `str_starts_with($path, '/')` here called a declared
+        // `C:\Users\…` location « relative » and returned it unchanged —
+        // the OS account name straight into an archive that leaves the
+        // installation.
+        if ($path === '' || !LocalLocationConfig::isAbsolutePath($path)) {
+            // Genuinely relative — `storage/gallery`, the shape
             // LocalLocationConfig::describe() gives a non-absolute
             // location. Every segment of it is ours.
             return $path;
