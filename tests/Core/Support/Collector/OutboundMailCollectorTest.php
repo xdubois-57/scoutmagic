@@ -7,6 +7,9 @@ namespace Tests\Core\Support\Collector;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Database\Connection;
+use Core\Mail\DnsCheckMemory;
+use Core\Mail\Feedback\ReturnProbeRepository;
+use Core\Mail\MailIdentity;
 use Core\Mail\MailPurpose;
 use Core\Mail\Transport\DeferredMailQueue;
 use Core\Mail\Transport\DeferredMailRepository;
@@ -51,6 +54,7 @@ class OutboundMailCollectorTest extends TestCase
     private SendCounterRepository $counters;
     private ProviderHealthRepository $health;
     private DeferredMailRepository $deferred;
+    private ReturnProbeRepository $returnProbes;
 
     /** @var array<string, string> */
     private array $secrets = [];
@@ -63,10 +67,9 @@ class OutboundMailCollectorTest extends TestCase
         $this->chains = new LaneChainRepository($this->pdo);
         $this->counters = new SendCounterRepository($this->pdo);
         $this->health = new ProviderHealthRepository($this->pdo);
-        $this->deferred = new DeferredMailRepository(
-            $this->pdo,
-            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
-        );
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $this->deferred = new DeferredMailRepository($this->pdo, $encryption);
+        $this->returnProbes = new ReturnProbeRepository($this->pdo, $encryption);
 
         $this->projectRoot = sys_get_temp_dir() . '/scoutmagic-outbound-' . bin2hex(random_bytes(6));
         $this->storagePath = $this->projectRoot . '/storage';
@@ -228,6 +231,116 @@ class OutboundMailCollectorTest extends TestCase
         $this->assertStringContainsString('── Chaînes, dans leur ordre', $report);
     }
 
+    // ── the domain and the returns (roadmap IT-03) ────────────────────
+
+    public function testItReportsTheDomainsTheAuthenticationRestsOn(): void
+    {
+        $this->registerIdentity('info@unite.be', '');
+
+        $report = $this->collect();
+
+        $this->assertStringContainsString('── Authentification du domaine', $report);
+        $this->assertStringContainsString('unite.be', $report, 'A domain is a server, not a person.');
+        $this->assertStringContainsString('alignés : oui', $report);
+        $this->assertStringContainsString('vérification DNS : jamais lancée', $report);
+    }
+
+    public function testTheRememberedDnsVerdictsTravelWithTheirDate(): void
+    {
+        $this->registerIdentity('info@unite.be', '');
+        DnsCheckMemory::remember(
+            $this->settings,
+            'unite.be',
+            true,
+            false,
+            null,
+            new \DateTimeImmutable('2026-09-01 08:00:00')
+        );
+
+        $report = $this->collect();
+
+        $this->assertStringContainsString('vérification DNS du 2026-09-01 08:00', $report);
+        $this->assertStringContainsString('SPF   : publié', $report);
+        $this->assertStringContainsString('DKIM  : absent', $report);
+        // Null is « nobody asked for reports », not « the record is
+        // missing » — and the two would send a reader to different places.
+        $this->assertStringContainsString('DMARC : non vérifié', $report);
+    }
+
+    public function testTheReturnVerificationIsReportedByRoleAndNeverByAddress(): void
+    {
+        $this->registerIdentity('info@unite.be', 'secretariat@unite.be');
+        $this->returnProbes->issue(
+            'info@unite.be',
+            'RET-ABCDEFGHJK',
+            new \DateTimeImmutable('2026-09-01 08:00:00'),
+            new \DateTimeImmutable('2026-09-01 14:00:00')
+        );
+
+        $report = $this->collect();
+
+        $this->assertStringContainsString('── Vérification des retours', $report);
+        $this->assertStringContainsString('Expédition (rebonds)', $report);
+        $this->assertStringContainsString('Réponses', $report);
+        $this->assertStringContainsString('envoyé le 2026-09-01 08:00', $report);
+        // The assertion this section exists for: the archive goes to a
+        // third party, and a domain is a server where an address is a
+        // person.
+        $this->assertStringNotContainsString('info@unite.be', $report);
+        $this->assertStringNotContainsString('secretariat@unite.be', $report);
+    }
+
+    public function testAnAddressNobodyHasCheckedIsReportedAsSuchRatherThanOmitted(): void
+    {
+        $this->registerIdentity('info@unite.be', '');
+
+        $report = $this->collect();
+
+        $this->assertStringContainsString('Jamais vérifié', $report);
+    }
+
+    private function registerIdentity(string $fromAddress, string $replyAddress): void
+    {
+        $this->settings->register(
+            MailIdentity::SETTING_FROM_ADDRESS,
+            '',
+            'email',
+            'Email d\'expédition',
+            '',
+            null,
+            null,
+            null,
+            true,
+            40
+        );
+        $this->settings->register(
+            MailIdentity::SETTING_REPLY_ADDRESS,
+            '',
+            'email',
+            'Adresse de réponse',
+            '',
+            null,
+            null,
+            null,
+            true,
+            55
+        );
+        $this->settings->register(
+            DnsCheckMemory::SETTING_KEY,
+            '',
+            'text',
+            'Dernière vérification DNS',
+            '',
+            null,
+            null,
+            null,
+            false,
+            56
+        );
+        $this->settings->set(MailIdentity::SETTING_FROM_ADDRESS, $fromAddress);
+        $this->settings->set(MailIdentity::SETTING_REPLY_ADDRESS, $replyAddress);
+    }
+
     private function queueOne(MailLane $lane): int
     {
         return $this->deferred->add(
@@ -271,7 +384,9 @@ class OutboundMailCollectorTest extends TestCase
             $this->health,
             new MailReserve($this->counters, $this->chains),
             $this->deferred,
-            new DeferredMailQueue($this->deferred, $this->settings)
+            new DeferredMailQueue($this->deferred, $this->settings),
+            $this->settings,
+            $this->returnProbes
         );
 
         $archivePath = $this->storagePath . '/temp/outbound-' . bin2hex(random_bytes(6)) . '.zip';

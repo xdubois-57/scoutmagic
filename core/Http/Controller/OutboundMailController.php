@@ -11,8 +11,10 @@ namespace Core\Http\Controller;
 use Core\Config\SettingService;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
+use Core\Journal\JournalService;
 use Core\Http\Response;
 use Core\Mail\DkimManager;
+use Core\Mail\DnsCheckMemory;
 use Core\Mail\Feedback\ReturnPathVerifier;
 use Core\Mail\Feedback\ReturnState;
 use Core\Mail\DnsVerifier;
@@ -56,9 +58,6 @@ class OutboundMailController extends AbstractController
 
     public const RETURN_CHECK_URL = '/config/courrier-sortant/authentification/verification';
 
-    /** Where {@see self::rememberDnsReadings()} writes what it saw. */
-    public const SETTING_DNS_LAST_CHECK = 'mail_dns_last_check';
-
     public function __construct(
         protected Environment $twig,
         private MailProviderDirectory $directory,
@@ -72,7 +71,8 @@ class OutboundMailController extends AbstractController
         private DeferredMailQueue $queue,
         private DkimManager $dkim,
         private DnsVerifier $dns,
-        private ReturnPathVerifier $returns
+        private ReturnPathVerifier $returns,
+        private JournalService $journal
     ) {
     }
 
@@ -131,7 +131,7 @@ class OutboundMailController extends AbstractController
             ];
         }
 
-        $last = $this->lastDnsCheck();
+        $last = DnsCheckMemory::read($this->settings);
         if ($last === null) {
             return $line + [
                 'state' => 'unknown',
@@ -139,9 +139,10 @@ class OutboundMailController extends AbstractController
             ];
         }
 
-        $published = array_filter([$last['spf'], $last['dkim'], $last['dmarc']], static fn(?bool $v) => $v === true);
-        $missing = array_filter([$last['spf'], $last['dkim']], static fn(?bool $v) => $v === false);
-        $when = $this->readableDate($last['at']);
+        $published = array_filter([$last->spf, $last->dkim, $last->dmarc], static fn(?bool $v) => $v === true);
+        $missing = array_filter([$last->spf, $last->dkim], static fn(?bool $v) => $v === false);
+        $when = $last->takenAt->format('d/m/Y à H:i');
+        $domain = $last->domain === '' ? 'votre domaine' : $last->domain;
 
         if ($missing !== []) {
             return $line + [
@@ -150,9 +151,9 @@ class OutboundMailController extends AbstractController
                     'Au %s, %s manquait dans la zone DNS de %s. Les messages partent quand même, et beaucoup '
                         . 'de destinataires les classeront en indésirables.',
                     $when,
-                    $last['spf'] === false && $last['dkim'] === false ? 'ni le SPF ni le DKIM ne figurait'
-                        : ($last['spf'] === false ? 'le SPF ne figurait pas' : 'le DKIM ne figurait pas'),
-                    $last['domain'] === '' ? 'votre domaine' : $last['domain']
+                    $last->spf === false && $last->dkim === false ? 'ni le SPF ni le DKIM ne figurait'
+                        : ($last->spf === false ? 'le SPF ne figurait pas' : 'le DKIM ne figurait pas'),
+                    $domain
                 ),
             ];
         }
@@ -164,7 +165,7 @@ class OutboundMailController extends AbstractController
                 count($published),
                 count($published) > 1 ? 's' : '',
                 $when,
-                $last['domain'] === '' ? 'votre domaine' : $last['domain']
+                $domain
             ),
         ];
     }
@@ -355,18 +356,6 @@ class OutboundMailController extends AbstractController
         ];
     }
 
-    /**
-     * « 12/09/2026 à 14:05 », from a stored `Y-m-d H:i:s`.
-     *
-     * Through `DateInput` rather than the bare constructor: a value this
-     * page wrote itself could still come back empty from a truncated
-     * setting, and `new DateTimeImmutable('')` answers *now* — which
-     * would date a check that never happened to this very second.
-     */
-    private function readableDate(string $stored): string
-    {
-        return \Core\Service\DateInput::fromStorage($stored)?->format('d/m/Y à H:i') ?? 'une date inconnue';
-    }
 
     /**
      * GET /config/courrier-sortant — the providers.
@@ -1009,6 +998,8 @@ class OutboundMailController extends AbstractController
             return $this->redirect(self::AUTHENTICATION_URL);
         }
 
+        $before = MailIdentity::fromSettings($this->settings);
+
         try {
             $this->settings->set(MailIdentity::SETTING_FROM_ADDRESS, $fromAddress);
             $this->settings->set(MailIdentity::SETTING_FROM_NAME, $fromName);
@@ -1028,12 +1019,56 @@ class OutboundMailController extends AbstractController
         // copy of an address it no longer sends from.
         $this->returns->forgetAllExcept($this->verifiableAddresses());
 
+        $this->journalAddressChange($before, MailIdentity::fromSettings($this->settings));
+
         FlashMessage::set(
             'success',
             'Adresses enregistrées. Les messages déjà en file partiront avec les nouvelles.'
         );
 
         return $this->redirect(self::AUTHENTICATION_URL);
+    }
+
+    /**
+     * Write down that an address changed — `security`, and never the
+     * address itself.
+     *
+     * **`security` because it decides where the site's mail comes from
+     * and goes back to**, which is a security decision even when it is
+     * made in perfect good faith: an expédition address pointing
+     * somewhere else is every sign-in link pointing somewhere else.
+     *
+     * **And no address text, ever.** The journal is read on a screen and
+     * kept for a long time; what it needs is « which role changed », not
+     * the value — the same rule `member_email_added` already follows with
+     * `member_id` alone. Nothing is written when nothing changed, so a
+     * page saved twice does not read as two decisions.
+     */
+    private function journalAddressChange(MailIdentity $before, MailIdentity $after): void
+    {
+        $changed = [];
+        if ($before->fromAddress !== $after->fromAddress) {
+            $changed[] = 'expédition';
+        }
+        if ($before->configuredReplyAddress() !== $after->configuredReplyAddress()) {
+            $changed[] = 'réponse';
+        }
+        if ($before->configuredDmarcReportAddress() !== $after->configuredDmarcReportAddress()) {
+            $changed[] = 'rapports DMARC';
+        }
+
+        if ($changed === []) {
+            return;
+        }
+
+        $this->journal->log(
+            'core',
+            'mail_identity_changed',
+            'security',
+            'Adresse du courrier sortant modifiée',
+            ['roles' => implode(', ', $changed)],
+            AuthSession::getUserAccountId()
+        );
     }
 
     /**
@@ -1278,13 +1313,7 @@ class OutboundMailController extends AbstractController
 
     /**
      * Keep what the lookup said, so the dashboard can show a state with a
-     * date on it.
-     *
-     * **A remembered reading is not a live one, and the dashboard says
-     * so.** The alternative was a `dns_get_record()` on every load of the
-     * first page of the section, which is the one page somebody opens
-     * when mail is already not working — exactly when a resolver is most
-     * likely to be the thing that is broken.
+     * date on it — {@see \Core\Mail\DnsCheckMemory} holds the why.
      *
      * A reading nobody could take (no address, no selector) clears the
      * memory rather than overwriting it with a false negative.
@@ -1294,7 +1323,7 @@ class OutboundMailController extends AbstractController
     private function rememberDnsReadings(array $dns): void
     {
         if (($dns['unavailable'] ?? false) === true) {
-            $this->storeDnsMemory('');
+            DnsCheckMemory::forget($this->settings);
 
             return;
         }
@@ -1310,61 +1339,13 @@ class OutboundMailController extends AbstractController
             return ($reading['exists'] ?? false) === true;
         };
 
-        $memory = json_encode([
-            'at' => (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
-            'domain' => (string) ($dns['spf_domain'] ?? ''),
-            'spf' => $state($dns['spf'] ?? null),
-            'dkim' => $state($dns['dkim'] ?? null),
-            'dmarc' => $state($dns['dmarc'] ?? null),
-        ]);
-
-        $this->storeDnsMemory($memory === false ? '' : $memory);
-    }
-
-    private function storeDnsMemory(string $value): void
-    {
-        try {
-            $this->settings->setInternal(self::SETTING_DNS_LAST_CHECK, $value);
-        } catch (\Throwable) {
-            // A dashboard line that reads « jamais vérifié » is a far
-            // smaller problem than a DNS check that ends on an error
-            // page, so this failure is deliberately swallowed.
-        }
-    }
-
-    /**
-     * What the last lookup said, or null when there has never been one.
-     *
-     * @return array{at: string, domain: string, spf: ?bool, dkim: ?bool, dmarc: ?bool}|null
-     */
-    private function lastDnsCheck(): ?array
-    {
-        $raw = (string) ($this->settings->get(self::SETTING_DNS_LAST_CHECK) ?? '');
-        if ($raw === '') {
-            return null;
-        }
-
-        try {
-            $decoded = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
-        } catch (\JsonException) {
-            return null;
-        }
-
-        if (!is_array($decoded) || !isset($decoded['at'])) {
-            return null;
-        }
-
-        $tri = static fn(string $key): ?bool => isset($decoded[$key]) && is_bool($decoded[$key])
-            ? $decoded[$key]
-            : null;
-
-        return [
-            'at' => (string) $decoded['at'],
-            'domain' => (string) ($decoded['domain'] ?? ''),
-            'spf' => $tri('spf'),
-            'dkim' => $tri('dkim'),
-            'dmarc' => $tri('dmarc'),
-        ];
+        DnsCheckMemory::remember(
+            $this->settings,
+            (string) ($dns['spf_domain'] ?? ''),
+            $state($dns['spf'] ?? null),
+            $state($dns['dkim'] ?? null),
+            $state($dns['dmarc'] ?? null)
+        );
     }
 
     /**

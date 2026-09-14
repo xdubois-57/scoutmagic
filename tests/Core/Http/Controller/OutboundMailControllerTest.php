@@ -120,7 +120,8 @@ class OutboundMailControllerTest extends TestCase
                 // answers « impossible » — which is the state the page
                 // has to render without erroring (D2).
                 null
-            )
+            ),
+            new JournalService(new JournalRepository($this->pdo))
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -355,6 +356,76 @@ class OutboundMailControllerTest extends TestCase
     }
 
     /**
+     * Changing where the site's mail comes from is a security decision
+     * even when it is made in perfect good faith — an expédition address
+     * pointing somewhere else is every sign-in link pointing somewhere
+     * else. And the entry never carries the address: the journal is read
+     * on a screen and kept for a long time, so it says which role
+     * changed, exactly as `member_email_added` says `member_id` alone.
+     */
+    public function testChangingAnAddressIsJournaledAsSecurityWithoutTheAddress(): void
+    {
+        $this->settings->set('mail_from_address', 'info@unite.be');
+
+        $this->controller->saveAuthentication($this->formRequest([
+            'mail_from_address' => 'contact@unite.be',
+            'mail_from_name' => 'Unité Test',
+            'mail_reply_address' => 'secretariat@unite.be',
+            'dkim_selector' => 's2026',
+        ]), []);
+
+        $entry = $this->lastJournalEntry('mail_identity_changed');
+        $this->assertSame('security', $entry['level']);
+
+        $context = json_decode((string) $entry['context'], true);
+        $this->assertIsArray($context);
+        $this->assertSame('expédition, réponse', $context['roles']);
+
+        // The whole point of the entry's shape: it names the role, never
+        // the value.
+        $this->assertStringNotContainsString('contact@unite.be', (string) $entry['context']);
+        $this->assertStringNotContainsString('secretariat@unite.be', (string) $entry['context']);
+    }
+
+    public function testSavingThePageWithoutChangingAnAddressWritesNothingToTheJournal(): void
+    {
+        $saved = [
+            'mail_from_address' => 'info@unite.be',
+            'mail_from_name' => 'Unité Test',
+            'mail_reply_address' => '',
+            'dmarc_report_email' => '',
+            'dkim_selector' => 's2026',
+        ];
+        $this->controller->saveAuthentication($this->formRequest($saved), []);
+        $this->pdo->exec('DELETE FROM event_log');
+
+        // The same values again: a page saved twice is one decision.
+        $this->controller->saveAuthentication($this->formRequest($saved), []);
+
+        $statement = $this->pdo->query(
+            "SELECT COUNT(*) FROM event_log WHERE event_type = 'mail_identity_changed'"
+        );
+        $this->assertNotFalse($statement);
+        $this->assertSame(0, (int) $statement->fetchColumn());
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function lastJournalEntry(string $type): array
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT level, context FROM event_log WHERE event_type = ? ORDER BY id DESC LIMIT 1'
+        );
+        $statement->execute([$type]);
+        $row = $statement->fetch(\PDO::FETCH_ASSOC);
+
+        $this->assertIsArray($row, 'No journal entry of type ' . $type . '.');
+
+        return $row;
+    }
+
+    /**
      * The lookup writes down what it saw so the dashboard can report a
      * state with a date, rather than putting a resolver on the critical
      * path of the page somebody opens when mail is already broken.
@@ -369,7 +440,7 @@ class OutboundMailControllerTest extends TestCase
             []
         );
 
-        $stored = (string) $this->settings->get(OutboundMailController::SETTING_DNS_LAST_CHECK);
+        $stored = (string) $this->settings->get(\Core\Mail\DnsCheckMemory::SETTING_KEY);
         $this->assertNotSame('', $stored);
         $decoded = json_decode($stored, true);
         $this->assertIsArray($decoded);
@@ -382,7 +453,7 @@ class OutboundMailControllerTest extends TestCase
         // setInternal, not set: the memory is written by this page and
         // never by hand, so it is registered `editable: false`.
         $this->settings->setInternal(
-            OutboundMailController::SETTING_DNS_LAST_CHECK,
+            \Core\Mail\DnsCheckMemory::SETTING_KEY,
             '{"at":"2026-09-01 08:00:00","domain":"unite.be","spf":true,"dkim":true,"dmarc":null}'
         );
         // No address: there is no domain to interrogate at all.
@@ -393,7 +464,7 @@ class OutboundMailControllerTest extends TestCase
             []
         );
 
-        $this->assertSame('', $this->settings->get(OutboundMailController::SETTING_DNS_LAST_CHECK));
+        $this->assertSame('', $this->settings->get(\Core\Mail\DnsCheckMemory::SETTING_KEY));
     }
 
     public function testTheChainsPageRendersTheThreeLanes(): void
@@ -501,7 +572,7 @@ class OutboundMailControllerTest extends TestCase
         $settings->register('mail_from_name', '', 'text', 'Nom d\'expédition', '', null, null, null, true, 50);
         $settings->register('mail_reply_address', '', 'email', 'Adresse de réponse', '', null, null, null, true, 55);
         $settings->register(
-            OutboundMailController::SETTING_DNS_LAST_CHECK,
+            \Core\Mail\DnsCheckMemory::SETTING_KEY,
             '',
             'text',
             'Dernière vérification DNS',
@@ -527,20 +598,61 @@ class OutboundMailControllerTest extends TestCase
         $contents = file_get_contents(dirname(__DIR__, 4) . '/public/index.php');
         $this->assertNotFalse($contents);
 
+        // Matched on the key each call actually declares, whether it is
+        // spelled as a literal or through the constant that owns it —
+        // asserting one spelling would make a harmless rename of the
+        // other read as a missing registration.
+        $declared = self::settingKeysRegisteredIn($contents);
+
         foreach ([
             \Core\Mail\MailIdentity::SETTING_FROM_ADDRESS,
             \Core\Mail\MailIdentity::SETTING_FROM_NAME,
             \Core\Mail\MailIdentity::SETTING_REPLY_ADDRESS,
             \Core\Mail\MailIdentity::SETTING_DMARC_REPORT,
-            OutboundMailController::SETTING_DNS_LAST_CHECK,
+            \Core\Mail\DnsCheckMemory::SETTING_KEY,
             'dkim_selector',
         ] as $key) {
-            $this->assertStringContainsString(
-                "\$settingService->register(\n    '{$key}',",
-                $contents,
+            $this->assertContains(
+                $key,
+                $declared,
                 "public/index.php never registers « {$key} », so saving it would throw."
             );
         }
+    }
+
+    /**
+     * Every setting key a composition root declares, resolved through the
+     * constant when the call uses one.
+     *
+     * @return array<int, string>
+     */
+    private static function settingKeysRegisteredIn(string $source): array
+    {
+        $matched = preg_match_all(
+            '/\$settingService->register\(\s*([^,]+),/',
+            $source,
+            $matches
+        );
+        self::assertNotFalse($matched);
+
+        $keys = [];
+        foreach ($matches[1] as $argument) {
+            $argument = trim($argument);
+
+            if (preg_match('/^\'([^\']+)\'$/', $argument, $literal) === 1) {
+                $keys[] = $literal[1];
+                continue;
+            }
+
+            if (preg_match('/^\\\\?[A-Za-z0-9_\\\\]+::[A-Z_]+$/', $argument) === 1 && defined($argument)) {
+                $value = constant($argument);
+                if (is_string($value)) {
+                    $keys[] = $value;
+                }
+            }
+        }
+
+        return $keys;
     }
 
     private function getRequest(): Request

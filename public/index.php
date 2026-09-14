@@ -698,7 +698,7 @@ $settingService->register(
 // sub-page when somebody presses « Vérifier les enregistrements », never
 // by hand — hence editable: false.
 $settingService->register(
-    'mail_dns_last_check',
+    \Core\Mail\DnsCheckMemory::SETTING_KEY,
     '',
     'text',
     'Dernière vérification DNS',
@@ -6488,7 +6488,8 @@ $frontController->registerController(
         $deferredMailQueue,
         $dkimManager,
         new \Core\Mail\DnsVerifier(),
-        $returnPathVerifier
+        $returnPathVerifier,
+        $journalService
     )
 );
 

@@ -158,24 +158,16 @@ final class ReturnPathVerifier
         }
 
         $probe = $this->probes->findByAddress($address);
+        $state = ReturnState::forProbe($probe, $now);
         if ($probe === null) {
             return $empty;
         }
 
-        if ($probe->hasArrived()) {
-            return [
-                'state' => ReturnState::VERIFIED,
-                'sent_at' => $probe->sentAt,
-                'received_at' => $probe->receivedAt,
-                'mailbox' => $this->mailboxName($probe->mailboxId),
-            ];
-        }
-
         return [
-            'state' => $probe->isWaiting($now) ? ReturnState::WAITING : ReturnState::NEVER_ARRIVED,
+            'state' => $state,
             'sent_at' => $probe->sentAt,
-            'received_at' => null,
-            'mailbox' => null,
+            'received_at' => $probe->receivedAt,
+            'mailbox' => $state === ReturnState::VERIFIED ? $this->mailboxName($probe->mailboxId) : null,
         ];
     }
 

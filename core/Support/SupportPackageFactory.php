@@ -209,7 +209,14 @@ final class SupportPackageFactory
                 $chains
             ),
             $deferred,
-            new \Core\Mail\Transport\DeferredMailQueue($deferred, $context->settings)
+            new \Core\Mail\Transport\DeferredMailQueue($deferred, $context->settings),
+            $context->settings,
+            // The round trip's own rows (roadmap IT-03) — the repository
+            // and not the verifier, deliberately: a support package must
+            // never be able to SEND a probe while it is being assembled,
+            // and a collector that cannot reach `launch()` cannot be
+            // talked into it by a later edit.
+            new \Core\Mail\Feedback\ReturnProbeRepository($pdo, $context->encryption)
         );
     }
 

@@ -8,6 +8,11 @@ declare(strict_types=1);
 
 namespace Core\Support\Collector;
 
+use Core\Config\SettingService;
+use Core\Mail\DnsCheckMemory;
+use Core\Mail\Feedback\ReturnProbeRepository;
+use Core\Mail\Feedback\ReturnState;
+use Core\Mail\MailIdentity;
 use Core\Mail\Transport\DeferredMailQueue;
 use Core\Mail\Transport\DeferredMailRepository;
 use Core\Mail\Transport\LaneChainRepository;
@@ -64,7 +69,9 @@ class OutboundMailCollector implements SupportCollectorInterface
         private ?ProviderHealthRepository $health = null,
         private ?MailReserve $reserve = null,
         private ?DeferredMailRepository $deferred = null,
-        private ?DeferredMailQueue $queue = null
+        private ?DeferredMailQueue $queue = null,
+        private ?SettingService $settings = null,
+        private ?ReturnProbeRepository $returns = null
     ) {
     }
 
@@ -135,6 +142,10 @@ class OutboundMailCollector implements SupportCollectorInterface
         }
 
         foreach ($this->queueLines() as $line) {
+            $lines[] = $line;
+        }
+
+        foreach ($this->authenticationLines() as $line) {
             $lines[] = $line;
         }
 
@@ -228,6 +239,91 @@ class OutboundMailCollector implements SupportCollectorInterface
 
             $lines[] = $provider->name;
             $lines[] = '  ' . $reserve->provenance();
+        }
+
+        $lines[] = '';
+
+        return $lines;
+    }
+
+    /**
+     * The domain's own authentication, and whether what comes back
+     * arrives (roadmap IT-03).
+     *
+     * **Domains, states and dates — never an address.** A domain name is
+     * a server and is exactly what a remote diagnosis needs; an address
+     * is a person, and this file goes to a third party. So the return
+     * verification is reported per ROLE (« Expédition », « Réponses »)
+     * with its state and its date, and the address that role holds stays
+     * out of the archive entirely.
+     *
+     * The DNS verdicts are the remembered ones, with the date they were
+     * taken: a support package must not make a DNS query of its own, and
+     * a reading that says how old it is beats a reading that pretends to
+     * be current.
+     *
+     * @return array<int, string>
+     */
+    private function authenticationLines(): array
+    {
+        if ($this->settings === null) {
+            return [];
+        }
+
+        $identity = MailIdentity::fromSettings($this->settings);
+
+        $lines = ['── Authentification du domaine ─────────────────────────────'];
+        $lines[] = 'domaine d\'enveloppe (SPF) : ' . ($identity->spfDomain() ?: '(aucune adresse d\'expédition)');
+        $lines[] = 'domaine de signature (DKIM) : ' . ($identity->dkimDomain() ?: '-');
+        $lines[] = 'alignés : ' . ($identity->isAligned() ? 'oui' : 'non');
+        $lines[] = 'sélecteur DKIM : ' . ((string) ($this->settings->get('dkim_selector') ?? '') ?: '(vide)');
+        $lines[] = 'adresse de réponse distincte : ' . ($identity->configuredReplyAddress() !== '' ? 'oui' : 'non');
+        $lines[] = 'rapports DMARC demandés : '
+            . ($identity->configuredDmarcReportAddress() !== '' ? 'oui' : 'non');
+
+        $verdicts = DnsCheckMemory::read($this->settings);
+        if ($verdicts === null) {
+            $lines[] = 'vérification DNS : jamais lancée depuis la page Authentification';
+        } else {
+            $lines[] = 'vérification DNS du ' . $verdicts->takenAt->format('Y-m-d H:i')
+                . ' sur ' . ($verdicts->domain ?: '(inconnu)');
+            $lines[] = '  SPF   : ' . DnsCheckMemory::label($verdicts->spf);
+            $lines[] = '  DKIM  : ' . DnsCheckMemory::label($verdicts->dkim);
+            $lines[] = '  DMARC : ' . DnsCheckMemory::label($verdicts->dmarc);
+        }
+
+        $lines[] = '';
+
+        if ($this->returns === null) {
+            return $lines;
+        }
+
+        $lines[] = '── Vérification des retours ────────────────────────────────';
+        $now = new \DateTimeImmutable();
+        $roles = [
+            'Expédition (rebonds)' => $identity->bounceAddress(),
+            'Réponses' => $identity->replyAddress(),
+        ];
+
+        foreach ($roles as $label => $address) {
+            if ($address === '') {
+                $lines[] = sprintf('%-22s : (aucune adresse)', $label);
+                continue;
+            }
+
+            try {
+                $probe = $this->returns->findByAddress($address);
+            } catch (\Throwable) {
+                continue;
+            }
+
+            $lines[] = sprintf(
+                '%-22s : %s%s%s',
+                $label,
+                ReturnState::forProbe($probe, $now)->label(),
+                $probe !== null ? ', envoyé le ' . $probe->sentAt->format('Y-m-d H:i') : '',
+                $probe?->receivedAt !== null ? ', revenu le ' . $probe->receivedAt->format('Y-m-d H:i') : ''
+            );
         }
 
         $lines[] = '';

@@ -863,6 +863,35 @@ aurait caché ce fait derrière de l'indirection.
 la mémoire DNS : une valeur tronquée aurait daté d'un coup une
 vérification qui n'a jamais eu lieu.
 
+### Les deux exigences transverses
+
+**Le paquet de support** gagne deux sections : « Authentification du
+domaine » — les deux domaines, leur alignement, le sélecteur, et les
+verdicts DNS **retenus avec leur date** — et « Vérification des retours »,
+par rôle. Rien n'y porte d'adresse : un nom de domaine est un serveur, une
+adresse est une personne, et ce fichier part chez un tiers. Le collecteur
+reçoit le *dépôt* des sondes et non le vérificateur, délibérément : un
+paquet de support ne doit jamais pouvoir *envoyer* une sonde pendant qu'on
+l'assemble, et un collecteur qui ne peut pas atteindre `launch()` ne se
+laissera pas convaincre de le faire par une modification ultérieure.
+
+**Le journal** gagne `mail_identity_changed`, en `security` : changer d'où
+part le courrier du site est une décision de sécurité même prise de bonne
+foi — une adresse d'expédition qui pointe ailleurs, ce sont tous les liens
+de connexion qui pointent ailleurs. L'entrée nomme **les rôles modifiés,
+jamais la valeur**, comme `member_email_added` ne porte que `member_id` ;
+et une page enregistrée deux fois n'écrit rien la seconde fois, parce
+qu'une décision n'a eu lieu qu'une fois. `mail_return_probe_sent` et
+`mail_return_probe_received` complètent la ligne « Vérification des
+retours : résultat » du tableau.
+
+Un troisième nettoyage est venu de là : la mémoire DNS était analysée dans
+le contrôleur **et** dans le collecteur, deux fois le même `json_decode`
+et les mêmes trois booléens à trois états. `Core\Mail\DnsCheckMemory` la
+porte maintenant seule — et au passage le collecteur cesse d'aller
+chercher une constante sur un contrôleur pour lire un réglage, ce qui
+était deux couches de travers pour un seul blob JSON.
+
 ### Reporté
 
 - L'alignement DMARC d'un envoi « au nom de » (ci-dessus), à l'itération

@@ -43,6 +43,30 @@ enum ReturnState: string
      */
     case IMPOSSIBLE = 'impossible';
 
+    /**
+     * What one stored round trip says, with no opinion on whether the
+     * check could be run at all — that question belongs to
+     * {@see ReturnPathVerifier::isPossible()} and its answer
+     * ({@see self::IMPOSSIBLE}) is decided by the caller.
+     *
+     * It lives here so that the two readers — the screen, through the
+     * verifier, and the support collector, which reads the rows and must
+     * never send a probe of its own — cannot drift into two different
+     * state machines over the same table.
+     */
+    public static function forProbe(?ReturnProbe $probe, \DateTimeImmutable $now): self
+    {
+        if ($probe === null) {
+            return self::NEVER_VERIFIED;
+        }
+
+        if ($probe->hasArrived()) {
+            return self::VERIFIED;
+        }
+
+        return $probe->isWaiting($now) ? self::WAITING : self::NEVER_ARRIVED;
+    }
+
     public function label(): string
     {
         return match ($this) {
