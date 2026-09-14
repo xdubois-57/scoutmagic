@@ -41,6 +41,15 @@ class GalleryController extends AbstractController
     private const DELEGATED_PRESIGN_TTL = '+5 minutes';
 
     /**
+     * Why an album is refused, said in French to the person who
+     * followed the link — a shared address, a page bookmarked while
+     * the album was public. It deliberately says nothing about who
+     * the album IS visible to: the refusal explains itself without
+     * describing the audience.
+     */
+    private const ALBUM_NOT_VISIBLE_MESSAGE = "Cet album n'est pas accessible avec votre compte.";
+
+    /**
      * Largest slice served in one response. A browser opens a video with
      * `Range: bytes=0-`, i.e. "everything" — honouring that literally would
      * pull a whole 1080p transcode into PHP's memory. Answering with a capped
@@ -130,7 +139,7 @@ class GalleryController extends AbstractController
             return new Response('Not Found', 404);
         }
         if (!$this->isVisible($album)) {
-            return new Response('Forbidden', 403);
+            return $this->forbidden(self::ALBUM_NOT_VISIBLE_MESSAGE, $request);
         }
         if (!$album->isLocal()) {
             return $this->redirect((string) $album->externalUrl);
@@ -182,7 +191,7 @@ class GalleryController extends AbstractController
             return new Response('Not Found', 404);
         }
         if (!$this->isVisible($album)) {
-            return new Response('Forbidden', 403);
+            return $this->forbidden(self::ALBUM_NOT_VISIBLE_MESSAGE, $request);
         }
         if ($album->isMigrating()) {
             return new Response('Album en cours de migration.', 503);
@@ -325,7 +334,7 @@ class GalleryController extends AbstractController
                 return new Response('Not Found', 404);
             }
         } elseif (!$this->isVisible($album)) {
-            return new Response('Forbidden', 403);
+            return $this->forbidden(self::ALBUM_NOT_VISIBLE_MESSAGE, $request);
         }
 
         if ($album->isMigrating()) {
@@ -417,7 +426,7 @@ class GalleryController extends AbstractController
         }
 
         if (!$this->isVisible($album)) {
-            return new Response('Forbidden', 403);
+            return $this->forbidden(self::ALBUM_NOT_VISIBLE_MESSAGE, $request);
         }
         if ($album->isMigrating()) {
             return new Response('Album en cours de migration.', 503);

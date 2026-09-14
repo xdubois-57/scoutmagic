@@ -44,6 +44,15 @@ use Twig\Environment;
 class FormController extends AbstractController
 {
     /**
+     * The two refusals a reader can be handed here, in French: an
+     * article whose visibility is above them, and the responses of a
+     * form whose own `response_role_min` is.
+     */
+    private const ARTICLE_NOT_VISIBLE_MESSAGE = "Cet article n'est pas visible avec votre compte.";
+    private const RESPONSES_RESERVED_MESSAGE = 'Les réponses à ce formulaire sont réservées à un '
+        . 'rôle que votre compte ne porte pas.';
+
+    /**
      * Core\Security\HumanCheck form key — must match
      * NewsController::HUMAN_CHECK_FORM_KEY (a signature made with one is
      * rejected against the other).
@@ -158,7 +167,7 @@ class FormController extends AbstractController
 
         $role = Role::fromString(AuthSession::getRole());
         if (!$this->articleService->canView($article, $role)) {
-            return new Response('Forbidden', 403);
+            return $this->forbidden(self::ARTICLE_NOT_VISIBLE_MESSAGE, $request);
         }
 
         $form = $this->formService->findByArticleId($article->id);
@@ -335,7 +344,7 @@ class FormController extends AbstractController
 
         $role = Role::fromString(AuthSession::getRole());
         if (!$role->hasAccess(Role::fromString($form->responseRoleMin))) {
-            return new Response('Forbidden', 403);
+            return $this->forbidden(self::RESPONSES_RESERVED_MESSAGE, $request);
         }
 
         $fields = $this->formService->getFields($form->id);
@@ -575,7 +584,7 @@ class FormController extends AbstractController
 
         $role = Role::fromString(AuthSession::getRole());
         if (!$role->hasAccess(Role::fromString($form->responseRoleMin))) {
-            return new Response('Forbidden', 403);
+            return $this->forbidden(self::RESPONSES_RESERVED_MESSAGE, $request);
         }
 
         $fields = $this->formService->getFields($form->id);
@@ -726,7 +735,7 @@ class FormController extends AbstractController
 
         $role = Role::fromString(AuthSession::getRole());
         if (!$role->hasAccess(Role::fromString($form->responseRoleMin))) {
-            return new Response('Forbidden', 403);
+            return $this->forbidden(self::RESPONSES_RESERVED_MESSAGE, $request);
         }
 
         $fields = $this->formService->getFields($form->id);

@@ -101,6 +101,43 @@ class AbstractControllerHelpersTest extends TestCase
         $this->assertStringContainsString('Accès refusé', $response->getBody());
     }
 
+    /**
+     * A caller that SENT JSON is a script, whatever it asked for back.
+     * public/assets/js/api.js's postJson() — which most of this site's
+     * AJAX goes through — sets `Content-Type: application/json` and
+     * neither `Accept` nor `X-Requested-With`, so its refusals came back
+     * as a full HTML page that its own `res.json()` could only fail on:
+     * the caller saw a parse error where the reason was.
+     */
+    public function testACallerThatPostedJsonGetsAJsonRefusalWithoutAskingForOne(): void
+    {
+        $response = $this->controller->callForbidden(
+            'Pas pour vous',
+            new Request('POST', '/config/banner/add', [], [], [], ['CONTENT_TYPE' => 'application/json'])
+        );
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(['error' => 'Pas pour vous'], json_decode($response->getBody(), true));
+    }
+
+    /**
+     * And the shape a form posts is not that one: a classic `<form>`
+     * sends urlencoded or multipart, and the person behind it wants the
+     * page.
+     */
+    public function testAFormPostStillGetsTheThemedPage(): void
+    {
+        $response = $this->controller->callForbidden(
+            'Pas pour vous',
+            new Request('POST', '/members/1/emails', [], [], [], [
+                'CONTENT_TYPE' => 'application/x-www-form-urlencoded',
+            ])
+        );
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertStringContainsString('Accès refusé', $response->getBody());
+    }
+
     private function requestAccepting(string $accept): Request
     {
         return new Request('POST', '/groupes/1', [], [], [], ['HTTP_ACCEPT' => $accept]);

@@ -6213,6 +6213,37 @@ if ($isEnabled('banner')) {
     // The home page's banner hook (§7.4) — resolved per request through
     // $moduleHooks, no PageController re-registration.
     $moduleHooks->register(\Core\Module\HomeBannerProvider::class, $bannerService);
+
+    // Menu hook (Core\Module\MenuEntryProvider, §7.4): the « Bannière »
+    // entry of Espace chefs d'U, contributed only to somebody the page
+    // will actually let in — the same narrowing, and the same reason, as
+    // the retro block further down (issue #347).
+    $bannerMenuEntries = $dynamicMenuRegistrar->register(
+        $menuBuilder,
+        [new \Modules\Banner\Menu\BannerMenuHookService(
+            $memberService,
+            $scoutYearResolver,
+            \Core\Security\Role::fromString(AuthSession::getRole())
+        )],
+        AuthSession::isAuthenticated() ? AuthSession::getEmail() : null
+    );
+    if ($bannerMenuEntries !== []) {
+        $menus = $menuBuilder->build();
+        $twig->addGlobal('menus', $menus);
+
+        $bannerMenuActive = $dynamicMenuRegistrar->resolveActive(
+            $bannerMenuEntries,
+            $currentPath,
+            $activeMenuId,
+            $activePageUrl,
+            $bestMatchLength
+        );
+        $activeMenuId = $bannerMenuActive['menuId'];
+        $activePageUrl = $bannerMenuActive['pageUrl'];
+        $bestMatchLength = $bannerMenuActive['matchLength'];
+        $twig->addGlobal('active_menu_id', $activeMenuId);
+        $twig->addGlobal('active_page_url', $activePageUrl);
+    }
 }
 
 // Inbound mail (§7). The message-consumer registry — the ARCHITECTURE.md
@@ -8956,6 +8987,41 @@ if ($isEnabled('retro')) {
             $retroModerationService
         )
     );
+
+    // Menu hook (Core\Module\MenuEntryProvider, §7.4): the « Rétrospective »
+    // entry of Espace chefs d'U, contributed only to somebody the page
+    // will actually let in. Its `label` used to be declared in
+    // module.json, which draws the entry from `role_min` alone — so an
+    // « Administrateur du site » who is not himself in the Staff d'U was
+    // offered a link that answered a refusal (issue #347). Same
+    // rebuild-and-re-derive dance as the news and rental blocks; see
+    // Core\View\DynamicMenuRegistrar for why it cannot happen earlier.
+    $retroMenuEntries = $dynamicMenuRegistrar->register(
+        $menuBuilder,
+        [new \Modules\Retro\Menu\RetroMenuHookService(
+            $memberService,
+            $scoutYearResolver,
+            \Core\Security\Role::fromString(AuthSession::getRole())
+        )],
+        AuthSession::isAuthenticated() ? AuthSession::getEmail() : null
+    );
+    if ($retroMenuEntries !== []) {
+        $menus = $menuBuilder->build();
+        $twig->addGlobal('menus', $menus);
+
+        $retroMenuActive = $dynamicMenuRegistrar->resolveActive(
+            $retroMenuEntries,
+            $currentPath,
+            $activeMenuId,
+            $activePageUrl,
+            $bestMatchLength
+        );
+        $activeMenuId = $retroMenuActive['menuId'];
+        $activePageUrl = $retroMenuActive['pageUrl'];
+        $bestMatchLength = $retroMenuActive['matchLength'];
+        $twig->addGlobal('active_menu_id', $activeMenuId);
+        $twig->addGlobal('active_page_url', $activePageUrl);
+    }
 
     // Bootstrap the recurring rate-limit purge — Task\PurgeRateLimitHandler
     // re-schedules itself daily at the end of every run (same pattern as

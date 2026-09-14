@@ -40,6 +40,16 @@ use Twig\Environment;
  */
 class TrackingController extends AbstractController
 {
+    /**
+     * Why the full view is refused, said to the parent who is signed
+     * in but under another address than the one the request was
+     * filed with — which is the ordinary way to land here, and a
+     * thing they can act on. It names no request and nobody, so it
+     * reads the same whether or not the id exists.
+     */
+    private const NOT_LINKED_MESSAGE = "Cette demande d'inscription n'est associée à aucune "
+        . "des adresses e-mail de votre compte.";
+
     public function __construct(
         protected Environment $twig,
         private TrackingService $trackingService,
@@ -81,7 +91,7 @@ class TrackingController extends AbstractController
     {
         $registrationRequest = $this->requireLinkedRequest($params);
         if ($registrationRequest === null) {
-            return new Response('Forbidden', 403);
+            return $this->forbidden(self::NOT_LINKED_MESSAGE, $request);
         }
 
         return $this->render('@registration/tracking_full.html.twig', [
@@ -102,7 +112,7 @@ class TrackingController extends AbstractController
     {
         $registrationRequest = $this->requireLinkedRequest($params);
         if ($registrationRequest === null) {
-            return new Response('Forbidden', 403);
+            return $this->forbidden(self::NOT_LINKED_MESSAGE, $request);
         }
 
         if (($guard = $this->guardCsrf($request, '/inscriptions/suivi/demande/' . $registrationRequest->id)) !== null) {
@@ -128,7 +138,7 @@ class TrackingController extends AbstractController
     {
         $registrationRequest = $this->requireLinkedRequest($params);
         if ($registrationRequest === null) {
-            return new Response('Forbidden', 403);
+            return $this->forbidden(self::NOT_LINKED_MESSAGE, $request);
         }
 
         if (($guard = $this->guardCsrf($request, '/inscriptions/suivi/demande/' . $registrationRequest->id)) !== null) {

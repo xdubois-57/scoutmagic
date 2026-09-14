@@ -55,7 +55,10 @@ class MemberEmailController extends AbstractController
         $userRole = AuthSession::getRole();
 
         if (!$this->memberService->canAccess($userEmail, $memberYearId, $userRole)) {
-            return new Response('Forbidden', 403);
+            return $this->forbidden(
+                "Ce courrier n'est consultable que par la personne concernée et par les animateurs.",
+                $request
+            );
         }
 
         try {

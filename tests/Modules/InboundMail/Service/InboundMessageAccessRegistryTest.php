@@ -269,7 +269,10 @@ class InboundMessageAccessRegistryTest extends TestCase
         $storagePath = sys_get_temp_dir();
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $controller = new FileController(
-            new Environment(new ArrayLoader([])),
+            // The refusal renders the site's own 403 page now rather
+            // than a bare "Forbidden" body (issue #347), so the
+            // environment has to be able to answer for it.
+            new Environment(new ArrayLoader(['errors/403.html.twig' => 'Accès refusé'])),
             new FileAccessGuard($files, Role::INTENDANT, [], [$this->registry]),
             $storagePath,
             new EncryptedFileStorageService($files, $encryption, $storagePath),

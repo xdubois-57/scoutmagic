@@ -2,7 +2,7 @@
   "id": "banner",
   "name": "Bannière",
   "description": "Affiche un message choisi aléatoirement parmi une liste de bannières configurables sur la page d'accueil.",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "enabled_by_default": false,
   "routes": [
     {
@@ -12,9 +12,7 @@
       "action": "index",
       "menu": "espace_admin",
       "role_min": "admin",
-      "label": "Bannière",
-      "menu_icon": "bi-megaphone",
-      "menu_group": "contenu",
+      "label": "",
       "breadcrumb": { "label": "Bannière", "parents": ["Espace chefs d'U"] }
     },
     {

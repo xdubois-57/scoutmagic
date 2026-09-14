@@ -767,7 +767,7 @@ The driver's own text never reaches the page: MySQL names the table, the column 
 
 It was meant to be ZAP's "Access Control Testing" add-on, which is not in the `stable` image. Doing it here turned out to be the better home rather than a fallback: the question has one right answer per pair — the application states it in `module.json`, `Core\Security\RbacGuard` enforces it — so this is a comparison, not a heuristic. No payloads, no false positives, and a result that means the same thing on every run.
 
-**The two ways to be wrong are not equally bad.** A role reaching a route it may not is the security hole, and it fails the run. A role refused a route `role_min` admits is reported and never fatal, because a module may legitimately narrow access further than its route declares.
+**The three ways to be wrong are not equally bad.** A role reaching a route it may not is the security hole, and it fails the run. A role refused a route `role_min` admits is reported and never fatal, because a module may legitimately narrow access further than its route declares. **Unless a menu advertised that route at that very role** — then nothing was narrowed legitimately: the site drew the entry from `role_min`, told that role the page was theirs, and answered a refusal. That is issue #347, it is counted separately as a « menu dead link », and it fails the run too. The fix is never to widen the guard: either the controller's extra check goes, or the entry stops being a static `label` and is contributed per request by a `MenuEntryProvider` that asks the controller's own question (ARCHITECTURE.md §7.4).
 
 ### Replaying 500 POSTs without writing anything
 
@@ -794,7 +794,7 @@ Fixtures are keyed by route-pattern prefix, not by placeholder name: `{id}` is a
 
 ### The result, and how to read it
 
-**Zero over-permissive routes.** 68 refusals are stricter than `role_min`: a member may only edit their *own* record, a file goes through `FileAccessGuard`. That is defence in depth, and the report lists every one — they are to be read, not assumed.
+**Zero over-permissive routes.** 68 refusals are stricter than `role_min`: a member may only edit their *own* record, a file goes through `FileAccessGuard`. That is defence in depth, and the report lists every one — they are to be read, not assumed. None of them is on a route a menu advertises; the two that were (`/config/retro`, `/config/banner`) are what issue #347 was, and their entries are contributed per request now.
 
 ## 37. The help assistant's endpoint
 

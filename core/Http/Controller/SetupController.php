@@ -1946,7 +1946,13 @@ class SetupController extends AbstractController
             );
         }
 
-        return (new Response('', 403))->setBody('Forbidden: installation token required.');
+        // A bare body on purpose, and the one place in this codebase
+        // where that is right: this gate runs before the site is
+        // initialized, so errors/403.html.twig — which extends
+        // base.html.twig and reads globals a configured instance
+        // supplies — is not renderable yet. The sentence is French
+        // all the same, since whoever reads it is installing the site.
+        return (new Response('', 403))->setBody('Jeton d\'installation requis.');
     }
 
     /**
