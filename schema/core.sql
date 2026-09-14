@@ -1631,7 +1631,15 @@ CREATE TABLE IF NOT EXISTS mail_deferred_messages (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     lane VARCHAR(20) NOT NULL,
     purpose VARCHAR(20) NOT NULL,
-    payload_encrypted BLOB NOT NULL,
+    -- MEDIUMBLOB, not BLOB. A plain BLOB caps at 65 535 bytes, and
+    -- DeferredMailQueue::MAX_ATTACHMENT_BYTES deliberately allows 2 MiB of
+    -- attachments — which base64 then carries as about 2.7 MiB. Under a
+    -- strict SQL mode the INSERT would fail and the message would be lost
+    -- by the very mechanism meant to keep it; under a lenient one the row
+    -- would be truncated, its AEAD tag would never verify again, and the
+    -- drain would break on it. The SQLite harness declares this column
+    -- TEXT, so neither shows up in a local run.
+    payload_encrypted MEDIUMBLOB NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'pending',
     attempts INT UNSIGNED NOT NULL DEFAULT 0,
     last_reason VARCHAR(255) NOT NULL DEFAULT '',

@@ -102,10 +102,29 @@ final class DeferredMailRepository
         $statement->bindValue(3, max(1, $limit), PDO::PARAM_INT);
         $statement->execute();
 
-        return array_map(
-            fn(array $row): DeferredMessage => $this->hydrate($row),
-            $statement->fetchAll(PDO::FETCH_ASSOC)
-        );
+        $due = [];
+        foreach ($statement->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            try {
+                $due[] = $this->hydrate($row);
+            } catch (\Throwable) {
+                // **One unreadable row must not stop the queue.** Decryption
+                // throws on a damaged payload or one written under a key that
+                // has since changed, and `due()` orders by date — so a row
+                // that threw out of this method would be first again on every
+                // later pass, and the whole drain, purge included, would stop
+                // for good.
+                //
+                // Abandoned rather than skipped, because skipping would leave
+                // it pending for ever: a message whose contents cannot be
+                // read can never be sent, and saying so is the only honest
+                // thing left to do with it. It keeps its retention like any
+                // other abandoned message, so somebody who notices has the
+                // window to ask why.
+                $this->abandon((int) $row['id'], (int) $row['attempts'], 'contenu illisible');
+            }
+        }
+
+        return $due;
     }
 
     /**

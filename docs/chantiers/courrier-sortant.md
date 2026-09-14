@@ -585,6 +585,25 @@ est bien la plus courte ; la route de relance rejoint le fournisseur RBAC ;
 cas `integer` ; et une pièce jointe illisible fait échouer le report au
 lieu de mettre en file un message amputé.
 
+**Deux trouvailles que seule une relecture du schéma pouvait donner.** La
+colonne était un `BLOB` — 65 535 octets — alors que la file accepte 2 Mio
+de pièces jointes, que le base64 porte à environ 2,7 Mio. En mode SQL
+strict l'insertion aurait échoué et le message aurait été perdu par le
+mécanisme censé le garder ; en mode permissif la ligne aurait été
+tronquée, son sceau d'authentification n'aurait plus jamais vérifié, et la
+vidange aurait buté dessus. `MEDIUMBLOB`. Le harnais SQLite déclare cette
+colonne en `TEXT`, donc aucune exécution locale ne pouvait le montrer.
+
+Et `RgpdContentService` n'avait pas été mis à jour, ce qu'`AGENTS.md`
+qualifie de PR incomplète : la file garde une adresse, un objet, un corps
+et des pièces jointes, avec deux durées de conservation réglables. Un
+paragraphe 4octies le dit, en insistant sur ce que cette file n'est pas —
+un archivage des e-mails envoyés.
+
+Enfin, une ligne indéchiffrable ne bloque plus la file : `due()` l'abandonne
+au lieu de la laisser en tête de tri à chaque passe, ce qui aurait arrêté
+la vidange et la purge pour de bon.
+
 ### Reporté
 
 Rien de fonctionnel. La cadence « collante » après bascule, refusée en

@@ -233,6 +233,31 @@ class DeferredMailQueueTest extends TestCase
     }
 
     /**
+     * **One unreadable row must not stop the queue.** `due()` orders by
+     * date, so a row that threw on decryption would be first again on
+     * every later pass and the whole drain — the purge with it — would
+     * stop for good. It is abandoned instead: a message whose contents
+     * cannot be read can never be sent, and saying so is the only honest
+     * thing left to do with it.
+     */
+    public function testAnUnreadableRowIsAbandonedRatherThanBlockingTheQueue(): void
+    {
+        $this->queue->defer(MailLane::Bulk, MailPurpose::Bulk, $this->payload(), 'raison');
+        $good = $this->queue->defer(MailLane::Transactional, MailPurpose::Ordinary, $this->payload(), 'raison');
+        $this->assertTrue($good);
+
+        // Damage the first row's ciphertext, exactly as a key change or a
+        // truncating column would.
+        $this->pdo->exec("UPDATE mail_deferred_messages SET payload_encrypted = 'n’importe quoi' WHERE id = 1");
+
+        $due = $this->repository->due(10, '2099-01-01 00:00:00');
+
+        $this->assertCount(1, $due, 'The readable message still comes back.');
+        $this->assertSame('transactional', $due[0]->lane->value);
+        $this->assertSame(1, $this->repository->countAbandoned());
+    }
+
+    /**
      * @return array{
      *     to: string, subject: string, bodyHtml: string, bodyText: string,
      *     replyTo: ?string, fromAddressOverride: ?string, fromNameOverride: ?string,

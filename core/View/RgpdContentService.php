@@ -458,6 +458,16 @@ c'est un document destiné à être imprimé ; qu'il est rangé hors de la zone 
 servi autrement que par la page qui l'a demandé ; et qu'il est **supprimé automatiquement au plus tard après sept
 jours**, ainsi que dès qu'une nouvelle version le remplace. Ne présente jamais cette copie comme un archivage : c'est
 un cache, sa durée est courte et son effacement n'attend aucune demande.
+4octies. **Messages en attente d'envoi (fonctionnalité core, PAS un module)** : Sections 2.2 et 3.1 doivent conserver
+que lorsque aucun serveur d'envoi n'est disponible, un e-mail que le site voulait expédier est **mis de côté et
+réessayé** plutôt que perdu ; que ce qui est gardé est le message entier — l'adresse du destinataire, l'objet, le
+contenu et les pièces jointes —, **chiffré au repos** et déchiffré uniquement au moment de la nouvelle tentative ;
+qu'un message parti est **effacé immédiatement**, sans trace de son contenu ; qu'un message qui n'a pas pu partir dans
+le délai fixé est abandonné et **conservé un temps borné** afin qu'un responsable puisse le relancer, puis effacé
+automatiquement avec son contenu ; et que ces deux durées sont réglables par l'unité. Les liens de connexion ne sont
+jamais mis de côté : ils échouent tout de suite. Ne présente jamais cette file comme un archivage des e-mails
+envoyés — elle ne contient que ce qui n'est pas encore parti.
+
 5. **Modules actifs uniquement** : Retirer les sections des modules INACTIFS (comparer avec liste modules actifs)
 6. **Personnalisation obligatoire** : Remplacer {$unitName} et {$contactEmail} partout. Ne JAMAIS laisser de
 placeholder générique
