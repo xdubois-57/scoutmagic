@@ -39,7 +39,21 @@ class MailService
          * the values sitting in the setup form, on an installation whose
          * database may not exist yet. Every composition root passes it.
          */
-        private ?JournalService $journal = null
+        private ?JournalService $journal = null,
+        /**
+         * Where a message goes when a whole LANE is spent or down (D9).
+         *
+         * Nullable, and it is the one dependency this class could not
+         * take earlier: the queue stores what `send()` was CALLED with,
+         * and the chain below only ever sees an assembled PHPMailer. So
+         * the decision — fail now, or keep this for later — has to be
+         * made here, where the arguments still exist.
+         *
+         * Null means the installation has no queue (the setup wizard,
+         * a narrow test double), and then a lane that cannot take a
+         * message fails exactly as it did before any of this existed.
+         */
+        private ?Transport\DeferredMailQueue $deferred = null
     ) {
     }
 
@@ -198,6 +212,33 @@ class MailService
             // above stays here so a captured message is byte-for-byte the
             // message that would have gone out.
             $this->transport->deliver($mail, $purpose);
+        } catch (Transport\LaneExhaustedException $e) {
+            // A lane with nothing left is not a refusal: nobody has said
+            // no to this message, the road is simply shut. So it is kept
+            // rather than lost — except on the authentication lane, where
+            // a link delivered tomorrow is not a link (D9), and where the
+            // person is in front of their screen and needs the truth now.
+            $reason = MailErrorRedaction::withoutAddresses($e->reason !== '' ? $e->reason : $e->getMessage());
+
+            if ($this->deferred?->defer($e->lane, $purpose, $this->payloadFor(
+                $to,
+                $subject,
+                $bodyHtml,
+                $bodyText,
+                $replyTo,
+                $attachments,
+                $fromAddressOverride,
+                $fromNameOverride,
+                $extraHeaders
+            ), $reason) === true) {
+                $this->journalDeferral($e->lane, $reason);
+
+                return;
+            }
+
+            $this->journalFailure($reason);
+
+            throw new MailException(MailErrorRedaction::withoutAddresses($e->getMessage()));
         } catch (\Exception $e) {
             $reason = $mail->ErrorInfo ?: $e->getMessage();
             $this->journalFailure($reason);
@@ -242,6 +283,92 @@ class MailService
      * working) must not replace a MailException the caller knows how to
      * read with a PDOException it does not.
      */
+    /**
+     * The arguments of this call, in the shape the queue stores (D9).
+     *
+     * **Attachments are read here, now.** `send()` is given filesystem
+     * paths, and the ones it gets are routinely temporary files deleted
+     * the moment the request ends; a queue holding the path would drain
+     * successfully tomorrow and deliver a message whose receipt had
+     * vanished. Reading them at the point of deferral is the only moment
+     * they are all still guaranteed to exist.
+     *
+     * A file that cannot be read is dropped rather than failing the
+     * deferral: an e-mail that arrives without one of its attachments is
+     * worse than one that arrives whole, and better than one that never
+     * arrives at all.
+     *
+     * @param array<int, array{path: string, name: string}> $attachments
+     * @param array<string, string> $extraHeaders
+     * @return array{
+     *     to: string, subject: string, bodyHtml: string, bodyText: string,
+     *     replyTo: ?string, fromAddressOverride: ?string, fromNameOverride: ?string,
+     *     extraHeaders: array<string, string>,
+     *     attachments: array<int, array{name: string, content: string}>
+     * }
+     */
+    private function payloadFor(
+        string $to,
+        string $subject,
+        string $bodyHtml,
+        string $bodyText,
+        ?string $replyTo,
+        array $attachments,
+        ?string $fromAddressOverride,
+        ?string $fromNameOverride,
+        array $extraHeaders
+    ): array {
+        $carried = [];
+        foreach ($attachments as $attachment) {
+            $content = @file_get_contents($attachment['path']);
+            if ($content === false) {
+                continue;
+            }
+
+            $carried[] = ['name' => $attachment['name'], 'content' => $content];
+        }
+
+        return [
+            'to' => $to,
+            'subject' => $subject,
+            'bodyHtml' => $bodyHtml,
+            'bodyText' => $bodyText,
+            'replyTo' => $replyTo,
+            'fromAddressOverride' => $fromAddressOverride,
+            'fromNameOverride' => $fromNameOverride,
+            'extraHeaders' => $extraHeaders,
+            'attachments' => $carried,
+        ];
+    }
+
+    /**
+     * A message kept rather than lost, written down at `info`.
+     *
+     * Not an error: nothing has gone wrong for the recipient yet, and
+     * marking it `error` would put a line the colour of a real failure
+     * next to the ones that are. What makes it worth recording at all is
+     * that a deferral is invisible to whoever triggered it.
+     */
+    private function journalDeferral(Transport\MailLane $lane, string $reason): void
+    {
+        try {
+            $this->journal?->log(
+                'core',
+                'mail_deferred',
+                'info',
+                'Message différé : la voie n\'avait plus de fournisseur disponible',
+                [
+                    'lane' => $lane->value,
+                    'origin' => self::callerOutsideThisNamespace(),
+                    'reason' => MailErrorRedaction::withoutAddresses($reason),
+                ]
+            );
+        } catch (\Throwable) {
+            // Same posture as journalFailure() — the note never outranks
+            // the message it is about.
+        }
+    }
+
     private function journalFailure(string $reason): void
     {
         try {

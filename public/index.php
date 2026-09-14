@@ -1765,6 +1765,37 @@ $settingService->register(
     false,
     304
 );
+// The deferral queue's two numbers, and unlike the quota and the cadence
+// these ARE ordinary settings: scalars that need no context to be read,
+// so they belong on Configuration > Réglages with everything else and are
+// deliberately NOT added to SettingsController's exclusion list. A quota
+// means nothing without the fournisseur it belongs to; « combien de temps
+// un message attend avant qu'on renonce » means exactly what it says.
+$settingService->register(
+    \Core\Mail\Transport\DeferredMailQueue::SETTING_LIFETIME_HOURS,
+    (string) \Core\Mail\Transport\DeferredMailQueue::DEFAULT_LIFETIME_HOURS,
+    'integer',
+    'Durée de vie d\'un message différé (heures)',
+    'Au-delà, un message qui n\'a pas pu partir est abandonné plutôt qu\'envoyé : '
+        . 'un rappel de réunion qui arrive trois jours plus tard fait plus de mal que de bien.',
+    null,
+    null,
+    null,
+    true,
+    305
+);
+$settingService->register(
+    \Core\Mail\Transport\DeferredMailQueue::SETTING_ABANDONED_RETENTION_DAYS,
+    (string) \Core\Mail\Transport\DeferredMailQueue::DEFAULT_ABANDONED_RETENTION_DAYS,
+    'integer',
+    'Conservation des messages abandonnés (jours)',
+    'Combien de temps un message abandonné reste proposable à la relance, avant d\'être purgé avec son contenu.',
+    null,
+    null,
+    null,
+    true,
+    306
+);
 
 // `installed_at` declares itself (Core\Statistics\InstallationDateService::
 // register()) because SetupController writes it before this file has ever
@@ -3291,6 +3322,18 @@ $schedulerService->seed(
     'core',
     \Core\Mail\Transport\Task\PurgeSendCountersHandler::TASK_KEY,
     \Core\Mail\Transport\Task\PurgeSendCountersHandler::REFERENCE,
+    new DateTimeImmutable()
+);
+
+// The deferral queue's own pass (Core\Mail\Transport\Task\
+// DrainDeferredMailHandler): the messages whose next attempt is due, and
+// the purge of the ones nobody will send any more. Runs every five
+// minutes rather than daily — the first retry is five minutes out, and a
+// queue drained once a day would make that number a fiction.
+$schedulerService->seed(
+    'core',
+    \Core\Mail\Transport\Task\DrainDeferredMailHandler::TASK_KEY,
+    \Core\Mail\Transport\Task\DrainDeferredMailHandler::REFERENCE,
     new DateTimeImmutable()
 );
 
