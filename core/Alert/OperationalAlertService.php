@@ -43,8 +43,20 @@ final class OperationalAlertService
      */
     public const TYPE_MAIL = 'core.operational_alert_mail';
 
-    /** Keys whose notification uses {@see TYPE_MAIL}. */
-    private const MAIL_KEYS = [Check\MailDeliveryCheck::KEY];
+    /**
+     * Keys whose notification uses {@see TYPE_MAIL}.
+     *
+     * All three are alerts ABOUT outbound mail, so all three must reach
+     * their reader by some other road. The authentication one is the
+     * sharpest case: it fires precisely when nothing can carry a sign-in
+     * link, so an e-mail about it is the one message guaranteed not to
+     * arrive.
+     */
+    private const MAIL_KEYS = [
+        Check\MailDeliveryCheck::KEY,
+        Check\AuthenticationLaneCheck::KEY,
+        Check\DeferredMailBacklogCheck::KEY,
+    ];
 
     public function __construct(
         private readonly OperationalAlertRepository $repository,
