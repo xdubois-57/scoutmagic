@@ -276,10 +276,13 @@ final class MailProbeSender
             return [];
         }
 
+        // No guard on an empty address here, and that is deliberate:
+        // `getDefaultSender()` returns the very address the message is
+        // `From`, so an installation without one cannot get this far —
+        // PHPMailer refuses « Invalid address (From) » while the message
+        // is still being assembled, and `send()` reports that refusal.
+        // A branch for it would be a branch no request can enter.
         $replyTo = $this->mail->getDefaultSender()['address'];
-        if ($replyTo === '') {
-            return [];
-        }
 
         return ['List-Unsubscribe' => '<mailto:' . $replyTo . '?subject=Desinscription>'];
     }

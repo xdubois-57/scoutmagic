@@ -348,6 +348,50 @@ class OutboundMailCollectorTest extends TestCase
         $this->assertStringNotContainsString('SM-ABC234', $report);
     }
 
+    /**
+     * An installation whose composition root built no probe repository:
+     * the archive simply has no probe section, rather than a section
+     * announcing itself and then saying nothing, and certainly rather
+     * than a support package that cannot be produced at all on the day
+     * somebody needs it.
+     */
+    public function testAnInstallationWithoutTheProbeGetsAnArchiveWithoutThatSection(): void
+    {
+        $this->addRelay('Brevo', 'smtp-relay.brevo.com');
+        $this->mailProbes->record(
+            'SM-ABC234',
+            'vous@exemple.be',
+            7,
+            'Brevo',
+            MailLane::Bulk,
+            new \DateTimeImmutable('2026-09-01 08:00:00')
+        );
+
+        $report = $this->collect(withProbes: false);
+
+        $this->assertStringNotContainsString('Sondes de délivrabilité', $report);
+        // The rest of the archive is unaffected — the probe is one
+        // section among several, not a precondition of the others.
+        $this->assertStringContainsString('Brevo', $report);
+    }
+
+    /**
+     * And a probe table that cannot be read is the same answer as no
+     * probe at all. A support archive is asked for precisely when
+     * something is broken; a collector that threw on a damaged table
+     * would withhold the twelve other sections that still read fine.
+     */
+    public function testAProbeTableThatCannotBeReadCostsItsSectionAndNothingElse(): void
+    {
+        $this->addRelay('Brevo', 'smtp-relay.brevo.com');
+        $this->pdo->exec('DROP TABLE mail_probes');
+
+        $report = $this->collect();
+
+        $this->assertStringNotContainsString('Sondes de délivrabilité', $report);
+        $this->assertStringContainsString('Brevo', $report);
+    }
+
     public function testAnInstallationThatHasNeverProbedSaysSo(): void
     {
         $this->registerIdentity('info@unite.be', '');
@@ -526,7 +570,7 @@ class OutboundMailCollectorTest extends TestCase
         return $id;
     }
 
-    private function collect(): string
+    private function collect(bool $withProbes = true): string
     {
         $connections = new ProviderConnections($this->secrets);
         $collector = new OutboundMailCollector(
@@ -539,7 +583,7 @@ class OutboundMailCollectorTest extends TestCase
             $this->settings,
             $this->returnProbes,
             $this->inboundMail,
-            $this->mailProbes
+            $withProbes ? $this->mailProbes : null
         );
 
         $archivePath = $this->storagePath . '/temp/outbound-' . bin2hex(random_bytes(6)) . '.zip';

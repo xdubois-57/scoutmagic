@@ -43,10 +43,4 @@ final class MailProbe
         public readonly ?\DateTimeImmutable $verdictAt = null
     ) {
     }
-
-    /** Sent, and nobody has said yet where it landed. */
-    public function isPending(): bool
-    {
-        return $this->verdict === null;
-    }
 }

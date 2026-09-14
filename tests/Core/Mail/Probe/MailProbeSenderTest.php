@@ -19,6 +19,7 @@ use Core\Mail\Transport\MailProvider;
 use Core\Mail\Transport\MailProviderDirectory;
 use Core\Mail\Transport\MailProviderRepository;
 use Core\Mail\Transport\ProviderConnections;
+use Core\Mail\Transport\SendCounterRepository;
 use Core\Mail\Transport\TransportConfigurator;
 use Core\Security\EncryptionService;
 use Core\View\TwigFactory;
@@ -131,6 +132,93 @@ class MailProbeSenderTest extends TestCase
         );
     }
 
+    /**
+     * An installation with no expedition address configured — a real
+     * one, the field is a setting and the page that fills it in is two
+     * tabs away. The probe is refused rather than sent from nobody, and
+     * the refusal is a `MailProbeException`, so the page says it in
+     * French instead of showing whatever PHPMailer said.
+     *
+     * This is also why `headersFor()` has no empty-address branch: the
+     * address it would guard against is the `From`, so nothing reaches
+     * the header assembly without one.
+     */
+    public function testWithNoExpeditionAddressTheProbeIsRefusedRatherThanSentFromNobody(): void
+    {
+        $captured = null;
+        // The relay first: the directory reads the table once, when it
+        // is built.
+        $providerId = $this->addRelay('Brevo', 'smtp-relay.brevo.com');
+        $sender = $this->senderWith($this->capturingTransport($captured), '');
+
+        try {
+            $sender->send('vous@exemple.be', $providerId, MailLane::Bulk);
+            $this->fail('A probe with no From address must not be reported as sent.');
+        } catch (MailProbeException $e) {
+            $this->assertStringNotContainsString('vous@exemple.be', $e->getMessage());
+        }
+
+        $this->assertSame(0, $this->probes->count(), 'nothing may be recorded for a probe that never left.');
+    }
+
+    /**
+     * A relay list that cannot be read is not a relay list that is
+     * empty — but here the two behave alike on purpose: the form offers
+     * nothing and the send is refused, rather than the page dying on a
+     * database error at the moment somebody is diagnosing a delivery
+     * problem. The same reading of the same table as the dashboard's.
+     */
+    public function testARelayListThatCannotBeReadOffersNothingRatherThanCrashing(): void
+    {
+        $captured = null;
+        $sender = $this->senderWith($this->capturingTransport($captured));
+        $this->pdo->exec('DROP TABLE mail_providers');
+
+        $this->assertSame([], $sender->availableProviders());
+
+        $this->expectException(MailProbeException::class);
+        $sender->send('vous@exemple.be', 1, MailLane::Bulk);
+    }
+    /**
+     * **Bookkeeping is never the probe's verdict.** Three things run
+     * beside the send — the journal entry, the verdict's journal entry,
+     * and the relay's send counter — and each is written inside a
+     * `catch` that swallows its own failure on purpose.
+     *
+     * The reason is what the operator would otherwise be told. A message
+     * that the relay accepted, reported as a failure because a counter
+     * could not be incremented, has them record « jamais reçu » against
+     * a relay that did its job — and the history, which is the whole
+     * product of this page, then carries a verdict about the wrong
+     * thing.
+     *
+     * Here neither store can be written. The probe still leaves, the row
+     * is still written, and the verdict is still recorded.
+     */
+    public function testAProbeSurvivesAJournalAndACounterThatCannotBeWritten(): void
+    {
+        $captured = null;
+        $providerId = $this->addRelay('Brevo', 'smtp-relay.brevo.com');
+        $sender = $this->senderWith(
+            $this->capturingTransport($captured),
+            counters: new SendCounterRepository($this->pdo)
+        );
+
+        // `send_counters` is not in this fixture at all, which is the
+        // same thing from the repository's side: the statement fails.
+        $this->pdo->exec('DROP TABLE event_log');
+
+        $probe = $sender->send('vous@exemple.be', $providerId, MailLane::Bulk);
+
+        $this->assertInstanceOf(PHPMailer::class, $captured, 'the message must still have left.');
+        $this->assertSame(1, $this->probes->count());
+
+        $this->assertTrue(
+            $sender->recordVerdict($probe->id, MailProbeVerdict::Inbox),
+            'a verdict is recorded even when its journal entry cannot be.'
+        );
+        $this->assertSame(MailProbeVerdict::Inbox, $this->probes->find($probe->id)?->verdict);
+    }
     // ── the chosen road ───────────────────────────────────────────────
 
     /**
@@ -422,14 +510,17 @@ class MailProbeSenderTest extends TestCase
         return $captured;
     }
 
-    private function senderWith(MailTransportInterface $transport): MailProbeSender
-    {
+    private function senderWith(
+        MailTransportInterface $transport,
+        string $fromAddress = 'info@unite.be',
+        ?SendCounterRepository $counters = null
+    ): MailProbeSender {
         $connections = new ProviderConnections($this->secrets);
 
         return new MailProbeSender(
             new MailService(
                 'local',
-                'info@unite.be',
+                $fromAddress,
                 'Unité Exemple',
                 'EX',
                 new DkimManager($this->storagePath . '/keys'),
@@ -446,7 +537,8 @@ class MailProbeSenderTest extends TestCase
             $transport,
             $this->probes,
             $this->twig(),
-            new JournalService(new JournalRepository($this->pdo))
+            new JournalService(new JournalRepository($this->pdo)),
+            $counters
         );
     }
 

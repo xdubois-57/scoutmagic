@@ -1341,8 +1341,63 @@ nouveau déguisement : ce n'était pas une dépendance oubliée dans la
 racine, mais une dépendance que la classe s'était fabriquée elle-même
 pour ne pas avoir à la demander.
 
+### La couverture qui manquait, et ce qu'elle cachait
+
+La porte qualité de SonarCloud a refusé la PR à **66,0 % de couverture
+sur le code neuf** (seuil : 80 %), et la relecture Claude a nommé la même
+chose d'un autre côté : AGENTS.md demande, pour chaque route de
+contrôleur, **et** un test d'intégration sur la réponse **et** la
+frontière RBAC. Les trois routes de la sonde n'avaient que la seconde
+moitié.
+
+Ce n'était pas une exigence bureaucratique. Le bloc sonde du contrôleur
+— les trois actions, le rendu, les deux projections — n'était couvert par
+**aucune** ligne : ni le message de succès qui porte le code, ni la
+distinction `warning`/`error` qui est toute la raison d'être de
+`MailProbeNotRecordedException`, ni la page d'une installation sans
+sonde. Quinze tests d'intégration plus tard, le bloc est couvert à 100 %,
+et le code neuf de la PR à **98,8 %**.
+
+Trois de ces quinze ont trouvé quelque chose :
+
+**Un décor impossible, une cinquième fois.** Mon test du jeton périmé
+passait un jeton mort dans le corps de la requête tout en laissant le
+jeton valide dans `$_POST` — or `guardCsrf()` regarde aussi les
+superglobales, donc la requête était acceptée. Ce n'est pas une session
+expirée, c'est un état qu'aucune requête ne peut produire ; un refus
+prouvé contre lui n'aurait rien prouvé. Le test vide `$_POST` d'abord, et
+tombe alors correctement quand on retire la garde.
+
+**Une garde qui ne pouvait pas être atteinte.** `headersFor()` refusait
+de bâtir `List-Unsubscribe` quand l'adresse d'expédition était vide —
+sauf que cette adresse *est* le `From`, donc PHPMailer refuse le message
+bien avant l'assemblage des en-têtes. Une branche où aucune requête ne
+peut entrer. Elle est retirée, et le test dit ce qui se passe vraiment :
+sans adresse d'expédition, la sonde est refusée plutôt qu'envoyée de la
+part de personne — et le refus ne cite aucune adresse.
+
+**Une méthode que personne n'appelait.** `MailProbe::isPending()` n'avait
+aucun appelant : la page filtre en SQL, par `MailProbeRepository::
+pending()`. L'écrire avait l'air prudent ; la couvrir d'un test aurait
+été fabriquer de la couverture au lieu de la gagner. Elle est retirée.
+
+Le reste — journal indisponible, compteur d'envoi indisponible, table des
+sondes illisible, fournisseur inconnu, verdict inconnu, sonde disparue,
+second verdict — sont les branches écrites exprès pour avaler leur propre
+échec. Chacune est maintenant tenue par un test **vérifié en le cassant**,
+ce qui est la seule manière de distinguer « la branche fait ce qu'il
+faut » de « rien n'entre jamais dedans ».
+
 ### Reporté
 
+- **`@group database` en docblock ne fait plus rien.** PHPUnit 13 ne lit
+  plus les métadonnées des commentaires, et 509 fichiers de tests portent
+  encore cette étiquette : elle est décorative. Sans conséquence de
+  correction — ces tests tournent bien, dans la suite par défaut — mais
+  leur classe affirme une appartenance au job `database-mariadb` qu'elle
+  n'a pas. Découvert en vérifiant que mes propres tests tournaient bien
+  sur MariaDB. Hors périmètre d'IT-04 : c'est une reprise de 509
+  fichiers, à faire d'un bloc et sur sa propre PR.
 - La cadence hebdomadaire optionnelle (ci-dessus), tant que personne ne
   la demande : l'absence est plus sûre que le défaut.
 - Le rattachement d'un rebond à une sonde précise. Le code est déjà
