@@ -99,6 +99,83 @@
                     {% endif %}
                 {% endif %}
 
+                {# ————— Le raccordement Google, sur la fiche de l'emplacement —————
+
+                   IT-05: a Drive folder is a storage location, so the account,
+                   the consent screen and the warning about it belong here and
+                   not under « Sauvegarde hors site ». The seven-day expiry of a
+                   project left in « Test » status is the first cause of silent
+                   death of this integration, so it is repeated on the card of
+                   a location that has no grant yet — the moment an operator is
+                   about to create one. #}
+                {% if location.type.value == 'google_drive' %}
+                    {% set drive = drive_secrets[location.id] %}
+                    <div class="border rounded p-3 mt-3">
+                        <div class="d-flex flex-wrap align-items-center gap-2">
+                            <span class="fw-medium small flex-grow-1">Compte Google</span>
+                            {% if drive and drive.hasGrant %}
+                                <span class="badge text-bg-success">Raccordé</span>
+                            {% else %}
+                                <span class="badge text-bg-secondary">Non raccordé</span>
+                            {% endif %}
+                        </div>
+
+                        {% if drive and drive.hasGrant %}
+                            <div class="small text-body-secondary mt-1">
+                                {{ drive.account }}
+                                {% if location.config.connectedAt %}
+                                    — depuis le {{ location.config.connectedAt|date('d/m/Y') }}
+                                {% endif %}
+                            </div>
+                        {% endif %}
+
+                        {#
+                          Shown in BOTH states, and the connected one is the
+                          state it matters in: an authorisation issued by a
+                          project still in « Test » dies seven days after it
+                          was granted, so the card that reads « Raccordé » is
+                          exactly the card whose reader has a week to act.
+                        #}
+                        <div class="alert alert-warning small mt-2 mb-0" role="alert">
+                            <strong>Publiez l'écran de consentement de votre projet Google.</strong>
+                            Tant qu'il reste en statut « Test », Google fait expirer l'autorisation au bout de
+                            {{ drive_testing_token_days }} jours : tout ce qui écrit ici s'arrêterait sans
+                            prévenir, et vous ne le découvririez que le jour où vous en auriez besoin.
+                        </div>
+
+                        <div class="d-flex flex-wrap align-items-center gap-3 small mt-2">
+                            {% if drive and drive.hasClientSecret and drive_redirect_uri %}
+                                <a class="btn btn-link btn-sm p-0"
+                                   href="/config/stockage/emplacements/{{ location.id }}/google/raccordement">
+                                    {{ drive.hasGrant ? 'Reconnecter le compte' : 'Raccorder un compte Google Drive' }}
+                                </a>
+                            {% elseif not drive_redirect_uri %}
+                                <span class="text-body-secondary">
+                                    Renseignez d'abord l'adresse du site dans
+                                    <a href="/config/settings">Configuration &gt; Réglages</a>.
+                                </span>
+                            {% else %}
+                                <span class="text-body-secondary">
+                                    <a href="/config/stockage/emplacements/{{ location.id }}/modification">Enregistrez
+                                    d'abord l'identifiant et le secret du client OAuth</a>.
+                                </span>
+                            {% endif %}
+
+                            {% if drive and (drive.hasGrant or drive.hasClientSecret) %}
+                                {# Destructive, so a POST form with its CSRF token
+                                   and the shared data-confirm attribute — never a
+                                   button only a script can actuate. #}
+                                <form method="post"
+                                      action="/config/stockage/emplacements/{{ location.id }}/google/deraccordement"
+                                      data-confirm="Déraccorder le compte ? Ce site ne pourra plus écrire dans ce dossier, et les identifiants du client OAuth seront effacés. Rien n'est supprimé chez Google.">
+                                    {{ csrf_field()|raw }}
+                                    <button type="submit" class="btn btn-link btn-sm p-0 text-danger">Déraccorder</button>
+                                </form>
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endif %}
+
                 {# The consequences, produced from the capabilities the backend
                    declares — never the capabilities themselves (D3). #}
                 <ul class="list-unstyled small text-body-secondary mt-2 mb-0">

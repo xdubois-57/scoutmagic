@@ -11,7 +11,7 @@ namespace Core\Alert\Check;
 use Core\Alert\AlertReading;
 use Core\Alert\AlertThresholds;
 use Core\Alert\OperationalCheck;
-use Core\Maintenance\Remote\RemoteBackupTarget;
+use Core\Storage\Location\Backend\QuotaReportingBackend;
 
 /**
  * How full the destination account is.
@@ -41,10 +41,16 @@ final class RemoteQuotaCheck implements OperationalCheck
     public const KEY = 'remote_quota';
 
     /**
-     * @param RemoteBackupTarget|null $target null on a site with no
-     *        destination connected — not an error, and not measured
+     * @param QuotaReportingBackend|null $backend null on a site with no
+     *        destination chosen — and also on one whose destination simply
+     *        cannot say, which is the ordinary case for a bucket and for a
+     *        folder on this server's own disk. Neither is an error, and
+     *        neither is measured: the capability
+     *        ({@see \Core\Storage\Location\StorageCapability::Quota}) is
+     *        what decides, so a destination that gains or loses the
+     *        aptitude changes one declaration and this follows.
      */
-    public function __construct(private readonly ?RemoteBackupTarget $target)
+    public function __construct(private readonly ?QuotaReportingBackend $backend)
     {
     }
 
@@ -60,23 +66,24 @@ final class RemoteQuotaCheck implements OperationalCheck
 
     public function read(): AlertReading
     {
-        if ($this->target === null) {
+        if ($this->backend === null) {
             // Re-armed rather than inconclusive, for the reason
-            // RemoteBackupAgeCheck gives: disconnecting a destination has
-            // to clear the alert, not freeze the last reading taken of it.
+            // RemoteBackupAgeCheck gives: dropping a destination has to
+            // clear the alert, not freeze the last reading taken of it.
             return new AlertReading(
                 overTrigger: false,
                 underRearm: true,
-                value: 'non raccordé',
-                title: 'Aucune destination hors site n\'est raccordée.',
-                why: 'Il n\'y a pas d\'espace distant à surveiller.',
+                value: 'non mesuré',
+                title: 'Aucun espace distant n\'est mesurable.',
+                why: 'Aucune destination hors site n\'est choisie, ou celle qui l\'est ne sait pas dire ce qu\'il '
+                    . 'lui reste de place.',
                 actionUrl: '/config/maintenance',
                 actionLabel: 'Voir les sauvegardes'
             );
         }
 
         try {
-            $quota = $this->target->quota();
+            $quota = $this->backend->quota();
         } catch (\Throwable) {
             // Deliberately swallowed, and deliberately not journaled: the
             // pass runs every day, and a destination that is unreachable

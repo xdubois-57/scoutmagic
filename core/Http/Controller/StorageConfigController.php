@@ -17,6 +17,9 @@ use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\SsrfUrlValidator;
 use Core\Storage\Location\Backend\ObjectStorageBackend;
+use Core\Storage\Location\Backend\Drive\GoogleDriveClient;
+use Core\Storage\Location\Config\GoogleDriveLocationConfig;
+use Core\Storage\Location\Config\GoogleDriveSecret;
 use Core\Storage\Location\Config\LocalLocationConfig;
 use Core\Storage\Location\Config\LocationConfig;
 use Core\Storage\Location\Config\ObjectStorageLocationConfig;
@@ -93,7 +96,14 @@ class StorageConfigController extends AbstractController
          * scheduled task's business and not this screen's.
          */
         private ?StorageProtectionService $protections = null,
-        private ?SchedulerService $scheduler = null
+        private ?SchedulerService $scheduler = null,
+        /**
+         * Only ever read for `base_url`, which is what composes the OAuth
+         * redirect address a Google Drive location's card has to print
+         * character for character. Trailing and optional for the reason
+         * the two above are.
+         */
+        private ?\Core\Config\SettingService $settings = null
     ) {
     }
 
@@ -356,8 +366,35 @@ class StorageConfigController extends AbstractController
                 []
             ),
             'restorable_horizon_days' => $this->protections?->restorableHorizonInDays(),
+            // ——— Google Drive (IT-05) ———
+            // Read once per Drive location rather than once per render of
+            // the card: decrypting a secret is cheap, doing it inside a
+            // Twig loop is how it stops being.
+            'drive_secrets' => $this->driveSecretsFor($locations),
+            'drive_redirect_uri' => GoogleDriveConnectionController::redirectUriFor(
+                (string) ($this->settings?->get('base_url') ?: '')
+            ),
+            'drive_testing_token_days' => GoogleDriveClient::TESTING_TOKEN_LIFETIME_DAYS,
             'csrf_token' => CsrfGuard::generateToken(),
         ]);
+    }
+
+    /**
+     * The encrypted half of every Drive location on the page, by id.
+     *
+     * @param list<StorageLocation> $locations
+     * @return array<int, GoogleDriveSecret>
+     */
+    private function driveSecretsFor(array $locations): array
+    {
+        $secrets = [];
+        foreach ($locations as $location) {
+            if ($location->type === StorageLocationType::GoogleDrive) {
+                $secrets[$location->id] = $this->driveSecretOf($location);
+            }
+        }
+
+        return $secrets;
     }
 
     /**
@@ -438,10 +475,13 @@ class StorageConfigController extends AbstractController
             return $this->render('config/storage/location_form.html.twig', $context)->setStatusCode(403);
         }
 
-        $type = (string) $request->getBody('type', StorageLocationType::Local->value)
-            === StorageLocationType::ObjectStorage->value
-                ? StorageLocationType::ObjectStorage
-                : StorageLocationType::Local;
+        // Through `tryFrom()`, which is the enum's own door and the only
+        // validation the VARCHAR column has (see StorageLocationType).
+        // The chain of ternaries this replaces had to grow a branch per
+        // type, and the branch somebody forgets is a form that silently
+        // creates a local folder instead of what was asked for.
+        $type = StorageLocationType::tryFrom((string) $request->getBody('type', ''))
+            ?? StorageLocationType::Local;
         $label = trim((string) $request->getBody('label', ''));
 
         try {
@@ -452,10 +492,8 @@ class StorageConfigController extends AbstractController
             $id = $this->storageLocationService->create(
                 $type,
                 $label,
-                $this->configFromRequest($type, $request),
-                $type === StorageLocationType::ObjectStorage
-                    ? $this->nullableString($request->getBody('s3_secret_key'))
-                    : null
+                $this->configFromRequest($type, $request, null),
+                $this->secretFromRequest($type, $request, null)
             );
         } catch (StorageLocationException $e) {
             $context = $this->formContext(null);
@@ -465,7 +503,13 @@ class StorageConfigController extends AbstractController
         }
 
         $location = $this->storageLocationRepository->findById($id);
-        if ($location !== null) {
+        // **A Drive location is not tested on creation**, and the reason
+        // is that it cannot be: the row exists before any account is
+        // behind it, so a check here would record « échec » on a
+        // destination nobody has had the chance to connect yet — and that
+        // red line is the first thing the administrator would see on the
+        // card they now have to use.
+        if ($location !== null && $type !== StorageLocationType::GoogleDrive) {
             $this->storageLocationService->checkNow($location);
         }
 
@@ -525,24 +569,18 @@ class StorageConfigController extends AbstractController
         }
 
         $label = trim((string) $request->getBody('label', ''));
-        $secretChanged = $this->nullableString($request->getBody('s3_secret_key')) !== null;
+        $secret = $this->secretFromRequest($location->type, $request, $location);
+        $secretChanged = $secret !== null;
 
         try {
             if ($label === '') {
                 throw new StorageLocationException("Le nom de l'emplacement est obligatoire.");
             }
 
-            $config = $this->configFromRequest($location->type, $request);
+            $config = $this->configFromRequest($location->type, $request, $location);
             $this->assertNoConsumerObjects($location, $config, $location->isDefault);
 
-            $this->storageLocationService->update(
-                $location->id,
-                $label,
-                $config,
-                $location->type === StorageLocationType::ObjectStorage
-                    ? $this->nullableString($request->getBody('s3_secret_key'))
-                    : null
-            );
+            $this->storageLocationService->update($location->id, $label, $config, $secret);
         } catch (StorageLocationException $e) {
             $context = $this->formContext($location);
             $context['submit_error'] = $e->getMessage();
@@ -551,7 +589,10 @@ class StorageConfigController extends AbstractController
         }
 
         $refreshed = $this->storageLocationRepository->findById($location->id);
-        if ($refreshed !== null) {
+        if ($refreshed !== null && $location->type !== StorageLocationType::GoogleDrive) {
+            // See store(): a Drive location with no account behind it
+            // cannot be exercised, and recording a failure for that would
+            // describe the setup rather than a fault.
             $this->storageLocationService->checkNow($refreshed);
         }
 
@@ -952,6 +993,19 @@ class StorageConfigController extends AbstractController
             // administrator to guess three what.
             'usages' => $location !== null ? $this->storageLocationService->usagesOf($location->id) : [],
             's3_ai_available' => $this->s3ErrorExplainer->isAvailable(),
+            // ——— Google Drive (IT-05) ———
+            // The address to register in Google's console, spelled by the
+            // controller that also builds it for the flow: two spellings
+            // would be a `redirect_uri_mismatch` nobody could diagnose
+            // from either of them. Empty when this site does not know its
+            // own address, which the card turns into an instruction.
+            'drive_redirect_uri' => GoogleDriveConnectionController::redirectUriFor(
+                (string) ($this->settings?->get('base_url') ?: '')
+            ),
+            'drive_secret' => $this->driveSecretOf($location),
+            // The number the warning quotes comes from the client that
+            // suffers it, so the screen and the code cannot drift.
+            'drive_testing_token_days' => GoogleDriveClient::TESTING_TOKEN_LIFETIME_DAYS,
             // One spelling of « the default folder », shared with
             // StorageLocationService::ensureDefaultExists() and with
             // normalizeLocalPath()'s blank-submit fallback.
@@ -1151,10 +1205,31 @@ class StorageConfigController extends AbstractController
      *
      * @throws StorageLocationException on a sub-directory or an endpoint the site refuses
      */
-    private function configFromRequest(StorageLocationType $type, Request $request): LocationConfig
+    private function configFromRequest(
+        StorageLocationType $type,
+        Request $request,
+        ?StorageLocation $location
+    ): LocationConfig
     {
-        if ($type !== StorageLocationType::ObjectStorage) {
+        if ($type === StorageLocationType::Local) {
             return new LocalLocationConfig($this->normalizeLocalPath($request->getBody('subdir')));
+        }
+
+        if ($type === StorageLocationType::GoogleDrive) {
+            // **The folder and the connection date are never taken from
+            // the form**, which is why they are read back from the row
+            // rather than defaulted away. They are written by the consent
+            // round trip alone ({@see GoogleDriveConnectionController}),
+            // and a request that omitted them — every request from this
+            // form does — would otherwise silently disconnect a working
+            // destination by saving its own label.
+            $existing = $this->driveConfigOf($location);
+
+            return new GoogleDriveLocationConfig(
+                clientId: trim((string) $request->getBody('drive_client_id', '')),
+                folderId: $existing->folderId,
+                connectedAt: $existing->connectedAt
+            );
         }
 
         $endpoint = (string) $request->getBody('s3_endpoint', '');
@@ -1172,6 +1247,79 @@ class StorageConfigController extends AbstractController
             provider: $this->nullableProvider($request->getBody('s3_provider')),
             publicUrl: $this->nullableString($request->getBody('s3_public_url'))
         );
+    }
+
+    /**
+     * The encrypted half this form is submitting, or **null for « leave
+     * what is stored alone »**.
+     *
+     * That convention is the one every credential field in this codebase
+     * uses, and it is what lets an administrator correct a bucket name
+     * without re-typing a key they do not have in front of them. It is
+     * also why a Drive secret is MERGED rather than replaced: the record
+     * holds three values and this form submits one of them, so writing
+     * what the form sent would drop the grant and the account every time
+     * somebody renamed a location.
+     */
+    private function secretFromRequest(
+        StorageLocationType $type,
+        Request $request,
+        ?StorageLocation $location
+    ): ?string {
+        if ($type === StorageLocationType::ObjectStorage) {
+            return $this->nullableString($request->getBody('s3_secret_key'));
+        }
+
+        if ($type !== StorageLocationType::GoogleDrive) {
+            return null;
+        }
+
+        $clientSecret = $this->nullableString($request->getBody('drive_client_secret'));
+        if ($clientSecret === null) {
+            return null;
+        }
+
+        $existing = $location === null
+            ? new GoogleDriveSecret()
+            : GoogleDriveSecret::fromStorage($this->storageLocationRepository->getSecret($location->id));
+
+        return $existing->withClientSecret(trim($clientSecret))->toStorage();
+    }
+
+    /**
+     * The Drive record as it stands in the row, or an empty one.
+     *
+     * Empty for a location being created, and empty rather than a refusal
+     * for a row whose record cannot be read: what this is used for is
+     * preserving the folder and the connection date across an edit, and
+     * having neither is the truthful state of a destination nobody has
+     * connected yet.
+     */
+    /**
+     * The encrypted half of a Drive location, for the card that shows the
+     * account and whether a client secret is stored.
+     *
+     * **The refresh token never leaves this method's return value for a
+     * template**, and the account deliberately does: it is the e-mail of a
+     * real person, kept encrypted because a support package would
+     * otherwise carry it, and the one place it legitimately appears is in
+     * front of the administrator who is deciding whether the right account
+     * is connected.
+     */
+    private function driveSecretOf(?StorageLocation $location): GoogleDriveSecret
+    {
+        if ($location === null || $location->type !== StorageLocationType::GoogleDrive) {
+            return new GoogleDriveSecret();
+        }
+
+        return GoogleDriveSecret::fromStorage($this->storageLocationRepository->getSecret($location->id));
+    }
+
+    private function driveConfigOf(?StorageLocation $location): GoogleDriveLocationConfig
+    {
+        $config = $location?->config;
+
+        return $config instanceof GoogleDriveLocationConfig ? $config : new GoogleDriveLocationConfig();
     }
 
     private function nullableProvider(mixed $value): string

@@ -106,6 +106,21 @@ class LocalStorageBackend implements RangeReadableBackend, ResumableUploadBacken
      */
     private const PARTIAL_SUFFIX = '.scoutmagic-part';
 
+    /**
+     * Nothing to announce: a partial file needs no opening, and its last
+     * append is indistinguishable from any other.
+     *
+     * **Deliberately not a place to pre-allocate, nor to validate.** The
+     * announced total is what the SOURCE says, and a destination that
+     * created a file here on the strength of it would leave a zero-byte
+     * object behind for every copy that never started — where a
+     * filesystem's honest answer to « is an upload in flight » is the
+     * presence of the partial file itself.
+     */
+    public function beginPartial(string $key, int $totalBytes): void
+    {
+    }
+
     public function partialSize(string $key): int
     {
         $path = $this->fullPath($key . self::PARTIAL_SUFFIX);

@@ -1481,7 +1481,7 @@ $settingService->register(
 // the same declaration after a portable restore, and two copies of it would
 // be two copies to keep right.
 \Core\Statistics\InstallationIdentityService::register($settingService);
-\Core\Maintenance\Remote\RemoteBackupConnection::register($settingService);
+\Core\Maintenance\Remote\RemoteBackupDestination::register($settingService);
 \Core\Maintenance\Remote\RemotePassphrase::register($settingService);
 \Core\Maintenance\Remote\RemoteRetention::register($settingService);
 \Core\Maintenance\Task\SendRemoteBackupHandler::register($settingService);
@@ -2493,6 +2493,21 @@ $volumeInventory = new \Core\Storage\Volume\VolumeInventory(
     $storageLocationService,
     $storageBackendFactory
 );
+// **The second consumer that is not a module's** (IT-05). The off-site
+// backup is core — D1 puts backups there and they cannot depend on a
+// module — so it registers here and unconditionally, beside the safety
+// copy and for the same reason: without it, an administrator tidying up
+// the Stockage page would delete the destination their unit's only
+// off-site archives go to, be told nothing, and find out on the night the
+// server was gone.
+$remoteBackupDestination = new \Core\Maintenance\Remote\RemoteBackupDestination(
+    $settingService,
+    $storageLocationRepository,
+    $storageBackendFactory
+);
+$storageLocationConsumers->register(
+    new \Core\Maintenance\Remote\RemoteBackupConsumer($remoteBackupDestination)
+);
 $operationalRequestChecks = new \Core\Alert\RequestBoundChecks($storagePath);
 $uploadHandler = new UploadHandler($fileRepository, $storagePath, $diskBudget);
 $encryptedFileStorageService = new \Core\File\EncryptedFileStorageService(
@@ -2609,6 +2624,15 @@ $twig->addGlobal('unit_logo_available', $unitLogoService->resolveIconContent('64
 
 // Create backup service (Configuration > Maintenance)
 $backupRepository = new BackupRepository($pdo);
+// One service for the whole request, because two of them would be two
+// answers to « what is worth warning about this relation » — and since
+// IT-05 one of those answers depends on where the off-site backup writes.
+$storageProtectionService = new \Core\Storage\Location\Protection\StorageProtectionService(
+    $storageProtectionRepository,
+    $storageLocationRepository,
+    $backupRepository,
+    $remoteBackupDestination
+);
 $backupService = new BackupService(
     $connection,
     $storagePath,
@@ -4045,6 +4069,58 @@ $router->addRoute(
     'superadmin',
 );
 
+// Raccorder un compte Google Drive à un emplacement (IT-05).
+//
+// **`superadmin`, like every other route on this page**, and the callback
+// is not an exception to it: it arrives as a redirect from Google rather
+// than from a form, which is exactly why it is worth saying — an
+// unauthenticated callback that writes a refresh token is a route where
+// anybody able to compose a URL decides which Google account this site
+// writes to. The `state` checked against the session sits on top of that
+// floor; it does not replace it.
+//
+// The return address carries no identifier, deliberately: it has to match
+// the value registered in the operator's Google console character for
+// character, and a path holding a location id would stop matching the day
+// they declared a second destination (GoogleDriveConnectionController::
+// REDIRECT_PATH). Which location the answer belongs to travels in the
+// session beside the single-use state.
+//
+// That path is spelled out here rather than read from the constant,
+// because the authorization matrix parses this file as TEXT — an
+// expression where it expects a literal is a route it cannot see, and
+// `scripts/authz-support.php` refuses to audit an incomplete list rather
+// than audit it wrongly. The two spellings are held together by
+// Tests\Security\RemoteBackupSecrecyTest instead.
+$router->addRoute(
+    'GET',
+    '/config/stockage/google/retour',
+    \Core\Http\Controller\GoogleDriveConnectionController::class,
+    'callback',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/stockage/emplacements/{id}/google/identifiants',
+    \Core\Http\Controller\GoogleDriveConnectionController::class,
+    'saveCredentials',
+    'superadmin',
+);
+$router->addRoute(
+    'GET',
+    '/config/stockage/emplacements/{id}/google/raccordement',
+    \Core\Http\Controller\GoogleDriveConnectionController::class,
+    'connect',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/stockage/emplacements/{id}/google/deraccordement',
+    \Core\Http\Controller\GoogleDriveConnectionController::class,
+    'disconnect',
+    'superadmin',
+);
+
 // Member pages
 $router->addRoute(
     'GET',
@@ -4590,22 +4666,18 @@ $router->addRoute(
     'admin',
 );
 
-// **The off-site destination.** All seven routes sit at the `admin`
-// floor, the callback included: an open callback that writes a refresh
-// token would let anybody able to compose a URL decide which Google
-// account this site backs up to. The `state` checked against the session
-// sits on top of that floor; it does not replace it. The two passphrase
-// routes need that floor most of all — one shows the key to every
-// archive this site has ever sent off-server, and the other makes them
-// all unreadable.
+// **The off-site backup.** Three routes at the `admin` floor: which
+// declared location the archives go to, and the two that govern the
+// phrase those archives are encrypted with. Those two need that floor
+// most of all — one shows the key to every archive this site has ever
+// sent off-server, and the other makes them all unreadable.
+//
+// The Google conversation used to sit here and moved to Configuration >
+// Stockage in IT-05, because a Drive folder is a storage location now and
+// its raccordement belongs on its own card. What is left is the
+// ASSIGNMENT, which is D4: it belongs to the consumer that made it.
 $router->addRoute(
-    'POST', '/config/maintenance/remote/credentials', RemoteBackupController::class, 'saveCredentials', 'admin',
-);
-$router->addRoute('GET', '/config/maintenance/remote/connect', RemoteBackupController::class, 'connect', 'admin');
-$router->addRoute('GET', '/config/maintenance/remote/callback', RemoteBackupController::class, 'callback', 'admin');
-$router->addRoute('POST', '/config/maintenance/remote/test', RemoteBackupController::class, 'test', 'admin');
-$router->addRoute(
-    'POST', '/config/maintenance/remote/disconnect', RemoteBackupController::class, 'disconnect', 'admin',
+    'POST', '/config/maintenance/remote/destination', RemoteBackupController::class, 'chooseDestination', 'admin',
 );
 $router->addRoute(
     'POST',
@@ -5377,24 +5449,27 @@ $frontController->registerController(
         $journalService,
         new \Core\Storage\Location\Diagnostics\ObjectStorageErrorExplainer($llmConnectorForOthers),
         __DIR__,
-        new \Core\Storage\Location\Protection\StorageProtectionService(
-            $storageProtectionRepository,
-            $storageLocationRepository,
-            $backupRepository
-        ),
-        $schedulerService
+        $storageProtectionService,
+        $schedulerService,
+        $settingService
     )
 );
-
-// One connection object for the whole request: it is the only thing that
-// knows where the remote destination's credentials live, and two of them
-// would be two answers to that question.
-$remoteBackupConnection = new \Core\Maintenance\Remote\RemoteBackupConnection($settingService, $secretManager);
+$frontController->registerController(
+    \Core\Http\Controller\GoogleDriveConnectionController::class,
+    new \Core\Http\Controller\GoogleDriveConnectionController(
+        $twig,
+        $storageLocationRepository,
+        $storageLocationService,
+        $settingService,
+        $journalService
+    )
+);
 $frontController->registerController(
     RemoteBackupController::class,
     new RemoteBackupController(
         $twig,
-        $remoteBackupConnection,
+        $remoteBackupDestination,
+        $storageLocationRepository,
         $journalService,
         new \Core\Maintenance\Remote\RemotePassphrase($settingService, $secretManager)
     )
@@ -5428,7 +5503,13 @@ $frontController->registerController(
             $journalService
         ),
         // The directory holding cron.php, for the health block's crontab line.
-        __DIR__
+        __DIR__,
+        // Where the archives go, and what they could be pointed at
+        // instead. The page shows the assignment and nothing about
+        // Google: since IT-05 the raccordement lives on the location's
+        // own card under Configuration > Stockage.
+        $remoteBackupDestination,
+        $storageLocationService
     )
 );
 $frontController->registerController(VersionController::class, new VersionController($twig, $storagePath));

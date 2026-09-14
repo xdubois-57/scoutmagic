@@ -19,16 +19,22 @@ use Core\Journal\JournalService;
 use Core\Mail\MailService;
 use Core\Maintenance\BackupService;
 use Core\Maintenance\Portable\PortableKeys;
-use Core\Maintenance\Remote\RemoteBackupConnection;
+use Core\Maintenance\Remote\RemoteBackupDestination;
 use Core\Maintenance\Remote\RemotePassphrase;
 use Core\Maintenance\Task\SendRemoteBackupHandler;
 use Core\Scheduler\TaskContext;
+use Core\Storage\Location\Backend\ResumableUploadBackend;
+use Core\Storage\Location\Backend\StorageBackendFactory;
+use Core\Storage\Location\Config\GoogleDriveLocationConfig;
+use Core\Storage\Location\StorageLocationRepository;
+use Core\Storage\Location\StorageLocationType;
 use Core\Security\EncryptionService;
 use Core\Security\SecretManager;
 use Core\Security\UserAccountRepository;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\Core\Maintenance\Remote\InMemorySettingService;
+use Tests\Core\Storage\Location\Backend\RefusingBackend;
 
 /**
  * The archive the recurring send actually builds — built for real.
@@ -56,6 +62,9 @@ final class SendRemoteBackupArchiveTest extends TestCase
     private InMemorySettingService $settings;
     private SecretManager $secrets;
     private ?int $declaredLocationId = null;
+    private ?int $destinationLocationId = null;
+    private StorageLocationRepository $locations;
+    private RemoteBackupDestination $destination;
 
     protected function setUp(): void
     {
@@ -77,8 +86,30 @@ final class SendRemoteBackupArchiveTest extends TestCase
 
         $this->settings = new InMemorySettingService();
         $this->connection = $this->realConnection();
-        (new RemoteBackupConnection($this->settings, $this->secrets))
-            ->saveConnection('un-jeton-de-rafraichissement', 'unite@example.org', 'dossier-distant');
+
+        $this->locations = new StorageLocationRepository(
+            $this->connection->getPdo(),
+            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
+        $this->destination = new RemoteBackupDestination(
+            $this->settings,
+            $this->locations,
+            new StorageBackendFactory($this->locations, $this->storagePath)
+        );
+        // The destination is a declared location now, so the fixture has
+        // to declare one — and clean it up, for the reason tearDown()
+        // gives about a leftover default.
+        $this->destinationLocationId = $this->locations->create(
+            StorageLocationType::GoogleDrive,
+            'Google Drive ' . uniqid(),
+            new GoogleDriveLocationConfig('client-1', 'dossier-1', '2026-03-01T00:00:00+00:00'),
+            (string) json_encode([
+                'client_secret' => 's',
+                'refresh_token' => 'un-jeton-de-rafraichissement',
+                'account' => 'unite@example.org',
+            ])
+        );
+        $this->destination->choose($this->destinationLocationId);
     }
 
     protected function tearDown(): void
@@ -89,11 +120,14 @@ final class SendRemoteBackupArchiveTest extends TestCase
         // to ask which location is the default gets this one's answer.
         // Deleted by id and with a plain statement rather than through
         // the repository, whose own delete() promotes a survivor.
-        if ($this->declaredLocationId !== null) {
-            $statement = $this->connection->getPdo()->prepare('DELETE FROM storage_locations WHERE id = ?');
-            $statement->execute([$this->declaredLocationId]);
-            $this->declaredLocationId = null;
+        $statement = $this->connection->getPdo()->prepare('DELETE FROM storage_locations WHERE id = ?');
+        foreach ([$this->declaredLocationId, $this->destinationLocationId] as $id) {
+            if ($id !== null) {
+                $statement->execute([$id]);
+            }
         }
+        $this->declaredLocationId = null;
+        $this->destinationLocationId = null;
 
         $this->removeDirectory($this->basePath);
     }
@@ -110,13 +144,13 @@ final class SendRemoteBackupArchiveTest extends TestCase
     public function testTheArchiveOpensWithThePhraseTheSiteWouldShowItsOperator(): void
     {
         $this->skipWithoutZipEncryption();
-        $target = new RecordingTarget2();
+        $backend = new RecordingBackend2();
 
-        (new SendRemoteBackupHandler($target))->handle([], $this->context());
+        (new SendRemoteBackupHandler($backend, $this->destination))->handle([], $this->context());
 
-        $this->assertNotSame([], $target->sent, 'nothing was built, so nothing was sent');
+        $this->assertNotSame([], $backend->sent, 'nothing was built, so nothing was sent');
         $zip = new \ZipArchive();
-        $this->assertTrue($zip->open($target->sent[0]['path']) === true, 'the archive could not be reopened');
+        $this->assertTrue($zip->open($backend->sent[0]['path']) === true, 'the archive could not be reopened');
 
         $phrase = (new RemotePassphrase($this->settings, $this->secrets))->stored();
         $this->assertNotSame('', $phrase, 'the site has no phrase to show, yet it sent an encrypted archive');
@@ -136,17 +170,17 @@ final class SendRemoteBackupArchiveTest extends TestCase
     public function testTheNameCarriesThePassphraseGenerationThatOpensIt(): void
     {
         $this->skipWithoutZipEncryption();
-        $target = new RecordingTarget2();
+        $backend = new RecordingBackend2();
 
-        (new SendRemoteBackupHandler($target))->handle([], $this->context());
+        (new SendRemoteBackupHandler($backend, $this->destination))->handle([], $this->context());
         (new RemotePassphrase($this->settings, $this->secrets))->regenerate();
-        (new SendRemoteBackupHandler($target))->handle([], $this->context());
+        (new SendRemoteBackupHandler($backend, $this->destination))->handle([], $this->context());
 
-        $this->assertCount(2, $target->sent);
-        $this->assertMatchesRegularExpression('/^scoutmagic-[\d-]+-g1\.zip$/', $target->sent[0]['name']);
+        $this->assertCount(2, $backend->sent);
+        $this->assertMatchesRegularExpression('/^scoutmagic-[\d-]+-g1\.zip$/', $backend->sent[0]['name']);
         $this->assertMatchesRegularExpression(
             '/^scoutmagic-[\d-]+-g2\.zip$/',
-            $target->sent[1]['name'],
+            $backend->sent[1]['name'],
             'the second archive is encrypted with a new phrase and named as if the old one opened it'
         );
     }
@@ -175,20 +209,20 @@ final class SendRemoteBackupArchiveTest extends TestCase
         @mkdir($this->storagePath . '/uploads', 0755, true);
         file_put_contents($this->storagePath . '/gallery/1/photo.jpg', 'fake-jpeg-bytes');
         file_put_contents($this->storagePath . '/uploads/doc.pdf', 'fake-pdf-bytes');
-        $target = new RecordingTarget2();
+        $backend = new RecordingBackend2();
 
         // Nothing declared: the folder is part of the site like any other.
-        (new SendRemoteBackupHandler($target))->handle([], $this->context());
+        (new SendRemoteBackupHandler($backend, $this->destination))->handle([], $this->context());
         $this->assertContains(
             'storage/gallery/1/photo.jpg',
-            $this->entryNames($target->sent[0]['path']),
+            $this->entryNames($backend->sent[0]['path']),
             'an undeclared folder under storage/ is archived like the rest of it'
         );
 
         $this->declareTheGalleryFolderAsALocation();
 
-        (new SendRemoteBackupHandler($target))->handle([], $this->context());
-        $names = $this->entryNames($target->sent[1]['path']);
+        (new SendRemoteBackupHandler($backend, $this->destination))->handle([], $this->context());
+        $names = $this->entryNames($backend->sent[1]['path']);
 
         $this->assertNotContains(
             'storage/gallery/1/photo.jpg',
@@ -202,7 +236,7 @@ final class SendRemoteBackupArchiveTest extends TestCase
         // `includes_gallery: true` over an archive without a photograph in
         // it is worse than no manifest at all, because it is believed.
         $this->assertFalse(
-            $this->manifestOf($target->sent[1]['path'])['includes_gallery'] ?? null,
+            $this->manifestOf($backend->sent[1]['path'])['includes_gallery'] ?? null,
             'the manifest claims a gallery the archive does not carry'
         );
     }
@@ -330,17 +364,20 @@ final class SendRemoteBackupArchiveTest extends TestCase
 /**
  * A destination that keeps a copy of what it was handed.
  *
- * It has to copy rather than remember the path: the handler deletes the
+ * It has to keep the BYTES rather than the path: the handler deletes the
  * local archive the instant the send completes, deliberately (it carries
  * the master key), so a test that opened the original would be asserting
  * against a file the feature is supposed to have removed.
  */
-final class RecordingTarget2 implements \Core\Maintenance\Remote\RemoteBackupTarget
+final class RecordingBackend2 extends RefusingBackend implements ResumableUploadBackend
 {
     /** @var list<array{name: string, path: string}> */
     public array $sent = [];
 
     private string $keep;
+
+    /** @var array<string, string> */
+    private array $inFlight = [];
 
     public function __construct()
     {
@@ -356,54 +393,41 @@ final class RecordingTarget2 implements \Core\Maintenance\Remote\RemoteBackupTar
         @rmdir($this->keep);
     }
 
-    public function upload(string $localPath, string $remoteName): string
+    public function beginPartial(string $key, int $totalBytes): void
     {
-        return 'witness';
+        $this->inFlight[$key] = '';
     }
 
-    public function beginUpload(string $remoteName, int $size): string
+    public function partialSize(string $key): int
     {
-        $this->sent[] = ['name' => $remoteName, 'path' => ''];
-
-        return 'https://upload.example/session-' . count($this->sent);
+        return strlen($this->inFlight[$key] ?? '');
     }
 
-    public function probeUpload(string $sessionUrl, int $size): \Core\Maintenance\Remote\RemoteUpload
+    public function appendToPartial(string $key, string $chunk): void
     {
-        return \Core\Maintenance\Remote\RemoteUpload::inProgress($sessionUrl, 0);
+        $this->inFlight[$key] = ($this->inFlight[$key] ?? '') . $chunk;
     }
 
-    public function sendChunks(
-        string $sessionUrl,
-        string $localPath,
-        int $size,
-        int $offset,
-        \Closure $hasTimeLeft
-    ): \Core\Maintenance\Remote\RemoteUpload {
-        $last = count($this->sent) - 1;
-        $copy = $this->keep . '/' . basename($localPath);
-        copy($localPath, $copy);
-        $this->sent[$last]['path'] = $copy;
+    public function promotePartial(string $key, string $mimeType): void
+    {
+        $path = $this->keep . '/' . count($this->sent) . '-' . $key;
+        file_put_contents($path, $this->inFlight[$key] ?? '');
+        unset($this->inFlight[$key]);
 
-        return \Core\Maintenance\Remote\RemoteUpload::completed($sessionUrl, 'file-' . count($this->sent));
+        $this->sent[] = ['name' => $key, 'path' => $path];
     }
 
-    public function list(): array
+    public function discardPartial(string $key): void
     {
-        return [];
+        unset($this->inFlight[$key]);
     }
 
-    public function delete(string $remoteId): void
+    public function list(string $prefix, ?string $cursor = null, int $limit = 1000): \Core\Storage\Location\StorageListing
     {
+        return new \Core\Storage\Location\StorageListing([]);
     }
 
-    public function quota(): ?\Core\Maintenance\Remote\RemoteQuota
+    public function delete(string $key): void
     {
-        return null;
-    }
-
-    public function testConnection(): \Core\Maintenance\Remote\RemoteConnectionCheck
-    {
-        return \Core\Maintenance\Remote\RemoteConnectionCheck::success('unite@example.org', null);
     }
 }

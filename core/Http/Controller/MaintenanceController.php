@@ -25,10 +25,14 @@ use Core\Maintenance\GitHubReleaseClient;
 use Core\Maintenance\GitHubReleaseClientInterface;
 use Core\Maintenance\GitHubWebhookService;
 use Core\Maintenance\ReleaseInfo;
+use Core\Maintenance\Remote\RemoteBackupDestination;
 use Core\Maintenance\Remote\RemotePassphrase;
 use Core\Maintenance\UpdateException;
 use Core\Maintenance\UpdateHistoryRepository;
 use Core\Maintenance\Task\SendRemoteBackupHandler;
+use Core\Storage\Location\StorageCapability;
+use Core\Storage\Location\StorageLocation;
+use Core\Storage\Location\StorageLocationService;
 use Core\Maintenance\UpdateTargetSelector;
 use Core\Maintenance\VersionFile;
 use Core\Scheduler\CronHealth;
@@ -139,8 +143,47 @@ class MaintenanceController extends AbstractController
         // the other, so the public directory is the one anchor that answers
         // in both (ARCHITECTURE.md §9). Empty renders a generic placeholder
         // path rather than a wrong one.
-        private string $publicDir = ''
+        private string $publicDir = '',
+        /**
+         * Where the off-site backup sends, and the locations it could be
+         * pointed at (IT-05).
+         *
+         * **Last, and optional, so that adding them moved no existing
+         * argument** — the same care the two above were added with. Null
+         * means the « Sauvegarde hors site » block renders with no
+         * destination and no list to choose from, which is exactly what a
+         * site with no storage model would truthfully show, rather than a
+         * page that cannot be opened.
+         */
+        private ?RemoteBackupDestination $remoteBackupDestination = null,
+        private ?StorageLocationService $storageLocations = null
     ) {
+    }
+
+    /**
+     * The declared locations the off-site backup may be pointed at.
+     *
+     * **Filtered on the capability, never on the type.** « Can this
+     * destination resume an interrupted upload » is the question an
+     * archive of gibibytes actually asks, and the answer is declared by
+     * each backend: a kind of storage that gains the aptitude tomorrow
+     * appears in this list with nothing here changed, and one that never
+     * had it never appears at all. A list keyed on « is it Google Drive »
+     * would have been wrong the first time somebody pointed this at a
+     * WebDAV share.
+     *
+     * @return list<StorageLocation>
+     */
+    private function remoteBackupCandidates(): array
+    {
+        if ($this->storageLocations === null) {
+            return [];
+        }
+
+        return array_values(array_filter(
+            $this->storageLocations->all(),
+            static fn (StorageLocation $l): bool => $l->supports(StorageCapability::ResumableUpload)
+        ));
     }
 
     /**
@@ -175,17 +218,14 @@ class MaintenanceController extends AbstractController
 
         $cronStatus = (new CronHealth($this->storagePath, $this->settingService))->status();
 
-        $remoteBackup = new \Core\Maintenance\Remote\RemoteBackupConnection(
-            $this->settingService,
-            $this->secretManager
-        );
-        // Both read settings only. The phrase ITSELF is never put in the
+        // Read settings only. The phrase ITSELF is never put in the
         // template: revealing it is its own POST route, behind the CSRF
         // token and journaled (Core\Http\Controller\
         // RemoteBackupController::revealPassphrase()), so a page rendered
         // for any other reason — or cached anywhere — never carries it.
         $remotePassphrase = new RemotePassphrase($this->settingService, $this->secretManager);
         $remoteRetention = new \Core\Maintenance\Remote\RemoteRetention($this->settingService);
+        $remoteDestination = $this->remoteBackupDestination;
 
         // The most recent ATTEMPT, not the most recent success: a channel
         // whose last three installs all rolled back still has a perfectly
@@ -227,22 +267,18 @@ class MaintenanceController extends AbstractController
             // the thing this table exists to make obvious.
             'update_history' => $updateHistory,
             // ——— Bloc « Sauvegarde hors site » ———
-            // Read here rather than in a second controller because this is
-            // the page that renders it, and a screen that had to ask two
-            // controllers what state it is in would be a screen where the
-            // two can disagree. The QUOTA is deliberately not read: it
-            // costs a request to Google on every page view, and the answer
-            // an operator needs is « ça marche », which the Tester button
-            // gives them on demand.
-            'remote_backup_state' => $remoteBackup->state(),
-            'remote_backup_account' => $remoteBackup->account(),
-            'remote_backup_connected_at' => $remoteBackup->connectedAt(),
-            'remote_backup_last_error' => $remoteBackup->lastError(),
-            'remote_backup_client_id' => $remoteBackup->clientId(),
-            'remote_backup_has_secret' => $remoteBackup->clientSecret() !== '',
-            'remote_backup_has_credentials' => $remoteBackup->hasCredentials(),
-            'remote_backup_redirect_uri' => $remoteBackup->redirectUri(),
-            'remote_backup_quota_free' => null,
+            // ——— Where the archives go (IT-05) ———
+            // **This page no longer knows what Google is.** Raccordement,
+            // credentials, the consent screen and the connection test all
+            // moved to the location's own card on Configuration >
+            // Stockage; what is left here is the ASSIGNMENT, which is D4:
+            // the choice belongs to the consumer that made it. Nothing
+            // below asks any destination anything — reading a quota would
+            // cost a network round trip on every view of this page, and
+            // the answer an operator needs is « ça marche », which the
+            // Tester button on the location gives them on demand.
+            'remote_backup_location' => $remoteDestination?->location(),
+            'remote_backup_locations' => $this->remoteBackupCandidates(),
             // ——— The recurring off-site send (IT-09) ———
             // All local reads: the date of the last send that arrived, the
             // two retention bounds, and which generation of the phrase is
@@ -264,9 +300,6 @@ class MaintenanceController extends AbstractController
                 RemotePassphrase::GROUPS,
                 str_repeat('•', RemotePassphrase::GROUP_LENGTH)
             )),
-            // The number the warning quotes comes from the client that
-            // suffers it, so the screen and the code cannot drift.
-            'remote_backup_testing_token_days' => \Core\Maintenance\Remote\GoogleDriveClient::TESTING_TOKEN_LIFETIME_DAYS,
             // Every row, not the five the list shows at once: the cap is
             // retention's business now (per family, Core\Maintenance\
             // BackupRetention), and the screen's own « voir plus » needs

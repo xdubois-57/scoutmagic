@@ -8,8 +8,10 @@ declare(strict_types=1);
 
 namespace Core\Storage\Location;
 
+use Core\Storage\Location\Backend\GoogleDriveBackend;
 use Core\Storage\Location\Backend\LocalStorageBackend;
 use Core\Storage\Location\Backend\ObjectStorageBackend;
+use Core\Storage\Location\Config\GoogleDriveLocationConfig;
 use Core\Storage\Location\Config\LocalLocationConfig;
 use Core\Storage\Location\Config\LocationConfig;
 use Core\Storage\Location\Config\ObjectStorageLocationConfig;
@@ -39,6 +41,16 @@ enum StorageLocationType: string
     case ObjectStorage = 's3';
 
     /**
+     * A folder in somebody's Google Drive.
+     *
+     * **The value is `google_drive` and not `drive`**, because the column
+     * is written once and read for the life of an installation: a second
+     * provider whose product is also called « Drive » would have nowhere
+     * left to go.
+     */
+    case GoogleDrive = 'google_drive';
+
+    /**
      * The French name of this kind of storage, as an administrator picks
      * it from a list. Here rather than in a template because the same
      * words are needed by a screen, a journal-free support package and a
@@ -49,6 +61,7 @@ enum StorageLocationType: string
         return match ($this) {
             self::Local => 'Disque du serveur',
             self::ObjectStorage => 'S3 et compatibles',
+            self::GoogleDrive => 'Google Drive',
         };
     }
 
@@ -63,6 +76,7 @@ enum StorageLocationType: string
         return match ($this) {
             self::Local => LocalStorageBackend::declaredCapabilities(),
             self::ObjectStorage => ObjectStorageBackend::declaredCapabilities(),
+            self::GoogleDrive => GoogleDriveBackend::declaredCapabilities(),
         };
     }
 
@@ -84,6 +98,7 @@ enum StorageLocationType: string
         return match ($this) {
             self::Local => LocalLocationConfig::fromArray($raw),
             self::ObjectStorage => ObjectStorageLocationConfig::fromArray($raw),
+            self::GoogleDrive => GoogleDriveLocationConfig::fromArray($raw),
         };
     }
 }

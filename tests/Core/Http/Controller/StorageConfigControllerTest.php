@@ -17,6 +17,9 @@ use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
 use Core\Storage\Location\Backend\StorageBackendFactory;
+use Core\Http\Controller\GoogleDriveConnectionController;
+use Core\Storage\Location\Backend\Drive\GoogleDriveClient;
+use Core\Storage\Location\Config\GoogleDriveLocationConfig;
 use Core\Storage\Location\Config\LocalLocationConfig;
 use Core\Storage\Location\Config\LocationConfig;
 use Core\Storage\Location\Config\ObjectStorageLocationConfig;
@@ -669,6 +672,119 @@ class StorageConfigControllerTest extends TestCase
         $this->assertStringContainsString('Vidéos', $body);
         $this->assertStringNotContainsString('range_read', $body);
         $this->assertStringNotContainsString('plage d&#039;octets', $body);
+    }
+
+    /**
+     * **The Google card lives on the location, and carries the warning
+     * that decides whether this integration survives a week** (IT-05).
+     *
+     * A project left in « Test » status hands out refresh tokens Google
+     * withdraws after seven days, silently. The warning followed the
+     * backend here from Configuration > Maintenance, and a card that lost
+     * it on the way would look perfectly finished.
+     */
+    public function testTheGoogleDriveCardCarriesTheConsentScreenWarningAndTheAddressToRegister(): void
+    {
+        $this->declareDrive();
+
+        $body = $this->controller->locations(
+            new Request('GET', '/config/stockage/emplacements', [], [], [], []),
+            []
+        )->getBody();
+
+        $this->assertStringContainsString('Google Drive', $body);
+        $this->assertStringContainsString((string) GoogleDriveClient::TESTING_TOKEN_LIFETIME_DAYS . ' jours', $body);
+        $this->assertStringContainsString('/google/raccordement', $body);
+        // A card that already holds a grant offers to replace it, and says
+        // so — « Raccorder » would read as « rien n'est branché ».
+        $this->assertStringContainsString('Reconnecter le compte', $body);
+    }
+
+    /**
+     * A location nobody has connected yet offers the first connection,
+     * and carries the same warning — which is where an operator meets it
+     * before creating the grant that would die in a week.
+     */
+    public function testAnUnconnectedGoogleDriveCardOffersTheFirstConnection(): void
+    {
+        $this->repository->create(
+            StorageLocationType::GoogleDrive,
+            'Drive vierge',
+            new GoogleDriveLocationConfig('client-1'),
+            (string) json_encode(['client_secret' => 'le-secret-du-client', 'refresh_token' => '', 'account' => ''])
+        );
+
+        $body = $this->controller->locations(
+            new Request('GET', '/config/stockage/emplacements', [], [], [], []),
+            []
+        )->getBody();
+
+        $this->assertStringContainsString('Raccorder un compte Google Drive', $body);
+        $this->assertStringContainsString('Non raccordé', $body);
+        $this->assertStringContainsString((string) GoogleDriveClient::TESTING_TOKEN_LIFETIME_DAYS . ' jours', $body);
+    }
+
+    /** And the form prints the address Google's console has to be given. */
+    public function testTheCreationFormPrintsTheRedirectAddressToRegisterWithGoogle(): void
+    {
+        $body = $this->controller->create(
+            new Request('GET', '/config/stockage/emplacements/nouveau', [], [], [], []),
+            []
+        )->getBody();
+
+        $this->assertStringContainsString(
+            'https://unite.example' . GoogleDriveConnectionController::REDIRECT_PATH,
+            $body
+        );
+        $this->assertStringContainsString('drive_client_id', $body);
+    }
+
+    /**
+     * **The card never prints the connected account's own credentials**,
+     * and it does print the account — which is the one place that address
+     * legitimately appears, in front of the administrator deciding
+     * whether the right one is connected.
+     */
+    public function testTheGoogleDriveCardShowsTheAccountAndNeitherOfTheSecrets(): void
+    {
+        $this->declareDrive();
+
+        $body = $this->controller->locations(
+            new Request('GET', '/config/stockage/emplacements', [], [], [], []),
+            []
+        )->getBody();
+
+        $this->assertStringContainsString('unite@example.org', $body);
+        $this->assertStringNotContainsString('le-secret-du-client', $body);
+        $this->assertStringNotContainsString('le-jeton-de-rafraichissement', $body);
+    }
+
+    /**
+     * **A Drive location is not tested on creation**, and it cannot be:
+     * the row exists before any account is behind it, so a check would
+     * record « échec » on a destination nobody has had the chance to
+     * connect — and that red line is the first thing the administrator
+     * would meet on the card they now have to use.
+     */
+    public function testCreatingADriveLocationRecordsNoFailedHealthCheck(): void
+    {
+        $response = $this->controller->store(
+            new Request('POST', '/config/stockage/emplacements', [], [
+                'type' => 'google_drive',
+                'label' => 'Drive de l\'unité',
+                'drive_client_id' => 'client-1',
+                'drive_client_secret' => 'le-secret-du-client',
+                '_csrf_token' => $this->csrfToken(),
+            ], [], []),
+            []
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $created = $this->repository->findByLabel('Drive de l\'unité');
+        $this->assertNotNull($created);
+        $this->assertSame(StorageLocationType::GoogleDrive, $created->type);
+        $this->assertNull($created->lastCheckOk, 'a destination nobody could connect yet was recorded as failing');
+        $this->assertTrue($created->secretConfigured);
     }
 
     // ————— La copie de secours (IT-04) —————
@@ -1441,8 +1557,29 @@ class StorageConfigControllerTest extends TestCase
                 $repository,
                 new BackupRepository($this->pdo)
             ),
-            new SchedulerService(new SchedulerRepository($this->pdo))
+            new SchedulerService(new SchedulerRepository($this->pdo)),
+            // Only ever read for `base_url`, which is what composes the
+            // OAuth redirect address a Google Drive card has to print
+            // character for character (IT-05).
+            $this->settings()
         );
+    }
+
+    private function settings(): SettingService
+    {
+        $settings = new SettingService(new SettingRepository($this->pdo));
+        // Registered rather than written: `setInternal()` refuses a key
+        // nothing declared, and in production `base_url` is declared at
+        // bootstrap. The default IS the value here, so no row is needed.
+        $settings->register(
+            'base_url',
+            'https://unite.example',
+            'text',
+            'Adresse du site',
+            'L\'adresse publique de ce site.'
+        );
+
+        return $settings;
     }
 
     private function inventory(): VolumeInventory
@@ -1557,6 +1694,20 @@ class StorageConfigControllerTest extends TestCase
     private function declareLocal(string $label, string $path): int
     {
         return $this->repository->create(StorageLocationType::Local, $label, new LocalLocationConfig($path), null);
+    }
+
+    private function declareDrive(string $label = 'Google Drive'): int
+    {
+        return $this->repository->create(
+            StorageLocationType::GoogleDrive,
+            $label,
+            new GoogleDriveLocationConfig('client-1', 'dossier-1', '2026-03-01T00:00:00+00:00'),
+            (string) json_encode([
+                'client_secret' => 'le-secret-du-client',
+                'refresh_token' => 'le-jeton-de-rafraichissement',
+                'account' => 'unite@example.org',
+            ])
+        );
     }
 
     private function declareObjectStorage(string $label, ?string $publicUrl): int

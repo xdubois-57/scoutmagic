@@ -7,7 +7,7 @@
 
 declare(strict_types=1);
 
-namespace Core\Maintenance\Remote;
+namespace Core\Storage\Location\Backend\Drive;
 
 /**
  * How far an upload has got, and whether there is anything left to do.
@@ -20,12 +20,16 @@ namespace Core\Maintenance\Remote;
  * something went wrong; a `null` id would invite a caller to treat
  * progress as nothing.
  *
- * The pair travels into the scheduled task's payload between runs: the
- * session URI is what Google accepts more bytes on, and the offset is
- * where the next run starts writing. Google keeps a session for about a
- * week, which is the real deadline on finishing.
+ * **Where the pair lives is the one thing IT-05 changed about it.** It
+ * used to travel in the scheduled task's payload between runs, which made
+ * the database authoritative about a transfer in flight — so restoring a
+ * backup moved an upload backwards. Now the session URI is kept beside the
+ * partial object at the DESTINATION ({@see GoogleDriveBackend}), and the
+ * offset is asked of Google rather than remembered: D12, one level down.
+ * Google keeps a session for about a week, which is the real deadline on
+ * finishing.
  */
-final class RemoteUpload
+final class DriveUpload
 {
     private function __construct(
         public readonly string $sessionUrl,

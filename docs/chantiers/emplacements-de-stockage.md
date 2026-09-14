@@ -1147,3 +1147,113 @@ insérés avant `$publicPath`, ce qui a re-lié silencieusement tous les appels
 positionnels. Une erreur de type l'a signalé ici parce que les types
 différaient ; entre deux paramètres de même type, rien ne l'aurait fait. Ils
 sont à la fin, et optionnels.
+
+---
+
+# IT-05 — Les sauvegardes distantes deviennent un emplacement
+
+## Une interface pour une seule implémentation, et l'argument qui survit
+
+Le docblock de `RemoteBackupTarget` justifiait son existence sur deux
+appuis : le précédent de `StorageBackendInterface`, et la testabilité
+contre un service qui exige un compte Google, un projet et un écran de
+consentement. Les deux tiennent toujours — ils se révèlent avoir été des
+arguments pour être **cette** interface-là plutôt qu'une interface
+parallèle. Un dossier Drive n'a jamais été autre chose qu'un bucket avec
+un seul consommateur.
+
+`RemoteBackupTarget` disparaît. `beginUpload` / `sendChunks` /
+`probeUpload` deviennent la capacité **envoi repris**
+(`ResumableUploadBackend`), et ce que la page Maintenance configurait
+devient une ligne d'emplacement déclarée sur Configuration > Stockage.
+
+Ce que cela achète tout de suite : la copie de secours d'un emplacement
+(IT-04) peut écrire sur Drive ; un deuxième compte Drive devient
+représentable là où `remote_backup_refresh_token` le rendait impensable ;
+et l'écran qui compare les destinations inclut celle-ci sans rien savoir
+d'OAuth.
+
+## Deux endroits où la traduction n'est pas gratuite
+
+**`beginPartial($key, $totalBytes)` est nouveau sur l'interface.** Un
+système de fichiers n'en a pas besoin — un fichier partiel est un fichier
+partiel, et son dernier ajout ne se distingue d'aucun autre. Une
+destination qui frappe une **session** en a besoin : le protocole de
+Google veut la longueur d'avance, et `appendToPartial()` n'a aucun moyen
+de savoir quelle tranche est la dernière. Sans cela, un backend Drive
+serait contraint de deviner « chaque tranche pourrait être la dernière »,
+ce qui clôt un fichier au milieu de lui-même. `LocalStorageBackend`
+l'implémente par rien du tout.
+
+**L'URI de session ne se redécouvre pas**, alors le backend en garde une
+note à côté du fichier qu'elle décrit, **dans la destination** — un objet
+`.scoutmagic-part-*` que le listage cache. C'est D12 un étage plus bas :
+un transfert en vol est un fait sur la destination, et restaurer la base
+de ce site ne doit pas pouvoir le faire reculer. Sous 8 Mio — une tranche
+de `ProtectedCopier` — aucune session n'est ouverte du tout et les octets
+sont tamponnés en mémoire pour une requête : cinq allers-retours
+économisés, contre au plus 8 Mio à recommencer après une coupure.
+
+## Le jeton cesse d'être détruit par le diagnostic
+
+`markNeedsReauthorisation()` effaçait le jeton de rafraîchissement sur un
+refus, au motif qu'un identifiant mort dans `secrets.enc` est un
+identifiant à fuiter pour rien. Dans une colonne chiffrée d'une ligne
+d'emplacement, il est gardé — et c'est ce qui laisse
+`RemoteBackupAgeCheck` continuer à mesurer un site dont l'autorisation est
+morte en silence. C'est exactement la panne pour laquelle cette alerte
+existe, et c'est la suppression du jeton qui la masquait.
+
+Le test qui pinçait l'ancien comportement disait la même chose à l'envers :
+« une autorisation retirée n'est pas un site déraccordé ». Il reste, avec
+la même assertion et un piège en moins à contourner.
+
+## Deux mécanismes de rétention sur les mêmes fichiers : la décision
+
+La feuille de route laissait trancher. **Avertissement, pas interdiction**,
+et voici pourquoi.
+
+L'arrangement est cohérent une fois nommé : la rétention distante décide
+quelles archives restent sur la destination ; la protection copie ce qui
+s'y trouve et, après le délai de grâce, retire de la copie ce qui a quitté
+la source. La copie **suit** la rétention au lieu de la combattre, et rien
+n'est supprimé que l'opérateur n'ait, de proche en proche, demandé. Ce
+qu'il obtient est une seconde copie de ses archives hors site, en retard
+du délai de grâce — ce qu'une unité avec un seul compte cloud et un disque
+de rab veut réellement.
+
+Et une interdiction échouerait dans le mauvais sens : un emplacement
+devient la destination des sauvegardes **après** qu'une protection a été
+déclarée aussi facilement qu'avant, et aucun refus au moment de la
+déclaration ne couvre cet ordre-là — IT-04 a appris exactement cette leçon
+sur le refus d'exposition, qu'il a fallu répéter au moment de la
+reconfiguration pour qu'il veuille dire quelque chose. Une règle que l'on
+contourne en faisant deux étapes légitimes dans l'autre ordre n'est pas
+une protection.
+
+Donc c'est dit une fois, là où c'est actionnable, et la phrase nomme le
+délai de grâce — le seul chiffre que l'opérateur peut changer en réponse.
+
+## Ce que la charge de vérité déplace
+
+La charge « où en est le transfert » quitte la charge utile de la tâche
+pour la destination. Elle portait une URI de session, un décalage et un
+drapeau disant si ce décalage était sûr ; c'était la mécanique d'une tâche
+qui était aussi la seule chose de l'application à connaître le protocole
+de Google. Tout cela passe derrière `partialSize()`.
+
+L'obligation symétrique tombe de l'autre côté : `appendToPartial()` range
+**toute** la tranche avant de rendre la main, ou elle lève. Google a le
+droit de retenir moins qu'on ne lui a donné et de le dire ; un appelant
+qui avancerait de ce qu'il a tendu lirait sa tranche suivante après le
+trou, et l'archive se téléverserait, serait acceptée, et serait illisible
+le jour où elle sert. Le backend renvoie donc lui-même le reliquat.
+
+## Un défaut trouvé en écrivant les tests
+
+`partialSize()` re-sondait une session que **cette instance venait de
+terminer**. Google ferme une session résumable dès que son dernier octet
+atterrit, donc la re-solliciter répond « pas de session » — et cette
+méthode lisait cela comme « rien n'est stocké », ce qui aurait fait
+renvoyer une archive complète une seconde fois. Le décalage est connu à
+cet endroit sans demander à personne.

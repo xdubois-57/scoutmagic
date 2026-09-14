@@ -7,7 +7,10 @@
 
 declare(strict_types=1);
 
-namespace Core\Maintenance\Remote;
+namespace Core\Storage\Location\Backend\Drive;
+
+use Core\Storage\Location\StorageQuota;
+use Core\Storage\Location\StoredObject;
 
 /**
  * Google Drive over HTTP, by hand.
@@ -31,7 +34,8 @@ namespace Core\Maintenance\Remote;
  *
  * **What this class does NOT do**: decide anything. It has no idea where
  * the refresh token is kept, when it was last used, or what a backup is.
- * That is {@see GoogleDriveTarget} and {@see RemoteBackupConnection}.
+ * That is {@see \Core\Storage\Location\Backend\GoogleDriveBackend} and
+ * {@see \Core\Http\Controller\GoogleDriveConnectionController}.
  */
 final class GoogleDriveClient
 {
@@ -167,7 +171,7 @@ final class GoogleDriveClient
      * token.
      *
      * @return array{refresh_token: string, access_token: string, expires_in: int}
-     * @throws RemoteBackupException
+     * @throws DriveAccessException
      */
     public function exchangeCode(string $clientId, string $clientSecret, string $redirectUri, string $code): array
     {
@@ -185,7 +189,7 @@ final class GoogleDriveClient
             // only an access token — which `prompt=consent` above exists to
             // prevent. Saying so plainly beats storing an empty string and
             // failing a week later.
-            throw RemoteBackupException::of(
+            throw DriveAccessException::of(
                 'Google n\'a pas fourni de jeton de rafraîchissement. Révoquez l\'accès de cette application dans '
                 . 'votre compte Google, puis recommencez le raccordement.'
             );
@@ -200,7 +204,7 @@ final class GoogleDriveClient
 
     /**
      * @return array{access_token: string, expires_in: int}
-     * @throws RemoteBackupException
+     * @throws DriveAccessException
      */
     public function refreshAccessToken(string $clientId, string $clientSecret, string $refreshToken): array
     {
@@ -213,7 +217,7 @@ final class GoogleDriveClient
 
         $accessToken = (string) ($decoded['access_token'] ?? '');
         if ($accessToken === '') {
-            throw RemoteBackupException::of('Google a répondu sans jeton d\'accès utilisable.');
+            throw DriveAccessException::of('Google a répondu sans jeton d\'accès utilisable.');
         }
 
         return ['access_token' => $accessToken, 'expires_in' => (int) ($decoded['expires_in'] ?? 3600)];
@@ -222,8 +226,8 @@ final class GoogleDriveClient
     /**
      * The account and its storage quota.
      *
-     * @return array{account: string, quota: ?RemoteQuota}
-     * @throws RemoteBackupException
+     * @return array{account: string, quota: ?StorageQuota}
+     * @throws DriveAccessException
      */
     public function about(string $accessToken): array
     {
@@ -240,7 +244,7 @@ final class GoogleDriveClient
         // storage — reading it as 0 would report a full disk to somebody
         // who has no disk to fill.
         $quota = isset($storage['limit'])
-            ? new RemoteQuota((int) ($storage['usage'] ?? 0), (int) $storage['limit'])
+            ? new StorageQuota((int) ($storage['usage'] ?? 0), (int) $storage['limit'])
             : null;
 
         return ['account' => (string) ($user['emailAddress'] ?? ''), 'quota' => $quota];
@@ -254,7 +258,7 @@ final class GoogleDriveClient
      * own files, so "is there already one" is a question about this
      * application's history and not about the operator's Drive.
      *
-     * @throws RemoteBackupException
+     * @throws DriveAccessException
      */
     public function ensureFolder(string $accessToken, string $name): string
     {
@@ -281,66 +285,221 @@ final class GoogleDriveClient
         );
         $id = (string) ($created['id'] ?? '');
         if ($id === '') {
-            throw RemoteBackupException::of('Le dossier de destination n\'a pas pu être créé sur Google Drive.');
+            throw DriveAccessException::of('Le dossier de destination n\'a pas pu être créé sur Google Drive.');
         }
 
         return $id;
     }
 
     /**
-     * Everything this application has left in the folder, newest first.
+     * One page of the folder's contents, newest first.
      *
-     * **Every page of it.** Drive answers a listing one page at a time and
-     * says so with `nextPageToken`; a caller that reads only the first
-     * page sees the hundred newest files and believes that is all there
-     * is. The caller this exists for is the retention purge, and for a
-     * purge that belief is the worst possible one: the files it would
-     * never see are precisely the oldest — the ones it exists to delete —
-     * so an account past a hundred archives would fill up while the purge
-     * reported nothing to do. Ordering newest-first makes the blind spot
-     * land exactly where it does the most damage.
+     * **Paged, where this used to fetch everything in a loop, and the
+     * loop moved rather than disappeared.** It belonged here while the
+     * only caller was the retention purge; now
+     * {@see \Core\Storage\Location\Backend\StorageBackendInterface::
+     * list()} is a paged contract that every backend keeps, because the
+     * caller that walks a whole location — the safety copy of IT-04 —
+     * runs under a time budget and has to stop between two pages.
      *
-     * @return RemoteFile[]
-     * @throws RemoteBackupException
+     * **A caller that reads only the first page and believes that is all
+     * there is has the worst possible belief**, and that has not changed:
+     * the files it would never see are the OLDEST — exactly the ones a
+     * purge exists to delete — so an account past a hundred archives
+     * would fill up while the purge reported nothing to do. Ordering
+     * newest-first puts the blind spot where it does the most damage,
+     * which is why the cursor below is not optional decoration.
+     *
+     * `size` is absent on a Google-native document (a Doc, a Sheet) and
+     * read as 0; under the `drive.file` scope this folder holds only what
+     * this application uploaded, so that case is theoretical here and
+     * reported honestly rather than guessed at.
+     *
+     * @return array{objects: list<StoredObject>, cursor: ?string}
+     * @throws DriveAccessException
      */
-    public function listFiles(string $accessToken, string $folderId): array
+    public function listPage(string $accessToken, string $folderId, ?string $pageToken, int $pageSize): array
     {
-        $query = sprintf("'%s' in parents and trashed=false", str_replace("'", "\\'", $folderId));
-        $files = [];
-        $pageToken = '';
+        $parameters = [
+            'q' => sprintf("'%s' in parents and trashed=false", str_replace("'", "\\'", $folderId)),
+            'fields' => 'nextPageToken,files(id,name,size,md5Checksum,modifiedTime)',
+            'orderBy' => 'createdTime desc',
+            'pageSize' => max(1, min(self::LIST_PAGE_SIZE, $pageSize)),
+        ];
+        if ($pageToken !== null && $pageToken !== '') {
+            $parameters['pageToken'] = $pageToken;
+        }
 
-        do {
-            $parameters = [
-                'q' => $query,
-                'fields' => 'nextPageToken,files(id,name,size,createdTime)',
-                'orderBy' => 'createdTime desc',
-                'pageSize' => self::LIST_PAGE_SIZE,
-            ];
-            if ($pageToken !== '') {
-                $parameters['pageToken'] = $pageToken;
+        $decoded = $this->apiJson('GET', self::API_BASE . '/files?' . http_build_query($parameters), $accessToken);
+
+        $objects = [];
+        foreach (is_array($decoded['files'] ?? null) ? $decoded['files'] : [] as $entry) {
+            if (!is_array($entry) || !isset($entry['name'])) {
+                continue;
             }
+            $objects[] = new StoredObject(
+                (string) $entry['name'],
+                (int) ($entry['size'] ?? 0),
+                self::comparableChecksum($entry),
+                isset($entry['modifiedTime']) ? (string) $entry['modifiedTime'] : null
+            );
+        }
 
-            $decoded = $this->apiJson('GET', self::API_BASE . '/files?' . http_build_query($parameters), $accessToken);
+        $next = is_string($decoded['nextPageToken'] ?? null) ? $decoded['nextPageToken'] : '';
 
-            foreach (is_array($decoded['files'] ?? null) ? $decoded['files'] : [] as $entry) {
-                if (!is_array($entry) || !isset($entry['id'])) {
-                    continue;
-                }
-                $files[] = new RemoteFile(
-                    (string) $entry['id'],
-                    (string) ($entry['name'] ?? ''),
-                    (int) ($entry['size'] ?? 0),
-                    (string) ($entry['createdTime'] ?? '')
-                );
-            }
-
-            $pageToken = is_string($decoded['nextPageToken'] ?? null) ? $decoded['nextPageToken'] : '';
-        } while ($pageToken !== '');
-
-        return $files;
+        return ['objects' => $objects, 'cursor' => $next !== '' ? $next : null];
     }
 
-    /** @throws RemoteBackupException */
+    /**
+     * The one file in this folder called $name, or null.
+     *
+     * **Drive lets two files share a name**, which a filesystem does not,
+     * and the whole of this client addresses files by NAME because that
+     * is what a storage key is. So « the one file » is a claim this
+     * method has to make good on: it asks for the newest and answers with
+     * that, and every write path removes the duplicates it creates (see
+     * {@see \Core\Storage\Location\Backend\GoogleDriveBackend}). What
+     * must never happen is a reader and a deleter picking different
+     * files — so both go through here.
+     *
+     * @return array{id: string, size: int, checksum: ?string, modifiedAt: ?string}|null
+     * @throws DriveAccessException
+     */
+    public function findFile(string $accessToken, string $folderId, string $name): ?array
+    {
+        $query = sprintf(
+            "'%s' in parents and trashed=false and name='%s'",
+            str_replace("'", "\\'", $folderId),
+            str_replace("'", "\\'", $name)
+        );
+        $decoded = $this->apiJson('GET', self::API_BASE . '/files?' . http_build_query([
+            'q' => $query,
+            'fields' => 'files(id,size,md5Checksum,modifiedTime)',
+            'orderBy' => 'createdTime desc',
+            'pageSize' => 1,
+        ]), $accessToken);
+
+        $files = is_array($decoded['files'] ?? null) ? $decoded['files'] : [];
+        $entry = is_array($files[0] ?? null) ? $files[0] : null;
+        if ($entry === null || !isset($entry['id'])) {
+            return null;
+        }
+
+        return [
+            'id' => (string) $entry['id'],
+            'size' => (int) ($entry['size'] ?? 0),
+            'checksum' => self::comparableChecksum($entry),
+            'modifiedAt' => isset($entry['modifiedTime']) ? (string) $entry['modifiedTime'] : null,
+        ];
+    }
+
+    /**
+     * Every file in this folder called $name EXCEPT $keepId, newest
+     * first — the duplicates a write has just created.
+     *
+     * @return list<string>
+     * @throws DriveAccessException
+     */
+    public function findDuplicates(string $accessToken, string $folderId, string $name, string $keepId): array
+    {
+        $query = sprintf(
+            "'%s' in parents and trashed=false and name='%s'",
+            str_replace("'", "\\'", $folderId),
+            str_replace("'", "\\'", $name)
+        );
+        $decoded = $this->apiJson('GET', self::API_BASE . '/files?' . http_build_query([
+            'q' => $query,
+            'fields' => 'files(id)',
+            'pageSize' => self::LIST_PAGE_SIZE,
+        ]), $accessToken);
+
+        $ids = [];
+        foreach (is_array($decoded['files'] ?? null) ? $decoded['files'] : [] as $entry) {
+            $id = is_array($entry) ? (string) ($entry['id'] ?? '') : '';
+            if ($id !== '' && $id !== $keepId) {
+                $ids[] = $id;
+            }
+        }
+
+        return $ids;
+    }
+
+    /**
+     * The bytes of a file, whole.
+     *
+     * Deliberately without a range variant, and that is a scope statement
+     * rather than an omission: reading a film in slices is what
+     * {@see \Core\Storage\Location\StorageCapability::RangeRead} is,
+     * this backend does not declare it, and a method here that nothing
+     * declares would be exactly the capability lie the enum exists to
+     * prevent. IT-07 adds both together or neither.
+     *
+     * @throws DriveAccessException
+     */
+    public function download(string $accessToken, string $fileId): string
+    {
+        $response = $this->send(
+            'GET',
+            self::API_BASE . '/files/' . rawurlencode($fileId) . '?alt=media',
+            ['Authorization' => 'Bearer ' . $accessToken]
+        );
+
+        if ($response['status'] < 200 || $response['status'] >= 300) {
+            throw $this->errorFor($response, 'Le fichier n\'a pas pu être relu sur Google Drive.');
+        }
+
+        return $response['body'];
+    }
+
+    /**
+     * The checksum Drive announces, when it is one an MD5 can be compared
+     * with.
+     *
+     * Drive's `md5Checksum` IS an MD5 of the whole file, whatever the
+     * upload was cut into — which is the difference from S3's ETag and
+     * the reason this backend declares
+     * {@see \Core\Storage\Location\StorageCapability::Checksum} where
+     * the object store does not. Absent on a Google-native document,
+     * which is why the field is nullable rather than defaulted.
+     *
+     * @param array<string, mixed> $entry
+     */
+    private static function comparableChecksum(array $entry): ?string
+    {
+        $md5 = $entry['md5Checksum'] ?? null;
+
+        return is_string($md5) && preg_match('/^[0-9a-f]{32}$/i', $md5) === 1 ? strtolower($md5) : null;
+    }
+
+    /**
+     * Records what kind of file this actually is, after the fact.
+     *
+     * **Because a resumable session is opened before anybody says.**
+     * Google wants `X-Upload-Content-Type` when the session is minted,
+     * and the contract that opens one
+     * ({@see \Core\Storage\Location\Backend\ResumableUploadBackend::
+     * beginPartial()}) deliberately carries a size and nothing else — the
+     * media type belongs to the promotion, which is where the caller
+     * actually states it. So the session opens on
+     * `application/octet-stream` and this corrects it once the bytes are
+     * there. One extra request per large file, against a folder of
+     * archives that would otherwise all read as « données binaires » in
+     * the operator's own Drive.
+     *
+     * @throws DriveAccessException
+     */
+    public function setMimeType(string $accessToken, string $fileId, string $mimeType): void
+    {
+        $this->apiJson(
+            'PATCH',
+            self::API_BASE . '/files/' . rawurlencode($fileId) . '?fields=id',
+            $accessToken,
+            (string) json_encode(['mimeType' => $mimeType]),
+            'application/json'
+        );
+    }
+
+    /** @throws DriveAccessException */
     public function deleteFile(string $accessToken, string $fileId): void
     {
         $response = $this->send(
@@ -358,41 +517,49 @@ final class GoogleDriveClient
     }
 
     /**
-     * Sends a local file in pieces and answers with its Drive id.
+     * Writes a small object in one request and answers with its Drive id.
      *
-     * **Chunked and streamed from disk.** A portable backup is the size
-     * of the whole site; holding it in a PHP string to post it would make
-     * the peak memory of a send depend on how much the unit has stored,
-     * on exactly the shared hosting this feature is for.
+     * **For the small things only**, and the threshold is not a matter of
+     * taste: the body is held in a PHP string, so this is for a witness
+     * file or a few hundred bytes of bookkeeping. Anything whose size
+     * depends on what a unit has stored goes through the resumable
+     * session below — on the shared hosting this application exists for,
+     * a multi-gibibyte string is not slow, it is a fatal.
      *
-     * **What "resumable" does and does not mean here.** The protocol is
-     * the one that MAKES resumption possible — the session URI outlives a
-     * dropped connection, and Google will say how far it got when asked.
-     * This method does not yet use that: one call sends the whole file in
-     * one pass, and a connection lost half way propagates out rather than
-     * picking up where it stopped. Keeping the session URI and the offset
-     * across scheduler runs, and asking `bytes * / total` after a failure,
-     * is IT-09's work — the iteration that actually sends backups, under a
-     * time budget, over the domestic upstream link this was chosen for.
-     * Saying so plainly is the point: a docblock promising resilience the
-     * code does not implement is how the gap survives review.
+     * Multipart rather than the two-step upload: one round trip carries
+     * the metadata and the bytes together, which for a 200-byte witness
+     * is the difference between one request and three.
      *
-     * @throws RemoteBackupException
+     * @throws DriveAccessException
      */
-    public function uploadFile(string $accessToken, string $folderId, string $localPath, string $remoteName): string
-    {
-        $size = @filesize($localPath);
-        if ($size === false) {
-            throw RemoteBackupException::of('Le fichier à envoyer est introuvable sur ce serveur.');
+    public function uploadContents(
+        string $accessToken,
+        string $folderId,
+        string $remoteName,
+        string $contents,
+        string $mimeType
+    ): string {
+        $boundary = 'scoutmagic' . bin2hex(random_bytes(16));
+        $metadata = (string) json_encode(['name' => $remoteName, 'parents' => [$folderId]]);
+
+        $body = "--{$boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{$metadata}\r\n"
+            . "--{$boundary}\r\nContent-Type: {$mimeType}\r\n\r\n{$contents}\r\n"
+            . "--{$boundary}--\r\n";
+
+        $response = $this->send(
+            'POST',
+            self::UPLOAD_BASE . '/files?uploadType=multipart&fields=id',
+            [
+                'Authorization' => 'Bearer ' . $accessToken,
+                'Content-Type' => 'multipart/related; boundary=' . $boundary,
+            ],
+            $body
+        );
+        if ($response['status'] < 200 || $response['status'] >= 300) {
+            throw $this->errorFor($response, 'Google Drive a refusé le fichier.');
         }
 
-        $sessionUrl = $this->beginUpload($accessToken, $folderId, $remoteName, $size);
-        $upload = $this->sendChunks($sessionUrl, $localPath, $size, 0, static fn(): bool => true);
-        if (!$upload->isComplete()) {
-            throw RemoteBackupException::of('L\'envoi vers Google Drive s\'est terminé sans confirmation.');
-        }
-
-        return $upload->fileId;
+        return $this->acceptedFileId($response);
     }
 
     /**
@@ -404,17 +571,22 @@ final class GoogleDriveClient
      * across several. The caller stores it; losing it means starting the
      * whole archive again.
      *
-     * @throws RemoteBackupException
+     * @throws DriveAccessException
      */
-    public function beginUpload(string $accessToken, string $folderId, string $remoteName, int $size): string
-    {
+    public function beginUpload(
+        string $accessToken,
+        string $folderId,
+        string $remoteName,
+        int $size,
+        string $mimeType
+    ): string {
         $session = $this->send(
             'POST',
             self::UPLOAD_BASE . '/files?uploadType=resumable&fields=id',
             [
                 'Authorization' => 'Bearer ' . $accessToken,
                 'Content-Type' => 'application/json; charset=UTF-8',
-                'X-Upload-Content-Type' => 'application/zip',
+                'X-Upload-Content-Type' => $mimeType,
                 'X-Upload-Content-Length' => (string) $size,
             ],
             (string) json_encode(['name' => $remoteName, 'parents' => [$folderId]])
@@ -424,7 +596,7 @@ final class GoogleDriveClient
         }
         $sessionUrl = $session['location'] ?? '';
         if ($sessionUrl === '') {
-            throw RemoteBackupException::of('Google Drive n\'a pas indiqué où envoyer le fichier.');
+            throw DriveAccessException::of('Google Drive n\'a pas indiqué où envoyer le fichier.');
         }
 
         return $sessionUrl;
@@ -445,9 +617,9 @@ final class GoogleDriveClient
      * chunk landed and only the answer was lost — which is a resume that
      * has nothing left to do rather than an error.
      *
-     * @throws RemoteBackupException
+     * @throws DriveAccessException
      */
-    public function probeUpload(string $sessionUrl, int $size): RemoteUpload
+    public function probeUpload(string $sessionUrl, int $size): DriveUpload
     {
         $response = $this->send('PUT', $sessionUrl, [
             'Content-Length' => '0',
@@ -455,105 +627,91 @@ final class GoogleDriveClient
         ]);
 
         if ($response['status'] === 308) {
-            return RemoteUpload::inProgress($sessionUrl, $this->committedOffset($response, 0));
+            return DriveUpload::inProgress($sessionUrl, $this->committedOffset($response, 0));
         }
         if ($response['status'] >= 200 && $response['status'] < 300) {
-            return RemoteUpload::completed($sessionUrl, $this->acceptedFileId($response));
+            return DriveUpload::completed($sessionUrl, $this->acceptedFileId($response));
         }
 
         throw $this->errorFor($response, 'Google Drive n\'a pas dit où reprendre l\'envoi.');
     }
 
     /**
-     * Sends from `$offset` until the file is done or the budget runs out.
+     * Sends ONE piece, from `$offset`, and says what Google made of it.
      *
-     * **`$hasTimeLeft` is checked between chunks, never inside one.** A
-     * chunk is a single HTTP request and cannot be interrupted politely,
-     * so the budget bounds how many are STARTED — the same shape as
-     * `Core\Notification\Task\SendNotificationsHandler`, which is this
-     * feature's precedent for working under a deadline and rescheduling
-     * the remainder. The overshoot is therefore at most one chunk, which
-     * is what {@see UPLOAD_CHUNK_BYTES} is sized for.
+     * **One chunk per call, where this used to loop over a whole local
+     * file under a time budget.** The loop has not disappeared; it moved
+     * to the caller, because the caller is now
+     * {@see \Core\Storage\Location\Backend\ResumableUploadBackend::
+     * appendToPartial()} — a contract that hands over bytes already in
+     * memory and knows nothing about local paths. That is what lets a
+     * safety copy read a slice from an S3 bucket and append it to a Drive
+     * folder without either end knowing what the other is, which is the
+     * whole point of IT-05.
      *
-     * @param \Closure(): bool $hasTimeLeft
-     * @throws RemoteBackupException
+     * **Where to continue FROM is Google's to say, not ours.** The
+     * protocol allows it to commit fewer bytes than were sent and to
+     * report how many in a `Range` header; advancing by the length we
+     * happened to write assumes an answer instead of reading it, and a
+     * short commit would leave a hole in the middle of an archive that
+     * every later chunk widens. The archive would upload, be accepted,
+     * and be unreadable on the day it was needed. So the answer comes
+     * back in {@see DriveUpload::$offset} and the caller continues from
+     * there, never from its own arithmetic.
+     *
+     * A 308 is « keep going » — the ordinary answer to every piece but
+     * the last, and emphatically not an error despite sitting outside the
+     * 2xx range.
+     *
+     * @throws DriveAccessException
      */
-    public function sendChunks(
-        string $sessionUrl,
-        string $localPath,
-        int $size,
-        int $offset,
-        \Closure $hasTimeLeft
-    ): RemoteUpload {
-        $handle = @fopen($localPath, 'rb');
-        if ($handle === false) {
-            throw RemoteBackupException::of('Le fichier à envoyer n\'a pas pu être lu sur ce serveur.');
+    public function sendChunk(string $sessionUrl, string $chunk, int $offset, int $total): DriveUpload
+    {
+        $length = strlen($chunk);
+        if ($length === 0) {
+            throw DriveAccessException::of('Aucun octet à envoyer vers Google Drive.');
         }
 
+        $response = $this->send('PUT', $sessionUrl, [
+            'Content-Length' => (string) $length,
+            'Content-Range' => sprintf('bytes %d-%d/%d', $offset, $offset + $length - 1, $total),
+        ], $chunk);
+
+        if ($response['status'] === 308) {
+            $committed = $this->committedOffset($response, $offset);
+            if ($committed <= $offset) {
+                throw DriveAccessException::of(
+                    'Google Drive n\'a retenu aucun octet de la dernière tranche envoyée.'
+                );
+            }
+
+            return DriveUpload::inProgress($sessionUrl, $committed);
+        }
+        if ($response['status'] >= 200 && $response['status'] < 300) {
+            return DriveUpload::completed($sessionUrl, $this->acceptedFileId($response));
+        }
+
+        throw $this->errorFor($response, 'L\'envoi vers Google Drive a échoué.');
+    }
+
+    /**
+     * Tells Google to forget a session that will never be finished.
+     *
+     * **Never throws.** The one caller is
+     * {@see \Core\Storage\Location\Backend\ResumableUploadBackend::
+     * discardPartial()}, which is itself called when something has
+     * already gone wrong — a copy abandoned, a transfer that disagreed
+     * with its source. A failure to tidy up must not replace the failure
+     * that is actually being reported, and an abandoned session expires
+     * on Google's side within about a week in any case.
+     */
+    public function cancelUpload(string $sessionUrl): void
+    {
         try {
-            if ($offset > 0 && fseek($handle, $offset) !== 0) {
-                throw RemoteBackupException::of('La reprise de la lecture du fichier à envoyer a échoué.');
-            }
-
-            while ($offset < $size) {
-                if (!$hasTimeLeft()) {
-                    // Not a failure: what has been sent is committed, and
-                    // the next run continues from here.
-                    return RemoteUpload::inProgress($sessionUrl, $offset);
-                }
-
-                $chunk = (string) fread($handle, self::UPLOAD_CHUNK_BYTES);
-                $length = strlen($chunk);
-                if ($length === 0) {
-                    throw RemoteBackupException::of('La lecture du fichier à envoyer s\'est interrompue.');
-                }
-
-                $response = $this->send('PUT', $sessionUrl, [
-                    'Content-Length' => (string) $length,
-                    'Content-Range' => sprintf('bytes %d-%d/%d', $offset, $offset + $length - 1, $size),
-                ], $chunk);
-
-                // 308 is Google saying "keep going" — the ordinary answer
-                // to every piece but the last, and emphatically not an
-                // error despite being outside the 2xx range.
-                //
-                // **Where to continue FROM is Google's to say, not ours.**
-                // The protocol allows it to commit fewer bytes than were
-                // sent and to report how many in a `Range` header;
-                // advancing by the length we happened to write assumes an
-                // answer instead of reading it, and a short commit would
-                // leave a hole in the middle of a backup that every later
-                // chunk widens. The archive would upload, be accepted, and
-                // be unreadable on the day it was needed.
-                if ($response['status'] === 308) {
-                    $committed = $this->committedOffset($response, $offset);
-                    if ($committed <= $offset) {
-                        throw RemoteBackupException::of(
-                            'Google Drive n\'a retenu aucun octet de la dernière tranche envoyée.'
-                        );
-                    }
-                    $offset = $committed;
-                    // Re-seek rather than read on: after a short commit the
-                    // handle sits further forward than Google does.
-                    if (fseek($handle, $offset) !== 0) {
-                        throw RemoteBackupException::of('La reprise de la lecture du fichier à envoyer a échoué.');
-                    }
-
-                    continue;
-                }
-                if ($response['status'] >= 200 && $response['status'] < 300) {
-                    return RemoteUpload::completed($sessionUrl, $this->acceptedFileId($response));
-                }
-
-                throw $this->errorFor($response, 'L\'envoi vers Google Drive a échoué.');
-            }
-        } finally {
-            fclose($handle);
+            $this->send('DELETE', $sessionUrl, ['Content-Length' => '0']);
+        } catch (\Throwable) {
+            // Nothing useful to tell anybody about it.
         }
-
-        // Every byte was sent and Google never answered with an id: the
-        // file is not confirmed, so it is not reported as finished.
-        throw RemoteBackupException::of('L\'envoi vers Google Drive s\'est terminé sans confirmation.');
     }
 
     /**
@@ -563,14 +721,14 @@ final class GoogleDriveClient
      * purge.
      *
      * @param array{status: int, body: string, location?: string, range?: string} $response
-     * @throws RemoteBackupException
+     * @throws DriveAccessException
      */
     private function acceptedFileId(array $response): string
     {
         $decoded = json_decode($response['body'], true);
         $id = is_array($decoded) ? (string) ($decoded['id'] ?? '') : '';
         if ($id === '') {
-            throw RemoteBackupException::of('Google Drive a accepté le fichier sans en donner l\'identifiant.');
+            throw DriveAccessException::of('Google Drive a accepté le fichier sans en donner l\'identifiant.');
         }
 
         return $id;
@@ -611,7 +769,7 @@ final class GoogleDriveClient
     /**
      * @param array<string, string> $form
      * @return array<string, mixed>
-     * @throws RemoteBackupException
+     * @throws DriveAccessException
      */
     private function postToken(array $form): array
     {
@@ -628,7 +786,7 @@ final class GoogleDriveClient
 
         $decoded = json_decode($response['body'], true);
         if (!is_array($decoded)) {
-            throw RemoteBackupException::of('La réponse de Google est illisible.');
+            throw DriveAccessException::of('La réponse de Google est illisible.');
         }
 
         return $decoded;
@@ -636,7 +794,7 @@ final class GoogleDriveClient
 
     /**
      * @return array<string, mixed>
-     * @throws RemoteBackupException
+     * @throws DriveAccessException
      */
     private function apiJson(
         string $method,
@@ -657,7 +815,7 @@ final class GoogleDriveClient
 
         $decoded = json_decode($response['body'], true);
         if (!is_array($decoded)) {
-            throw RemoteBackupException::of('La réponse de Google Drive est illisible.');
+            throw DriveAccessException::of('La réponse de Google Drive est illisible.');
         }
 
         return $decoded;
@@ -680,11 +838,14 @@ final class GoogleDriveClient
      * on `invalid_client` — a client secret that is wrong, or that was
      * rotated in the Google console — while the refresh token itself is
      * refused with 400 `invalid_grant`. Reading the first as a revocation
-     * would be worse than a wrong sentence: `GoogleDriveTarget` answers a
-     * revocation by calling `markNeedsReauthorisation()`, which drops the
-     * refresh token, so a mistyped secret would destroy a grant that was
-     * still perfectly good — through the one button an operator presses
-     * to find out what is wrong.
+     * would be worse than a wrong sentence, and it once was: the class
+     * this client answered to dropped the refresh token on a revocation,
+     * so a mistyped secret destroyed a grant that was still perfectly
+     * good — through the one button an operator presses to find out what
+     * is wrong. Nothing drops a grant any more
+     * ({@see \Core\Storage\Location\Config\GoogleDriveSecret}), which
+     * removes the worst consequence; the distinction is still the one
+     * that decides whether the screen says « reconnectez » or « réessayez ».
      *
      * The provider's own body never reaches the message — it is English,
      * it names internals, and `UserFacingException` forbids it. It travels
@@ -692,37 +853,37 @@ final class GoogleDriveClient
      *
      * @param array{status: int, body: string, location?: string, range?: string} $response
      */
-    private function errorFor(array $response, string $fallback, string $endpoint = self::ENDPOINT_API): RemoteBackupException
+    private function errorFor(array $response, string $fallback, string $endpoint = self::ENDPOINT_API): DriveAccessException
     {
         $detail = new \RuntimeException('Google responded ' . $response['status'] . ': ' . substr($response['body'], 0, 500));
 
         if ($endpoint === self::ENDPOINT_TOKEN && $response['status'] === 401) {
-            return RemoteBackupException::of(
+            return DriveAccessException::of(
                 'Google a refusé les identifiants du client OAuth de ce site. Vérifiez l\'identifiant et le '
                 . 'secret client enregistrés ci-dessus — le compte raccordé, lui, n\'est pas en cause.',
                 $detail
             );
         }
         if ($response['status'] === 401 || str_contains($response['body'], 'invalid_grant')) {
-            return RemoteBackupException::revoked(
+            return DriveAccessException::revoked(
                 'Google n\'accepte plus l\'autorisation de ce site. Reconnectez le compte Drive depuis cette page.',
                 $detail
             );
         }
         if ($response['status'] === 403 && str_contains($response['body'], 'storageQuotaExceeded')) {
-            return RemoteBackupException::of(
+            return DriveAccessException::of(
                 'Le compte Google Drive raccordé n\'a plus assez d\'espace libre.',
                 $detail
             );
         }
 
-        return RemoteBackupException::of($fallback, $detail);
+        return DriveAccessException::of($fallback, $detail);
     }
 
     /**
      * @param array<string, string> $headers
      * @return array{status: int, body: string, location?: string, range?: string}
-     * @throws RemoteBackupException
+     * @throws DriveAccessException
      */
     private function send(string $method, string $url, array $headers, ?string $body = null): array
     {
@@ -770,7 +931,7 @@ final class GoogleDriveClient
         return static function (string $method, string $url, array $headers, ?string $body): array {
             $handle = curl_init($url);
             if ($handle === false) {
-                throw RemoteBackupException::of('Impossible d\'initialiser la requête vers Google.');
+                throw DriveAccessException::of('Impossible d\'initialiser la requête vers Google.');
             }
 
             $headerLines = [];
@@ -830,7 +991,7 @@ final class GoogleDriveClient
 
                 // cURL's text is English and names TLS internals — carried
                 // as the cause, never shown.
-                throw RemoteBackupException::of(
+                throw DriveAccessException::of(
                     'Google n\'a pas pu être contacté. Vérifiez que ce serveur peut sortir vers Internet.',
                     new \RuntimeException($error)
                 );

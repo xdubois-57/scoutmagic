@@ -123,6 +123,18 @@ class ProtectedCopier
         $context = $resumed ? null : hash_init('md5');
 
         try {
+            // **The destination is told the size before the first byte,
+            // and only when nothing is in flight.** A filesystem ignores
+            // it; a destination that mints a session needs it, because
+            // nothing downstream can tell it which chunk is the last one
+            // ({@see ResumableUploadBackend::beginPartial()}). Calling it
+            // on a RESUMED copy would open a second transfer and throw
+            // away everything the first one had already delivered — which
+            // is the one cost this whole class exists to avoid.
+            if (!$resumed) {
+                $destination->beginPartial($key, $expectedSizeBytes);
+            }
+
             // **An empty file still has to be materialised**, and this is
             // not a theoretical key: `list()` reports a zero-byte object
             // like any other. The loop below never runs for it, so nothing
