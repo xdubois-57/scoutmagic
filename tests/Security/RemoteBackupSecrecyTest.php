@@ -279,6 +279,56 @@ final class RemoteBackupSecrecyTest extends TestCase
     }
 
     /**
+     * **An upgraded site stops carrying a working refresh token.**
+     *
+     * The three values lived in `secrets.enc` before IT-05, and the only
+     * class that could ever clear them —
+     * `Maintenance\\Remote\\RemoteBackupConnection`, its own `disconnect()`
+     * included — is deleted by this iteration. Writing them somewhere
+     * narrower (D7) does nothing about the copies already on disk: without
+     * the boot-time removal, an upgraded installation keeps a live Google
+     * OAuth grant in that blob for ever, unreachable by any code left in
+     * the tree. « They are not written any more » is not the same sentence
+     * as « they are gone ».
+     *
+     * The passphrase is asserted ABSENT from that list in the same breath,
+     * because it sat beside them in the old `SECRET_KEYS` and is the one
+     * value here that must survive: it opens the ARCHIVES, not the
+     * destination, so it has to outlive every destination an operator ever
+     * connects.
+     */
+    public function testTheRetiredOffsiteSecretsAreRemovedFromTheBlobOnUpgrade(): void
+    {
+        $bootstrap = (string) file_get_contents(dirname(__DIR__, 2) . '/public/index.php');
+
+        $at = strpos($bootstrap, '$retiredSecrets = [');
+        $this->assertIsInt($at, 'nothing removes the retired off-site secrets from secrets.enc.');
+
+        $list = substr($bootstrap, $at, (int) strpos($bootstrap, ']', $at) - $at);
+
+        foreach (['remote_backup_client_secret', 'remote_backup_refresh_token', 'remote_backup_account'] as $retired) {
+            $this->assertStringContainsString(
+                "'" . $retired . "'",
+                $list,
+                $retired . ' survives in secrets.enc on an upgraded site, with no code left able to clear it.'
+            );
+        }
+
+        $this->assertStringNotContainsString(
+            "'" . RemotePassphrase::SECRET_KEY . "'",
+            $list,
+            'the archive passphrase is being deleted with the destination credentials — it opens the archives '
+            . 'already sent, and must outlive every destination.'
+        );
+
+        $this->assertStringContainsString(
+            '$secretManager->writeSecrets($secrets);',
+            substr($bootstrap, $at, 2000),
+            'the retired keys are listed but the blob is never rewritten without them.'
+        );
+    }
+
+    /**
      * **The redirect address is spelled once.**
      *
      * It has to match the value registered in the operator's Google

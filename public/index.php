@@ -2026,6 +2026,39 @@ if ($settingService->get('remote_backup_settings_pruned') !== '1') {
         'remote_backup_state',
         'remote_backup_last_error',
     ]);
+    // **And the three secrets the same feature left in `secrets.enc`.**
+    // They are not settings rows, so the prune above does not reach them —
+    // and `Maintenance\Remote\RemoteBackupConnection`, the only class that
+    // ever read or cleared them (its own `disconnect()` included), is gone
+    // with this iteration. Without this, an upgraded site keeps a WORKING
+    // Google OAuth refresh token and client secret in that blob for ever,
+    // with no code path left able to remove them: the new
+    // `GoogleDriveConnectionController::disconnect()` clears the storage
+    // location's own encrypted column and nothing else. That is precisely
+    // the blast radius D7 moved these values to reduce.
+    //
+    // Removed rather than blanked, because the feature that gave them a
+    // meaning no longer exists — where the old `disconnect()` wrote empty
+    // strings, it had rows to keep representable.
+    //
+    // `remote_backup_passphrase` is deliberately NOT in this list: it opens
+    // the ARCHIVES, not the destination, and has to outlive every
+    // destination an operator ever connects (SECURITY.md § Secrets).
+    $retiredSecrets = ['remote_backup_client_secret', 'remote_backup_refresh_token', 'remote_backup_account'];
+    $carriedOver = array_filter(
+        $retiredSecrets,
+        static fn (string $key): bool => array_key_exists($key, $secrets)
+    );
+    if ($carriedOver !== []) {
+        foreach ($carriedOver as $retired) {
+            unset($secrets[$retired]);
+        }
+        // Read-then-write over the whole blob, like every other writer of
+        // this file; asked for only when there is something to remove, so a
+        // fresh installation never rewrites it to no purpose.
+        $secretManager->writeSecrets($secrets);
+    }
+
     $settingRepo->updateValue(null, 'remote_backup_settings_pruned', '1');
 }
 

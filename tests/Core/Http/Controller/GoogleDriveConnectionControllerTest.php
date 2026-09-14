@@ -91,7 +91,7 @@ final class GoogleDriveConnectionControllerTest extends TestCase
         $_POST = [];
     }
 
-    // ————— La frontière RBAC —————
+    // ————— The RBAC boundary —————
 
     /**
      * **Every route here is `superadmin`, and `AGENTS.md` § Tests asks
