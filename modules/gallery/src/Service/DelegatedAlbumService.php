@@ -12,6 +12,7 @@ use Core\Config\ScoutYearService;
 use Core\Storage\Location\Backend\StorageBackendFactory;
 use Core\Storage\Location\Backend\ServerSideCopyBackend;
 use Core\Storage\Location\Backend\StorageBackendInterface;
+use Core\Storage\Location\StorageCapability;
 use Core\Storage\Location\StorageLocation;
 use Core\Storage\Location\StorageLocationRepository;
 use Core\Storage\Location\StorageLocationService;
@@ -195,7 +196,14 @@ class DelegatedAlbumService implements DelegatedAlbumManager
         foreach ($media as $item) {
             $paths = [];
             foreach (['thumbPath', 'mediumPath', 'largePath', 'originalPath'] as $property) {
-                $paths[$property] = $this->moveObject($backend, $item->$property, $fromAlbumId, $toAlbumId, $movedKeys);
+                $paths[$property] = $this->moveObject(
+                    $backend,
+                    $item->$property,
+                    $fromAlbumId,
+                    $toAlbumId,
+                    $fromLocation->label,
+                    $movedKeys
+                );
             }
 
             // The row is rewritten only once every one of its renditions is
@@ -277,6 +285,7 @@ class DelegatedAlbumService implements DelegatedAlbumManager
         ?string $path,
         int $fromAlbumId,
         int $toAlbumId,
+        string $locationLabel,
         array &$movedKeys
     ): ?string {
         $prefix = $fromAlbumId . '/';
@@ -292,9 +301,19 @@ class DelegatedAlbumService implements DelegatedAlbumManager
         // sentence rather than dying on a missing method three frames
         // down.
         if (!$backend instanceof ServerSideCopyBackend) {
-            throw new GalleryException(
-                "L'emplacement de stockage de cet album ne sait pas déplacer un fichier en interne."
-            );
+            // Named, and phrased in the capability's own French, for the
+            // reason ARCHITECTURE.md § 8.107 gives: an administrator with
+            // several destinations configured cannot act on « cet album »
+            // — they need to be told WHICH of their locations cannot do
+            // this. The sentence is built from
+            // StorageCapability::frenchDescription() rather than written
+            // out here, so the wording cannot drift from the one
+            // StorageCapabilities::require() produces everywhere else.
+            throw new GalleryException(sprintf(
+                "L'emplacement « %s » ne sait pas %s.",
+                $locationLabel,
+                StorageCapability::ServerSideCopy->frenchDescription()
+            ));
         }
         $backend->copy($path, $newPath);
         $movedKeys[] = $path;

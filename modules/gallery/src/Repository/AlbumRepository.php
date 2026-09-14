@@ -196,6 +196,43 @@ class AlbumRepository
     }
 
     /**
+     * Whether any DELEGATED album stands on this location — counting the
+     * ones that have not been pinned to it yet.
+     *
+     * Asked before a location is edited into serving publicly, which is
+     * the one change that can strand an album that was legitimately
+     * created on it: `DelegatedAlbumService::ensureAlbum()` refuses such a
+     * location at creation and `GalleryController::serveDelegatedMedia()`
+     * re-asserts it when handing out bytes, so an album already there
+     * would simply stop being served, for ever and without a word.
+     *
+     * `$isDefault` is what makes the null case answerable from here: a
+     * delegated album whose `location_id` is null is not on *no* location,
+     * it is on the default and nobody has written that down yet — the same
+     * reading `GalleryStorageConsumer` applies.
+     */
+    public function hasDelegatedAlbumsOn(int $locationId, bool $isDefault): bool
+    {
+        $sql = 'SELECT 1 FROM gallery_albums WHERE owner_type IS NOT NULL AND type = ? AND location_id = ? LIMIT 1';
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([Album::TYPE_LOCAL, $locationId]);
+        if ($stmt->fetchColumn() !== false) {
+            return true;
+        }
+
+        if (!$isDefault) {
+            return false;
+        }
+
+        $stmt = $this->pdo->prepare(
+            'SELECT 1 FROM gallery_albums WHERE owner_type IS NOT NULL AND type = ? AND location_id IS NULL LIMIT 1'
+        );
+        $stmt->execute([Album::TYPE_LOCAL]);
+
+        return $stmt->fetchColumn() !== false;
+    }
+
+    /**
      * Whether any album that HOLDS files still has no location recorded.
      *
      * A null `location_id` does not mean « this album uses no storage » —

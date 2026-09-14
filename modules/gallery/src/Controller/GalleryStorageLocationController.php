@@ -23,6 +23,7 @@ use Core\Storage\Location\StorageLocationRepository;
 use Core\Storage\Location\StorageLocationService;
 use Core\Storage\Location\StorageLocationType;
 use Modules\Gallery\Api\GalleryException;
+use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Service\ObjectStorageErrorExplainerService;
 use Twig\Environment;
 
@@ -36,7 +37,8 @@ class GalleryStorageLocationController extends AbstractController
         private StorageLocationRepository $storageLocationRepository,
         private StorageLocationService $storageLocationService,
         private JournalService $journalService,
-        private ObjectStorageErrorExplainerService $s3ErrorExplainerService
+        private ObjectStorageErrorExplainerService $s3ErrorExplainerService,
+        private AlbumRepository $albumRepository
     ) {
     }
 
@@ -146,10 +148,14 @@ class GalleryStorageLocationController extends AbstractController
             if ($label === '') {
                 throw new GalleryException('Le nom de l\'emplacement est obligatoire.');
             }
+
+            $config = $this->configFromRequest($location->type, $request);
+            $this->assertNoDelegatedAlbumWouldBeStranded($location, $config);
+
             $this->storageLocationService->update(
                 $location->id,
                 $label,
-                $this->configFromRequest($location->type, $request),
+                $config,
                 $location->type === StorageLocationType::ObjectStorage
                     ? $this->nullableString($request->getBody('s3_secret_key'))
                     : null
@@ -357,6 +363,44 @@ class GalleryStorageLocationController extends AbstractController
      *
      * @throws GalleryException on a sub-directory or an endpoint the site refuses
      */
+    /**
+     * Refuses an edit that would turn a location a delegated album lives
+     * on into one that serves publicly, for ever, to whoever holds a URL.
+     *
+     * The restriction itself is not new — `DelegatedAlbumService::
+     * ensureAlbum()` refuses such a location at creation, and
+     * `GalleryController::serveDelegatedMedia()` re-asserts it when the
+     * bytes are handed out. What was missing is the third moment: the
+     * album is created on a private location, the location is later edited
+     * to carry a public URL, and the serve-time guard then does exactly
+     * its job — every media of every delegated album on that location
+     * becomes a 404, permanently, with nothing anywhere saying why.
+     *
+     * Nothing was exposed by that: the guard held, which is the whole
+     * point of having it. But « silently stopped working » is not an
+     * acceptable outcome of a form whose own help text promises that only
+     * the name and the connection details can be changed.
+     *
+     * @throws GalleryException when the new configuration would strand one
+     */
+    private function assertNoDelegatedAlbumWouldBeStranded(
+        StorageLocation $location,
+        LocationConfig $config
+    ): void {
+        if (!$config->servesPubliclyWithoutExpiry()) {
+            return;
+        }
+        if (!$this->albumRepository->hasDelegatedAlbumsOn($location->id, $location->isDefault)) {
+            return;
+        }
+
+        throw new GalleryException(
+            'Des albums délégués sont hébergés sur cet emplacement, et une URL publique les rendrait '
+            . 'lisibles par toute personne connaissant le lien — le site refuserait alors de les servir. '
+            . 'Déplacez-les vers un autre emplacement avant de configurer une URL publique ici.'
+        );
+    }
+
     private function configFromRequest(StorageLocationType $type, Request $request): LocationConfig
     {
         if ($type !== StorageLocationType::ObjectStorage) {

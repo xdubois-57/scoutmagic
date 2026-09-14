@@ -28,6 +28,7 @@ use Twig\TwigFunction;
 use Modules\Gallery\Service\GalleryStorageWiring;
 use Core\Storage\Location\StorageLocationType;
 use Core\Storage\Location\Config\LocalLocationConfig;
+use Core\Storage\Location\Config\ObjectStorageLocationConfig;
 
 /**
  * @group database
@@ -80,7 +81,12 @@ class GalleryStorageLocationControllerTest extends TestCase
         $twig->addFunction(new TwigFunction('file_url', fn() => ''));
 
         $this->controller = new GalleryStorageLocationController(
-            $twig, $this->storageLocationRepository, $storageLocationService, $journalService, new ObjectStorageErrorExplainerService()
+            $twig,
+            $this->storageLocationRepository,
+            $storageLocationService,
+            $journalService,
+            new ObjectStorageErrorExplainerService(),
+            $this->albumRepository
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -228,6 +234,81 @@ class GalleryStorageLocationControllerTest extends TestCase
         $this->assertFalse($decoded['success']);
         $this->assertSame(422, $response->getStatusCode());
         $this->assertNotNull($this->storageLocationRepository->findById($id));
+    }
+
+    public function testUpdateRefusesToMakeALocationPublicWhileADelegatedAlbumLivesOnIt(): void
+    {
+        // The restriction is not new — it is refused at creation and
+        // re-asserted when the bytes are served. What was missing is this
+        // third moment: create the album on a private location, then edit
+        // the location to carry a public URL, and the serve-time guard
+        // does its job — every media of that album 404s, for ever, with
+        // nothing saying why.
+        $id = $this->storageLocationRepository->create(
+            StorageLocationType::ObjectStorage,
+            'Bucket privé',
+            new ObjectStorageLocationConfig('https://fsn1.your-objectstorage.com', 'fsn1', 'scoutmagic', 'AK', null),
+            'secret'
+        );
+        $this->albumRepository->create(
+            Album::TYPE_LOCAL,
+            'Album délégué',
+            null,
+            '2026-01-01',
+            null,
+            $this->scoutYearId,
+            null,
+            $id,
+            $this->authorId,
+            'groups',
+            42
+        );
+
+        $response = $this->controller->update($this->publicUrlRequest($id), ['id' => (string) $id]);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertStringContainsString('albums délégués', $response->getBody());
+
+        $saved = $this->storageLocationRepository->findById($id);
+        $this->assertNotNull($saved);
+        $this->assertFalse($saved->servesPubliclyWithoutExpiry());
+    }
+
+    public function testUpdateAllowsAPublicUrlWhenNoDelegatedAlbumStandsOnTheLocation(): void
+    {
+        // An ordinary album is not stranded by a public URL — only a
+        // delegated one, whose whole access model is the short-lived
+        // grant a permanent public link defeats.
+        $id = $this->storageLocationRepository->create(
+            StorageLocationType::ObjectStorage,
+            'Bucket public',
+            new ObjectStorageLocationConfig('https://fsn1.your-objectstorage.com', 'fsn1', 'scoutmagic', 'AK', null),
+            'secret'
+        );
+        $this->albumRepository->create(
+            Album::TYPE_LOCAL, 'Camp ordinaire', null, '2026-01-01', null,
+            $this->scoutYearId, null, $id, $this->authorId
+        );
+
+        $response = $this->controller->update($this->publicUrlRequest($id), ['id' => (string) $id]);
+
+        $this->assertNotSame(422, $response->getStatusCode());
+        $this->assertTrue($this->storageLocationRepository->findById($id)?->servesPubliclyWithoutExpiry());
+    }
+
+    /** The edit form, submitted with a permanent public URL added. */
+    private function publicUrlRequest(int $id): Request
+    {
+        return new Request('POST', '/config/gallery/locations/' . $id, [], [
+            'label' => 'Bucket',
+            's3_provider' => 'hetzner',
+            's3_endpoint' => 'https://fsn1.your-objectstorage.com',
+            's3_region' => 'fsn1',
+            's3_bucket' => 'scoutmagic',
+            's3_access_key' => 'AK',
+            's3_public_url' => 'https://cdn.example.org',
+            '_csrf_token' => $this->csrfToken(),
+        ], [], []);
     }
 
     public function testSetDefaultPromotesTheGivenLocation(): void

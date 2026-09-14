@@ -433,6 +433,35 @@ un `UPDATE` serait payer le mauvais prix. Supprimer le dernier emplacement
 laisse la table vide, et c'est légitime : `ensureDefaultExists()` recrée le
 défaut à la requête suivante, comme sur une installation neuve.
 
+### Le troisième moment où un album délégué pouvait se briser
+
+Un album délégué refuse un emplacement qui sert publiquement sans
+expiration — à la création (`DelegatedAlbumService::ensureAlbum()`) et de
+nouveau au moment de servir les octets (`GalleryController::
+serveDelegatedMedia()`, SECURITY.md § Gallery). Il manquait le troisième
+moment : l'album est créé sur un emplacement privé, **l'emplacement est
+ensuite modifié** pour porter une URL publique, et le garde-fou de service
+fait alors exactement son travail — chaque média de chaque album délégué
+posé là devient un 404, définitivement, sans que rien nulle part ne dise
+pourquoi.
+
+Rien n'était exposé : le garde-fou a tenu, c'est tout l'intérêt de
+l'avoir. Mais « a cessé de fonctionner en silence » n'est pas une issue
+acceptable pour un formulaire dont le texte d'aide promet que seuls le nom
+et les détails de connexion sont modifiables. L'édition est donc refusée
+tant qu'un album délégué s'y trouve, avec une phrase qui dit quoi faire
+d'abord. Un album ordinaire, lui, n'est pas concerné : c'est le modèle
+d'accès délégué — une autorisation à courte durée — qu'un lien public
+permanent annule.
+
+**Et un refus de capacité ne nommait pas l'emplacement.** Le seul appel
+réel en production, dans la fusion de deux albums délégués, disait « cet
+album » — or ce qu'un administrateur peut aller re-pointer, c'est un
+emplacement, pas un album. La phrase est maintenant construite à partir de
+`StorageCapability::frenchDescription()`, comme celle que produit
+`StorageCapabilities::require()` partout ailleurs, donc les deux formulations
+ne peuvent plus diverger.
+
 ### Divergences constatées avec les maquettes, et ce qui fait foi
 
 Les deux maquettes déposées dans `docs/chantiers/maquettes/` sont la

@@ -7379,7 +7379,8 @@ if ($isEnabled('gallery')) {
             $storageLocationRepository,
             $storageLocationService,
             $journalService,
-            $galleryS3ErrorExplainerService
+            $galleryS3ErrorExplainerService,
+            $galleryAlbumRepo
         )
     );
 }

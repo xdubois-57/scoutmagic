@@ -17,6 +17,8 @@ use Modules\Gallery\Api\GalleryException;
 use Modules\Gallery\Service\MediaService;
 use Core\Storage\Location\Backend\LocalStorageBackend;
 use Core\Storage\Location\Backend\StorageBackendFactory;
+use Core\Storage\Location\Backend\StorageBackendInterface;
+use Core\Storage\Location\StorageCapability;
 use Core\Storage\Location\StorageLocationService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -344,6 +346,54 @@ class DelegatedAlbumServiceTest extends TestCase
         $to = $this->service->ensureAlbum('some_owner_type', 43, 'Cible', '2026-01-01', $this->authorId);
 
         $this->assertSame(0, $this->service->moveMedia('some_owner_type', $from->id, $to->id));
+    }
+
+    public function testMoveMediaNamesTheLocationWhenItCannotCopyInternally(): void
+    {
+        // A refusal an administrator can act on has to say WHICH of their
+        // destinations cannot do this — « cet album » is not something you
+        // can go and re-point. ARCHITECTURE.md § 8.107 states the rule and
+        // StorageCapabilities::require() is where it normally lives; this
+        // call site builds the same sentence from the same enum.
+        $backend = $this->createMock(StorageBackendInterface::class);
+        $this->storageBackendFactory->method('create')->willReturn($backend);
+
+        $from = $this->service->ensureAlbum('some_owner_type', 42, 'Source', '2026-01-01', $this->authorId);
+        $to = $this->service->ensureAlbum('some_owner_type', 43, 'Cible', '2026-01-01', $this->authorId);
+        $this->createUncopiedPhoto($from->id);
+
+        try {
+            $this->service->moveMedia('some_owner_type', $from->id, $to->id);
+            $this->fail('A backend that cannot copy internally must refuse the merge.');
+        } catch (GalleryException $e) {
+            $this->assertStringContainsString('Stockage local', $e->getMessage());
+            $this->assertStringContainsString(
+                StorageCapability::ServerSideCopy->frenchDescription(),
+                $e->getMessage()
+            );
+        }
+    }
+
+    /** A media whose renditions are recorded but whose bytes are nobody's business here. */
+    private function createUncopiedPhoto(int $albumId): int
+    {
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min) VALUES (?, ?, ?, ?, ?)'
+        );
+        $stmt->execute(['originals/photo.jpg', 'photo.jpg', 'image/jpeg', 10, 'identified']);
+        $fileId = (int) $this->pdo->lastInsertId();
+
+        $mediaId = $this->mediaRepository->create($albumId, 'photo', $fileId, 0, 'photo.jpg');
+        $this->mediaRepository->markPhotoDone(
+            $mediaId,
+            "{$albumId}/thumb_{$mediaId}.jpg",
+            "{$albumId}/med_{$mediaId}.jpg",
+            "{$albumId}/lg_{$mediaId}.jpg",
+            800,
+            600
+        );
+
+        return $mediaId;
     }
 
     public function testMoveMediaRefusesAnAlbumBelongingToAnotherOwnerType(): void
