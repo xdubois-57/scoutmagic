@@ -123,7 +123,7 @@ class StorageProtectionRepository
                     'UPDATE storage_protections
                         SET destination_location_id = ?, enabled = ?, grace_period_days = ?, cadence_hours = ?,
                             pass_phase = NULL, pass_started_at = NULL, pass_cursor = NULL,
-                            pass_seen_count = 0, last_error = NULL' . $clearsCadence . '
+                            pass_page_last_key = NULL, pass_seen_count = 0, last_error = NULL' . $clearsCadence . '
                       WHERE id = ?'
                 );
                 $stmt->execute([
@@ -192,15 +192,17 @@ class StorageProtectionRepository
         int $id,
         string $phase,
         ?string $cursor,
+        ?string $pageLastKey,
         int $seenCount,
         string $passStartedAt
     ): void {
         $stmt = $this->pdo->prepare(
             'UPDATE storage_protections
-                SET pass_phase = ?, pass_cursor = ?, pass_seen_count = ?, pass_started_at = ?
+                SET pass_phase = ?, pass_cursor = ?, pass_page_last_key = ?,
+                    pass_seen_count = ?, pass_started_at = ?
               WHERE id = ?'
         );
-        $stmt->execute([$phase, $cursor, $seenCount, $passStartedAt, $id]);
+        $stmt->execute([$phase, $cursor, $pageLastKey, $seenCount, $passStartedAt, $id]);
     }
 
     /**
@@ -210,7 +212,8 @@ class StorageProtectionRepository
     {
         $stmt = $this->pdo->prepare(
             'UPDATE storage_protections
-                SET pass_phase = NULL, pass_cursor = NULL, pass_seen_count = 0, pass_started_at = NULL,
+                SET pass_phase = NULL, pass_cursor = NULL, pass_page_last_key = NULL,
+                    pass_seen_count = 0, pass_started_at = NULL,
                     last_completed_pass_at = ?, last_error = NULL
               WHERE id = ?'
         );
@@ -231,7 +234,8 @@ class StorageProtectionRepository
     {
         $stmt = $this->pdo->prepare(
             'UPDATE storage_protections
-                SET pass_phase = NULL, pass_cursor = NULL, pass_seen_count = 0, pass_started_at = NULL,
+                SET pass_phase = NULL, pass_cursor = NULL, pass_page_last_key = NULL,
+                    pass_seen_count = 0, pass_started_at = NULL,
                     last_error = ?
               WHERE id = ?'
         );
@@ -253,6 +257,9 @@ class StorageProtectionRepository
             passPhase: $row['pass_phase'] !== null ? (string) $row['pass_phase'] : null,
             passStartedAt: $row['pass_started_at'] !== null ? (string) $row['pass_started_at'] : null,
             passCursor: $row['pass_cursor'] !== null ? (string) $row['pass_cursor'] : null,
+            passPageLastKey: ($row['pass_page_last_key'] ?? null) !== null
+                ? (string) $row['pass_page_last_key']
+                : null,
             passSeenCount: (int) ($row['pass_seen_count'] ?? 0),
             lastCompletedPassAt: $row['last_completed_pass_at'] !== null
                 ? (string) $row['last_completed_pass_at']

@@ -121,6 +121,15 @@ class ProtectionPass
         }
 
         if ($result->finished && $result->phase === StorageProtection::PHASE_INVENTORY) {
+            // **Re-read, because the listing has just changed it.** Phase
+            // 1 re-stamps `lastSeenAt` on essentially every entry it
+            // meets, so the save above almost always wrote a new
+            // document; comparing phase 2's result against the
+            // PRE-phase-1 fingerprint then differs whatever the sweep
+            // did, and a pass on which nothing disappeared uploaded a
+            // second, near-identical inventory every night for nothing.
+            $fingerprint = $inventory->fingerprint();
+
             $sweep = $this->reconcile($protection, $destination, $inventory, $passStartedAt, $now, $hasTimeLeft);
             $this->inventories->save($destination, $inventory, $fingerprint);
 
@@ -141,15 +150,38 @@ class ProtectionPass
         string $passStartedAt,
         callable $hasTimeLeft
     ): ProtectionPassResult {
+        // **The page cursor is the BACKEND's**, and only ever the
+        // backend's. Position WITHIN the page is tracked separately, by
+        // the key last finished with, and the two must not be confused:
+        // a local listing resumes from the last key it returned, while a
+        // bucket resumes from S3's own continuation token, and handing
+        // one an object key makes the next listing throw.
         $cursor = $protection->passCursor;
+        $resumeAfterKey = $protection->passPageLastKey;
         $seen = $protection->passSeenCount;
         $copied = 0;
         $failures = [];
 
         while (true) {
             $listing = $source->list('', $cursor);
+            $pageLastKey = $resumeAfterKey;
 
             foreach ($listing->objects as $object) {
+                // Skipping forward to where the last run stopped, by name
+                // rather than by position: a page whose contents shifted
+                // between two runs then costs a few keys looked at twice,
+                // which is free, instead of skipping one that was never
+                // handled. A recorded key that is no longer in the page
+                // at all — deleted meanwhile — replays the page, which is
+                // equally harmless: an up-to-date entry is a comparison
+                // and no I/O.
+                if ($resumeAfterKey !== null) {
+                    if ($object->key === $resumeAfterKey) {
+                        $resumeAfterKey = null;
+                    }
+                    continue;
+                }
+
                 // **The budget is asked once per object, and that is
                 // enough.** A key that is already up to date costs no I/O
                 // beyond the listing that produced it, so a page of them
@@ -161,6 +193,7 @@ class ProtectionPass
                         StorageProtection::PHASE_INVENTORY,
                         $passStartedAt,
                         $cursor,
+                        $pageLastKey,
                         $seen,
                         $copied,
                         $failures
@@ -172,7 +205,7 @@ class ProtectionPass
                 // carries an inventory of its own, and copying it onward
                 // would describe the wrong pair of locations.
                 if (StorageInventoryStore::isReservedKey($object->key)) {
-                    $cursor = $object->key;
+                    $pageLastKey = $object->key;
                     continue;
                 }
 
@@ -209,14 +242,15 @@ class ProtectionPass
                             lastSeenAt: $passStartedAt
                         ));
 
-                        // **The cursor is deliberately NOT advanced.** The
-                        // next run re-lists from the previous key, meets
-                        // this one again, and resumes from where the
+                        // **The page position is deliberately NOT
+                        // advanced.** The next run re-lists the same page,
+                        // meets this key again, and resumes from where the
                         // partial object ends.
                         return ProtectionPassResult::paused(
                             StorageProtection::PHASE_INVENTORY,
                             $passStartedAt,
                             $cursor,
+                            $pageLastKey,
                             $seen,
                             $copied,
                             $failures
@@ -246,7 +280,7 @@ class ProtectionPass
                 }
 
                 $seen++;
-                $cursor = $object->key;
+                $pageLastKey = $object->key;
             }
 
             if ($listing->cursor === null) {
@@ -258,7 +292,10 @@ class ProtectionPass
                     $failures
                 );
             }
+            // A whole page done: the next one starts from the backend's
+            // own token, and from its beginning.
             $cursor = $listing->cursor;
+            $pageLastKey = null;
 
             // **And once per page, before asking for the next one.** The
             // per-object check above never fires on a page that holds
@@ -270,6 +307,7 @@ class ProtectionPass
                     StorageProtection::PHASE_INVENTORY,
                     $passStartedAt,
                     $cursor,
+                    $pageLastKey,
                     $seen,
                     $copied,
                     $failures
@@ -348,7 +386,20 @@ class ProtectionPass
                 continue;
             }
             if (!$hasTimeLeft()) {
-                break;
+                // **Paused IN this phase, so the next run comes straight
+                // back to it** rather than listing the whole source again
+                // to reach a decision it has already made. It is what the
+                // `pass_phase` column and the reconcile branch of run()
+                // are for — and until this return existed, both were
+                // unreachable: every sweep answered « finished », so the
+                // phase was never persisted as `reconcile` and the
+                // resume path was dead code that read as live.
+                return ProtectionPassResult::pausedSweep(
+                    $passStartedAt,
+                    count($missing),
+                    $deleted,
+                    $refusedAsTooMany
+                );
             }
             // `delete` on a key that is already gone is a success, not an
             // error — otherwise every pass that follows a restore fails on

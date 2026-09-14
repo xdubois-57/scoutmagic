@@ -157,6 +157,7 @@ class RunStorageProtectionsHandler implements TaskHandlerInterface
                 $protection->id,
                 $result->phase,
                 $result->cursor,
+                $result->pageLastKey,
                 $result->seenCount,
                 // The stamp the RUN used on its entries, not one computed
                 // at persist time — see recordPassProgress()'s docblock.

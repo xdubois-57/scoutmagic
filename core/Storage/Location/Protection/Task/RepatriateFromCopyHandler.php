@@ -54,6 +54,10 @@ class RepatriateFromCopyHandler implements TaskHandlerInterface
             return;
         }
 
+        // What the runs before this one already put back.
+        $restoredSoFar = (int) ($payload['restored_so_far'] ?? 0);
+        $failedSoFar = (int) ($payload['failed_so_far'] ?? 0);
+
         $pdo = $context->connection->getPdo();
         $protections = new StorageProtectionRepository($pdo);
         $protection = $protections->findById($protectionId);
@@ -106,7 +110,21 @@ class RepatriateFromCopyHandler implements TaskHandlerInterface
                 'core',
                 self::TASK_KEY,
                 0,
-                ['protection_id' => $protectionId, 'cursor' => $result->cursor]
+                [
+                    'protection_id' => $protectionId,
+                    'cursor' => $result->cursor,
+                    // **Carried across runs, or the summary lies.** A
+                    // repatriation after a real disaster spans many runs
+                    // by construction — twenty seconds each — and the
+                    // counters start again at zero on every one of them.
+                    // Without this the closing line reports the last
+                    // slice while reading as a total: « 12 fichiers remis
+                    // en place » after restoring nine thousand. The
+                    // nightly pass carries `pass_seen_count` across its
+                    // own runs for exactly this reason.
+                    'restored_so_far' => $restoredSoFar + $result->restoredCount,
+                    'failed_so_far' => $failedSoFar + count($result->failures),
+                ]
             );
 
             return;
@@ -123,9 +141,9 @@ class RepatriateFromCopyHandler implements TaskHandlerInterface
                 'Rapatriement de « %s » depuis « %s » : %d fichier(s) remis en place.',
                 $source->label,
                 $destination->label,
-                $result->restoredCount
+                $restoredSoFar + $result->restoredCount
             ),
-            ['failures' => count($result->failures)]
+            ['failures' => $failedSoFar + count($result->failures)]
         );
     }
 }

@@ -192,6 +192,7 @@ final class RunStorageProtectionsHandlerTest extends TestCase
         $this->protections->recordPassProgress(
             $id,
             StorageProtection::PHASE_INVENTORY,
+            'page-2',
             '12/a.jpg',
             17,
             '2026-09-01 02:00:00'

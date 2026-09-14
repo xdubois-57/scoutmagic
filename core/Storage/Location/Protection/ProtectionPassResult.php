@@ -39,7 +39,10 @@ final class ProtectionPassResult
          * tripping every single night.
          */
         public readonly string $passStartedAt,
+        /** The backend's own next-page token, opaque by contract. */
         public readonly ?string $cursor = null,
+        /** The last key of that page this run finished with. */
+        public readonly ?string $pageLastKey = null,
         public readonly int $seenCount = 0,
         public readonly int $copiedCount = 0,
         public readonly array $failures = [],
@@ -64,11 +67,12 @@ final class ProtectionPassResult
         string $phase,
         string $passStartedAt,
         ?string $cursor,
+        ?string $pageLastKey,
         int $seenCount,
         int $copiedCount,
         array $failures
     ): self {
-        return new self($phase, false, $passStartedAt, $cursor, $seenCount, $copiedCount, $failures);
+        return new self($phase, false, $passStartedAt, $cursor, $pageLastKey, $seenCount, $copiedCount, $failures);
     }
 
     /**
@@ -81,7 +85,7 @@ final class ProtectionPassResult
         int $copiedCount,
         array $failures
     ): self {
-        return new self($phase, true, $passStartedAt, null, $seenCount, $copiedCount, $failures);
+        return new self($phase, true, $passStartedAt, null, null, $seenCount, $copiedCount, $failures);
     }
 
     public static function finishedSweep(
@@ -94,6 +98,38 @@ final class ProtectionPassResult
             StorageProtection::PHASE_RECONCILE,
             true,
             $passStartedAt,
+            null,
+            null,
+            0,
+            0,
+            [],
+            $markedAbsent,
+            $deleted,
+            $refusedMassDisappearance
+        );
+    }
+
+    /**
+     * A sweep that ran out of time part-way through its deletions.
+     *
+     * **It carries no cursor, and that is not an omission.** What phase 2
+     * has to remember is which entries it decided about, and those
+     * decisions are written into the inventory itself as
+     * `absentFromSourceSince`. A run that resumes in this phase re-reads
+     * the document, finds the entries still marked, and carries on
+     * deleting — so the only thing the row has to hold is the phase.
+     */
+    public static function pausedSweep(
+        string $passStartedAt,
+        int $markedAbsent,
+        int $deleted,
+        bool $refusedMassDisappearance
+    ): self {
+        return new self(
+            StorageProtection::PHASE_RECONCILE,
+            false,
+            $passStartedAt,
+            null,
             null,
             0,
             0,
@@ -115,6 +151,7 @@ final class ProtectionPassResult
             $this->finished,
             $this->passStartedAt,
             $this->cursor,
+            $this->pageLastKey,
             $inventoryPhase->seenCount,
             $inventoryPhase->copiedCount,
             $inventoryPhase->failures,

@@ -42,7 +42,19 @@ final class StorageProtection
         public readonly int $cadenceHours,
         public readonly ?string $passPhase = null,
         public readonly ?string $passStartedAt = null,
+        /**
+         * The backend's own « next page » token, opaque by contract.
+         *
+         * Never a key this code picked: the two backends mean different
+         * things by a cursor, and an object key handed to a bucket as a
+         * continuation token is refused.
+         */
         public readonly ?string $passCursor = null,
+        /**
+         * The last key of that page this pass finished with, so a run
+         * stopped mid-page resumes mid-page.
+         */
+        public readonly ?string $passPageLastKey = null,
         public readonly int $passSeenCount = 0,
         public readonly ?string $lastCompletedPassAt = null,
         public readonly ?string $lastError = null,

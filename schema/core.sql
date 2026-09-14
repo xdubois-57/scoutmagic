@@ -1754,7 +1754,25 @@ CREATE TABLE IF NOT EXISTS storage_protections (
     -- years describe itself.
     pass_phase VARCHAR(16) NULL,
     pass_started_at DATETIME NULL,
+    -- **Whatever the BACKEND handed back for the next page, never a key
+    -- this code chose.** `StorageBackendInterface::list()` says the
+    -- cursor is opaque to the caller, and the two implementations mean
+    -- genuinely different things by it: a local listing resumes from the
+    -- last key it returned, while a bucket resumes from S3's own
+    -- `NextContinuationToken`. An object key put in here reads as a
+    -- continuation token on the bucket, which it is not — the next run's
+    -- listing throws, the failure clears the working state, and the pass
+    -- restarts from zero every night without ever completing. On a source
+    -- big enough to need more than one run that also means phase 2 never
+    -- runs at all (D15), so nothing is ever let go of either.
     pass_cursor TEXT NULL,
+    -- The last key of THAT page this pass finished with, so a run that
+    -- stopped in the middle of a page resumes in the middle of it.
+    -- Re-listing the page is cheap; re-copying what it already carried
+    -- across is not. Matched by name rather than by position, so a page
+    -- whose contents shifted between two runs costs a few keys looked at
+    -- twice — which is free — instead of skipping one.
+    pass_page_last_key TEXT NULL,
     -- How many source keys this pass has listed so far. Read by nothing
     -- but the guard of D15: a disappearance is only ever acted on after
     -- an inventory phase that finished, and this is what the phase counts

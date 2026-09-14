@@ -59,6 +59,7 @@ final class ProtectionPassTest extends TestCase
         ?string $phase = null,
         ?string $startedAt = null,
         ?string $cursor = null,
+        ?string $pageLastKey = null,
         int $seen = 0
     ): StorageProtection {
         return new StorageProtection(
@@ -71,6 +72,7 @@ final class ProtectionPassTest extends TestCase
             passPhase: $phase,
             passStartedAt: $startedAt,
             passCursor: $cursor,
+            passPageLastKey: $pageLastKey,
             passSeenCount: $seen
         );
     }
@@ -213,7 +215,17 @@ final class ProtectionPassTest extends TestCase
 
         $this->assertFalse($result->finished);
         $this->assertSame(StorageProtection::PHASE_INVENTORY, $result->phase);
-        $this->assertSame('12/a.jpg', $result->cursor);
+        // **The position within the page, which is a key; NOT the
+        // cursor, which belongs to the backend.** A single page of a
+        // local listing answers no continuation token at all, so the
+        // cursor here is null and the key is what says where to pick up.
+        // Recording the key as the cursor — as this did — is invisible
+        // on a folder, whose listing happens to resume from the last key
+        // it returned, and fatal on a bucket, where it reads as an S3
+        // continuation token, the listing throws, and the pass restarts
+        // from zero every night without ever completing.
+        $this->assertSame('12/a.jpg', $result->pageLastKey);
+        $this->assertNull($result->cursor);
     }
 
     /** And the next run picks up from that cursor rather than from zero. */
@@ -667,6 +679,161 @@ final class ProtectionPassTest extends TestCase
         foreach (['a', 'b', 'c'] as $name) {
             $this->assertFalse($this->destination->exists('12/' . $name . '.jpg'));
         }
+    }
+
+    /**
+     * A run that stops in the middle of a page must not hand the backend
+     * a cursor the backend never issued.
+     *
+     * **This is invisible on a folder and fatal on a bucket.** The local
+     * listing happens to resume from the last key it returned, so
+     * recording an object key as the cursor worked there by accident.
+     * `StorageBackendInterface::list()` says the cursor is opaque to the
+     * caller, and S3 means its own `NextContinuationToken` by it: an
+     * object key handed back as one is refused, the next run's listing
+     * throws, `recordPassFailed()` clears the working state, and the pass
+     * starts from zero again — every night, on exactly the sources big
+     * enough to need more than one run. Phase 2 never runs either, since
+     * it is reached only by a phase 1 that finished (D15), so the copy
+     * also never lets go of anything.
+     *
+     * The fake below is the part of S3 that matters here: it issues
+     * tokens of its own and refuses anything else.
+     */
+    public function testAMidPageStopNeverHandsTheBackendACursorItDidNotIssue(): void
+    {
+        foreach (['a', 'b', 'c', 'd', 'e'] as $name) {
+            $this->source->put('12/' . $name . '.jpg', 'photo-' . $name, 'image/jpeg');
+        }
+
+        $paging = new class ($this->root . '/source') extends LocalStorageBackend {
+            public const PAGE = 2;
+
+            public function list(string $prefix, ?string $cursor = null, int $limit = 1000): StorageListing
+            {
+                if ($cursor !== null && !str_starts_with($cursor, 'token-')) {
+                    throw new \RuntimeException("Not a continuation token this backend issued: {$cursor}");
+                }
+
+                $all = parent::list($prefix, null, 10_000)->objects;
+                $offset = $cursor === null ? 0 : (int) substr($cursor, 6);
+                $page = array_slice($all, $offset, self::PAGE);
+                $next = ($offset + self::PAGE) < count($all) ? 'token-' . ($offset + self::PAGE) : null;
+
+                return new StorageListing($page, $next);
+            }
+        };
+
+        // Stops as soon as the first object has arrived — mid-page, by
+        // construction, since a page holds two.
+        $destination = $this->destination;
+        $first = $this->pass()->run(
+            $this->protection(),
+            $paging,
+            $this->destination,
+            'Galerie',
+            static fn(): bool => !$destination->exists('12/a.jpg')
+        );
+
+        $this->assertFalse($first->finished);
+        $this->assertNull($first->cursor, 'the first page was not finished, so there is no token yet');
+        $this->assertSame('12/a.jpg', $first->pageLastKey);
+
+        // The next run resumes — and the backend is never asked for a
+        // page with a key as its cursor, which is what would throw.
+        $result = $this->pass()->run(
+            $this->protection(
+                phase: StorageProtection::PHASE_INVENTORY,
+                cursor: $first->cursor,
+                pageLastKey: $first->pageLastKey,
+                seen: $first->seenCount
+            ),
+            $paging,
+            $this->destination,
+            'Galerie',
+            $this->always()
+        );
+
+        $this->assertTrue($result->finished);
+        foreach (['a', 'b', 'c', 'd', 'e'] as $name) {
+            $this->assertTrue(
+                $this->destination->exists('12/' . $name . '.jpg'),
+                "12/{$name}.jpg never arrived"
+            );
+        }
+        $this->assertSame(
+            4,
+            $result->copiedCount,
+            'and the one the first run already carried across is not sent again'
+        );
+    }
+
+    /**
+     * A sweep that runs out of time pauses IN its own phase.
+     *
+     * Until it could, `finishedSweep()` was the only way out of phase 2,
+     * so `pass_phase` was never persisted as `reconcile` and both the
+     * resume branch of run() and the guard that protects it were
+     * unreachable — code that read as live and could not run. The
+     * consequence of the dead branch is the real cost: a sweep that
+     * stopped had to list the entire source again next time to get back
+     * to a decision it had already made.
+     */
+    public function testASweepOutOfTimeResumesInPhaseTwoRatherThanListingAgain(): void
+    {
+        foreach (['a', 'b', 'c'] as $name) {
+            $this->source->put('12/' . $name . '.jpg', 'photo-' . $name, 'image/jpeg');
+        }
+        $this->firstPassAt('2026-01-01 02:00:00');
+        foreach (['a', 'b', 'c'] as $name) {
+            $this->source->delete('12/' . $name . '.jpg');
+        }
+        $this->pass(new \DateTimeImmutable('2026-01-02 02:00:00'))->run(
+            $this->protection(startedAt: '2026-01-02 02:00:00'),
+            $this->source,
+            $this->destination,
+            'Galerie',
+            $this->always()
+        );
+
+        $stopAfterOne = function (): bool {
+            $left = 0;
+            foreach (['a', 'b', 'c'] as $name) {
+                if ($this->destination->exists('12/' . $name . '.jpg')) {
+                    $left++;
+                }
+            }
+
+            return $left === 3;
+        };
+
+        $paused = $this->pass(new \DateTimeImmutable('2026-03-01 02:00:00'))->run(
+            $this->protection(startedAt: '2026-03-01 02:00:00'),
+            $this->source,
+            $this->destination,
+            'Galerie',
+            $stopAfterOne
+        );
+
+        $this->assertFalse($paused->finished, 'a sweep with deletions left is not finished');
+        $this->assertSame(StorageProtection::PHASE_RECONCILE, $paused->phase);
+
+        // Resuming straight into the sweep: the source is never listed,
+        // and the decisions are read back from the inventory itself.
+        $resumed = $this->pass(new \DateTimeImmutable('2026-03-01 02:00:30'))->run(
+            $this->protection(
+                phase: StorageProtection::PHASE_RECONCILE,
+                startedAt: '2026-03-01 02:00:00'
+            ),
+            $this->source,
+            $this->destination,
+            'Galerie',
+            $this->always()
+        );
+
+        $this->assertTrue($resumed->finished);
+        $this->assertSame(2, $resumed->deletedCount);
+        $this->assertSame(0, $this->inventory()->count());
     }
 
     private function removeDirectory(string $dir): void

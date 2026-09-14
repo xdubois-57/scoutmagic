@@ -793,6 +793,7 @@ class DatabaseTestHelper
             pass_phase TEXT NULL,
             pass_started_at TEXT NULL,
             pass_cursor TEXT NULL,
+            pass_page_last_key TEXT NULL,
             pass_seen_count INTEGER NOT NULL DEFAULT 0,
             last_completed_pass_at TEXT NULL,
             last_error TEXT NULL,
