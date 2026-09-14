@@ -68,20 +68,23 @@
            an administrator who reads only this card has to come away
            knowing both.
 
-           Today this is every declared location — D10 took all of them
-           out of every archive — so the sentence says so rather than
-           listing the same names the page already shows twice. IT-04 is
-           what turns it into a real filter. #}
+           Since IT-04 it is a real filter: the locations with no copy
+           at all, and the ones whose copy is paused. A paused relation
+           counts as unprotected on purpose — what this block answers is
+           « what would I lose tonight », and a copy that is not running
+           protects exactly nothing. #}
         {% if unprotected is not empty %}
             <div class="card-body border-bottom">
                 <p class="small text-body-secondary mb-1">
                     <i class="bi bi-shield-exclamation text-warning" aria-hidden="true"></i>
-                    <span class="fw-medium">Aucune archive ne reprend le contenu d'un emplacement de stockage.</span>
+                    <span class="fw-medium">Ces emplacements n'ont pas de copie de secours qui tourne.</span>
                 </p>
                 <p class="small text-body-secondary mb-0">
                     {{ unprotected|length ~ (unprotected|length == 1 ? ' emplacement est concerné' : ' emplacements sont concernés') }} :
                     {{ unprotected|map(l => l.label)|join(', ') }}.
-                    Une sauvegarde restaurée rendra les fiches, pas les fichiers.
+                    Aucune archive ne reprend leur contenu&nbsp;: une sauvegarde restaurée
+                    rendra les fiches, pas les fichiers.
+                    Une copie se déclare sur la fiche de l'emplacement.
                 </p>
             </div>
         {% endif %}

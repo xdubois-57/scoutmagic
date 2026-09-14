@@ -47,18 +47,16 @@ sien par un numéro interne. Un emplacement **recréé** en reçoit un
 nouveau : les albums restaurés désigneraient toujours l'ancien et ne
 trouveraient plus leurs fichiers.
 
-Dans Configuration › Stockage › Emplacements, retrouvez donc la
-destination, « Modifier », et ne corrigez que ce qui a changé : des
-identifiants régénérés, un dossier ailleurs. Absente de la liste ?
-L'étape 2 n'a pas repris la base attendue : reprenez-la.
+Dans Configuration › Stockage › Emplacements, retrouvez
+l'emplacement, « Modifier », et ne corrigez que ce qui a changé.
+Absente de la liste ? L'étape 2 n'a pas repris la base attendue.
 
-**4. Testez-le.** Le bouton « Tester » écrit un fichier témoin et le
-relit. Tant qu'il n'est pas au vert, inutile d'aller plus loin.
+**4. Testez-le.** « Tester » écrit un fichier témoin et le relit. Tant
+qu'il n'est pas au vert, inutile d'aller plus loin.
 
 **5. Attribuez-le à son usage.** Un emplacement déclaré ne sert encore
-à rien : c'est la page du module qui décide. Pour les photos, c'est
-Configuration › Galerie, onglet « Général », champ « emplacement des
-nouveaux albums ».
+à rien : c'est la page du module qui décide. Pour les photos,
+Configuration › Galerie, onglet « Général ».
 
 > Ce champ ne concerne que les **nouveaux** albums. Les albums restaurés
 > pointent déjà, par la base de données, vers l'emplacement où leurs
@@ -67,9 +65,14 @@ nouveaux albums ».
 
 ## Si les identifiants ont été perdus aussi
 
-Un stockage externe se rouvre depuis la console du fournisseur : vous
-pouvez générer de nouveaux identifiants sans toucher au contenu. C'est
-la seule partie de cette procédure qui ne se fait pas depuis le site.
+Un stockage externe se rouvre depuis la console du fournisseur :
+générez de nouveaux identifiants, sans toucher au contenu. C'est la
+seule étape qui ne se fait pas depuis le site.
+
+## Si l'emplacement a une copie de secours
+
+« Rapatrier depuis la copie », sur sa fiche, remet en place ce que la
+source a perdu. Rien n'est écrasé.
 
 ## Vérifier que c'est bon
 
