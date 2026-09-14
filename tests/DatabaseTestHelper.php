@@ -675,6 +675,34 @@ class DatabaseTestHelper
             UNIQUE (provider_id, count_date, lane)
         )');
 
+        // The circuit breaker's memory and the deferral queue (D15, D9,
+        // D18). `payload_encrypted` is a BLOB in MySQL and stays TEXT
+        // here only because SQLite has no distinct binary type — what it
+        // holds is ciphertext either way.
+        $pdo->exec('CREATE TABLE mail_provider_health (
+            provider_id INTEGER PRIMARY KEY,
+            consecutive_failures INTEGER NOT NULL DEFAULT 0,
+            opened_at TEXT,
+            opened_until TEXT,
+            open_count INTEGER NOT NULL DEFAULT 0,
+            last_reason TEXT NOT NULL DEFAULT \'\',
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )');
+
+        $pdo->exec('CREATE TABLE mail_deferred_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            lane TEXT NOT NULL,
+            purpose TEXT NOT NULL,
+            payload_encrypted TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT \'pending\',
+            attempts INTEGER NOT NULL DEFAULT 0,
+            last_reason TEXT NOT NULL DEFAULT \'\',
+            next_attempt_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            settled_at TEXT
+        )');
+
         $pdo->exec('CREATE TABLE human_check_rate_limits (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             ip_hash TEXT NOT NULL,

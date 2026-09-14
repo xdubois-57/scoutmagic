@@ -189,7 +189,7 @@ class SqlParserTest extends TestCase
         $schemaPath = dirname(__DIR__, 3) . '/schema/core.sql';
         $tables = $this->parser->parseFile($schemaPath);
 
-        $this->assertCount(53, $tables);
+        $this->assertCount(55, $tables);
 
         $tableNames = array_map(fn($t) => $t->name, $tables);
         $this->assertContains('sent_email_claims', $tableNames);
@@ -197,6 +197,9 @@ class SqlParserTest extends TestCase
         $this->assertContains('mail_providers', $tableNames);
         $this->assertContains('mail_lane_entries', $tableNames);
         $this->assertContains('mail_send_counters', $tableNames);
+        // And the two the reserve, the queue and the circuit breaker need.
+        $this->assertContains('mail_provider_health', $tableNames);
+        $this->assertContains('mail_deferred_messages', $tableNames);
         $this->assertContains('operational_alerts', $tableNames);
         $this->assertContains('scout_years', $tableNames);
         $this->assertContains('members', $tableNames);

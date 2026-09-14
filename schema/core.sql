@@ -1584,3 +1584,62 @@ CREATE TABLE IF NOT EXISTS mail_send_counters (
     UNIQUE KEY uniq_mail_send_counters_day (provider_id, count_date, lane),
     INDEX idx_mail_send_counters_date (count_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- The circuit breaker's memory, one row per provider (D15,
+-- ARCHITECTURE.md §8.106).
+--
+-- `provider_id` is the primary key rather than an autoincrement of its
+-- own: a provider has exactly one health, and 0 is the local send —
+-- which can be shut out like any other, because a server whose `mail()`
+-- keeps failing is a provider that keeps failing.
+--
+-- `opened_until` NULL means closed, which is the ordinary state. It is
+-- nullable rather than sentinel-dated because nothing indexes it as
+-- unique, and a date in 1970 standing for « never opened » would be read
+-- as an open circuit that expired long ago — the opposite of true.
+CREATE TABLE IF NOT EXISTS mail_provider_health (
+    provider_id INT UNSIGNED NOT NULL PRIMARY KEY,
+    consecutive_failures INT UNSIGNED NOT NULL DEFAULT 0,
+    opened_at DATETIME NULL,
+    opened_until DATETIME NULL,
+    open_count INT UNSIGNED NOT NULL DEFAULT 0,
+    last_reason VARCHAR(255) NOT NULL DEFAULT '',
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_mail_provider_health_open (opened_until)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Messages a lane could not deliver and will try again (D9, D16), with
+-- the message itself encrypted at rest (D18).
+--
+-- `payload_encrypted` holds the ARGUMENTS of MailService::send(), not an
+-- assembled MIME message. Draining the queue is then replaying that call,
+-- so a deferred message is signed, routed, counted and — on an
+-- installation whose sandbox is armed — captured exactly like one that
+-- left the first time. Storing the rendered message instead would have
+-- meant a second way of sending, bypassing all four.
+--
+-- It carries a recipient address and a body, which is why it is a BLOB
+-- through EncryptionService and read in one repository (AGENTS.md
+-- checklist, point 3).
+--
+-- `expires_at` is the message's own deadline, fixed when it is queued:
+-- a reminder that arrives three days late is noise, so past it the row
+-- becomes `abandoned` rather than sent (D9). `abandoned` rows are kept
+-- for their own retention so the Relance screen can offer them, then
+-- purged with their body (D17).
+CREATE TABLE IF NOT EXISTS mail_deferred_messages (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    lane VARCHAR(20) NOT NULL,
+    purpose VARCHAR(20) NOT NULL,
+    payload_encrypted BLOB NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    attempts INT UNSIGNED NOT NULL DEFAULT 0,
+    last_reason VARCHAR(255) NOT NULL DEFAULT '',
+    next_attempt_at DATETIME NOT NULL,
+    expires_at DATETIME NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    settled_at DATETIME NULL,
+    INDEX idx_mail_deferred_due (status, next_attempt_at),
+    INDEX idx_mail_deferred_lane (lane, status),
+    INDEX idx_mail_deferred_settled (status, settled_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
