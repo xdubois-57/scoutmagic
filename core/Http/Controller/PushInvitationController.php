@@ -17,7 +17,7 @@ use Twig\Environment;
 
 /**
  * What the installed application's « Activer les notifications ? » dialog
- * writes back (ARCHITECTURE.md §8.110).
+ * writes back (ARCHITECTURE.md §8.111).
  *
  * **The subscription itself is not created here.** Accepting goes through
  * `POST /api/push-subscription` (Core\Http\Controller\

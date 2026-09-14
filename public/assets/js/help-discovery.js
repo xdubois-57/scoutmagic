@@ -23,7 +23,7 @@
 
     // One dialog per visit. The installed application's « Activer les
     // notifications ? » invitation (/assets/js/push-invitation.js,
-    // ARCHITECTURE.md §8.110) runs immediately before this file and says
+    // ARCHITECTURE.md §8.111) runs immediately before this file and says
     // synchronously whether it is opening; when it is, the tips stand
     // down and nothing here is consumed — the server holds them back for
     // the rest of the day when that dialog is answered. Two modals in a

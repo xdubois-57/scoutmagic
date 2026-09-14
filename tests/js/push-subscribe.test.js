@@ -9,7 +9,7 @@
 //
 // This file has no DOM at all, and that is the point: it is the one piece
 // of the two push surfaces that is pure logic, shared by « Mon compte »
-// and by the installed application's invitation (ARCHITECTURE.md §8.110).
+// and by the installed application's invitation (ARCHITECTURE.md §8.111).
 // What it owes both callers is a STATUS STRING they can turn into the
 // right sentence — 'denied' is the browser saying no and is not an error,
 // everything that actually broke is 'error' — and telling those two apart

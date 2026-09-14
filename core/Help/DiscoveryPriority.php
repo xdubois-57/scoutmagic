@@ -23,7 +23,7 @@ namespace Core\Help;
  * were not enough the first time somebody needed a topic to come before
  * every other: `installer-application` has to lead, because the whole
  * chain that follows — install the application, then be offered push
- * notifications (§8.110) — starts with it, and « somewhere among the
+ * notifications (§8.111) — starts with it, and « somewhere among the
  * twenty-four `1`s » is not leading. An enum would have to grow a case
  * for each such decision, in code, which is exactly what declaring the
  * order in the topic was meant to avoid. An integer needs no case: the

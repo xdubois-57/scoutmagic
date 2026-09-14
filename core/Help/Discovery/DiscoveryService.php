@@ -273,7 +273,7 @@ class DiscoveryService
      * Written for the one caller outside this feature:
      * Core\Http\Controller\PushInvitationController, because the
      * installed application's « Activer les notifications ? » dialog
-     * (§8.110) takes the day when it is answered. A tip on the very page
+     * (§8.111) takes the day when it is answered. A tip on the very page
      * somebody just decided about notifications on would be the second
      * modal of one visit, and two dialogs in a row is what makes people
      * close both without reading either.

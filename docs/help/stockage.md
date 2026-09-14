@@ -8,7 +8,7 @@ question: Où sont stockés les fichiers du site ?
 question: Quel type de stockage choisir pour les photos ?
 question: Comment déclarer un disque réseau ?
 paths: /config/stockage/emplacements, /config/stockage/emplacements/nouveau, /config/stockage/emplacements/*/modification
-related: stockage-espace, stockage-apres-un-sinistre, config-galerie
+related: stockage-copie-de-secours, stockage-espace, stockage-apres-un-sinistre
 ---
 
 Un **emplacement de stockage**, c'est une destination où le site écrit
@@ -48,7 +48,7 @@ réinitialisation complète ne l'efface pas non plus.
 
 Les deux moitiés comptent. Ne pas être effacé est une protection ; ne
 pas être dans les archives veut dire que cet emplacement a besoin de sa
-propre copie de secours.
+propre copie de secours, qui se déclare sur sa fiche.
 
 ## Un dossier ailleurs sur le serveur
 
@@ -61,8 +61,8 @@ déposé deviendrait téléchargeable par n'importe qui, sans contrôle.
 
 Tester écrit réellement un fichier témoin, le relit et le supprime.
 C'est la seule manière de distinguer un dossier présent d'un dossier
-utilisable : un montage réseau peut avoir disparu, être passé en lecture
-seule, ou être devenu très lent.
+utilisable : un montage peut avoir disparu, être passé en lecture seule,
+ou être devenu très lent.
 
 Le test s'arrête de lui-même au bout de quelques secondes plutôt que
 d'attendre indéfiniment — une page de configuration figée est

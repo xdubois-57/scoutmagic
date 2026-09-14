@@ -257,7 +257,7 @@ interface Window {
     };
     // public/assets/js/push-subscribe.js — subscribing and unsubscribing
     // this device to Web Push, shared by the « Mon compte » switch and by
-    // the installed application's invitation (ARCHITECTURE.md §8.110).
+    // the installed application's invitation (ARCHITECTURE.md §8.111).
     // Every call resolves a status string rather than throwing: both
     // callers have to tell "the browser said no" apart from "something
     // broke" to say the right sentence.

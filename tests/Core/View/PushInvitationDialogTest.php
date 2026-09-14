@@ -15,7 +15,7 @@ use Twig\Loader\FilesystemLoader;
 
 /**
  * base.html.twig's « Activer les notifications ? » dialog
- * (ARCHITECTURE.md §8.110) — the render-time half, tested through the
+ * (ARCHITECTURE.md §8.111) — the render-time half, tested through the
  * real layout for the same reason as HelpDiscoveryDialogTest: a Twig
  * global wired to the wrong key renders a perfectly fine page with no
  * dialog in it, and nothing else would say so.

@@ -180,7 +180,7 @@ class DiscoveryServiceTest extends TestCase
      * The key is a WHOLE NUMBER and not one of three cases, so a topic
      * can be placed ahead of the whole promoted set without anything
      * being renumbered — which is what `installer-application` does in
-     * the shipped corpus (ARCHITECTURE.md §8.64, §8.110), and what
+     * the shipped corpus (ARCHITECTURE.md §8.64, §8.111), and what
      * Tests\Core\Help\HelpDiscoveryInvariantsTest holds it to there.
      *
      * Twelve draws for the same reason as the test above: a lucky seed

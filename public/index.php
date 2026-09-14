@@ -680,6 +680,36 @@ $settingService->register(
     50
 );
 $settingService->register(
+    'mail_reply_address',
+    '',
+    'email',
+    'Adresse de réponse',
+    'Adresse vers laquelle arrivent les réponses aux messages du site. Laissez vide pour que les réponses '
+        . 'reviennent à l\'adresse d\'expédition.',
+    null,
+    null,
+    null,
+    true,
+    55
+);
+// What the last live DNS lookup said, so the « Courrier sortant »
+// dashboard can show a state with a date instead of either lying or
+// querying a resolver on every page load. Written by the Authentification
+// sub-page when somebody presses « Vérifier les enregistrements », never
+// by hand — hence editable: false.
+$settingService->register(
+    \Core\Mail\DnsCheckMemory::SETTING_KEY,
+    '',
+    'text',
+    'Dernière vérification DNS',
+    'Résultat de la dernière vérification des enregistrements SPF, DKIM et DMARC, avec sa date.',
+    null,
+    null,
+    null,
+    false,
+    56
+);
+$settingService->register(
     'dkim_selector',
     's2026',
     'text',
@@ -2001,7 +2031,8 @@ $twig->addGlobal('pwa_theme_color', (string) ($settingService->get('pwa_theme_co
 // (magic links, mass mail, test emails, confirmation links) — PHPMailer
 // rejects an empty From outright ("Invalid address: (From): "), so this
 // wasn't a "no SMTP configured" situation, it never even tried to connect.
-foreach (['short_name', 'mail_from_address', 'mail_from_name', 'dkim_selector'] as $mailSecretKey) {
+$mailSettingKeys = ['short_name', 'mail_from_address', 'mail_from_name', 'dkim_selector', 'mail_reply_address'];
+foreach ($mailSettingKeys as $mailSecretKey) {
     $secrets[$mailSecretKey] = (string) ($settingService->get($mailSecretKey) ?: ($secrets[$mailSecretKey] ?? ''));
 }
 // Which named flags hold for THIS installation (ARCHITECTURE.md §8.49)?
@@ -2430,6 +2461,20 @@ $diskBudget = new \Core\Storage\DiskBudget($storagePath, $settingService);
 // modules that answer.
 $storageLocationRepository = new \Core\Storage\Location\StorageLocationRepository($pdo, $encryptionService);
 $storageLocationConsumers = new \Core\Storage\Location\StorageLocationConsumerRegistry();
+$storageProtectionRepository = new \Core\Storage\Location\Protection\StorageProtectionRepository($pdo);
+// **The one consumer that is not a module's**, so it is registered here
+// and unconditionally rather than in a block further down: a safety copy
+// is part of the storage subsystem itself and exists whatever is enabled.
+// Without it, deleting a location somebody's copy is written to reaches
+// the `RESTRICT` foreign key and surfaces a PDOException — a 500 in front
+// of an administrator, which is the exact thing this registry exists to
+// replace with a French refusal naming « Copies de secours ».
+$storageLocationConsumers->register(
+    new \Core\Storage\Location\Protection\StorageProtectionConsumer(
+        $storageProtectionRepository,
+        $storageLocationRepository
+    )
+);
 $storageBackendFactory = new \Core\Storage\Location\Backend\StorageBackendFactory(
     $storageLocationRepository,
     $storagePath
@@ -3253,7 +3298,7 @@ $helpService = new \Core\Help\HelpService($helpRegistry);
 // Core\Http\Controller\HelpDiscoveryController share one instance.
 $seenHelpTopicRepository = new \Core\Help\Discovery\SeenTopicRepository($pdo);
 // The one piece of stored state behind « Activer les notifications ? »
-// (§8.110): whether this account has already answered « Plus tard ».
+// (§8.111): whether this account has already answered « Plus tard ».
 // Built here for the same reason as the line above — the Twig global that
 // decides whether the dialog ships and the controller that records the
 // answer share one instance.
@@ -3370,6 +3415,19 @@ $schedulerService->seed(
     'core',
     \Core\Maintenance\Task\SendRemoteBackupHandler::TASK_KEY,
     \Core\Maintenance\Task\SendRemoteBackupHandler::REFERENCE,
+    new DateTimeImmutable()
+);
+
+// Same bootstrap for the nightly safety copies (Core\Storage\Location\
+// Protection\Task\RunStorageProtectionsHandler). Armed unconditionally,
+// protections declared or not: the handler's first act is to ask which are
+// due, and a run that finds none simply re-arms. Arming it only when a
+// protection exists would mean the chain never starts on the request that
+// declares the first one — and nothing would ever start it afterwards.
+$schedulerService->seed(
+    'core',
+    \Core\Storage\Location\Protection\Task\RunStorageProtectionsHandler::TASK_KEY,
+    \Core\Storage\Location\Protection\Task\RunStorageProtectionsHandler::REFERENCE,
     new DateTimeImmutable()
 );
 
@@ -3622,7 +3680,7 @@ $router->addRoute(
 $router->addRoute('POST', '/api/push-subscription', PushSubscriptionController::class, 'subscribe', 'identified');
 $router->addRoute('DELETE', '/api/push-subscription', PushSubscriptionController::class, 'unsubscribe', 'identified');
 // The answer to « Activer les notifications ? », the invitation the
-// installed application offers once (ARCHITECTURE.md §8.110). The
+// installed application offers once (ARCHITECTURE.md §8.111). The
 // subscription itself still goes through the route just above, whichever
 // surface asked for it. role_min: identified — the account it records
 // against is the session's, never a value in the payload — and a CSRF
@@ -3775,9 +3833,18 @@ $router->addRoute(
     'GET',
     '/config/courrier-sortant',
     \Core\Http\Controller\OutboundMailController::class,
-    'providers',
+    'dashboard',
     'superadmin',
     ['label' => 'Courrier sortant', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
+);
+$router->addRoute(
+    'GET',
+    '/config/courrier-sortant/fournisseurs',
+    \Core\Http\Controller\OutboundMailController::class,
+    'providers',
+    'superadmin',
+    ['label' => 'Fournisseurs', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Courrier sortant', 'path' => '/config/courrier-sortant']]],
 );
 $router->addRoute(
     'GET',
@@ -3800,6 +3867,36 @@ $router->addRoute(
     '/config/courrier-sortant/acheminement/{lane}/activation',
     \Core\Http\Controller\OutboundMailController::class,
     'toggle',
+    'superadmin',
+);
+$router->addRoute(
+    'GET',
+    '/config/courrier-sortant/authentification',
+    \Core\Http\Controller\OutboundMailController::class,
+    'authentication',
+    'superadmin',
+    ['label' => 'Authentification', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Courrier sortant', 'path' => '/config/courrier-sortant']]],
+);
+$router->addRoute(
+    'POST',
+    '/config/courrier-sortant/authentification',
+    \Core\Http\Controller\OutboundMailController::class,
+    'saveAuthentication',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/courrier-sortant/authentification/dns',
+    \Core\Http\Controller\OutboundMailController::class,
+    'checkDns',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/courrier-sortant/authentification/verification',
+    \Core\Http\Controller\OutboundMailController::class,
+    'verifyReturns',
     'superadmin',
 );
 $router->addRoute(
@@ -3930,6 +4027,27 @@ $router->addRoute(
     '/config/stockage/emplacements/{id}/test',
     \Core\Http\Controller\StorageConfigController::class,
     'test',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/stockage/emplacements/{id}/protection',
+    \Core\Http\Controller\StorageConfigController::class,
+    'saveProtection',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/stockage/emplacements/{id}/protection/suppression',
+    \Core\Http\Controller\StorageConfigController::class,
+    'deleteProtection',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/stockage/emplacements/{id}/protection/rapatriement',
+    \Core\Http\Controller\StorageConfigController::class,
+    'repatriate',
     'superadmin',
 );
 $router->addRoute(
@@ -4814,7 +4932,7 @@ if ($helpDiscovery !== null) {
 }
 
 // « Activer les notifications ? » (Core\Notification, ARCHITECTURE.md
-// §8.110) — the same server-side shape as the tips dialog just above: the
+// §8.111) — the same server-side shape as the tips dialog just above: the
 // global is set only when this account may be asked at all, so
 // base.html.twig includes the partial or does not.
 //
@@ -4958,7 +5076,7 @@ $frontController->registerController(
         $seenHelpTopicRepository
     )
 );
-// « Activer les notifications ? » (§8.110). Here rather than next to the
+// « Activer les notifications ? » (§8.111). Here rather than next to the
 // other Core\Notification controllers because of the dependency, not the
 // subject: answering that dialog holds the day's tips back, which needs
 // the discovery service built just above.
@@ -5297,34 +5415,6 @@ $frontController->registerController(
         new \Core\Mail\Template\EmailTestSendThrottler($pdo)
     )
 );
-// Configuration > Courrier sortant (Core\Mail\Transport,
-// ARCHITECTURE.md §8.106) — the pendant of /config/courrier-entrant,
-// in the core rather than in a module because the chain that carries
-// the sign-in links must not be something an administrator can disable
-// (D1).
-$frontController->registerController(
-    \Core\Http\Controller\OutboundMailController::class,
-    new \Core\Http\Controller\OutboundMailController(
-        $twig,
-        $mailProviderDirectory,
-        $laneChainRepository,
-        $sendCounterRepository,
-        new \Core\Mail\Transport\TransportService(
-            $mailProviderRepository,
-            $laneChainRepository,
-            $sendCounterRepository,
-            $providerConnections,
-            $mailProviderDirectory,
-            $journalService,
-            new \Core\Mail\Transport\ProviderHealthRepository($pdo)
-        ),
-        $settingService,
-        new \Core\Mail\Transport\MailReserve($sendCounterRepository, $laneChainRepository),
-        new \Core\Mail\Transport\ProviderHealthRepository($pdo),
-        $deferredMailRepository,
-        $deferredMailQueue
-    )
-);
 
 // Configuration > Stockage — where this site writes its files.
 //
@@ -5347,7 +5437,13 @@ $frontController->registerController(
         $volumeInventory,
         $journalService,
         new \Core\Storage\Location\Diagnostics\ObjectStorageErrorExplainer($llmConnectorForOthers),
-        __DIR__
+        __DIR__,
+        new \Core\Storage\Location\Protection\StorageProtectionService(
+            $storageProtectionRepository,
+            $storageLocationRepository,
+            $backupRepository
+        ),
+        $schedulerService
     )
 );
 
@@ -6239,6 +6335,29 @@ if ($isEnabled('inbound_mail')) {
         $encryptedFileStorageService
     );
 
+    // The core's own consumer, so that the mailbox configuration screen
+    // lists « Courrier sortant » among the modules a box can be opened to
+    // (roadmap IT-03). It has to be on THIS registry and not only on the
+    // scheduler's: `Service\MailboxScopeService` reads this one to build
+    // the list of consumers the superadmin answers for, and a consumer
+    // absent from it can never be granted the scope its verification
+    // needs — silently, which is the worst shape that mistake can take.
+    //
+    // A factory like every other entry here: the verification's own
+    // graph is built when somebody asks about it, never on a page view.
+    $inboundReadConsumers->registerFactory(
+        \Core\Mail\Feedback\ReturnPathVerifier::CONSUMER_ID,
+        static fn(): \Modules\InboundMail\Api\MessageConsumerInterface =>
+            new \Core\Mail\Feedback\ReturnPathConsumer(
+                new \Core\Mail\Feedback\ReturnPathVerifier(
+                    new \Core\Mail\Feedback\ReturnProbeRepository($pdo, $encryptionService),
+                    $mailService,
+                    $journalService,
+                    $inboundMailForOthers
+                )
+            )
+    );
+
     // One-time reprise for installs that stored a message's consumer and
     // business reference in the message's own columns, before
     // inbound_message_links existed. Each of those triplets becomes an
@@ -6446,6 +6565,60 @@ if ($isEnabled('inbound_mail')) {
     // lazy factory — so the three-module consumer graph is only ever
     // assembled when a sync task is actually due, never on a page view.
 }
+
+// Does what the site sends to its own addresses actually come back to a
+// box somebody reads (roadmap IT-03)? The gateway is nullable and stays
+// null when `inbound_mail` is off — the verification then answers
+// « impossible », which is a state and not an error (D2).
+$returnPathVerifier = new \Core\Mail\Feedback\ReturnPathVerifier(
+    new \Core\Mail\Feedback\ReturnProbeRepository($pdo, $encryptionService),
+    $mailService,
+    $journalService,
+    $inboundMailForOthers
+);
+
+// Configuration > Courrier sortant (Core\Mail\Transport,
+// ARCHITECTURE.md §8.106) — the pendant of /config/courrier-entrant,
+// in the core rather than in a module because the chain that carries
+// the sign-in links must not be something an administrator can disable
+// (D1).
+//
+// Registered HERE, after the inbound-mail block, and not with the other
+// core controllers further up: the return round trip (roadmap IT-03)
+// takes `Modules\InboundMail\Api\InboundMailInterface` as a NULLABLE
+// dependency (D2, §7.5), and that gateway does not exist until the block
+// above has run. The alternative — building the controller early and
+// handing it a closure — would hide a plain ordering fact behind
+// indirection. With the module disabled the variable is null, the
+// verification answers « impossible » and every other sub-page of the
+// section works exactly as before.
+$frontController->registerController(
+    \Core\Http\Controller\OutboundMailController::class,
+    new \Core\Http\Controller\OutboundMailController(
+        $twig,
+        $mailProviderDirectory,
+        $laneChainRepository,
+        $sendCounterRepository,
+        new \Core\Mail\Transport\TransportService(
+            $mailProviderRepository,
+            $laneChainRepository,
+            $sendCounterRepository,
+            $providerConnections,
+            $mailProviderDirectory,
+            $journalService,
+            new \Core\Mail\Transport\ProviderHealthRepository($pdo)
+        ),
+        $settingService,
+        new \Core\Mail\Transport\MailReserve($sendCounterRepository, $laneChainRepository),
+        new \Core\Mail\Transport\ProviderHealthRepository($pdo),
+        $deferredMailRepository,
+        $deferredMailQueue,
+        $dkimManager,
+        new \Core\Mail\DnsVerifier(),
+        $returnPathVerifier,
+        $journalService
+    )
+);
 
 // Optional dependency on the finance module (ARCHITECTURE.md §7.5) — set
 // below only when 'finance' is enabled; every consumer (e.g. the news

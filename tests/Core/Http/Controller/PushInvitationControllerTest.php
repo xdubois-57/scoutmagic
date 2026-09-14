@@ -29,7 +29,7 @@ use Twig\Loader\FilesystemLoader;
 
 /**
  * What the « Activer les notifications ? » dialog writes back
- * (ARCHITECTURE.md §8.110).
+ * (ARCHITECTURE.md §8.111).
  *
  * The two facts worth pinning are the asymmetry between the answers —
  * only the refusal is remembered against the account, because a

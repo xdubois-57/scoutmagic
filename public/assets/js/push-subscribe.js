@@ -4,7 +4,7 @@
  */
 
 // The one place this site subscribes a device to Web Push, and the one
-// place it unsubscribes it (Core\Notification, ARCHITECTURE.md §8.110).
+// place it unsubscribes it (Core\Notification, ARCHITECTURE.md §8.111).
 //
 // Two surfaces drive it: the « Notifications push » switch of « Mon
 // compte » (/assets/js/push-notifications.js) and the invitation the

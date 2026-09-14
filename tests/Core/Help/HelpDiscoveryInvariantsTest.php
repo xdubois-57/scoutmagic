@@ -326,7 +326,7 @@ final class HelpDiscoveryInvariantsTest extends TestCase
      * This is the one place in the corpus where the running order is not
      * editorial preference but a chain: somebody is shown how to install
      * the application, installs it, and is then offered push
-     * notifications by the application itself (ARCHITECTURE.md §8.110).
+     * notifications by the application itself (ARCHITECTURE.md §8.111).
      * The chain starts with that tip, so it has to be the FIRST card an
      * account is ever shown — not one of twenty-four the seed shuffles.
      *
@@ -351,7 +351,7 @@ final class HelpDiscoveryInvariantsTest extends TestCase
             $leading,
             "« Le saviez-vous ? » opens on « Installer le site comme application » for an account that has\n"
             . "never seen it, because everything the installed application then offers starts there\n"
-            . "(ARCHITECTURE.md §8.110). Below rank 1 there is room for one topic, and this is it."
+            . "(ARCHITECTURE.md §8.111). Below rank 1 there is room for one topic, and this is it."
         );
     }
 

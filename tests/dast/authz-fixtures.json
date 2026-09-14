@@ -135,6 +135,15 @@
     "/config/stockage/emplacements/{id}": {
       "id": "1"
     },
+    "/config/stockage/emplacements/{id}/protection": {
+      "id": "1"
+    },
+    "/config/stockage/emplacements/{id}/protection/rapatriement": {
+      "id": "1"
+    },
+    "/config/stockage/emplacements/{id}/protection/suppression": {
+      "id": "1"
+    },
     "/courrier/{id}": {
       "id": "1"
     },

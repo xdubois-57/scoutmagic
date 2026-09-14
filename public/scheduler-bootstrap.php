@@ -357,6 +357,7 @@ function scoutmagicBootstrapScheduler(
             $encryptionService,
             $settingService,
             $journalService,
+            $mailService,
             $storagePath,
             $enabledModuleIds,
             $notificationService,
@@ -367,6 +368,23 @@ function scoutmagicBootstrapScheduler(
                 $inboundMail = $context->getOptional(\Modules\InboundMail\Api\InboundMailInterface::class);
                 $auditService = new \Core\Audit\AuditService(new \Core\Audit\AuditRepository($pdo, $encryptionService));
                 $fileRepository = new \Core\File\FileRepository($pdo);
+
+                // The core's own: the round trip that says whether mail
+                // addressed to this site's return addresses comes back
+                // into a box somebody reads (roadmap IT-03). Registered
+                // unconditionally — it belongs to the core, not to a
+                // module, and there is no module id to test for. It
+                // claims nothing: it writes down an arrival and answers
+                // `nothing()`, so no triage list gains a row for a
+                // message the site sent to itself.
+                $registry->register(new \Core\Mail\Feedback\ReturnPathConsumer(
+                    new \Core\Mail\Feedback\ReturnPathVerifier(
+                        new \Core\Mail\Feedback\ReturnProbeRepository($pdo, $encryptionService),
+                        $mailService,
+                        $journalService,
+                        $inboundMail
+                    )
+                ));
 
                 // Claims only a message whose subject carries a key this
                 // receiver itself issued — the narrowest claim of the lot

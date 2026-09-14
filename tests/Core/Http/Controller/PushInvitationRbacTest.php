@@ -22,7 +22,7 @@ use Twig\Loader\FilesystemLoader;
 
 /**
  * The role boundary of the route « Activer les notifications ? » writes
- * through (ARCHITECTURE.md §8.110): `identified`, allowed at that floor
+ * through (ARCHITECTURE.md §8.111): `identified`, allowed at that floor
  * and refused one level below.
  *
  * `public` is the level below, and it is the one that matters: the answer

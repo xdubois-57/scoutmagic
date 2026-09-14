@@ -15,7 +15,7 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
 /**
- * `user_accounts.push_invitation_dismissed_at` (ARCHITECTURE.md §8.110) —
+ * `user_accounts.push_invitation_dismissed_at` (ARCHITECTURE.md §8.111) —
  * the only stored state of the invitation the installed application
  * offers.
  *

@@ -9,7 +9,7 @@
 // public/assets/js/push-subscribe.js (imported, never reimplemented).
 //
 // Focus: the decision. Whether the dialog opens at all is the half of the
-// feature the server cannot make (ARCHITECTURE.md §8.110), it is made
+// feature the server cannot make (ARCHITECTURE.md §8.111), it is made
 // synchronously so that help-discovery.js can read it, and each of its
 // four "no" answers looks like a perfectly working page — which is why
 // every one of them is pinned here.

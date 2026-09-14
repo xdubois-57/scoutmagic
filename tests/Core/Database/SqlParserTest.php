@@ -189,10 +189,12 @@ class SqlParserTest extends TestCase
         $schemaPath = dirname(__DIR__, 3) . '/schema/core.sql';
         $tables = $this->parser->parseFile($schemaPath);
 
-        $this->assertCount(56, $tables);
+        $this->assertCount(58, $tables);
 
         $tableNames = array_map(fn($t) => $t->name, $tables);
         $this->assertContains('sent_email_claims', $tableNames);
+        // A location's safety copy on another (ARCHITECTURE.md §8.110).
+        $this->assertContains('storage_protections', $tableNames);
         // The outbound transport's three (ARCHITECTURE.md §8.106).
         $this->assertContains('mail_providers', $tableNames);
         $this->assertContains('mail_lane_entries', $tableNames);
@@ -200,6 +202,9 @@ class SqlParserTest extends TestCase
         // And the two the reserve, the queue and the circuit breaker need.
         $this->assertContains('mail_provider_health', $tableNames);
         $this->assertContains('mail_deferred_messages', $tableNames);
+        // And the round trip that says whether what comes back reaches
+        // anybody (roadmap IT-03).
+        $this->assertContains('mail_return_probes', $tableNames);
         $this->assertContains('operational_alerts', $tableNames);
         // Declared destinations for bytes (Core\Storage\Location) — in
         // core, not in the gallery that was only its first consumer.

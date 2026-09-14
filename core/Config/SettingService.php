@@ -44,6 +44,56 @@ class SettingService
      */
     public function set(string $key, string $value, ?string $moduleId = null): void
     {
+        $this->assertWritable($key, $value, $moduleId);
+
+        $this->repository->updateValue($moduleId, $key, $value);
+        $this->clearCache();
+    }
+
+    /**
+     * Save several settings as one decision — all of them, or none.
+     *
+     * **The atomicity is the point, not a nicety.** `set()` is one UPDATE
+     * per call on a path that opens no transaction, so a form saving five
+     * related values and failing on the fourth leaves three written, two
+     * not, and a screen saying nothing was saved. For a set of values
+     * that only make sense together — the addresses a site sends under,
+     * say — that half-state is worse than the refusal, because the next
+     * reader has no way to tell it from a deliberate configuration.
+     *
+     * Every value is validated the way `set()` validates it, and the
+     * first refusal aborts the whole batch before anything is written.
+     *
+     * @param array<string, string> $values setting key => value
+     * @throws SettingException
+     */
+    public function setMany(array $values, ?string $moduleId = null): void
+    {
+        // Validated in full BEFORE the transaction opens: the ordinary
+        // failure here is a value a person typed, and refusing it without
+        // having touched the database at all is both cheaper and easier
+        // to reason about than rolling back.
+        foreach ($values as $key => $value) {
+            $this->assertWritable($key, $value, $moduleId);
+        }
+
+        $this->repository->transactionally(function () use ($values, $moduleId): void {
+            foreach ($values as $key => $value) {
+                $this->repository->updateValue($moduleId, $key, $value);
+            }
+        });
+
+        $this->clearCache();
+    }
+
+    /**
+     * The checks `set()` makes, without the write — so a batch can make
+     * all of them before it writes any of it.
+     *
+     * @throws SettingException
+     */
+    private function assertWritable(string $key, string $value, ?string $moduleId): void
+    {
         $setting = $this->repository->findByModuleAndKey($moduleId, $key);
         if ($setting === null) {
             throw new SettingException("Le réglage « {$key} » est introuvable — il a peut-être été supprimé, "
@@ -56,9 +106,6 @@ class SettingService
             throw new SettingException("La valeur saisie pour le réglage « {$key} » est invalide — vérifiez le "
                 . "format attendu.");
         }
-
-        $this->repository->updateValue($moduleId, $key, $value);
-        $this->clearCache();
     }
 
     /**

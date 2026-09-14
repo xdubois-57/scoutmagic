@@ -311,7 +311,7 @@ décision 1) :
 `DiscoveryPriority` était une énumération `1`/`2`/`3`/`off`. Elle est
 devenue un objet valeur portant **un entier quelconque**, ou `off`, à
 l'occasion de la fenêtre « Activer les notifications ? » (ARCHITECTURE.md
-§8.110).
+§8.111).
 
 La raison est un cas que les trois rangs ne couvraient pas :
 `installer-application` doit passer **avant tous les autres**, parce que

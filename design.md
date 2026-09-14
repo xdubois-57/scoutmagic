@@ -185,10 +185,16 @@ Everything dynamic in a template comes from a variable its declaration declares 
 ### 4.4 Courrier sortant: the screen
 
 One page, `/config/courrier-sortant`, on the sub-page rail every module
-page already uses (`partials/page_picker.html.twig`, §7.6). Two sub-pages
-today — **Fournisseurs** and **Acheminement** — and the rail grows as the
-iterations that own the other sub-pages land: an onglet pointing at a
-page that does not exist yet is a 404 one click away.
+page already uses (`partials/page_picker.html.twig`, §7.6). Four sub-pages
+today — **Tableau de bord**, **Authentification**, **Fournisseurs** and
+**Acheminement** — and the rail grows as the iterations that own the
+others land: an onglet pointing at a page that does not exist yet is a 404
+one click away.
+
+**Tableau de bord took the section's own URL** and Fournisseurs moved
+under it, which is why the menu entry did not have to change: the first
+page of the section is now the one that answers « est-ce que les e-mails
+partent ? ».
 
 **Fournisseurs** is one card per relay: its name, its host, how much of
 its daily quota today has spent, and the lanes it is currently active in.
@@ -241,10 +247,55 @@ to be opened to find out whether it is worth opening is a dialog nobody
 opens. **Its window defaults to the shortest**, which is the whole safety
 of the feature.
 
+**What IT-03 adds, and where.**
+
+**Tableau de bord** is three lines and a sentence. The three —
+authentification du domaine, un fournisseur d'envoi, retours relevés —
+are the whole of what has to work; the sentence says the rest is
+optional. That separation is the screen, and it is the reason the
+advanced options sit **underneath with their state rather than behind a
+toggle**: hiding them makes them unfindable, and giving them the same
+weight as the three drowns the message. Each line carries an icon, a
+sentence in French saying what is actually wrong, and one button going
+where it is fixed — never a bare red badge, which tells somebody they
+have a problem and nothing about what to do with it.
+
+Its domain line reports a **remembered** reading with its date rather
+than a live one. A `dns_get_record()` on every load would put a resolver
+on the critical path of the page people open when mail is already broken,
+and a stale answer that says how stale it is beats a fresh answer that
+sometimes takes ten seconds to arrive.
+
+**Authentification** carries the addresses and, next to them, the table
+saying what one address does four times over: expéditeur affiché,
+réponses, retour des rebonds, rapports DMARC. The table is the sub-page's
+reason to exist. Almost every unit has one address in all four rows, so
+the table looks redundant right up to the moment it is the only thing on
+the site that says **SPF is checked on the third row's domain, not the
+first's** — and the one moment somebody asks that question is the moment
+they are reading this screen. Each row therefore carries its provenance
+(« Reprend l'adresse d'expédition », « Toujours l'adresse d'expédition »)
+rather than repeating the address with nothing to distinguish the copies.
+
+The DNS lookup is **a button, not a page load**, for the reason above,
+and the panel says so in one line so that nobody reads the absence of
+results as a failure. What comes back stays on the page afterwards, with
+the date it was taken: the suggested records are what somebody is copying
+into their registrar's form one field at a time, and a panel that empties
+itself on the next page load empties itself in the middle of that. The round trip is a second button, and its table
+has a row per address with a badge, a date, and the box the message
+actually landed in — « vérifié » with nothing behind it is a claim, and
+« vérifié le 12/09 dans "Boîte de l'unité" » is an observation somebody
+can check. Where the verification cannot run at all, the sentence says
+which of the two reasons it is: the module is off (nothing to do here),
+or no mailbox is open to it (something to do, with a link).
+
 **The one sentence the screen must keep**, on every sub-page that shows a
 figure: a message classed as junk appears nowhere here, because it was
 accepted. Three green numbers otherwise read as « tout va bien » while a
-provider silently bins everything.
+provider silently bins everything. On the dashboard it is not a footnote
+but its own block under the three lines, because that is the exact spot
+where somebody is about to conclude that everything is fine.
 
 ### 4.5 Stockage: the screen
 
@@ -932,7 +983,7 @@ one either loses their change or hunts for a button that does not exist.
 
 La fenêtre que l'application **installée** propose une fois, à la
 première page ouverte depuis l'icône par un compte qui n'a jamais
-répondu (ARCHITECTURE.md §8.110). Le moment est la décision : la
+répondu (ARCHITECTURE.md §8.111). Le moment est la décision : la
 personne vient de choisir de garder ce site sur son téléphone, et c'est
 le seul instant où la question va de soi. Un mois plus tard, c'est une
 interruption.

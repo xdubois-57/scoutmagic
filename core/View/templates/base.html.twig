@@ -335,7 +335,7 @@
     <script src="{{ asset('/assets/js/help-assistant.js') }}" defer></script>
     {# Subscribing a device to Web Push, once for the two surfaces that do
        it: the « Mon compte » switch and the invitation just below
-       (ARCHITECTURE.md §8.110). It defines a namespace and binds nothing,
+       (ARCHITECTURE.md §8.111). It defines a namespace and binds nothing,
        so it costs a page that uses neither exactly one small file. #}
     <script src="{{ asset('/assets/js/push-subscribe.js') }}" defer></script>
     {# « Activer les notifications ? ». Its order matters and is the
@@ -383,7 +383,7 @@
         {% include 'partials/help_discovery_dialog.html.twig' %}
     {% endif %}
 
-    {# « Activer les notifications ? » (ARCHITECTURE.md §8.110). Same
+    {# « Activer les notifications ? » (ARCHITECTURE.md §8.111). Same
        server-side shape as the two above — Core\Notification\
        PushInvitationService answers whether this account may be asked at
        all, and the global is simply not set when the answer is no. The

@@ -5,7 +5,7 @@
 
 // « Activer les notifications ? » — the invitation the installed
 // application offers once (partials/push_invitation_dialog.html.twig,
-// ARCHITECTURE.md §8.110).
+// ARCHITECTURE.md §8.111).
 //
 // The server has already decided that this ACCOUNT may be asked (signed
 // in, VAPID configured, never refused, not on one of the excluded pages).

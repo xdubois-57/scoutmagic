@@ -10,7 +10,7 @@ namespace Core\Notification;
 
 /**
  * Whether the « Activer les notifications ? » invitation may be put in a
- * page at all (ARCHITECTURE.md §8.110).
+ * page at all (ARCHITECTURE.md §8.111).
  *
  * **The server decides whether the markup ships; the browser decides
  * whether it opens.** Everything this class can see is account-shaped —

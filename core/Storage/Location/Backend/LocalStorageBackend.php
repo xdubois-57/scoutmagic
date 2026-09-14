@@ -26,7 +26,7 @@ use Core\Storage\Location\StoredObject;
  * so this class only ever sees one absolute directory and the rest of the
  * codebase never has to know the rule.
  */
-class LocalStorageBackend implements RangeReadableBackend, ServerSideCopyBackend
+class LocalStorageBackend implements RangeReadableBackend, ResumableUploadBackend, ServerSideCopyBackend
 {
     /**
      * Both of these are true of any filesystem and neither of them costs
@@ -43,7 +43,11 @@ class LocalStorageBackend implements RangeReadableBackend, ServerSideCopyBackend
      */
     public static function declaredCapabilities(): array
     {
-        return [StorageCapability::RangeRead, StorageCapability::ServerSideCopy];
+        return [
+            StorageCapability::RangeRead,
+            StorageCapability::ResumableUpload,
+            StorageCapability::ServerSideCopy,
+        ];
     }
 
     /**
@@ -91,6 +95,91 @@ class LocalStorageBackend implements RangeReadableBackend, ServerSideCopyBackend
      * media as processed, or a copy as made, over nothing at all. This is
      * the one failure whose whole cost is that it is silent.
      */
+    /**
+     * The suffix an interrupted upload is stored under.
+     *
+     * **Chosen so that it can never be mistaken for content.** A consumer
+     * listing this location while a copy is in flight must not meet half a
+     * photograph under the name of a whole one — half a JPEG is a JPEG as
+     * far as every screen is concerned, and it would be served, copied
+     * onward and recorded as protected.
+     */
+    private const PARTIAL_SUFFIX = '.scoutmagic-part';
+
+    public function partialSize(string $key): int
+    {
+        $path = $this->fullPath($key . self::PARTIAL_SUFFIX);
+        if (!is_file($path)) {
+            return 0;
+        }
+
+        // `clearstatcache` because this is read immediately after the
+        // append that grew the file, inside one request: PHP caches the
+        // stat, and a cached size is an offset that re-sends bytes already
+        // stored or — worse, on a shrinking file — skips bytes that are
+        // not.
+        clearstatcache(true, $path);
+        $size = @filesize($path);
+        if (is_int($size)) {
+            return $size;
+        }
+
+        // **A size that cannot be read is not an offset of zero.** The
+        // file is there — `is_file()` just said so — and answering 0 tells
+        // the copier that nothing is stored, so it appends the whole
+        // object BEHIND the bytes already on disk. The promoted file is
+        // then longer than the source and `verify()` throws it away: a
+        // night of transfer spent to arrive nowhere. The contract of this
+        // method is that 0 means « nothing is stored », so make it true.
+        $this->discardPartial($key);
+
+        return 0;
+    }
+
+    public function appendToPartial(string $key, string $chunk): void
+    {
+        $path = $this->fullPath($key . self::PARTIAL_SUFFIX);
+        $dir = dirname($path);
+        if (!is_dir($dir) && !@mkdir($dir, 0755, true) && !is_dir($dir)) {
+            throw new \RuntimeException("Storage directory could not be created for: {$key}");
+        }
+
+        // FILE_APPEND with LOCK_EX rather than an open handle held across
+        // calls: a pass writes a chunk, may hand control back to the
+        // scheduler, and comes back in another process entirely. There is
+        // no handle to keep.
+        $written = @file_put_contents($path, $chunk, FILE_APPEND | LOCK_EX);
+        if ($written === false || $written !== strlen($chunk)) {
+            throw new \RuntimeException("Partial upload could not be extended: {$key}");
+        }
+    }
+
+    public function promotePartial(string $key, string $mimeType): void
+    {
+        $partial = $this->fullPath($key . self::PARTIAL_SUFFIX);
+        if (!is_file($partial)) {
+            throw new \RuntimeException("No partial upload to promote for: {$key}");
+        }
+
+        $path = $this->fullPath($key);
+        $dir = dirname($path);
+        if (!is_dir($dir) && !@mkdir($dir, 0755, true) && !is_dir($dir)) {
+            throw new \RuntimeException("Storage directory could not be created for: {$key}");
+        }
+
+        // `rename` within one filesystem, which this is by construction —
+        // both paths are under this location's root — so the object
+        // appears whole or not at all.
+        if (!@rename($partial, $path)) {
+            throw new \RuntimeException("Partial upload could not be promoted: {$key}");
+        }
+    }
+
+    public function discardPartial(string $key): void
+    {
+        @unlink($this->fullPath($key . self::PARTIAL_SUFFIX));
+    }
+
     public function put(string $key, string $contents, string $mimeType): void
     {
         $path = $this->fullPath($key);
@@ -171,6 +260,13 @@ class LocalStorageBackend implements RangeReadableBackend, ServerSideCopyBackend
      */
     public function delete(string $key): void
     {
+        // **A half-copy of an object goes with the object.** Deleting the
+        // final path and leaving `key.scoutmagic-part` beside it keeps
+        // bytes nothing can ever reach again: the partial is hidden from
+        // `list()` on purpose, so no inventory and no listing meets it,
+        // and it would sit on the disk for the life of the location.
+        $this->discardPartial($key);
+
         $path = $this->fullPath($key);
         if (!is_file($path)) {
             return;
@@ -238,7 +334,16 @@ class LocalStorageBackend implements RangeReadableBackend, ServerSideCopyBackend
             if (!$item instanceof \SplFileInfo || !$item->isFile()) {
                 continue;
             }
-            $keys[] = $this->relativeKey($item->getPathname());
+            $key = $this->relativeKey($item->getPathname());
+            // **An upload in flight is not content.** A consumer listing
+            // this location while a safety copy is being written must not
+            // meet a half-written object at all — it would be served,
+            // copied onward by whatever else stands here, and recorded as
+            // a file this installation holds.
+            if (str_ends_with($key, self::PARTIAL_SUFFIX)) {
+                continue;
+            }
+            $keys[] = $key;
         }
         sort($keys, SORT_STRING);
 

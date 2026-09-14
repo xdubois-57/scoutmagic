@@ -16,7 +16,7 @@ use Tests\DatabaseTestHelper;
 
 /**
  * Which requests carry the « Activer les notifications ? » markup
- * (ARCHITECTURE.md §8.110).
+ * (ARCHITECTURE.md §8.111).
  *
  * Every case here is a "no" the browser would never get to correct, which
  * is what makes them worth pinning: the client half of the decision can

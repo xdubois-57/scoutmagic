@@ -4018,6 +4018,93 @@ lifetime and the abandoned-message retention are two ordinary scalars and
 live on Configuration > Réglages like any other, because neither needs a
 context to be understood.
 
+**The dashboard is the section's own URL, and the separation on it is the
+point.** `/config/courrier-sortant` answers one question — do the
+messages leave, and does what comes back reach anybody — in three lines:
+domain authentication, one sending provider, returns collected. The
+advanced options sit underneath with their state and are never collapsed
+behind a toggle: hiding them makes them unfindable, and levelling them
+with the three drowns the message. It also states what it cannot see —
+« Un message classé en indésirables n'apparaît nulle part ici : il a été
+accepté » — because three green lines with no such sentence let somebody
+conclude that all is well while a provider files the lot as spam.
+
+**One address, four roles** (`Core\Mail\MailIdentity`). A message names
+an address four times over and they are four different questions: the
+visible `From:`, the `Reply-To:`, the envelope sender (bounces, and the
+domain SPF is evaluated on), and the `rua=` tag of the DMARC record. One
+address answering all four is the ordinary configuration and a perfectly
+good one — which is exactly why the distinction has to be written down
+somewhere, because nobody works it out on their own and the one moment it
+matters is the moment they are reading this screen.
+
+That class is also the **single authority on which address plays which
+role**, and it exists because the answer used to be spread over
+`MailService`'s send loop, a line of `setup.js` splitting the From address
+on `@`, and nothing at all for the reply address. `spfDomain()` follows
+the envelope sender and nothing else: SPF authorises a sending host for
+the domain of the `MAIL FROM` (RFC 7208 §2.4), so checking the `From:`
+domain is right only for as long as the two agree, and checking the reply
+or DMARC-report domain — either of which may legitimately point at
+another provider — gives a confident wrong answer. The two DID already
+agree, because `MailService` assigns `$mail->Sender` unconditionally, a
+mailing's own sender override included; nothing said so and nothing
+tested it, and `Tests\Core\Mail\MailIdentityTest` now pins it against
+the real service rather than against a string the test also wrote.
+
+**The DNS check moved out of the installation wizard** onto
+Authentification, and the wizard keeps only the initial entry — a site has
+to be able to send before anybody can open a configuration page. The same
+field editable in two places is what guarantees the two values will
+disagree, so `SetupController::handleConfigUpdate()` drops the mail
+identity from the keys it writes rather than trusting the template not to
+offer them. Two things changed in the move. The lookup is an explicit
+POST-and-redirect rather than something a page load does — it reaches the
+network and writes down what came back, neither of which belongs on a GET
+(the same shape as `/config/maintenance/update/check-now`), and a resolver
+that is not answering takes as long as it takes on the one page somebody
+opens when mail is already broken. And `DnsVerifier::checkSpfForHosts()`
+now knows about the whole chain — a record naming only the first relay
+fails on exactly the messages the fallback exists to save, so every active
+relay has to be in it.
+
+`Core\Mail\DnsCheckMemory` keeps the **whole** reading, suggested values
+included, and every screen renders that rather than a lookup of its own.
+Three booleans would have been enough for the dashboard's dated line; they
+would not have survived the redirect, and the records are what somebody is
+halfway through copying into their registrar's form.
+
+**Do the returns arrive?** answered by a real round trip
+(`Core\Mail\Feedback`): the site writes to its own return address and
+waits to see the message land in a box `inbound_mail` collects. The
+obvious implementation — compare the configured address with the mailbox
+addresses — is wrong in the ordinary case, because a unit's
+`info@unite.be` is very often an alias delivering into a box the provider
+calls something else, and the comparison would raise a red alert on a
+healthy installation. Three states, and « jamais vérifié » is one of them
+rather than a silence (the precedent is
+`Modules\SupportDashboard\Service\MailProbeService`, whose whole point is
+the same).
+
+**Changing an address resets its state, and there is no reset code.** The
+state is stored and looked up BY the address — encrypted, found through
+its blind index — so a new address simply has no row. A reset written as
+a method is a reset somebody forgets to call from the second place that
+edits an address; `forgetAllExcept()` then only has to stop the site
+keeping a copy of an address it no longer uses.
+
+**And the module stays optional (D2).** `ReturnPathVerifier` takes
+`Modules\InboundMail\Api\InboundMailInterface` as a nullable dependency
+(§7.5); with the module disabled the verification answers « impossible »,
+which is a state and not an error, and every other sub-page works
+unchanged. `ReturnPathConsumer` implements the module's own
+`Api\MessageConsumerInterface` — the arrow the boundary test allows, and
+the composition root builds it only inside the branch that runs when the
+module is enabled. It claims nothing: a message it recognises is recorded
+against its probe and answered `nothing()`, so the ordinary
+unassociated-mail retention removes it and no triage list gains a row for
+a message the site sent to itself.
+
 ### 8.107 Storage locations (`Core\Storage\Location`)
 
 **One declared destination for bytes, and every consumer picks one.** The same idea used to be written twice, with two incompatible models: the gallery had `gallery_storage_locations` — N rows, a `StorageBackendInterface`, a cached health column — while the off-site backup had a dozen flat `SettingService` keys, a `RemoteBackupTarget` interface and a `remote_backup_last_error` setting. A single destination in flat settings on one side, N destinations in a table on the other. The second form is the right one, and this is it, generalised.
@@ -4074,9 +4161,37 @@ context to be understood.
 
 **What protects a location is not a bigger zip**, it is the location's own copy — IT-04. Until that exists, both storage screens say so plainly: each location card carries « le contenu de cet emplacement n'est repris dans aucune archive de sauvegarde », and the dashboard's « État » block lists the locations concerned next to the failing ones, because an unreachable location is a fault to correct today and an unprotected one is a state of affairs to decide about.
 
-### 8.110 « Activer les notifications ? » — the invitation the installed application offers (`Core\Notification\PushInvitationService`)
+### 8.110 A location's safety copy is another location (`Core\Storage\Location\Protection`)
 
-A tip in the « Le saviez-vous ? » running order explains how to install the site as an application (`docs/help/installer-application.md`, `discovery: 1`). Somebody follows it, and the next thing they see is the site in its own window with an icon on their home screen — and no notifications, because a Web Push subscription is a separate permission nobody has asked them for. **That moment is the only good one to ask.** It is the one time the answer is obvious to the person answering: they have just chosen to keep this site on their phone. A month later the same question is an interruption.
+**Since §8.109 no archive carries a declared storage location, so every declared location is unprotected — and the remedy has to live at the same level as the lack** (D11). Nothing smaller would do: a bigger zip is exactly what §8.109 removed, and for the reason it removed it. So the copy of a location is another location, declared on the source's own card.
+
+**A destination may protect several sources; a source has exactly one destination.** That asymmetry is the `UNIQUE` on `storage_protections.source_location_id`, and it is a decision: two destinations for one source would double every pass, every byte of egress and every inventory, against a failure — both copies lost at once — that a unit keeping its photographs on one server does not face.
+
+**Three refusals and two warnings, and the split is the design.** A refusal is for a relation that cannot work or that would expose somebody's files; a warning is for one that will work and whose price an administrator should know. Turning a warning into a refusal would make the feature unusable for the units that need it most — one whose photographs already live off-site has nowhere else to put them — and turning a refusal into a warning would let a wrong click publish a private album for ever.
+
+The refusals: a location cannot be its own copy; a chain may not come back on itself (walked, not pair-compared, because two relations declared minutes apart are each individually innocent — and a cycle would restore a deleted file on the next pass and delete it on the one after, for ever, with the grace period never elapsing for anything); and **a destination that serves publicly without expiry may not protect a source that does not**. That last one closes a hole this iteration itself creates: a consumer with its own access control is already refused such a location, but that guard reads the location the consumer STANDS on and knows nothing about a second one the bytes are about to be copied to, because D4 keeps the assignment with the consumer and a protection is not an assignment. Stated as a property of the two locations rather than asked of the consumers: no new question on the interface, true for a consumer nobody has written yet, and it errs towards refusing a pairing that might have been harmless — the direction to err in when the failure is « published for ever, silently ».
+
+The warnings: remote to remote transits every byte through this server (slow, and paid for twice — but the only arrangement that survives losing the server, so a unit that chose it usually chose it on purpose); and **a grace period shorter than the oldest restorable backup**, which is arithmetic rather than documentation. Restoring a database older than the grace period resurrects `gallery_media` rows whose files the copy has already purged: the albums come back holed, permanently, and nothing anywhere says why. `BackupRepository::oldestRestorableCompletedAt()` answers on `db_dump_file_id IS NOT NULL` rather than a list of types — what matters is rows coming back, and a type list would need revisiting every time a type is retired, which happened one iteration earlier.
+
+**Nothing in the database is authoritative about a copy** (D12). `Protection\StorageInventory` is, and it lives in the destination beside the files it describes. Restoring this site's database therefore changes nothing about a copy — the inventory is at T2 next to the bytes — and a copy found on a disk in three years describes itself. `absent_from_source_since` is an attribute of the FILE (D13) for the same reason: a counter in a table would go backwards the day somebody restored last month's backup. The `storage_protections` working-state columns are explicitly disposable: losing them makes the next pass inventory the source again, never decide anything differently.
+
+**The inventory file is never overwritten in place.** A document of several megabytes written over itself and interrupted parses as nothing, and an inventory that parses as nothing makes the next pass believe the destination holds no copy of anything. So a write goes to a new timestamped key and only then is the previous one removed — `rename` is neither available nor atomic on a bucket or a WebDAV share. If it breaks between the two, the reader keeps the most recent COMPLETE one, which is the expected outcome of a crash rather than a corruption. It lives under a reserved prefix so that a destination which also serves a gallery never lists it as a medium, and it is rewritten only when something changed.
+
+**The transfer does not go through memory.** `StorageBackendInterface::get()` hands back a string, so a 900 MB film through it is a fatal on shared hosting. Above a threshold the bytes are read in slices (`RangeReadableBackend`) and appended at the destination (`Backend\ResumableUploadBackend`, new in this iteration and the first thing behind the `ResumableUpload` capability the enum has declared since §8.107). **The partial object's own size is the resume offset** — the state is the file, so nothing about an upload in flight can be moved backwards by a restore. A destination that cannot be appended to is refused a file too large to pass through memory, in a French sentence.
+
+**The digest is computed while reading**, never by reading again, which would double the transfer. MD5 rather than SHA-256: what is defended against is a truncated transfer, not an adversary — anybody who can rewrite the destination can rewrite the inventory beside it — and MD5 is the only digest directly comparable to what the storages announce. **A copy that spanned two runs records no digest** and is verified on size: the hash context cannot cross runs, and rebuilding it would mean re-reading exactly what resumption exists to avoid. **An ETag is only an MD5 for a single-part upload**; a multipart one is a digest of part digests with the count after a hyphen, and comparing it to an MD5 fails every time — whoever read that would conclude every copy this site ever made is corrupt. On disagreement the copy is deleted rather than left (D14): a wrong object under the right key is read by the next pass as a protected file.
+
+**Two phases, both resumable, under one time budget**, in the shape of `Notification\Task\SendNotificationsHandler`. Phase 1 lists the source page by page with a cursor in the database and stamps every key it meets in the DESTINATION's inventory; that stamp is what makes phase 2 possible without holding a hundred thousand keys of working state, and the comparison is exact equality with the pass's own start, never « at or after » — a later stamp belongs to a different pass. **The run therefore carries its start back out and the pause persists THAT string**, never a « now » computed where the row is written: a moment one time budget later than the one the entries carry is a moment none of them can match, and the next run's sweep then concludes that everything the previous run had just seen has disappeared from the source — a deletion countdown started on files that never moved. **The cursor the row holds is the BACKEND's, never a key this code picked**, and the distinction is not pedantry: `list()`'s contract says the cursor is opaque to the caller, a local listing resumes from the last key it returned while a bucket resumes from S3's own `NextContinuationToken`, and an object key handed to a bucket as a continuation token is refused. Recording one worked on a folder by accident and broke every object-storage source outright — the next run's listing throws, the failure clears the working state, and the pass restarts from zero for ever, which on a source large enough to need two runs also means phase 2 never runs and the copy never lets go of anything. Position WITHIN a page is therefore a second column holding the last key finished with, matched by name rather than by position so a page whose contents shifted costs a few keys looked at twice instead of skipping one. Phase 2 reconciles, and **only ever runs on a listing that finished** (D15): the catastrophic mode is credentials expiring, the source answering « empty », everything marked gone, and the grace period erasing the whole copy. Marking and deleting are deliberately separate — marking is reversible and free, deleting touches only entries a previous pass marked and whose grace has run out — and **beyond a quarter of disappearances in one pass, with a floor of twenty entries, the sweep stops and says so**. The failure mode of that guard is a copy that keeps too much, which is the direction to fail in. **Only the deleting is budgeted, and it pauses into phase 2 itself**: marking is arithmetic over a document already in memory, while a deletion is a request per key, and one night on which a large batch leaves its grace period together would otherwise run past `max_execution_time` and lose the inventory the run never saved. The pause needs no cursor — the decisions are written into the inventory as `absent_from_source_since` and persist — so a resumed run reads them back and carries on deleting rather than listing the whole source again to reach a conclusion it already holds.
+
+**The exposure refusal has two halves, and one of them is the consumer's.** Refusing the pairing when it is declared answers the question once; the same exposure is reachable one screen later from the other end — declare A → B while B publishes nothing, let a pass copy A's files into B, then give B a public URL. Nothing about that edit concerns A and no consumer stands on B, so every file copied out of A would become readable by whoever has the address. `Protection\StorageProtectionConsumer::objectionTo()` therefore asks the relation from the DESTINATION's side — one query, since the relation is in this subsystem's own table — and refuses a public URL on a location holding the copy of a source that does not publish. A source it cannot read counts as exposed: « I could not find out » and « this exposes nothing » are opposite conclusions, and only one of them may end in a saved configuration.
+
+**A protection stands on its destination like any other consumer** (`Protection\StorageProtectionConsumer`), and it is the first one registered unconditionally rather than by a module: the safety copy is part of the storage subsystem, so a destination somebody's copy is written to is refused deletion by name — « Copies de secours » — on every installation, whatever is enabled. The `RESTRICT` foreign key would refuse it too, as a `PDOException` in front of an administrator, which is what the registry exists to replace. The SOURCE is deliberately not declared in use: being protected does not keep a location alive, and the relation goes with it (`ON DELETE CASCADE`).
+
+**Repatriation is the repair a restore needs**, and it is asked for rather than automatic: it asks the source about every file the copy holds, one request each on a bucket, and it writes to the source, which is the one direction the nightly pass never goes. It asks `exists()` rather than trusting the marks, because the moment it is most needed is exactly the moment the last pass's conclusions are most out of date.
+
+### 8.111 « Activer les notifications ? » — the invitation the installed application offers (`Core\Notification\PushInvitationService`)
+
+A tip in the « Le saviez-vous ? » running order explains how to install the site as an application (`docs/help/installer-application.md`, `discovery: 0`). Somebody follows it, and the next thing they see is the site in its own window with an icon on their home screen — and no notifications, because a Web Push subscription is a separate permission nobody has asked them for. **That moment is the only good one to ask.** It is the one time the answer is obvious to the person answering: they have just chosen to keep this site on their phone. A month later the same question is an interruption.
 
 So the installed application offers, once, a small dialog: « Activer les notifications ? », « Activer les notifications » or « Plus tard — je les activerai depuis « Mon compte » ». Accepting subscribes the device there and then. Refusing is final, and the label says where to go instead, because « Mon compte » is then the only way in.
 

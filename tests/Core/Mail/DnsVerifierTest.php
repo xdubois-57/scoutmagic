@@ -142,6 +142,196 @@ class DnsVerifierTest extends TestCase
         $this->assertSame('v=DMARC1; p=reject; rua=mailto:other@thirdparty.com', $result['expected']);
         $this->assertFalse($result['exists']);
     }
+
+    // ── a chain of relays, not one (roadmap IT-03) ────────────────────
+
+    /**
+     * A chain is only as authorised as its least authorised entry: the
+     * day the first relay is down, the message leaves through the second,
+     * and an SPF record naming only the first fails on exactly the
+     * messages the fallback exists to save.
+     */
+    public function testEveryRelayOfTheChainHasToBeInTheRecord(): void
+    {
+        $verifier = new FakeDnsVerifier([
+            'unite.be' => ['v=spf1 a:relais-un.example ~all'],
+        ]);
+
+        $result = $verifier->checkSpfForHosts('unite.be', ['relais-un.example', 'relais-deux.example']);
+
+        $this->assertFalse($result['exists']);
+        $this->assertSame('v=spf1 a:relais-un.example a:relais-deux.example ~all', $result['expected']);
+    }
+
+    public function testARecordAlreadyNamingEveryRelayIsLeftExactlyAsItIs(): void
+    {
+        $published = 'v=spf1 a:relais-un.example a:relais-deux.example -all';
+        $verifier = new FakeDnsVerifier(['unite.be' => [$published]]);
+
+        $result = $verifier->checkSpfForHosts('unite.be', ['relais-deux.example', 'relais-un.example']);
+
+        $this->assertTrue($result['exists']);
+        $this->assertSame($published, $result['expected']);
+    }
+
+    public function testTheSameRelayNamedTwiceIsProposedOnce(): void
+    {
+        $result = (new FakeDnsVerifier([]))->checkSpfForHosts(
+            'unite.be',
+            ['relais.example', 'relais.example']
+        );
+
+        $this->assertSame('v=spf1 a:relais.example ~all', $result['expected']);
+    }
+
+    /**
+     * No relay at all leaves the question unanswerable, and this used to
+     * answer it « oui ».
+     *
+     * The old name of this test — « an existing record is enough » —
+     * spelled the defect out: with nothing to look for, the loop had
+     * nothing to falsify, so ANY `v=spf1` passed. On a site sending from
+     * the web server itself, `v=spf1 include:spf.protection.outlook.com
+     * -all` (mailboxes at one host, the site at another) hard-fails every
+     * message while this reported « en place ». Saying so for real needs
+     * the server's own address evaluated against the whole record,
+     * `include:` recursion and all — an SPF evaluator, not this.
+     *
+     * The record is still left exactly as it is: there is nothing to
+     * propose adding either.
+     */
+    public function testWithoutAnyRelayAPublishedRecordIsUnverifiableRatherThanValid(): void
+    {
+        $published = 'v=spf1 a mx -all';
+        $verifier = new FakeDnsVerifier(['unite.be' => [$published]]);
+
+        $result = $verifier->checkSpfForHosts('unite.be', []);
+
+        $this->assertFalse($result['exists']);
+        $this->assertTrue($result['unverifiable']);
+        $this->assertSame($published, $result['expected']);
+    }
+
+    /**
+     * And « unverifiable » is reserved for a record that exists. With no
+     * record at all, nothing authorises anything, and establishing that
+     * needs no relay list — so the answer stays a plain « absent », with
+     * `a mx` proposed.
+     */
+    public function testWithoutAnyRelayAndWithoutAnyRecordTheAnswerIsStillAbsent(): void
+    {
+        $result = (new FakeDnsVerifier([]))->checkSpfForHosts('unite.be', []);
+
+        $this->assertFalse($result['exists']);
+        $this->assertFalse($result['unverifiable']);
+        $this->assertSame('v=spf1 a mx ~all', $result['expected']);
+    }
+
+    /**
+     * A substring test is satisfied by a longer host on a domain the
+     * operator may not even control: `a:relais.example` is inside
+     * `a:relais.example.net`. The reading would then say « en place » and
+     * propose nothing, leaving the relay that is actually missing
+     * unauthorised with the screen saying it was fine.
+     */
+    public function testALongerHostNameDoesNotSatisfyAShorterOne(): void
+    {
+        $verifier = new FakeDnsVerifier([
+            'unite.be' => ['v=spf1 a:relais.example.net ~all'],
+        ]);
+
+        $result = $verifier->checkSpfForHosts('unite.be', ['relais.example']);
+
+        $this->assertFalse($result['exists']);
+        $this->assertSame('v=spf1 a:relais.example.net a:relais.example ~all', $result['expected']);
+    }
+
+    public function testAMechanismInsideAnotherTokenIsNotAMatchEither(): void
+    {
+        // `include:_spf.relais.example` carries the host as a substring
+        // and authorises nothing of the sort.
+        $verifier = new FakeDnsVerifier([
+            'unite.be' => ['v=spf1 include:_spf.a:relais.example -all'],
+        ]);
+
+        $this->assertFalse($verifier->checkSpfForHosts('unite.be', ['relais.example'])['exists']);
+    }
+
+    public function testAnEmptyHostNameNeverBecomesABareMechanism(): void
+    {
+        // `mode=smtp` with an empty smtp_host used to make the reading
+        // search the record for the string « a: », which any record with
+        // a single `a:` mechanism satisfies — a green light on a host
+        // nobody had named.
+        $verifier = new FakeDnsVerifier(['unite.be' => ['v=spf1 a:autre.example ~all']]);
+
+        $result = $verifier->checkSpf('unite.be', 'smtp', '');
+
+        // Unverifiable rather than « en place »: an empty host leaves no
+        // mechanism to look for, which is the no-relay case above. What
+        // this test guards is that it never becomes a bare « a: » search
+        // either, which the single `a:autre.example` would have satisfied.
+        $this->assertFalse($result['exists']);
+        $this->assertTrue($result['unverifiable']);
+        $this->assertSame('v=spf1 a:autre.example ~all', $result['expected']);
+    }
+
+    /**
+     * SPF mechanism names and domain-specs are case-insensitive
+     * (RFC 7208 §4.6.1). A record written by hand, or by a registrar's
+     * form that title-cases what it is given, authorises exactly what the
+     * lowercase form authorises — and a reading that calls it « manquant »
+     * sends a correctly configured operator to fix a record that is
+     * already right.
+     */
+    public function testTheCaseOfAPublishedMechanismDoesNotMatter(): void
+    {
+        $verifier = new FakeDnsVerifier([
+            'unite.be' => ['v=spf1 A:Relais.Example.COM ~all'],
+        ]);
+
+        $result = $verifier->checkSpfForHosts('unite.be', ['relais.example.com']);
+
+        $this->assertTrue($result['exists']);
+        $this->assertSame('v=spf1 A:Relais.Example.COM ~all', $result['expected'], 'The record is left as it is.');
+    }
+
+    /**
+     * `+` IS the default qualifier: `+a:host` and `a:host` are the same
+     * mechanism, and cPanel/WHM-generated records write the explicit form
+     * — exactly the shared-hosting relay this file's own fixtures target.
+     * Proposing to add the bare form next to it would push the record one
+     * DNS lookup closer to the ten RFC 7208 §4.6.4 allows, for nothing.
+     */
+    public function testAnExplicitPlusQualifierIsTheSameMechanism(): void
+    {
+        $verifier = new FakeDnsVerifier([
+            'unite.be' => ['v=spf1 +a:mailphp.lws-hosting.com ~all'],
+        ]);
+
+        $result = $verifier->checkSpfForHosts('unite.be', ['mailphp.lws-hosting.com']);
+
+        $this->assertTrue($result['exists']);
+        $this->assertSame('v=spf1 +a:mailphp.lws-hosting.com ~all', $result['expected']);
+    }
+
+    /**
+     * And the three other qualifiers are NOT dropped: `-a:host` says the
+     * opposite of `a:host`. Treating them as the same would report a
+     * record that explicitly refuses the relay as authorising it — the
+     * one reading worse than no reading at all.
+     */
+    public function testAMechanismExplicitlyRefusedIsNotAMechanismInPlace(): void
+    {
+        $verifier = new FakeDnsVerifier([
+            'unite.be' => ['v=spf1 -a:relais.example ~all'],
+        ]);
+
+        $result = $verifier->checkSpfForHosts('unite.be', ['relais.example']);
+
+        $this->assertFalse($result['exists']);
+        $this->assertSame('v=spf1 -a:relais.example a:relais.example ~all', $result['expected']);
+    }
 }
 
 /**

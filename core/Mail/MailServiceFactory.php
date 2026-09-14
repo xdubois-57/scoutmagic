@@ -13,7 +13,11 @@ class MailServiceFactory
     /**
      * Build a MailService from the secrets/config loaded at boot.
      *
-     * @param array<string, string> $secrets
+     * @param array<string, string> $secrets the boot secrets, with the
+     *   mail identity keys the settings table owns already merged in by
+     *   the composition root — `mail_reply_address` among them, so a
+     *   reply address configured on the Authentification sub-page reaches
+     *   every send rather than only the ones that name their own.
      * @param MailTransportInterface|null $transport Delivery step override; null keeps
      *                                               the default PhpMailerTransport.
      * @param \Core\Journal\JournalService|null $journal Where a send that fails is written
@@ -39,6 +43,7 @@ class MailServiceFactory
             shortName: $secrets['short_name'] ?? '',
             dkimManager: $dkimManager,
             dkimSelector: $secrets['dkim_selector'] ?? 'mail',
+            replyAddress: $secrets[MailIdentity::SETTING_REPLY_ADDRESS] ?? '',
             smtpHost: $secrets['smtp_host'] ?? null,
             smtpPort: isset($secrets['smtp_port']) ? (int) $secrets['smtp_port'] : null,
             smtpUser: $secrets['smtp_user'] ?? null,

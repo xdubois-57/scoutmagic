@@ -11,7 +11,7 @@
 //
 // Subscribing and unsubscribing themselves live in
 // /assets/js/push-subscribe.js, shared with the invitation the installed
-// application offers (ARCHITECTURE.md §8.110). What is left here is the
+// application offers (ARCHITECTURE.md §8.111). What is left here is the
 // switch: which notice to show, and keeping the control honest about the
 // device it describes.
 (function () {

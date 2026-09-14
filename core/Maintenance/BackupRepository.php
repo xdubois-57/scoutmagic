@@ -234,6 +234,38 @@ class BackupRepository
         return is_string($value) && $value !== '' ? $value : null;
     }
 
+    /**
+     * When the OLDEST backup this installation could still restore a
+     * database from finished — or null when it holds none.
+     *
+     * **« Restorable » means it carries a database dump**, which is the
+     * only property that matters to the caller: a restore puts back rows,
+     * and rows are what can outlive the files they point at. So the test
+     * is `db_dump_file_id IS NOT NULL` rather than a list of types, which
+     * would have to be revisited every time a type is added or retired —
+     * and one was retired in the iteration before this one.
+     *
+     * Read by `Storage\Location\Protection\StorageProtectionService`, to
+     * answer a question the storage screen can settle by arithmetic: a
+     * grace period shorter than this horizon means restoring the database
+     * would resurrect `gallery_media` rows whose files the safety copy has
+     * already purged — albums holed for ever, and nothing saying why.
+     */
+    public function oldestRestorableCompletedAt(): ?string
+    {
+        $stmt = $this->pdo->query(
+            "SELECT completed_at FROM backups WHERE status = 'completed' "
+            . 'AND db_dump_file_id IS NOT NULL AND completed_at IS NOT NULL '
+            . 'ORDER BY completed_at ASC LIMIT 1'
+        );
+        if ($stmt === false) {
+            return null;
+        }
+        $value = $stmt->fetchColumn();
+
+        return is_string($value) && $value !== '' ? $value : null;
+    }
+
     public function markFailed(int $id, string $errorMessage): void
     {
         $stmt = $this->pdo->prepare("UPDATE backups SET status = 'failed', error_message = ? WHERE id = ?");

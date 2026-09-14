@@ -216,10 +216,18 @@ class LocalStorageBackendTest extends TestCase
         $this->assertSame('ok', $this->backend->get('9/thumb_1.jpg'));
     }
 
-    public function testItDeclaresRangeReadingAndServerSideCopyAndNothingElse(): void
+    public function testItDeclaresThreeCapabilitiesAndNothingElse(): void
     {
         $this->assertSame(
-            [StorageCapability::RangeRead, StorageCapability::ServerSideCopy],
+            [
+                StorageCapability::RangeRead,
+                // Since IT-04: a folder can be appended to and the partial
+                // file's own size is the resume offset, which is what lets
+                // a safety copy carry a film across several nights instead
+                // of re-sending the same first gigabyte every time.
+                StorageCapability::ResumableUpload,
+                StorageCapability::ServerSideCopy,
+            ],
             $this->backend->capabilities()
         );
         $this->assertTrue($this->backend->supports(StorageCapability::RangeRead));
@@ -233,11 +241,16 @@ class LocalStorageBackendTest extends TestCase
     public function testAnAbsentCapabilityIsRefusedWithAFrenchSentenceRatherThanAMissingMethod(): void
     {
         $this->expectException(UnsupportedCapabilityException::class);
-        $this->expectExceptionMessage("L'emplacement « Disque du serveur » ne sait pas reprendre un envoi interrompu.");
+        $this->expectExceptionMessage(
+            "L'emplacement « Disque du serveur » ne sait pas indiquer la place restante."
+        );
 
+        // `Quota` and not `ResumableUpload`, which this backend gained in
+        // IT-04: what is under test is the refusal, so the example has to
+        // be something the local disk genuinely cannot do.
         StorageCapabilities::require(
             $this->backend,
-            StorageCapability::ResumableUpload,
+            StorageCapability::Quota,
             'Disque du serveur'
         );
     }
@@ -366,6 +379,38 @@ class LocalStorageBackendTest extends TestCase
         );
     }
 
+    /**
+     * **A half-copy of an object goes with the object.**
+     *
+     * The partial is hidden from `list()` on purpose — half a JPEG is a
+     * JPEG to every screen that meets it — so nothing else in the system
+     * can ever name it again. Removing only the final path would leave
+     * those bytes on the disk for the life of the location, unreachable
+     * and uncounted.
+     */
+    public function testDeletingAnObjectAlsoRemovesAHalfCopyLeftBesideIt(): void
+    {
+        $root = sys_get_temp_dir() . '/local_partial_' . uniqid();
+        mkdir($root, 0755, true);
+        $backend = new LocalStorageBackend($root);
+
+        $backend->put('12/med_7.jpg', 'whole', 'image/jpeg');
+        $backend->appendToPartial('12/med_7.jpg', 'half of another attempt');
+        $this->assertSame(23, $backend->partialSize('12/med_7.jpg'));
+
+        $backend->delete('12/med_7.jpg');
+
+        $this->assertFalse($backend->exists('12/med_7.jpg'));
+        $this->assertSame(0, $backend->partialSize('12/med_7.jpg'));
+        $this->assertFileDoesNotExist($root . '/12/med_7.jpg.scoutmagic-part');
+
+        // `delete` on a key that is already gone stays a success — every
+        // pass that follows a restore meets ghosts.
+        $backend->delete('12/med_7.jpg');
+
+        $this->removeDirectory($root);
+    }
+
     public function testTheConnectionTestNamesTheProblemInFrenchWhenTheFolderCannotExist(): void
     {
         $backend = new LocalStorageBackend('/proc/self/cmdline/impossible');
@@ -374,5 +419,20 @@ class LocalStorageBackendTest extends TestCase
 
         $this->assertNotNull($error);
         $this->assertStringContainsString('dossier', $error);
+    }
+
+    private function removeDirectory(string $dir): void
+    {
+        if (!is_dir($dir)) {
+            return;
+        }
+        $items = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::CHILD_FIRST
+        );
+        foreach ($items as $item) {
+            $item->isDir() ? rmdir((string) $item) : unlink((string) $item);
+        }
+        rmdir($dir);
     }
 }

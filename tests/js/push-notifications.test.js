@@ -45,7 +45,7 @@ describe('push-notifications.js — aria-checked stays in sync on programmatic .
         // push-notifications.js is the « Mon compte » switch over
         // window.ScoutMagicPush (public/assets/js/push-subscribe.js,
         // shared with the installed application's invitation, see
-        // ARCHITECTURE.md §8.110) and posts through window.ScoutMagicApi.
+        // ARCHITECTURE.md §8.111) and posts through window.ScoutMagicApi.
         // base.html.twig guarantees this load order in production.
         await import('../../public/assets/js/api.js');
         await import('../../public/assets/js/push-subscribe.js');

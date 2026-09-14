@@ -13,7 +13,7 @@ use Core\Service\DateInput;
 
 /**
  * The one piece of stored state behind the « Activer les notifications ? »
- * invitation the installed application offers (ARCHITECTURE.md §8.110):
+ * invitation the installed application offers (ARCHITECTURE.md §8.111):
  * `user_accounts.push_invitation_dismissed_at`.
  *
  * **Only the refusal is written here.** Accepting the invitation creates a

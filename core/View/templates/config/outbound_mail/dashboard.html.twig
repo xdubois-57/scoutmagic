@@ -1,0 +1,87 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  Courrier sortant › Tableau de bord (roadmap IT-03).
+
+  **Three lines, then everything else.** That separation is the whole
+  screen. A volunteer opening this page is asking one question — « est-ce
+  que les e-mails partent ? » — and a page that lists a dozen equally
+  weighted settings answers it for nobody. The advanced options are listed
+  underneath with their state and are never collapsed behind a toggle:
+  hiding them makes them unfindable, and giving them the same weight as
+  the three drowns the message.
+
+  And the page says what it cannot see. Three green lines with no such
+  sentence let somebody conclude that everything is fine while a provider
+  is quietly filing the lot as spam.
+#}
+{% extends 'base.html.twig' %}
+{% block title %}Courrier sortant — {{ site_name }}{% endblock %}
+{% block content %}
+{% include 'partials/page_header.html.twig' with {
+    title: 'Courrier sortant',
+    subtitle: "Trois choses suffisent pour que les messages du site arrivent. Tout le reste est facultatif.",
+} only %}
+
+{% include 'config/outbound_mail/_nav.html.twig' %}
+
+{% set icons = {
+    'ok': 'bi-check-circle-fill text-success',
+    'warning': 'bi-exclamation-triangle-fill text-warning',
+    'missing': 'bi-x-circle-fill text-danger',
+    'unknown': 'bi-question-circle-fill text-body-secondary',
+} %}
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h5">L'essentiel</h2>
+        <ul class="list-unstyled mb-0">
+            {% for line in essentials %}
+                <li class="d-flex gap-3 align-items-start {{ loop.last ? '' : 'mb-3' }}">
+                    <i class="bi {{ icons[line.state] }} fs-5" aria-hidden="true"></i>
+                    <div class="flex-grow-1">
+                        <div class="fw-semibold">{{ line.label }}</div>
+                        <div class="small text-body-secondary">{{ line.detail }}</div>
+                    </div>
+                    <a href="{{ line.action_url }}" class="btn btn-sm btn-outline-secondary flex-shrink-0">
+                        {{ line.action_label }}
+                    </a>
+                </li>
+            {% endfor %}
+        </ul>
+    </div>
+</div>
+
+<div class="alert alert-secondary" role="note">
+    Un message classé en indésirables n'apparaît nulle part ici : il a été accepté.
+    Cet écran dit si les messages <em>partent</em> et si ce qui revient <em>arrive</em> — pas ce qu'un
+    destinataire en fait ensuite.
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h5">Options avancées</h2>
+        <p class="text-body-secondary small">
+            Aucune n'est nécessaire pour que les messages partent. Elles sont listées avec leur état plutôt que
+            masquées : une option qu'on ne trouve pas est une option qui n'existe pas.
+        </p>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <tbody>
+                    {% for option in advanced %}
+                        <tr>
+                            <th scope="row" class="fw-normal">
+                                <a href="{{ option.url }}">{{ option.label }}</a>
+                                <div class="small text-body-secondary">{{ option.detail }}</div>
+                            </th>
+                            <td class="small text-body-secondary">{{ option.state_label }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
