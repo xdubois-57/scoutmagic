@@ -519,6 +519,22 @@ les fournisseurs, les voies et la cadence. La coupure suit la charte, mais
 elle suit aussi l'usage : on vient sur l'une pour configurer, sur l'autre
 parce que quelque chose ne marche pas.
 
+**Sonar a trouvé le trou que la suite verte cachait.** 79,5 % de
+couverture sur le code neuf pour 80 % exigés, et les deux manques étaient
+les deux endroits qui comptent le plus : `Task\DrainDeferredMailHandler`
+n'avait aucun test — la passe qui envoie réellement ce qui a été mis de
+côté — et le `catch (LaneExhaustedException)` de `MailService`, l'entrée
+même de la fonctionnalité, non plus. Seize tests ajoutés, dont ceux qui
+vérifient qu'une pièce jointe remise sur le disque n'y reste pas, échec
+compris.
+
+En les écrivant, deux méthodes se sont révélées mortes :
+`DeferredMessage::ageHours()` et `DeferredMailRepository::abandoned()`,
+toutes deux remplacées par les lectures qui ne déchiffrent rien. La
+seconde méritait de partir pour elle-même : rien sur le chemin de la
+relance ne lit le contenu d'un message abandonné, et laisser une méthode
+qui le ferait est une invitation.
+
 ### Reporté
 
 Rien de fonctionnel. La cadence « collante » après bascule, refusée en

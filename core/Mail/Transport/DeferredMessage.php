@@ -63,14 +63,4 @@ final class DeferredMessage
     {
         return strtotime($this->expiresAt) <= strtotime($now ?? date('Y-m-d H:i:s'));
     }
-
-    /**
-     * How old it is, in hours — what the Relance dialog buckets on (D17).
-     */
-    public function ageHours(?string $now = null): float
-    {
-        $seconds = strtotime($now ?? date('Y-m-d H:i:s')) - strtotime($this->createdAt);
-
-        return max(0.0, $seconds / 3600);
-    }
 }
