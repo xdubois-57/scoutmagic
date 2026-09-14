@@ -282,10 +282,27 @@ class DiscoveryService
      * SeenTopicRepository: when this feature's delay may be set is this
      * feature's rule, and a second writer of `snoozed_until` outside
      * Core\Help\Discovery is how the two delays would drift apart.
+     *
+     * **It only ever pushes the delay further away, never nearer**, and
+     * that is the whole difference from the `close` of
+     * HelpDiscoveryController::record(). A close answers a dialog that
+     * WAS on screen, which it could only be once the previous delay had
+     * elapsed — so there is nothing to shorten. This is called with no
+     * tip shown at all, so a delay may well still be running: somebody
+     * who chose « Pas avant une semaine » in their browser, then
+     * installed the application and answered its invitation, would
+     * otherwise have their seven days silently cut to one. A method
+     * called « holds the dialog back » must never bring it forward.
      */
     public function holdBack(int $accountId): void
     {
-        $this->seenTopics->snooze($accountId, $this->nextOrdinaryOpening());
+        $until = $this->nextOrdinaryOpening();
+        $current = $this->seenTopics->snoozedUntil($accountId);
+        if ($current !== null && $current > $until) {
+            return;
+        }
+
+        $this->seenTopics->snooze($accountId, $until);
     }
 
     /**

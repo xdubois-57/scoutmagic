@@ -136,6 +136,48 @@ final class PushInvitationControllerTest extends TestCase
     }
 
     /**
+     * **A delay already running is never shortened.** « Pas avant une
+     * semaine » is an explicit choice, and answering an unrelated dialog
+     * must not undo it: somebody who postponed the tips in their browser,
+     * then installed the application and answered its invitation, keeps
+     * their seven days. The bug this pins wrote 24 hours over them.
+     */
+    public function testAnswerNeverShortensADelayTheAccountAlreadyChose(): void
+    {
+        $inAWeek = AppClock::now()->modify('+7 days');
+        $this->seenTopics->snooze($this->accountId, $inAWeek);
+
+        $this->controller()->answer($this->request(['action' => 'later']), []);
+
+        $until = $this->seenTopics->snoozedUntil($this->accountId);
+        $this->assertNotNull($until);
+        $this->assertSame(
+            $inAWeek->format('Y-m-d H:i'),
+            $until->format('Y-m-d H:i'),
+            'answering the invitation must not bring the tips back sooner than the account asked'
+        );
+    }
+
+    /**
+     * And the other direction, so the guard is a comparison rather than a
+     * blanket refusal to write: a delay that runs out before the ordinary
+     * interval is pushed out to it.
+     */
+    public function testAnswerStillPushesOutADelayShorterThanTheOrdinaryInterval(): void
+    {
+        $this->seenTopics->snooze($this->accountId, AppClock::now()->modify('+1 hour'));
+
+        $this->controller()->answer($this->request(['action' => 'later']), []);
+
+        $until = $this->seenTopics->snoozedUntil($this->accountId);
+        $this->assertNotNull($until);
+        $this->assertSame(
+            AppClock::now()->modify('+24 hours')->format('Y-m-d H'),
+            $until->format('Y-m-d H')
+        );
+    }
+
+    /**
      * Holding the tips back consumes nothing: no tip was shown, so no tip
      * is marked seen. Getting this wrong would spend somebody's first
      * batch on a dialog that was not about the help at all.

@@ -257,6 +257,38 @@ class DiscoveryServiceTest extends TestCase
         );
     }
 
+    /**
+     * `holdBack()` is the one entry point that sets the delay WITHOUT a
+     * tip having been shown, so unlike a close it can meet a delay that
+     * is still running. It may only push that delay further away.
+     */
+    public function testHoldBackNeverBringsARunningDelayForward(): void
+    {
+        $service = $this->serviceOver($this->manyTopics(5));
+        $inAWeek = AppClock::now()->modify('+7 days');
+        $this->seenTopics->snooze($this->accountId, $inAWeek);
+
+        $service->holdBack($this->accountId);
+
+        $until = $this->seenTopics->snoozedUntil($this->accountId);
+        $this->assertNotNull($until);
+        $this->assertSame($inAWeek->format('Y-m-d H:i'), $until->format('Y-m-d H:i'));
+    }
+
+    public function testHoldBackSetsTheOrdinaryDelayWhenNothingHoldsTheAccountBack(): void
+    {
+        $service = $this->serviceOver($this->manyTopics(5));
+
+        $service->holdBack($this->accountId);
+
+        $until = $this->seenTopics->snoozedUntil($this->accountId);
+        $this->assertNotNull($until);
+        $this->assertSame(
+            AppClock::now()->modify('+' . DiscoveryService::DEFAULT_INTERVAL_HOURS . ' hours')->format('Y-m-d H'),
+            $until->format('Y-m-d H')
+        );
+    }
+
     public function testTheDelaysComeFromTheirSettings(): void
     {
         $service = $this->serviceOver(['un' => []]);
