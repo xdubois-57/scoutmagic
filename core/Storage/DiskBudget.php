@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Storage;
 
 use Core\Config\SettingService;
+use Core\Storage\Volume\VolumeInventory;
 
 /**
  * The site's disk budget: what it occupies, what it may still write, and
@@ -223,6 +224,48 @@ final class DiskBudget
         }
 
         $this->writeCache($cached, $pending, $this->readMeasuredAtUnix());
+    }
+
+    /**
+     * The same refusal, charged to **the volume the bytes are going to land
+     * on** rather than to the one `storage/` is on.
+     *
+     * This is the defect IT-02 came to fix, and it is latent rather than
+     * theoretical: this service is built with a single `$storagePath`, so
+     * every approval it granted described the system disk. The moment a
+     * local location points elsewhere — a network mount, a second volume —
+     * the write it approved lands on a disk nobody measured. A backup on a
+     * NAS was approved because the system disk was empty, or refused
+     * because the system disk was full while the mount had terabytes; the
+     * first of those truncates an archive, and nothing reveals a truncated
+     * archive until the day somebody restores it.
+     *
+     * The declared quota deliberately does NOT follow the write: it is the
+     * hosting contract's share of the account's own volume, and charging a
+     * NAS against it would report a 900 Go disk as a 4 Go one. So a
+     * destination on the primary volume is charged exactly as
+     * {@see ensureRoom()} charges it, and a destination anywhere else is
+     * charged against what that filesystem itself reports — which, on a
+     * disk the site really owns, is the truth.
+     *
+     * A path on no volume the inventory knows (nothing declared it, and
+     * `stat()` will not place it) falls back on {@see ensureRoom()}: the
+     * primary volume is the best guess left, and guessing is still better
+     * than approving against nothing at all.
+     *
+     * @throws InsufficientDiskSpaceException
+     */
+    public function ensureRoomOn(VolumeInventory $volumes, string $path, int $estimatedBytes): void
+    {
+        $volume = $volumes->volumeFor($path);
+
+        if ($volume === null || $volume->isPrimary) {
+            $this->ensureRoom($estimatedBytes);
+
+            return;
+        }
+
+        $this->ensureRoomAgainst($estimatedBytes, $volume->availableBytes());
     }
 
     /**

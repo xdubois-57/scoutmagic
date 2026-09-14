@@ -81,6 +81,25 @@ class StorageBackendFactory
     }
 
     /**
+     * Where a local location actually is, for a caller that needs the
+     * DIRECTORY rather than a backend built on it — the volume inventory,
+     * which groups declared directories by the filesystem they sit on and
+     * never opens any of them.
+     *
+     * Null for every other type: an S3 bucket is not on a volume this
+     * server can measure, and answering with a path would put it on one.
+     *
+     * @throws StorageLocationException when the configured path is one
+     *         this application refuses (see {@see resolveLocalDirectory()})
+     */
+    public function localDirectoryFor(StorageLocation $location): ?string
+    {
+        $config = $location->config;
+
+        return $config instanceof LocalLocationConfig ? $this->resolveLocalDirectory($config) : null;
+    }
+
+    /**
      * Where a local location actually is.
      *
      * **The one place the relative/absolute rule lives.** A relative path

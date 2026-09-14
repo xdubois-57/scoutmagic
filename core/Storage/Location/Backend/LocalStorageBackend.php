@@ -46,8 +46,28 @@ class LocalStorageBackend implements RangeReadableBackend, ServerSideCopyBackend
         return [StorageCapability::RangeRead, StorageCapability::ServerSideCopy];
     }
 
+    /**
+     * How long the whole health check may take before it gives up and
+     * says so. Seconds, and a small number of them on purpose: this runs
+     * synchronously on a configuration page, and a page an administrator
+     * opened to repair a broken mount is the last page that may hang on
+     * it.
+     *
+     * Five, not one: an ordinary local directory answers in microseconds,
+     * so the budget is never near — while a mount that is merely slow,
+     * rather than dead, deserves the chance to answer before being called
+     * broken.
+     */
+    public const HEALTH_CHECK_BUDGET_SECONDS = 5.0;
+
     public function __construct(
-        private string $baseDirectory
+        private string $baseDirectory,
+        /**
+         * Overridable so a test can shrink the budget rather than spend
+         * it, and so a caller that knows it is on a background pass — with
+         * nobody watching a page — can afford to wait longer.
+         */
+        private float $healthCheckBudgetSeconds = self::HEALTH_CHECK_BUDGET_SECONDS
     ) {
     }
 
@@ -284,11 +304,32 @@ class LocalStorageBackend implements RangeReadableBackend, ServerSideCopyBackend
      * silently become a different (empty, local) directory, fails here
      * rather than at the first upload.
      *
-     * What it still cannot do is survive a mount that FREEZES rather than
-     * fails: a severed NFS blocks the system call itself, and no PHP-level
-     * timeout interrupts that. Closing that hole is what the Stockage
-     * screen's own check adds on top, and it is the reason this method
-     * returns a sentence instead of a boolean.
+     * **It runs under a time budget** ({@see HEALTH_CHECK_BUDGET_SECONDS}),
+     * and that is not a refinement of the above — it is what makes the
+     * check safe to run at all from a page. « Le dossier existe » was
+     * enough while every location was a folder under `storage/`; a
+     * location may now name a network mount, and a network mount has a
+     * third state between working and failing. It can go read-only, it can
+     * disappear, and it can become *slow*: seconds per `stat()`, minutes
+     * for a directory. A check with no budget turns that into a
+     * configuration page that never finishes rendering — so the one screen
+     * an administrator would use to repair the mount is the one screen
+     * they cannot open.
+     *
+     * So the elapsed time is measured between every step, and a probe that
+     * has spent its budget stops and reports it rather than starting the
+     * next operation.
+     *
+     * **What that does not buy, stated plainly.** A hard-mounted NFS whose
+     * server is gone blocks the system call itself, in the kernel,
+     * uninterruptibly — PHP never gets its turn back, so no PHP-level
+     * budget can end it. Nothing in this application closes that; the
+     * remedy is on the mount (`soft`, `timeo=`, `retrans=`), which is
+     * where a timeout can actually be enforced. What the budget below does
+     * cover is every other shape of « slow »: a degraded link, a `soft`
+     * mount returning EIO after its own timeout, a disk thrashing — the
+     * cases that are common, and that used to be indistinguishable from a
+     * hang.
      *
      * **Every operation is caught, because this method is the one that
      * must not throw.** Its whole job is to turn a failure into a French
@@ -300,12 +341,21 @@ class LocalStorageBackend implements RangeReadableBackend, ServerSideCopyBackend
      */
     public function testConnection(): ?string
     {
+        $startedAt = $this->now();
+        $spent = fn (): bool => ($this->now() - $startedAt) >= $this->healthCheckBudgetSeconds;
+
         $dir = $this->baseDirectory;
         if (!is_dir($dir) && !@mkdir($dir, 0755, true) && !is_dir($dir)) {
             return "Le dossier n'existe pas et n'a pas pu être créé.";
         }
+        if ($spent()) {
+            return $this->tookTooLong('en cherchant le dossier');
+        }
         if (!is_writable($dir)) {
             return "Le dossier n'est pas accessible en écriture.";
+        }
+        if ($spent()) {
+            return $this->tookTooLong('en vérifiant les droits du dossier');
         }
 
         $key = '.scoutmagic-healthcheck-' . bin2hex(random_bytes(8));
@@ -315,6 +365,16 @@ class LocalStorageBackend implements RangeReadableBackend, ServerSideCopyBackend
             $this->put($key, $content, 'text/plain');
         } catch (\Throwable) {
             return "L'écriture d'un fichier témoin a échoué dans ce dossier.";
+        }
+
+        // The witness is on the disk from here on, so every way out below
+        // removes it — including this one. A probe that gave up on time
+        // and left its file behind would seed the location with one more
+        // of them on every visit to the page.
+        if ($spent()) {
+            $this->removeWitnessQuietly($key);
+
+            return $this->tookTooLong("en écrivant un fichier témoin");
         }
 
         try {
@@ -333,6 +393,12 @@ class LocalStorageBackend implements RangeReadableBackend, ServerSideCopyBackend
             return "Le fichier témoin n'a pas pu être relu juste après avoir été écrit.";
         }
 
+        if ($spent()) {
+            $this->removeWitnessQuietly($key);
+
+            return $this->tookTooLong('en relisant le fichier témoin');
+        }
+
         try {
             $this->delete($key);
         } catch (\Throwable) {
@@ -343,7 +409,74 @@ class LocalStorageBackend implements RangeReadableBackend, ServerSideCopyBackend
             return 'Le contenu relu après écriture diffère de ce qui a été écrit.';
         }
 
+        // No budget check here, deliberately. Every operation has already
+        // succeeded by this point, and a round trip that completed slowly
+        // is a location that WORKS — failing it would take a working
+        // gallery offline over a disk that was merely busy. The budget
+        // exists to refuse to WAIT for the next operation, never to
+        // withdraw a success already obtained.
         return null;
+    }
+
+    /**
+     * The one sentence every expiry returns, naming the step that ran out
+     * — « pendant l'écriture » and « pendant la relecture » send an
+     * administrator to different places, and a bare « trop lent » sends
+     * them nowhere.
+     */
+    private function tookTooLong(string $step): string
+    {
+        // « plus de 1 secondes » is the reason this is not written as a
+        // count of seconds: the budget is configurable, and a sentence
+        // that only reads correctly for some of its values is a sentence
+        // that will read wrongly one day. « délai maximal : 5 s » is right
+        // for every one of them.
+        return sprintf(
+            'Le dossier a mis trop de temps à répondre %s (délai maximal : %s s) — le test a été interrompu '
+                . 'pour ne pas bloquer cette page. Un dossier réseau peut être devenu très lent, avoir '
+                . 'disparu, ou être passé en lecture seule.',
+            $step,
+            rtrim(rtrim(number_format($this->healthCheckBudgetSeconds, 1, ',', ''), '0'), ',')
+        );
+    }
+
+    /**
+     * Removing the witness on a path out that is not about the deletion.
+     * Silent on purpose: the sentence being returned already names what
+     * went wrong, and replacing it with « le fichier témoin n'a pas pu
+     * être supprimé » would answer a question nobody asked.
+     */
+    private function removeWitnessQuietly(string $key): void
+    {
+        try {
+            $this->delete($key);
+        } catch (\Throwable) {
+            // Reported through the sentence the caller is about to return.
+        }
+    }
+
+    /**
+     * The clock the budget is measured on, as a seam a test can move
+     * without sleeping.
+     *
+     * `microtime(true)` rather than `hrtime()` because what is being
+     * bounded is a wall-clock wait an administrator is sitting through,
+     * and because a test overriding this wants seconds, not nanoseconds.
+     *
+     * **`@phpstan-impure` states a fact, it does not silence anything.**
+     * Nothing here mutates state, so static analysis reads the method as
+     * pure and caches its result for the whole call — which turned the
+     * second, third and fourth « has the budget run out? » into « always
+     * false », since the first one had already answered. That is the
+     * analysis being right about purity and wrong about a clock: two reads
+     * of the time are two different answers, and this annotation is how
+     * that is said.
+     *
+     * @phpstan-impure
+     */
+    protected function now(): float
+    {
+        return microtime(true);
     }
 
     /**
