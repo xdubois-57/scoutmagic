@@ -510,6 +510,15 @@ nulle part, et aucun test unitaire ne le dit.
 **Le nom de la table du journal est `event_log`**, pas
 `journal_entries` — le service s'appelle `JournalService`, la table non.
 
+**Le sujet d'aide a dû être coupé en deux.** Les ajouts d'IT-02 portaient
+`courrier-sortant.md` à 962 mots et sept questions ; la charte en autorise
+400 et quatre, et `HelpInvariantsTest` les compte. « Quand le courrier ne
+part plus » (`courrier-sortant-pannes`) prend la réserve, le
+coupe-circuit, les messages différés et leur relance ; l'original garde
+les fournisseurs, les voies et la cadence. La coupure suit la charte, mais
+elle suit aussi l'usage : on vient sur l'une pour configurer, sur l'autre
+parce que quelque chose ne marche pas.
+
 ### Reporté
 
 Rien de fonctionnel. La cadence « collante » après bascule, refusée en
