@@ -146,16 +146,20 @@ class AlbumService
             $externalUrl = null;
         }
         $this->assertValidLength($subtitle, self::MAX_SUBTITLE_LENGTH, 'Le sous-titre');
-        // The storage location is never chosen by the caller — a local
-        // album always uses the current default location. Changing it
-        // afterward is a superadmin-triggered migration (Configuration >
-        // Galerie), never a per-creation choice.
+        // The storage location is never chosen by the caller. It comes
+        // from the gallery's « emplacement des nouveaux albums » setting,
+        // falling back on the site's default — and once written here it
+        // does not move: changing the setting later affects the albums
+        // created after it, which is exactly what its label promises.
+        // Moving an existing album is a superadmin-triggered migration
+        // (Configuration > Galerie, onglet « Albums »), never a
+        // per-creation choice.
         if ($type === Album::TYPE_LOCAL) {
-            $defaultLocation = $this->storageLocationService->ensureDefaultExists();
-            if ($defaultLocation === null) {
+            $location = $this->galleryLocationService->locationForNewAlbums();
+            if ($location === null) {
                 throw new GalleryException('Aucun emplacement de stockage par défaut n\'est configuré.');
             }
-            $locationId = $defaultLocation->id;
+            $locationId = $location->id;
         } else {
             $locationId = null;
         }

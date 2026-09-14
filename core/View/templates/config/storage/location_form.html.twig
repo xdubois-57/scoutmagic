@@ -3,7 +3,7 @@
 {% block title %}{{ location ? 'Modifier l\'emplacement' : 'Nouvel emplacement de stockage' }} — {{ site_name }}{% endblock %}
 
 {% block content %}
-    {# The way back to the gallery config lives in the breadcrumb trail
+    {# The way back to « Stockage » lives in the breadcrumb trail
        (design.md §7.3) — no « Retour » button here. #}
     {% include 'partials/page_header.html.twig' with { title: location ? 'Modifier l\'emplacement de stockage' : 'Nouvel emplacement de stockage' } only %}
 
@@ -18,8 +18,8 @@
         </div>
     {% endif %}
 
-    <form method="post" action="{{ location ? '/config/gallery/locations/' ~ location.id : '/config/gallery/locations' }}">
-        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+    <form method="post" action="{{ location ? '/config/stockage/emplacements/' ~ location.id : '/config/stockage/emplacements' }}">
+        {{ csrf_field()|raw }}
 
         <div class="card mb-4">
             <div class="card-body">
@@ -52,18 +52,33 @@
                         {% endif %}
                     </div>
 
-                    <div class="col-12 col-md-6 gallery-storage-local">
+                    <div class="col-12 storage-location-local">
                         {% include 'partials/form_field.html.twig' with {
                             field_id: 'storage-local-subdir',
                             field_name: 'subdir',
-                            label: 'Sous-dossier local',
+                            label: 'Dossier',
                             value: location.config.path ?? default_local_path,
                             size: 'sm',
+                            help: "Un nom simple (« gallery ») désigne un sous-dossier de l'espace de stockage du site. Pour un disque réseau ou un second disque, indiquez le chemin absolu complet (« /mnt/nas/photos »).",
                         } only %}
+                        {#
+                          The consequence, stated at the moment the path is typed
+                          rather than discovered afterwards: a full reset empties
+                          storage/ and cannot reach anything outside it. That is a
+                          protection for the photographs and a surprise for whoever
+                          expected the site to be blank — so it is said here, where
+                          the decision is being made, and not only on the dashboard.
+                        #}
+                        <div class="alert alert-warning small mt-2 mb-0 d-none" id="storage-local-outside-warning">
+                            <strong>Ce dossier est hors de <code>storage/</code>.</strong>
+                            Il n'est donc pas effacé par une réinitialisation complète du site, et son contenu
+                            n'est repris dans aucune archive de sauvegarde — sa copie de secours se règle
+                            emplacement par emplacement.
+                        </div>
                     </div>
                 </div>
 
-                <div class="gallery-storage-s3 row g-3 mt-1">
+                <div class="storage-location-s3 row g-3 mt-1">
                     <div class="col-12">
                         <label class="form-label small" for="s3-provider">Fournisseur</label>
                         <select class="form-select" id="s3-provider" name="s3_provider">
@@ -178,7 +193,7 @@
                             <i class="bi bi-plug" aria-hidden="true"></i> Tester la connexion
                         </button>
                         <div id="s3-test-result" class="mt-2"></div>
-                        {% if gallery_s3_ai_available %}
+                        {% if s3_ai_available %}
                             <div id="s3-explain-wrap" class="mt-2 d-none">
                                 {% include 'partials/ai_button.html.twig' with {
                                     id: 's3-explain-ai', label: "Expliquer l'erreur avec l'IA", size: 'sm',
@@ -196,5 +211,5 @@
 {% endblock %}
 
 {% block scripts %}
-    <script src="{{ asset('/assets/js/gallery-storage-location.js') }}" defer></script>
+    <script src="{{ asset('/assets/js/storage-locations.js') }}" defer></script>
 {% endblock %}

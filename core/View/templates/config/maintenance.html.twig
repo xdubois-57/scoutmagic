@@ -571,38 +571,19 @@
         <div class="card-body">
             {{ _self.section_header('maintenance-backups-body', 'Sauvegarde manuelle', false) }}
             <div class="collapse mt-3" id="maintenance-backups-body">
-                {# L'espace disque vient en tête : c'est la contrainte qui
-                   décide si les boutons en dessous vont fonctionner. Toutes les
-                   décisions (unité d'affichage, libellés des dossiers, quelle
-                   mesure sert de base) sont prises dans
-                   Core\Storage\StorageUsage — un choix pris dans un fichier
-                   Twig est un choix que personne ne peut tester. #}
-                <h3 class="h6">Espace disque</h3>
-                {% set _percent = storage_usage.usedPercent %}
-                {% if _percent is not null %}
-                    {# Décorative : le pourcentage est écrit en toutes lettres
-                       juste en dessous, et une barre qui le répète ne fait que
-                       le faire lire deux fois (même choix que
-                       modules/finance/views/campaigns/list.html.twig). #}
-                    <div aria-hidden="true" class="progress mb-2" style="height: 6px;">
-                        <div class="progress-bar" style="width: {{ _percent }}%"></div>
-                    </div>
-                    <p class="small text-body-secondary mb-1">
-                        <strong>{{ storage_usage.usedLabel }}</strong> utilisés sur {{ storage_usage.totalLabel }} —
-                        {{ _percent }} %.
-                        {% if storage_usage.basis == 'volume' %}
-                            Le site occupe {{ storage_usage.storageLabel }}.
-                        {% endif %}
-                    </p>
-                {% else %}
-                    <p class="small text-body-secondary mb-1">
-                        Le site occupe <strong>{{ storage_usage.storageLabel }}</strong>.
-                    </p>
-                {% endif %}
-                {% if storage_usage.breakdownSentence %}
-                    <p class="small text-body-secondary mb-1">{{ storage_usage.breakdownSentence }}</p>
-                {% endif %}
-                <p class="small text-body-secondary mb-3">{{ storage_usage.basisSentence }}</p>
+                {# The disk-space panel left this page in IT-02. It measured
+                   a single volume — `storage/`'s — and so reported the
+                   system disk's free space whatever the write's real
+                   destination was. The per-volume measurement, which
+                   groups the declared directories by their device and
+                   states volume by volume which basis it used, lives in
+                   Configuration › Stockage. One figure here and another
+                   one there would have been two answers to the same
+                   question, one of them wrong. #}
+                <p class="small text-body-secondary mb-3">
+                    La place disponible se lit sur
+                    <a href="/config/stockage">Configuration › Stockage</a>, mesurée volume par volume.
+                </p>
 
                 {% if not zip_encryption_supported %}
                     <div class="alert alert-warning small">

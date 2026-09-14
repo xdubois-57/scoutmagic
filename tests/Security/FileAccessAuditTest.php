@@ -29,8 +29,27 @@ class FileAccessAuditTest extends TestCase
 
             $lines = explode("\n", $contents);
             foreach ($lines as $lineNum => $line) {
-                // Match /storage/ paths but not inside comments or file_url() calls
-                if (preg_match('#(?<![a-z_])(/storage/|href\s*=\s*["\'][^"\']*storage/)#i', $line)) {
+                // Match /storage/ paths but not inside comments or file_url() calls.
+                //
+                // An ABSOLUTE http(s) URL is excluded, and only that: what
+                // this guard is about is a template addressing this site's
+                // own storage tree instead of going through file_url(), and
+                // a link to somebody else's documentation is not that. The
+                // exclusion was added when a Scaleway console link
+                // (`https://console.scaleway.com/object-storage/buckets`)
+                // matched on the word « storage » inside a third party's
+                // path. A site-relative `/storage/…` and a bare
+                // `href="storage/…"` both still match, which is the whole
+                // of what the rule ever caught — including when they sit
+                // on the same line as an external link.
+                //
+                // The exclusion is scoped to the URLs THEMSELVES, not to
+                // the line carrying them. Skipping the whole line exempted
+                // a genuine `href="storage/…"` that merely shared a line
+                // with an unrelated external link — broader than this
+                // comment claims, and silently so.
+                $scanned = (string) preg_replace('#https?://[^"\'\s>]*#i', '', $line);
+                if (preg_match('#(?<![a-z_])(/storage/|href\s*=\s*["\'][^"\']*storage/)#i', $scanned)) {
                     $relativePath = str_replace(dirname(__DIR__, 2) . '/', '', $file->getPathname());
                     $violations[] = "{$relativePath}:" . ($lineNum + 1) . ": {$line}";
                 }
@@ -49,9 +68,16 @@ class FileAccessAuditTest extends TestCase
         $contents = file_get_contents($indexPath);
         $this->assertNotFalse($contents);
 
-        // No route should serve from storage/ directly
+        // No route should serve from storage/ directly.
+        //
+        // `storage/` with its slash, not the bare word. Without it the
+        // pattern matched any route whose CONTROLLER is named for storage —
+        // `Core\Http\Controller\StorageConfigController`, which declares
+        // where files go and serves not one byte of them — and would go on
+        // matching every future class with the word in its name. What the
+        // rule is about is a path, and a path has a slash.
         $this->assertDoesNotMatchRegularExpression(
-            '/addRoute\s*\([^)]*storage/i',
+            '#addRoute\s*\([^)]*storage/#i',
             $contents,
             'Found a route that references storage/ directly'
         );

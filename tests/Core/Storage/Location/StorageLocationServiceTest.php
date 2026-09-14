@@ -7,6 +7,7 @@ namespace Tests\Core\Storage\Location;
 use Core\Security\EncryptionService;
 use Core\Storage\Location\Backend\StorageBackendFactory;
 use Core\Storage\Location\Config\LocalLocationConfig;
+use Core\Storage\Location\Config\LocationConfig;
 use Core\Storage\Location\Config\ObjectStorageLocationConfig;
 use Core\Storage\Location\StorageLocation;
 use Core\Storage\Location\StorageLocationConsumer;
@@ -93,6 +94,15 @@ class StorageLocationServiceTest extends TestCase
                 $this->asked = true;
 
                 return [];
+            }
+
+            /** This double holds nothing that a destination could strand. */
+            public function objectionTo(
+                StorageLocation $location,
+                LocationConfig $proposedConfig,
+                bool $wouldBeDefault
+            ): ?string {
+                return null;
             }
         });
 
@@ -357,6 +367,15 @@ class StorageLocationServiceTest extends TestCase
             {
                 throw new \RuntimeException('table missing');
             }
+
+            /** This double holds nothing that a destination could strand. */
+            public function objectionTo(
+                StorageLocation $location,
+                LocationConfig $proposedConfig,
+                bool $wouldBeDefault
+            ): ?string {
+                return null;
+            }
         };
     }
 
@@ -461,6 +480,15 @@ class StorageLocationServiceTest extends TestCase
             public function locationIdsInUse(): array
             {
                 return $this->ids;
+            }
+
+            /** This double holds nothing that a destination could strand. */
+            public function objectionTo(
+                StorageLocation $location,
+                LocationConfig $proposedConfig,
+                bool $wouldBeDefault
+            ): ?string {
+                return null;
             }
         };
     }

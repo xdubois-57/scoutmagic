@@ -186,13 +186,6 @@ class MaintenanceController extends AbstractController
         // one is how six consecutive rollbacks stayed invisible on this
         // very page. Taken from the list the table below already fetched
         // (newest first) rather than a second query for the same row.
-        // measureNow(), not measure(): reporting this number IS the disk
-        // block's job, and a figure a quarter of an hour old would be the
-        // one thing on the page nobody could trust. The walk it costs is
-        // paid by an admin visiting a configuration page, not by a visitor
-        // (Core\Storage\DiskBudget, « Why the measurement is cached »).
-        $storageUsage = $this->diskBudget()->measureNow();
-
         $updateHistory = $this->updateHistoryRepository->findRecent(self::UPDATE_HISTORY_SHOWN);
         $lastAttempt = $updateHistory[0] ?? null;
         $lastAttemptFailed = $lastAttempt !== null
@@ -226,13 +219,6 @@ class MaintenanceController extends AbstractController
             // invisible to the person looking at it. A run of failures is
             // the thing this table exists to make obvious.
             'update_history' => $updateHistory,
-            // measureNow(), not measure(): reporting this number IS this
-            // block's job, and a figure a quarter of an hour old would be
-            // the one thing on the page nobody could trust. The walk it
-            // costs is paid by an admin visiting a configuration page, not
-            // by a visitor (Core\Storage\DiskBudget, « Why the measurement
-            // is cached »).
-            'storage_usage' => $storageUsage,
             // ——— Bloc « Sauvegarde hors site » ———
             // Read here rather than in a second controller because this is
             // the page that renders it, and a screen that had to ask two

@@ -201,7 +201,6 @@ final class UxConventionsTest extends TestCase
         'core/View/templates/setup/token_gate.html.twig' => 1,
         'modules/gallery/views/album_form.html.twig' => 1,
         'modules/gallery/views/config.html.twig' => 1,
-        'modules/gallery/views/location_form.html.twig' => 1,
         'modules/news/views/detail.html.twig' => 1,
         'modules/news/views/editor.html.twig' => 1,
         'modules/news/views/response_edit.html.twig' => 1,

@@ -49,6 +49,9 @@ final class ArchiveContents
         'cron_cadence' => "À quelle cadence le déclencheur horaire s'exécute réellement.",
         'outbound_mail' => 'Par où partent les messages du site : fournisseurs, ordre des voies et '
             . "compteurs d'envoi. Aucun identifiant, aucun destinataire.",
+        'storage_locations' => "Où ce site écrit ses fichiers : le type de chaque emplacement, ce qu'il "
+            . "sait faire, l'état de son dernier test, et la place occupée par volume. Aucun identifiant, "
+            . 'aucune clé.',
         'webserver' => 'Le serveur web utilisé et ses réglages visibles.',
         'logs' => "Les journaux du serveur web, qui contiennent des adresses IP de visiteurs.",
     ];

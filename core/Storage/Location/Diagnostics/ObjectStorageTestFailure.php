@@ -6,7 +6,7 @@
 
 declare(strict_types=1);
 
-namespace Modules\Gallery\Service;
+namespace Core\Storage\Location\Diagnostics;
 
 use Core\Security\SessionStore;
 
@@ -20,7 +20,7 @@ use Core\Security\SessionStore;
  * provided », « The specified bucket does not exist » — are the entire
  * diagnostic material: they say which of half a dozen indistinguishable
  * mistakes was made. They are also English, technical, and quote a third
- * party, so they stay off the page (Controller\GalleryConfigController
+ * party, so they stay off the page (`Core\Http\Controller\StorageConfigController`
  * ::testConnection() journals them and shows the admin a French sentence).
  *
  * Until now the explainer was handed the French sentence instead, over

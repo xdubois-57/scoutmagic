@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Storage\Location;
 
+use Core\Storage\Location\Config\LocationConfig;
+
 /**
  * Something in the application that sends its files to a storage location.
  *
@@ -50,4 +52,49 @@ interface StorageLocationConsumer
      * @return list<int>
      */
     public function locationIdsInUse(): array;
+
+    /**
+     * Why this consumer could not live with $location reconfigured as
+     * $proposedConfig — one French sentence — or **null** when it can.
+     *
+     * **The question the storage screen cannot answer for itself.** D4
+     * puts the assignment on the consumer, which means the consumer is
+     * also the only thing that knows what a given destination would do to
+     * what it holds. The case this exists for is real and was found in
+     * IT-01: a delegated album — a discussion group's photos, owned and
+     * access-controlled by another module — may not sit on a location that
+     * serves publicly for ever, because « private album » and « readable
+     * by whoever has the link » cannot both be true. The gallery refuses
+     * such a location when the album is created, and again when the bytes
+     * are served. What neither of those covers is the third moment: the
+     * album is created on a private location and the LOCATION is later
+     * edited to carry a public URL. Nothing is exposed — the serve-time
+     * guard holds, which is the point of having it — but every media of
+     * every delegated album there turns into a permanent 404 with nothing
+     * anywhere saying why.
+     *
+     * So the screen asks before it saves, and a consumer that has an
+     * objection states it in words the administrator can act on.
+     *
+     * **On the interface rather than in an optional side-interface**, for
+     * the reason `LocationConfig::servesPubliclyWithoutExpiry()` is on
+     * one: a consumer that could be stranded and forgets to say so is a
+     * silent breakage, and the compiler asking the question of every
+     * future consumer is cheaper than discovering which one forgot. A
+     * consumer with nothing to object to returns null, and that is one
+     * line.
+     *
+     * @param StorageLocation $location the location as it stands today
+     * @param LocationConfig $proposedConfig what it would become
+     * @param bool $wouldBeDefault whether it would be the site's default
+     *        afterwards — which matters because a consumer's rows that pin
+     *        no location at all are standing on the default, and the
+     *        promotion of a location is exactly how they arrive on one
+     *        they were never checked against
+     */
+    public function objectionTo(
+        StorageLocation $location,
+        LocationConfig $proposedConfig,
+        bool $wouldBeDefault
+    ): ?string;
 }

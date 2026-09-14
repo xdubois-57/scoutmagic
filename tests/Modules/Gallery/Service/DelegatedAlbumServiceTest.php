@@ -247,8 +247,7 @@ class DelegatedAlbumServiceTest extends TestCase
             new GalleryLocationService(
                 $this->storageLocationService,
                 $racingRepository,
-                $this->createMock(SettingService::class),
-                sys_get_temp_dir()
+                $this->createMock(SettingService::class)
             ),
             $this->storageBackendFactory, new ScoutYearService($this->pdo)
         );
@@ -475,7 +474,12 @@ class DelegatedAlbumServiceTest extends TestCase
      */
     private function useRealLocalBackend(): LocalStorageBackend
     {
-        $backend = new LocalStorageBackend($this->tempStoragePath(), 'gallery');
+        // One argument. The second, « gallery », was silently ignored:
+        // extra arguments to a userland function are, so the backend has
+        // always been rooted at the temp storage path itself. It stopped
+        // being ignored when the constructor gained a health-check budget,
+        // which is how a string arrived where a float was expected.
+        $backend = new LocalStorageBackend($this->tempStoragePath());
         $this->storageBackendFactory->method('create')->willReturn($backend);
 
         return $backend;

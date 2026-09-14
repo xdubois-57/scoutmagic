@@ -9,7 +9,6 @@ declare(strict_types=1);
 namespace Modules\Gallery\Service;
 
 use Core\Config\SettingService;
-use Core\Storage\Location\Config\LocalLocationConfig;
 use Core\Storage\Location\StorageLocation;
 use Core\Storage\Location\StorageLocationService;
 use Modules\Gallery\Repository\Album;
@@ -29,11 +28,30 @@ use Modules\Gallery\Repository\AlbumRepository;
  */
 class GalleryLocationService
 {
+    /**
+     * Which declared location new albums are created on — the gallery's
+     * own choice, kept in the gallery's own setting.
+     *
+     * D4 in one constant: locations are declared centrally and CHOSEN
+     * locally, with no join table in the middle. The storage page reads
+     * this back through `Modules\Gallery\Service\GalleryStorageConsumer`
+     * to say « Galeries photo → Nextcloud de l'unité », and never writes
+     * it: the assignment belongs to whoever made it.
+     *
+     * **That read is also what stops the location being deleted**, and it
+     * had to be added rather than assumed: the consumer counted album rows
+     * and the site default, so a location chosen here before the first
+     * album was created there came back unused, and the screen offered it
+     * for deletion. The setting then named nothing and
+     * {@see locationForNewAlbums()} fell back on the default — the
+     * documented behaviour, reached for a reason nobody chose.
+     */
+    public const NEW_ALBUM_LOCATION_SETTING = 'gallery_new_album_location_id';
+
     public function __construct(
         private StorageLocationService $locations,
         private AlbumRepository $albumRepository,
-        private SettingService $settingService,
-        private string $storagePath
+        private SettingService $settingService
     ) {
     }
 
@@ -101,104 +119,80 @@ class GalleryLocationService
     }
 
     /**
-     * How much room is left for a LOCAL location, for the gallery's own
-     * configuration page — null for any other kind (its capacity is the
-     * provider's business) and null whenever the host will not answer at
-     * all (`open_basedir`, a disabled `disk_free_space()`).
+     * Where a NEW album's files go.
      *
-     * Read at render time rather than cached alongside the health check:
-     * free space is the one property of a location that is stale the
-     * moment it is written down, and it costs one `statvfs` on a page a
-     * superadmin opens by hand — the gallery's read path never calls this.
+     * **« Emplacement des nouveaux albums », and the label is the whole
+     * point.** An album is pinned to a location when it is created and
+     * stays there; changing this setting moves nothing and is not supposed
+     * to. An administrator who reads it as « where the gallery lives » and
+     * expects yesterday's albums to follow has been misled by the wording,
+     * not by the code — which is why the screen says « nouveaux » and says
+     * underneath that existing albums do not move.
      *
-     * **This is a stopgap and it is the wrong shape**, deliberately kept
-     * for one iteration so the page it feeds keeps working: free space is
-     * a property of a VOLUME, not of a folder, and three locations on one
-     * disk each reporting « 3,2 To libres » would have an administrator
-     * believe they had 9,6. The measurement that groups paths by
-     * filesystem and the screen that states it live in the next iteration
-     * (docs/chantiers/emplacements-de-stockage.md, IT-02); this method
-     * goes with them.
+     * Falls back on the site's default location in the two cases where the
+     * setting cannot be honoured: nothing chosen, and a location that has
+     * since been deleted. Both are « we do not know where you wanted it »,
+     * and the default is where a site with no storage configuration at all
+     * writes — so the fallback is the behaviour that existed before this
+     * setting did, rather than a refusal to create an album.
      */
-    public function diskSpaceFor(StorageLocation $location): ?DiskSpace
+    public function locationForNewAlbums(): ?StorageLocation
     {
-        $config = $location->config;
-        if (!$config instanceof LocalLocationConfig) {
-            return null;
+        $configured = (int) $this->settingService->get(self::NEW_ALBUM_LOCATION_SETTING, 'gallery', 0);
+
+        if ($configured > 0) {
+            $chosen = $this->locations->findById($configured);
+            if ($chosen !== null) {
+                return $chosen;
+            }
         }
 
-        $dir = $this->measurableDirectory($config);
-        if ($dir === null) {
-            return null;
-        }
-
-        $free = @disk_free_space($dir);
-        if (!is_float($free) || $free < 0) {
-            return null;
-        }
-
-        $total = @disk_total_space($dir);
-
-        return new DiskSpace(
-            (int) $free,
-            is_float($total) && $total > 0 ? (int) $total : 0,
-            $this->largestAllowedUploadBytes()
-        );
+        return $this->locations->ensureDefaultExists();
     }
 
     /**
-     * The directory to measure: the location's own, or the storage root
-     * when that directory does not exist yet.
+     * Records the administrator's choice of « emplacement des nouveaux
+     * albums », and answers what changed.
      *
-     * A location created a minute ago has no directory until the first
-     * upload or the first health check — and for a relative path the
-     * answer would be the same anyway, since a subdirectory of `storage/`
-     * is on the volume `storage/` is on. Reporting « inconnu » there would
-     * hide the number on exactly the freshly-configured location whose
-     * administrator is most likely to be asking.
+     * **Here rather than in `GalleryConfigController`**, and that is the
+     * mandatory Controller → Service boundary rather than a preference.
+     * Four steps make this one decision — read what was there, check the
+     * identifier still names a location, write it, work out whether it
+     * moved — and a controller that owns them owns the rule: the next
+     * caller (a future API route, an import) would have to reproduce all
+     * four to behave the same way, and the one that forgets the third
+     * writes an identifier naming nothing.
+     *
+     * `0` is « the site's default » and is always accepted — it is what
+     * the setting holds on a site that never chose, and what
+     * {@see locationForNewAlbums()} falls back on.
+     *
+     * The journal entry stays with the caller: this service has no idea
+     * who is signed in, and « qui a décidé » is exactly what that entry
+     * is for.
+     *
+     * @throws GalleryLocationException when the identifier names no
+     *         location — deleted between the page being rendered and the
+     *         form being sent, which is a sentence for the administrator
+     *         rather than a silent fallback onto the default.
      */
-    private function measurableDirectory(LocalLocationConfig $config): ?string
+    public function chooseForNewAlbums(int $locationId): NewAlbumLocationChoice
     {
-        $dir = $config->isAbsolute()
-            ? self::withoutTrailingSlash($config->path)
-            : self::withoutTrailingSlash($this->storagePath) . '/' . trim($config->path, '/');
+        $previousId = (int) $this->settingService->get(self::NEW_ALBUM_LOCATION_SETTING, 'gallery', 0);
 
-        if (is_dir($dir)) {
-            return $dir;
+        $selected = null;
+        if ($locationId > 0) {
+            $selected = $this->locations->findById($locationId);
+            if ($selected === null) {
+                throw new GalleryLocationException(
+                    "L'emplacement choisi pour les nouveaux albums n'existe plus. Rechargez la page et "
+                        . 'choisissez-en un autre.'
+                );
+            }
         }
 
-        return is_dir($this->storagePath) ? $this->storagePath : null;
-    }
+        $this->settingService->set(self::NEW_ALBUM_LOCATION_SETTING, (string) max(0, $locationId), 'gallery');
 
-    /**
-     * `rtrim($path, '/')` with the one path it gets wrong handled: the
-     * filesystem root, which it turns into the empty string. `is_dir('')`
-     * is false, so an absolute location configured at `/` lost its
-     * free-space figure — reported as « inconnu », or quietly replaced by
-     * the storage root's when that directory happened to exist, which is a
-     * different volume's number printed under this location's name.
-     */
-    private static function withoutTrailingSlash(string $path): string
-    {
-        $trimmed = rtrim($path, '/');
-
-        return $trimmed === '' ? '/' : $trimmed;
-    }
-
-    /**
-     * The biggest single file the gallery would accept right now — the
-     * threshold under which the page calls the remaining space low. Video
-     * counts only while video uploads are actually enabled: warning about
-     * a 2 Go limit on an installation that refuses every video would be
-     * warning about something that cannot happen.
-     */
-    private function largestAllowedUploadBytes(): int
-    {
-        $photoMb = (int) $this->settingService->get('gallery_max_photo_upload_mb', 'gallery', 30);
-        $videoMb = (bool) $this->settingService->get('gallery_allow_video', 'gallery', true)
-            ? (int) $this->settingService->get('gallery_max_video_upload_mb', 'gallery', 2048)
-            : 0;
-
-        return max(0, max($photoMb, $videoMb)) * 1024 * 1024;
+        return new NewAlbumLocationChoice($previousId, max(0, $locationId), $selected);
     }
 }

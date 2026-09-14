@@ -24,10 +24,8 @@ use Modules\Gallery\Service\AlbumService;
 use Modules\Gallery\Service\DelegatedAlbumDescriberRegistry;
 use Modules\Gallery\Service\FfmpegAvailability;
 use Modules\Gallery\Api\GalleryException;
+use Modules\Gallery\Service\GalleryLocationException;
 use Modules\Gallery\Service\GalleryLocationService;
-use Modules\Gallery\Service\ObjectStorageErrorExplainerService;
-use Modules\Gallery\Service\ObjectStorageTestFailure;
-use Core\Storage\Location\Backend\ObjectStorageBackend;
 use Core\Storage\Location\StorageLocationService;
 use Core\Storage\Location\StorageLocationType;
 use Twig\Environment;
@@ -44,6 +42,41 @@ class GalleryConfigController extends AbstractController
      *
      * @var array<string, array{min: int, max: int, label: string}>
      */
+    /**
+     * The four tabs, and which settings each of them owns.
+     *
+     * **A tab saves its own keys and nobody else's**, which is not a
+     * detail: an unchecked checkbox submits NOTHING, so a page that writes
+     * every boolean it knows about on every save would silently switch off
+     * « autoriser les vidéos » each time somebody edited the photo limits
+     * on another tab. Splitting the keys by tab makes that impossible
+     * rather than careful.
+     *
+     * « Albums » owns no setting at all — it is the migration table, which
+     * acts through its own endpoint — and is listed here so the rail is
+     * built from one declaration instead of from a template's memory of it.
+     *
+     * @var array<string, array{label: string, numeric: list<string>, boolean: list<string>}>
+     */
+    public const TABS = [
+        'general' => [
+            'label' => 'Général',
+            'numeric' => ['gallery_max_media_per_album'],
+            'boolean' => ['gallery_allow_external'],
+        ],
+        'photos' => [
+            'label' => 'Photos',
+            'numeric' => ['gallery_max_photo_upload_mb', 'gallery_photo_max_dimension'],
+            'boolean' => [],
+        ],
+        'videos' => [
+            'label' => 'Vidéos',
+            'numeric' => ['gallery_max_video_upload_mb', 'gallery_max_video_duration_sec'],
+            'boolean' => ['gallery_allow_video', 'gallery_keep_original_video'],
+        ],
+        'albums' => ['label' => 'Albums', 'numeric' => [], 'boolean' => []],
+    ];
+
     private const NUMERIC_SETTINGS = [
         'gallery_max_media_per_album' => [
             'min' => 1,
@@ -65,7 +98,6 @@ class GalleryConfigController extends AbstractController
         private SettingService $settingService,
         private FfmpegAvailability $ffmpegAvailability,
         private JournalService $journalService,
-        private ObjectStorageErrorExplainerService $s3ErrorExplainerService,
         private StorageLocationService $storageLocationService,
         private GalleryLocationService $galleryLocationService,
         private StorageLocationRepository $storageLocationRepository,
@@ -89,42 +121,78 @@ class GalleryConfigController extends AbstractController
     {
         $this->storageLocationService->ensureDefaultExists();
 
-        return $this->render('@gallery/config.html.twig', $this->buildContext());
+        return $this->render('@gallery/config.html.twig', $this->buildContext($this->activeTab($request)));
     }
 
     /**
-     * POST /config/gallery — storage locations are managed on their own
-     * pages now (Controller\GalleryStorageLocationController); this only
-     * covers the non-storage settings (allowed album types, media limits,
-     * video settings).
+     * Which tab is being looked at — `general` for anything this page does
+     * not recognise, including nothing at all.
+     *
+     * A query parameter rather than four routes: the four tabs are four
+     * views of one configuration, they share a controller and a context,
+     * and `partials/page_picker.html.twig` is built for exactly this case
+     * (« a synthetic path the caller computes when two views share one
+     * route and differ by a query »).
+     */
+    private function activeTab(Request $request): string
+    {
+        $tab = (string) ($request->getQuery('onglet') ?? '');
+
+        return isset(self::TABS[$tab]) ? $tab : 'general';
+    }
+
+    /**
+     * POST /config/gallery — the four tabs' settings.
+     *
+     * Storage LOCATIONS are declared on `/config/stockage` since IT-02 and
+     * this page no longer touches them. What it does keep is the one
+     * storage decision that is the gallery's own (D4): which declared
+     * location new albums are created on.
      *
      * @param array<string, string> $params
      */
     public function save(Request $request, array $params): Response
     {
         if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            $context = $this->buildContext();
+            $context = $this->buildContext($this->activeTab($request));
             $context['submit_error'] = self::SESSION_EXPIRED_MESSAGE;
             return $this->render('@gallery/config.html.twig', $context)->setStatusCode(403);
         }
 
-        $booleanKeys = ['gallery_allow_external', 'gallery_allow_video', 'gallery_keep_original_video'];
+        $tab = $this->activeTab($request);
+        $booleanKeys = self::TABS[$tab]['boolean'];
+
+        // « Emplacement des nouveaux albums » lives on the Général tab. What
+        // that choice MEANS — the identifier still naming a location, 0
+        // standing for the site's default, whether it moved — belongs to
+        // Service\GalleryLocationService::chooseForNewAlbums() and not
+        // here; this controller keeps the two things that are genuinely
+        // its own, the HTTP refusal and the journal entry.
+        $ownsLocation = $tab === 'general';
+        $newAlbumLocationId = $ownsLocation
+            ? (int) $request->getBody(GalleryLocationService::NEW_ALBUM_LOCATION_SETTING, '0')
+            : 0;
 
         // Validate every numeric field up front, so a single bad value can't
         // leave half the settings written and half not.
         $numericValues = [];
-        foreach (self::NUMERIC_SETTINGS as $key => $bounds) {
+        foreach (self::TABS[$tab]['numeric'] as $key) {
+            $bounds = self::NUMERIC_SETTINGS[$key];
             $raw = trim((string) $request->getBody($key, ''));
             if ($raw === '' || preg_match('/^\d+$/', $raw) !== 1) {
-                return $this->saveError("{$bounds['label']} doit être un nombre entier.");
+                return $this->saveError("{$bounds['label']} doit être un nombre entier.", $tab);
             }
             $value = (int) $raw;
             if ($value < $bounds['min'] || $value > $bounds['max']) {
-                return $this->saveError("{$bounds['label']} doit être comprise entre {$bounds['min']} et "
-                    . "{$bounds['max']}.");
+                return $this->saveError(
+                    "{$bounds['label']} doit être comprise entre {$bounds['min']} et {$bounds['max']}.",
+                    $tab
+                );
             }
             $numericValues[$key] = (string) $value;
         }
+
+        $locationChoice = null;
 
         try {
             foreach ($numericValues as $key => $value) {
@@ -133,6 +201,15 @@ class GalleryConfigController extends AbstractController
             foreach ($booleanKeys as $key) {
                 $this->settingService->set($key, $request->getBody($key) !== null ? '1' : '0', 'gallery');
             }
+            if ($ownsLocation) {
+                $locationChoice = $this->galleryLocationService->chooseForNewAlbums($newAlbumLocationId);
+            }
+        } catch (GalleryLocationException $e) {
+            // Its own catch, ahead of the catch-all below: this message is
+            // written for the administrator (the location they picked has
+            // just been deleted) and says what to do about it, so it is
+            // shown rather than turned into « vérifiez les valeurs saisies ».
+            return $this->saveError($e->getMessage(), $tab);
         } catch (\Throwable $e) {
             // A bare \Throwable: a PDOException naming a column, a
             // SettingException naming a key. The journal keeps it; the page
@@ -141,16 +218,17 @@ class GalleryConfigController extends AbstractController
                 'gallery',
                 'config_update_failed',
                 'info',
-                'Échec de l\'enregistrement de la configuration de la '
-                    . 'galerie',
+                'Échec de l\'enregistrement de la configuration de la galerie',
                 ['error' => $e->getMessage()],
                 (int) AuthSession::getUserAccountId()
             );
 
-            return $this->saveError(UserFacingMessage::from(
+            $message = UserFacingMessage::from(
                 $e,
                 "La configuration n'a pas pu être enregistrée — vérifiez les valeurs saisies, puis réessayez."
-            ));
+            );
+
+            return $this->saveError($message, $tab);
         }
 
         $this->journalService->log(
@@ -162,139 +240,36 @@ class GalleryConfigController extends AbstractController
             (int) AuthSession::getUserAccountId()
         );
 
-        return $this->redirect('/config/gallery');
+        // `security`, and the chantier's transverse table puts it there
+        // deliberately: choosing a storage location decides where this
+        // unit's photographs physically go. Journalled separately from the
+        // rest of the configuration, because « la galerie écrit désormais
+        // ailleurs » is the line somebody auditing this site looks for and
+        // it is invisible inside « la configuration a été modifiée ».
+        if ($locationChoice !== null && $locationChoice->changed()) {
+            $this->journalService->log(
+                'gallery',
+                'storage_location_chosen',
+                'security',
+                sprintf('Les nouveaux albums iront désormais sur « %s »', $locationChoice->frenchName()),
+                [],
+                (int) AuthSession::getUserAccountId()
+            );
+        }
+
+        return $this->redirect('/config/gallery?onglet=' . $tab);
     }
 
     /**
      * Re-renders the config page with a validation message, HTTP 422 — same
      * shape as the catch-all below it.
      */
-    private function saveError(string $message): Response
+    private function saveError(string $message, string $tab): Response
     {
-        $context = $this->buildContext();
+        $context = $this->buildContext($tab);
         $context['submit_error'] = $message;
 
         return $this->render('@gallery/config.html.twig', $context)->setStatusCode(422);
-    }
-
-    /**
-     * POST /config/gallery/test-connection — builds a throwaway S3 client
-     * from the submitted (not necessarily saved) form values, so the admin
-     * can verify credentials before committing them to a new or edited
-     * location (Controller\GalleryStorageLocationController's create/edit
-     * forms reuse this same endpoint).
-     *
-     * @param array<string, string> $params
-     */
-    public function testConnection(Request $request, array $params): Response
-    {
-        $data = json_decode($request->getRawBody(), true);
-        if (!is_array($data) || !CsrfGuard::validateToken((string) ($data['_csrf_token'] ?? ''))) {
-            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
-        }
-
-        // The edit form deliberately leaves the secret field blank ("laisser
-        // vide pour conserver la clé actuelle"), so testing an existing
-        // location used to send an empty secret and always fail on
-        // authentication. When the caller names the location it is editing,
-        // fall back to that location's stored secret.
-        $secretKey = (string) ($data['secret_key'] ?? '');
-        if ($secretKey === '') {
-            $locationId = (int) ($data['location_id'] ?? 0);
-            $location = $locationId > 0 ? $this->storageLocationRepository->findById($locationId) : null;
-            if ($location !== null && $location->type === StorageLocationType::ObjectStorage) {
-                $secretKey = (string) $this->storageLocationRepository->getSecret($location->id);
-            }
-        }
-
-        // The endpoint is connected to server-side with the access key/secret,
-        // so it must be a genuine public https host — never http:// (which
-        // would send the credentials in plaintext) and never an internal
-        // address (SSRF) — audit M6. A custom port is allowed since
-        // S3-compatible providers vary, but the host must still be public.
-        $endpoint = (string) ($data['endpoint'] ?? '');
-        if (!\Core\Security\SsrfUrlValidator::isPublicHttpsUrl($endpoint, true)) {
-            return $this->json(['success' => false, 'error' => 'L\'adresse du service doit être une URL https '
-                . 'publique.'], 422);
-        }
-
-        $backend = new ObjectStorageBackend(
-            $endpoint,
-            (string) ($data['region'] ?? ''),
-            (string) ($data['bucket'] ?? ''),
-            (string) ($data['access_key'] ?? ''),
-            $secretKey
-        );
-
-        $error = $backend->testConnection();
-        if ($error === null) {
-            ObjectStorageTestFailure::forget();
-
-            return $this->json(['success' => true]);
-        }
-
-        // $error is already a French sentence; the AWS SDK's own words are
-        // on lastTechnicalError() and stay here — in the journal, and in
-        // the session for explainS3Error(), which is the one reader that
-        // has any use for them. They never reach the page.
-        $summary = 'Connexion impossible : ' . $error;
-        $this->journalService->log(
-            'gallery',
-            's3_test_connection_failed',
-            'info',
-            'Échec du test de connexion à un stockage S3',
-            ['bucket' => (string) ($data['bucket'] ?? ''), 'sdk_error' => $backend->lastTechnicalError()],
-            (int) AuthSession::getUserAccountId()
-        );
-        ObjectStorageTestFailure::remember($summary, $backend->lastTechnicalError());
-
-        return $this->json(['success' => false, 'error' => $summary], 422);
-    }
-
-    /**
-     * POST /config/gallery/explain-s3-error — asks the LLM connector to
-     * diagnose a failed S3 test-connection for the admin, given only the
-     * non-secret config fields, the secret key's length, and the provider's
-     * own error message. Never receives or forwards the secret key itself.
-     *
-     * @param array<string, string> $params
-     */
-    public function explainS3Error(Request $request, array $params): Response
-    {
-        $data = json_decode($request->getRawBody(), true);
-        if (!is_array($data) || !CsrfGuard::validateToken((string) ($data['_csrf_token'] ?? ''))) {
-            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
-        }
-
-        // The failure comes from the session, never from the request body.
-        // The browser only ever had the French summary — useless to
-        // diagnose — and a string the browser supplies is a string that
-        // goes into a model's prompt having been through a page the admin
-        // can edit.
-        $failure = ObjectStorageTestFailure::read();
-        if ($failure === null) {
-            return $this->json([
-                'success' => false,
-                'error' => 'Lancez d\'abord un test de connexion : il n\'y a rien à expliquer pour le moment.',
-            ], 422);
-        }
-
-        try {
-            $explanation = $this->s3ErrorExplainerService->explain(
-                (string) ($data['provider'] ?? 'custom'),
-                (string) ($data['endpoint'] ?? ''),
-                (string) ($data['region'] ?? ''),
-                (string) ($data['bucket'] ?? ''),
-                (string) ($data['access_key'] ?? ''),
-                (int) ($data['secret_key_length'] ?? 0),
-                $failure['summary'],
-                $failure['technical']
-            );
-        } catch (GalleryException $e) {
-            return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
-        }
-
-        return $this->json(['success' => true, 'explanation' => $explanation]);
     }
 
     /**
@@ -333,7 +308,7 @@ class GalleryConfigController extends AbstractController
     /**
      * @return array<string, mixed>
      */
-    private function buildContext(): array
+    private function buildContext(string $tab = 'general'): array
     {
         $locations = array_map(
             fn(StorageLocation $l) => $this->storageLocationService->checkFresh($l),
@@ -341,9 +316,20 @@ class GalleryConfigController extends AbstractController
         );
 
         return [
+            'tab' => $tab,
+            'tabs' => self::TABS,
             'ffmpeg_available' => $this->ffmpegAvailability->check(),
-            'gallery_s3_ai_available' => $this->s3ErrorExplainerService->isAvailable(),
+            // Still needed here, and only for the « Albums » tab: a
+            // migration is a move between two of them, so the list of
+            // destinations is what the select is built from. Declaring
+            // them is /config/stockage's job now, and this page no longer
+            // offers it.
             'locations' => $locations,
+            'new_album_location_id' => (int) $this->settingService->get(
+                GalleryLocationService::NEW_ALBUM_LOCATION_SETTING,
+                'gallery',
+                0
+            ),
             // Each album with the location it is ACTUALLY on, resolved
             // rather than read: an album that has not been pinned yet is
             // sitting on the default, and the raw column would have the
@@ -384,14 +370,6 @@ class GalleryConfigController extends AbstractController
             'location_usages' => array_combine(
                 array_map(fn(StorageLocation $l) => $l->id, $locations),
                 array_map(fn(StorageLocation $l) => $this->storageLocationService->usagesOf($l->id), $locations)
-            ),
-            // Room left on the volume behind each local location. Null for
-            // an S3 location and null on a host that will not answer — the
-            // template shows an em dash for both, since "we cannot tell" and
-            // "not applicable" are equally not a number of gigabytes.
-            'location_disk_space' => array_combine(
-                array_map(fn(StorageLocation $l) => $l->id, $locations),
-                array_map(fn(StorageLocation $l) => $this->galleryLocationService->diskSpaceFor($l), $locations)
             ),
             'gallery_allow_external' => (bool) $this->settingService->get('gallery_allow_external', 'gallery', true),
             'gallery_max_media_per_album' => (int) $this->settingService->get(

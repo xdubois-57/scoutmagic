@@ -41,6 +41,40 @@ class MenuRegistrationOrderTest extends TestCase
         return $matches[1];
     }
 
+    /**
+     * The same entries, but in the order a browser would SHOW them:
+     * sorted on the `order` argument, ties broken by registration order
+     * exactly as `usort()` does since PHP 8.0.
+     *
+     * This exists because the registration list above is not that order,
+     * and the difference is precisely where a defect hides: « Stockage »
+     * was once given 47 — the number « E-mails » already carried — and
+     * rendered two entries away from where it was meant to, with the
+     * registration-order test above perfectly green.
+     *
+     * @return string[] page labels, in rendered order
+     */
+    private function renderedPageLabelsForMenu(string $menuConstant): array
+    {
+        preg_match_all(
+            '/\$menuBuilder->addPage\(\s*MenuBuilder::' . preg_quote($menuConstant, '/')
+                . ',\s*\'([^\']+)\',\s*\'[^\']*\',\s*\'[^\']*\',\s*(\d+)/',
+            $this->indexPhp,
+            $matches,
+            PREG_SET_ORDER
+        );
+
+        /** @var list<array{string, int}> $entries */
+        $entries = [];
+        foreach ($matches as $match) {
+            $entries[] = [$match[1], (int) $match[2]];
+        }
+
+        usort($entries, static fn (array $a, array $b): int => $a[1] <=> $b[1]);
+
+        return array_map(static fn (array $entry): string => $entry[0], $entries);
+    }
+
     public function testEspaceChefsDUOrderIsConfigGeneraleImportMembresAnneeJournal(): void
     {
         $labels = $this->addPageLabelsForMenu('MENU_ESPACE_ADMIN');
@@ -60,9 +94,51 @@ class MenuRegistrationOrderTest extends TestCase
             [
                 'Modules', 'Badges', 'Correspondances Desk', 'Réglages', 'RGPD',
                 'Actions planifiées', 'Comptes superadmin', 'Maintenance', 'Notifications',
-                'E-mails', 'Courrier sortant', 'Support',
+                'E-mails', 'Courrier sortant', 'Stockage', 'Support',
             ],
             array_slice($labels, 1)
+        );
+    }
+
+    /**
+     * What the administrator actually sees, which the test above does not
+     * check and cannot: the file's statement order only decides ties.
+     */
+    public function testConfigurationMenuRendersInTheOrderTheFileIsWrittenIn(): void
+    {
+        $this->assertSame(
+            $this->addPageLabelsForMenu('MENU_CONFIGURATION'),
+            $this->renderedPageLabelsForMenu('MENU_CONFIGURATION'),
+            'Two entries sharing an order number render by registration order, '
+                . 'which is how « Stockage » once landed between E-mails and Courrier sortant.'
+        );
+    }
+
+    /**
+     * The rule that keeps the test above meaningful: as soon as two
+     * entries share a number, the file's order silently becomes load-bearing.
+     */
+    public function testNoTwoConfigurationEntriesShareAnOrderNumber(): void
+    {
+        preg_match_all(
+            '/\$menuBuilder->addPage\(\s*MenuBuilder::MENU_CONFIGURATION,'
+                . '\s*\'([^\']+)\',\s*\'[^\']*\',\s*\'[^\']*\',\s*(\d+)/',
+            $this->indexPhp,
+            $matches,
+            PREG_SET_ORDER
+        );
+        $this->assertNotSame([], $matches, 'No Configuration menu entry was parsed at all.');
+
+        $byOrder = [];
+        foreach ($matches as $match) {
+            $byOrder[(int) $match[2]][] = $match[1];
+        }
+        $shared = array_filter($byOrder, static fn (array $labels): bool => count($labels) > 1);
+
+        $this->assertSame(
+            [],
+            $shared,
+            'Each Configuration entry needs an order of its own: ' . json_encode($shared, JSON_UNESCAPED_UNICODE)
         );
     }
 }

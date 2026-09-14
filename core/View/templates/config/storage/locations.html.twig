@@ -1,0 +1,124 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  « Stockage » — one card per location.
+
+  A card each rather than a table, which is what the mockup asks for and
+  what the content needs: an error sentence, a « Sert : … » line and a set
+  of consequences do not fit in a cell, and the table this replaces had
+  already been squeezed into seven columns on a phone.
+
+  **What is shown is consequences, never capabilities** (D3). Nobody
+  chooses a storage type on « lecture par plage d'octets » — the
+  enumeration stays in the code and produces these sentences. The
+  comparison table that turns the same source into a choosing aid is
+  IT-07, and the « Protection » block the mockup shows on each card is
+  IT-04: a tab pointing at something that does not exist yet is worse than
+  no tab.
+#}
+{% extends 'base.html.twig' %}
+
+{% block title %}Emplacements de stockage — {{ site_name }}{% endblock %}
+
+{% block content %}
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Stockage',
+        subtitle: "Les destinations déclarées, et ce que chacune sait faire.",
+        action_label: 'Ajouter un emplacement',
+        action_url: '/config/stockage/emplacements/nouveau',
+    } only %}
+
+    {% include 'config/storage/_nav.html.twig' with {current_path: current_path} only %}
+
+    {% for location in locations %}
+        {% set usages = location_usages[location.id] ?? [] %}
+        <div class="card mb-3" data-location-card="{{ location.id }}">
+            <div class="card-body">
+                <div class="d-flex flex-wrap align-items-center gap-2">
+                    <span class="flex-grow-1 fw-medium">{{ location.label }}</span>
+                    <span class="badge text-bg-secondary">{{ location.type.frenchLabel }}</span>
+                    {% if location.isDefault %}
+                        <span class="badge text-bg-primary">
+                            <i class="bi bi-star-fill" aria-hidden="true"></i> Par défaut
+                        </span>
+                    {% endif %}
+                    <span class="storage-location-status" data-location-id="{{ location.id }}">
+                        {% if location.lastCheckOk == true %}
+                            <span class="badge text-bg-success">Joignable</span>
+                        {% elseif location.lastCheckOk == false %}
+                            <span class="badge text-bg-danger">En erreur</span>
+                        {% else %}
+                            <span class="badge text-bg-secondary">Non testé</span>
+                        {% endif %}
+                    </span>
+                </div>
+
+                <div class="small text-body-secondary text-break mt-1">{{ location.describe }}</div>
+
+                {% if location.lastCheckOk == false and location.lastCheckError %}
+                    <div class="alert alert-danger small mt-2 mb-0">{{ location.lastCheckError }}</div>
+                {% endif %}
+
+                {# The consequences, produced from the capabilities the backend
+                   declares — never the capabilities themselves (D3). #}
+                <ul class="list-unstyled small text-body-secondary mt-2 mb-0">
+                    {% for consequence in location.consequences %}
+                        <li><i class="bi bi-dot" aria-hidden="true"></i>{{ consequence.sentence }}</li>
+                    {% endfor %}
+                </ul>
+
+                <div class="d-flex flex-wrap align-items-center gap-3 small mt-2">
+                    <span class="text-body-secondary">
+                        {% if location.lastCheckedAt %}
+                            Vérifié {{ location.lastCheckedAt|relative_date }} par écriture d'un fichier témoin
+                        {% else %}
+                            Jamais vérifié
+                        {% endif %}
+                    </span>
+                    <button type="button" class="btn btn-link btn-sm p-0 storage-location-test"
+                            data-id="{{ location.id }}">Tester</button>
+                    <a href="/config/stockage/emplacements/{{ location.id }}/modification"
+                       class="btn btn-link btn-sm p-0">Modifier</a>
+                    {% if not location.isDefault %}
+                        <button type="button" class="btn btn-link btn-sm p-0 storage-location-set-default"
+                                data-id="{{ location.id }}">Définir par défaut</button>
+                    {% endif %}
+                    {# Destructive, so a POST form with its CSRF token and the
+                       shared data-confirm attribute — the shape
+                       config/maintenance.html.twig and
+                       config/outbound_mail/providers.html.twig already use —
+                       rather than a button only a script can actuate. This
+                       action has no second door: on a page whose JavaScript
+                       did not load, a script-only button leaves no way to
+                       delete a location at all. #}
+                    {% if usages is empty %}
+                        <form method="post"
+                              action="/config/stockage/emplacements/{{ location.id }}/suppression"
+                              data-confirm="Supprimer l'emplacement « {{ location.label }} » ? Les fichiers déjà écrits à la destination ne sont pas effacés : le site cesse seulement de la connaître."
+                              data-confirm-label="Supprimer"
+                              class="d-inline">
+                            {{ csrf_field()|raw }}
+                            <button type="submit" class="btn btn-link btn-sm p-0 text-danger">Supprimer</button>
+                        </form>
+                    {% endif %}
+                </div>
+
+                {% if usages is not empty %}
+                    <div class="small text-body-secondary mt-1">
+                        Sert : {{ usages|join(', ') }} — suppression impossible tant qu'un usage en dépend.
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    {% else %}
+        {% include 'partials/empty_state.html.twig' with {
+            message: 'Aucun emplacement déclaré.',
+        } only %}
+    {% endfor %}
+{% endblock %}
+
+{% block scripts %}
+    <script src="{{ asset('/assets/js/storage-locations.js') }}" defer></script>
+{% endblock %}

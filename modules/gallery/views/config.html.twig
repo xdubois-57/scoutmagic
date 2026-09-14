@@ -17,12 +17,34 @@
         </div>
     {% endif %}
 
-    {# No novalidate: every field left on this form is a bounded number input,
-       and the browser's own min/max is the first line of defence behind
-       Controller\GalleryConfigController::NUMERIC_SETTINGS. #}
-    <form method="post" action="/config/gallery">
+    {#
+      Four tabs, one route, one query parameter. They are four views of one
+      configuration — same controller, same context — which is exactly the
+      case partials/page_picker.html.twig documents for a synthetic path.
+
+      Each tab posts back to its own `onglet`, and the controller writes
+      that tab's keys and no others. That is not tidiness: an unchecked
+      checkbox submits NOTHING, so a page writing every boolean it knows
+      about on every save would quietly switch off « autoriser les vidéos »
+      each time somebody edited the photo limits.
+    #}
+    {% set _pages = [] %}
+    {% for key, definition in tabs %}
+        {% set _pages = _pages|merge([{'url': '/config/gallery?onglet=' ~ key, 'label': definition.label}]) %}
+    {% endfor %}
+    {% include 'partials/page_picker.html.twig' with {
+        picker_id: 'gallery-config-picker',
+        pages: _pages,
+        current_path: '/config/gallery?onglet=' ~ tab,
+    } only %}
+
+    {# No novalidate: every field on these tabs is a bounded number input or
+       a checkbox, and the browser's own min/max is the first line of defence
+       behind Controller\GalleryConfigController::NUMERIC_SETTINGS. #}
+    <form method="post" action="/config/gallery?onglet={{ tab }}">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
 
+        {% if tab == 'general' %}
         <div class="card mb-4">
             <div class="card-body">
                 <h2 class="h6 mb-3">Général</h2>
@@ -49,118 +71,112 @@
             </div>
         </div>
 
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h2 class="h6 mb-3">Emplacement des nouveaux albums</h2>
+                    <label class="form-label small" for="gallery-new-album-location">Emplacement</label>
+                    <select class="form-select form-select-sm" id="gallery-new-album-location"
+                            name="gallery_new_album_location_id">
+                        <option value="0" {{ new_album_location_id == 0 ? 'selected' : '' }}>
+                            Emplacement par défaut du site
+                        </option>
+                        {% for location in locations %}
+                            <option value="{{ location.id }}" {{ new_album_location_id == location.id ? 'selected' : '' }}>
+                                {{ location.label }} ({{ location.type.frenchLabel }})
+                            </option>
+                        {% endfor %}
+                    </select>
+                    {#
+                      « nouveaux » is the whole of this setting's meaning, and
+                      saying it once in the label is not enough: an
+                      administrator who reads it as « où vit la galerie » will
+                      expect yesterday's albums to follow, and nothing will
+                      have moved.
+                    #}
+                    <div class="form-text">
+                        S'applique aux albums créés à partir de maintenant. <strong>Les albums existants
+                        restent où ils sont</strong> — pour en déplacer un, voir l'onglet « Albums ».
+                        Les emplacements se déclarent dans
+                        <a href="/config/stockage/emplacements">Configuration › Stockage</a>.
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+
+        {% if tab == 'photos' %}
         <div class="card mb-4">
             <div class="card-body">
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h2 class="h6 mb-0">Emplacements de stockage</h2>
-                    <a href="/config/gallery/locations/new" class="btn btn-sm btn-outline-primary">
-                        <i class="bi bi-plus-lg" aria-hidden="true"></i> Ajouter un emplacement
-                    </a>
-                </div>
-                <p class="small text-body-secondary">
-                    Plusieurs emplacements (disque local et/ou plusieurs buckets S3) peuvent coexister — chaque album local
-                    reste rattaché à l'emplacement où il a été créé, même si l'emplacement « actif » par défaut change ensuite.
-                    <br>
-                    L'espace libre indiqué est celui du disque qui héberge le dossier, partagé avec le reste du site
-                    (base de données, sauvegardes, autres emplacements locaux du même disque) — ce n'est pas un quota
-                    réservé à la galerie. Sur un hébergement mutualisé, il peut dépasser l'espace réellement alloué à
-                    votre compte.
-                </p>
-                {% if locations is empty %}
-                    {% include 'partials/empty_state.html.twig' with {
-                        message: 'Aucun emplacement configuré.',
-                        compact: true,
-                    } only %}
-                {% else %}
-                    <div class="table-responsive">
-                        <table class="table table-sm align-middle">
-                            <thead>
-                                <tr>
-                                    <th>Nom</th>
-                                    <th>Type</th>
-                                    <th>Statut</th>
-                                    <th>Espace libre</th>
-                                    <th>Par défaut</th>
-                                    <th>Sert à</th>
-                                    <th class="text-end">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for location in locations %}
-                                    <tr>
-                                        <td>{{ location.label }}</td>
-                                        <td>{{ location.type.frenchLabel }}</td>
-                                        <td class="gallery-location-status" data-location-id="{{ location.id }}">
-                                            {% if location.lastCheckOk == true %}
-                                                <span class="badge text-bg-success">Disponible</span>
-                                            {% elseif location.lastCheckOk == false %}
-                                                <span class="badge text-bg-danger" title="{{ location.lastCheckError }}">Indisponible</span>
-                                            {% else %}
-                                                <span class="badge text-bg-secondary">Non testé</span>
-                                            {% endif %}
-                                        </td>
-                                        {# Disque local uniquement : la capacité d'un bucket S3 est celle du
-                                           fournisseur, et un hôte qui refuse de répondre (open_basedir, fonction
-                                           désactivée) donne le même tiret qu'un emplacement sans objet. #}
-                                        {% set disk = location_disk_space[location.id] ?? null %}
-                                        <td>
-                                            {% if disk is null %}
-                                                <span class="text-body-secondary"
-                                                      title="{{ location.type.value == 's3' ? 'Sans objet : la capacité est celle du fournisseur de stockage.' : 'Espace disque non communiqué par l\'hébergeur.' }}">—</span>
-                                            {% else %}
-                                                <span{% if disk.isLow %} class="text-danger fw-semibold"{% endif %}>{{ disk.freeLabel }}</span>
-                                                {% if disk.totalLabel %}
-                                                    <span class="text-body-secondary small d-block">
-                                                        sur {{ disk.totalLabel }}{% if disk.usedPercent is not null %} — {{ disk.usedPercent }} % utilisés{% endif %}
-                                                    </span>
-                                                {% endif %}
-                                                {% if disk.isLow %}
-                                                    <span class="text-danger small d-block">
-                                                        Moins que la taille maximale d'un envoi ({{ disk.warnBelowLabel }}) :
-                                                        le prochain envoi peut échouer.
-                                                    </span>
-                                                {% endif %}
-                                            {% endif %}
-                                        </td>
-                                        <td>
-                                            {% if location.isDefault %}
-                                                <span class="badge text-bg-primary"><i class="bi bi-star-fill" aria-hidden="true"></i> Défaut</span>
-                                            {% else %}
-                                                <button type="button" class="btn btn-sm btn-outline-secondary gallery-location-set-default" data-id="{{ location.id }}" title="Définir par défaut">
-                                                    <i class="bi bi-star" aria-hidden="true"></i> Définir par défaut
-                                                </button>
-                                            {% endif %}
-                                        </td>
-                                        {# Who stands on this location, by name. A count would say « 3 »
-                                           and leave the administrator to guess three what. #}
-                                        <td>{{ location_usages[location.id] is not empty
-                                            ? location_usages[location.id]|join(', ')
-                                            : '—' }}</td>
-                                        <td class="text-end">
-                                            <button type="button" class="btn btn-sm btn-outline-secondary gallery-location-test" data-id="{{ location.id }}" title="Tester la connexion" aria-label="Tester la connexion">
-                                                <i class="bi bi-plug" aria-hidden="true"></i>
-                                            </button>
-                                            <a href="/config/gallery/locations/{{ location.id }}/edit" class="btn btn-sm btn-outline-secondary" title="Modifier" aria-label="Modifier">
-                                                <i class="bi bi-pencil" aria-hidden="true"></i>
-                                            </a>
-                                            {% set location_in_use = location_usages[location.id] is not empty %}
-                                            {# Real attributes, not an emitted attribute string: autoescaping
-                                               would turn the quotes into &quot; and mangle the markup. #}
-                                            <button type="button" class="btn btn-sm btn-outline-danger gallery-location-delete" data-id="{{ location.id }}"
-                                                    {% if location_in_use %}disabled{% endif %}
-                                                    title="{{ location_in_use ? 'Sert encore à un usage — non supprimable.' : 'Supprimer' }}" aria-label="{{ location_in_use ? 'Sert encore à un usage — non supprimable.' : 'Supprimer' }}">
-                                                <i class="bi bi-trash" aria-hidden="true"></i>
-                                            </button>
-                                        </td>
-                                    </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
+                <h2 class="h6 mb-3">Photos</h2>
+                <div class="row g-3">
+                    <div class="col-12 col-md-6">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'photo-max-upload', field_name: 'gallery_max_photo_upload_mb',
+                            label: "Taille maximale d'envoi (Mo)", type: 'number', min: 1,
+                            value: gallery_max_photo_upload_mb, size: 'sm', wrapper_class: '',
+                            help: "Un fichier dépassant cette taille est refusé à l'envoi.",
+                        } only %}
                     </div>
-                {% endif %}
+                    <div class="col-12 col-md-6">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'photo-max-dimension', field_name: 'gallery_photo_max_dimension',
+                            label: 'Dimension maximale (px, plus long côté)', type: 'number', min: 500,
+                            value: gallery_photo_max_dimension, size: 'sm', wrapper_class: '',
+                            help: 'La photo est redimensionnée (jamais recadrée, jamais rejetée) pour que son plus long côté ne dépasse pas cette valeur ; c\'est cette version, plus légère, qui est ensuite servie.',
+                        } only %}
+                    </div>
+                </div>
             </div>
         </div>
 
+        {% endif %}
+
+        {% if tab == 'videos' %}
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h6 mb-3">Vidéos</h2>
+                <div class="row g-3">
+                    <div class="col-12 col-md-6">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="gallery-allow-video" name="gallery_allow_video" value="1" {{ gallery_allow_video ? 'checked' : '' }}>
+                            <label class="form-check-label" for="gallery-allow-video">Autoriser l'envoi de vidéos</label>
+                        </div>
+                        {% if not ffmpeg_available %}
+                            <div class="form-text text-warning">FFmpeg indisponible — l'envoi de vidéos restera désactivé même si cette option est cochée.</div>
+                        {% endif %}
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="gallery-keep-original" name="gallery_keep_original_video" value="1" {{ gallery_keep_original_video ? 'checked' : '' }}>
+                            <label class="form-check-label" for="gallery-keep-original">Conserver le fichier vidéo original (en plus des versions transcodées)</label>
+                        </div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'video-max-upload', field_name: 'gallery_max_video_upload_mb',
+                            label: "Taille maximale d'envoi (Mo)", type: 'number', min: 1,
+                            value: gallery_max_video_upload_mb, size: 'sm', wrapper_class: '',
+                        } only %}
+                    </div>
+                    <div class="col-12 col-md-6">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'video-max-duration', field_name: 'gallery_max_video_duration_sec',
+                            label: 'Durée maximale (secondes)', type: 'number', min: 1,
+                            value: gallery_max_video_duration_sec, size: 'sm', wrapper_class: '',
+                        } only %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+            <div class="alert alert-warning small">
+                Une vidéo n'est lisible que sur un emplacement qui sait lire par plage d'octets — sans
+                quoi le lecteur peut démarrer le film mais jamais y avancer. L'onglet « Emplacements »
+                de <a href="/config/stockage/emplacements">Configuration › Stockage</a> le dit
+                emplacement par emplacement, sur la ligne « Vidéos ».
+            </div>
+        {% endif %}
+
+        {% if tab == 'albums' %}
         <div class="card mb-4">
             <div class="card-body">
                 <h2 class="h6 mb-3">Migration d'album</h2>
@@ -267,71 +283,14 @@
             </div>
         </div>
 
-        <div class="card mb-4">
-            <div class="card-body">
-                <h2 class="h6 mb-3">Photos</h2>
-                <div class="row g-3">
-                    <div class="col-12 col-md-6">
-                        {% include 'partials/form_field.html.twig' with {
-                            field_id: 'photo-max-upload', field_name: 'gallery_max_photo_upload_mb',
-                            label: "Taille maximale d'envoi (Mo)", type: 'number', min: 1,
-                            value: gallery_max_photo_upload_mb, size: 'sm', wrapper_class: '',
-                            help: "Un fichier dépassant cette taille est refusé à l'envoi.",
-                        } only %}
-                    </div>
-                    <div class="col-12 col-md-6">
-                        {% include 'partials/form_field.html.twig' with {
-                            field_id: 'photo-max-dimension', field_name: 'gallery_photo_max_dimension',
-                            label: 'Dimension maximale (px, plus long côté)', type: 'number', min: 500,
-                            value: gallery_photo_max_dimension, size: 'sm', wrapper_class: '',
-                            help: 'La photo est redimensionnée (jamais recadrée, jamais rejetée) pour que son plus long côté ne dépasse pas cette valeur ; c\'est cette version, plus légère, qui est ensuite servie.',
-                        } only %}
-                    </div>
-                </div>
-            </div>
-        </div>
+        {% endif %}
 
-        <div class="card mb-4">
-            <div class="card-body">
-                <h2 class="h6 mb-3">Vidéos</h2>
-                <div class="row g-3">
-                    <div class="col-12 col-md-6">
-                        <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" id="gallery-allow-video" name="gallery_allow_video" value="1" {{ gallery_allow_video ? 'checked' : '' }}>
-                            <label class="form-check-label" for="gallery-allow-video">Autoriser l'envoi de vidéos</label>
-                        </div>
-                        {% if not ffmpeg_available %}
-                            <div class="form-text text-warning">FFmpeg indisponible — l'envoi de vidéos restera désactivé même si cette option est cochée.</div>
-                        {% endif %}
-                    </div>
-                    <div class="col-12 col-md-6">
-                        <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" id="gallery-keep-original" name="gallery_keep_original_video" value="1" {{ gallery_keep_original_video ? 'checked' : '' }}>
-                            <label class="form-check-label" for="gallery-keep-original">Conserver le fichier vidéo original (en plus des versions transcodées)</label>
-                        </div>
-                    </div>
-                    <div class="col-12 col-md-6">
-                        {% include 'partials/form_field.html.twig' with {
-                            field_id: 'video-max-upload', field_name: 'gallery_max_video_upload_mb',
-                            label: "Taille maximale d'envoi (Mo)", type: 'number', min: 1,
-                            value: gallery_max_video_upload_mb, size: 'sm', wrapper_class: '',
-                        } only %}
-                    </div>
-                    <div class="col-12 col-md-6">
-                        {% include 'partials/form_field.html.twig' with {
-                            field_id: 'video-max-duration', field_name: 'gallery_max_video_duration_sec',
-                            label: 'Durée maximale (secondes)', type: 'number', min: 1,
-                            value: gallery_max_video_duration_sec, size: 'sm', wrapper_class: '',
-                        } only %}
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <button type="submit" class="btn btn-primary">Enregistrer</button>
+        {% if tab != 'albums' %}
+            <button type="submit" class="btn btn-primary">Enregistrer</button>
+        {% endif %}
     </form>
 {% endblock %}
 
 {% block scripts %}
-    <script src="{{ asset('/assets/js/gallery-storage-location.js') }}" defer></script>
+    <script src="{{ asset('/assets/js/gallery-album-migration.js') }}" defer></script>
 {% endblock %}

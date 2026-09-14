@@ -1,0 +1,29 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  The « Stockage » sub-page rail — the shared
+  partials/page_picker.html.twig component, the same one
+  config/outbound_mail/_nav.html.twig and
+  modules/finance/views/config/_nav.html.twig use (design.md §7.6).
+
+  Two entries, and there is deliberately no third. « Qui utilise quoi »
+  is read at the top of the dashboard and again on each location's
+  « Sert : … » line — each at the moment it is the question being asked.
+  A page of its own for it would be a third copy to keep in agreement
+  with the other two.
+
+  match_prefix so the forms under /config/stockage/emplacements/… keep
+  « Emplacements » selected rather than falling back to the dashboard.
+#}
+{% include 'partials/page_picker.html.twig' with {
+    picker_id: 'storage-picker',
+    pages: [
+        {'url': '/config/stockage', 'label': 'Tableau de bord'},
+        {'url': '/config/stockage/emplacements', 'label': 'Emplacements'},
+    ],
+    current_path: current_path,
+    match_prefix: true,
+    aria_label: 'Pages Stockage',
+} only %}
