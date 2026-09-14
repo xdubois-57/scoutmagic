@@ -722,3 +722,152 @@ IT-01 faute de coupe-circuit, est désormais possible : `ProviderHealth`
 existe. Elle n'est pas faite ici parce qu'elle appartient à `BulkCadence`
 et qu'aucune décision de ce document ne la demande — elle sera proposée
 quand une itération touchera la cadence.
+
+---
+
+## IT-03 — Adresses, DNS, tableau de bord
+
+**Livré.**
+
+- `Core\Mail\MailIdentity` : l'autorité unique sur quelle adresse joue
+  quel rôle, et sur le domaine que le SPF regarde.
+- Un réglage de plus, `mail_reply_address` (facultatif), porté jusqu'à
+  `MailService` : un message qui ne nomme pas sa propre adresse de
+  réponse prend celle du site.
+- La sous-page **Authentification** (`/config/courrier-sortant/
+  authentification`) : les quatre adresses éditables, le tableau des
+  quatre rôles, la vérification DNS et l'aller-retour.
+- Le **tableau de bord** à la racine de la section ; les fournisseurs
+  passent sous `/fournisseurs`. Trois lignes essentielles, les options
+  avancées listées dessous avec leur état, et la phrase sur les
+  indésirables en bloc à part.
+- `DnsVerifier::checkSpfForHosts()` : le SPF doit autoriser *tous* les
+  relais actifs, pas seulement le premier.
+- `Core\Mail\Feedback` — `ReturnPathVerifier`, `ReturnProbe`,
+  `ReturnProbeRepository`, `ReturnState`, `ReturnPathConsumer` — et la
+  table `mail_return_probes` : l'aller-retour réel, avec ses trois états
+  et sa dépendance nullable au module « Courrier entrant » (D2).
+- L'assistant d'installation cesse d'éditer l'identité de courrier après
+  la première passe et pointe vers la sous-page ; le panneau DNS n'y est
+  plus rendu.
+- Un sujet d'aide de plus, `courrier-sortant-authentification`.
+
+### Décisions prises seul
+
+**La vérification DNS est derrière un bouton, pas au chargement.**
+L'assistant la faisait en AJAX ; ici elle est une requête serveur
+déclenchée par `?dns=1`. Un `dns_get_record()` sur un résolveur qui ne
+répond pas prend le temps qu'il prend, et cette page est précisément
+celle qu'on ouvre quand le courrier ne part déjà plus. Le choix coûte un
+rechargement et épargne une page qui pend parfois dix secondes — et il
+évite un fichier JavaScript de plus pour une fonction qu'un formulaire
+fait très bien.
+
+**Ce que la vérification a vu est retenu.** Sans mémoire, le tableau de
+bord n'avait que deux options : mentir (« tout va bien ») ou interroger
+le DNS à chaque affichage. `mail_dns_last_check` lui permet d'annoncer un
+état **daté**, ce qui est la seule forme honnête : « au 12/09, le SPF ne
+figurait pas » se vérifie, « le SPF ne figure pas » ne se vérifie pas.
+
+**Le SPF est vérifié contre toute la chaîne.** Le roadmap ne le demande
+pas, mais déménager la vérification à côté des fournisseurs sans le faire
+aurait produit un écran faux dès le premier jour : `DnsVerifier` ne
+connaissait que le `smtp_host` historique, et IT-01 a donné au site une
+liste ordonnée de relais. Un SPF qui ne nomme que le premier fait échouer
+exactement les messages que le repli devait sauver.
+
+**L'aller-retour porte sur l'expédition et la réponse, pas sur les
+rapports DMARC.** Personne n'écrit jamais à l'adresse des rapports : ce
+qui y arrive est un rapport machine, et IT-06 répondra « les rapports
+arrivent-ils » en regardant les rapports eux-mêmes plutôt qu'en écrivant
+à la boîte.
+
+**Le consommateur du cœur ne revendique rien.** Un message qu'il
+reconnaît est consigné puis rendu avec `AnalysisResult::nothing()` :
+aucune liste de tri ne gagne une ligne pour un message que le site s'est
+envoyé à lui-même, et la rétention ordinaire du courrier non rattaché
+l'emporte. L'autre voie — le rattacher pour que
+`Api\MessageRetentionPreference` puisse en jeter le corps — n'achetait
+rien : ce corps est une phrase française que ce site a écrite, sans
+aucune donnée personnelle à protéger.
+
+**Le sélecteur DKIM suit les adresses ; la clé DKIM reste dans
+l'assistant.** La sous-page affiche la clé publique et ne la régénère
+pas : une seule page reste capable de le faire, et c'est la règle qu'on
+voulait.
+
+### Écarts entre le document et le dépôt
+
+**Le piège SPF était déjà évité, et par accident.** Le roadmap demande de
+vérifier que `checkSpf()` regarde le bon domaine. Il le regarde :
+l'assistant dérive le domaine de `mail_from_address`, et `MailService`
+force `$mail->Sender = $this->fromAddress` — donc l'enveloppe et le
+`From:` portent toujours le même domaine. Mais **rien ne le disait et
+rien ne le testait**, et la sous-page ajoutait justement deux adresses
+(réponse, rapports DMARC) qu'il aurait été naturel de prendre pour le
+domaine SPF. `MailIdentity::spfDomain()` nomme la règle et
+`MailIdentityTest` l'épingle contre le vrai `MailService`, override de
+`From` compris.
+
+**Un vrai défaut voisin, trouvé en chemin, et non traité ici.** Avec un
+`fromAddressOverride` sur un autre domaine — ce que le sectionnement
+d'expéditeur du publipostage permet — le `From:` et l'enveloppe divergent,
+et la signature DKIM porte toujours le domaine du site : DMARC échoue
+alors des deux côtés, alignement SPF comme alignement DKIM. Ce n'est pas
+le piège que ce document nomme, et le corriger suppose de décider ce
+qu'un envoi « au nom de » doit faire — ce qui appartient à l'itération qui
+touchera le publipostage. Noté ici pour ne pas être redécouvert.
+
+**`mode=smtp` avec un hôte vide donnait un feu vert.** L'ancien
+`checkSpf()` cherchait la chaîne `a:` dans l'enregistrement dès que
+`$smtpHost` n'était pas `null` — or `SetupController` lui passe `''`
+quand le champ est vide, jamais `null`. N'importe quel enregistrement
+portant un seul mécanisme `a:` satisfaisait donc la recherche, sur un
+hôte que personne n'avait nommé. Corrigé par la même passe qui introduit
+la liste.
+
+### La relecture, et ce qu'elle a coûté
+
+**Un paramètre inséré au milieu d'un constructeur n'est pas un ajout.**
+`replyAddress` se lit le mieux à côté des autres adresses de
+`MailService` ; il y a été mis, et plusieurs appelants positionnels ont
+aussitôt donné un entier à `$smtpHost`. Il est maintenant le dernier
+paramètre, et le docblock dit pourquoi cette place-là — sinon la
+prochaine relecture le déplacera pour la même raison de lisibilité.
+
+**Un réglage que la page enregistre doit être déclaré au démarrage.**
+`SettingService::set()` refuse une clé que rien n'a enregistrée, et le
+test de la page construit ses propres enregistrements — il ne pouvait
+donc pas voir l'oubli. `testEveryAddressThePageSavesIsDeclaredAtBoot()`
+lit `public/index.php` plutôt que sa propre liste. C'est la même leçon
+qu'en IT-02 sous un autre angle : **ce qu'un test construit lui-même, il
+ne le vérifie pas**.
+
+**Le consommateur du cœur devait être inscrit dans deux registres, pas
+un.** Celui du planificateur est celui qui appelle `analyze()` ; celui de
+`public/index.php` est celui que l'écran de configuration des boîtes lit
+pour savoir à qui une boîte peut être ouverte. Inscrit dans le seul
+premier, la vérification aurait été impossible à activer — et l'écran
+n'aurait proposé aucune case à cocher pour dire pourquoi.
+
+**L'ordre de construction a déplacé l'enregistrement du contrôleur.**
+`ReturnPathVerifier` a besoin de la passerelle `inbound_mail`, qui
+n'existe qu'après le bloc du module ; `OutboundMailController` était
+construit bien avant. Il est maintenant enregistré après ce bloc, avec le
+commentaire qui dit que c'est un fait d'ordonnancement et non une
+dépendance du cœur au module — l'autre solution, une fermeture paresseuse,
+aurait caché ce fait derrière de l'indirection.
+
+**Une date lue avec le constructeur nu répond *maintenant*.** Le cliquet
+`StoredDateReadingRatchetTest` a attrapé quatre lectures, dont celle de
+la mémoire DNS : une valeur tronquée aurait daté d'un coup une
+vérification qui n'a jamais eu lieu.
+
+### Reporté
+
+- L'alignement DMARC d'un envoi « au nom de » (ci-dessus), à l'itération
+  qui touchera le publipostage.
+- La régénération de la clé DKIM depuis la sous-page. Elle reste dans
+  l'assistant : tant qu'un seul endroit peut le faire, la règle « pas de
+  champ éditable aux deux endroits » tient, et rien dans ce document ne
+  demande de la déplacer.
