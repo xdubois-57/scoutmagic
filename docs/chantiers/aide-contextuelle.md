@@ -19,7 +19,7 @@ une fois la suite verte :
 | IT-01 | Le moteur complet : `Core\Help`, `HelpController`, bouton + panneau offcanvas, `/aide`, options de `MarkdownRenderer`, câblage (routes, `route_help`, manifeste, `OfflineWhitelist`, `release.sh`), tests, docs |
 | IT-02 | 11 sujets « Premiers pas » et « Espace membres » (dont les 2 gabarits d'IT-01) |
 | IT-03 | 4 sujets « Espace animateurs », dont les 2 premiers sujets livrés par des modules (`calendar`, `member_stats`) |
-| IT-04 | 6 sujets « Espace chefs d'U » (import, année scoute, membres, journal, édition du site, Config Desk) |
+| IT-04 | 6 sujets « Espace chefs d'U » (import, année scoute, membres, journal, édition du site, Correspondances Desk) |
 | IT-05 | 10 sujets « Configuration » — maintenance découpée en 3 sujets (sauvegardes, mises à jour, réinitialisation) comme demandé |
 | IT-06 | 8 sujets de modules de vie de section (calendar, gallery ×2, groups ×2, trombinoscope, news ×2) |
 | IT-07 | 23 sujets de modules de gestion + 4 sujets comblant les trous révélés par le test de couverture, et la vérification finale |

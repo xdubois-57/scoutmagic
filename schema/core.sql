@@ -197,7 +197,7 @@ CREATE TABLE age_branches (
     -- federation logo (uploaded via the generic /upload flow, context
     -- "age_branch_logo") and the link to the federation's explanation
     -- page for that branch — both configurable per branch from
-    -- Configuration > Config Desk (superadmin). logo_file_id is null
+    -- Configuration > Correspondances Desk (superadmin). logo_file_id is null
     -- until an admin uploads one; the page falls back to a shipped
     -- default asset (matched by canonicalSortOrder(), never by comparing
     -- the branch's free-text label), then to nothing.
@@ -215,7 +215,7 @@ CREATE TABLE sections (
     email VARCHAR(255),
     -- Controls whether the section appears in any section picker across the
     -- site (Staffs, Trombinoscope, the public Sections page). Configurable
-    -- from Configuration > Config Desk. Defaults to visible.
+    -- from Configuration > Correspondances Desk. Defaults to visible.
     is_visible BOOLEAN NOT NULL DEFAULT TRUE,
     -- Automatically recomputed on every Desk import: true when the section
     -- has at least one member this year, false otherwise. A section with no
@@ -223,7 +223,7 @@ CREATE TABLE sections (
     -- until a later import gives it members again.
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     -- Explicit color override (hex, e.g. "#378ADD"), configurable from
-    -- Configuration > Config Desk. Null means "no override" — the section
+    -- Configuration > Correspondances Desk. Null means "no override" — the section
     -- falls back to its branch's canonical color (or the dedicated Staff
     -- d'U color) via Core\Member\SectionService::colorForSection(), the
     -- single source of truth every section picker/list across the site

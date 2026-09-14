@@ -16,7 +16,7 @@ class PlaceholderController extends AbstractController
     /** @var array<string, string> */
     private const PAGE_TITLES = [
         '/admin/journal' => 'Journal',
-        '/config/functions' => 'Config Desk',
+        '/config/functions' => 'Correspondances Desk',
         '/config/settings' => 'Réglages',
         '/config/scheduled' => 'Actions planifiées',
         '/chefs/staffs' => 'Staffs',

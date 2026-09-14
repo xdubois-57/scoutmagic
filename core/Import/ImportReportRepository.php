@@ -121,7 +121,7 @@ class ImportReportRepository
     }
 
     /**
-     * Which of these functions still await a role on Config Desk.
+     * Which of these functions still await a role on Correspondances Desk.
      *
      * A new function is imported at role `identified`, unconfirmed
      * (SECURITY.md §3). A report months old must not keep saying "to

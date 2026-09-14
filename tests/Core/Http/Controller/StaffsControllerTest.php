@@ -370,9 +370,9 @@ class StaffsControllerTest extends TestCase
         // Static template text is not HTML-escaped, so the apostrophe is literal.
         $this->assertStringContainsString("n'a pas encore de nom configuré", $body);
         // Renaming a section is no longer done from this page — the
-        // warning must point chiefs to Config Desk instead of a
+        // warning must point chiefs to Correspondances Desk instead of a
         // now-removed inline edit affordance.
-        $this->assertStringContainsString('Config Desk', $body);
+        $this->assertStringContainsString('Correspondances Desk', $body);
     }
 
     public function testIndexPassesActiveBadgesToChief(): void

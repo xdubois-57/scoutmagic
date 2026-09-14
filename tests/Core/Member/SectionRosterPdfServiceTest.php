@@ -201,7 +201,7 @@ class SectionRosterPdfServiceTest extends TestCase
 
     /**
      * The colour is taken from the page's data and never recomputed: a
-     * colour set by hand in Configuration > Config Desk wins over the
+     * colour set by hand in Configuration > Correspondances Desk wins over the
      * branch's, so re-deriving it would print something different from
      * the screen for any unit that has customised a section.
      */

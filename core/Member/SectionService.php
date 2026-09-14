@@ -41,7 +41,7 @@ class SectionService
      * MemberYearService::colorForBranchSortOrder() directly, so "Staff
      * d'U" gets a real, consistent color everywhere instead of silently
      * falling back to gray. An explicit admin override
-     * (sections.color, Configuration > Config Desk) always wins over the
+     * (sections.color, Configuration > Correspondances Desk) always wins over the
      * branch-derived default.
      *
      * @param array{desk_code: string, branch_sort_order: int, color?: ?string} $section
@@ -61,11 +61,11 @@ class SectionService
      * Get sections with their branch info, ordered by branch sort_order then
      * desk_code. Inactive sections (is_active = false — no members this
      * scout year, see MappingResolver::deactivateAllSections()) are ALWAYS
-     * excluded, everywhere, including the Config Desk admin page: an inactive
+     * excluded, everywhere, including the Correspondances Desk admin page: an inactive
      * section is never deleted, but never shown either, until a later import
      * gives it members again. Hidden sections (is_visible = false, the
      * admin's manual toggle) are additionally excluded unless $includeHidden
-     * is true — pass true only for the Config Desk page, which needs to see
+     * is true — pass true only for the Correspondances Desk page, which needs to see
      * (and manage) hidden-but-active sections.
      *
      * @return array<

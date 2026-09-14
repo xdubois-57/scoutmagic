@@ -152,7 +152,7 @@ class MemberStatsService
      * MemberYearService::colorForBranchSortOrder() when a section has no
      * explicit override), rather than a hardcoded default that would
      * silently ignore an admin's per-section color override
-     * (Configuration > Config Desk). A branch usually has exactly one
+     * (Configuration > Correspondances Desk). A branch usually has exactly one
      * section; if it has several (e.g. two Louveteaux packs with
      * different colors), the first by desk_code wins — consistent,
      * deterministic, but arbitrary among them.

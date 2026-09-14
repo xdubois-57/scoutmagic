@@ -305,7 +305,7 @@ final class ExtrasApplier
 
     /**
      * Every section's email address, through SectionService::
-     * updateSectionInfo() — the Config Desk call, which is also the one that
+     * updateSectionInfo() — the Correspondances Desk call, which is also the one that
      * trims the value and nulls an empty one.
      */
     private function applySectionEmails(): int

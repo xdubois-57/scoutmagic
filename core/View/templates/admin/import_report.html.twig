@@ -141,13 +141,13 @@
                             {% endfor %}
                             {{ report.access.new_functions|length > 1 ? 'sont arrivées' : 'est arrivée' }}
                             au rôle le plus bas par sécurité. Tant qu'{{ report.access.new_functions|length > 1 ? "elles ne sont" : "elle n'est" }}
-                            pas qualifiée{{ report.access.new_functions|length > 1 ? 's' : '' }} dans Config Desk, les personnes concernées
+                            pas qualifiée{{ report.access.new_functions|length > 1 ? 's' : '' }} dans Correspondances Desk, les personnes concernées
                             ne voient rien de plus qu'un membre ordinaire.
                         </p>
                         {% set _pending = report.access.new_functions|filter(f => f.still_unconfirmed) %}
                         {% if _pending is not empty %}
                             <a href="/config/functions" class="btn btn-primary w-100 w-sm-auto">
-                                Qualifier dans Config Desk
+                                Qualifier dans Correspondances Desk
                             </a>
                         {% else %}
                             <p class="small text-success-emphasis mb-0">

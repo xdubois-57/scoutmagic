@@ -21,10 +21,10 @@ namespace Core\Import;
  * The functions are the ones that matter. A new Desk function is always
  * imported at the lowest role, `identified`, deliberately (SECURITY.md
  * §3: an import never elevates anybody). Until somebody qualifies it on
- * Config Desk, whoever holds it sees no more than an ordinary member —
- * which is the single most common cause of "I can't see anything any
- * more" after an import. The report has to name them as *to qualify*,
- * never list them as a neutral addition.
+ * Correspondances Desk, whoever holds it sees no more than an ordinary
+ * member — which is the single most common cause of "I can't see
+ * anything any more" after an import. The report has to name them as
+ * *to qualify*, never list them as a neutral addition.
  */
 final class NewMappings
 {

@@ -1,6 +1,6 @@
 ---
 id: config-desk
-title: Config Desk — fonctions, sections et branches
+title: Correspondances Desk — fonctions, sections et branches
 summary: Donner leurs rôles aux fonctions Desk, et régler nom, e-mail, couleur et visibilité des sections.
 category: Configuration
 role_min: superadmin
@@ -12,9 +12,9 @@ paths: /config/functions
 related: import-desk, staffs
 ---
 
-La page « Config Desk » relie ce que la fédération connaît — fonctions,
-sections, branches — à ce que le site en fait. Tout s'y enregistre
-immédiatement, sans bouton « Enregistrer ».
+La page « Correspondances Desk » relie ce que la fédération connaît —
+fonctions, sections, branches — à ce que le site en fait. Tout s'y
+enregistre immédiatement, sans bouton « Enregistrer ».
 
 ## Donner leurs rôles aux fonctions
 

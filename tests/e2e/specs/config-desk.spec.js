@@ -1,4 +1,4 @@
-// End-to-end: Config Desk — the page that configures the RBAC itself.
+// End-to-end: Correspondances Desk — the page that configures the RBAC itself.
 //
 // WHY THIS SCENARIO EXISTS
 // ----------------------------------------------------------------------------

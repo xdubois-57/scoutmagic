@@ -14,7 +14,7 @@ namespace Core\Member;
  * does (section picker, trombinoscope, calendar) with no special-casing.
  *
  * A member's role is only known once an admin confirms the function's role
- * on Config Desk (never at raw Desk CSV import time — new functions always
+ * on Correspondances Desk (never at raw Desk CSV import time — new functions always
  * import as role 'identified'), so membership must be (re)synced both at
  * the end of a Desk import and whenever a function's role changes.
  */

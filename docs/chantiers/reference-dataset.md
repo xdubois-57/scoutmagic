@@ -250,7 +250,7 @@ de 50 Mpx et le filtre `chief`/`admin` de `getSectionStaff()`.
 - **`Tests\Fixtures\ReferenceDataset\DeskImportReplay`** — le rejeu des trois
   exports à travers le vrai pipeline : composition des services, création des
   années scoutes par `ScoutYearService::ensureYear()`, import dans l'ordre
-  chronologique, puis confirmation des rôles par le chemin exact de Config Desk
+  chronologique, puis confirmation des rôles par le chemin exact de Correspondances Desk
   (`FunctionRepository::updateRole(..., true)` suivi de
   `UnitStaffSectionService::syncMembership()`). **Partagé avec le builder
   d'IT-05** : un test qui aurait sa propre copie du câblage continuerait de
@@ -301,7 +301,7 @@ de 50 Mpx et le filtre `chief`/`admin` de `getSectionStaff()`.
 3. **Une fonction absente de `UnitBlueprint::FUNCTIONS` est laissée non
    confirmée** plutôt que de recevoir un rôle par défaut. C'est exactement
    l'état d'une fonction inédite pour un chef qui n'est pas encore passé par
-   Config Desk, et le jeu de données doit en contenir une.
+   Correspondances Desk, et le jeu de données doit en contenir une.
 4. **Le test capture l'état de Staff d'U avant la confirmation** au lieu de le
    décrire en commentaire. C'est la moitié qui compte : si Staff d'U était déjà
    peuplé avant confirmation, cela voudrait dire que le rôle vient du CSV.
