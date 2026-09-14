@@ -252,83 +252,76 @@
             </p>
         {% endif %}
 
-        <a href="{{ authentication_url }}?dns=1" class="btn btn-outline-secondary btn-sm mt-2">
-            Vérifier les enregistrements
-        </a>
+        <form method="post" action="{{ dns_check_url }}" class="mt-2">
+            {{ csrf_field()|raw }}
+            <button type="submit" class="btn btn-outline-secondary btn-sm">Vérifier les enregistrements</button>
+        </form>
         <div class="form-text">
             La vérification interroge le DNS en direct ; elle n'est pas lancée à l'ouverture de la page pour
-            ne pas la faire attendre un résolveur qui ne répond pas.
+            ne pas la faire attendre un résolveur qui ne répond pas. Le résultat est conservé avec sa date.
         </div>
 
-        {% if dns is not null %}
+        {% if dns is null %}
+            <p class="text-body-secondary small mt-3 mb-0">
+                Les enregistrements n'ont jamais été vérifiés depuis cette page.
+            </p>
+        {% else %}
             <hr>
-            {% if dns.unavailable %}
-                <p class="text-warning small mb-0">
-                    Renseignez d'abord l'adresse d'expédition et le sélecteur DKIM : sans eux, il n'y a ni
-                    domaine à interroger ni enregistrement à proposer.
-                </p>
-            {% else %}
-                <p class="text-body-secondary small">
-                    Chez la plupart des hébergeurs, la zone DNS demande un <strong>Type</strong>, un
-                    <strong>Nom</strong> (parfois « Enregistrement » ou « Hôte ») et une <strong>Valeur</strong>.
-                    « @ » désigne la racine du domaine. Un domaine ne peut porter qu'un seul enregistrement SPF
-                    et qu'un seul <code>_dmarc</code> : la valeur proposée intègre celle déjà publiée plutôt que
-                    d'en ajouter une seconde — remplacez, n'ajoutez pas.
-                </p>
+            <p class="text-body-secondary small">
+                Relevé du {{ dns.taken_at }}. Chez la plupart des hébergeurs, la zone DNS demande un
+                <strong>Type</strong>, un <strong>Nom</strong> (parfois « Enregistrement » ou « Hôte ») et une
+                <strong>Valeur</strong>. « @ » désigne la racine du domaine. Un domaine ne peut porter qu'un
+                seul enregistrement SPF et qu'un seul <code>_dmarc</code> : la valeur proposée intègre celle
+                déjà publiée plutôt que d'en ajouter une seconde — remplacez, n'ajoutez pas.
+            </p>
 
-                {% set records = [
-                    { key: 'spf', label: 'SPF', name: '@', domain: dns.spf_domain },
-                    { key: 'dkim', label: 'DKIM', name: dns.selector ~ '._domainkey', domain: dns.dkim_domain },
-                    { key: 'dmarc', label: 'DMARC', name: '_dmarc', domain: dns.dkim_domain },
-                ] %}
-
-                {% for record in records %}
-                    {% set reading = attribute(dns, record.key) %}
-                    <div class="border-bottom pb-2 mb-3 small">
-                        <strong>{{ record.label }}</strong>
-                        {% if reading.key_missing is defined and reading.key_missing %}
-                            <span class="badge text-bg-warning">Clé DKIM requise</span>
-                            <div class="text-warning">
-                                Générez d'abord la clé DKIM, puis relancez cette vérification.
-                            </div>
-                        {% elseif reading.not_requested is defined and reading.not_requested %}
-                            <span class="badge text-bg-secondary">Non demandé</span>
-                            <div class="text-body-secondary">
-                                Aucune adresse de rapport renseignée — aucune modification de votre DNS n'est
-                                nécessaire pour cela.
-                            </div>
+            {% for record in dns.records %}
+                <div class="border-bottom pb-2 mb-3 small">
+                    <strong>{{ record.label }}</strong>
+                    {% if record.key_missing %}
+                        <span class="badge text-bg-warning">Clé DKIM requise</span>
+                        <div class="text-warning">
+                            Générez d'abord la clé DKIM, puis relancez cette vérification.
+                        </div>
+                    {% elseif record.not_requested %}
+                        <span class="badge text-bg-secondary">Non demandé</span>
+                        <div class="text-body-secondary">
+                            Aucune adresse de rapport renseignée — aucune modification de votre DNS n'est
+                            nécessaire pour cela.
+                        </div>
+                    {% else %}
+                        {% if record.exists %}
+                            <span class="badge text-bg-success">En place</span>
                         {% else %}
-                            {% if reading.exists %}
-                                <span class="badge text-bg-success">En place</span>
-                            {% else %}
-                                <span class="badge text-bg-warning">Manquant ou incomplet</span>
-                            {% endif %}
-                            <div class="mt-1">
-                                <span class="text-body-secondary">Type :</span> <code>TXT</code>
-                                &middot;
-                                <span class="text-body-secondary">Nom :</span> <code>{{ record.name }}</code>
-                                &middot;
-                                <span class="text-body-secondary">Nom complet :</span>
-                                <code class="text-break">{{ record.name == '@' ? record.domain : record.name ~ '.' ~ record.domain }}</code>
-                            </div>
+                            <span class="badge text-bg-warning">Manquant ou incomplet</span>
+                        {% endif %}
+                        <div class="mt-1">
+                            <span class="text-body-secondary">Type :</span> <code>TXT</code>
+                            &middot;
+                            <span class="text-body-secondary">Nom :</span> <code>{{ record.name }}</code>
+                            &middot;
+                            <span class="text-body-secondary">Nom complet :</span>
+                            <code class="text-break">{{ record.host }}</code>
+                        </div>
+                        {% if record.expected %}
                             <div class="input-group input-group-sm mt-1">
                                 <input type="text" class="form-control form-control-sm font-monospace"
-                                       value="{{ reading.expected }}" readonly
+                                       value="{{ record.expected }}" readonly
                                        id="dns-expected-{{ record.key }}"
                                        aria-label="Valeur attendue pour {{ record.label }}">
                                 <button type="button" class="btn btn-outline-secondary btn-sm btn-copy-value"
                                         data-copy-target="dns-expected-{{ record.key }}">Copier</button>
                             </div>
-                            {% if reading.actual %}
-                                <div class="mt-1">
-                                    <span class="text-body-secondary">Valeur actuelle :</span>
-                                    <code class="text-break">{{ reading.actual }}</code>
-                                </div>
-                            {% endif %}
                         {% endif %}
-                    </div>
-                {% endfor %}
-            {% endif %}
+                        {% if record.actual %}
+                            <div class="mt-1">
+                                <span class="text-body-secondary">Valeur actuelle :</span>
+                                <code class="text-break">{{ record.actual }}</code>
+                            </div>
+                        {% endif %}
+                    {% endif %}
+                </div>
+            {% endfor %}
         {% endif %}
     </div>
 </div>

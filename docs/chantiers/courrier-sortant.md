@@ -754,20 +754,30 @@ quand une itération touchera la cadence.
 
 ### Décisions prises seul
 
-**La vérification DNS est derrière un bouton, pas au chargement.**
-L'assistant la faisait en AJAX ; ici elle est une requête serveur
-déclenchée par `?dns=1`. Un `dns_get_record()` sur un résolveur qui ne
-répond pas prend le temps qu'il prend, et cette page est précisément
-celle qu'on ouvre quand le courrier ne part déjà plus. Le choix coûte un
-rechargement et épargne une page qui pend parfois dix secondes — et il
-évite un fichier JavaScript de plus pour une fonction qu'un formulaire
-fait très bien.
+**La vérification DNS est un POST suivi d'une redirection, pas un
+chargement de page.** L'assistant la faisait en AJAX ; ici elle est une
+action explicite, sur le même patron que `/config/maintenance/update/
+check-now` — elle sort sur le réseau *et* écrit ce qui revient, ce qui
+n'a sa place ni l'un ni l'autre sur un GET. Et elle n'est pas lancée à
+l'ouverture : un `dns_get_record()` sur un résolveur qui ne répond pas
+prend le temps qu'il prend, et cette page est précisément celle qu'on
+ouvre quand le courrier ne part déjà plus.
 
-**Ce que la vérification a vu est retenu.** Sans mémoire, le tableau de
-bord n'avait que deux options : mentir (« tout va bien ») ou interroger
-le DNS à chaque affichage. `mail_dns_last_check` lui permet d'annoncer un
-état **daté**, ce qui est la seule forme honnête : « au 12/09, le SPF ne
-figurait pas » se vérifie, « le SPF ne figure pas » ne se vérifie pas.
+Un premier jet l'avait faite en `GET ?dns=1`, en se disant qu'un GET qui
+ne fait que mettre en cache une lecture est inoffensif. Il l'est ; mais le
+dépôt avait déjà tranché la question ailleurs, et une deuxième réponse à
+la même question est une divergence, pas une nuance.
+
+**Ce que la vérification a vu est retenu en entier**, valeurs suggérées
+comprises, et pas seulement en trois booléens. Deux raisons, dont la
+seconde n'est apparue qu'en écrivant la redirection. La première : sans
+mémoire, le tableau de bord n'a que deux options, mentir (« tout va
+bien ») ou interroger le DNS à chaque affichage ; l'état **daté** est la
+seule forme honnête, « au 12/09, le SPF ne figurait pas » se vérifiant là
+où « le SPF ne figure pas » ne se vérifie pas. La seconde : les
+enregistrements proposés sont ce que la personne est *en train de
+recopier* chez son registraire, et les perdre au rechargement suivant
+serait les perdre au milieu de la copie.
 
 **Le SPF est vérifié contre toute la chaîne.** Le roadmap ne le demande
 pas, mais déménager la vérification à côté des fournisseurs sans le faire
@@ -862,6 +872,15 @@ aurait caché ce fait derrière de l'indirection.
 `StoredDateReadingRatchetTest` a attrapé quatre lectures, dont celle de
 la mémoire DNS : une valeur tronquée aurait daté d'un coup une
 vérification qui n'a jamais eu lieu.
+
+**Une sonde ne passe jamais par la file de report.** `MailService` sait
+différer un message quand toute une voie est épuisée (D9) — et une sonde
+différée n'a rien dit à personne : elle lirait « en attente », puis
+« jamais arrivé » quelques heures plus tard, et enverrait le lecteur
+chercher du côté du chemin de retour quand le problème était le transport.
+Elle part par le clone sans file qu'IT-02 avait introduit pour la vidange
+(`withoutDeferral()`). Refusé maintenant est une réponse utilisable ; mis
+en file maintenant n'en est pas une.
 
 ### Les deux exigences transverses
 

@@ -110,7 +110,16 @@ final class ReturnPathVerifier
             $id = $this->probes->issue($address, $key, $now, $expiresAt);
 
             try {
-                $this->mail->send(
+                // **Through a queue-less clone** ({@see MailService::
+                // withoutDeferral()}), and that is the whole point of a
+                // diagnostic. A probe that the deferral queue silently
+                // accepts because the transactional lane is spent is a
+                // probe that has told nobody anything: it would read
+                // « en attente », then « jamais arrivé » hours later, and
+                // send the operator looking at the return path when the
+                // problem was the transport all along. Refused now is a
+                // usable answer; queued now is not.
+                $this->mail->withoutDeferral()->send(
                     to: $address,
                     subject: self::subjectFor($key),
                     bodyHtml: self::bodyHtml($key),

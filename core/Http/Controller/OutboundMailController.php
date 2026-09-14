@@ -57,6 +57,7 @@ class OutboundMailController extends AbstractController
     public const PROVIDERS_URL = '/config/courrier-sortant/fournisseurs';
 
     public const RETURN_CHECK_URL = '/config/courrier-sortant/authentification/verification';
+    public const DNS_CHECK_URL = '/config/courrier-sortant/authentification/dns';
 
     public function __construct(
         protected Environment $twig,
@@ -139,10 +140,15 @@ class OutboundMailController extends AbstractController
             ];
         }
 
-        $published = array_filter([$last->spf, $last->dkim, $last->dmarc], static fn(?bool $v) => $v === true);
-        $missing = array_filter([$last->spf, $last->dkim], static fn(?bool $v) => $v === false);
+        $spf = $last->state(DnsCheckMemory::SPF);
+        $dkim = $last->state(DnsCheckMemory::DKIM);
+        $published = array_filter(
+            [$spf, $dkim, $last->state(DnsCheckMemory::DMARC)],
+            static fn(?bool $v) => $v === true
+        );
+        $missing = array_filter([$spf, $dkim], static fn(?bool $v) => $v === false);
         $when = $last->takenAt->format('d/m/Y à H:i');
-        $domain = $last->domain === '' ? 'votre domaine' : $last->domain;
+        $domain = $last->spfDomain === '' ? 'votre domaine' : $last->spfDomain;
 
         if ($missing !== []) {
             return $line + [
@@ -151,8 +157,8 @@ class OutboundMailController extends AbstractController
                     'Au %s, %s manquait dans la zone DNS de %s. Les messages partent quand même, et beaucoup '
                         . 'de destinataires les classeront en indésirables.',
                     $when,
-                    $last->spf === false && $last->dkim === false ? 'ni le SPF ni le DKIM ne figurait'
-                        : ($last->spf === false ? 'le SPF ne figurait pas' : 'le DKIM ne figurait pas'),
+                    $spf === false && $dkim === false ? 'ni le SPF ni le DKIM ne figurait'
+                        : ($spf === false ? 'le SPF ne figurait pas' : 'le DKIM ne figurait pas'),
                     $domain
                 ),
             ];
@@ -966,12 +972,72 @@ class OutboundMailController extends AbstractController
      */
     public function authentication(Request $request, array $params): Response
     {
-        $readings = $request->getQuery('dns') === '1' ? $this->dnsReadings() : null;
-        if ($readings !== null) {
-            $this->rememberDnsReadings($readings);
+        return $this->renderAuthentication();
+    }
+
+    /**
+     * POST /config/courrier-sortant/authentification/dns — take the
+     * lookup, keep what it found, come back.
+     *
+     * **A POST and a redirect**, like `/config/maintenance/update/
+     * check-now` and for the same two reasons: it reaches out to the
+     * network and it writes down what came back, neither of which belongs
+     * on a GET. The page then renders the remembered reading with its
+     * date, so reopening it does not lose the records somebody is halfway
+     * through copying into their registrar's form.
+     *
+     * @param array<string, string> $params
+     */
+    public function checkDns(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, self::AUTHENTICATION_URL)) !== null) {
+            return $guard;
         }
 
-        return $this->renderAuthentication($readings);
+        $identity = MailIdentity::fromSettings($this->settings);
+        $spfDomain = $identity->spfDomain();
+        $selector = (string) ($this->settings->get('dkim_selector') ?? '');
+
+        if ($spfDomain === '' || $selector === '') {
+            // A reading nobody could take clears the memory rather than
+            // overwriting it with a false negative nobody could tell from
+            // a real one.
+            DnsCheckMemory::forget($this->settings);
+            FlashMessage::set(
+                'warning',
+                'Renseignez d’abord l’adresse d’expédition et le sélecteur DKIM : sans eux, il n’y a ni domaine '
+                    . 'à interroger ni enregistrement à proposer.'
+            );
+
+            return $this->redirect(self::AUTHENTICATION_URL);
+        }
+
+        $dkimDomain = $identity->dkimDomain();
+        $hasKey = $this->dkim->hasKey();
+
+        DnsCheckMemory::remember(
+            $this->settings,
+            $spfDomain,
+            $dkimDomain,
+            $selector,
+            [
+                DnsCheckMemory::SPF => $this->dns->checkSpfForHosts($spfDomain, $this->sendingHosts()),
+                // Nothing can be proposed before a key pair exists: there
+                // is no value to publish, not even a placeholder.
+                DnsCheckMemory::DKIM => $hasKey
+                    ? $this->dns->checkDkim($dkimDomain, $selector, $this->dkim->getPublicKey())
+                    : ['key_missing' => true],
+                // Only when an address was actually asked for: a site that
+                // wants no reports needs no record, and proposing one
+                // would be pushing an edit nobody asked for (D12 — `rua`
+                // only, never `ruf`).
+                DnsCheckMemory::DMARC => $identity->configuredDmarcReportAddress() === ''
+                    ? ['not_requested' => true]
+                    : $this->dns->checkDmarc($dkimDomain, $identity->dmarcReportAddress()),
+            ]
+        );
+
+        return $this->redirect(self::AUTHENTICATION_URL);
     }
 
     /**
@@ -1166,10 +1232,7 @@ class OutboundMailController extends AbstractController
         return null;
     }
 
-    /**
-     * @param array<string, mixed>|null $dns null when nobody asked for a lookup
-     */
-    private function renderAuthentication(?array $dns): Response
+    private function renderAuthentication(): Response
     {
         $identity = MailIdentity::fromSettings($this->settings);
         $hosts = $this->sendingHosts();
@@ -1194,7 +1257,8 @@ class OutboundMailController extends AbstractController
             'sending_hosts' => $hosts,
             'has_dkim_key' => $this->dkim->hasKey(),
             'dkim_public_key' => $this->dkim->hasKey() ? $this->dkim->getPublicKey() : '',
-            'dns' => $dns,
+            'dns' => $this->rememberedDns(),
+            'dns_check_url' => self::DNS_CHECK_URL,
             'authentication_url' => self::AUTHENTICATION_URL,
         ]);
     }
@@ -1273,79 +1337,44 @@ class OutboundMailController extends AbstractController
     }
 
     /**
-     * The three readings, for the domain the envelope sender names.
+     * The last lookup, shaped for the template — null when there has
+     * never been one.
      *
-     * @return array<string, mixed>
+     * @return array{taken_at: string, spf_domain: string, dkim_domain: string, selector: string,
+     *     records: list<array{key: string, label: string, name: string, host: string,
+     *         exists: bool, expected: ?string, actual: ?string, key_missing: bool, not_requested: bool}>}|null
      */
-    private function dnsReadings(): array
+    private function rememberedDns(): ?array
     {
-        $identity = MailIdentity::fromSettings($this->settings);
-        $spfDomain = $identity->spfDomain();
-        $dkimDomain = $identity->dkimDomain();
-        $selector = (string) ($this->settings->get('dkim_selector') ?? '');
-
-        if ($spfDomain === '' || $selector === '') {
-            return ['unavailable' => true];
+        $memory = DnsCheckMemory::read($this->settings);
+        if ($memory === null) {
+            return null;
         }
 
-        $hasKey = $this->dkim->hasKey();
+        $names = [
+            DnsCheckMemory::SPF => ['SPF', '@', $memory->spfDomain],
+            DnsCheckMemory::DKIM => [
+                'DKIM',
+                $memory->selector . '._domainkey',
+                $memory->selector . '._domainkey.' . $memory->dkimDomain,
+            ],
+            DnsCheckMemory::DMARC => ['DMARC', '_dmarc', '_dmarc.' . $memory->dkimDomain],
+        ];
+
+        $records = [];
+        foreach (DnsCheckMemory::RECORDS as $key) {
+            [$label, $name, $host] = $names[$key];
+            $records[] = ['key' => $key, 'label' => $label, 'name' => $name, 'host' => $host]
+                + $memory->record($key);
+        }
 
         return [
-            'unavailable' => false,
-            'spf_domain' => $spfDomain,
-            'dkim_domain' => $dkimDomain,
-            'selector' => $selector,
-            'spf' => $this->dns->checkSpfForHosts($spfDomain, $this->sendingHosts()),
-            // Nothing can be proposed before a key pair exists: there is
-            // no value to publish, not even a placeholder.
-            'dkim' => $hasKey
-                ? $this->dns->checkDkim($dkimDomain, $selector, $this->dkim->getPublicKey())
-                : ['exists' => false, 'expected' => null, 'actual' => null, 'key_missing' => true],
-            // Only when an address was actually asked for: a site that
-            // wants no reports needs no record, and proposing one would
-            // be pushing an edit nobody asked for (D12 — `rua` only,
-            // never `ruf`).
-            'dmarc' => $identity->configuredDmarcReportAddress() === ''
-                ? ['exists' => false, 'expected' => null, 'actual' => null, 'not_requested' => true]
-                : $this->dns->checkDmarc($dkimDomain, $identity->dmarcReportAddress()),
+            'taken_at' => $memory->takenAt->format('d/m/Y à H:i'),
+            'spf_domain' => $memory->spfDomain,
+            'dkim_domain' => $memory->dkimDomain,
+            'selector' => $memory->selector,
+            'records' => $records,
         ];
-    }
-
-    /**
-     * Keep what the lookup said, so the dashboard can show a state with a
-     * date on it — {@see \Core\Mail\DnsCheckMemory} holds the why.
-     *
-     * A reading nobody could take (no address, no selector) clears the
-     * memory rather than overwriting it with a false negative.
-     *
-     * @param array<string, mixed> $dns
-     */
-    private function rememberDnsReadings(array $dns): void
-    {
-        if (($dns['unavailable'] ?? false) === true) {
-            DnsCheckMemory::forget($this->settings);
-
-            return;
-        }
-
-        $state = static function (mixed $reading): ?bool {
-            if (!is_array($reading)) {
-                return null;
-            }
-            if (($reading['key_missing'] ?? false) === true || ($reading['not_requested'] ?? false) === true) {
-                return null;
-            }
-
-            return ($reading['exists'] ?? false) === true;
-        };
-
-        DnsCheckMemory::remember(
-            $this->settings,
-            (string) ($dns['spf_domain'] ?? ''),
-            $state($dns['spf'] ?? null),
-            $state($dns['dkim'] ?? null),
-            $state($dns['dmarc'] ?? null)
-        );
     }
 
     /**

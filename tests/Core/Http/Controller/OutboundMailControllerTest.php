@@ -168,6 +168,7 @@ class OutboundMailControllerTest extends TestCase
             'authentication' => ['GET', '/config/courrier-sortant/authentification'],
             'saving the addresses' => ['POST', '/config/courrier-sortant/authentification'],
             'checking the returns' => ['POST', '/config/courrier-sortant/authentification/verification'],
+            'checking the DNS' => ['POST', '/config/courrier-sortant/authentification/dns'],
         ];
     }
 
@@ -292,6 +293,7 @@ class OutboundMailControllerTest extends TestCase
 
         $this->assertStringNotContainsString('Nom complet', $body);
         $this->assertStringContainsString('Vérifier les enregistrements', $body);
+        $this->assertStringContainsString('jamais été vérifiés depuis cette page', $body);
     }
 
     public function testSavingTheAddressesKeepsThemAndTheReplyAddressStaysOptional(): void
@@ -435,36 +437,51 @@ class OutboundMailControllerTest extends TestCase
         $this->settings->set('mail_from_address', 'info@unite.be');
         $this->settings->set('dkim_selector', 's2026');
 
-        $this->controller->authentication(
-            new Request('GET', '/config/courrier-sortant/authentification', ['dns' => '1'], [], [], []),
-            []
-        );
+        $response = $this->controller->checkDns($this->formRequest([]), []);
 
-        $stored = (string) $this->settings->get(\Core\Mail\DnsCheckMemory::SETTING_KEY);
-        $this->assertNotSame('', $stored);
-        $decoded = json_decode($stored, true);
-        $this->assertIsArray($decoded);
-        $this->assertSame('unite.be', $decoded['domain']);
-        $this->assertArrayHasKey('at', $decoded);
+        // POST-redirect-GET: the lookup reaches the network and writes
+        // down what came back, neither of which belongs on a GET.
+        $this->assertSame(302, $response->getStatusCode());
+
+        $memory = \Core\Mail\DnsCheckMemory::read($this->settings);
+        $this->assertNotNull($memory);
+        $this->assertSame('unite.be', $memory->spfDomain);
+        $this->assertSame('s2026', $memory->selector);
+        // No key pair on this installation, so the DKIM record has no
+        // value to publish — « non vérifié », never « absent ».
+        $this->assertNull($memory->state(\Core\Mail\DnsCheckMemory::DKIM));
+        // And no report address was asked for.
+        $this->assertNull($memory->state(\Core\Mail\DnsCheckMemory::DMARC));
+    }
+
+    public function testTheRememberedRecordsSurviveAReopeningOfThePage(): void
+    {
+        $this->settings->set('mail_from_address', 'info@unite.be');
+        $this->settings->set('dkim_selector', 's2026');
+        $this->controller->checkDns($this->formRequest([]), []);
+
+        $body = (string) $this->controller->authentication($this->getRequest(), [])->getBody();
+
+        // The records are what somebody is halfway through copying into
+        // their registrar's form; losing them on the next page load is
+        // exactly what keeping the reading is for.
+        $this->assertStringContainsString('Relevé du', $body);
+        $this->assertStringContainsString('v=spf1', $body);
     }
 
     public function testALookupNobodyCouldTakeRemembersNothingRatherThanAFalseNegative(): void
     {
-        // setInternal, not set: the memory is written by this page and
-        // never by hand, so it is registered `editable: false`.
-        $this->settings->setInternal(
-            \Core\Mail\DnsCheckMemory::SETTING_KEY,
-            '{"at":"2026-09-01 08:00:00","domain":"unite.be","spf":true,"dkim":true,"dmarc":null}'
-        );
-        // No address: there is no domain to interrogate at all.
+        $this->settings->set('mail_from_address', 'info@unite.be');
+        $this->settings->set('dkim_selector', 's2026');
+        $this->controller->checkDns($this->formRequest([]), []);
+        $this->assertNotNull(\Core\Mail\DnsCheckMemory::read($this->settings));
+
+        // No address left: there is no domain to interrogate at all, and
+        // a false negative is indistinguishable from a real one.
         $this->settings->set('mail_from_address', '');
+        $this->controller->checkDns($this->formRequest([]), []);
 
-        $this->controller->authentication(
-            new Request('GET', '/config/courrier-sortant/authentification', ['dns' => '1'], [], [], []),
-            []
-        );
-
-        $this->assertSame('', $this->settings->get(\Core\Mail\DnsCheckMemory::SETTING_KEY));
+        $this->assertNull(\Core\Mail\DnsCheckMemory::read($this->settings));
     }
 
     public function testTheChainsPageRendersTheThreeLanes(): void

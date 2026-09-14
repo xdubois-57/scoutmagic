@@ -45,6 +45,30 @@ class ReturnPathVerifierTest extends TestCase
 
     // ── the three states ──────────────────────────────────────────────
 
+    /**
+     * A probe goes out through a queue-less clone: a diagnostic that the
+     * deferral queue silently accepts has told nobody anything, and would
+     * read « jamais arrivé » hours later about a transport problem.
+     */
+    public function testAProbeIsNeverHandedToTheDeferralQueue(): void
+    {
+        $mail = $this->createStub(MailService::class);
+        $withoutQueue = $this->createStub(MailService::class);
+        $sent = [];
+        $withoutQueue->method('send')->willReturnCallback(
+            static function (string $to) use (&$sent): void {
+                $sent[] = $to;
+            }
+        );
+        $mail->method('withoutDeferral')->willReturn($withoutQueue);
+        // The queue-carrying instance must never be the one asked.
+        $mail->method('send')->willThrowException(new \LogicException('the queued instance was used'));
+
+        $this->verifierWith($this->collectingGateway(), $mail)->launch(['info@unite.be']);
+
+        $this->assertSame(['info@unite.be'], $sent);
+    }
+
     public function testAnAddressNobodyHasEverCheckedReadsJamaisVerifie(): void
     {
         $verifier = $this->verifierWith($this->collectingGateway());
@@ -168,6 +192,7 @@ class ReturnPathVerifierTest extends TestCase
     public function testASendThatFailsLeavesNoProbeBehindToReadAsJamaisArrive(): void
     {
         $mail = $this->createStub(MailService::class);
+        $mail->method('withoutDeferral')->willReturnSelf();
         $mail->method('send')->willThrowException(new MailException('relay refused'));
 
         $verifier = $this->verifierWith($this->collectingGateway(), $mail);
@@ -281,6 +306,13 @@ class ReturnPathVerifierTest extends TestCase
     private function mailServiceRecording(array &$sent): MailService
     {
         $mail = $this->createStub(MailService::class);
+        // `willReturnSelf()` and not the auto-generated return stub: a
+        // double's `withoutDeferral()` otherwise hands back a FRESH
+        // double whose `send()` records nothing, and every assertion
+        // below would quietly pass on zero messages. The real clone
+        // semantics are asserted in Tests\Core\Mail\
+        // MailServiceDeferralTest, against the real class.
+        $mail->method('withoutDeferral')->willReturnSelf();
         $mail->method('send')->willReturnCallback(
             static function (string $to, string $subject) use (&$sent): void {
                 $sent[] = ['to' => $to, 'subject' => $subject];

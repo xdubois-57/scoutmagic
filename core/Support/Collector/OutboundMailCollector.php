@@ -286,10 +286,10 @@ class OutboundMailCollector implements SupportCollectorInterface
             $lines[] = 'vérification DNS : jamais lancée depuis la page Authentification';
         } else {
             $lines[] = 'vérification DNS du ' . $verdicts->takenAt->format('Y-m-d H:i')
-                . ' sur ' . ($verdicts->domain ?: '(inconnu)');
-            $lines[] = '  SPF   : ' . DnsCheckMemory::label($verdicts->spf);
-            $lines[] = '  DKIM  : ' . DnsCheckMemory::label($verdicts->dkim);
-            $lines[] = '  DMARC : ' . DnsCheckMemory::label($verdicts->dmarc);
+                . ' sur ' . ($verdicts->spfDomain ?: '(inconnu)');
+            $lines[] = '  SPF   : ' . DnsCheckMemory::label($verdicts->state(DnsCheckMemory::SPF));
+            $lines[] = '  DKIM  : ' . DnsCheckMemory::label($verdicts->state(DnsCheckMemory::DKIM));
+            $lines[] = '  DMARC : ' . DnsCheckMemory::label($verdicts->state(DnsCheckMemory::DMARC));
         }
 
         $lines[] = '';

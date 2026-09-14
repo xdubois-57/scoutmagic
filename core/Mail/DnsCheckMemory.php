@@ -12,32 +12,51 @@ use Core\Config\SettingService;
 use Core\Service\DateInput;
 
 /**
- * What the last live DNS lookup said, and when (roadmap IT-03).
+ * What the last live DNS lookup found, and when (roadmap IT-03).
  *
- * **A remembered reading, and every reader of it says so.** The
- * alternative was a `dns_get_record()` on every load of the outbound-mail
- * dashboard and on every support package — on a resolver that is not
- * answering, that takes as long as it takes, and the dashboard is
- * precisely the page somebody opens when mail is already broken. A
- * reading that states its own age beats a reading that pretends to be
- * current.
+ * **The page renders this and never a lookup of its own.** Two things
+ * follow from that, and both were the reason to write it down rather than
+ * hold the readings in a request.
+ *
+ * The first is that a `dns_get_record()` on a resolver that is not
+ * answering takes as long as it takes — and the outbound-mail screens are
+ * precisely the ones somebody opens when mail is already broken. The
+ * lookup is therefore an explicit action, and every screen reads the
+ * remembered answer WITH the date it was taken: a reading that states its
+ * own age beats a reading that pretends to be current.
+ *
+ * The second is that the records are what the operator is copying into
+ * their registrar's form. Holding them in the response would mean losing
+ * them on the next page load, halfway through the copy — so what is kept
+ * is the whole reading, suggested values included, and not merely three
+ * booleans.
  *
  * It lives in `Core\Mail` rather than on the controller that writes it
- * because the support collector reads it too, and a collector reaching
- * for a controller constant to parse a setting is two layers of the wrong
+ * because the support collector reads it too, and a collector reaching for
+ * a controller constant to parse a setting is two layers of the wrong
  * shape for one JSON blob.
  */
 final class DnsCheckMemory
 {
     public const SETTING_KEY = 'mail_dns_last_check';
 
+    public const SPF = 'spf';
+    public const DKIM = 'dkim';
+    public const DMARC = 'dmarc';
+
+    /** The three, in the order a screen reads them. */
+    public const RECORDS = [self::SPF, self::DKIM, self::DMARC];
+
+    /**
+     * @param array<string, array{exists: bool, expected: ?string, actual: ?string,
+     *     key_missing: bool, not_requested: bool}> $records
+     */
     private function __construct(
         public readonly \DateTimeImmutable $takenAt,
-        public readonly string $domain,
-        /** Null means « not part of that reading » — no DKIM key yet, or no report address asked for. */
-        public readonly ?bool $spf,
-        public readonly ?bool $dkim,
-        public readonly ?bool $dmarc
+        public readonly string $spfDomain,
+        public readonly string $dkimDomain,
+        public readonly string $selector,
+        public readonly array $records
     ) {
     }
 
@@ -67,37 +86,46 @@ final class DnsCheckMemory
             return null;
         }
 
-        $tri = static fn(string $key): ?bool => isset($decoded[$key]) && is_bool($decoded[$key])
-            ? $decoded[$key]
-            : null;
+        $stored = is_array($decoded['records'] ?? null) ? $decoded['records'] : [];
+        $records = [];
+        foreach (self::RECORDS as $key) {
+            $records[$key] = self::normalise(is_array($stored[$key] ?? null) ? $stored[$key] : []);
+        }
 
         return new self(
             $takenAt,
-            (string) ($decoded['domain'] ?? ''),
-            $tri('spf'),
-            $tri('dkim'),
-            $tri('dmarc')
+            (string) ($decoded['spf_domain'] ?? ''),
+            (string) ($decoded['dkim_domain'] ?? ''),
+            (string) ($decoded['selector'] ?? ''),
+            $records
         );
     }
 
     /**
-     * Keep a reading. `setInternal()` because this is written by the page
-     * and never by hand — the setting is registered `editable: false`.
+     * Keep a whole reading. `setInternal()` because this is written by the
+     * page and never by hand — the setting is registered `editable: false`.
+     *
+     * @param array<string, array<string, mixed>> $records keyed by {@see self::RECORDS}
      */
     public static function remember(
         SettingService $settings,
-        string $domain,
-        ?bool $spf,
-        ?bool $dkim,
-        ?bool $dmarc,
+        string $spfDomain,
+        string $dkimDomain,
+        string $selector,
+        array $records,
         ?\DateTimeImmutable $now = null
     ): void {
+        $normalised = [];
+        foreach (self::RECORDS as $key) {
+            $normalised[$key] = self::normalise(is_array($records[$key] ?? null) ? $records[$key] : []);
+        }
+
         $encoded = json_encode([
             'at' => ($now ?? new \DateTimeImmutable())->format('Y-m-d H:i:s'),
-            'domain' => $domain,
-            'spf' => $spf,
-            'dkim' => $dkim,
-            'dmarc' => $dmarc,
+            'spf_domain' => $spfDomain,
+            'dkim_domain' => $dkimDomain,
+            'selector' => $selector,
+            'records' => $normalised,
         ]);
 
         self::store($settings, $encoded === false ? '' : $encoded);
@@ -112,14 +140,31 @@ final class DnsCheckMemory
         self::store($settings, '');
     }
 
-    private static function store(SettingService $settings, string $value): void
+    /**
+     * Whether one record was published — `null` when the reading could not
+     * answer for it at all.
+     *
+     * The three-state answer matters: « aucune clé DKIM à publier encore »
+     * and « aucun rapport demandé » are not « l'enregistrement manque »,
+     * and reporting them as a failure would send somebody to fix a zone
+     * that is exactly as it should be.
+     */
+    public function state(string $key): ?bool
     {
-        try {
-            $settings->setInternal(self::SETTING_KEY, $value);
-        } catch (\Throwable) {
-            // A dashboard line reading « jamais vérifié » is a far smaller
-            // problem than a DNS check that ends on an error page.
+        $record = $this->records[$key] ?? null;
+        if ($record === null || $record['key_missing'] || $record['not_requested']) {
+            return null;
         }
+
+        return $record['exists'];
+    }
+
+    /**
+     * @return array{exists: bool, expected: ?string, actual: ?string, key_missing: bool, not_requested: bool}
+     */
+    public function record(string $key): array
+    {
+        return $this->records[$key] ?? self::normalise([]);
     }
 
     /** « publié », « absent » or « non vérifié » — what a screen prints. */
@@ -130,5 +175,34 @@ final class DnsCheckMemory
             false => 'absent',
             null => 'non vérifié',
         };
+    }
+
+    /**
+     * @param array<string, mixed> $record
+     * @return array{exists: bool, expected: ?string, actual: ?string, key_missing: bool, not_requested: bool}
+     */
+    private static function normalise(array $record): array
+    {
+        $text = static function (mixed $value): ?string {
+            return is_string($value) && $value !== '' ? $value : null;
+        };
+
+        return [
+            'exists' => ($record['exists'] ?? false) === true,
+            'expected' => $text($record['expected'] ?? null),
+            'actual' => $text($record['actual'] ?? null),
+            'key_missing' => ($record['key_missing'] ?? false) === true,
+            'not_requested' => ($record['not_requested'] ?? false) === true,
+        ];
+    }
+
+    private static function store(SettingService $settings, string $value): void
+    {
+        try {
+            $settings->setInternal(self::SETTING_KEY, $value);
+        } catch (\Throwable) {
+            // A dashboard line reading « jamais vérifié » is a far smaller
+            // problem than a DNS check that ends on an error page.
+        }
     }
 }

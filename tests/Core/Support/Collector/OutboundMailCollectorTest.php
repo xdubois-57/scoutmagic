@@ -251,9 +251,13 @@ class OutboundMailCollectorTest extends TestCase
         DnsCheckMemory::remember(
             $this->settings,
             'unite.be',
-            true,
-            false,
-            null,
+            'unite.be',
+            's2026',
+            [
+                DnsCheckMemory::SPF => ['exists' => true, 'expected' => 'v=spf1 a mx ~all'],
+                DnsCheckMemory::DKIM => ['exists' => false, 'expected' => 'v=DKIM1; k=rsa; p=AAAA'],
+                DnsCheckMemory::DMARC => ['not_requested' => true],
+            ],
             new \DateTimeImmutable('2026-09-01 08:00:00')
         );
 
