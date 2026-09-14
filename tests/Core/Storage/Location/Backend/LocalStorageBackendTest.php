@@ -326,6 +326,46 @@ class LocalStorageBackendTest extends TestCase
         $this->assertSame([], $this->backend->list('')->objects);
     }
 
+    public function testAWitnessThatCannotBeRemovedIsNamedInFrenchRatherThanThrown(): void
+    {
+        // testConnection() exists to turn a failure into a sentence an
+        // administrator can act on. Once delete() started raising on a
+        // refused unlink, that sentence became unreachable and the
+        // exception travelled instead — out of a method the interface
+        // documents as returning ?string and never throwing.
+        $backend = new class ($this->storagePath . '/gallery') extends LocalStorageBackend {
+            public function delete(string $key): void
+            {
+                throw new \RuntimeException("Stored file could not be removed: {$key}");
+            }
+        };
+
+        $this->assertSame("Le fichier témoin n'a pas pu être supprimé.", $backend->testConnection());
+    }
+
+    public function testAFailedReadBackIsReportedEvenWhenTheCleanupAlsoFails(): void
+    {
+        // Two failures at once, and only one of them is the diagnosis: the
+        // administrator needs « it could not be read back », not the
+        // cleanup that failed on the way out of it.
+        $backend = new class ($this->storagePath . '/gallery') extends LocalStorageBackend {
+            public function get(string $key): string
+            {
+                throw new \RuntimeException("Stored file not found: {$key}");
+            }
+
+            public function delete(string $key): void
+            {
+                throw new \RuntimeException("Stored file could not be removed: {$key}");
+            }
+        };
+
+        $this->assertSame(
+            "Le fichier témoin n'a pas pu être relu juste après avoir été écrit.",
+            $backend->testConnection()
+        );
+    }
+
     public function testTheConnectionTestNamesTheProblemInFrenchWhenTheFolderCannotExist(): void
     {
         $backend = new LocalStorageBackend('/proc/self/cmdline/impossible');

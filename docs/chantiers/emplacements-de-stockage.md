@@ -386,6 +386,28 @@ ligne périmée pointer vers le schéma du voisin. Le test construit
 maintenant la carte des tables déclarées sur l'ensemble de
 `SchemaFiles::all()`, et son message nomme le fichier qui déclare encore.
 
+### Ce que durcir avait cassé à côté
+
+Faire lever `delete()` était juste, et a rendu **inatteignable** la phrase
+que `testConnection()` réservait à ce cas précis. Cette méthode existe pour
+transformer une panne en une phrase française sur laquelle un
+administrateur peut agir ; la suppression du fichier témoin n'étant pas
+gardée, l'exception partait à sa place — hors d'une méthode que l'interface
+décrit comme rendant `?string` et ne levant jamais. Le
+`StorageLocationService::checkNow()` qui l'attrape plus haut ne rendait pas
+la chose acceptable : il la **cachait**, en affichant « L'emplacement n'a
+pas pu être ouvert » à la place de « Le fichier témoin n'a pas pu être
+supprimé ». Le test `if ($this->exists($key))` qui devait la déclencher
+était devenu du code mort, puisque `delete()` ou bien avait supprimé le
+fichier, ou bien avait levé.
+
+Les deux suppressions sont maintenant gardées, avec une asymétrie
+délibérée : quand c'est la **relecture** qui a échoué, l'échec du nettoyage
+est avalé, parce que le diagnostic dont l'administrateur a besoin est
+« le fichier n'a pas pu être relu » et non l'incident survenu en sortant.
+`ObjectStorageBackend` gardait déjà chacune de ses étapes ; c'est
+`LocalStorageBackend` qui faisait exception.
+
 ### Divergences constatées avec les maquettes, et ce qui fait foi
 
 Les deux maquettes déposées dans `docs/chantiers/maquettes/` sont la

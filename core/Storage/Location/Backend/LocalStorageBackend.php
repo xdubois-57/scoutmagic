@@ -289,6 +289,14 @@ class LocalStorageBackend implements RangeReadableBackend, ServerSideCopyBackend
      * timeout interrupts that. Closing that hole is what the Stockage
      * screen's own check adds on top, and it is the reason this method
      * returns a sentence instead of a boolean.
+     *
+     * **Every operation is caught, because this method is the one that
+     * must not throw.** Its whole job is to turn a failure into a French
+     * sentence an administrator can act on; letting one escape hands the
+     * caller a generic « l'emplacement n'a pas pu être ouvert » instead of
+     * the line naming what actually went wrong — and the caller catching
+     * it ({@see StorageLocationService::checkNow()}) is what hides that,
+     * not what makes it acceptable.
      */
     public function testConnection(): ?string
     {
@@ -312,17 +320,27 @@ class LocalStorageBackend implements RangeReadableBackend, ServerSideCopyBackend
         try {
             $readBack = $this->get($key);
         } catch (\Throwable) {
-            $this->delete($key);
+            // The cleanup is best-effort HERE and nowhere else: what the
+            // administrator needs to know is that the file could not be
+            // read back, and a deletion failure on top of it must not
+            // replace that sentence with a less useful one.
+            try {
+                $this->delete($key);
+            } catch (\Throwable) {
+                // Reported through the read-back failure above.
+            }
+
             return "Le fichier témoin n'a pas pu être relu juste après avoir été écrit.";
         }
 
-        $this->delete($key);
+        try {
+            $this->delete($key);
+        } catch (\Throwable) {
+            return "Le fichier témoin n'a pas pu être supprimé.";
+        }
 
         if ($readBack !== $content) {
             return 'Le contenu relu après écriture diffère de ce qui a été écrit.';
-        }
-        if ($this->exists($key)) {
-            return "Le fichier témoin n'a pas pu être supprimé.";
         }
 
         return null;
