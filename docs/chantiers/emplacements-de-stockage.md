@@ -754,3 +754,39 @@ de serveur et `/mnt/nas/photos` ne dit rien de personne — mais
 avoir un. Et l'endpoint d'un bucket est absent : le **nom** du
 fournisseur répond à toutes les questions de diagnostic auxquelles
 l'endpoint répondrait, en un mot, sans être la moitié d'une cible.
+
+## Un fichier de test déplacé qui ne s'exécutait plus
+
+`Checks / database-mariadb` est parti rouge en annonçant **zéro échec et
+zéro erreur** : « OK, but there were issues! », 17 525 tests, et un code
+de sortie 1. La cause tenait en une ligne du rapport :
+
+> Class ObjectStorageErrorExplainerTest cannot be found in
+> tests/Core/Storage/Location/Diagnostics/ObjectStorageErrorExplainerTest.php
+
+Le fichier avait été déplacé par `git mv` avec la classe qu'il exerce,
+et ni son `namespace` ni le nom de sa classe n'avaient suivi. PHPUnit ne
+peut alors pas le charger : ses six tests **ne s'exécutaient plus du
+tout**. C'est le pire des deux résultats possibles — pas un test rouge,
+mais une couverture disparue en silence, exactement la panne que
+l'AGENTS.md décrit pour un répertoire de tests non déclaré dans
+`phpunit.xml`.
+
+**Et je ne l'avais pas vu parce que je lisais le mauvais code de
+sortie.** Chaque exécution locale passait `vendor/bin/phpunit` dans un
+`grep` ou un `tail` : le shell rend alors le statut de `grep`, jamais
+celui de PHPUnit. Le résumé affichait « OK, but there were issues! » et
+je l'ai lu comme un succès. `.claude/skills/steward/SKILL.md` écrit
+précisément ce piège au sujet de `npm run e2e:full` — « pipe it into
+`tail` and the shell reports `tail`'s status » — et il vaut pour toutes
+les commandes, pas seulement celle-là.
+
+Vérifié dans les deux sens : la commande exacte du job reproduite
+localement rend 1 avant le correctif et 0 après, avec le total des tests
+qui passe de 17 525 à 17 531 — les six qui étaient muets.
+
+Un balayage de tous les fichiers de `tests/` cherchant un écart entre le
+chemin, le `namespace` et le nom de classe n'a ramené que celui-là (les
+autres correspondances sont le `namespace` délibéré de
+`tests/fixtures/reference-dataset/` et des classes d'appoint déclarées
+avant la classe de test dans leur fichier).

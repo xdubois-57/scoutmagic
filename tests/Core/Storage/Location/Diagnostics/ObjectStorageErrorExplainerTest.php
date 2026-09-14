@@ -2,20 +2,20 @@
 
 declare(strict_types=1);
 
-namespace Tests\Modules\Gallery\Service;
+namespace Tests\Core\Storage\Location\Diagnostics;
 
-use Modules\Gallery\Api\GalleryException;
-use Modules\Gallery\Service\ObjectStorageErrorExplainerService;
+use Core\Storage\Location\Diagnostics\ObjectStorageErrorExplainer;
+use Core\Storage\Location\StorageLocationException;
 use Modules\LlmConnector\Api\LlmConnectorInterface;
 use Modules\LlmConnector\Api\LlmException;
 use Modules\LlmConnector\Api\LlmResponse;
 use PHPUnit\Framework\TestCase;
 
-class ObjectStorageErrorExplainerServiceTest extends TestCase
+class ObjectStorageErrorExplainerTest extends TestCase
 {
     public function testIsAvailableIsFalseWithoutAConnector(): void
     {
-        $service = new ObjectStorageErrorExplainerService();
+        $service = new ObjectStorageErrorExplainer();
 
         $this->assertFalse($service->isAvailable());
     }
@@ -24,16 +24,16 @@ class ObjectStorageErrorExplainerServiceTest extends TestCase
     {
         $llmConnector = $this->createMock(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(false);
-        $service = new ObjectStorageErrorExplainerService($llmConnector);
+        $service = new ObjectStorageErrorExplainer($llmConnector);
 
         $this->assertFalse($service->isAvailable());
     }
 
     public function testExplainThrowsWhenUnavailable(): void
     {
-        $service = new ObjectStorageErrorExplainerService();
+        $service = new ObjectStorageErrorExplainer();
 
-        $this->expectException(GalleryException::class);
+        $this->expectException(StorageLocationException::class);
         $service->explain('scaleway', 'https://s3.fr-par.scw.cloud', 'fr-par', 'bucket', 'AK123', 18, '403 Forbidden');
     }
 
@@ -50,7 +50,7 @@ class ObjectStorageErrorExplainerServiceTest extends TestCase
             $this->assertStringContainsString('scaleway', $request->prompt);
             return true;
         }))->willReturn(new LlmResponse('Diagnostic.', null, 5, 5));
-        $service = new ObjectStorageErrorExplainerService($llmConnector);
+        $service = new ObjectStorageErrorExplainer($llmConnector);
 
         $result = $service->explain(
             'scaleway', 'https://scoutmagic.s3.fr-par.scw.cloud', 'fr-par', 'scoutmagic', 'AK123', 15, '403 Forbidden'
@@ -59,14 +59,14 @@ class ObjectStorageErrorExplainerServiceTest extends TestCase
         $this->assertSame('Diagnostic.', $result);
     }
 
-    public function testExplainWrapsAnLlmFailureAsAGalleryException(): void
+    public function testExplainWrapsAnLlmFailureAsAStorageLocationException(): void
     {
         $llmConnector = $this->createMock(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('complete')->willThrowException(new LlmException('Provider timeout.'));
-        $service = new ObjectStorageErrorExplainerService($llmConnector);
+        $service = new ObjectStorageErrorExplainer($llmConnector);
 
-        $this->expectException(GalleryException::class);
+        $this->expectException(StorageLocationException::class);
         $service->explain('custom', 'https://example.com', '', 'bucket', 'AK', 10, 'error');
     }
 
@@ -74,18 +74,18 @@ class ObjectStorageErrorExplainerServiceTest extends TestCase
      * One third party's error text explaining another's: this used to append
      * the AI provider's own HTTP body onto the gallery configuration page.
      */
-    public function testTheLlmFailuresTextNeverReachesTheGalleryExceptionsOwnMessage(): void
+    public function testTheLlmFailuresTextNeverReachesTheStorageLocationExceptionsOwnMessage(): void
     {
         $technical = new LlmException('HTTP 429 — {"error":{"message":"rate_limit_exceeded for org-abc"}}');
         $llmConnector = $this->createMock(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->method('complete')->willThrowException($technical);
-        $service = new ObjectStorageErrorExplainerService($llmConnector);
+        $service = new ObjectStorageErrorExplainer($llmConnector);
 
         try {
             $service->explain('custom', 'https://example.com', '', 'bucket', 'AK', 10, 'error');
-            self::fail('Expected a GalleryException.');
-        } catch (GalleryException $e) {
+            self::fail('Expected a StorageLocationException.');
+        } catch (StorageLocationException $e) {
             self::assertStringNotContainsString('rate_limit_exceeded', $e->getMessage());
             self::assertStringNotContainsString('HTTP 429', $e->getMessage());
             self::assertSame($technical, $e->getPrevious());
