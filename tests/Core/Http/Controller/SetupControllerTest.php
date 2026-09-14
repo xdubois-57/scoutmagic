@@ -1833,30 +1833,83 @@ class SetupControllerTest extends TestCase
 
     public function testValidateFormDataAllowsEmptyDmarcReportEmail(): void
     {
-        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
-        $method = new \ReflectionMethod(SetupController::class, 'validateFormData');
-        $method->setAccessible(true);
-
         $data = $this->validFormData();
         $data['dmarc_report_email'] = '';
 
-        $errors = $method->invoke($controller, $data, false);
-
-        $this->assertArrayNotHasKey('dmarc_report_email', $errors);
+        $this->assertArrayNotHasKey('dmarc_report_email', $this->validate($data, true));
     }
 
     public function testValidateFormDataStillRejectsAnInvalidNonEmptyDmarcReportEmail(): void
+    {
+        $data = $this->validFormData();
+        $data['dmarc_report_email'] = 'not-an-email';
+
+        $this->assertArrayHasKey('dmarc_report_email', $this->validate($data, true));
+    }
+
+    /**
+     * The wizard asks for the mail identity ONCE — a site has to be able
+     * to send before anybody can open a configuration page — and then
+     * stops: those fields belong to « Courrier sortant ›
+     * Authentification » (roadmap IT-03). The form no longer renders
+     * them on an installed site, so validating them here would refuse a
+     * save over fields nobody was shown.
+     */
+    public function testTheMailIdentityIsNoLongerValidatedOnAConfigUpdate(): void
+    {
+        $data = $this->validFormData();
+        $data['mail_from_address'] = '';
+        $data['mail_from_name'] = '';
+        $data['dkim_selector'] = '';
+        $data['dmarc_report_email'] = 'not-an-email';
+
+        $errors = $this->validate($data, false);
+
+        $this->assertArrayNotHasKey('mail_from_address', $errors);
+        $this->assertArrayNotHasKey('mail_from_name', $errors);
+        $this->assertArrayNotHasKey('dkim_selector', $errors);
+        $this->assertArrayNotHasKey('dmarc_report_email', $errors);
+    }
+
+    public function testTheFirstRunStillRefusesToStartWithoutAnExpeditionAddress(): void
+    {
+        $data = $this->validFormData();
+        $data['mail_from_address'] = '';
+
+        $this->assertArrayHasKey('mail_from_address', $this->validate($data, true));
+    }
+
+    /**
+     * And the refusal is not only in the template: a crafted POST must
+     * not be able to edit an address the configuration page owns.
+     */
+    public function testAConfigUpdateNeverWritesTheMailIdentitySettings(): void
+    {
+        $source = file_get_contents(dirname(__DIR__, 4) . '/core/Http/Controller/SetupController.php');
+        $this->assertNotFalse($source);
+
+        $matched = preg_match('/\$nonSecretKeys = \[([^\]]*)\]/', $source, $m);
+        $this->assertSame(1, $matched);
+
+        foreach (['mail_from_address', 'mail_from_name', 'dkim_selector', 'dmarc_report_email'] as $key) {
+            $this->assertStringNotContainsString($key, $m[1]);
+        }
+    }
+
+    /**
+     * @param array<string, string> $data
+     * @return array<string, string>
+     */
+    private function validate(array $data, bool $isFirstRun): array
     {
         $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
         $method = new \ReflectionMethod(SetupController::class, 'validateFormData');
         $method->setAccessible(true);
 
-        $data = $this->validFormData();
-        $data['dmarc_report_email'] = 'not-an-email';
+        /** @var array<string, string> $errors */
+        $errors = $method->invoke($controller, $data, $isFirstRun);
 
-        $errors = $method->invoke($controller, $data, false);
-
-        $this->assertArrayHasKey('dmarc_report_email', $errors);
+        return $errors;
     }
 
     /**

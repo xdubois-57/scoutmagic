@@ -1,0 +1,345 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  Courrier sortant › Authentification (roadmap IT-03).
+
+  Two things live here and nowhere else: the addresses the site sends
+  under, and the DNS records that let other operators believe them. The
+  installation wizard keeps the initial entry — a site has to be able to
+  send before anybody opens a configuration page — and points here
+  afterwards.
+
+  The four-roles table is the point of the page. One address plays all
+  four roles on nearly every installation, which is exactly why the
+  distinction has to be written down: nobody works out on their own that
+  SPF is checked against the third of those and not the first, and the
+  one moment the question comes up is the moment they are reading this.
+#}
+{% extends 'base.html.twig' %}
+{% block title %}Authentification — {{ site_name }}{% endblock %}
+{% block content %}
+{% include 'partials/page_header.html.twig' with {
+    title: 'Authentification',
+    subtitle: "Sous quelle adresse le site écrit, et comment les autres opérateurs vérifient que c'est bien lui.",
+} only %}
+
+{% include 'config/outbound_mail/_nav.html.twig' %}
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h5">Adresses</h2>
+        <form method="post" action="{{ authentication_url }}">
+            {{ csrf_field()|raw }}
+
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label for="mail_from_address" class="form-label">Adresse d'expédition</label>
+                    <input type="email" class="form-control" id="mail_from_address" name="mail_from_address"
+                           value="{{ identity.from_address }}" required autocomplete="off">
+                    <div class="form-text">L'adresse sous laquelle partent tous les messages du site.</div>
+                </div>
+
+                <div class="col-md-6">
+                    <label for="mail_from_name" class="form-label">Nom d'expédition</label>
+                    <input type="text" class="form-control" id="mail_from_name" name="mail_from_name"
+                           value="{{ identity.from_name }}" required autocomplete="off">
+                    <div class="form-text">Ce que la personne lit avant l'adresse, dans sa boîte.</div>
+                </div>
+
+                <div class="col-md-6">
+                    <label for="mail_reply_address" class="form-label">
+                        Adresse de réponse <span class="text-body-secondary fw-normal">(facultative)</span>
+                    </label>
+                    <input type="email" class="form-control" id="mail_reply_address" name="mail_reply_address"
+                           value="{{ identity.reply_address }}" placeholder="{{ identity.from_address }}"
+                           autocomplete="off">
+                    <div class="form-text">
+                        Laissez vide pour que les réponses reviennent à l'adresse d'expédition, ce qui est le cas
+                        le plus courant. Renseignez-la si l'adresse d'expédition n'est relevée par personne.
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <label for="dmarc_report_email" class="form-label">
+                        Adresse des rapports DMARC <span class="text-body-secondary fw-normal">(facultative)</span>
+                    </label>
+                    <input type="email" class="form-control" id="dmarc_report_email" name="dmarc_report_email"
+                           value="{{ identity.dmarc_report_email }}" placeholder="{{ identity.from_address }}"
+                           autocomplete="off">
+                    <div class="form-text">
+                        Les autres opérateurs y envoient un résumé périodique des messages reçus en votre nom.
+                        Sans adresse, aucun rapport n'est demandé — et rien ne cesse de fonctionner pour autant.
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <label for="dkim_selector" class="form-label">Sélecteur DKIM</label>
+                    <input type="text" class="form-control" id="dkim_selector" name="dkim_selector"
+                           value="{{ identity.dkim_selector }}" pattern="[a-z0-9]+" required autocomplete="off">
+                    <div class="form-text">
+                        L'identifiant technique de la clé de signature, présent dans l'enregistrement DNS
+                        correspondant. Le changer suppose de republier cet enregistrement.
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-3">
+                <button type="submit" class="btn btn-primary">Enregistrer</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h5">Ce que chaque adresse fait</h2>
+        <p class="text-body-secondary small">
+            Une seule adresse joue les quatre rôles sur presque toutes les installations, et c'est très bien
+            ainsi. Le tableau existe pour le moment où ce n'est plus le cas — et parce que le troisième rôle
+            décide de la vérification SPF, ce que rien d'autre ne dit.
+        </p>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th scope="col">Rôle</th>
+                        <th scope="col">Adresse</th>
+                        <th scope="col">Provenance</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for role in roles %}
+                        <tr>
+                            <th scope="row" class="fw-normal">
+                                {{ role.label }}
+                                <div class="small text-body-secondary">{{ role.explanation }}</div>
+                            </th>
+                            <td class="text-break">
+                                {% if role.address %}
+                                    <code>{{ role.address }}</code>
+                                {% else %}
+                                    <span class="text-body-secondary">—</span>
+                                {% endif %}
+                            </td>
+                            <td class="small text-body-secondary">{{ role.source }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h5">Les retours arrivent-ils ?</h2>
+        <p class="text-body-secondary small">
+            Le site s'écrit à lui-même et regarde si le message revient dans une boîte relevée. C'est un
+            aller-retour réel, et pas une comparaison d'adresses : une adresse d'unité est très souvent un alias
+            qui délivre dans une boîte portant un autre nom, et comparer les textes déclencherait une alerte sur
+            une installation parfaitement saine.
+        </p>
+
+        {% if returns_possible %}
+            <p class="text-body-secondary small">
+                {{ watched_mailboxes }} boîte{{ watched_mailboxes > 1 ? 's' : '' }} du courrier entrant
+                {{ watched_mailboxes > 1 ? 'sont ouvertes' : 'est ouverte' }} à cette vérification : le message
+                sera reconnu s'il arrive dans l'une d'elles.
+            </p>
+        {% elseif returns_need_scope %}
+            <p class="text-warning small">
+                Des boîtes sont relevées, mais <strong>aucune n'est ouverte à « Courrier sortant »</strong> — le
+                message partirait sans que rien ne puisse le voir revenir. Ouvrez-lui une boîte depuis
+                <a href="/config/courrier-entrant">Courrier entrant</a>.
+            </p>
+        {% else %}
+            <p class="text-body-secondary small">
+                La vérification est impossible : elle a besoin du module « Courrier entrant », qui relève les
+                boîtes. Envoyer du courrier ne dépend pas de lui — le reste de cette page fonctionne.
+            </p>
+        {% endif %}
+
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th scope="col">Adresse</th>
+                        <th scope="col">État</th>
+                        <th scope="col">Détail</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for entry in returns %}
+                        <tr>
+                            <th scope="row" class="fw-normal text-break"><code>{{ entry.address }}</code></th>
+                            <td><span class="badge text-bg-{{ entry.badge }}">{{ entry.label }}</span></td>
+                            <td class="small text-body-secondary">
+                                {% if entry.received_at %}
+                                    Revenu le {{ entry.received_at }}{% if entry.mailbox %} dans « {{ entry.mailbox }} »{% endif %}.
+                                {% elseif entry.sent_at %}
+                                    Envoyé le {{ entry.sent_at }}.
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% else %}
+                        <tr>
+                            <td colspan="3" class="text-body-secondary small">
+                                Aucune adresse de retour renseignée.
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if returns_possible and returns is not empty %}
+            <form method="post" action="{{ return_check_url }}" class="mt-3">
+                {{ csrf_field()|raw }}
+                <button type="submit" class="btn btn-outline-secondary btn-sm">Lancer la vérification</button>
+            </form>
+            <div class="form-text">
+                Un message part vers chaque adresse ci-dessus. L'état passe à « vérifié » dès que le relevé des
+                boîtes l'a vu revenir.
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h5">Enregistrements DNS</h2>
+
+        {% if spf_domain %}
+            <p class="text-body-secondary small">
+                Le SPF est vérifié sur <code>{{ spf_domain }}</code> — le domaine du retour des rebonds, pas
+                celui de l'expéditeur affiché. La signature DKIM, elle, porte sur
+                <code>{{ dkim_domain }}</code>.
+            </p>
+        {% endif %}
+
+        {% if sending_hosts is not empty %}
+            <p class="text-body-secondary small">
+                L'enregistrement SPF doit autoriser <strong>tous</strong> les relais de vos chaînes, pas
+                seulement le premier : le jour où le premier tombe, le message part par le suivant, et un SPF
+                qui ne le nomme pas fait échouer exactement les messages que le repli devait sauver. Relais
+                actuellement actifs : {% for host in sending_hosts %}<code>{{ host }}</code>{% if not loop.last %}, {% endif %}{% endfor %}.
+            </p>
+        {% elseif sending_hosts_unreadable %}
+            <p class="text-warning small">
+                La liste des relais n'a pas pu être lue : la vérification SPF ci-dessous ne peut rien
+                affirmer tant que c'est le cas.
+            </p>
+        {% else %}
+            <p class="text-body-secondary small">
+                Aucun relais actif : les messages partent du serveur lui-même. Votre enregistrement SPF doit
+                l'autoriser — par <code>a</code>, par <code>mx</code>, ou par l'adresse du serveur — et cette
+                page ne peut pas le vérifier pour vous : le dire supposerait d'évaluer l'adresse du serveur
+                contre l'enregistrement entier.
+            </p>
+        {% endif %}
+
+        <h3 class="h6 mt-3">Clé DKIM</h3>
+        {% if has_dkim_key %}
+            <div class="input-group input-group-sm mb-2">
+                <input type="text" class="form-control font-monospace" value="{{ dkim_public_key }}" readonly
+                       id="dkim-pubkey-display" aria-label="Clé publique DKIM">
+                <button type="button" class="btn btn-outline-secondary btn-copy-value"
+                        data-copy-target="dkim-pubkey-display">Copier</button>
+            </div>
+        {% else %}
+            <p class="text-body-secondary small">
+                Aucune clé DKIM n'a encore été générée — elle l'est à la fin de l'installation. Sans elle,
+                l'enregistrement DKIM ci-dessous n'a pas de valeur à publier.
+            </p>
+        {% endif %}
+
+        <form method="post" action="{{ dns_check_url }}" class="mt-2">
+            {{ csrf_field()|raw }}
+            <button type="submit" class="btn btn-outline-secondary btn-sm">Vérifier les enregistrements</button>
+        </form>
+        <div class="form-text">
+            La vérification interroge le DNS en direct ; elle n'est pas lancée à l'ouverture de la page pour
+            ne pas la faire attendre un résolveur qui ne répond pas. Le résultat est conservé avec sa date.
+        </div>
+
+        {% if dns is null %}
+            <p class="text-body-secondary small mt-3 mb-0">
+                Les enregistrements n'ont jamais été vérifiés depuis cette page.
+            </p>
+        {% else %}
+            <hr>
+            <p class="text-body-secondary small">
+                Relevé du {{ dns.taken_at }}. Chez la plupart des hébergeurs, la zone DNS demande un
+                <strong>Type</strong>, un <strong>Nom</strong> (parfois « Enregistrement » ou « Hôte ») et une
+                <strong>Valeur</strong>. « @ » désigne la racine du domaine. Un domaine ne peut porter qu'un
+                seul enregistrement SPF et qu'un seul <code>_dmarc</code> : la valeur proposée intègre celle
+                déjà publiée plutôt que d'en ajouter une seconde — remplacez, n'ajoutez pas.
+            </p>
+
+            {% for record in dns.records %}
+                <div class="border-bottom pb-2 mb-3 small">
+                    <strong>{{ record.label }}</strong>
+                    {% if record.key_missing %}
+                        <span class="badge text-bg-warning">Clé DKIM requise</span>
+                        <div class="text-warning">
+                            Générez d'abord la clé DKIM, puis relancez cette vérification.
+                        </div>
+                    {% elseif record.unverifiable %}
+                        <span class="badge text-bg-secondary">Non vérifiable</span>
+                        <div class="text-body-secondary">
+                            Un enregistrement est publié, mais sans relais à y chercher cette page ne peut pas
+                            dire s'il autorise ce site. Sa valeur actuelle est reprise ci-dessous.
+                        </div>
+                        {% if record.actual %}
+                            <div class="mt-1">
+                                <span class="text-body-secondary">Valeur actuelle :</span>
+                                <code class="text-break">{{ record.actual }}</code>
+                            </div>
+                        {% endif %}
+                    {% elseif record.not_requested %}
+                        <span class="badge text-bg-secondary">Non demandé</span>
+                        <div class="text-body-secondary">
+                            Aucune adresse de rapport renseignée — aucune modification de votre DNS n'est
+                            nécessaire pour cela.
+                        </div>
+                    {% else %}
+                        {% if record.exists %}
+                            <span class="badge text-bg-success">En place</span>
+                        {% else %}
+                            <span class="badge text-bg-warning">Manquant ou incomplet</span>
+                        {% endif %}
+                        <div class="mt-1">
+                            <span class="text-body-secondary">Type :</span> <code>TXT</code>
+                            &middot;
+                            <span class="text-body-secondary">Nom :</span> <code>{{ record.name }}</code>
+                            &middot;
+                            <span class="text-body-secondary">Nom complet :</span>
+                            <code class="text-break">{{ record.host }}</code>
+                        </div>
+                        {% if record.expected %}
+                            <div class="input-group input-group-sm mt-1">
+                                <input type="text" class="form-control form-control-sm font-monospace"
+                                       value="{{ record.expected }}" readonly
+                                       id="dns-expected-{{ record.key }}"
+                                       aria-label="Valeur attendue pour {{ record.label }}">
+                                <button type="button" class="btn btn-outline-secondary btn-sm btn-copy-value"
+                                        data-copy-target="dns-expected-{{ record.key }}">Copier</button>
+                            </div>
+                        {% endif %}
+                        {% if record.actual %}
+                            <div class="mt-1">
+                                <span class="text-body-secondary">Valeur actuelle :</span>
+                                <code class="text-break">{{ record.actual }}</code>
+                            </div>
+                        {% endif %}
+                    {% endif %}
+                </div>
+            {% endfor %}
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

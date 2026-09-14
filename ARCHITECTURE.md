@@ -4016,6 +4016,93 @@ lifetime and the abandoned-message retention are two ordinary scalars and
 live on Configuration > Réglages like any other, because neither needs a
 context to be understood.
 
+**The dashboard is the section's own URL, and the separation on it is the
+point.** `/config/courrier-sortant` answers one question — do the
+messages leave, and does what comes back reach anybody — in three lines:
+domain authentication, one sending provider, returns collected. The
+advanced options sit underneath with their state and are never collapsed
+behind a toggle: hiding them makes them unfindable, and levelling them
+with the three drowns the message. It also states what it cannot see —
+« Un message classé en indésirables n'apparaît nulle part ici : il a été
+accepté » — because three green lines with no such sentence let somebody
+conclude that all is well while a provider files the lot as spam.
+
+**One address, four roles** (`Core\Mail\MailIdentity`). A message names
+an address four times over and they are four different questions: the
+visible `From:`, the `Reply-To:`, the envelope sender (bounces, and the
+domain SPF is evaluated on), and the `rua=` tag of the DMARC record. One
+address answering all four is the ordinary configuration and a perfectly
+good one — which is exactly why the distinction has to be written down
+somewhere, because nobody works it out on their own and the one moment it
+matters is the moment they are reading this screen.
+
+That class is also the **single authority on which address plays which
+role**, and it exists because the answer used to be spread over
+`MailService`'s send loop, a line of `setup.js` splitting the From address
+on `@`, and nothing at all for the reply address. `spfDomain()` follows
+the envelope sender and nothing else: SPF authorises a sending host for
+the domain of the `MAIL FROM` (RFC 7208 §2.4), so checking the `From:`
+domain is right only for as long as the two agree, and checking the reply
+or DMARC-report domain — either of which may legitimately point at
+another provider — gives a confident wrong answer. The two DID already
+agree, because `MailService` assigns `$mail->Sender` unconditionally, a
+mailing's own sender override included; nothing said so and nothing
+tested it, and `Tests\Core\Mail\MailIdentityTest` now pins it against
+the real service rather than against a string the test also wrote.
+
+**The DNS check moved out of the installation wizard** onto
+Authentification, and the wizard keeps only the initial entry — a site has
+to be able to send before anybody can open a configuration page. The same
+field editable in two places is what guarantees the two values will
+disagree, so `SetupController::handleConfigUpdate()` drops the mail
+identity from the keys it writes rather than trusting the template not to
+offer them. Two things changed in the move. The lookup is an explicit
+POST-and-redirect rather than something a page load does — it reaches the
+network and writes down what came back, neither of which belongs on a GET
+(the same shape as `/config/maintenance/update/check-now`), and a resolver
+that is not answering takes as long as it takes on the one page somebody
+opens when mail is already broken. And `DnsVerifier::checkSpfForHosts()`
+now knows about the whole chain — a record naming only the first relay
+fails on exactly the messages the fallback exists to save, so every active
+relay has to be in it.
+
+`Core\Mail\DnsCheckMemory` keeps the **whole** reading, suggested values
+included, and every screen renders that rather than a lookup of its own.
+Three booleans would have been enough for the dashboard's dated line; they
+would not have survived the redirect, and the records are what somebody is
+halfway through copying into their registrar's form.
+
+**Do the returns arrive?** answered by a real round trip
+(`Core\Mail\Feedback`): the site writes to its own return address and
+waits to see the message land in a box `inbound_mail` collects. The
+obvious implementation — compare the configured address with the mailbox
+addresses — is wrong in the ordinary case, because a unit's
+`info@unite.be` is very often an alias delivering into a box the provider
+calls something else, and the comparison would raise a red alert on a
+healthy installation. Three states, and « jamais vérifié » is one of them
+rather than a silence (the precedent is
+`Modules\SupportDashboard\Service\MailProbeService`, whose whole point is
+the same).
+
+**Changing an address resets its state, and there is no reset code.** The
+state is stored and looked up BY the address — encrypted, found through
+its blind index — so a new address simply has no row. A reset written as
+a method is a reset somebody forgets to call from the second place that
+edits an address; `forgetAllExcept()` then only has to stop the site
+keeping a copy of an address it no longer uses.
+
+**And the module stays optional (D2).** `ReturnPathVerifier` takes
+`Modules\InboundMail\Api\InboundMailInterface` as a nullable dependency
+(§7.5); with the module disabled the verification answers « impossible »,
+which is a state and not an error, and every other sub-page works
+unchanged. `ReturnPathConsumer` implements the module's own
+`Api\MessageConsumerInterface` — the arrow the boundary test allows, and
+the composition root builds it only inside the branch that runs when the
+module is enabled. It claims nothing: a message it recognises is recorded
+against its probe and answered `nothing()`, so the ordinary
+unassociated-mail retention removes it and no triage list gains a row for
+a message the site sent to itself.
+
 ### 8.107 Storage locations (`Core\Storage\Location`)
 
 **One declared destination for bytes, and every consumer picks one.** The same idea used to be written twice, with two incompatible models: the gallery had `gallery_storage_locations` — N rows, a `StorageBackendInterface`, a cached health column — while the off-site backup had a dozen flat `SettingService` keys, a `RemoteBackupTarget` interface and a `remote_backup_last_error` setting. A single destination in flat settings on one side, N destinations in a table on the other. The second form is the right one, and this is it, generalised.

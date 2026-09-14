@@ -261,11 +261,16 @@ class SchedulerBootstrapTest extends TestCase
         $consumers = (new \ReflectionProperty(\Modules\InboundMail\Service\MessageConsumerRegistry::class, 'consumers'))
             ->getValue($registry);
 
-        $this->assertCount(2, $consumers);
-        $this->assertInstanceOf(\Modules\Rental\Mail\RentalMessageConsumer::class, $consumers[0]);
+        $this->assertCount(3, $consumers);
+        // The core's own round trip is registered unconditionally — it
+        // belongs to the core, not to a module, so there is no module id
+        // to test for (roadmap IT-03). It claims nothing, so its position
+        // is immaterial.
+        $this->assertInstanceOf(\Core\Mail\Feedback\ReturnPathConsumer::class, $consumers[0]);
+        $this->assertInstanceOf(\Modules\Rental\Mail\RentalMessageConsumer::class, $consumers[1]);
         // Last, and load-bearing: first-claim-wins, and a dedicated camps
         // mailbox claims everything it is offered.
-        $this->assertInstanceOf(\Modules\Camps\Mail\CampsMessageConsumer::class, $consumers[1]);
+        $this->assertInstanceOf(\Modules\Camps\Mail\CampsMessageConsumer::class, $consumers[2]);
     }
 
     public function testTheSyncFactoryIsNotRegisteredWhenInboundMailIsDisabled(): void

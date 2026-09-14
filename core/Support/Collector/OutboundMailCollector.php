@@ -8,6 +8,12 @@ declare(strict_types=1);
 
 namespace Core\Support\Collector;
 
+use Core\Config\SettingService;
+use Core\Mail\DnsCheckMemory;
+use Core\Mail\Feedback\ReturnPathVerifier;
+use Core\Mail\Feedback\ReturnProbeRepository;
+use Core\Mail\Feedback\ReturnState;
+use Core\Mail\MailIdentity;
 use Core\Mail\Transport\DeferredMailQueue;
 use Core\Mail\Transport\DeferredMailRepository;
 use Core\Mail\Transport\LaneChainRepository;
@@ -17,6 +23,7 @@ use Core\Mail\Transport\MailProviderDirectory;
 use Core\Mail\Transport\MailReserve;
 use Core\Mail\Transport\ProviderHealthRepository;
 use Core\Support\SupportCollectorContext;
+use Modules\InboundMail\Api\InboundMailInterface;
 use Core\Support\SupportCollectorInterface;
 
 /**
@@ -64,7 +71,17 @@ class OutboundMailCollector implements SupportCollectorInterface
         private ?ProviderHealthRepository $health = null,
         private ?MailReserve $reserve = null,
         private ?DeferredMailRepository $deferred = null,
-        private ?DeferredMailQueue $queue = null
+        private ?DeferredMailQueue $queue = null,
+        private ?SettingService $settings = null,
+        private ?ReturnProbeRepository $returns = null,
+        /**
+         * Read-only, and the contrast with `$returns` is the point: the
+         * rows say what a probe found, this says whether a probe could
+         * have been sent at all. Neither can send one — a support package
+         * must not be able to put mail on the wire while it is being
+         * assembled.
+         */
+        private ?InboundMailInterface $inboundMail = null
     ) {
     }
 
@@ -135,6 +152,10 @@ class OutboundMailCollector implements SupportCollectorInterface
         }
 
         foreach ($this->queueLines() as $line) {
+            $lines[] = $line;
+        }
+
+        foreach ($this->authenticationLines() as $line) {
             $lines[] = $line;
         }
 
@@ -228,6 +249,112 @@ class OutboundMailCollector implements SupportCollectorInterface
 
             $lines[] = $provider->name;
             $lines[] = '  ' . $reserve->provenance();
+        }
+
+        $lines[] = '';
+
+        return $lines;
+    }
+
+    /**
+     * The domain's own authentication, and whether what comes back
+     * arrives (roadmap IT-03).
+     *
+     * **Domains, states and dates — never an address.** A domain name is
+     * a server and is exactly what a remote diagnosis needs; an address
+     * is a person, and this file goes to a third party. So the return
+     * verification is reported per ROLE (« Expédition », « Réponses »)
+     * with its state and its date, and the address that role holds stays
+     * out of the archive entirely.
+     *
+     * The DNS verdicts are the remembered ones, with the date they were
+     * taken: a support package must not make a DNS query of its own, and
+     * a reading that says how old it is beats a reading that pretends to
+     * be current.
+     *
+     * @return array<int, string>
+     */
+    private function authenticationLines(): array
+    {
+        if ($this->settings === null) {
+            return [];
+        }
+
+        $identity = MailIdentity::fromSettings($this->settings);
+
+        $lines = ['── Authentification du domaine ─────────────────────────────'];
+        $lines[] = 'domaine d\'enveloppe (SPF) : ' . ($identity->spfDomain() ?: '(aucune adresse d\'expédition)');
+        $lines[] = 'domaine de signature (DKIM) : ' . ($identity->dkimDomain() ?: '-');
+        $selector = (string) ($this->settings->get('dkim_selector') ?? '');
+        $lines[] = 'sélecteur DKIM : ' . ($selector ?: '(vide)');
+        $lines[] = 'adresse de réponse distincte : ' . ($identity->configuredReplyAddress() !== '' ? 'oui' : 'non');
+        $lines[] = 'rapports DMARC demandés : '
+            . ($identity->configuredDmarcReportAddress() !== '' ? 'oui' : 'non');
+
+        $verdicts = DnsCheckMemory::read($this->settings);
+        if ($verdicts === null) {
+            $lines[] = 'vérification DNS : jamais lancée depuis la page Authentification';
+        } else {
+            // Said in as many words, and not left to whoever reads the
+            // archive to compare this domain against the one printed
+            // fifteen lines up. A reading taken on the previous domain
+            // still lists three verdicts, and they answer a question
+            // nobody is asking any more.
+            $applies = $verdicts->describes($identity, $selector);
+            $lines[] = 'vérification DNS du ' . $verdicts->takenAt->format('Y-m-d H:i')
+                . ' sur ' . ($verdicts->spfDomain ?: '(inconnu)')
+                . ($applies ? '' : ' — PÉRIMÉE : les adresses ont changé depuis');
+            $lines[] = '  SPF   : ' . DnsCheckMemory::label($verdicts->state(DnsCheckMemory::SPF));
+            $lines[] = '  DKIM  : ' . DnsCheckMemory::label($verdicts->state(DnsCheckMemory::DKIM));
+            $lines[] = '  DMARC : ' . DnsCheckMemory::label($verdicts->state(DnsCheckMemory::DMARC));
+        }
+
+        $lines[] = '';
+
+        if ($this->returns === null) {
+            return $lines;
+        }
+
+        $lines[] = '── Vérification des retours ────────────────────────────────';
+
+        // « Jamais vérifié » and « vérification impossible » send a reader
+        // to opposite places — one is a button nobody pressed, the other
+        // is a module that is off — so the archive has to tell them apart
+        // exactly as the screen does. The rule itself lives on
+        // ReturnPathVerifier, in one copy.
+        if (!ReturnPathVerifier::possibleWith($this->inboundMail)) {
+            $lines[] = ReturnState::IMPOSSIBLE->label()
+                . ' : aucune boîte du courrier entrant ne relève pour « Courrier sortant ».';
+            $lines[] = '';
+
+            return $lines;
+        }
+
+        $now = new \DateTimeImmutable();
+        $roles = [
+            'Expédition (rebonds)' => $identity->bounceAddress(),
+            'Réponses' => $identity->replyAddress(),
+        ];
+
+        foreach ($roles as $label => $address) {
+            if ($address === '') {
+                $lines[] = sprintf('%-22s : (aucune adresse)', $label);
+                continue;
+            }
+
+            try {
+                $probe = $this->returns->findByAddress($address);
+            } catch (\Throwable) {
+                continue;
+            }
+
+            $lines[] = sprintf(
+                '%-22s : %s%s%s',
+                $label,
+                ReturnState::forProbe($probe, $now)->label(),
+                $probe !== null ? ', envoyé le ' . $probe->sentAt->format('Y-m-d H:i') : '',
+                $probe?->receivedAt !== null ? ', revenu le ' . $probe->receivedAt->format('Y-m-d H:i') : ''
+            );
         }
 
         $lines[] = '';
