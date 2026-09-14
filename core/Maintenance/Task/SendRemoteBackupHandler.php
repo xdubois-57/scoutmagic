@@ -253,7 +253,7 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
             // RuntimeExceptions, and all of them mean the same thing to
             // the run that catches them: nothing more left this server,
             // and the next run picks the same archive back up.
-            $this->recordFailure($carried, $context, $e->getMessage());
+            $this->recordFailure($carried, $context, $e->getMessage(), $backend);
         }
     }
 
@@ -578,8 +578,12 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
      *
      * @param array<string, mixed> $payload
      */
-    private function recordFailure(array $payload, TaskContext $context, string $reason): void
-    {
+    private function recordFailure(
+        array $payload,
+        TaskContext $context,
+        string $reason,
+        ?ResumableUploadBackend $backend = null
+    ): void {
         $failures = (int) ($payload['failures'] ?? 0) + 1;
         $ceiling = max(1, (int) ($context->settings->get(self::MAX_FAILURES_SETTING)
             ?: self::DEFAULT_MAX_FAILURES));
@@ -595,9 +599,22 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
                 $this->deleteArchive($context, $archivePath);
             }
 
+            // **The destination keeps its own note, and nothing else can
+            // reach it.** `beginPartial()` writes a `.scoutmagic-part-*`
+            // object beside the archive; every backend hides its own
+            // internal prefix from `list()`, so `RemoteRetention` cannot
+            // see that note and no sweep will ever remove it. Abandoning
+            // without this leaks one orphaned object per abandoned send,
+            // for ever, into a folder the operator owns.
+            //
+            // AFTER `deleteArchive()`, never before: the local file
+            // carries `master.key`, and a destination that refuses to
+            // answer must not be able to keep it on the disk.
+            $discarded = $this->discardPartial($payload, $backend);
+
             $context->journal->log('core', 'remote_backup_abandoned', 'warning',
                 'Envoi hors site abandonné après plusieurs échecs consécutifs',
-                ['failures' => $failures, 'error' => $reason]);
+                ['failures' => $failures, 'error' => $reason, 'partial_discarded' => $discarded]);
             $this->scheduleNext($context, []);
 
             return;
@@ -613,6 +630,41 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
         // may well have committed bytes before it did — under the old
         // payload this is exactly where that had to be guessed at.
         $this->scheduleAfter($context, 0, array_merge($payload, ['failures' => $failures]));
+    }
+
+    /**
+     * Throws away the note the destination is holding for a transfer no
+     * run will resume, and tells the caller whether it went.
+     *
+     * Returns false, rather than throwing, when the destination refuses:
+     * this is reached from the abandonment branch, whose remaining work
+     * — the journal line and rearming the chain — matters more than the
+     * note, and whose local half has already run. A destination that is
+     * unreachable now is also one that cannot be cleaned by any caller,
+     * so the alternative to a false here is an exception escaping a
+     * failure handler.
+     *
+     * Silent on the three earlier failure paths, which pass no backend:
+     * two of them fail *because* no backend could be built, and the
+     * third fails before the archive has a name, so there is nothing
+     * there to discard and nothing to discard it with.
+     *
+     * @param array<string, mixed> $payload
+     */
+    private function discardPartial(array $payload, ?ResumableUploadBackend $backend): bool
+    {
+        $remoteName = (string) ($payload['remote_name'] ?? '');
+        if ($backend === null || $remoteName === '') {
+            return false;
+        }
+
+        try {
+            $backend->discardPartial($remoteName);
+
+            return true;
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     /**

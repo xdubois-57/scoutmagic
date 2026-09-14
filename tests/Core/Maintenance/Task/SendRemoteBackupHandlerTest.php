@@ -608,6 +608,34 @@ final class SendRemoteBackupHandlerTest extends TestCase
         );
     }
 
+    /**
+     * And abandoning discards what the DESTINATION is holding, not only
+     * the local archive.
+     *
+     * `beginPartial()` leaves a note beside the archive under the
+     * backend's own internal prefix, and every backend hides that prefix
+     * from `list()` — so `RemoteRetention` cannot see the note and no
+     * sweep will ever reach it. Without this, one orphaned object is
+     * leaked into the operator's folder per abandoned send, permanently.
+     */
+    public function testAbandoningAlsoDiscardsWhatTheDestinationIsHolding(): void
+    {
+        $this->settings->values[SendRemoteBackupHandler::MAX_FAILURES_SETTING] = '2';
+        $archive = $this->archiveOf(1000);
+        $backend = new RecordingBackend($this);
+        $backend->failSendWith = 'Google a refus\u00e9 la tranche.';
+
+        $payload = $this->payloadFor($archive);
+        $this->runOnce($payload, $backend);
+        $next = $this->pending();
+        $this->assertNotNull($next);
+        $this->assertNotSame([], $backend->partials, 'nothing was begun, so this test proves nothing');
+
+        $this->runOnce($next['payload'], $backend);
+
+        $this->assertSame([], $backend->partials, 'the abandoned transfer was left on the destination');
+    }
+
     /** And the run after an abandonment starts from a wholly new session. */
     public function testTheRunAfterAnAbandonmentOpensAFreshSession(): void
     {
