@@ -1271,10 +1271,25 @@ class OutboundMailController extends AbstractController
 
         $lane = MailLane::tryFrom($request->getBody('lane') ?? '') ?? MailProbeSender::DEFAULT_LANE;
 
+        // **`0` is not a safe default here**, and it is the one field on
+        // this controller where that is true: `MailProvider::LOCAL_ID` IS
+        // zero, and the local send is unconditionally usable, so
+        // `(int) (… ?? 0)` on a missing or non-numeric value would resolve
+        // to a real relay instead of being refused — and the probe would
+        // quietly go out through the server's own `mail()` while the
+        // recorded row named it. That is the opposite of pinning the
+        // relay the operator chose, which is the feature.
+        $providerId = $request->getBody('provider_id');
+        if (!is_string($providerId) || !ctype_digit($providerId)) {
+            FlashMessage::set('error', 'Choisissez le fournisseur par lequel envoyer la sonde.');
+
+            return $this->redirect(self::PROBE_URL);
+        }
+
         try {
             $probe = $this->probes->send(
                 (string) ($request->getBody('destination') ?? ''),
-                (int) ($request->getBody('provider_id') ?? 0),
+                (int) $providerId,
                 $lane
             );
         } catch (MailProbeNotRecordedException $e) {

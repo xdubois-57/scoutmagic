@@ -46,6 +46,7 @@ class OutboundMailControllerTest extends TestCase
     private MailProviderRepository $providers;
     private LaneChainRepository $chains;
     private \Core\Mail\DkimManager $dkim;
+    private \Core\Mail\Probe\MailProbeRepository $mailProbes;
     private OutboundMailController $controller;
     private string $secretsDirectory = '';
     private SettingService $settings;
@@ -127,7 +128,38 @@ class OutboundMailControllerTest extends TestCase
                 // has to render without erroring (D2).
                 null
             ),
-            new JournalService(new JournalRepository($this->pdo))
+            new JournalService(new JournalRepository($this->pdo)),
+            // A REAL probe sender, not null. With null every probe action
+            // returns « la sonde n'est pas disponible » before touching
+            // anything — and a test asserting « no row was written » then
+            // passes for the wrong reason, whatever the code does. That
+            // is how a guard against sending through the wrong relay came
+            // to be verified by a page that never sends at all.
+            new \Core\Mail\Probe\MailProbeSender(
+                new \Core\Mail\MailService(
+                    'local',
+                    'info@unite.be',
+                    'Unité Test',
+                    'EX',
+                    $this->dkim,
+                    's2026',
+                    transport: $probeTransport = new class implements \Core\Mail\MailTransportInterface {
+                        public function deliver(
+                            \PHPMailer\PHPMailer\PHPMailer $mail,
+                            \Core\Mail\MailPurpose $purpose
+                        ): void {
+                            $mail->preSend();
+                        }
+                    }
+                ),
+                $directory,
+                new \Core\Mail\Transport\TransportConfigurator($connections),
+                $probeTransport,
+                $this->mailProbes = new \Core\Mail\Probe\MailProbeRepository($this->pdo, $encryption),
+                $twig,
+                new JournalService(new JournalRepository($this->pdo))
+            ),
+            $this->mailProbes
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -309,6 +341,33 @@ class OutboundMailControllerTest extends TestCase
 
         $this->assertStringContainsString('Aucune clé DKIM n’a été générée', $body);
         $this->assertStringNotContainsString('enregistrement en place', $body);
+    }
+
+    /**
+     * `0` is the one id on this page where a missing value is not merely
+     * absent but wrong: `MailProvider::LOCAL_ID` IS zero, and the local
+     * send is unconditionally usable. A blank `provider_id` casting to it
+     * would send the probe through the server's own `mail()` and record
+     * that as the road the operator chose — the exact opposite of pinning
+     * one relay, which is the whole feature.
+     */
+    public function testAProbeWithoutAProviderIsRefusedRatherThanSentThroughTheLocalRelay(): void
+    {
+        foreach (['', 'abc', '-1'] as $value) {
+            $this->controller->sendProbe($this->formRequest([
+                'destination' => 'vous@exemple.be',
+                'provider_id' => $value,
+                'lane' => 'bulk',
+            ]), []);
+
+            $statement = $this->pdo->query('SELECT COUNT(*) FROM mail_probes');
+            $this->assertNotFalse($statement);
+            $this->assertSame(
+                0,
+                (int) $statement->fetchColumn(),
+                "provider_id « {$value} » must be refused, never resolved to the local send."
+            );
+        }
     }
 
     /**
