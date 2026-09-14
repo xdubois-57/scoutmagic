@@ -51,11 +51,15 @@
             <p class="text-danger small mt-3 mb-0 d-none" data-push-invitation-error role="alert">
                 Une erreur est survenue. Vous pourrez réessayer depuis « Mon compte ».
             </p>
-            {# <output> rather than a <p role="status">: the element carries
-               the live region natively, which is what reaches a screen
-               reader on every device (SonarCloud Web:S6819). `d-block`
-               because <output> is inline by default — same pairing as the
-               notice above and as « Mon compte ». #}
+            {# An output element rather than a paragraph carrying the
+               status role: it is a live region natively, which is what
+               reaches a screen reader on every device (SonarCloud
+               Web:S6819). `d-block` because it is inline by default —
+               same pairing as the notice above and as « Mon compte ».
+
+               The attribute is spelled out in words here on purpose: the
+               HTML analyser does not know `{#` from markup, so a comment
+               quoting it raises the very finding it explains. #}
             <output class="text-success small mt-3 d-none d-block" data-push-invitation-success>
                 C'est fait : les notifications arriveront sur cet appareil.
             </output>

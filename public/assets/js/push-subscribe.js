@@ -18,7 +18,12 @@
 // Every function here resolves a STATUS STRING rather than throwing: both
 // callers have to tell "the browser said no" apart from "something broke"
 // in order to say the right sentence, and neither has anything to do with
-// an exception. IIFE/var style matches the rest of public/assets/js/.
+// an exception — and each is `async`, which is what lets every branch
+// return a plain status rather than one wrapped in Promise.resolve():
+// SonarCloud objects to a function whose returns disagree in type
+// (javascript:S3800) AND to wrapping a value to make them agree
+// (javascript:S7746), and awaiting satisfies both at once. IIFE/var style
+// matches the rest of public/assets/js/.
 (function () {
     var ENDPOINT = '/api/push-subscription';
 
@@ -108,33 +113,27 @@
      * @param {string} vapidPublicKey
      * @returns {Promise<'enabled' | 'denied' | 'error'>}
      */
-    function enable(vapidPublicKey) {
-        // Every branch of this callback resolves a promise rather than
-        // mixing a bare string with one: a chain assimilates both, but a
-        // function whose returns disagree in type is a function somebody
-        // reads twice (SonarCloud javascript:S3800).
-        return Notification.requestPermission().then(function (permission) {
+    async function enable(vapidPublicKey) {
+        try {
+            var permission = await Notification.requestPermission();
             if (permission !== 'granted') {
-                return Promise.resolve('denied');
+                return 'denied';
             }
 
-            return registration()
-                .then(function (reg) {
-                    return reg.pushManager.subscribe({
-                        userVisibleOnly: true,
-                        applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
-                    });
-                })
-                .then(postSubscription)
-                .then(function (result) {
-                    // A transport failure and an HTTP error page both land
-                    // here as a data-less envelope — same outcome as a
-                    // server-refused subscription.
-                    return result.data?.success ? 'enabled' : 'error';
-                });
-        }).catch(function () {
+            var reg = await registration();
+            var subscription = await reg.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
+            });
+            var result = await postSubscription(subscription);
+
+            // A transport failure and an HTTP error page both land here as
+            // a data-less envelope — same outcome as a server-refused
+            // subscription.
+            return result.data?.success ? 'enabled' : 'error';
+        } catch {
             return 'error';
-        });
+        }
     }
 
     /**
@@ -144,28 +143,21 @@
      *
      * @returns {Promise<'disabled' | 'error'>}
      */
-    function disable() {
-        return currentSubscription()
-            .then(function (subscription) {
-                if (!subscription) {
-                    // The cast keeps the literal from widening to `string`
-                    // through Promise.resolve(), which is what this
-                    // function's own @returns promises.
-                    return Promise.resolve(/** @type {'disabled'} */ ('disabled'));
-                }
-                var endpoint = subscription.endpoint;
+    async function disable() {
+        try {
+            var subscription = await currentSubscription();
+            if (!subscription) {
+                return 'disabled';
+            }
 
-                return subscription.unsubscribe()
-                    .then(function () {
-                        return window.ScoutMagicApi.postJson(ENDPOINT, { endpoint: endpoint }, { method: 'DELETE' });
-                    })
-                    .then(function (result) {
-                        return result && !result.ok ? 'error' : 'disabled';
-                    });
-            })
-            .catch(function () {
-                return 'error';
-            });
+            var endpoint = subscription.endpoint;
+            await subscription.unsubscribe();
+            var result = await window.ScoutMagicApi.postJson(ENDPOINT, { endpoint: endpoint }, { method: 'DELETE' });
+
+            return result && !result.ok ? 'error' : 'disabled';
+        } catch {
+            return 'error';
+        }
     }
 
     window.ScoutMagicPush = {

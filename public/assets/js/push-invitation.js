@@ -111,18 +111,18 @@
      *
      * @returns {Promise<void>}
      */
-    function answerByEnabling() {
-        return push.enable(vapidPublicKey).then(function (status) {
-            if (status === 'enabled') {
-                return settle('enabled').then(markEnabled);
-            }
-            // Denied is final for this device — the browser will not ask
-            // again — so the dialog stays open on its explanation and the
-            // dismissal that follows records « Plus tard », which is what
-            // it now means.
-            show(status === 'denied' ? deniedNotice : errorNotice);
-            return Promise.resolve();
-        });
+    async function answerByEnabling() {
+        var status = await push.enable(vapidPublicKey);
+        if (status === 'enabled') {
+            await settle('enabled');
+            markEnabled();
+            return;
+        }
+
+        // Denied is final for this device — the browser will not ask again
+        // — so the dialog stays open on its explanation and the dismissal
+        // that follows records « Plus tard », which is what it now means.
+        show(status === 'denied' ? deniedNotice : errorNotice);
     }
 
     if (enableButton) {
