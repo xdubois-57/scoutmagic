@@ -227,6 +227,17 @@ class DrainDeferredMailHandler implements TaskHandlerInterface
      * of personal data, and leaving them lying about would undo the point
      * of encrypting the queue at all (D18).
      *
+     * **A file that cannot be written stops the replay**, it is not
+     * skipped. `MailService::payloadFor()` refuses to queue a message it
+     * cannot capture whole, precisely so that `send()` never reports
+     * success for a message arriving without something the caller asked
+     * it to carry; dropping an attachment here would reintroduce that on
+     * the way out, and worse — the row is deleted on success, so the only
+     * remaining copy of the receipt would go with it, unrecorded. A full
+     * temporary directory is a reason to try again later, which is what
+     * throwing gets: `trySend()` catches it, and the message is
+     * rescheduled or abandoned like any other failure.
+     *
      * @param array<int, array{name: string, content: string}> $carried
      * @return array{files: array<int, array{path: string, name: string}>, temporary: array<int, string>}
      */
@@ -235,20 +246,31 @@ class DrainDeferredMailHandler implements TaskHandlerInterface
         $files = [];
         $temporary = [];
 
-        foreach ($carried as $attachment) {
-            $path = tempnam(sys_get_temp_dir(), 'scoutmagic-deferred-');
-            if ($path === false) {
-                continue;
-            }
+        try {
+            foreach ($carried as $attachment) {
+                $path = tempnam(sys_get_temp_dir(), 'scoutmagic-deferred-');
+                if ($path === false) {
+                    throw new \RuntimeException('Impossible de créer un fichier temporaire pour une pièce jointe.');
+                }
 
-            if (file_put_contents($path, $attachment['content']) === false) {
+                $temporary[] = $path;
+
+                if (file_put_contents($path, $attachment['content']) === false) {
+                    throw new \RuntimeException('Impossible d’écrire une pièce jointe sur le disque.');
+                }
+
+                @chmod($path, 0600);
+                $files[] = ['path' => $path, 'name' => $attachment['name']];
+            }
+        } catch (\Throwable $e) {
+            // The ones already written go now: `trySend()`'s `finally`
+            // cleans up what this method RETURNED, and it is about to
+            // receive an exception instead.
+            foreach ($temporary as $path) {
                 @unlink($path);
-                continue;
             }
 
-            @chmod($path, 0600);
-            $temporary[] = $path;
-            $files[] = ['path' => $path, 'name' => $attachment['name']];
+            throw $e;
         }
 
         return ['files' => $files, 'temporary' => $temporary];

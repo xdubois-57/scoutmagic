@@ -216,7 +216,16 @@ class DrainDeferredMailHandlerTest extends TestCase
         }
     }
 
-    /** The same, when the send throws: the `finally` is the point. */
+    /**
+     * The same, when the send throws: the `finally` is the point.
+     *
+     * The neighbouring branch — a temporary file that cannot be WRITTEN,
+     * which now stops the replay instead of silently sending a message
+     * without its attachment — has no test here, and deliberately no fake
+     * one: `sys_get_temp_dir()` is resolved once per process, so a test
+     * cannot point it at an unwritable place after any other test has
+     * touched it. What is pinned is the half that is honest to pin.
+     */
     public function testAnAttachmentIsRemovedEvenWhenTheSendFails(): void
     {
         $this->queue(

@@ -688,6 +688,20 @@ dépensait huit tentatives de plus, sur une journée, à réapprendre ce que
 le relais avait déjà dit clairement. Il classe désormais la raison lui
 aussi.
 
+**Et la même règle manquait à la remise sur disque.** `materialise()`
+passait silencieusement une pièce jointe qu'il ne pouvait pas écrire :
+le message partait sans elle, était compté comme envoyé, et la ligne —
+seule copie restante du reçu — était supprimée. C'est exactement ce que
+`payloadFor()` refuse à la mise en file, réintroduit à la sortie. Un
+disque plein est une raison de réessayer plus tard, pas de livrer un
+message amputé : la méthode lève désormais.
+
+Cette branche n'a pas de test, et pas de faux test non plus :
+`sys_get_temp_dir()` est résolu une fois par processus, donc aucun test ne
+peut le pointer vers un endroit non inscriptible après qu'un autre y a
+touché. La lacune est écrite à côté du test voisin plutôt que masquée par
+une simulation qui n'en serait pas une.
+
 ### Reporté
 
 Rien de fonctionnel. La cadence « collante » après bascule, refusée en
