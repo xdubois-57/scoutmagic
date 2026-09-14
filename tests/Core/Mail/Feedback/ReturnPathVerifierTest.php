@@ -264,6 +264,8 @@ class ReturnPathVerifierTest extends TestCase
 
         $claimed = $verifier->claim(
             $sent[0]['subject'],
+            'info@unite.be',
+            ['info@unite.be'],
             7,
             $launchedAt->modify('+3 days'),
             $launchedAt->modify('+3 days')
@@ -274,6 +276,94 @@ class ReturnPathVerifierTest extends TestCase
             ReturnState::NEVER_ARRIVED,
             $verifier->stateFor('info@unite.be', $launchedAt->modify('+3 days'))['state']
         );
+    }
+
+    // ── a report ABOUT the probe is not the probe ─────────────────────
+
+    /**
+     * The failure this whole round trip exists to detect, and it was
+     * being announced as a success.
+     *
+     * When the reply address does not exist, the receiving server sends a
+     * non-delivery notification back to the ENVELOPE sender — which on
+     * this site is always the expedition address, and therefore very
+     * often a watched box. That notification quotes the original subject,
+     * key and all, so recognising the key alone marked the undeliverable
+     * address « vérifié ».
+     */
+    public function testANonDeliveryNotificationAboutTheProbeNeverCountsAsItsReturn(): void
+    {
+        $sent = [];
+        $verifier = $this->verifierWith($this->collectingGateway(), $this->mailServiceRecording($sent));
+        $verifier->launch(['info@unite.be', 'secretariat@unite.be']);
+
+        $probeToTheReplyAddress = $sent[1];
+        $this->assertSame('secretariat@unite.be', $probeToTheReplyAddress['to']);
+
+        // The NDR: addressed to the expedition address, quoting the
+        // subject of the message it could not deliver.
+        (new ReturnPathConsumer($verifier))->analyze($this->candidate(
+            'Undeliverable: ' . $probeToTheReplyAddress['subject'],
+            7,
+            'MAILER-DAEMON@relais.example',
+            ['info@unite.be']
+        ));
+
+        $this->assertSame(
+            ReturnState::WAITING,
+            $verifier->stateFor('secretariat@unite.be')['state'],
+            'An address that bounced must never read as verified.'
+        );
+    }
+
+    /**
+     * The second guard, for the relay that does put the failed recipient
+     * in its notification's own `To:` — enough to defeat the first check
+     * on its own.
+     */
+    public function testAMessageFromAMailSystemIsRefusedEvenWhenAddressedRight(): void
+    {
+        $sent = [];
+        $verifier = $this->verifierWith($this->collectingGateway(), $this->mailServiceRecording($sent));
+        $verifier->launch(['info@unite.be']);
+
+        foreach (['MAILER-DAEMON@relais.example', 'Postmaster@unite.be'] as $system) {
+            (new ReturnPathConsumer($verifier))->analyze($this->candidate(
+                'Undeliverable: ' . $sent[0]['subject'],
+                7,
+                $system,
+                ['info@unite.be']
+            ));
+
+            $this->assertSame(
+                ReturnState::WAITING,
+                $verifier->stateFor('info@unite.be')['state'],
+                $system . ' is a mail system talking to itself, not the message coming back.'
+            );
+        }
+    }
+
+    /**
+     * And the guard is not so tight that a real return misses: aliasing
+     * rewrites the envelope recipient, never the `To:` header, so a probe
+     * delivered into a box called something else still names the address
+     * it was sent to — which is the very case this round trip exists for.
+     */
+    public function testAProbeDeliveredThroughAnAliasStillCounts(): void
+    {
+        $sent = [];
+        $verifier = $this->verifierWith($this->collectingGateway(), $this->mailServiceRecording($sent));
+        $verifier->launch(['info@unite.be']);
+
+        // Landed in box 7, whose own address is boite@unite.be.
+        (new ReturnPathConsumer($verifier))->analyze($this->candidate(
+            $sent[0]['subject'],
+            7,
+            'info@unite.be',
+            ['info@unite.be']
+        ));
+
+        $this->assertSame(ReturnState::VERIFIED, $verifier->stateFor('info@unite.be')['state']);
     }
 
     public function testTheKeyTravelsInTheSubjectAndIsRecognisedThroughASubjectPrefix(): void
@@ -377,17 +467,24 @@ class ReturnPathVerifierTest extends TestCase
         return $mail;
     }
 
-    private function candidate(string $subject, int $mailboxId): CandidateMessage
-    {
+    /**
+     * @param list<string> $toEmails
+     */
+    private function candidate(
+        string $subject,
+        int $mailboxId,
+        string $fromEmail = 'info@unite.be',
+        array $toEmails = ['info@unite.be']
+    ): CandidateMessage {
         return new CandidateMessage(
             mailboxId: $mailboxId,
             subject: $subject,
-            fromEmail: 'info@unite.be',
+            fromEmail: $fromEmail,
             fromName: null,
             messageId: '<abc@unite.be>',
             inReplyTo: null,
             references: [],
-            toEmails: ['info@unite.be'],
+            toEmails: $toEmails,
             sentAt: new \DateTimeImmutable('2026-09-01 08:05:00'),
             bodyText: 'peu importe',
             bodyHtml: '<p>peu importe</p>'

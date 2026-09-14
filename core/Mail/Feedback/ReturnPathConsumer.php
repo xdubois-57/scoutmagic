@@ -54,7 +54,16 @@ final class ReturnPathConsumer implements MessageConsumerInterface
 
     public function analyze(CandidateMessage $message): AnalysisResult
     {
-        $this->verifier->claim($message->subject, $message->mailboxId, $message->sentAt);
+        // The sender and the recipients travel with the subject: the key
+        // alone cannot tell the probe coming back from a notification
+        // quoting it (see ReturnPathVerifier::claim()).
+        $this->verifier->claim(
+            $message->subject,
+            $message->fromEmail,
+            $message->toEmails,
+            $message->mailboxId,
+            $message->sentAt
+        );
 
         return AnalysisResult::nothing();
     }

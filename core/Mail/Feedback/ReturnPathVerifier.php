@@ -243,12 +243,16 @@ final class ReturnPathVerifier
     /**
      * Attach an arriving message to the round trip it answers.
      *
-     * Returns false for everything else in the box, which is the ordinary
+     * Returns null for everything else in the box, which is the ordinary
      * answer: this consumer claims nothing but the messages the site
-     * itself wrote.
+     * itself wrote, coming back.
+     *
+     * @param list<string> $toEmails every address the arriving message named
      */
     public function claim(
         string $subject,
+        string $fromEmail,
+        array $toEmails,
         int $mailboxId,
         \DateTimeImmutable $receivedAt,
         ?\DateTimeImmutable $now = null
@@ -262,6 +266,19 @@ final class ReturnPathVerifier
 
         $probe = $this->probes->findPending($key, $now);
         if ($probe === null) {
+            return null;
+        }
+
+        // **The message has to be the probe coming back, not a report
+        // about it.** A non-delivery notification quotes the original
+        // subject — « Undeliverable: Vérification des retours RET-… » —
+        // so the key alone cannot tell them apart, and the NDR for an
+        // undeliverable address lands in the box the ENVELOPE sender
+        // names, which on this site is the bounce address and therefore
+        // very often a watched box. Claiming it would report « vérifié »
+        // for an address that does not exist: the precise failure this
+        // whole round trip was built to detect, announced as a success.
+        if (!self::isAddressedTo($probe->address, $toEmails) || self::isFromAMailSystem($fromEmail)) {
             return null;
         }
 
@@ -361,6 +378,57 @@ final class ReturnPathVerifier
         // name here. A box that has since been deleted has no name left
         // to give, and null is the honest answer.
         return $this->watchedMailboxes()[$mailboxId] ?? null;
+    }
+
+    /**
+     * Whether the arriving message names the probed address among its own
+     * recipients.
+     *
+     * **Alias-safe, and that matters here more than anywhere.** The whole
+     * point of this round trip is that a unit's address is often an alias
+     * delivering into a box called something else — but aliasing rewrites
+     * the ENVELOPE recipient, never the `To:` header. The probe left with
+     * `To: info@unite.be` and arrives carrying it, whichever box it
+     * finally lands in. A notification ABOUT that message, by contrast, is
+     * addressed to whoever sent it.
+     *
+     * @param list<string> $toEmails
+     */
+    private static function isAddressedTo(string $address, array $toEmails): bool
+    {
+        $wanted = EncryptionService::normalizeEmailForIndex($address);
+        foreach ($toEmails as $recipient) {
+            if (EncryptionService::normalizeEmailForIndex((string) $recipient) === $wanted) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * A mail system talking to itself, rather than the message coming
+     * back.
+     *
+     * The second guard, for the relay that puts the failed recipient in
+     * the notification's own `To:` — rare, and enough to defeat the first
+     * check on its own. `postmaster` is reserved by RFC 5321 §4.5.1 and
+     * `mailer-daemon` is universal by convention; `Modules\InboundMail\
+     * Mime\BulkMailDetector` keeps the same two, which is not reachable
+     * from the core (§7.5) and is why they are spelled again here rather
+     * than shared.
+     *
+     * Deliberately this narrow: recognising a bounce properly means
+     * reading `multipart/report` and its status codes, and that is the
+     * subject of its own iteration. What is needed here is only « this is
+     * not my message coming back ».
+     */
+    private static function isFromAMailSystem(string $fromEmail): bool
+    {
+        $at = strpos($fromEmail, '@');
+        $localPart = strtolower(trim($at === false ? $fromEmail : substr($fromEmail, 0, $at)));
+
+        return in_array($localPart, ['mailer-daemon', 'postmaster'], true);
     }
 
     public static function subjectFor(string $key): string

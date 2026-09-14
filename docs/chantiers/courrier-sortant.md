@@ -974,6 +974,28 @@ la valeur stockée pour une clé que la requête ne porte pas, et prend un
 `''` au pied de la lettre. Envoyer une chaîne vide aurait testé l'envoi
 sans adresse d'expédition — ce que PHPMailer refuse net.
 
+**Et un rapport *sur* la sonde comptait comme la sonde.** `claim()`
+reconnaissait un retour à la seule présence de la clé dans le sujet. Or
+une notification de non-remise cite le sujet du message qu'elle n'a pas pu
+livrer — « Undeliverable: Vérification des retours RET-… » — et elle part
+vers l'expéditeur d'enveloppe, qui sur ce site est toujours l'adresse
+d'expédition, donc très souvent une boîte relevée. Adresse de réponse
+inexistante ⇒ le rebond revient dans la boîte surveillée ⇒ l'adresse morte
+était marquée **« vérifié »**. Le cas d'échec que tout l'aller-retour
+existe pour détecter, annoncé comme un succès.
+
+Deux gardes. Le message doit **nommer l'adresse sondée parmi ses
+destinataires** — un alias réécrit le destinataire d'enveloppe, jamais
+l'en-tête `To:`, donc une sonde délivrée dans une boîte portant un autre
+nom porte toujours l'adresse à laquelle elle a été envoyée, ce qui est
+précisément le cas que l'aller-retour sert. Et un message venant de
+`mailer-daemon` ou `postmaster` est refusé, pour le relais qui met le
+destinataire en échec dans le `To:` de sa propre notification.
+
+Volontairement étroit : reconnaître un rebond pour de bon suppose de lire
+un `multipart/report` et ses codes d'état, ce qui est le sujet d'IT-05. Ce
+qu'il faut ici est seulement « ceci n'est pas mon message qui revient ».
+
 ### Reporté
 
 - L'alignement DMARC d'un envoi « au nom de » (ci-dessus), à l'itération
