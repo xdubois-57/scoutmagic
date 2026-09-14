@@ -210,12 +210,25 @@ class AlbumRepository
      * delegated album whose `location_id` is null is not on *no* location,
      * it is on the default and nobody has written that down yet — the same
      * reading `GalleryStorageConsumer` applies.
+     *
+     * **The migration target counts, for the same reason it counts in
+     * {@see distinctLocationIds()} and one worse.** While a move is in
+     * flight `location_id` still names the SOURCE; the destination lives
+     * in `migration_target_id` until `completeMigration()` flips it. An
+     * answer that read only `location_id` would say « nobody is heading
+     * there » about an album whose files are being written there right
+     * now — and the caller would let an administrator give that location a
+     * permanent public URL. The album lands on it a minute later, and the
+     * serve-time guard then refuses to serve bytes that are already
+     * fetchable straight from the provider, which is the disclosure this
+     * whole mechanism exists to prevent rather than an inconvenience.
      */
     public function hasDelegatedAlbumsOn(int $locationId, bool $isDefault): bool
     {
-        $sql = 'SELECT 1 FROM gallery_albums WHERE owner_type IS NOT NULL AND type = ? AND location_id = ? LIMIT 1';
+        $sql = 'SELECT 1 FROM gallery_albums WHERE owner_type IS NOT NULL AND type = ? '
+            . 'AND (location_id = ? OR migration_target_id = ?) LIMIT 1';
         $stmt = $this->pdo->prepare($sql);
-        $stmt->execute([Album::TYPE_LOCAL, $locationId]);
+        $stmt->execute([Album::TYPE_LOCAL, $locationId, $locationId]);
         if ($stmt->fetchColumn() !== false) {
             return true;
         }

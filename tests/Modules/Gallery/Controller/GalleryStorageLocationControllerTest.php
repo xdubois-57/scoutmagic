@@ -282,6 +282,37 @@ class GalleryStorageLocationControllerTest extends TestCase
         $this->assertFalse($saved->servesPubliclyWithoutExpiry());
     }
 
+    public function testUpdateRefusesAPublicUrlWhileADelegatedAlbumIsBeingMigratedOntoIt(): void
+    {
+        // The window nothing covered. During a migration `location_id`
+        // still names the SOURCE and the destination lives in
+        // `migration_target_id`, so a check that reads only the first says
+        // « nobody is heading there » about an album whose files are being
+        // written there right now. Give that location a permanent public
+        // URL and the album lands on it a minute later: the serve-time
+        // guard then refuses bytes that are already fetchable straight
+        // from the provider — a disclosure, not an inconvenience.
+        $source = $this->storageLocationRepository->create(
+            StorageLocationType::Local, 'Source privée', new LocalLocationConfig('gallery'), null
+        );
+        $target = $this->storageLocationRepository->create(
+            StorageLocationType::ObjectStorage,
+            'Cible',
+            new ObjectStorageLocationConfig('https://fsn1.your-objectstorage.com', 'fsn1', 'scoutmagic', 'AK', null),
+            'secret'
+        );
+        $albumId = $this->albumRepository->create(
+            Album::TYPE_LOCAL, 'Album délégué', null, '2026-01-01', null,
+            $this->scoutYearId, null, $source, $this->authorId, 'groups', 42
+        );
+        $this->albumRepository->startMigration($albumId, $target);
+
+        $response = $this->controller->update($this->publicUrlRequest($target), ['id' => (string) $target]);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertFalse($this->storageLocationRepository->findById($target)?->servesPubliclyWithoutExpiry());
+    }
+
     public function testUpdateAllowsAPublicUrlWhenNoDelegatedAlbumStandsOnTheLocation(): void
     {
         // An ordinary album is not stranded by a public URL — only a

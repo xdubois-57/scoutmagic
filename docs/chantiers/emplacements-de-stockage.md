@@ -526,6 +526,28 @@ emplacement, pas un album. La phrase est maintenant construite à partir de
 `StorageCapabilities::require()` partout ailleurs, donc les deux formulations
 ne peuvent plus diverger.
 
+### La fenêtre de migration, et la seule vraie divulgation du chantier
+
+Le garde-fou qui refuse de rendre public un emplacement portant des albums
+délégués ne lisait que `location_id`. Or pendant une migration,
+`location_id` nomme encore la **source** : la destination vit dans
+`migration_target_id` jusqu'à ce que `completeMigration()` bascule. La
+question « quelqu'un se dirige-t-il vers cet emplacement ? » recevait donc
+« non » au sujet d'un album dont les fichiers y sont écrits à l'instant
+même.
+
+La suite est la divulgation que tout ce mécanisme existe pour empêcher :
+l'administrateur ajoute l'URL publique, la migration se termine, l'album
+atterrit là, et le garde-fou de service refuse alors de servir des octets
+**déjà récupérables directement chez le fournisseur**. Contrairement aux
+autres trouvailles de cette série, celle-ci n'est pas une question de
+disponibilité.
+
+`distinctLocationIds()`, juste au-dessus dans le même fichier, unit les
+deux colonnes et son docblock explique exactement pourquoi — ce
+raisonnement n'avait pas été reporté. Il l'est maintenant, dans la requête
+comme dans le commentaire.
+
 ### Divergences constatées avec les maquettes, et ce qui fait foi
 
 Les deux maquettes déposées dans `docs/chantiers/maquettes/` sont la
