@@ -188,13 +188,17 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
             // Not widened at the send site below, deliberately: the
             // backend is already built by then, so this family of failures
             // cannot arise there.
-            $this->recordFailure($payload, $context, UserFacingMessage::from(
-                $e,
-                // `DecryptionException` is not a `UserFacingException`, and
-                // its message names the cipher rather than the remedy.
-                'La destination hors site n\'a pas pu être ouverte : ses identifiants sont illisibles. '
-                . 'Reraccordez le compte depuis Configuration > Stockage.'
-            ));
+            $this->recordFailure(
+                $payload,
+                $context,
+                UserFacingMessage::from(
+                    $e,
+                    // `DecryptionException` is not a `UserFacingException`, and
+                    // its message names the cipher rather than the remedy.
+                    'La destination hors site n\'a pas pu être ouverte : ses identifiants sont illisibles. '
+                    . 'Reraccordez le compte depuis Configuration > Stockage.'
+                )
+            );
 
             return;
         }
