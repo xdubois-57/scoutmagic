@@ -1717,3 +1717,65 @@ CREATE TABLE IF NOT EXISTS storage_locations (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uniq_storage_locations_label (label)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- One storage location's safety copy on another (IT-04 of the storage
+-- chantier). Since D10 no backup archive carries a declared location, so
+-- the remedy lives at the same level as the lack: the copy of a location
+-- is another location.
+CREATE TABLE IF NOT EXISTS storage_protections (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    -- **A destination may protect several sources; a source has exactly
+    -- one destination.** That asymmetry is the UNIQUE below and it is a
+    -- decision rather than a simplification: two destinations for one
+    -- source would double every pass, every byte of egress and every
+    -- inventory, to defend against a failure — both copies lost at once —
+    -- that a unit keeping its photographs on one server does not face.
+    source_location_id INT UNSIGNED NOT NULL,
+    destination_location_id INT UNSIGNED NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    -- How long a file absent from the source is kept at the destination
+    -- before it is removed. Counted from `absent_from_source_since` in
+    -- the destination's own inventory file (D13), never from anything in
+    -- this table: a database restored to last month must not make a
+    -- countdown start again.
+    grace_period_days SMALLINT UNSIGNED NOT NULL DEFAULT 30,
+    -- Hours between passes. 24 — nightly — for the same reason the
+    -- off-site send is daily: a pass reads every key of the source, which
+    -- is cheap on a folder and a real request count on a bucket.
+    cadence_hours SMALLINT UNSIGNED NOT NULL DEFAULT 24,
+    -- ——— Working state, and it is explicitly disposable (D12) ———
+    --
+    -- Nothing here is authoritative. Losing this whole block makes the
+    -- next pass start its inventory again; it never makes it decide
+    -- anything differently, because what a pass DECIDES on is the
+    -- inventory file that lives in the destination beside the files it
+    -- describes. That is what makes the mechanism insensitive to a
+    -- database restore, and what lets a copy found on a disk in three
+    -- years describe itself.
+    pass_phase VARCHAR(16) NULL,
+    pass_started_at DATETIME NULL,
+    pass_cursor TEXT NULL,
+    -- How many source keys this pass has listed so far. Read by nothing
+    -- but the guard of D15: a disappearance is only ever acted on after
+    -- an inventory phase that finished, and this is what the phase counts
+    -- towards saying so.
+    pass_seen_count INT UNSIGNED NOT NULL DEFAULT 0,
+    last_completed_pass_at DATETIME NULL,
+    last_error TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_storage_protections_source (source_location_id),
+    KEY idx_storage_protections_destination (destination_location_id),
+    -- **ON DELETE differs by side, and each side is the honest answer.**
+    -- Deleting the SOURCE makes the relation meaningless, so it goes with
+    -- it; the copy already written stays where it is, exactly as deleting
+    -- a location has never deleted its files. Deleting the DESTINATION is
+    -- refused before it reaches the database — Protection\
+    -- StorageProtectionConsumer declares every destination as in use, so
+    -- the administrator is told which source depends on it instead of
+    -- meeting a foreign-key error. RESTRICT is what makes that refusal
+    -- true even for a caller that never asked the registry.
+    CONSTRAINT fk_storage_protections_source FOREIGN KEY (source_location_id)
+        REFERENCES storage_locations(id) ON DELETE CASCADE,
+    CONSTRAINT fk_storage_protections_destination FOREIGN KEY (destination_location_id)
+        REFERENCES storage_locations(id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
