@@ -275,6 +275,27 @@ class OutboundMailControllerTest extends TestCase
         $this->assertStringContainsString('Envoyer fonctionne sans cela.', $body);
     }
 
+    /**
+     * Without a key pair there is nothing to publish, so the DKIM reading
+     * is neither « publié » nor « absent » — but it is certainly not
+     * « tout va bien » either: the site signs nothing at all. The
+     * dashboard used to show a green tick over exactly the state the
+     * Authentification sub-page flags as « Clé DKIM requise ».
+     */
+    public function testTheDashboardNeverCallsAMissingDkimKeyGreen(): void
+    {
+        $this->settings->set('mail_from_address', 'info@unite.be');
+        $this->settings->set('dkim_selector', 's2026');
+        // No key pair on this installation, and the fake resolver answers
+        // a valid SPF record — the exact combination that read « ok ».
+        $this->controller->checkDns($this->formRequest([]), []);
+
+        $body = (string) $this->controller->dashboard($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('Aucune clé DKIM n’a été générée', $body);
+        $this->assertStringNotContainsString('enregistrement en place', $body);
+    }
+
     public function testTheAuthenticationPageNamesTheFourRolesAndTheSpfTrap(): void
     {
         $this->settings->set('mail_from_address', 'info@unite.be');

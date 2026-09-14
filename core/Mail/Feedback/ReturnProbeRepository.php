@@ -112,16 +112,6 @@ final class ReturnProbeRepository
     }
 
     /**
-     * Drop one run — the correction for a probe whose message never
-     * actually left.
-     */
-    public function forgetById(int $id): void
-    {
-        $statement = $this->pdo->prepare('DELETE FROM mail_return_probes WHERE id = ?');
-        $statement->execute([$id]);
-    }
-
-    /**
      * Forget every run for the addresses NOT in this list — what an
      * address change leaves behind.
      *

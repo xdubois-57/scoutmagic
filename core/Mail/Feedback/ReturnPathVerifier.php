@@ -162,13 +162,6 @@ final class ReturnPathVerifier
             $key = self::generateKey();
             $expiresAt = $now->modify('+' . self::VALIDITY_HOURS . ' hours');
 
-            // Recorded BEFORE the send, not after: the message can arrive
-            // and be claimed while send() is still returning, and a probe
-            // the consumer cannot find is a probe that reads « jamais
-            // arrivé » for ever. A row for a send that then fails is
-            // corrected two lines down.
-            $id = $this->probes->issue($address, $key, $now, $expiresAt);
-
             try {
                 // **Through a queue-less clone** ({@see MailService::
                 // withoutDeferral()}), and that is the whole point of a
@@ -185,13 +178,28 @@ final class ReturnPathVerifier
                     bodyHtml: self::bodyHtml($key),
                     bodyText: self::bodyText($key)
                 );
+
+                // Written only once the message has actually left, and
+                // the order is load-bearing in BOTH directions.
+                //
+                // Issuing first destroyed what was already known: the row
+                // is one per address, so `issue()` deletes the previous
+                // one — and a relay hiccup on an address that was
+                // « vérifié » an hour ago put it back to « jamais
+                // vérifié », with nothing able to restore it. A send that
+                // never left must leave the last answer standing.
+                //
+                // What issuing first bought was the arrival race — a
+                // message claimed before its row exists is a message that
+                // reads « jamais arrivé » for ever. That race is not
+                // reachable: the claim runs in the mailbox synchronisation,
+                // which needs an SMTP handoff, a delivery and a poll, and
+                // this window is the microseconds between `send()`
+                // returning and the next statement. A certain loss traded
+                // for an impossible one.
+                $this->probes->issue($address, $key, $now, $expiresAt);
                 $sent++;
             } catch (\Throwable) {
-                // The send never left, so there is nothing to wait for —
-                // and leaving the row would turn a transport failure into
-                // « jamais arrivé », which points the operator at the
-                // wrong half of the problem entirely.
-                $this->probes->forgetById($id);
                 $failed++;
             }
         }

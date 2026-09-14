@@ -996,6 +996,36 @@ Volontairement étroit : reconnaître un rebond pour de bon suppose de lire
 un `multipart/report` et ses codes d'état, ce qui est le sujet d'IT-05. Ce
 qu'il faut ici est seulement « ceci n'est pas mon message qui revient ».
 
+**Une deuxième relecture, et deux fois le même genre de défaut : un état
+manquant traité comme un état sain.**
+
+Le tableau de bord appelait « Authentification du domaine » verte sans
+aucune clé DKIM. La ligne ne retenait que les lectures explicitement
+fausses (`array_filter(..., fn ($v) => $v === false)`), or
+`DnsCheckMemory::state()` répond `null` — et non `false` — pour « aucune
+clé n'a été générée », parce que ne rien publier n'est pas publier quelque
+chose de faux. SPF publié plus aucune clé tombait donc dans le cas « ok »,
+avec « 1 enregistrement en place », pendant que la sous-page
+Authentification affichait « Clé DKIM requise » **pour la même lecture
+stockée**. Deux écrans, une source, deux verdicts opposés : celui qu'on
+lit en premier est celui qui rassure. Sans clé, le site ne signe rien du
+tout et une bonne part des destinataires classera ses messages en
+indésirables — la ligne dit maintenant `missing`.
+
+Et un envoi qui échoue effaçait ce qu'on savait déjà.
+`ReturnProbeRepository::issue()` supprime la ligne existante avant
+d'insérer la nouvelle — une ligne par adresse, c'est voulu. Elle était
+appelée avant `send()` : un relais qui hoquette, et une adresse
+« vérifiée » il y a une heure repartait à zéro, sans rien pour la
+restaurer. L'ordre est désormais l'inverse, et il est porteur **dans les
+deux sens** : écrire après l'envoi ouvre en théorie la course inverse (un
+retour réclamé avant que sa ligne existe), mais cette course-là passe par
+une remise SMTP et un relevé de boîte, quand la fenêtre ouverte ici se
+compte en microsecondes entre le retour de `send()` et l'instruction
+suivante. Une perte certaine échangée contre une perte impossible.
+
+Les deux correctifs sont épinglés par un test vérifié en le cassant.
+
 ### Reporté
 
 - L'alignement DMARC d'un envoi « au nom de » (ci-dessus), à l'itération

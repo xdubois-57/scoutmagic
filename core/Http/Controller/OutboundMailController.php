@@ -164,6 +164,26 @@ class OutboundMailController extends AbstractController
             ];
         }
 
+        // A DKIM record that could not even be READ is not a record in
+        // place. `state()` answers null for « no key pair yet », which is
+        // deliberately not `false` — publishing nothing is not the same
+        // as publishing something wrong — but it is not « ok » either:
+        // without a key the site signs nothing at all, and this line
+        // would have shown a green tick over it while the Authentification
+        // sub-page showed « Clé DKIM requise » for the same reading.
+        if ($last->record(DnsCheckMemory::DKIM)['key_missing']) {
+            return $line + [
+                'state' => 'missing',
+                'detail' => sprintf(
+                    'Aucune clé DKIM n’a été générée, donc les messages ne sont pas signés — beaucoup de '
+                        . 'destinataires les classeront en indésirables. Le reste de la zone DNS de %s a été '
+                        . 'relevé au %s.',
+                    $domain,
+                    $when
+                ),
+            ];
+        }
+
         return $line + [
             'state' => 'ok',
             'detail' => sprintf(

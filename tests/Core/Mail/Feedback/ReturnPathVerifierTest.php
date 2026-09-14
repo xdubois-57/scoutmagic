@@ -209,6 +209,41 @@ class ReturnPathVerifierTest extends TestCase
 
     // ── a send that never leaves ──────────────────────────────────────
 
+    /**
+     * A relay hiccup must not erase what was already known.
+     *
+     * The row is one per address, so issuing a new probe deletes the
+     * previous one — and issuing BEFORE the send meant a transient
+     * failure put a « vérifié » address back to « jamais vérifié », with
+     * nothing able to restore it. The last answer stands until a new one
+     * has actually left.
+     */
+    public function testAFailedSendLeavesAnEarlierSuccessfulVerificationStanding(): void
+    {
+        $sent = [];
+        $working = $this->mailServiceRecording($sent);
+        $verifier = $this->verifierWith($this->collectingGateway(), $working);
+
+        $verifier->launch(['info@unite.be']);
+        (new ReturnPathConsumer($verifier))->analyze($this->candidate($sent[0]['subject'], 7));
+        $this->assertSame(ReturnState::VERIFIED, $verifier->stateFor('info@unite.be')['state']);
+
+        // The operator presses the button again; this time the relay
+        // refuses.
+        $refusing = $this->createStub(MailService::class);
+        $refusing->method('withoutDeferral')->willReturnSelf();
+        $refusing->method('send')->willThrowException(new MailException('relay refused'));
+
+        $result = $this->verifierWith($this->collectingGateway(), $refusing)->launch(['info@unite.be']);
+
+        $this->assertSame(1, $result['failed']);
+        $this->assertSame(
+            ReturnState::VERIFIED,
+            $verifier->stateFor('info@unite.be')['state'],
+            'A send that never left must not destroy the last answer.'
+        );
+    }
+
     public function testASendThatFailsLeavesNoProbeBehindToReadAsJamaisArrive(): void
     {
         $mail = $this->createStub(MailService::class);
