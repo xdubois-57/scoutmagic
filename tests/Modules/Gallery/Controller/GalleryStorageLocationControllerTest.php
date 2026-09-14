@@ -42,12 +42,17 @@ class GalleryStorageLocationControllerTest extends TestCase
     private AlbumRepository $albumRepository;
     private int $scoutYearId;
     private int $authorId;
+    private EncryptionService $encryption;
+    private StorageLocationService $storageLocationService;
+    private JournalService $journalService;
+    private Environment $twig;
 
     protected function setUp(): void
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         GalleryTestHelper::createTables($this->pdo);
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $this->encryption = $encryption;
 
         $this->storageLocationRepository = new StorageLocationRepository($this->pdo, $encryption);
         $this->albumRepository = new AlbumRepository($this->pdo);
@@ -57,14 +62,17 @@ class GalleryStorageLocationControllerTest extends TestCase
                 $this->pdo, $encryption, $settingService, sys_get_temp_dir(), $this->albumRepository
             );
         $storageLocationService = $storageWiring->locationService;
+        $this->storageLocationService = $storageLocationService;
         $galleryLocationService = $storageWiring->galleryLocations;
         $journalService = new JournalService(new JournalRepository($this->pdo));
+        $this->journalService = $journalService;
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 4) . '/modules/gallery/views';
         $loader = new FilesystemLoader($templateDir);
         $loader->addPath($moduleViews, 'gallery');
         $twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
+        $this->twig = $twig;
         // asset() is what base.html.twig references every static file through
         // (Core\View\TwigFactory); the bare path is enough for a test render.
         $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
@@ -366,6 +374,64 @@ class GalleryStorageLocationControllerTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertTrue($this->storageLocationRepository->findById($publicId)?->isDefault);
+    }
+
+    public function testSetDefaultAnswersInJsonWhenTheLocationVanishedMidRequest(): void
+    {
+        // The row can disappear between this action's findById() and the
+        // promotion — deleted from another session, or this page reopened
+        // after a deletion. The repository refuses that rather than
+        // demoting everything and promoting nobody; the endpoint answers
+        // in JSON, so the refusal has to as well, or a fetch() expecting
+        // an object gets an HTML error page.
+        $id = $this->storageLocationRepository->create(
+            StorageLocationType::Local, 'À promouvoir', new LocalLocationConfig('gallery'), null
+        );
+        $controller = $this->controllerWhoseLocationVanishes($id);
+
+        $response = $controller->setDefault(
+            $this->jsonRequest(['_csrf_token' => $this->csrfToken()]),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertIsArray($decoded);
+        $this->assertFalse($decoded['success']);
+        $this->assertNotSame('', (string) $decoded['error']);
+    }
+
+    /**
+     * The controller as it stands, but with the row deleted after its
+     * `findById()` has already answered — the race, made deterministic.
+     */
+    private function controllerWhoseLocationVanishes(int $id): GalleryStorageLocationController
+    {
+        $repository = new class ($this->pdo, $this->encryption, $id) extends StorageLocationRepository {
+            public function __construct(\PDO $pdo, EncryptionService $encryption, private int $vanishing)
+            {
+                parent::__construct($pdo, $encryption);
+            }
+
+            public function findById(int $id): ?StorageLocation
+            {
+                $found = parent::findById($id);
+                if ($id === $this->vanishing && $found !== null) {
+                    parent::delete($id);
+                }
+
+                return $found;
+            }
+        };
+
+        return new GalleryStorageLocationController(
+            $this->twig,
+            $repository,
+            $this->storageLocationService,
+            $this->journalService,
+            new ObjectStorageErrorExplainerService(),
+            $this->albumRepository
+        );
     }
 
     public function testSetDefaultPromotesTheGivenLocation(): void

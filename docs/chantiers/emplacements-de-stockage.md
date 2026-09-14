@@ -483,6 +483,16 @@ faudrait glisser une seconde transaction entre deux instructions de
 lecture verrouillée fait bien attendre un écrivain concurrent sur le vrai
 moteur), pas le scénario.
 
+**Et le refus ajouté plus haut sortait en HTML d'un point JSON.** Faire
+lever `setDefault()` quand la ligne a disparu était juste ; l'action du
+contrôleur, elle, n'attrapait rien, contrairement à sa voisine `delete()`.
+La ligne peut disparaître entre le `findById()` de l'action et la
+promotion — supprimée depuis une autre session, ou la page rouverte après
+coup — et le `fetch()` recevait alors une page d'erreur HTML là où il
+attend un objet, ce qui ne dit rien du tout à l'administrateur. Le refus
+est désormais rendu en JSON avec son 422, comme partout ailleurs sur cet
+écran.
+
 **Et un refus de capacité ne nommait pas l'emplacement.** Le seul appel
 réel en production, dans la fusion de deux albums délégués, disait « cet
 album » — or ce qu'un administrateur peut aller re-pointer, c'est un

@@ -256,7 +256,19 @@ class GalleryStorageLocationController extends AbstractController
             ], 422);
         }
 
-        $this->storageLocationService->setDefault($location->id);
+        try {
+            $this->storageLocationService->setDefault($location->id);
+        } catch (StorageLocationException $e) {
+            // The row can vanish between the findById() above and this
+            // promotion — deleted from another session, or this page
+            // reopened after a deletion — and the repository refuses that
+            // rather than demoting everything and promoting nobody. This
+            // endpoint answers in JSON, so the refusal has to as well: an
+            // uncaught exception here is an HTML error page landing in a
+            // fetch() that expects an object, which tells the
+            // administrator nothing at all.
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
+        }
 
         $this->journalService->log(
             'gallery',
