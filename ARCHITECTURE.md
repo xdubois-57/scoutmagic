@@ -4103,6 +4103,53 @@ against its probe and answered `nothing()`, so the ordinary
 unassociated-mail retention removes it and no triage list gains a row for
 a message the site sent to itself.
 
+**The manual probe (`Core\Mail\Probe`, roadmap IT-04).** One message,
+sent by hand along a road chosen by hand, and a verdict typed in by the
+person who went and looked. Three properties carry the whole thing.
+
+*The message is a real one.* It is rendered through
+`email/base.html.twig` and sent by `MailService` like everything else, so
+it carries the site's frame, its visible sender and its DKIM signature.
+A probe assembled out of a bare paragraph would be weighed differently by
+the receiver and would measure its own shape rather than the unit's mail.
+Only the transport underneath is swapped — `MailService::
+throughTransport()`, a clone with one field replaced — because
+everything that makes the message what it is is built in `MailService`
+and must stay there.
+
+*One relay, and no fallback.* `PinnedProviderTransport` applies one
+provider and delegates; the chain, the quota, the breaker and the reserve
+are all bypassed. That is the point rather than a shortcut: an operator
+asking « est-ce que mes messages arrivent quand ils partent par
+celui-ci » must not be answered by a message that quietly went out
+through another, and the history's value rests on each line naming the
+relay the message actually left by. A relay that refuses the probe fails
+it, loudly. The send counter is still incremented, because a probe is a
+real message and the day's allowance really has one fewer left.
+
+*The transport underneath is injected, never instantiated.*
+`MailTransportFactory::build()` now hands back the delivery transport it
+resolved, and `MailProbeSender` takes it as a required dependency. A
+`new PhpMailerTransport()` inside the sender would put real mail on the
+wire from an installation configured to capture it — which is precisely
+what `test_tools` exists to prevent — and it is the kind of default that
+is invisible until somebody's staging site sends two hundred e-mails.
+
+*The verdict is human, and the history is the deliverable.*
+`mail_probes` keeps a row per run rather than a row per address, which is
+the opposite of `mail_return_probes` and deliberately so: two lines
+saying « même destinataire, réception via l'un, indésirables via
+l'autre » settle a question no amount of explaining settles. The provider
+is stored by name as well as by id, so deleting a relay six months later
+does not take its own evidence with it, and there is no foreign key for
+the same reason.
+
+*Nothing schedules a probe.* A test message that lands in the spam folder
+week after week reinforces that classification at every send: unattended,
+the instrument becomes the cause of what it measures. There is no task
+handler, and `Tests\Core\Mail\Probe\MailProbeSenderTest` fails if one
+appears.
+
 ### 8.107 Storage locations (`Core\Storage\Location`)
 
 **One declared destination for bytes, and every consumer picks one.** The same idea used to be written twice, with two incompatible models: the gallery had `gallery_storage_locations` — N rows, a `StorageBackendInterface`, a cached health column — while the off-site backup had a dozen flat `SettingService` keys, a `RemoteBackupTarget` interface and a `remote_backup_last_error` setting. A single destination in flat settings on one side, N destinations in a table on the other. The second form is the right one, and this is it, generalised.

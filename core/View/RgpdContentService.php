@@ -356,6 +356,7 @@ Structure OBLIGATOIRE (respecter scrupuleusement) :
    - 2.6 Messages en attente d'envoi (file chiffrée, deux durées réglées par l'unité)
    - 2.7 Consultation hors ligne (uniquement avec consentement fonctionnel)
    - 2.8 Assistant d'aide (uniquement si un fournisseur d'IA est configuré)
+   - 2.9 Vérification de la délivrabilité des e-mails (sonde manuelle, fonctionnalité du cœur)
 3. Combien de temps conservons-nous vos données (conservation active, archivage 5 ans après départ, journaux,
 suppression sur demande)
 4. Avec qui partageons-nous vos données (sous-traitants essentiels sans mention localisation précise, modules,
@@ -469,6 +470,16 @@ le délai fixé est abandonné et **conservé un temps borné** afin qu'un respo
 automatiquement avec son contenu ; et que ces deux durées sont réglables par l'unité. Les liens de connexion ne sont
 jamais mis de côté : ils échouent tout de suite. Ne présente jamais cette file comme un archivage des e-mails
 envoyés — elle ne contient que ce qui n'est pas encore parti.
+4nonies. **Sonde de délivrabilité (fonctionnalité core, PAS un module)** : Sections 2.9 et 3.1 doivent conserver
+qu'un administrateur peut envoyer un message de test à une adresse **qu'il choisit lui-même** pour savoir où les
+e-mails de l'unité arrivent réellement — boîte de réception ou indésirables —, ce qu'aucun site ne peut observer
+depuis l'extérieur ; que l'adresse saisie est conservée **chiffrée au repos** avec la date, le fournisseur d'envoi,
+la voie et le verdict noté à la main ; que cette adresse est celle de l'administrateur ou l'adresse témoin d'un
+service d'analyse extérieur, **jamais celle d'un membre choisie par le site** ; qu'elle n'apparaît ni dans le journal
+technique ni dans l'archive de diagnostic, lesquels ne portent que le fournisseur, la voie et le verdict ; que le
+site n'appelle lui-même **aucun service d'analyse** ; et qu'aucune sonde n'est jamais envoyée automatiquement.
+L'historique est conservé sans purge automatique, parce que comparer deux essais séparés de plusieurs mois est
+précisément ce à quoi il sert.
 
 5. **Modules actifs uniquement** : Retirer les sections des modules INACTIFS (comparer avec liste modules actifs)
 6. **Personnalisation obligatoire** : Remplacer {$unitName} et {$contactEmail} partout. Ne JAMAIS laisser de

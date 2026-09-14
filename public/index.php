@@ -3880,6 +3880,29 @@ $router->addRoute(
     'superadmin',
 );
 $router->addRoute(
+    'GET',
+    '/config/courrier-sortant/sonde',
+    \Core\Http\Controller\OutboundMailController::class,
+    'probe',
+    'superadmin',
+    ['label' => 'Sonde', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Courrier sortant', 'path' => '/config/courrier-sortant']]],
+);
+$router->addRoute(
+    'POST',
+    '/config/courrier-sortant/sonde/envoi',
+    \Core\Http\Controller\OutboundMailController::class,
+    'sendProbe',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/courrier-sortant/sonde/verdict',
+    \Core\Http\Controller\OutboundMailController::class,
+    'recordProbeVerdict',
+    'superadmin',
+);
+$router->addRoute(
     'POST',
     '/config/courrier-sortant/relance',
     \Core\Http\Controller\OutboundMailController::class,
@@ -6531,6 +6554,11 @@ $returnPathVerifier = new \Core\Mail\Feedback\ReturnPathVerifier(
 // indirection. With the module disabled the variable is null, the
 // verification answers « impossible » and every other sub-page of the
 // section works exactly as before.
+// One repository, shared by the sender that writes rows and the page that
+// reads them: two instances would be two encryption contexts to keep in
+// step for no gain (roadmap IT-04).
+$mailProbeRepository = new \Core\Mail\Probe\MailProbeRepository($pdo, $encryptionService);
+
 $frontController->registerController(
     \Core\Http\Controller\OutboundMailController::class,
     new \Core\Http\Controller\OutboundMailController(
@@ -6555,7 +6583,18 @@ $frontController->registerController(
         $dkimManager,
         new \Core\Mail\DnsVerifier(),
         $returnPathVerifier,
-        $journalService
+        $journalService,
+        new \Core\Mail\Probe\MailProbeSender(
+            $mailService,
+            $mailProviderDirectory,
+            new \Core\Mail\Transport\TransportConfigurator($providerConnections),
+            $mailTransport['delivery'],
+            $mailProbeRepository,
+            $twig,
+            $journalService,
+            $sendCounterRepository
+        ),
+        $mailProbeRepository
     )
 );
 

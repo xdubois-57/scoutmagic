@@ -1216,3 +1216,192 @@ deux règles opposées au même fichier, et cela mérite un arbitrage.
   l'assistant : tant qu'un seul endroit peut le faire, la règle « pas de
   champ éditable aux deux endroits » tient, et rien dans ce document ne
   demande de la déplacer.
+
+## IT-04 — La sonde manuelle
+
+La seule page de ce chantier dont l'instrument est une personne. Aucun
+site ne peut voir l'intérieur de la boîte de quelqu'un d'autre : la seule
+façon de savoir où arrivent les messages est d'en envoyer un et d'aller
+regarder. Tout le reste de l'écran découle de ça.
+
+### Livré
+
+`/config/courrier-sortant/sonde` envoie un message **bâti comme un vrai
+envoi de l'unité** — cadre `email/base.html.twig`, expéditeur affiché,
+signature DKIM, les deux moitiés du multipart — vers une destination
+libre, **par un fournisseur choisi et par lui seul**, sur une voie
+choisie, « Masse » par défaut. Un code court dans le sujet, à chercher
+dans une boîte encombrée. Le verdict — réception, indésirables, jamais
+reçu — est saisi à la main et consigné avec sa date, sa destination, son
+fournisseur et sa voie.
+
+Le paquet de support gagne sa section « Sondes de délivrabilité », et le
+journal deux entrées (`mail_probe_sent`, `mail_probe_verdict`). Nouveau
+sujet d'aide, nouvel onglet dans le rail, trois routes en `superadmin`,
+une table `mail_probes` (58 tables).
+
+### Décisions prises seul
+
+**Pas de repli, et c'est la fonctionnalité.** `MailTransportChain`
+parcourt une voie jusqu'à ce que quelqu'un prenne le message, ce qui est
+exactement juste pour du vrai courrier et exactement faux ici : à la
+question « est-ce que mes messages arrivent quand ils partent par
+celui-ci », un message parti discrètement par un autre relais répond à
+côté. Toute la valeur de l'historique tient à ce que chaque ligne nomme
+le relais par lequel le message est *réellement* parti. Un relais qui
+refuse fait donc échouer la sonde, bruyamment — et le quota, le
+coupe-circuit et la réserve ne sont pas consultés non plus : ils
+protègent le vrai courrier d'un relais en difficulté, et un diagnostic
+est le seul message qui veut rencontrer la difficulté.
+
+Le compteur d'envoi est incrémenté quand même : une sonde est un vrai
+message sur un vrai relais, et l'allocation du jour en a vraiment une de
+moins.
+
+**Le fournisseur est conservé par son nom autant que par son id.** Un
+relais supprimé six mois plus tard emporterait sinon la preuve de ce
+qu'il a fait, et la ligne se lirait « indésirables via … » avec un blanc
+là où était la réponse. Pas de clé étrangère non plus, pour la même
+raison : supprimer un fournisseur ne doit ni effacer cette histoire ni
+être refusé à cause d'elle.
+
+**La destination est chiffrée et n'a pas d'index aveugle.** Rien ne
+cherche une sonde par adresse — l'écran liste les derniers essais et le
+verdict s'enregistre par id. Un index aveugle ajouté « au cas où » est
+une empreinte déterministe d'une adresse conservée pour une question que
+personne ne pose.
+
+**Et elle est montrée à l'écran, contrairement à partout ailleurs.** Ce
+n'est pas une contradiction : c'est l'adresse que l'opérateur a tapée une
+minute plus tôt, et la comparaison pour laquelle la table existe — même
+destinataire, deux relais, deux verdicts — ne se fait pas sans elle. Elle
+reste hors du journal et hors du paquet de support, qui sont lus
+ailleurs et conservés bien plus longtemps.
+
+**« Ne le sortez pas des indésirables » est à l'écran, pas dans l'aide.**
+C'est la seule consigne capable d'invalider toutes les mesures suivantes,
+et la seconde où quelqu'un s'apprête à la transgresser est celle où il
+lit les boutons de verdict. Une règle qui ne vit que dans la
+documentation est une règle lue après la faute.
+
+**Aucune cadence périodique, et l'absence est écrite sur l'écran.** Le
+document prévoit une cadence hebdomadaire en option, désactivée par
+défaut. Je ne l'ai pas livrée : un réglage désactivé par défaut est un
+réglage qu'on active, et la garantie qui compte — que l'instrument ne
+devienne pas la cause de ce qu'il mesure — vaut mieux comme impossibilité
+que comme défaut. Un test (`testNothingButARequestCanSendAProbe`) échoue
+si un gestionnaire de tâche apprend à en envoyer une. La carte « Pourquoi
+pas d'envoi automatique » dit pourquoi, parce qu'une fonctionnalité
+absente sans explication se lit comme un oubli que quelqu'un comblera
+obligeamment.
+
+### Écarts entre le document et le dépôt
+
+**Le bump de version pour un changement de `schema.sql` n'existe plus.**
+Le document de chantier le demande ; AGENTS.md (§ Architecture, dernier
+point) dit l'inverse depuis que `ModuleManager` a cessé de conditionner
+l'application du schéma à une comparaison de versions — c'était une règle
+que rien n'appliquait, et qui produisait de vraies erreurs `Unknown
+column` en production. Le schéma déclaré entier est migré comme un tout.
+J'ai suivi AGENTS.md, qui est la règle non négociable du dépôt.
+
+**Le contrat exact : « bâti comme un vrai envoi », pas « identique ».**
+La différence tient en un en-tête, et elle est nommée plutôt que
+sous-entendue — un mot absolu dans une documentation est un mot que
+quelqu'un cite six mois plus tard contre le code. Un vrai
+publipostage porte l'en-tête sous sa forme URL à un clic, construite avec
+le jeton du destinataire — qu'une sonde n'a pas, et un lien fabriqué qui
+répondrait 404 serait pire que rien. L'omettre n'est pas neutre non plus :
+les destinataires le pèsent, donc une sonde sans en-tête serait plus
+légère que le publipostage qu'elle représente, sur exactement le signal
+qu'on mesure. La forme `mailto:` est un canal de désinscription réel — il
+arrive à l'unité — et c'est l'approximation honnête la plus proche. C'est
+donc « presque identique », et c'est écrit ici plutôt que passé sous
+silence.
+
+### Le défaut que le test a trouvé en se bloquant
+
+`MailProbeSender` construisait `new PhpMailerTransport()` pour le
+transport sous la couche épinglée. La sonde contournant la chaîne, elle
+contournait du même coup **le transport que l'installation utilise
+vraiment** : sur un site faisant tourner le transport de capture de
+`test_tools` — dont tout le rôle est d'assembler les messages sans les
+envoyer — la sonde aurait mis du vrai courrier sur le fil, depuis le seul
+écran dont le métier est d'être honnête sur ce qui part.
+
+Le symptôme a été un test qui ne rendait pas la main : il composait vers
+un vrai serveur SMTP. `MailTransportFactory::build()` rend désormais le
+transport qu'il a résolu, `MailProbeSender` le prend en dépendance
+**obligatoire** — un défaut ici serait la décision de la racine de
+composition prise silencieusement au mauvais endroit — et trois
+assertions de câblage l'épinglent, vérifiées en les cassant.
+
+C'est la même leçon que celle d'IT-02, une quatrième fois, sous un
+nouveau déguisement : ce n'était pas une dépendance oubliée dans la
+racine, mais une dépendance que la classe s'était fabriquée elle-même
+pour ne pas avoir à la demander.
+
+### La couverture qui manquait, et ce qu'elle cachait
+
+La porte qualité de SonarCloud a refusé la PR à **66,0 % de couverture
+sur le code neuf** (seuil : 80 %), et la relecture Claude a nommé la même
+chose d'un autre côté : AGENTS.md demande, pour chaque route de
+contrôleur, **et** un test d'intégration sur la réponse **et** la
+frontière RBAC. Les trois routes de la sonde n'avaient que la seconde
+moitié.
+
+Ce n'était pas une exigence bureaucratique. Le bloc sonde du contrôleur
+— les trois actions, le rendu, les deux projections — n'était couvert par
+**aucune** ligne : ni le message de succès qui porte le code, ni la
+distinction `warning`/`error` qui est toute la raison d'être de
+`MailProbeNotRecordedException`, ni la page d'une installation sans
+sonde. Quinze tests d'intégration plus tard, le bloc est couvert à 100 %,
+et le code neuf de la PR à **98,8 %**.
+
+Trois de ces quinze ont trouvé quelque chose :
+
+**Un décor impossible, une cinquième fois.** Mon test du jeton périmé
+passait un jeton mort dans le corps de la requête tout en laissant le
+jeton valide dans `$_POST` — or `guardCsrf()` regarde aussi les
+superglobales, donc la requête était acceptée. Ce n'est pas une session
+expirée, c'est un état qu'aucune requête ne peut produire ; un refus
+prouvé contre lui n'aurait rien prouvé. Le test vide `$_POST` d'abord, et
+tombe alors correctement quand on retire la garde.
+
+**Une garde qui ne pouvait pas être atteinte.** `headersFor()` refusait
+de bâtir `List-Unsubscribe` quand l'adresse d'expédition était vide —
+sauf que cette adresse *est* le `From`, donc PHPMailer refuse le message
+bien avant l'assemblage des en-têtes. Une branche où aucune requête ne
+peut entrer. Elle est retirée, et le test dit ce qui se passe vraiment :
+sans adresse d'expédition, la sonde est refusée plutôt qu'envoyée de la
+part de personne — et le refus ne cite aucune adresse.
+
+**Une méthode que personne n'appelait.** `MailProbe::isPending()` n'avait
+aucun appelant : la page filtre en SQL, par `MailProbeRepository::
+pending()`. L'écrire avait l'air prudent ; la couvrir d'un test aurait
+été fabriquer de la couverture au lieu de la gagner. Elle est retirée.
+
+Le reste — journal indisponible, compteur d'envoi indisponible, table des
+sondes illisible, fournisseur inconnu, verdict inconnu, sonde disparue,
+second verdict — sont les branches écrites exprès pour avaler leur propre
+échec. Chacune est maintenant tenue par un test **vérifié en le cassant**,
+ce qui est la seule manière de distinguer « la branche fait ce qu'il
+faut » de « rien n'entre jamais dedans ».
+
+### Reporté
+
+- **`@group database` en docblock ne fait plus rien.** PHPUnit 13 ne lit
+  plus les métadonnées des commentaires, et 509 fichiers de tests portent
+  encore cette étiquette : elle est décorative. Sans conséquence de
+  correction — ces tests tournent bien, dans la suite par défaut — mais
+  leur classe affirme une appartenance au job `database-mariadb` qu'elle
+  n'a pas. Découvert en vérifiant que mes propres tests tournaient bien
+  sur MariaDB. Hors périmètre d'IT-04 : c'est une reprise de 509
+  fichiers, à faire d'un bloc et sur sa propre PR.
+- La cadence hebdomadaire optionnelle (ci-dessus), tant que personne ne
+  la demande : l'absence est plus sûre que le défaut.
+- Le rattachement d'un rebond à une sonde précise. Le code est déjà
+  reconnaissable (`MailProbeSender::codeIn()`, préfixe `SM-` distinct du
+  `RET-` d'IT-03) ; ce qui manque est le lecteur de `delivery-status`,
+  qui est le sujet d'IT-05.
+

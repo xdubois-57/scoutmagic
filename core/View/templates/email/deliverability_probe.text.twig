@@ -1,0 +1,19 @@
+{#- The plain-text half of the deliverability probe (roadmap IT-04). Both
+    halves, because a real send is multipart and a text-only or HTML-only
+    message is weighed differently — the probe would then be measuring its
+    own shape rather than the unit's. -#}
+Message de vérification
+
+Bonjour,
+
+Ce message a été envoyé depuis le site de l'unité pour vérifier où arrivent ses e-mails : dans la boîte de réception, ou dans les indésirables.
+
+Il est bâti exactement comme un vrai envoi de l'unité — même mise en page, même expéditeur, même signature technique — parce qu'un message dépouillé serait classé autrement, et on mesurerait alors autre chose que ce qu'on envoie vraiment.
+
+    {{ code }}
+
+Envoyé le {{ sent_at }}, par la voie « {{ lane_label }} ».
+
+Si vous avez reçu ce message sans l'avoir demandé, vous pouvez l'ignorer : il ne demande aucune réponse et n'entraîne aucune inscription.
+
+{% include 'email/signature.text.twig' %}

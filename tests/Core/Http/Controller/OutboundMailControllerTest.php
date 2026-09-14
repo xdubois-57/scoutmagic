@@ -46,7 +46,10 @@ class OutboundMailControllerTest extends TestCase
     private MailProviderRepository $providers;
     private LaneChainRepository $chains;
     private \Core\Mail\DkimManager $dkim;
+    private \Core\Mail\Probe\MailProbeRepository $mailProbes;
     private OutboundMailController $controller;
+    /** @var list<mixed> the arguments $controller was built from */
+    private array $controllerArguments = [];
     private string $secretsDirectory = '';
     private SettingService $settings;
     private \Core\Mail\Transport\DeferredMailRepository $deferred;
@@ -91,7 +94,12 @@ class OutboundMailControllerTest extends TestCase
 
         $this->settings = $settings;
         self::registerMailIdentitySettings($settings);
-        $this->controller = new OutboundMailController(
+        // Kept as a list rather than spent on the spot, because the two
+        // probe arguments are optional and the sub-page has a whole
+        // branch for an installation that did not build them. Dropping
+        // the last two is that installation, exactly — not a double
+        // standing in for it.
+        $this->controllerArguments = [
             $twig,
             $directory,
             $this->chains,
@@ -127,8 +135,40 @@ class OutboundMailControllerTest extends TestCase
                 // has to render without erroring (D2).
                 null
             ),
-            new JournalService(new JournalRepository($this->pdo))
-        );
+            new JournalService(new JournalRepository($this->pdo)),
+            // A REAL probe sender, not null. With null every probe action
+            // returns « la sonde n'est pas disponible » before touching
+            // anything — and a test asserting « no row was written » then
+            // passes for the wrong reason, whatever the code does. That
+            // is how a guard against sending through the wrong relay came
+            // to be verified by a page that never sends at all.
+            new \Core\Mail\Probe\MailProbeSender(
+                new \Core\Mail\MailService(
+                    'local',
+                    'info@unite.be',
+                    'Unité Test',
+                    'EX',
+                    $this->dkim,
+                    's2026',
+                    transport: $probeTransport = new class implements \Core\Mail\MailTransportInterface {
+                        public function deliver(
+                            \PHPMailer\PHPMailer\PHPMailer $mail,
+                            \Core\Mail\MailPurpose $purpose
+                        ): void {
+                            $mail->preSend();
+                        }
+                    }
+                ),
+                $directory,
+                new \Core\Mail\Transport\TransportConfigurator($connections),
+                $probeTransport,
+                $this->mailProbes = new \Core\Mail\Probe\MailProbeRepository($this->pdo, $encryption),
+                $twig,
+                new JournalService(new JournalRepository($this->pdo))
+            ),
+            $this->mailProbes,
+        ];
+        $this->controller = new OutboundMailController(...$this->controllerArguments);
 
         if (session_status() === PHP_SESSION_NONE) {
             @session_start();
@@ -186,6 +226,9 @@ class OutboundMailControllerTest extends TestCase
             'saving the addresses' => ['POST', '/config/courrier-sortant/authentification'],
             'checking the returns' => ['POST', '/config/courrier-sortant/authentification/verification'],
             'checking the DNS' => ['POST', '/config/courrier-sortant/authentification/dns'],
+            'the probe' => ['GET', '/config/courrier-sortant/sonde'],
+            'sending a probe' => ['POST', '/config/courrier-sortant/sonde/envoi'],
+            'recording a verdict' => ['POST', '/config/courrier-sortant/sonde/verdict'],
         ];
     }
 
@@ -306,6 +349,335 @@ class OutboundMailControllerTest extends TestCase
 
         $this->assertStringContainsString('Aucune clé DKIM n’a été générée', $body);
         $this->assertStringNotContainsString('enregistrement en place', $body);
+    }
+
+    /**
+     * `0` is the one id on this page where a missing value is not merely
+     * absent but wrong: `MailProvider::LOCAL_ID` IS zero, and the local
+     * send is unconditionally usable. A blank `provider_id` casting to it
+     * would send the probe through the server's own `mail()` and record
+     * that as the road the operator chose — the exact opposite of pinning
+     * one relay, which is the whole feature.
+     */
+    public function testAProbeWithoutAProviderIsRefusedRatherThanSentThroughTheLocalRelay(): void
+    {
+        foreach (['', 'abc', '-1'] as $value) {
+            $this->controller->sendProbe($this->formRequest([
+                'destination' => 'vous@exemple.be',
+                'provider_id' => $value,
+                'lane' => 'bulk',
+            ]), []);
+
+            $statement = $this->pdo->query('SELECT COUNT(*) FROM mail_probes');
+            $this->assertNotFalse($statement);
+            $this->assertSame(
+                0,
+                (int) $statement->fetchColumn(),
+                "provider_id « {$value} » must be refused, never resolved to the local send."
+            );
+        }
+    }
+
+    // ── the probe, end to end (roadmap IT-04) ─────────────────────────
+    //
+    // The RBAC floor above pins who may reach these three routes; it
+    // says nothing about what comes back, and AGENTS.md asks for both.
+    // What follows walks the page as an operator does: open it, send
+    // one, come back, answer where it landed — plus the three refusals
+    // and the installation where the probe was never built at all.
+
+    public function testTheProbePageOffersEveryRelayEveryLaneAndSaysWhyNothingRepeats(): void
+    {
+        $response = $this->controller->probe($this->getRequest(), []);
+        $body = (string) $response->getBody();
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('Envoyer une sonde', $body);
+        $this->assertStringContainsString(MailProvider::LOCAL_NAME, $body);
+
+        foreach (['Masse', 'Transactionnel', 'Authentification'] as $lane) {
+            $this->assertStringContainsString($lane, $body, "the « {$lane} » lane must be offered.");
+        }
+
+        // The card that explains the absence of a schedule is part of
+        // the answer, not decoration: without it the first thing an
+        // operator looks for is the button to repeat this weekly, which
+        // is the one thing the instrument must not do.
+        $this->assertStringContainsString('La sonde ne se répète pas toute seule', $body);
+        $this->assertStringContainsString('Aucune sonde envoyée pour', $body);
+    }
+
+    public function testSendingAProbeRecordsItAndHandsBackTheCodeToLookFor(): void
+    {
+        $response = $this->controller->sendProbe($this->formRequest([
+            'destination' => 'vous@exemple.be',
+            'provider_id' => (string) MailProvider::LOCAL_ID,
+            'lane' => 'bulk',
+        ]), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(OutboundMailController::PROBE_URL, $response->getHeaders()['Location'] ?? null);
+
+        $recent = $this->mailProbes->recent();
+        $this->assertCount(1, $recent);
+        $this->assertSame('vous@exemple.be', $recent[0]->destination);
+        $this->assertSame(MailLane::Bulk, $recent[0]->lane);
+        $this->assertNull($recent[0]->verdict);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('success', $flash['type'] ?? null);
+        // The code, and not merely « envoyée » — it is the only thing
+        // that lets somebody find the message in a mailbox they are
+        // about to search, spam folder included.
+        $this->assertStringContainsString($recent[0]->code, $flash['message'] ?? '');
+        $this->assertStringContainsString(MailProvider::LOCAL_NAME, $flash['message'] ?? '');
+    }
+
+    public function testThePageThenAsksWhereThatMessageLandedAndOffersTheThreeAnswers(): void
+    {
+        $this->sendOneProbe();
+
+        $body = (string) $this->controller->probe($this->getRequest(), [])->getBody();
+        $code = $this->mailProbes->recent()[0]->code;
+
+        $this->assertStringContainsString('Où sont-elles arrivées ?', $body);
+        $this->assertStringContainsString($code, $body);
+
+        foreach (\Core\Mail\Probe\MailProbeVerdict::ordered() as $verdict) {
+            $this->assertStringContainsString(
+                'value="' . $verdict->value . '"',
+                $body,
+                "« {$verdict->label()} » must be one of the answers offered."
+            );
+        }
+
+        // Said next to the buttons rather than in the help topic,
+        // because that is the second somebody is about to do it.
+        $this->assertStringContainsString('Ne sortez pas le message des indésirables', $body);
+    }
+
+    public function testRecordingAVerdictWritesItAndTheHistoryThenShowsIt(): void
+    {
+        $id = $this->sendOneProbe();
+
+        $response = $this->controller->recordProbeVerdict($this->formRequest([
+            'probe_id' => (string) $id,
+            'verdict' => 'spam',
+        ]), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('success', $flash['type'] ?? null);
+        $this->assertStringContainsString(
+            \Core\Mail\Probe\MailProbeVerdict::Spam->guidance(),
+            $flash['message'] ?? ''
+        );
+
+        $this->assertSame(\Core\Mail\Probe\MailProbeVerdict::Spam, $this->mailProbes->find($id)?->verdict);
+
+        $body = (string) $this->controller->probe($this->getRequest(), [])->getBody();
+        $this->assertStringContainsString(\Core\Mail\Probe\MailProbeVerdict::Spam->label(), $body);
+        $this->assertStringContainsString(\Core\Mail\Probe\MailProbeVerdict::Spam->badge(), $body);
+        // Answered, so it is no longer among the ones being asked about.
+        $this->assertStringNotContainsString('Où sont-elles arrivées ?', $body);
+    }
+
+    /**
+     * A double click, or a second tab. Neither is an error, and neither
+     * may overwrite the answer that stood: the operator has to be told
+     * which one is on file rather than left to assume it is the one they
+     * just pressed.
+     */
+    public function testASecondVerdictDoesNotReplaceTheFirstAndSaysSo(): void
+    {
+        $id = $this->sendOneProbe();
+
+        $this->controller->recordProbeVerdict($this->formRequest([
+            'probe_id' => (string) $id,
+            'verdict' => 'inbox',
+        ]), []);
+        \Core\Http\FlashMessage::get();
+
+        $this->controller->recordProbeVerdict($this->formRequest([
+            'probe_id' => (string) $id,
+            'verdict' => 'never',
+        ]), []);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('warning', $flash['type'] ?? null);
+        $this->assertStringContainsString('avait déjà un verdict', $flash['message'] ?? '');
+        $this->assertSame(\Core\Mail\Probe\MailProbeVerdict::Inbox, $this->mailProbes->find($id)?->verdict);
+    }
+
+    public function testAVerdictThatDoesNotExistIsRefusedAndLeavesTheProbeWaiting(): void
+    {
+        $id = $this->sendOneProbe();
+
+        $this->controller->recordProbeVerdict($this->formRequest([
+            'probe_id' => (string) $id,
+            'verdict' => 'perdu',
+        ]), []);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertStringContainsString('Ce verdict n’existe pas', $flash['message'] ?? '');
+        $this->assertNull($this->mailProbes->find($id)?->verdict);
+    }
+
+    public function testAVerdictForAProbeThatIsGoneIsRefusedRatherThanCountedElsewhere(): void
+    {
+        $this->controller->recordProbeVerdict($this->formRequest([
+            'probe_id' => '4242',
+            'verdict' => 'inbox',
+        ]), []);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertStringContainsString('Cette sonde n’existe plus', $flash['message'] ?? '');
+    }
+
+    /**
+     * An installation that never built the probe — the two constructor
+     * arguments are optional, so this is a real configuration and not a
+     * decor invented for the test: it is `new OutboundMailController()`
+     * with the last two left off, exactly as a composition root that
+     * omits them produces.
+     *
+     * All three routes have to survive it, and say the same sentence:
+     * the page may not offer a form that cannot send, and the two POSTs
+     * may not reach a null.
+     */
+    public function testAnInstallationWithoutTheProbeSaysSoOnAllThreeRoutes(): void
+    {
+        $withoutProbe = new OutboundMailController(...array_slice($this->controllerArguments, 0, -2));
+
+        $body = (string) $withoutProbe->probe($this->getRequest(), [])->getBody();
+        $this->assertStringContainsString('La sonde n’est pas disponible', $body);
+        $this->assertStringNotContainsString('Envoyer une sonde', $body);
+
+        foreach (['sendProbe', 'recordProbeVerdict'] as $action) {
+            $response = $withoutProbe->{$action}($this->formRequest([
+                'destination' => 'vous@exemple.be',
+                'provider_id' => (string) MailProvider::LOCAL_ID,
+                'probe_id' => '1',
+                'verdict' => 'inbox',
+            ]), []);
+
+            $this->assertSame(302, $response->getStatusCode());
+
+            $flash = \Core\Http\FlashMessage::get();
+            $this->assertSame('error', $flash['type'] ?? null, "{$action} must refuse rather than crash.");
+            $this->assertStringContainsString('La sonde n’est pas disponible', $flash['message'] ?? '');
+        }
+
+        $this->assertSame(0, $this->mailProbes->count());
+    }
+
+    public function testAnUnknownRelayIsRefusedWithoutSendingAnything(): void
+    {
+        $this->controller->sendProbe($this->formRequest([
+            'destination' => 'vous@exemple.be',
+            'provider_id' => '4242',
+            'lane' => 'bulk',
+        ]), []);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertStringContainsString('Ce fournisseur n’existe plus', $flash['message'] ?? '');
+        $this->assertSame(0, $this->mailProbes->count());
+    }
+
+    /**
+     * The one outcome that is neither a success nor a failure: the relay
+     * took the message and the history could not be told. Here the table
+     * is gone, which is as close to that window as a test can stand.
+     *
+     * **`warning`, and not `error`.** The distinction is the whole point
+     * of `MailProbeNotRecordedException`: told it failed, the operator
+     * presses the button again and a second message goes out — and two
+     * messages by one road to one address is exactly the reading this
+     * page cannot make sense of afterwards.
+     */
+    public function testAProbeThatLeftButCouldNotBeRecordedIsAWarningCarryingItsCode(): void
+    {
+        $this->pdo->exec('DROP TABLE mail_probes');
+
+        $response = $this->controller->sendProbe($this->formRequest([
+            'destination' => 'vous@exemple.be',
+            'provider_id' => (string) MailProvider::LOCAL_ID,
+            'lane' => 'bulk',
+        ]), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('warning', $flash['type'] ?? null, 'a message that LEFT is not an error.');
+        $this->assertStringContainsString('ne relancez pas', $flash['message'] ?? '');
+        // The code the message carries, handed over in the sentence
+        // because the table that would have held it is what just failed.
+        $this->assertMatchesRegularExpression('/\bSM-[A-Z0-9]{6}\b/', $flash['message'] ?? '');
+    }
+
+    /**
+     * Same site-wide sentence as everywhere else, and nothing written:
+     * `AbstractController::guardCsrf()` runs before the probe is even
+     * looked at, on both write routes.
+     */
+    public function testAStaleTokenRefusesBothProbeWrites(): void
+    {
+        $id = $this->sendOneProbe();
+
+        // Emptied, because guardCsrf() also looks in the superglobals:
+        // a body carrying one token while $_POST carries another is not
+        // an expired session, it is a state no request can produce — and
+        // a refusal proved against it would be proved against nothing.
+        $_POST = [];
+
+        $stale = new Request(
+            'POST',
+            OutboundMailController::PROBE_SEND_URL,
+            [],
+            [
+                'destination' => 'ailleurs@exemple.be',
+                'provider_id' => (string) MailProvider::LOCAL_ID,
+                'probe_id' => (string) $id,
+                'verdict' => 'inbox',
+                '_csrf_token' => 'not-the-token',
+            ],
+            [],
+            []
+        );
+
+        foreach (['sendProbe', 'recordProbeVerdict'] as $action) {
+            $response = $this->controller->{$action}($stale, []);
+
+            $this->assertSame(302, $response->getStatusCode(), "{$action} must refuse a stale token.");
+        }
+
+        $this->assertSame(1, $this->mailProbes->count(), 'no second probe may be sent on a stale token.');
+        $this->assertNull($this->mailProbes->find($id)?->verdict, 'no verdict may be written on a stale token.');
+    }
+
+    /**
+     * Sends one through the local relay and returns its id. The
+     * transport in setUp() is a capture double, so nothing reaches a
+     * network — but everything up to the point of handing the message
+     * over is the production path.
+     */
+    private function sendOneProbe(string $destination = 'vous@exemple.be'): int
+    {
+        $this->controller->sendProbe($this->formRequest([
+            'destination' => $destination,
+            'provider_id' => (string) MailProvider::LOCAL_ID,
+            'lane' => 'bulk',
+        ]), []);
+        \Core\Http\FlashMessage::get();
+
+        $recent = $this->mailProbes->recent();
+        $this->assertNotSame([], $recent, 'the probe fixture must actually have sent one.');
+
+        return $recent[0]->id;
     }
 
     /**
