@@ -21,14 +21,11 @@ use Core\Scheduler\TaskContext;
 use Core\Import\MemberYearRepository;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\MediaRepository;
-use Modules\Gallery\Repository\ObjectStorageSecretRepository;
-use Modules\Gallery\Repository\StorageLocationRepository;
 use Modules\Gallery\Service\DelegatedAlbumService;
 use Modules\Gallery\Service\FfmpegAvailability;
 use Modules\Gallery\Service\GalleryAccessService;
+use Modules\Gallery\Service\GalleryStorageWiring;
 use Modules\Gallery\Service\MediaService;
-use Modules\Gallery\Service\StorageLocationService;
-use Modules\Gallery\Service\Storage\StorageBackendFactory;
 use Modules\Gallery\Service\StoredFileCleaner;
 
 /**
@@ -64,19 +61,9 @@ final class DelegatedAlbumManagerFactory
 
         $albumRepository = new AlbumRepository($pdo);
         $mediaRepository = new MediaRepository($pdo);
-        $storageLocationRepository = new StorageLocationRepository($pdo, $context->encryption);
-        $storageBackendFactory = new StorageBackendFactory($storageLocationRepository, $context->storagePath);
         $scoutYearService = new ScoutYearService($pdo);
         $fileRepository = new FileRepository($pdo);
-
-        $storageLocationService = new StorageLocationService(
-            $storageLocationRepository,
-            $albumRepository,
-            $storageBackendFactory,
-            $context->settings,
-            new ObjectStorageSecretRepository($pdo, $context->encryption),
-            $context->storagePath
-        );
+        $storage = GalleryStorageWiring::forTask($context, $albumRepository);
 
         $mediaService = new MediaService(
             $mediaRepository,
@@ -99,8 +86,8 @@ final class DelegatedAlbumManagerFactory
                 new SectionService($context->connection, $context->encryption, new MemberBadgeRepository($pdo)),
                 $scoutYearService
             ),
-            $storageBackendFactory,
-            $storageLocationService,
+            $storage->backends,
+            $storage->galleryLocations,
             new FfmpegAvailability(),
             new StoredFileCleaner($fileRepository, $context->storagePath)
         );
@@ -109,9 +96,10 @@ final class DelegatedAlbumManagerFactory
             $albumRepository,
             $mediaRepository,
             $mediaService,
-            $storageLocationRepository,
-            $storageLocationService,
-            $storageBackendFactory,
+            $storage->locations,
+            $storage->locationService,
+            $storage->galleryLocations,
+            $storage->backends,
             $scoutYearService
         );
     }

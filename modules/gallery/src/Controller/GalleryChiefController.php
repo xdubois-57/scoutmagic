@@ -12,20 +12,21 @@ use Core\Config\SettingService;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Member\SectionService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\Role;
 use Core\Service\IntegerInput;
+use Core\Storage\Location\StorageLocationRepository;
+use Core\Storage\Location\StorageLocationService;
+use Modules\Gallery\Api\GalleryException;
 use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\Media;
 use Modules\Gallery\Repository\MediaRepository;
-use Modules\Gallery\Repository\StorageLocationRepository;
 use Modules\Gallery\Service\AlbumService;
 use Modules\Gallery\Service\GalleryAccessService;
-use Modules\Gallery\Api\GalleryException;
+use Modules\Gallery\Service\GalleryLocationService;
 use Modules\Gallery\Service\MediaService;
-use Modules\Gallery\Service\StorageLocationService;
-use Core\Member\SectionService;
 use Twig\Environment;
 
 class GalleryChiefController extends AbstractController
@@ -40,6 +41,7 @@ class GalleryChiefController extends AbstractController
         private SettingService $settingService,
         private StorageLocationRepository $storageLocationRepository,
         private StorageLocationService $storageLocationService,
+        private GalleryLocationService $galleryLocationService,
         // Trailing/nullable so existing constructions keep working; without it
         // the chunked-upload protocol below simply reports unavailable.
         private ?\Core\File\ChunkedUploadStore $chunkedUploadStore = null,
@@ -101,7 +103,7 @@ class GalleryChiefController extends AbstractController
             $albumRows
         );
 
-        $this->storageLocationService->ensureLegacyLocationBackfilled();
+        $this->storageLocationService->ensureDefaultExists();
 
         return $this->render('@gallery/manage.html.twig', [
             'albums' => $albums,
@@ -534,12 +536,21 @@ class GalleryChiefController extends AbstractController
         // "the gallery is not available" during migration).
         $media = $album !== null && !$album->isMigrating() ? $this->mediaRepository->findByAlbumId($album->id) : [];
 
-        $this->storageLocationService->ensureLegacyLocationBackfilled();
+        $this->storageLocationService->ensureDefaultExists();
         $locations = $this->storageLocationRepository->findAll();
         $defaultLocation = $this->storageLocationRepository->findDefault();
 
         return [
             'album' => $album,
+            // The location the album's files are ACTUALLY on, resolved
+            // rather than read. A null `location_id` means « not written
+            // down yet », not « nowhere »: the raw column had this page
+            // announce « Non défini » about an album plainly sitting on
+            // the default. Read-only — an edit form must not pin a row
+            // just by being opened.
+            'effective_location_id' => $album !== null
+                ? $this->galleryLocationService->effectiveLocationId($album)
+                : null,
             // Only meaningful for edit/update (a real album, whose title
             // is worth showing in the trail) — create/store pass $album as
             // null, so this falls back to the route's static

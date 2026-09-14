@@ -11,13 +11,10 @@ namespace Modules\Gallery\Task;
 use Core\File\FileRepository;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
+use Modules\Gallery\Api\GalleryException;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\MediaRepository;
-use Modules\Gallery\Repository\ObjectStorageSecretRepository;
-use Modules\Gallery\Repository\StorageLocationRepository;
-use Modules\Gallery\Api\GalleryException;
-use Modules\Gallery\Service\Storage\StorageBackendFactory;
-use Modules\Gallery\Service\StorageLocationService;
+use Modules\Gallery\Service\GalleryStorageWiring;
 use Modules\Gallery\Service\VideoProcessingService;
 
 /**
@@ -115,24 +112,15 @@ class ProcessVideoHandler implements TaskHandlerInterface
             if ($album === null) {
                 throw new GalleryException('Album introuvable pour ce média.');
             }
-            $storageLocationRepository = new StorageLocationRepository($pdo, $context->encryption);
-            $storageBackendFactory = new StorageBackendFactory($storageLocationRepository, $context->storagePath);
-            // Resolved through the service so an album predating
-            // multi-location support (still-null storage_location_id right
-            // after an upgrade) is backfilled rather than failed outright.
-            $storageLocationService = new StorageLocationService(
-                $storageLocationRepository,
-                $albumRepository,
-                $storageBackendFactory,
-                $context->settings,
-                new ObjectStorageSecretRepository($pdo, $context->encryption),
-                $context->storagePath
-            );
-            $location = $storageLocationService->resolveLocationForAlbum($album);
+            // Resolved through the service so an album that has no
+            // location yet is put on the default rather than failed
+            // outright.
+            $storageWiring = GalleryStorageWiring::forTask($context, $albumRepository);
+            $location = $storageWiring->galleryLocations->resolveLocationForAlbum($album);
             if ($location === null) {
                 throw new GalleryException('Emplacement de stockage introuvable pour cet album.');
             }
-            $storage = $storageBackendFactory->create($location);
+            $storage = $storageWiring->backends->create($location);
             $thumbKey = "{$media->albumId}/thumb_{$mediaId}.jpg";
             $mediumKey = "{$media->albumId}/med_{$mediaId}.mp4";
             $storage->put($thumbKey, (string) file_get_contents($posterTempPath), 'image/jpeg');

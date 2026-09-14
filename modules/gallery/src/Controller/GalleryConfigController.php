@@ -18,16 +18,18 @@ use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\Role;
 use Modules\Gallery\Repository\Album;
-use Modules\Gallery\Repository\StorageLocation;
-use Modules\Gallery\Repository\StorageLocationRepository;
+use Core\Storage\Location\StorageLocation;
+use Core\Storage\Location\StorageLocationRepository;
 use Modules\Gallery\Service\AlbumService;
 use Modules\Gallery\Service\DelegatedAlbumDescriberRegistry;
 use Modules\Gallery\Service\FfmpegAvailability;
 use Modules\Gallery\Api\GalleryException;
+use Modules\Gallery\Service\GalleryLocationService;
 use Modules\Gallery\Service\ObjectStorageErrorExplainerService;
 use Modules\Gallery\Service\ObjectStorageTestFailure;
-use Modules\Gallery\Service\Storage\ObjectStorageBackend;
-use Modules\Gallery\Service\StorageLocationService;
+use Core\Storage\Location\Backend\ObjectStorageBackend;
+use Core\Storage\Location\StorageLocationService;
+use Core\Storage\Location\StorageLocationType;
 use Twig\Environment;
 
 class GalleryConfigController extends AbstractController
@@ -65,6 +67,7 @@ class GalleryConfigController extends AbstractController
         private JournalService $journalService,
         private ObjectStorageErrorExplainerService $s3ErrorExplainerService,
         private StorageLocationService $storageLocationService,
+        private GalleryLocationService $galleryLocationService,
         private StorageLocationRepository $storageLocationRepository,
         private AlbumService $albumService,
         /**
@@ -84,7 +87,7 @@ class GalleryConfigController extends AbstractController
      */
     public function index(Request $request, array $params): Response
     {
-        $this->storageLocationService->ensureLegacyLocationBackfilled();
+        $this->storageLocationService->ensureDefaultExists();
 
         return $this->render('@gallery/config.html.twig', $this->buildContext());
     }
@@ -199,7 +202,7 @@ class GalleryConfigController extends AbstractController
         if ($secretKey === '') {
             $locationId = (int) ($data['location_id'] ?? 0);
             $location = $locationId > 0 ? $this->storageLocationRepository->findById($locationId) : null;
-            if ($location !== null && $location->isS3()) {
+            if ($location !== null && $location->type === StorageLocationType::ObjectStorage) {
                 $secretKey = (string) $this->storageLocationRepository->getSecret($location->id);
             }
         }
@@ -341,10 +344,21 @@ class GalleryConfigController extends AbstractController
             'ffmpeg_available' => $this->ffmpegAvailability->check(),
             'gallery_s3_ai_available' => $this->s3ErrorExplainerService->isAvailable(),
             'locations' => $locations,
-            'local_albums' => array_values(array_filter(
-                $this->albumService->findAllForManage(),
-                fn(Album $a) => $a->isLocal()
-            )),
+            // Each album with the location it is ACTUALLY on, resolved
+            // rather than read: an album that has not been pinned yet is
+            // sitting on the default, and the raw column would have the
+            // screen say « Non défini » about it and offer its own
+            // location as somewhere to move it to.
+            'local_albums' => array_map(
+                fn(Album $a) => [
+                    'album' => $a,
+                    'location_id' => $this->galleryLocationService->effectiveLocationId($a),
+                ],
+                array_values(array_filter(
+                    $this->albumService->findAllForManage(),
+                    fn(Album $a) => $a->isLocal()
+                ))
+            ),
             // Albums another module owns. Listed HERE and nowhere else in
             // gallery: what they hold and who may see them belong to their
             // owner, but they take real space on a real location and moving
@@ -353,6 +367,7 @@ class GalleryConfigController extends AbstractController
             'delegated_albums' => array_map(
                 fn(Album $a) => [
                     'album' => $a,
+                    'location_id' => $this->galleryLocationService->effectiveLocationId($a),
                     'owner_label' => $this->delegatedAlbumDescriberRegistry->describe(
                         (string) $a->ownerType,
                         (int) $a->ownerId
@@ -363,12 +378,12 @@ class GalleryConfigController extends AbstractController
                     fn(Album $a) => $a->isLocal()
                 ))
             ),
-            'location_album_counts' => array_combine(
+            // What still stands on each location, by name. A refusal to
+            // delete quotes these back, so the page shows the same words
+            // rather than a count the administrator would have to decode.
+            'location_usages' => array_combine(
                 array_map(fn(StorageLocation $l) => $l->id, $locations),
-                array_map(
-                    fn(StorageLocation $l) => $this->storageLocationRepository->countAlbumsUsing($l->id),
-                    $locations
-                )
+                array_map(fn(StorageLocation $l) => $this->storageLocationService->usagesOf($l->id), $locations)
             ),
             // Room left on the volume behind each local location. Null for
             // an S3 location and null on a host that will not answer — the
@@ -376,7 +391,7 @@ class GalleryConfigController extends AbstractController
             // "not applicable" are equally not a number of gigabytes.
             'location_disk_space' => array_combine(
                 array_map(fn(StorageLocation $l) => $l->id, $locations),
-                array_map(fn(StorageLocation $l) => $this->storageLocationService->diskSpaceFor($l), $locations)
+                array_map(fn(StorageLocation $l) => $this->galleryLocationService->diskSpaceFor($l), $locations)
             ),
             'gallery_allow_external' => (bool) $this->settingService->get('gallery_allow_external', 'gallery', true),
             'gallery_max_media_per_album' => (int) $this->settingService->get(

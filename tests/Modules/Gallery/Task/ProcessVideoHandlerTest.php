@@ -18,12 +18,14 @@ use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\Media;
 use Modules\Gallery\Repository\MediaRepository;
-use Modules\Gallery\Repository\StorageLocation;
-use Modules\Gallery\Repository\StorageLocationRepository;
+use Core\Storage\Location\StorageLocation;
+use Core\Storage\Location\StorageLocationRepository;
 use Modules\Gallery\Task\ProcessVideoHandler;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Gallery\GalleryTestHelper;
+use Core\Storage\Location\StorageLocationType;
+use Core\Storage\Location\Config\LocalLocationConfig;
 
 /**
  * @group database
@@ -59,7 +61,7 @@ class ProcessVideoHandlerTest extends TestCase
         $scoutYearId = (int) $this->pdo->lastInsertId();
 
         $locationId = (new StorageLocationRepository($this->pdo, $this->encryption))->create(
-            StorageLocation::TYPE_LOCAL, 'Stockage local', 'gallery', null, null, null, null, null, null, null
+            StorageLocationType::Local, 'Stockage local', new LocalLocationConfig('gallery'), null
         );
         $this->albumId = (new AlbumRepository($this->pdo))->create(Album::TYPE_LOCAL, 'Camp', null, '2026-01-01', null, $scoutYearId, null, $locationId, $authorId);
         $this->mediaRepository = new MediaRepository($this->pdo);
@@ -127,7 +129,7 @@ class ProcessVideoHandlerTest extends TestCase
     {
         $mediaId = $this->createPendingVideo();
         $targetId = (new StorageLocationRepository($this->pdo, $this->encryption))->create(
-            StorageLocation::TYPE_LOCAL, 'Cible', 'gallery2', null, null, null, null, null, null, null
+            StorageLocationType::Local, 'Cible', new LocalLocationConfig('gallery2'), null
         );
         (new AlbumRepository($this->pdo))->startMigration($this->albumId, $targetId);
 
@@ -144,7 +146,7 @@ class ProcessVideoHandlerTest extends TestCase
     {
         $mediaId = $this->createPendingVideo();
         $targetId = (new StorageLocationRepository($this->pdo, $this->encryption))->create(
-            StorageLocation::TYPE_LOCAL, 'Cible', 'gallery2', null, null, null, null, null, null, null
+            StorageLocationType::Local, 'Cible', new LocalLocationConfig('gallery2'), null
         );
         (new AlbumRepository($this->pdo))->startMigration($this->albumId, $targetId);
 
@@ -165,7 +167,7 @@ class ProcessVideoHandlerTest extends TestCase
     {
         $mediaId = $this->createPendingVideo();
         $targetId = (new StorageLocationRepository($this->pdo, $this->encryption))->create(
-            StorageLocation::TYPE_LOCAL, 'Cible', 'gallery2', null, null, null, null, null, null, null
+            StorageLocationType::Local, 'Cible', new LocalLocationConfig('gallery2'), null
         );
         (new AlbumRepository($this->pdo))->startMigration($this->albumId, $targetId);
 

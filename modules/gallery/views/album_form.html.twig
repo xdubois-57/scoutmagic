@@ -49,8 +49,8 @@
                     <div class="mb-3">
                         <div class="form-label small">Emplacement de stockage</div>
                         <div class="form-control-plaintext">
-                            {% set current_location = locations|filter(l => l.id == album.storageLocationId)|first %}
-                            {{ current_location ? current_location.label ~ ' (' ~ (current_location.type == 's3' ? 'S3' : 'Disque local') ~ ')' : 'Non défini' }}
+                            {% set current_location = locations|filter(l => l.id == effective_location_id)|first %}
+                            {{ current_location ? current_location.label ~ ' (' ~ current_location.type.frenchLabel ~ ')' : 'Non défini' }}
                             <span class="text-body-secondary small">(fixé à la création — la migration vers un autre emplacement se fait depuis la configuration de la galerie)</span>
                         </div>
                     </div>

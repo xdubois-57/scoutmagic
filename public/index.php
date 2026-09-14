@@ -2362,6 +2362,28 @@ $fileRepository = new FileRepository($pdo);
 // else points at them. Camps and Locations both use this one instance.
 $attachedFileRemover = new \Core\File\AttachedFileRemover($fileRepository, $storagePath);
 $diskBudget = new \Core\Storage\DiskBudget($storagePath, $settingService);
+
+// Declared destinations for bytes (Core\Storage\Location). In core and
+// built here rather than inside the gallery's block, because the gallery
+// is only the first consumer: the backups reach for these too, and core
+// cannot depend on a module.
+//
+// The consumer registry is created empty and filled by each module's own
+// block further down — the mutable-registry shape of ARCHITECTURE.md §7.6,
+// for the same reason: this script is straight-line, and the service that
+// asks « is anybody standing on this location? » is built before the
+// modules that answer.
+$storageLocationRepository = new \Core\Storage\Location\StorageLocationRepository($pdo, $encryptionService);
+$storageLocationConsumers = new \Core\Storage\Location\StorageLocationConsumerRegistry();
+$storageBackendFactory = new \Core\Storage\Location\Backend\StorageBackendFactory(
+    $storageLocationRepository,
+    $storagePath
+);
+$storageLocationService = new \Core\Storage\Location\StorageLocationService(
+    $storageLocationRepository,
+    $storageBackendFactory,
+    $storageLocationConsumers
+);
 $operationalRequestChecks = new \Core\Alert\RequestBoundChecks($storagePath);
 $uploadHandler = new UploadHandler($fileRepository, $storagePath, $diskBudget);
 $encryptedFileStorageService = new \Core\File\EncryptedFileStorageService(
@@ -7233,17 +7255,17 @@ if ($isEnabled('gallery')) {
     \Core\Debug\RequestTimeline::mark('module_gallery');
     $galleryAlbumRepo = new \Modules\Gallery\Repository\AlbumRepository($pdo);
     $galleryMediaRepo = new \Modules\Gallery\Repository\MediaRepository($pdo);
-    // Legacy singleton (pre-multi-location) — only read from now on, by
-    // Service\StorageLocationService::ensureLegacyLocationBackfilled(), to
-    // carry an existing installation's S3 secret into the new per-location
-    // gallery_storage_locations table the very first time it runs.
-    $galleryS3SecretRepo = new \Modules\Gallery\Repository\ObjectStorageSecretRepository($pdo, $encryptionService);
-    $galleryStorageLocationRepo = new \Modules\Gallery\Repository\StorageLocationRepository($pdo, $encryptionService);
-    // The gallery's S3 storage as declared sub-processors (§7.4) — the
-    // module's own reading of its own tables, so the RGPD prompt states
-    // exactly what is configured without core touching this repository.
+    // The gallery standing on its locations: what makes a deletion refuse
+    // with « Galeries photo » rather than a foreign-key error, and what
+    // the storage screen reads to say who is served by what.
+    $storageLocationConsumers->register(
+        new \Modules\Gallery\Service\GalleryStorageConsumer($galleryAlbumRepo, $storageLocationRepository)
+    );
+    // The object storage the gallery writes to, as declared sub-processors
+    // (§7.4) — read from the configured locations, so the RGPD prompt
+    // states exactly what exists rather than a hardcoded provider list.
     $rgpdContentService->addSubProcessorProvider(
-        new \Modules\Gallery\Service\GalleryStorageSubProcessorService($galleryStorageLocationRepo)
+        new \Modules\Gallery\Service\GalleryStorageSubProcessorService($storageLocationRepository)
     );
 
     $galleryAccessService = new \Modules\Gallery\Service\GalleryAccessService(
@@ -7261,10 +7283,6 @@ if ($isEnabled('gallery')) {
         $galleryOgScraperService,
         $galleryLinkPreviewCacheRepo
     );
-    $galleryStorageBackendFactory = new \Modules\Gallery\Service\Storage\StorageBackendFactory(
-        $galleryStorageLocationRepo,
-        $storagePath
-    );
     $galleryFfmpegAvailability = new \Modules\Gallery\Service\FfmpegAvailability();
     // Optional dependency on the llm_connector module (ARCHITECTURE.md
     // §7.5), same reused instance as RGPD content generation above — the
@@ -7275,12 +7293,12 @@ if ($isEnabled('gallery')) {
     // Reclaims the `files` row + bytes behind a media's staging original and
     // an external album's cached og:image once nothing references them.
     $galleryStoredFileCleaner = new \Modules\Gallery\Service\StoredFileCleaner($fileRepository, $storagePath);
-    $galleryStorageLocationService = new \Modules\Gallery\Service\StorageLocationService(
-        $galleryStorageLocationRepo,
+    // The gallery's own half of the storage question — which location an
+    // album's files are in — on top of the core service built above.
+    $galleryLocationService = new \Modules\Gallery\Service\GalleryLocationService(
+        $storageLocationService,
         $galleryAlbumRepo,
-        $galleryStorageBackendFactory,
         $settingService,
-        $galleryS3SecretRepo,
         $storagePath
     );
 
@@ -7289,9 +7307,10 @@ if ($isEnabled('gallery')) {
         $galleryMediaRepo,
         $galleryAccessService,
         $galleryOgScraperService,
-        $galleryStorageBackendFactory,
-        $galleryStorageLocationRepo,
-        $galleryStorageLocationService,
+        $storageBackendFactory,
+        $storageLocationRepository,
+        $storageLocationService,
+        $galleryLocationService,
         $scoutYearService,
         $settingService,
         $schedulerService,
@@ -7307,8 +7326,8 @@ if ($isEnabled('gallery')) {
         $schedulerService,
         $settingService,
         $galleryAccessService,
-        $galleryStorageBackendFactory,
-        $galleryStorageLocationService,
+        $storageBackendFactory,
+        $galleryLocationService,
         $galleryFfmpegAvailability,
         $galleryStoredFileCleaner
     );
@@ -7324,9 +7343,10 @@ if ($isEnabled('gallery')) {
         $galleryAlbumRepo,
         $galleryMediaRepo,
         $galleryMediaService,
-        $galleryStorageLocationRepo,
-        $galleryStorageLocationService,
-        $galleryStorageBackendFactory,
+        $storageLocationRepository,
+        $storageLocationService,
+        $galleryLocationService,
+        $storageBackendFactory,
         $scoutYearService
     );
 
@@ -7340,8 +7360,9 @@ if ($isEnabled('gallery')) {
             $galleryAccessService,
             $sectionService,
             $settingService,
-            $galleryStorageLocationRepo,
-            $galleryStorageLocationService,
+            $storageLocationRepository,
+            $storageLocationService,
+            $galleryLocationService,
             new \Core\File\ChunkedUploadStore($storagePath, $diskBudget),
             $scoutYearService,
             $scoutYearResolver
@@ -7355,10 +7376,11 @@ if ($isEnabled('gallery')) {
         \Modules\Gallery\Controller\GalleryStorageLocationController::class,
         new \Modules\Gallery\Controller\GalleryStorageLocationController(
             $twig,
-            $galleryStorageLocationRepo,
-            $galleryStorageLocationService,
+            $storageLocationRepository,
+            $storageLocationService,
             $journalService,
-            $galleryS3ErrorExplainerService
+            $galleryS3ErrorExplainerService,
+            $galleryAlbumRepo
         )
     );
 }
@@ -9987,9 +10009,7 @@ if (isset(
     $galleryAlbumService,
     $galleryMediaService,
     $galleryMediaRepo,
-    $galleryStorageBackendFactory,
-    $galleryStorageLocationService,
-    $galleryStorageLocationRepo,
+    $galleryLocationService,
     $galleryFfmpegAvailability,
     $galleryS3ErrorExplainerService
 )) {
@@ -10010,8 +10030,9 @@ if (isset(
             $galleryFfmpegAvailability,
             $journalService,
             $galleryS3ErrorExplainerService,
-            $galleryStorageLocationService,
-            $galleryStorageLocationRepo,
+            $storageLocationService,
+            $galleryLocationService,
+            $storageLocationRepository,
             $galleryAlbumService,
             $galleryDelegatedAlbumDescriberRegistry
         )
@@ -10026,8 +10047,9 @@ if (isset(
             $memberService,
             $sectionService,
             $scoutYearService,
-            $galleryStorageBackendFactory,
-            $galleryStorageLocationService,
+            $storageBackendFactory,
+            $storageLocationService,
+            $galleryLocationService,
             $galleryDelegatedAlbumAccessRegistry,
             $linkedMemberIds
         )
@@ -10117,24 +10139,54 @@ $response = \Core\Http\ErrorHandler::guard(static fn() => $frontController->hand
 \Core\Debug\RequestTimeline::mark('controller_dispatch_done');
 $response->setCspNonce($cspNonce);
 
-// Gallery photos served straight from S3-compatible storage need their
-// origin explicitly allowed in img-src — computed for every configured S3
-// location (there can be several at once now, module.json gallery multi-
-// location support), never hardcoded to one (ARCHITECTURE.md §7.5).
-if (isset($galleryStorageLocationRepo)) {
-    foreach ($galleryStorageLocationRepo->findAll() as $galleryLocationForCsp) {
-        if (!$galleryLocationForCsp->isS3()) {
+// Photos served straight from an S3-compatible bucket need their origin
+// explicitly allowed in img-src — computed for every configured location
+// of that kind (there can be several at once), never hardcoded to one
+// provider's hostname.
+//
+// Wrapped, and that is not defensive habit: this runs AFTER
+// ErrorHandler::guard(), which only wraps the controller, and the
+// response is already built. Reading these rows can throw — a row whose
+// `type` this version does not know is refused rather than misread
+// (StorageLocationRepository::hydrate()) — and unguarded, one such row
+// would discard a finished response on EVERY route of the site,
+// including the configuration page somebody would need to go and fix it.
+//
+// What a failure costs instead: an origin missing from img-src, so
+// images served straight from a bucket are blocked by the browser and
+// visibly do not load, while the site itself keeps working. The
+// administrator meets the real error on the storage page, where it is
+// raised inside the route boundary and says what is wrong.
+// Nothing consumes a storage location on this installation — no gallery,
+// nothing that renders an image from one — so there is no origin to
+// allow and no reason to read the table. Asked of the registry, which
+// answers from memory: `all()` would ASK each consumer, and each of those
+// reads the database to reply, which is the cost being avoided.
+try {
+    if ($storageLocationConsumers->isEmpty()) {
+        $storageLocationsForCsp = [];
+    } else {
+        $storageLocationsForCsp = $storageLocationRepository->findAll();
+    }
+
+    foreach ($storageLocationsForCsp as $locationForCsp) {
+        $configForCsp = $locationForCsp->config;
+        if (!$configForCsp instanceof \Core\Storage\Location\Config\ObjectStorageLocationConfig) {
             continue;
         }
-        $s3OriginForCsp = \Modules\Gallery\Service\Storage\ObjectStorageBackend::servingOrigin(
-            (string) ($galleryLocationForCsp->s3Endpoint ?? ''),
-            (string) ($galleryLocationForCsp->s3Bucket ?? ''),
-            $galleryLocationForCsp->s3PublicUrl
+        $originForCsp = \Core\Storage\Location\Backend\ObjectStorageBackend::servingOrigin(
+            $configForCsp->endpoint,
+            $configForCsp->bucket,
+            $configForCsp->publicUrl
         );
-        if ($s3OriginForCsp !== null) {
-            $response->addImgSrcOrigin($s3OriginForCsp);
+        if ($originForCsp !== null) {
+            $response->addImgSrcOrigin($originForCsp);
         }
     }
+} catch (\Throwable) {
+    // Deliberately silent, and deliberately not journalled: this is the
+    // response-building tail, reached by every request, so a broken row
+    // would write a journal line per page view.
 }
 
 // The camps map draws OpenStreetMap tiles, which are <img> from another

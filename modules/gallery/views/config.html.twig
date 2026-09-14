@@ -81,7 +81,7 @@
                                     <th>Statut</th>
                                     <th>Espace libre</th>
                                     <th>Par défaut</th>
-                                    <th>Albums</th>
+                                    <th>Sert à</th>
                                     <th class="text-end">Actions</th>
                                 </tr>
                             </thead>
@@ -89,7 +89,7 @@
                                 {% for location in locations %}
                                     <tr>
                                         <td>{{ location.label }}</td>
-                                        <td>{{ location.type == 's3' ? 'Stockage objet (S3)' : 'Disque local' }}</td>
+                                        <td>{{ location.type.frenchLabel }}</td>
                                         <td class="gallery-location-status" data-location-id="{{ location.id }}">
                                             {% if location.lastCheckOk == true %}
                                                 <span class="badge text-bg-success">Disponible</span>
@@ -106,7 +106,7 @@
                                         <td>
                                             {% if disk is null %}
                                                 <span class="text-body-secondary"
-                                                      title="{{ location.type == 's3' ? 'Sans objet : la capacité est celle du fournisseur de stockage.' : 'Espace disque non communiqué par l\'hébergeur.' }}">—</span>
+                                                      title="{{ location.type.value == 's3' ? 'Sans objet : la capacité est celle du fournisseur de stockage.' : 'Espace disque non communiqué par l\'hébergeur.' }}">—</span>
                                             {% else %}
                                                 <span{% if disk.isLow %} class="text-danger fw-semibold"{% endif %}>{{ disk.freeLabel }}</span>
                                                 {% if disk.totalLabel %}
@@ -131,7 +131,11 @@
                                                 </button>
                                             {% endif %}
                                         </td>
-                                        <td>{{ location_album_counts[location.id] ?? 0 }}</td>
+                                        {# Who stands on this location, by name. A count would say « 3 »
+                                           and leave the administrator to guess three what. #}
+                                        <td>{{ location_usages[location.id] is not empty
+                                            ? location_usages[location.id]|join(', ')
+                                            : '—' }}</td>
                                         <td class="text-end">
                                             <button type="button" class="btn btn-sm btn-outline-secondary gallery-location-test" data-id="{{ location.id }}" title="Tester la connexion" aria-label="Tester la connexion">
                                                 <i class="bi bi-plug" aria-hidden="true"></i>
@@ -139,12 +143,12 @@
                                             <a href="/config/gallery/locations/{{ location.id }}/edit" class="btn btn-sm btn-outline-secondary" title="Modifier" aria-label="Modifier">
                                                 <i class="bi bi-pencil" aria-hidden="true"></i>
                                             </a>
-                                            {% set location_in_use = (location_album_counts[location.id] ?? 0) > 0 %}
+                                            {% set location_in_use = location_usages[location.id] is not empty %}
                                             {# Real attributes, not an emitted attribute string: autoescaping
                                                would turn the quotes into &quot; and mangle the markup. #}
                                             <button type="button" class="btn btn-sm btn-outline-danger gallery-location-delete" data-id="{{ location.id }}"
                                                     {% if location_in_use %}disabled{% endif %}
-                                                    title="{{ location_in_use ? 'Encore utilisé par au moins un album — non supprimable.' : 'Supprimer' }}" aria-label="{{ location_in_use ? 'Encore utilisé par au moins un album — non supprimable.' : 'Supprimer' }}">
+                                                    title="{{ location_in_use ? 'Sert encore à un usage — non supprimable.' : 'Supprimer' }}" aria-label="{{ location_in_use ? 'Sert encore à un usage — non supprimable.' : 'Supprimer' }}">
                                                 <i class="bi bi-trash" aria-hidden="true"></i>
                                             </button>
                                         </td>
@@ -172,12 +176,16 @@
                   moving it is gallery's job. Listing it nowhere is how an
                   administrator ends up unable to explain their storage bill.
                 #}
+                {# location_id is the album's EFFECTIVE location, resolved by the
+                   controller: an album that pins nothing is sitting on the default,
+                   and the raw column would say « Non défini » about it and offer it
+                   its own location to move to. #}
                 {% set migratable = [] %}
-                {% for album in local_albums %}
-                    {% set migratable = migratable|merge([{album: album, label: album.title, owner: null}]) %}
+                {% for row in local_albums %}
+                    {% set migratable = migratable|merge([{album: row.album, location_id: row.location_id, label: row.album.title, owner: null}]) %}
                 {% endfor %}
                 {% for row in delegated_albums %}
-                    {% set migratable = migratable|merge([{album: row.album, label: row.owner_label, owner: row.album.ownerType}]) %}
+                    {% set migratable = migratable|merge([{album: row.album, location_id: row.location_id, label: row.owner_label, owner: row.album.ownerType}]) %}
                 {% endfor %}
 
                 {% if migratable is empty %}
@@ -199,7 +207,7 @@
                             <tbody>
                                 {% for entry in migratable %}
                                     {% set album = entry.album %}
-                                    {% set current_location = locations|filter(l => l.id == album.storageLocationId)|first %}
+                                    {% set current_location = locations|filter(l => l.id == entry.location_id)|first %}
                                     {# A delegated album must stay somewhere ScoutMagic can serve
                                        it through an access-controlled path: migrating one onto a
                                        public-prefix location would publish a group's photos to
@@ -207,8 +215,8 @@
                                        (Service\AlbumService::startMigration); not offering it is
                                        so nobody has to find out by trying. #}
                                     {% set other_locations = locations|filter(l =>
-                                        l.id != album.storageLocationId
-                                        and (entry.owner is null or not l.s3PublicUrl)
+                                        l.id != entry.location_id
+                                        and (entry.owner is null or not l.servesPubliclyWithoutExpiry)
                                     ) %}
                                     <tr>
                                         <td>
@@ -220,7 +228,7 @@
                                                 </span>
                                             {% endif %}
                                         </td>
-                                        <td>{{ current_location ? current_location.label ~ ' (' ~ (current_location.type == 's3' ? 'S3' : 'Disque local') ~ ')' : 'Non défini' }}</td>
+                                        <td>{{ current_location ? current_location.label ~ ' (' ~ current_location.type.frenchLabel ~ ')' : 'Non défini' }}</td>
                                         <td class="gallery-album-migration-status" data-album-id="{{ album.id }}">
                                             {% if album.migrationStatus == 'in_progress' %}
                                                 <span class="badge text-bg-info"><span class="spinner-border spinner-border-sm"></span> En cours</span>
@@ -240,7 +248,7 @@
                                                     <label class="visually-hidden" for="gallery-migrate-target-{{ album.id }}">Emplacement de destination pour {{ entry.label }}</label>
                                                     <select class="form-select form-select-sm gallery-migrate-target" id="gallery-migrate-target-{{ album.id }}" data-album-id="{{ album.id }}" style="width:auto;">
                                                         {% for location in other_locations %}
-                                                            <option value="{{ location.id }}">{{ location.label }} ({{ location.type == 's3' ? 'S3' : 'Disque local' }})</option>
+                                                            <option value="{{ location.id }}">{{ location.label }} ({{ location.type.frenchLabel }})</option>
                                                         {% endfor %}
                                                     </select>
                                                     <button type="button" class="btn btn-sm btn-outline-primary gallery-migrate-start"

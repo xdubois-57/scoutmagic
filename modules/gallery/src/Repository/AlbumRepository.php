@@ -153,7 +153,7 @@ class AlbumRepository
         ?int $sectionId,
         int $scoutYearId,
         ?string $externalUrl,
-        ?int $storageLocationId,
+        ?int $locationId,
         int $createdBy,
         // Last, both null: an ordinary album never sets these — only
         // Service\DelegatedAlbumService::ensureAlbum() ever passes a
@@ -163,18 +163,113 @@ class AlbumRepository
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO gallery_albums (type, title, subtitle, album_date, section_id, scout_year_id, external_url, '
-                . 'storage_location_id, created_by, created_at, owner_type, owner_id)
+                . 'location_id, created_by, created_at, owner_type, owner_id)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([$type, $title, $subtitle, $albumDate, $sectionId, $scoutYearId, $externalUrl,
-            $storageLocationId, $createdBy, date('Y-m-d H:i:s'), $ownerType, $ownerId]);
+            $locationId, $createdBy, date('Y-m-d H:i:s'), $ownerType, $ownerId]);
         return (int) $this->pdo->lastInsertId();
     }
 
-    public function setStorageLocationId(int $id, int $storageLocationId): void
+    /**
+     * Every storage location at least one album stands on — its own, or
+     * the one a migration is moving it towards.
+     *
+     * The migration target counts, and that is the whole subtlety: while a
+     * move is in flight, files are already being written to the target,
+     * and a location deleted at that moment would take a half-copied album
+     * with it. Delegated albums count too: nobody sees them in the
+     * gallery's own listings, but their photos occupy a real destination.
+     *
+     * @return list<int>
+     */
+    public function distinctLocationIds(): array
     {
-        $stmt = $this->pdo->prepare('UPDATE gallery_albums SET storage_location_id = ? WHERE id = ?');
-        $stmt->execute([$storageLocationId, $id]);
+        $stmt = $this->pdo->prepare(
+            'SELECT DISTINCT location_id AS id FROM gallery_albums WHERE location_id IS NOT NULL
+             UNION
+             SELECT DISTINCT migration_target_id AS id FROM gallery_albums WHERE migration_target_id IS NOT NULL'
+        );
+        $stmt->execute();
+
+        return array_values(array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN)));
+    }
+
+    /**
+     * Whether any DELEGATED album stands on this location — counting the
+     * ones that have not been pinned to it yet.
+     *
+     * Asked before a location is edited into serving publicly, which is
+     * the one change that can strand an album that was legitimately
+     * created on it: `DelegatedAlbumService::ensureAlbum()` refuses such a
+     * location at creation and `GalleryController::serveDelegatedMedia()`
+     * re-asserts it when handing out bytes, so an album already there
+     * would simply stop being served, for ever and without a word.
+     *
+     * `$isDefault` is what makes the null case answerable from here: a
+     * delegated album whose `location_id` is null is not on *no* location,
+     * it is on the default and nobody has written that down yet — the same
+     * reading `GalleryStorageConsumer` applies.
+     *
+     * **The migration target counts, for the same reason it counts in
+     * {@see distinctLocationIds()} and one worse.** While a move is in
+     * flight `location_id` still names the SOURCE; the destination lives
+     * in `migration_target_id` until `completeMigration()` flips it. An
+     * answer that read only `location_id` would say « nobody is heading
+     * there » about an album whose files are being written there right
+     * now — and the caller would let an administrator give that location a
+     * permanent public URL. The album lands on it a minute later, and the
+     * serve-time guard then refuses to serve bytes that are already
+     * fetchable straight from the provider, which is the disclosure this
+     * whole mechanism exists to prevent rather than an inconvenience.
+     */
+    public function hasDelegatedAlbumsOn(int $locationId, bool $isDefault): bool
+    {
+        $sql = 'SELECT 1 FROM gallery_albums WHERE owner_type IS NOT NULL AND type = ? '
+            . 'AND (location_id = ? OR migration_target_id = ?) LIMIT 1';
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([Album::TYPE_LOCAL, $locationId, $locationId]);
+        if ($stmt->fetchColumn() !== false) {
+            return true;
+        }
+
+        if (!$isDefault) {
+            return false;
+        }
+
+        $stmt = $this->pdo->prepare(
+            'SELECT 1 FROM gallery_albums WHERE owner_type IS NOT NULL AND type = ? AND location_id IS NULL LIMIT 1'
+        );
+        $stmt->execute([Album::TYPE_LOCAL]);
+
+        return $stmt->fetchColumn() !== false;
+    }
+
+    /**
+     * Whether any album that HOLDS files still has no location recorded.
+     *
+     * A null `location_id` does not mean « this album uses no storage » —
+     * it means « nobody has written down which one yet », and
+     * Service\GalleryLocationService::resolveLocationForAlbum() answers
+     * that question with the site's DEFAULT location the next time the
+     * album is touched. So such an album depends on the default exactly as
+     * much as one that names it, and the storage page has to know, or it
+     * offers to delete a location whose files it is about to orphan.
+     */
+    public function hasAlbumsWithoutLocation(): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT 1 FROM gallery_albums WHERE type = ? AND location_id IS NULL LIMIT 1'
+        );
+        $stmt->execute([Album::TYPE_LOCAL]);
+
+        return $stmt->fetchColumn() !== false;
+    }
+
+    public function setLocationId(int $id, int $locationId): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE gallery_albums SET location_id = ? WHERE id = ?');
+        $stmt->execute([$locationId, $id]);
     }
 
     /**
@@ -184,7 +279,7 @@ class AlbumRepository
     public function startMigration(int $id, int $targetLocationId): void
     {
         $stmt = $this->pdo->prepare(
-            "UPDATE gallery_albums SET migration_status = 'in_progress', migration_target_location_id = ?, "
+            "UPDATE gallery_albums SET migration_status = 'in_progress', migration_target_id = ?, "
                 . "migration_error = NULL WHERE id = ?"
         );
         $stmt->execute([$targetLocationId, $id]);
@@ -199,14 +294,14 @@ class AlbumRepository
     public function completeMigration(int $id, int $newStorageLocationId): void
     {
         $stmt = $this->pdo->prepare(
-            "UPDATE gallery_albums SET storage_location_id = ?, migration_status = 'none', "
-                . "migration_target_location_id = NULL, migration_error = NULL WHERE id = ?"
+            "UPDATE gallery_albums SET location_id = ?, migration_status = 'none', "
+                . "migration_target_id = NULL, migration_error = NULL WHERE id = ?"
         );
         $stmt->execute([$newStorageLocationId, $id]);
     }
 
     /**
-     * Aborts a migration on any failure — storage_location_id is
+     * Aborts a migration on any failure — location_id is
      * deliberately left untouched by this statement, still pointing at the
      * (fully intact) source.
      */
@@ -276,10 +371,10 @@ class AlbumRepository
             ogDescription: $row['og_description'] !== null ? (string) $row['og_description'] : null,
             ogImageUrl: $row['og_image_url'] !== null ? (string) $row['og_image_url'] : null,
             ogImageFileId: $row['og_image_file_id'] !== null ? (int) $row['og_image_file_id'] : null,
-            storageLocationId: $row['storage_location_id'] !== null ? (int) $row['storage_location_id'] : null,
+            locationId: $row['location_id'] !== null ? (int) $row['location_id'] : null,
             migrationStatus: (string) $row['migration_status'],
-            migrationTargetLocationId: $row['migration_target_location_id'] !== null
-                ? (int) $row['migration_target_location_id']
+            migrationTargetId: $row['migration_target_id'] !== null
+                ? (int) $row['migration_target_id']
                 : null,
             migrationError: $row['migration_error'] !== null ? (string) $row['migration_error'] : null,
             createdBy: (int) $row['created_by'],

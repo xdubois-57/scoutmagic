@@ -17,17 +17,18 @@ use Core\Security\Role;
 use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\MediaRepository;
-use Modules\Gallery\Repository\ObjectStorageSecretRepository;
-use Modules\Gallery\Repository\StorageLocationRepository;
+use Core\Storage\Location\StorageLocationRepository;
 use Modules\Gallery\Service\FfmpegAvailability;
 use Modules\Gallery\Service\GalleryAccessService;
 use Modules\Gallery\Service\GalleryMemberQueryService;
 use Modules\Gallery\Service\MediaService;
-use Modules\Gallery\Service\Storage\StorageBackendFactory;
-use Modules\Gallery\Service\StorageLocationService;
+use Core\Storage\Location\Backend\StorageBackendFactory;
+use Core\Storage\Location\StorageLocationService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Gallery\GalleryTestHelper;
+use Modules\Gallery\Service\GalleryStorageWiring;
+use Modules\Gallery\Service\GalleryLocationService;
 
 /**
  * @group database
@@ -35,6 +36,8 @@ use Tests\Modules\Gallery\GalleryTestHelper;
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class GalleryMemberQueryServiceTest extends TestCase
 {
+    private GalleryLocationService $galleryLocationService;
+
     private \PDO $pdo;
     private AlbumRepository $albumRepository;
     private GalleryMemberQueryService $service;
@@ -60,14 +63,15 @@ class GalleryMemberQueryServiceTest extends TestCase
         $storageBackendFactory = new StorageBackendFactory($storageLocationRepository, sys_get_temp_dir());
         $settingService = $this->createMock(\Core\Config\SettingService::class);
         $settingService->method('get')->willReturnCallback(fn($key, $module, $default) => $default);
-        $storageLocationService = new StorageLocationService(
-            $storageLocationRepository, $this->albumRepository, $storageBackendFactory, $settingService,
-            new ObjectStorageSecretRepository($this->pdo, $encryption), sys_get_temp_dir()
-        );
+        $storageWiring = GalleryStorageWiring::build(
+                $this->pdo, $encryption, $settingService, sys_get_temp_dir(), $this->albumRepository
+            );
+        $storageLocationService = $storageWiring->locationService;
+        $this->galleryLocationService = $storageWiring->galleryLocations;
         $mediaService = new MediaService(
             $mediaRepository, $this->albumRepository, new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir()),
             new SchedulerService(new SchedulerRepository($this->pdo)), $settingService,
-            $accessService, $storageBackendFactory, $storageLocationService, $this->createMock(FfmpegAvailability::class)
+            $accessService, $storageBackendFactory, $this->galleryLocationService, $this->createMock(FfmpegAvailability::class)
         );
 
         $this->service = new GalleryMemberQueryService($this->albumRepository, $mediaRepository, $mediaService, $sectionService, $scoutYearService);

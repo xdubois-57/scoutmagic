@@ -17,12 +17,14 @@ use Core\Scheduler\SchedulerService;
 use Core\Security\Role;
 use Core\Security\UserAccountRepository;
 use Core\Service\DateInput;
+use Core\Storage\Location\Backend\StorageBackendFactory;
+use Core\Storage\Location\StorageLocation;
+use Core\Storage\Location\StorageLocationRepository;
+use Core\Storage\Location\StorageLocationService;
 use Modules\Gallery\Api\GalleryException;
 use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\MediaRepository;
-use Modules\Gallery\Repository\StorageLocationRepository;
-use Modules\Gallery\Service\Storage\StorageBackendFactory;
 
 class AlbumService
 {
@@ -49,6 +51,7 @@ class AlbumService
         private StorageBackendFactory $storageBackendFactory,
         private StorageLocationRepository $storageLocationRepository,
         private StorageLocationService $storageLocationService,
+        private GalleryLocationService $galleryLocationService,
         private ScoutYearService $scoutYearService,
         private SettingService $settingService,
         private SchedulerService $schedulerService,
@@ -148,14 +151,13 @@ class AlbumService
         // afterward is a superadmin-triggered migration (Configuration >
         // Galerie), never a per-creation choice.
         if ($type === Album::TYPE_LOCAL) {
-            $this->storageLocationService->ensureLegacyLocationBackfilled();
-            $defaultLocation = $this->storageLocationRepository->findDefault();
+            $defaultLocation = $this->storageLocationService->ensureDefaultExists();
             if ($defaultLocation === null) {
                 throw new GalleryException('Aucun emplacement de stockage par défaut n\'est configuré.');
             }
-            $storageLocationId = $defaultLocation->id;
+            $locationId = $defaultLocation->id;
         } else {
-            $storageLocationId = null;
+            $locationId = null;
         }
 
         // External albums: the link is what the chief actually has in
@@ -188,7 +190,7 @@ class AlbumService
             $sectionId,
             $scoutYearId,
             $externalUrl,
-            $storageLocationId,
+            $locationId,
             $createdBy
         );
 
@@ -352,7 +354,7 @@ class AlbumService
         $media = $this->mediaRepository->findByAlbumId($id);
 
         if ($album->isLocal()) {
-            $location = $this->storageLocationService->resolveLocationForAlbum($album);
+            $location = $this->galleryLocationService->resolveLocationForAlbum($album);
             if ($location !== null) {
                 $this->storageBackendFactory->create($location)->deletePrefix((string) $id);
             }
@@ -466,7 +468,19 @@ class AlbumService
         if ($album->migrationStatus === Album::MIGRATION_IN_PROGRESS) {
             throw new GalleryException('Une migration est déjà en cours pour cet album.');
         }
-        if ($targetLocationId === $album->storageLocationId) {
+        // Resolved, not read: an album whose location_id is still null is
+        // not an album that lives nowhere — it is one that lives on the
+        // default and has not been told so yet. Comparing against the raw
+        // null let « migrer vers le défaut » pass as a move to a DIFFERENT
+        // location, and the pass that followed had no source to read from.
+        $currentLocation = $this->galleryLocationService->resolveLocationForAlbum($album);
+        if ($currentLocation === null) {
+            throw new GalleryException(
+                'Cet album n\'a pas encore d\'emplacement de stockage utilisable — testez vos emplacements avant '
+                . 'de le déplacer.'
+            );
+        }
+        if ($targetLocationId === $currentLocation->id) {
             throw new GalleryException('L\'emplacement cible doit être différent de l\'emplacement actuel.');
         }
 
@@ -480,7 +494,7 @@ class AlbumService
         // access-controlled path. Migrating one onto a public-prefix
         // location would publish somebody's group photos to anyone holding
         // the URL, silently and for ever.
-        if ($album->isDelegated() && $target->s3PublicUrl !== null && $target->s3PublicUrl !== '') {
+        if ($album->isDelegated() && $target->servesPubliclyWithoutExpiry()) {
             throw new GalleryException(
                 'Cet album appartient à un autre module et ne peut pas être déplacé vers un '
                 . 'emplacement à URL publique : ses médias doivent rester servis par ScoutMagic.'
@@ -680,16 +694,16 @@ class AlbumService
      * Whether a hosted (local) album is allowed to be created is derived
      * from "does at least one storage location currently exist" rather
      * than a separate setting an admin has to remember to keep in sync —
-     * the backfill already guarantees a location always exists on a fresh/
-     * upgraded install, and the "can't delete a referenced location" guard
-     * already prevents deleting the way into a state where existing hosted
-     * albums have no location.
+     * Core\Storage\Location\StorageLocationService::ensureDefaultExists()
+     * already guarantees one exists on a fresh install, and the "can't
+     * delete a location something still stands on" guard already prevents
+     * deleting the way into a state where existing hosted albums have
+     * none.
      */
     private function assertTypeAllowed(string $type): void
     {
         if ($type === Album::TYPE_LOCAL) {
-            $this->storageLocationService->ensureLegacyLocationBackfilled();
-            if ($this->storageLocationRepository->findAll() === []) {
+            if ($this->storageLocationService->ensureDefaultExists() === null) {
                 throw new GalleryException('Aucun emplacement de stockage configuré — impossible de créer un album '
                     . 'local.');
             }
