@@ -279,7 +279,10 @@ rather than repeating the address with nothing to distinguish the copies.
 
 The DNS lookup is **a button, not a page load**, for the reason above,
 and the panel says so in one line so that nobody reads the absence of
-results as a failure. The round trip is a second button, and its table
+results as a failure. What comes back stays on the page afterwards, with
+the date it was taken: the suggested records are what somebody is copying
+into their registrar's form one field at a time, and a panel that empties
+itself on the next page load empties itself in the middle of that. The round trip is a second button, and its table
 has a row per address with a badge, a date, and the box the message
 actually landed in — « vérifié » with nothing behind it is a claim, and
 « vérifié le 12/09 dans "Boîte de l'unité" » is an observation somebody

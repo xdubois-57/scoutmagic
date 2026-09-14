@@ -4054,15 +4054,21 @@ to be able to send before anybody can open a configuration page. The same
 field editable in two places is what guarantees the two values will
 disagree, so `SetupController::handleConfigUpdate()` drops the mail
 identity from the keys it writes rather than trusting the template not to
-offer them. Two things changed in the move. The lookup is behind an
-explicit button instead of running on load: a resolver that is not
-answering takes as long as it takes, and this is the page somebody opens
-when mail is already broken. And `DnsVerifier::checkSpfForHosts()` now
-knows about the whole chain — a record naming only the first relay fails
-on exactly the messages the fallback exists to save, so every active
-relay has to be in it. What the lookup saw is remembered
-(`mail_dns_last_check`) so the dashboard can report a state with a date on
-it rather than either lying or querying on every page view.
+offer them. Two things changed in the move. The lookup is an explicit
+POST-and-redirect rather than something a page load does — it reaches the
+network and writes down what came back, neither of which belongs on a GET
+(the same shape as `/config/maintenance/update/check-now`), and a resolver
+that is not answering takes as long as it takes on the one page somebody
+opens when mail is already broken. And `DnsVerifier::checkSpfForHosts()`
+now knows about the whole chain — a record naming only the first relay
+fails on exactly the messages the fallback exists to save, so every active
+relay has to be in it.
+
+`Core\Mail\DnsCheckMemory` keeps the **whole** reading, suggested values
+included, and every screen renders that rather than a lookup of its own.
+Three booleans would have been enough for the dashboard's dated line; they
+would not have survived the redirect, and the records are what somebody is
+halfway through copying into their registrar's form.
 
 **Do the returns arrive?** answered by a real round trip
 (`Core\Mail\Feedback`): the site writes to its own return address and
