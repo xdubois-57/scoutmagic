@@ -1,9 +1,13 @@
 // Isolated JavaScript unit test — jsdom-simulated DOM only. No PHP server,
 // no MySQL, no real network: fetch() is mocked below. Exercises the REAL
-// implementation in public/assets/js/gallery-storage-location.js (imported
-// below, never reimplemented here). That file is a plain IIFE that reads the
-// DOM at import time rather than waiting for DOMContentLoaded, so every test
-// builds its DOM first and then imports the module through a reset registry.
+// implementation in public/assets/js/storage-locations.js (imported below,
+// never reimplemented here). That file is a plain IIFE that reads the DOM at
+// import time rather than waiting for DOMContentLoaded, so every test builds
+// its DOM first and then imports the module through a reset registry.
+//
+// Split out of gallery-storage-location.test.js in IT-02, when the locations
+// left the gallery's configuration page for /config/stockage. The album
+// migration stayed behind and has a spec of its own.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 async function loadScript() {
@@ -12,14 +16,14 @@ async function loadScript() {
     // page script — same order here.
     await import('../../public/assets/js/api.js');
     await import('../../public/assets/js/toast.js');
-    await import('../../public/assets/js/gallery-storage-location.js');
+    await import('../../public/assets/js/storage-locations.js');
 }
 
 function renderLocationForm(locationId = '') {
     document.head.innerHTML = '<meta name="csrf-token" content="tok">';
     document.body.innerHTML = `
-        <div class="gallery-storage-local"></div>
-        <div class="gallery-storage-s3">
+        <div class="storage-location-local"></div>
+        <div class="storage-location-s3">
             <select id="s3-provider"><option value="custom" selected>Personnalisé</option></select>
             <input id="s3-endpoint" value="https://s3.example.org">
             <input id="s3-region" value="eu">
@@ -36,13 +40,13 @@ function renderLocationsTable() {
     document.head.innerHTML = '<meta name="csrf-token" content="tok">';
     document.body.innerHTML = `
         <table><tbody><tr>
-            <td class="gallery-location-status" data-location-id="4"></td>
-            <td><button class="gallery-location-test" data-id="4"></button></td>
+            <td class="storage-location-status" data-location-id="4"></td>
+            <td><button class="storage-location-test" data-id="4"></button></td>
         </tr></tbody></table>
     `;
 }
 
-describe('gallery-storage-location.js test-connection', () => {
+describe('storage-locations.js test-connection', () => {
     beforeEach(() => {
         vi.restoreAllMocks();
         document.head.innerHTML = '';
@@ -62,7 +66,7 @@ describe('gallery-storage-location.js test-connection', () => {
         await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
 
         const body = JSON.parse(fetch.mock.calls[0][1].body);
-        expect(fetch.mock.calls[0][0]).toBe('/config/gallery/test-connection');
+        expect(fetch.mock.calls[0][0]).toBe('/config/stockage/test-connexion');
         expect(body.location_id).toBe(12);
         expect(body.secret_key).toBe('');
         expect(body._csrf_token).toBe('tok');
@@ -92,7 +96,7 @@ describe('gallery-storage-location.js test-connection', () => {
     });
 });
 
-describe('gallery-storage-location.js error rendering', () => {
+describe('storage-locations.js error rendering', () => {
     beforeEach(() => {
         vi.restoreAllMocks();
         document.head.innerHTML = '';
@@ -110,8 +114,8 @@ describe('gallery-storage-location.js error rendering', () => {
         }));
         await loadScript();
 
-        document.querySelector('.gallery-location-test').click();
-        const cell = document.querySelector('.gallery-location-status');
+        document.querySelector('.storage-location-test').click();
+        const cell = document.querySelector('.storage-location-status');
         await vi.waitFor(() => expect(cell.innerHTML).not.toBe(''));
 
         const badge = cell.querySelector('span');
@@ -131,8 +135,8 @@ describe('gallery-storage-location.js error rendering', () => {
         }));
         await loadScript();
 
-        document.querySelector('.gallery-location-test').click();
-        const cell = document.querySelector('.gallery-location-status');
+        document.querySelector('.storage-location-test').click();
+        const cell = document.querySelector('.storage-location-status');
         await vi.waitFor(() => expect(cell.innerHTML).not.toBe(''));
 
         expect(cell.querySelector('img')).toBeNull();
@@ -144,11 +148,11 @@ describe('gallery-storage-location.js error rendering', () => {
         global.fetch = vi.fn(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ success: true, ok: true }) }));
         await loadScript();
 
-        document.querySelector('.gallery-location-test').click();
-        const cell = document.querySelector('.gallery-location-status');
+        document.querySelector('.storage-location-test').click();
+        const cell = document.querySelector('.storage-location-status');
         await vi.waitFor(() => expect(cell.innerHTML).not.toBe(''));
 
-        expect(cell.textContent).toContain('Disponible');
+        expect(cell.textContent).toContain('Joignable');
     });
 
     it('renders a missing error message as an empty title rather than "undefined"', async () => {
@@ -156,85 +160,49 @@ describe('gallery-storage-location.js error rendering', () => {
         global.fetch = vi.fn(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ success: true, ok: false }) }));
         await loadScript();
 
-        document.querySelector('.gallery-location-status');
-        document.querySelector('.gallery-location-test').click();
-        const cell = document.querySelector('.gallery-location-status');
+        document.querySelector('.storage-location-status');
+        document.querySelector('.storage-location-test').click();
+        const cell = document.querySelector('.storage-location-status');
         await vi.waitFor(() => expect(cell.innerHTML).not.toBe(''));
 
         expect(cell.querySelector('span').getAttribute('title')).toBe('');
     });
 });
 
-describe('gallery-storage-location.js confirmations', () => {
-    function renderMigrationRow() {
+describe('storage-locations.js confirmations', () => {
+    function renderLocationCard() {
         document.head.innerHTML = '<meta name="csrf-token" content="tok">';
         document.body.innerHTML = `
-            <table><tbody><tr>
-                <td>
-                    <select class="gallery-migrate-target" data-album-id="9">
-                        <option value="4" selected>Autre emplacement</option>
-                    </select>
-                </td>
-                <td><button class="gallery-migrate-start" data-album-id="9" data-url="/config/gallery/albums/9/migrate"></button></td>
-            </tr></tbody></table>
-            <button class="gallery-location-delete" data-id="4"></button>
+            <button class="storage-location-delete" data-id="4" data-label="Nextcloud de l'unité"></button>
         `;
     }
 
     beforeEach(() => {
         vi.restoreAllMocks();
-        renderMigrationRow();
+        renderLocationCard();
         // Both success paths reload the page; jsdom has no navigation.
         Object.defineProperty(window, 'location', {
             configurable: true,
-            value: { href: '/config/gallery', reload: vi.fn() },
+            value: { href: '/config/stockage/emplacements', reload: vi.fn() },
         });
         // The shared dialog is stubbed — what this block owns is that it is
         // asked, with the right words, before anything is sent.
         window.ScoutMagicConfirm = { ask: vi.fn(() => Promise.resolve(true)) };
     });
 
-    it('asks before starting a migration, with a « Migrer » button and the non-destructive variant', async () => {
-        global.fetch = vi.fn(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ success: true }) }));
-        await loadScript();
-
-        document.querySelector('.gallery-migrate-start').click();
-        await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
-
-        expect(window.ScoutMagicConfirm.ask).toHaveBeenCalledWith(expect.objectContaining({
-            message: 'Démarrer la migration de cet album vers cet autre emplacement ? L\'album sera indisponible pour les membres pendant l\'opération.',
-            confirmLabel: 'Migrer',
-            variant: 'primary',
-        }));
-        expect(fetch.mock.calls[0][0]).toBe('/config/gallery/albums/9/migrate');
-        expect(JSON.parse(fetch.mock.calls[0][1].body).target_location_id).toBe(4);
-    });
-
-    it('starts no migration when the confirmation is declined', async () => {
-        global.fetch = vi.fn();
-        window.ScoutMagicConfirm.ask = vi.fn(() => Promise.resolve(false));
-        await loadScript();
-
-        document.querySelector('.gallery-migrate-start').click();
-        await vi.waitFor(() => expect(window.ScoutMagicConfirm.ask).toHaveBeenCalled());
-        await Promise.resolve();
-
-        expect(fetch).not.toHaveBeenCalled();
-        expect(/** @type {HTMLButtonElement} */ (document.querySelector('.gallery-migrate-start')).disabled).toBe(false);
-    });
-
     it('asks « Supprimer » before deleting a storage location', async () => {
         global.fetch = vi.fn(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ success: true }) }));
         await loadScript();
 
-        document.querySelector('.gallery-location-delete').click();
+        document.querySelector('.storage-location-delete').click();
         await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
 
         expect(window.ScoutMagicConfirm.ask).toHaveBeenCalledWith(expect.objectContaining({
-            message: 'Supprimer cet emplacement de stockage ?',
+            message: "Supprimer « Nextcloud de l'unité » ? Les fichiers qui s'y trouvent ne sont pas "
+                + 'supprimés : seule la déclaration disparaît.',
             confirmLabel: 'Supprimer',
         }));
-        expect(fetch.mock.calls[0][0]).toBe('/config/gallery/locations/4/delete');
+        expect(fetch.mock.calls[0][0]).toBe('/config/stockage/emplacements/4/suppression');
     });
 
     it('deletes nothing when the deletion confirmation is declined', async () => {
@@ -242,11 +210,11 @@ describe('gallery-storage-location.js confirmations', () => {
         window.ScoutMagicConfirm.ask = vi.fn(() => Promise.resolve(false));
         await loadScript();
 
-        document.querySelector('.gallery-location-delete').click();
+        document.querySelector('.storage-location-delete').click();
         await vi.waitFor(() => expect(window.ScoutMagicConfirm.ask).toHaveBeenCalled());
         await Promise.resolve();
 
         expect(fetch).not.toHaveBeenCalled();
-        expect(/** @type {HTMLButtonElement} */ (document.querySelector('.gallery-location-delete')).disabled).toBe(false);
+        expect(/** @type {HTMLButtonElement} */ (document.querySelector('.storage-location-delete')).disabled).toBe(false);
     });
 });
