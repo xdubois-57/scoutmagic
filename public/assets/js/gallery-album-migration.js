@@ -13,11 +13,6 @@
 // renditions, its availability while the copy runs — means nothing to a
 // storage location.
 (function () {
-    // Attribute-safe (quotes included) — several call sites below
-    // interpolate into a title="..." attribute. The shared helper covers
-    // exactly that (see api.js).
-    var escapeHtml = window.ScoutMagicApi.escapeHtml;
-
     // The local postJson() copy this file carried resolved to the parsed
     // body, substituting {success:false, error:'Réponse inattendue du
     // serveur.'} when the body wasn't JSON, and REJECTED on a network

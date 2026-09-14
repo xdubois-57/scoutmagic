@@ -234,10 +234,12 @@ class GalleryConfigController extends AbstractController
                 (int) AuthSession::getUserAccountId()
             );
 
-            return $this->saveError(UserFacingMessage::from(
+            $message = UserFacingMessage::from(
                 $e,
                 "La configuration n'a pas pu être enregistrée — vérifiez les valeurs saisies, puis réessayez."
-            ), $tab);
+            );
+
+            return $this->saveError($message, $tab);
         }
 
         $this->journalService->log(
