@@ -39,6 +39,19 @@
                         {% include '@registration/_status_badge.html.twig' with { status: visible_status } only %}
                     </div>
                 </div>
+                {# Shown back to the family because they wrote it, exactly
+                   like the remarks below — never the staff's own reading of
+                   it. A request filed before the question existed shows
+                   nothing at all here rather than a « Non » nobody said. #}
+                {% if registration_request.previousUnitAnswer %}
+                    <hr>
+                    <span class="text-body-secondary small">Autre unité Les Scouts</span><br>
+                    {% if registration_request.previousUnitAnswer == 'yes' %}
+                        Oui — {{ registration_request.previousUnitName ?? 'unité non précisée' }}
+                    {% else %}
+                        Non
+                    {% endif %}
+                {% endif %}
                 {% if registration_request.remarks %}
                     <hr>
                     <span class="text-body-secondary small">Remarques</span><br>

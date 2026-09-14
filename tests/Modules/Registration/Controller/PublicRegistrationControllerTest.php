@@ -182,6 +182,10 @@ class PublicRegistrationControllerTest extends TestCase
             'city' => 'Bruxelles',
             'email' => 'marie.dupont@example.com',
             'phone1' => '0470123456',
+            // Issue #331 — a required question now, so the baseline answers
+            // it. « Non » is the ordinary case and keeps every test below
+            // about whatever it was already about.
+            'previous_unit_answer' => 'no',
             'rgpd_accepted' => '1',
         ], $overrides);
     }
@@ -354,6 +358,159 @@ class PublicRegistrationControllerTest extends TestCase
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM registration_requests')->fetchColumn());
         // Sticky values: the parent's entered data must not be lost.
         $this->assertStringContainsString('Léa', $response->getBody());
+    }
+
+    /**
+     * Issue #331 — the chief's encoding procedure in Desk differs for
+     * somebody the federation already knows, so the public form asks the
+     * question and the server keeps the answer.
+     */
+    public function testPreviousUnitAnswerAndItsNameArePersisted(): void
+    {
+        $hcFields = $this->humanCheckFields();
+        sleep(2);
+
+        $response = $this->controller->submit(
+            new Request('POST', '/inscriptions', [], array_merge(
+                $this->baseFields([
+                    'previous_unit_answer' => 'yes',
+                    'previous_unit_name' => '57e Unité Saint-Michel, Etterbeek',
+                ]),
+                $hcFields
+            ), [], []),
+            []
+        );
+
+        $this->assertSubmissionAccepted($response);
+        $request = (new RegistrationRequestRepository($this->pdo, $this->encryption))->findById(1);
+        $this->assertNotNull($request);
+        $this->assertSame('yes', $request->previousUnitAnswer);
+        $this->assertTrue($request->hasPreviousUnit());
+        $this->assertSame('57e Unité Saint-Michel, Etterbeek', $request->previousUnitName);
+    }
+
+    /**
+     * The name is personal data about where a child used to go, so it
+     * lands in the database as an encrypted BLOB and never in clear —
+     * SECURITY.md § Personal data, checked against the raw column rather
+     * than through the Repository that would decrypt it.
+     */
+    public function testPreviousUnitNameIsEncryptedAtRest(): void
+    {
+        $hcFields = $this->humanCheckFields();
+        sleep(2);
+
+        $this->controller->submit(
+            new Request('POST', '/inscriptions', [], array_merge(
+                $this->baseFields([
+                    'previous_unit_answer' => 'yes',
+                    'previous_unit_name' => '57e Unité Saint-Michel',
+                ]),
+                $hcFields
+            ), [], []),
+            []
+        );
+
+        $stmt = $this->pdo->prepare(
+            'SELECT previous_unit_name_encrypted FROM registration_requests ORDER BY id DESC LIMIT 1'
+        );
+        $stmt->execute();
+        $stored = (string) $stmt->fetchColumn();
+        $this->assertNotSame('', $stored);
+        $this->assertStringNotContainsString('Saint-Michel', $stored);
+    }
+
+    /**
+     * « Oui » without a unit is a request nobody can act on: the unit is
+     * exactly what changes the procedure. Refused rather than stored as a
+     * bare yes.
+     */
+    public function testPreviousUnitYesWithoutAUnitIsRefused(): void
+    {
+        $hcFields = $this->humanCheckFields();
+        sleep(2);
+
+        $response = $this->controller->submit(
+            new Request('POST', '/inscriptions', [], array_merge(
+                $this->baseFields(['previous_unit_answer' => 'yes', 'previous_unit_name' => '   ']),
+                $hcFields
+            ), [], []),
+            []
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        // The apostrophe reaches the page HTML-escaped, so the assertion
+        // stops before it rather than spelling the entity out.
+        $this->assertStringContainsString('Merci d&#039;indiquer de quelle unité il s', $response->getBody());
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM registration_requests')->fetchColumn());
+    }
+
+    /**
+     * An unanswered question is refused rather than filed as « non »:
+     * NULL in that column means « nobody was asked » and must keep meaning
+     * only that (schema.sql).
+     */
+    public function testSubmissionWithoutAnAnswerAboutAPreviousUnitIsRefused(): void
+    {
+        $fields = $this->baseFields();
+        unset($fields['previous_unit_answer']);
+        $hcFields = $this->humanCheckFields();
+        sleep(2);
+
+        $response = $this->controller->submit(
+            new Request('POST', '/inscriptions', [], array_merge($fields, $hcFields), [], []),
+            []
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertStringContainsString('une autre unité Les Scouts', $response->getBody());
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM registration_requests')->fetchColumn());
+    }
+
+    /**
+     * A name typed and then corrected back to « Non » is not a claim the
+     * family made. Nothing is stored for it — the browser folds the field
+     * away, and a POST that carries it anyway is not trusted.
+     */
+    public function testAUnitNameSubmittedAlongsideNoIsNeverStored(): void
+    {
+        $hcFields = $this->humanCheckFields();
+        sleep(2);
+
+        $response = $this->controller->submit(
+            new Request('POST', '/inscriptions', [], array_merge(
+                $this->baseFields([
+                    'previous_unit_answer' => 'no',
+                    'previous_unit_name' => '57e Unité Saint-Michel',
+                ]),
+                $hcFields
+            ), [], []),
+            []
+        );
+
+        $this->assertSubmissionAccepted($response);
+        $request = (new RegistrationRequestRepository($this->pdo, $this->encryption))->findById(1);
+        $this->assertNotNull($request);
+        $this->assertSame('no', $request->previousUnitAnswer);
+        $this->assertFalse($request->hasPreviousUnit());
+        $this->assertNull($request->previousUnitName);
+    }
+
+    /**
+     * The question and its follow-up are both on the public page, and the
+     * follow-up is VISIBLE in the HTML: registration-public-form.js folds
+     * it away, so a browser running no JavaScript keeps a form a family
+     * can complete.
+     */
+    public function testPublicFormAsksAboutAPreviousUnitWithoutJavaScript(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/inscriptions', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('name="previous_unit_answer"', $body);
+        $this->assertStringContainsString('Déjà membre d&#039;une autre unité Les Scouts ?', $body);
+        $this->assertStringContainsString('id="previous-unit-name-zone"', $body);
+        $this->assertStringContainsString('name="previous_unit_name"', $body);
+        $this->assertStringNotContainsString('id="previous-unit-name-zone" class="d-none"', $body);
     }
 
     public function testDesiredSectionMustMatchTheBirthDateDerivedBranch(): void

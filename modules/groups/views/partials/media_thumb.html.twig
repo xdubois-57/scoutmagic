@@ -8,7 +8,34 @@
   matching modules/gallery's own album grid (album.html.twig).
 #}
 {% if media.processingStatus == 'done' %}
-    <img src="/gallery/media/{{ media.id }}/thumb" alt="" class="w-100 h-100" style="object-fit:cover;" loading="lazy">
+    {#
+      A PHOTO is drawn from the 1200px « medium » rendition, not from the
+      300px thumbnail (issue #330). That thumbnail is right for an album's
+      own grid, where a cell is a third to a sixth of the screen; here one
+      photo in a message fills the phone's width — up to 420px on a
+      desktop, components.css — on a screen drawing 2 to 3 physical pixels
+      per CSS pixel, which is the stretch the issue reported as blur.
+
+      It is the rendition the lightbox already opens, so nothing has to be
+      re-processed for the photos already online, and no new size exists to
+      produce. It is also heavier than the thumbnail, which `loading=lazy`
+      below is what keeps bearable: a feed only fetches what is scrolled to.
+
+      Deliberately ONE candidate rather than a `srcset` offering both. A
+      srcset needs each candidate's intrinsic WIDTH, and the gallery sizes
+      its renditions by their LONG SIDE (Service\ImageProcessingService) —
+      so a portrait photo's thumbnail is narrower than the 300 a descriptor
+      would claim, and the browser would pick it for a cell it cannot
+      cover. Api\DelegatedMedia carries no dimensions to compute the real
+      widths from, and widening that contract is the album module's
+      decision rather than this one's.
+
+      A VIDEO keeps its thumbnail: « medium » and « large » are MP4 files
+      for one (Task\ProcessVideoHandler), never images, and its « thumb »
+      is a frame extracted at the video's own resolution — already sharp.
+    #}
+    <img src="/gallery/media/{{ media.id }}/{{ media.mediaType == 'video' ? 'thumb' : 'medium' }}"
+         alt="" class="w-100 h-100" style="object-fit:cover;" loading="lazy">
     {% if media.mediaType == 'video' %}
         <span class="position-absolute top-50 start-50 translate-middle text-white" style="font-size:1.75rem;text-shadow:0 0 6px rgba(0,0,0,.6);">
             <i class="bi bi-play-circle-fill" aria-hidden="true"></i>

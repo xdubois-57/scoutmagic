@@ -137,6 +137,24 @@
                         {{ r.street }} {{ r.number }}, {{ r.postalCode }} {{ r.city }}
                     </div>
 
+                    {# Issue #331 — what changes the encoding procedure in
+                       Desk, so it sits on the fiche rather than in the
+                       export alone. A request that predates the question
+                       carries no answer at all (schema.sql), and saying so
+                       is the point: « Non » and « never asked » are not the
+                       same fact for whoever is about to encode. #}
+                    <div class="col-12">
+                        <hr class="my-2">
+                        <span class="text-body-secondary small">Autre unité Les Scouts</span><br>
+                        {% if r.previousUnitAnswer == 'yes' %}
+                            Oui — {{ r.previousUnitName ?? 'unité non précisée' }}
+                        {% elseif r.previousUnitAnswer == 'no' %}
+                            Non
+                        {% else %}
+                            <span class="text-body-secondary">La question n'a pas été posée lors de cette demande.</span>
+                        {% endif %}
+                    </div>
+
                     {% if r.remarks %}
                         <div class="col-12">
                             <hr class="my-2">
