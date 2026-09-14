@@ -40,6 +40,20 @@ final class ReturnProbeRepository
     /**
      * Record a run for one address, replacing whatever was there.
      *
+     * **The DELETE and the INSERT are one transaction**, because
+     * `address_blind_index` is `UNIQUE` and two runs for the same address
+     * can genuinely overlap: nothing stops the « Lancer la vérification »
+     * button being pressed twice, and `public/index.php` releases the
+     * session write lock before dispatch precisely so two requests from
+     * one browser do not queue behind each other. Interleaved, the pair
+     * reads DELETE, DELETE, INSERT, INSERT — and the second insert hits
+     * the unique key. Taken together they cannot interleave: the second
+     * request's DELETE waits on the first request's row.
+     *
+     * Nested-transaction aware for the reason
+     * `Core\Config\SettingRepository::transactionally()` gives — a caller
+     * that already opened one keeps ownership of it.
+     *
      * @return int the probe's id
      */
     public function issue(
@@ -48,25 +62,44 @@ final class ReturnProbeRepository
         \DateTimeImmutable $sentAt,
         \DateTimeImmutable $expiresAt
     ): int {
-        $index = $this->indexOf($address);
+        $own = !$this->pdo->inTransaction();
+        if ($own) {
+            $this->pdo->beginTransaction();
+        }
 
-        $delete = $this->pdo->prepare('DELETE FROM mail_return_probes WHERE address_blind_index = ?');
-        $delete->execute([$index]);
+        try {
+            $index = $this->indexOf($address);
 
-        $insert = $this->pdo->prepare(
-            'INSERT INTO mail_return_probes
-                 (address_blind_index, address_encrypted, correlation_key, sent_at, expires_at)
-             VALUES (?, ?, ?, ?, ?)'
-        );
-        $insert->execute([
-            $index,
-            $this->encryption->encrypt($address, self::CONTEXT),
-            $correlationKey,
-            $sentAt->format('Y-m-d H:i:s'),
-            $expiresAt->format('Y-m-d H:i:s'),
-        ]);
+            $delete = $this->pdo->prepare('DELETE FROM mail_return_probes WHERE address_blind_index = ?');
+            $delete->execute([$index]);
 
-        return (int) $this->pdo->lastInsertId();
+            $insert = $this->pdo->prepare(
+                'INSERT INTO mail_return_probes
+                     (address_blind_index, address_encrypted, correlation_key, sent_at, expires_at)
+                 VALUES (?, ?, ?, ?, ?)'
+            );
+            $insert->execute([
+                $index,
+                $this->encryption->encrypt($address, self::CONTEXT),
+                $correlationKey,
+                $sentAt->format('Y-m-d H:i:s'),
+                $expiresAt->format('Y-m-d H:i:s'),
+            ]);
+
+            $id = (int) $this->pdo->lastInsertId();
+
+            if ($own) {
+                $this->pdo->commit();
+            }
+
+            return $id;
+        } catch (\Throwable $e) {
+            if ($own) {
+                $this->pdo->rollBack();
+            }
+
+            throw $e;
+        }
     }
 
     /** The run in force for one address, or null when there has never been one. */

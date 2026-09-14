@@ -421,6 +421,61 @@ class ReturnPathVerifierTest extends TestCase
         $this->assertCount(1, $sent);
     }
 
+    /**
+     * `address_blind_index` is `UNIQUE`, and `issue()` is a DELETE
+     * followed by an INSERT: two runs for the same address that
+     * interleave read DELETE, DELETE, INSERT, INSERT, and the second
+     * insert hits the key. Nothing stops the button being pressed twice —
+     * `public/index.php` releases the session write lock before dispatch
+     * precisely so two requests from one browser do not queue.
+     *
+     * The race itself is not reproducible in a single-threaded test, so
+     * what is pinned is the property that closes it: the pair is one
+     * transaction, which is what makes the second request's DELETE wait
+     * on the first request's row instead of stepping over it.
+     */
+    public function testIssuingAProbeIsOneTransactionAndNotTwoStatements(): void
+    {
+        $watcher = new TransactionWatchingPdo('sqlite::memory:');
+        DatabaseTestHelper::createTestDatabase($watcher);
+        $probes = new ReturnProbeRepository(
+            $watcher,
+            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
+
+        $probes->issue(
+            'info@unite.be',
+            'RET-ABCDEFGHJK',
+            new \DateTimeImmutable('2026-09-01 08:00:00'),
+            new \DateTimeImmutable('2026-09-01 14:00:00')
+        );
+
+        $this->assertSame(1, $watcher->began, 'The delete and the insert must be wrapped.');
+        $this->assertSame(1, $watcher->committed);
+    }
+
+    /**
+     * And a caller that already opened a transaction keeps ownership of
+     * it — committing somebody else's transaction early is a subtler bug
+     * than the one the wrapping exists to prevent
+     * ({@see \Core\Config\SettingRepository::transactionally()}).
+     */
+    public function testIssuingInsideACallersTransactionDoesNotCommitIt(): void
+    {
+        $this->pdo->beginTransaction();
+        $this->probes->issue(
+            'info@unite.be',
+            'RET-ABCDEFGHJK',
+            new \DateTimeImmutable('2026-09-01 08:00:00'),
+            new \DateTimeImmutable('2026-09-01 14:00:00')
+        );
+
+        $this->assertTrue($this->pdo->inTransaction(), 'The caller still owns its transaction.');
+
+        $this->pdo->rollBack();
+        $this->assertNull($this->probes->findByAddress('info@unite.be'), 'And can still undo the write.');
+    }
+
     // ── helpers ───────────────────────────────────────────────────────
 
     private function verifierWith(?InboundMailInterface $gateway, ?MailService $mail = null): ReturnPathVerifier
@@ -524,5 +579,30 @@ class ReturnPathVerifierTest extends TestCase
             bodyText: 'peu importe',
             bodyHtml: '<p>peu importe</p>'
         );
+    }
+}
+
+/**
+ * A PDO that counts the transactions opened through it — the only way to
+ * assert that two statements were wrapped rather than merely that both
+ * landed, which they do either way on a single-threaded run.
+ */
+final class TransactionWatchingPdo extends \PDO
+{
+    public int $began = 0;
+    public int $committed = 0;
+
+    public function beginTransaction(): bool
+    {
+        $this->began++;
+
+        return parent::beginTransaction();
+    }
+
+    public function commit(): bool
+    {
+        $this->committed++;
+
+        return parent::commit();
     }
 }

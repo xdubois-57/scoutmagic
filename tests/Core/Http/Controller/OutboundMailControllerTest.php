@@ -296,6 +296,68 @@ class OutboundMailControllerTest extends TestCase
         $this->assertStringNotContainsString('enregistrement en place', $body);
     }
 
+    /**
+     * A reading is about a domain and a selector, not about « the site ».
+     * Verify `ancien.be`, get a green answer remembered, then move the
+     * expédition address to `nouveau.be`: every verdict on file now
+     * answers a question nobody is asking, and the dashboard used to keep
+     * showing the green tick for a zone that has never been looked at.
+     */
+    public function testAReadingTakenOnAnotherDomainNoLongerVouchesForThisOne(): void
+    {
+        $this->settings->set('mail_from_address', 'info@ancien.be');
+        $this->settings->set('dkim_selector', 's2026');
+        $this->controller->checkDns($this->formRequest([]), []);
+
+        $this->settings->set('mail_from_address', 'info@nouveau.be');
+
+        $body = (string) $this->controller->dashboard($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('Les adresses ont changé depuis la dernière vérification DNS', $body);
+        $this->assertStringContainsString('ancien.be', $body, 'It says which domain the old reading was about.');
+        $this->assertStringNotContainsString('enregistrement en place', $body);
+    }
+
+    /**
+     * The selector alone is enough: the DKIM record lives at
+     * `{selector}._domainkey`, so changing it moves the record that was
+     * checked without touching a single address.
+     */
+    public function testChangingOnlyTheDkimSelectorAlsoRetiresTheReading(): void
+    {
+        $this->settings->set('mail_from_address', 'info@unite.be');
+        $this->settings->set('dkim_selector', 's2026');
+        $this->controller->checkDns($this->formRequest([]), []);
+
+        $this->settings->set('dkim_selector', 's2027');
+
+        $body = (string) $this->controller->dashboard($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('Les adresses ont changé depuis la dernière vérification DNS', $body);
+    }
+
+    /**
+     * And the Authentification sub-page stops offering the records too:
+     * they are the previous domain's, and they are there to be copied
+     * into a registrar's form.
+     */
+    public function testTheAuthenticationPageStopsOfferingRecordsForADomainThatMoved(): void
+    {
+        $this->settings->set('mail_from_address', 'info@ancien.be');
+        $this->settings->set('dkim_selector', 's2026');
+        $this->controller->checkDns($this->formRequest([]), []);
+
+        $before = (string) $this->controller->authentication($this->getRequest(), [])->getBody();
+        $this->assertStringContainsString('Relevé du', $before);
+        $this->assertStringContainsString('ancien.be', $before);
+
+        $this->settings->set('mail_from_address', 'info@nouveau.be');
+
+        $after = (string) $this->controller->authentication($this->getRequest(), [])->getBody();
+        $this->assertStringNotContainsString('Relevé du', $after);
+        $this->assertStringContainsString('n\'ont jamais été vérifiés depuis cette page', $after);
+    }
+
     public function testTheAuthenticationPageNamesTheFourRolesAndTheSpfTrap(): void
     {
         $this->settings->set('mail_from_address', 'info@unite.be');
@@ -407,7 +469,10 @@ class OutboundMailControllerTest extends TestCase
 
         $context = json_decode((string) $entry['context'], true);
         $this->assertIsArray($context);
-        $this->assertSame('expédition, réponse', $context['roles']);
+        // English role identifiers, not the French labels the screen
+        // shows: this is stored data, printed as a raw JSON block.
+        $this->assertSame('from, reply', $context['roles']);
+        $this->assertStringNotContainsString('expédition', (string) $entry['context']);
 
         // The whole point of the entry's shape: it names the role, never
         // the value.

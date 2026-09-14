@@ -132,7 +132,20 @@ class OutboundMailController extends AbstractController
             ];
         }
 
-        $last = DnsCheckMemory::read($this->settings);
+        $stale = $this->staleDnsReading($identity);
+        if ($stale !== null) {
+            return $line + [
+                'state' => 'unknown',
+                'detail' => sprintf(
+                    'Les adresses ont changé depuis la dernière vérification DNS, faite le %s sur %s : ce relevé '
+                        . 'ne dit plus rien de la configuration actuelle.',
+                    $stale->takenAt->format('d/m/Y à H:i'),
+                    $stale->spfDomain === '' ? 'un autre domaine' : $stale->spfDomain
+                ),
+            ];
+        }
+
+        $last = $this->lastDnsReading($identity);
         if ($last === null) {
             return $line + [
                 'state' => 'unknown',
@@ -1016,7 +1029,7 @@ class OutboundMailController extends AbstractController
 
         $identity = MailIdentity::fromSettings($this->settings);
         $spfDomain = $identity->spfDomain();
-        $selector = (string) ($this->settings->get('dkim_selector') ?? '');
+        $selector = $this->dkimSelector();
 
         if ($spfDomain === '' || $selector === '') {
             // A reading nobody could take clears the memory rather than
@@ -1139,15 +1152,22 @@ class OutboundMailController extends AbstractController
      */
     private function journalAddressChange(MailIdentity $before, MailIdentity $after): void
     {
+        // The role CONSTANTS, not the French labels the screen shows for
+        // them. This payload is stored data, not interface: the journal
+        // page prints it as a raw JSON block, and AGENTS.md keeps stored
+        // literals in English for the same reason it keeps column names
+        // there. `MailIdentity` already names the four roles; a second,
+        // French vocabulary for the same three of them would be a second
+        // thing to keep in step.
         $changed = [];
         if ($before->fromAddress !== $after->fromAddress) {
-            $changed[] = 'expédition';
+            $changed[] = MailIdentity::ROLE_FROM;
         }
         if ($before->configuredReplyAddress() !== $after->configuredReplyAddress()) {
-            $changed[] = 'réponse';
+            $changed[] = MailIdentity::ROLE_REPLY;
         }
         if ($before->configuredDmarcReportAddress() !== $after->configuredDmarcReportAddress()) {
-            $changed[] = 'rapports DMARC';
+            $changed[] = MailIdentity::ROLE_DMARC;
         }
 
         if ($changed === []) {
@@ -1176,7 +1196,23 @@ class OutboundMailController extends AbstractController
             return $guard;
         }
 
-        $result = $this->returns->launch($this->verifiableAddresses());
+        // Wrapped like every other write path on this controller
+        // (`saveAuthentication()`, `create()`, `update()`, `delete()`).
+        // `launch()` already absorbs a per-address failure into its
+        // `failed` count, so what reaches here is the rest — the journal
+        // write, a broken encryption key — and a diagnostic page that
+        // answers with the generic error screen is a diagnostic page
+        // that has stopped diagnosing.
+        try {
+            $result = $this->returns->launch($this->verifiableAddresses());
+        } catch (\Throwable) {
+            FlashMessage::set(
+                'error',
+                'La vérification n’a pas pu être lancée. Le détail est dans le journal technique.'
+            );
+
+            return $this->redirect(self::AUTHENTICATION_URL);
+        }
 
         if ($result['impossible']) {
             FlashMessage::set(
@@ -1367,6 +1403,41 @@ class OutboundMailController extends AbstractController
     }
 
     /**
+     * The last lookup, or null when there has never been one *or* when
+     * the one on file is about another domain or another selector.
+     *
+     * Every screen goes through here rather than through
+     * {@see DnsCheckMemory::read()} directly, so that « the addresses
+     * moved » cannot be read anywhere as « the zone is in order ».
+     */
+    private function lastDnsReading(MailIdentity $identity): ?DnsCheckMemory
+    {
+        $memory = DnsCheckMemory::read($this->settings);
+        if ($memory === null || !$memory->describes($identity, $this->dkimSelector())) {
+            return null;
+        }
+
+        return $memory;
+    }
+
+    /**
+     * The reading that exists but no longer applies — what the dashboard
+     * needs to say « ce relevé ne dit plus rien » rather than « jamais
+     * vérifié », which are two different instructions to the reader.
+     */
+    private function staleDnsReading(MailIdentity $identity): ?DnsCheckMemory
+    {
+        $memory = DnsCheckMemory::read($this->settings);
+
+        return $memory !== null && !$memory->describes($identity, $this->dkimSelector()) ? $memory : null;
+    }
+
+    private function dkimSelector(): string
+    {
+        return (string) ($this->settings->get('dkim_selector') ?? '');
+    }
+
+    /**
      * The last lookup, shaped for the template — null when there has
      * never been one.
      *
@@ -1376,7 +1447,7 @@ class OutboundMailController extends AbstractController
      */
     private function rememberedDns(): ?array
     {
-        $memory = DnsCheckMemory::read($this->settings);
+        $memory = $this->lastDnsReading(MailIdentity::fromSettings($this->settings));
         if ($memory === null) {
             return null;
         }

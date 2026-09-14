@@ -1026,6 +1026,67 @@ suivante. Une perte certaine échangée contre une perte impossible.
 
 Les deux correctifs sont épinglés par un test vérifié en le cassant.
 
+**Et une troisième passe, qui a trouvé le défaut le plus coûteux des
+trois : un relevé DNS qui survit à ce qu'il décrit.**
+
+Un relevé porte sur **un domaine et un sélecteur**, pas sur « le site ».
+Vérifiez `ancien.be`, obtenez un vert, changez l'adresse d'expédition pour
+`nouveau.be` — et le tableau de bord continuait d'afficher la coche verte
+et ses « N enregistrements en place » pour une zone que personne n'a
+jamais interrogée. La sous-page proposait en prime les enregistrements de
+l'ancien domaine, ceux-là mêmes qu'on recopie dans le formulaire d'un
+registrar.
+
+Le correctif ne vide pas la mémoire au moment d'enregistrer, alors que
+c'était la forme la plus courte. Un relevé jeté à l'enregistrement est un
+relevé perdu pour de bon — y compris les valeurs que quelqu'un était en
+train de recopier — et l'adresse peut bouger sans passer par ce
+formulaire, l'assistant d'installation l'écrit aussi. `DnsCheckMemory`
+sait désormais dire s'il **décrit encore** l'identité configurée
+(`describes()`), et les trois lecteurs — tableau de bord, sous-page
+Authentification, paquet de support — passent par là. Une règle de
+péremption qui vit dans un seul appelant est une règle que les deux autres
+n'ont pas.
+
+Le tableau de bord distingue « jamais vérifié » de « ce relevé ne dit plus
+rien » : ce sont deux consignes différentes pour celui qui lit.
+
+**Le SPF comparait des octets là où la RFC compare des mécanismes.** Les
+noms de mécanismes et les domain-specs sont insensibles à la casse
+(RFC 7208 §4.6.1), et `+a:hôte` **est** `a:hôte` — le `+` est le
+qualificateur par défaut, et c'est la forme qu'écrivent les générateurs
+cPanel/WHM, précisément l'hébergement mutualisé que visent les fixtures de
+ce fichier. Un domaine correctement configuré était donc annoncé
+« Manquant ou incomplet », et la valeur proposée ajoutait un `a:` en
+double — un enregistrement qui marchait poussé d'une résolution DNS vers
+la limite de dix de la §4.6.4. Les trois autres qualificateurs restent
+distincts : `-a:hôte` dit le contraire de `a:hôte`, et les confondre
+annoncerait comme autorisé un relais explicitement refusé.
+
+**Du français dans une charge utile stockée.** `journalAddressChange()`
+écrivait `'expédition'`, `'réponse'`, `'rapports DMARC'` dans le `context`
+du journal. Le `context` est imprimé tel quel dans un bloc JSON : c'est de
+la donnée, pas de l'interface, et AGENTS.md la veut en anglais pour la
+même raison qu'il veut les noms de colonnes en anglais. `MailIdentity`
+nommait déjà les quatre rôles ; un second vocabulaire, français, pour
+trois d'entre eux était une seconde chose à tenir en phase.
+
+**Et le DELETE + INSERT de `issue()` n'était pas une transaction**, sur une
+colonne `UNIQUE`. Rien n'empêche de cliquer deux fois sur « Lancer la
+vérification », et `public/index.php` relâche le verrou de session avant
+le dispatch justement pour que deux requêtes d'un même navigateur ne se
+mettent pas en file. Entrelacées : DELETE, DELETE, INSERT, INSERT, et le
+second insert heurte la clé. Prises ensemble, elles ne peuvent plus
+s'entrelacer. `verifyReturns()` attrape désormais ce qui remonte, comme
+les autres écritures de ce contrôleur — une page de diagnostic qui répond
+par l'écran d'erreur générique est une page de diagnostic qui a cessé de
+diagnostiquer.
+
+Un test par correctif, chacun vérifié en cassant le correctif. Au passage,
+la fixture du collecteur n'enregistrait pas `dkim_selector` : elle
+décrivait une installation qui ne peut pas exister — la leçon du double
+impossible, une troisième fois.
+
 ### Reporté
 
 - L'alignement DMARC d'un envoi « au nom de » (ci-dessus), à l'itération

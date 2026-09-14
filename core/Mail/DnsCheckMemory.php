@@ -141,6 +141,35 @@ final class DnsCheckMemory
     }
 
     /**
+     * Whether this reading still describes the identity configured now.
+     *
+     * **A reading is about a domain and a selector, not about « the
+     * site ».** Change the expédition address to another domain, or the
+     * DKIM selector, and every verdict in here answers a question nobody
+     * is asking any more: the green tick would then sit over a zone that
+     * has never been looked at, and the records offered for copying would
+     * be the previous domain's. The three values the reading already
+     * carries are exactly what is needed to notice, so the check is here
+     * rather than in one caller — the dashboard, the Authentification
+     * sub-page and the support package all read this memory, and a
+     * staleness rule living in one of them is a staleness rule the other
+     * two do not have.
+     *
+     * Deliberately NOT a `forget()` at save time. A reading dropped on
+     * save is a reading lost for good, including the records somebody was
+     * halfway through copying; and the address can move without passing
+     * through that form at all — the setup wizard writes it too. Holding
+     * the answer and ignoring it while it does not apply keeps both
+     * honest.
+     */
+    public function describes(MailIdentity $identity, string $selector): bool
+    {
+        return $this->spfDomain === $identity->spfDomain()
+            && $this->dkimDomain === $identity->dkimDomain()
+            && $this->selector === $selector;
+    }
+
+    /**
      * Whether one record was published — `null` when the reading could not
      * answer for it at all.
      *

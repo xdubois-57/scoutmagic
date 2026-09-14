@@ -286,7 +286,8 @@ class OutboundMailCollector implements SupportCollectorInterface
         $lines[] = 'domaine d\'enveloppe (SPF) : ' . ($identity->spfDomain() ?: '(aucune adresse d\'expédition)');
         $lines[] = 'domaine de signature (DKIM) : ' . ($identity->dkimDomain() ?: '-');
         $lines[] = 'alignés : ' . ($identity->isAligned() ? 'oui' : 'non');
-        $lines[] = 'sélecteur DKIM : ' . ((string) ($this->settings->get('dkim_selector') ?? '') ?: '(vide)');
+        $selector = (string) ($this->settings->get('dkim_selector') ?? '');
+        $lines[] = 'sélecteur DKIM : ' . ($selector ?: '(vide)');
         $lines[] = 'adresse de réponse distincte : ' . ($identity->configuredReplyAddress() !== '' ? 'oui' : 'non');
         $lines[] = 'rapports DMARC demandés : '
             . ($identity->configuredDmarcReportAddress() !== '' ? 'oui' : 'non');
@@ -295,8 +296,15 @@ class OutboundMailCollector implements SupportCollectorInterface
         if ($verdicts === null) {
             $lines[] = 'vérification DNS : jamais lancée depuis la page Authentification';
         } else {
+            // Said in as many words, and not left to whoever reads the
+            // archive to compare this domain against the one printed
+            // fifteen lines up. A reading taken on the previous domain
+            // still lists three verdicts, and they answer a question
+            // nobody is asking any more.
+            $applies = $verdicts->describes($identity, $selector);
             $lines[] = 'vérification DNS du ' . $verdicts->takenAt->format('Y-m-d H:i')
-                . ' sur ' . ($verdicts->spfDomain ?: '(inconnu)');
+                . ' sur ' . ($verdicts->spfDomain ?: '(inconnu)')
+                . ($applies ? '' : ' — PÉRIMÉE : les adresses ont changé depuis');
             $lines[] = '  SPF   : ' . DnsCheckMemory::label($verdicts->state(DnsCheckMemory::SPF));
             $lines[] = '  DKIM  : ' . DnsCheckMemory::label($verdicts->state(DnsCheckMemory::DKIM));
             $lines[] = '  DMARC : ' . DnsCheckMemory::label($verdicts->state(DnsCheckMemory::DMARC));

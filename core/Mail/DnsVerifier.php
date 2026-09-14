@@ -64,13 +64,13 @@ class DnsVerifier
         }
 
         $mechanisms = self::mechanismsFor($sendingHosts);
-        $published = self::tokensOf($actual);
+        $published = self::comparableTokens($actual);
 
         $exists = false;
         if ($actual !== null) {
             $exists = true;
             foreach ($mechanisms as $mechanism) {
-                if (!in_array($mechanism, $published, true)) {
+                if (!in_array(self::comparable($mechanism), $published, true)) {
                     $exists = false;
                     break;
                 }
@@ -107,6 +107,43 @@ class DnsVerifier
             preg_split('/\s+/', trim($record)) ?: [],
             static fn(string $token) => $token !== ''
         ));
+    }
+
+    /**
+     * The same tokens, in the form two records are compared in.
+     *
+     * @return list<string>
+     */
+    private static function comparableTokens(?string $record): array
+    {
+        return array_map(self::comparable(...), self::tokensOf($record));
+    }
+
+    /**
+     * One token, reduced to what makes two of them the same mechanism.
+     *
+     * **Lowercased**, because mechanism names and domain-specs are
+     * case-insensitive (RFC 7208 §4.6.1): `A:smtp.Example.com` authorises
+     * exactly what `a:smtp.example.com` authorises, and reporting the
+     * first as missing would have the screen tell a correctly configured
+     * operator to fix a record that is already right.
+     *
+     * **And a leading `+` dropped**, because it IS the default qualifier
+     * — `+a:host` and `a:host` are the same mechanism, and cPanel-style
+     * generators write the explicit form. The other three qualifiers stay:
+     * `-a:host` says the opposite of `a:host` and must never compare
+     * equal to it.
+     *
+     * This only ever decides whether a mechanism is already there. What
+     * gets proposed back to the operator keeps their own text — the point
+     * is not to rewrite a working record, it is to stop proposing to add
+     * a mechanism it already carries. Adding a duplicate `a:` costs a DNS
+     * lookup against the ten RFC 7208 §4.6.4 allows, so the cost of
+     * getting this wrong is a record pushed closer to a PermError.
+     */
+    private static function comparable(string $token): string
+    {
+        return ltrim(strtolower(trim($token)), '+');
     }
 
     /**
@@ -174,10 +211,10 @@ class DnsVerifier
         // Whole tokens here too, for the reason {@see self::tokensOf()}
         // gives: a substring test would decide the record already carries
         // a mechanism it does not, and propose nothing.
-        $published = self::tokensOf($actual);
+        $published = self::comparableTokens($actual);
         $missing = array_values(array_filter(
             $mechanisms,
-            static fn(string $mechanism) => !in_array($mechanism, $published, true)
+            static fn(string $mechanism) => !in_array(self::comparable($mechanism), $published, true)
         ));
 
         if ($missing === []) {

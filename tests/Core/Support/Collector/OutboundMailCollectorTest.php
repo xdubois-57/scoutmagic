@@ -271,6 +271,31 @@ class OutboundMailCollectorTest extends TestCase
         // Null is « nobody asked for reports », not « the record is
         // missing » — and the two would send a reader to different places.
         $this->assertStringContainsString('DMARC : non vérifié', $report);
+        $this->assertStringNotContainsString('PÉRIMÉE', $report);
+    }
+
+    /**
+     * A reading taken on the previous domain still lists three verdicts,
+     * and they answer a question nobody is asking any more. The archive
+     * does print both domains, fifteen lines apart — but a support
+     * package is read by somebody looking for what is wrong, not by
+     * somebody cross-checking two lines, so it says so in as many words.
+     */
+    public function testAReadingTakenBeforeTheAddressesMovedIsMarkedAsSuch(): void
+    {
+        $this->registerIdentity('info@nouveau.be', '');
+        DnsCheckMemory::remember(
+            $this->settings,
+            'ancien.be',
+            'ancien.be',
+            's2026',
+            [DnsCheckMemory::SPF => ['exists' => true, 'expected' => 'v=spf1 a mx ~all']],
+            new \DateTimeImmutable('2026-09-01 08:00:00')
+        );
+
+        $report = $this->collect();
+
+        $this->assertStringContainsString('PÉRIMÉE : les adresses ont changé depuis', $report);
     }
 
     public function testTheReturnVerificationIsReportedByRoleAndNeverByAddress(): void
@@ -390,6 +415,21 @@ class OutboundMailCollectorTest extends TestCase
             null,
             false,
             56
+        );
+        // Registered like the boot does it, default included: the
+        // selector is half of what a DNS reading is about, so a fixture
+        // without one describes an installation that cannot exist.
+        $this->settings->register(
+            'dkim_selector',
+            's2026',
+            'text',
+            'Sélecteur DKIM',
+            '',
+            null,
+            '^[a-z0-9]+$',
+            null,
+            true,
+            60
         );
         $this->settings->set(MailIdentity::SETTING_FROM_ADDRESS, $fromAddress);
         $this->settings->set(MailIdentity::SETTING_REPLY_ADDRESS, $replyAddress);

@@ -242,6 +242,63 @@ class DnsVerifierTest extends TestCase
         $this->assertTrue($result['exists']);
         $this->assertSame('v=spf1 a:autre.example ~all', $result['expected']);
     }
+
+    /**
+     * SPF mechanism names and domain-specs are case-insensitive
+     * (RFC 7208 §4.6.1). A record written by hand, or by a registrar's
+     * form that title-cases what it is given, authorises exactly what the
+     * lowercase form authorises — and a reading that calls it « manquant »
+     * sends a correctly configured operator to fix a record that is
+     * already right.
+     */
+    public function testTheCaseOfAPublishedMechanismDoesNotMatter(): void
+    {
+        $verifier = new FakeDnsVerifier([
+            'unite.be' => ['v=spf1 A:Relais.Example.COM ~all'],
+        ]);
+
+        $result = $verifier->checkSpfForHosts('unite.be', ['relais.example.com']);
+
+        $this->assertTrue($result['exists']);
+        $this->assertSame('v=spf1 A:Relais.Example.COM ~all', $result['expected'], 'The record is left as it is.');
+    }
+
+    /**
+     * `+` IS the default qualifier: `+a:host` and `a:host` are the same
+     * mechanism, and cPanel/WHM-generated records write the explicit form
+     * — exactly the shared-hosting relay this file's own fixtures target.
+     * Proposing to add the bare form next to it would push the record one
+     * DNS lookup closer to the ten RFC 7208 §4.6.4 allows, for nothing.
+     */
+    public function testAnExplicitPlusQualifierIsTheSameMechanism(): void
+    {
+        $verifier = new FakeDnsVerifier([
+            'unite.be' => ['v=spf1 +a:mailphp.lws-hosting.com ~all'],
+        ]);
+
+        $result = $verifier->checkSpfForHosts('unite.be', ['mailphp.lws-hosting.com']);
+
+        $this->assertTrue($result['exists']);
+        $this->assertSame('v=spf1 +a:mailphp.lws-hosting.com ~all', $result['expected']);
+    }
+
+    /**
+     * And the three other qualifiers are NOT dropped: `-a:host` says the
+     * opposite of `a:host`. Treating them as the same would report a
+     * record that explicitly refuses the relay as authorising it — the
+     * one reading worse than no reading at all.
+     */
+    public function testAMechanismExplicitlyRefusedIsNotAMechanismInPlace(): void
+    {
+        $verifier = new FakeDnsVerifier([
+            'unite.be' => ['v=spf1 -a:relais.example ~all'],
+        ]);
+
+        $result = $verifier->checkSpfForHosts('unite.be', ['relais.example']);
+
+        $this->assertFalse($result['exists']);
+        $this->assertSame('v=spf1 -a:relais.example a:relais.example ~all', $result['expected']);
+    }
 }
 
 /**
