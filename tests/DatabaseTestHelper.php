@@ -730,6 +730,20 @@ class DatabaseTestHelper
             verdict_at TEXT
         )');
 
+        $pdo->exec('CREATE TABLE mail_bounce_states (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email_encrypted TEXT NOT NULL,
+            email_blind_index TEXT NOT NULL UNIQUE,
+            category TEXT NOT NULL,
+            severity TEXT NOT NULL,
+            status_code TEXT NOT NULL,
+            failures INTEGER NOT NULL DEFAULT 0,
+            first_seen_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            blocked_at TEXT,
+            notified_code TEXT
+        )');
+
         $pdo->exec('CREATE TABLE human_check_rate_limits (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             ip_hash TEXT NOT NULL,

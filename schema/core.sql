@@ -1746,6 +1746,65 @@ CREATE TABLE IF NOT EXISTS mail_probes (
     INDEX idx_mail_probes_code (code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- mail_bounce_states: one row per ADDRESS that has bounced, and that noun
+-- is the whole design (roadmap IT-05).
+--
+-- **A bounce is a fact about a mailbox, not about the row that happened to
+-- reference it.** A parent's address sits on every one of their children's
+-- profiles, so one mailbox is several `member_emails` rows; it may also be
+-- a `mass_mail_list_addresses` row of a custom list. Recording the bounce
+-- once, here, is what makes « cette adresse ne reçoit plus rien » mean the
+-- same thing on all of them — the same reasoning
+-- MemberEmailService::unsubscribe() already applies when it marks every
+-- row sharing an address together.
+--
+-- `email_blind_index` uses the SHARED 'email' purpose, deliberately and by
+-- the rule in Core\Security\EncryptionService::blindIndex(): indexes
+-- compared across tables must share one purpose, and this one is compared
+-- against member_emails to find who owns a bounced address.
+-- mass_mail_list_addresses keeps its own domain-separated purpose, so the
+-- module never matches indexes across the boundary — it asks the core with
+-- the plaintext address it already holds at send time (module → core, the
+-- allowed direction).
+--
+-- The state is kept BESIDE member_emails.status, never inside it (D19):
+-- 'pending' / 'valid' / 'inactive' each record a decision the MEMBER made,
+-- and folding an automatic block into them would lose the why — and with
+-- it the rule that a super-admin may lift a block the site placed but may
+-- never reactivate an address a parent switched off.
+CREATE TABLE IF NOT EXISTS mail_bounce_states (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    email_encrypted BLOB NOT NULL,
+    email_blind_index CHAR(64) NOT NULL,
+    -- 'mailbox_full', 'no_such_address', 'refused' or 'unreachable' — the
+    -- four a parent can act on. Never the remote server's own sentence,
+    -- which quotes the address back and is written by a stranger's
+    -- software (SECURITY.md §11).
+    category VARCHAR(20) NOT NULL,
+    -- 'transient' or 'permanent'. Only a permanent failure counts toward
+    -- the block; a transient one is the mail system working as designed.
+    severity VARCHAR(10) NOT NULL,
+    -- The RFC 3463 code as sent, e.g. '5.1.1'. Kept because it is the key
+    -- « first time for THIS error » is indexed on: a full mailbox emptied
+    -- and full again six months later has to notify a second time.
+    status_code VARCHAR(16) NOT NULL,
+    -- Consecutive PERMANENT failures. Reset to zero by the first
+    -- successful send to this address, which is the only reliable signal
+    -- that the problem is over — never by a timer.
+    failures INT UNSIGNED NOT NULL DEFAULT 0,
+    first_seen_at DATETIME NOT NULL,
+    last_seen_at DATETIME NOT NULL,
+    -- Set when the address stops being written to. A date and not a flag:
+    -- « depuis quand » is the first thing anybody asks, and a boolean
+    -- cannot answer it.
+    blocked_at DATETIME NULL,
+    -- The code the member was last told about, so a mailbox that bounces
+    -- at every mailing notifies once rather than once per send.
+    notified_code VARCHAR(16) NULL,
+    UNIQUE INDEX idx_mbs_blind (email_blind_index),
+    INDEX idx_mbs_blocked (blocked_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- storage_locations: one row per declared destination for bytes — a
 -- directory on this server, an S3-compatible bucket, and the kinds the
 -- following iterations add. In the core and not in a module, for the same
