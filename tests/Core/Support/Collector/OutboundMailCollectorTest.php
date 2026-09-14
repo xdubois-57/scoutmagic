@@ -243,7 +243,6 @@ class OutboundMailCollectorTest extends TestCase
 
         $this->assertStringContainsString('── Authentification du domaine', $report);
         $this->assertStringContainsString('unite.be', $report, 'A domain is a server, not a person.');
-        $this->assertStringContainsString('alignés : oui', $report);
         $this->assertStringContainsString('vérification DNS : jamais lancée', $report);
     }
 

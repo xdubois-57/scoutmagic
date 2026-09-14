@@ -218,9 +218,6 @@
                 Le SPF est vérifié sur <code>{{ spf_domain }}</code> — le domaine du retour des rebonds, pas
                 celui de l'expéditeur affiché. La signature DKIM, elle, porte sur
                 <code>{{ dkim_domain }}</code>.
-                {% if not aligned %}
-                    Ces deux domaines diffèrent : DMARC échouera tant que ce sera le cas.
-                {% endif %}
             </p>
         {% endif %}
 

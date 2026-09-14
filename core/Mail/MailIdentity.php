@@ -169,20 +169,21 @@ final class MailIdentity
      * is the From domain. DMARC then passes on the DKIM side only when
      * `d=` aligns with the `From:` domain, which is why the signature
      * follows the From address rather than the envelope.
+     *
+     * **Equal to {@see self::spfDomain()} by construction, today.** The
+     * envelope sender IS the From address (see there), so the two domains
+     * cannot diverge as long as a `MailIdentity` is built from the site's
+     * own settings. There was an « alignment » check here and a warning
+     * on the screen fed by it; both were unreachable, and an alarm that
+     * cannot ring is worse than no alarm — it reads as a check somebody
+     * is doing. The one case that WOULD diverge is a mailing sent under a
+     * section's own address, and that belongs to the iteration that
+     * touches the mailing (journal: « Reporté »), which is also where the
+     * check will have something to compare.
      */
     public function dkimDomain(): string
     {
         return self::domainOf($this->fromAddress);
-    }
-
-    /**
-     * Whether everything the site puts in a message lines up under one
-     * domain — the state in which SPF and DKIM both align and DMARC has
-     * nothing to complain about.
-     */
-    public function isAligned(): bool
-    {
-        return $this->spfDomain() !== '' && $this->spfDomain() === $this->dkimDomain();
     }
 
     /**

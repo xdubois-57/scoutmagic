@@ -285,7 +285,6 @@ class OutboundMailCollector implements SupportCollectorInterface
         $lines = ['── Authentification du domaine ─────────────────────────────'];
         $lines[] = 'domaine d\'enveloppe (SPF) : ' . ($identity->spfDomain() ?: '(aucune adresse d\'expédition)');
         $lines[] = 'domaine de signature (DKIM) : ' . ($identity->dkimDomain() ?: '-');
-        $lines[] = 'alignés : ' . ($identity->isAligned() ? 'oui' : 'non');
         $selector = (string) ($this->settings->get('dkim_selector') ?? '');
         $lines[] = 'sélecteur DKIM : ' . ($selector ?: '(vide)');
         $lines[] = 'adresse de réponse distincte : ' . ($identity->configuredReplyAddress() !== '' ? 'oui' : 'non');

@@ -1087,6 +1087,36 @@ la fixture du collecteur n'enregistrait pas `dkim_selector` : elle
 décrivait une installation qui ne peut pas exister — la leçon du double
 impossible, une troisième fois.
 
+**Une alarme qui ne pouvait pas sonner.** `isAligned()` promettait de dire
+si le domaine du SPF et celui de la signature DKIM divergeaient. Or
+`spfDomain()` vaut `domainOf(envelopeSender())`, `envelopeSender()` vaut
+`fromAddress`, et `dkimDomain()` vaut `domainOf(fromAddress)` : la même
+expression écrite deux fois. La méthode répondait donc « une adresse est
+configurée » sous un nom qui promettait autre chose, l'avertissement
+« Ces deux domaines diffèrent : DMARC échouera » de la sous-page ne
+pouvait jamais s'afficher, et le paquet de support annonçait
+`alignés : oui` sur toute installation ayant jamais existé.
+
+Les trois disparaissent. Une alarme qui ne peut pas sonner est pire que
+pas d'alarme : elle se lit comme une vérification que quelqu'un fait. Ce
+que l'invariant dit vraiment est écrit là où il est vrai — le docblock de
+`dkimDomain()` — et épinglé par un test qui compare les deux domaines sur
+quatre identités, adresse de réponse et adresse DMARC chez d'autres
+opérateurs comprises. Le seul cas qui les ferait diverger pour de bon est
+l'envoi « au nom de » d'une section, déjà porté en « Reporté » : c'est
+l'itération du publipostage qui donnera à ce contrôle quelque chose à
+comparer.
+
+**Et deux messages de commit rédigés en anglais**, alors qu'AGENTS.md
+§ Langue est explicite : tout ce qui est écrit *à propos* d'un changement
+est en français, y compris ce qui accompagne chaque enregistrement, sans
+autre exception que la réponse sur un fil de relecture. Tout le reste de
+cette PR est en français ; ces deux-là étaient les seuls écarts. La règle
+est facile à énoncer et facile à rater dans le même fichier — le code et
+ses commentaires en anglais, ce qui raconte le changement en français — et
+la rater deux fois de suite après l'avoir tenue cinq fois est le genre de
+dérive qu'aucun test ne rattrape.
+
 ### Reporté
 
 - L'alignement DMARC d'un envoi « au nom de » (ci-dessus), à l'itération

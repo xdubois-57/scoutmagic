@@ -1319,7 +1319,6 @@ class OutboundMailController extends AbstractController
             'roles' => $identity->roles(),
             'spf_domain' => $identity->spfDomain(),
             'dkim_domain' => $identity->dkimDomain(),
-            'aligned' => $identity->isAligned(),
             'sending_hosts' => $hosts,
             'has_dkim_key' => $this->dkim->hasKey(),
             'dkim_public_key' => $this->dkim->hasKey() ? $this->dkim->getPublicKey() : '',

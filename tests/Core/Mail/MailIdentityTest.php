@@ -73,7 +73,31 @@ class MailIdentityTest extends TestCase
 
         $this->assertSame('unite.be', $identity->spfDomain());
         $this->assertSame('unite.be', $identity->dkimDomain());
-        $this->assertTrue($identity->isAligned());
+    }
+
+    /**
+     * The two domains are equal by construction — the envelope sender IS
+     * the From address — and this says so rather than leaving it implied.
+     *
+     * There used to be an `isAligned()` here and a « ces deux domaines
+     * diffèrent » warning on the screen fed by it. Both were unreachable:
+     * `spfDomain()` and `dkimDomain()` are the same expression, so the
+     * method really answered « an address is configured » under a name
+     * that promised something else, and the support package reported
+     * `alignés : oui` on every installation that ever existed. An alarm
+     * that cannot ring reads as a check somebody is doing.
+     */
+    public function testTheTwoDomainsCannotDivergeWhileTheIdentityComesFromTheSiteSettings(): void
+    {
+        foreach (['info@unite.be', 'INFO@Unite.BE', 'contact@autre.example', ''] as $address) {
+            $identity = new MailIdentity($address, 'Unité', 'reponses@gmail.com', 'dmarc@ailleurs.example');
+
+            $this->assertSame(
+                $identity->spfDomain(),
+                $identity->dkimDomain(),
+                'The envelope sender is the From address, so neither a reply nor a DMARC address moves either one.'
+            );
+        }
     }
 
     public function testTheDomainIsLowercasedAndAnAddressWithoutOneAnswersEmpty(): void
