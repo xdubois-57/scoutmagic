@@ -142,11 +142,12 @@ class RunStorageProtectionsHandler implements TaskHandlerInterface
             // \RuntimeException naming a raw storage key, an AwsException
             // naming a bucket and a host — are not UserFacingException and
             // must not be quoted to an administrator.
-            $protections->recordPassFailed($protection->id, UserFacingMessage::from(
+            $reason = UserFacingMessage::from(
                 $e,
                 "La copie de secours n'a pas pu être poursuivie. Vérifiez que les deux emplacements "
                     . 'répondent, puis relancez un test depuis la page Stockage.'
-            ));
+            );
+            $protections->recordPassFailed($protection->id, $reason);
             $this->journalFailure($context, $source->label, $destination->label);
 
             return false;

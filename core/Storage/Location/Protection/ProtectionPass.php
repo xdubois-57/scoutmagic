@@ -257,10 +257,11 @@ class ProtectionPass
                         // Recorded as seen by THIS pass, so a copy
                         // spanning several nights is never mistaken for a
                         // file the source has dropped.
-                        $inventory->put($object->key, new InventoryEntry(
+                        $halfCopy = new InventoryEntry(
                             sizeBytes: $object->sizeBytes,
                             lastSeenAt: $passStartedAt
-                        ));
+                        );
+                        $inventory->put($object->key, $halfCopy);
 
                         // **The page position is deliberately NOT
                         // advanced.** The next run re-lists the same page,
