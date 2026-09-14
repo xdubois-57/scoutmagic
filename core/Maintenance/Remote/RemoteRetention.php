@@ -268,7 +268,8 @@ final class RemoteRetention
      */
     private static function writtenAt(StoredObject $file): int
     {
-        if (preg_match('/^' . self::ARCHIVE_PREFIX . '(\d{4}-\d{2}-\d{2})-(\d{2})(\d{2})(\d{2})/', $file->key, $m) === 1) {
+        $named = '/^' . self::ARCHIVE_PREFIX . '(\d{4}-\d{2}-\d{2})-(\d{2})(\d{2})(\d{2})/';
+        if (preg_match($named, $file->key, $m) === 1) {
             $parsed = strtotime(sprintf('%sT%s:%s:%sZ', $m[1], $m[2], $m[3], $m[4]));
             if ($parsed !== false) {
                 return $parsed;
