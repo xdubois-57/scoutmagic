@@ -65,6 +65,45 @@ final class ProtectedCopierTest extends TestCase
     }
 
     /**
+     * An empty file is a file, and it has to arrive.
+     *
+     * The slicing path is driven by `while ($offset < $expectedSize)`,
+     * which never runs for a zero-byte object — so nothing created the
+     * partial, `promotePartial()` threw « no partial upload to promote »,
+     * and the pass recorded a failure. Not an edge case anybody would
+     * notice as one either: the entry is then removed from the inventory,
+     * the same key is met again on the next pass, and it fails again,
+     * every night, for ever. A file that can never be protected.
+     */
+    public function testAnEmptyFileIsCopiedRatherThanFailingForEver(): void
+    {
+        $this->source->put('12/vide.txt', '', 'text/plain');
+        $this->assertTrue(
+            $this->source instanceof RangeReadableBackend,
+            'this test is only meaningful on the sliced path'
+        );
+
+        $outcome = $this->copier->copy(
+            $this->source,
+            $this->destination,
+            '12/vide.txt',
+            0,
+            'text/plain',
+            $this->always()
+        );
+
+        $this->assertTrue($outcome->isCompleted(), $outcome->reason ?? '');
+        $this->assertTrue($this->destination->exists('12/vide.txt'));
+        $this->assertSame('', $this->destination->get('12/vide.txt'));
+        $this->assertSame(md5(''), $outcome->md5);
+        $this->assertSame(
+            0,
+            $this->destination->partialSize('12/vide.txt'),
+            'and the partial object must not be left behind beside it'
+        );
+    }
+
+    /**
      * **Resumption after a cut in the middle of a big file, without
      * retransmitting what got through** — the test the chantier asks for
      * by name.

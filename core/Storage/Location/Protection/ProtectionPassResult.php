@@ -23,6 +23,22 @@ final class ProtectionPassResult
     private function __construct(
         public readonly string $phase,
         public readonly bool $finished,
+        /**
+         * The moment this run stamped its inventory entries with.
+         *
+         * **Carried back out because the caller has to persist THIS
+         * string, not one of its own.** A paused run wrote `lastSeenAt`
+         * into every entry it met; the next run reads `pass_started_at`
+         * back and compares its own stamp to those for exact equality
+         * ({@see InventoryEntry::seenBy()}). A persist site that computed
+         * its own « now » — twenty seconds later, which is the whole
+         * budget — stored a value no entry carries, and run 2 then
+         * concluded that everything run 1 had just seen was gone from the
+         * source. On a big enough source that is either a deletion
+         * countdown started on present files or the D15 circuit breaker
+         * tripping every single night.
+         */
+        public readonly string $passStartedAt,
         public readonly ?string $cursor = null,
         public readonly int $seenCount = 0,
         public readonly int $copiedCount = 0,
@@ -46,27 +62,38 @@ final class ProtectionPassResult
      */
     public static function paused(
         string $phase,
+        string $passStartedAt,
         ?string $cursor,
         int $seenCount,
         int $copiedCount,
         array $failures
     ): self {
-        return new self($phase, false, $cursor, $seenCount, $copiedCount, $failures);
+        return new self($phase, false, $passStartedAt, $cursor, $seenCount, $copiedCount, $failures);
     }
 
     /**
      * @param array<string, string> $failures
      */
-    public static function finished(string $phase, int $seenCount, int $copiedCount, array $failures): self
-    {
-        return new self($phase, true, null, $seenCount, $copiedCount, $failures);
+    public static function finished(
+        string $phase,
+        string $passStartedAt,
+        int $seenCount,
+        int $copiedCount,
+        array $failures
+    ): self {
+        return new self($phase, true, $passStartedAt, null, $seenCount, $copiedCount, $failures);
     }
 
-    public static function finishedSweep(int $markedAbsent, int $deleted, bool $refusedMassDisappearance): self
-    {
+    public static function finishedSweep(
+        string $passStartedAt,
+        int $markedAbsent,
+        int $deleted,
+        bool $refusedMassDisappearance
+    ): self {
         return new self(
             StorageProtection::PHASE_RECONCILE,
             true,
+            $passStartedAt,
             null,
             0,
             0,
@@ -86,6 +113,7 @@ final class ProtectionPassResult
         return new self(
             $this->phase,
             $this->finished,
+            $this->passStartedAt,
             $this->cursor,
             $inventoryPhase->seenCount,
             $inventoryPhase->copiedCount,

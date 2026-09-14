@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Storage\Location\Protection\Task;
 
+use Core\Exception\UserFacingMessage;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
@@ -133,7 +134,19 @@ class RunStorageProtectionsHandler implements TaskHandlerInterface
             // is what D15 needs**: a pass that died mid-listing holds a
             // cursor into a listing it can no longer trust, and resuming
             // from it would carry that blindness into the next run.
-            $protections->recordPassFailed($protection->id, $e->getMessage());
+            // **The message is gated at the WRITE site**, because this is
+            // the pattern AGENTS.md names explicitly: a value written now
+            // and rendered much later by a template (« last_error » on the
+            // Stockage screen) has no display site left to gate it at. The
+            // exceptions that actually reach here — a backend's
+            // \RuntimeException naming a raw storage key, an AwsException
+            // naming a bucket and a host — are not UserFacingException and
+            // must not be quoted to an administrator.
+            $protections->recordPassFailed($protection->id, UserFacingMessage::from(
+                $e,
+                "La copie de secours n'a pas pu être poursuivie. Vérifiez que les deux emplacements "
+                    . 'répondent, puis relancez un test depuis la page Stockage.'
+            ));
             $this->journalFailure($context, $source->label, $destination->label);
 
             return false;
@@ -144,7 +157,10 @@ class RunStorageProtectionsHandler implements TaskHandlerInterface
                 $protection->id,
                 $result->phase,
                 $result->cursor,
-                $result->seenCount
+                $result->seenCount,
+                // The stamp the RUN used on its entries, not one computed
+                // at persist time — see recordPassProgress()'s docblock.
+                $result->passStartedAt
             );
 
             return true;

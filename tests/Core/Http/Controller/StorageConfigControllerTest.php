@@ -738,6 +738,73 @@ class StorageConfigControllerTest extends TestCase
         $this->assertStringContainsString('sa propre copie de secours', $this->flashMessage());
     }
 
+    /**
+     * **What the relation will cost is said at the moment it is
+     * accepted**, which is the only moment an administrator can act on it.
+     *
+     * These are the arrangements the service deliberately does not refuse
+     * — here, a grace period shorter than the oldest restorable backup,
+     * which would let a restore resurrect album rows whose files the copy
+     * has already erased. Computed and then dropped on the floor, as they
+     * were, they protected nobody: the screen's static hint says the same
+     * thing whatever was submitted and cannot name the number that makes
+     * it matter.
+     */
+    public function testAWarnedPairingIsSavedAndTheWarningReachesTheAdministrator(): void
+    {
+        $source = $this->declareLocal('Galerie', 'gallery');
+        $destination = $this->declareLocal('NAS', 'nas');
+        $this->completeBackupAgedInDays(21);
+
+        $response = $this->controller->saveProtection(
+            new Request('POST', '/x', [], [
+                'destination_location_id' => (string) $destination,
+                'grace_period_days' => '7',
+                'cadence_hours' => '24',
+                'enabled' => '1',
+                '_csrf_token' => $this->csrfToken(),
+            ], [], []),
+            ['id' => (string) $source]
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        // Warned, not refused: the relation is saved.
+        $this->assertNotNull((new StorageProtectionRepository($this->pdo))->findBySourceId($source));
+
+        $flash = FlashMessage::get();
+        $this->assertIsArray($flash);
+        $this->assertSame('warning', $flash['type']);
+        $message = (string) $flash['message'];
+        // Both halves travel together: one flash holds one message, and a
+        // warning that did not also confirm would leave an administrator
+        // unsure whether anything was saved at all.
+        $this->assertStringContainsString('Copie de secours enregistrée', $message);
+        $this->assertStringContainsString('21 jours', $message);
+        $this->assertStringContainsString('7 jours', $message);
+    }
+
+    public function testAPairingWithNothingToWarnAboutIsConfirmedPlainly(): void
+    {
+        $source = $this->declareLocal('Galerie', 'gallery');
+        $destination = $this->declareLocal('NAS', 'nas');
+        $this->completeBackupAgedInDays(21);
+
+        $this->controller->saveProtection(
+            new Request('POST', '/x', [], [
+                'destination_location_id' => (string) $destination,
+                'grace_period_days' => '30',
+                'cadence_hours' => '24',
+                'enabled' => '1',
+                '_csrf_token' => $this->csrfToken(),
+            ], [], []),
+            ['id' => (string) $source]
+        );
+
+        $flash = FlashMessage::get();
+        $this->assertIsArray($flash);
+        $this->assertSame('success', $flash['type']);
+    }
+
     public function testSavingAProtectionRequiresCsrf(): void
     {
         $source = $this->declareLocal('Galerie', 'gallery');
@@ -1180,6 +1247,21 @@ class StorageConfigControllerTest extends TestCase
             'delete' => ['POST', '/config/stockage/emplacements/1/suppression', 'delete'],
             'set default' => ['POST', '/config/stockage/emplacements/1/defaut', 'setDefault'],
             'test one location' => ['POST', '/config/stockage/emplacements/1/test', 'test'],
+            'save a protection' => [
+                'POST',
+                '/config/stockage/emplacements/1/protection',
+                'saveProtection',
+            ],
+            'delete a protection' => [
+                'POST',
+                '/config/stockage/emplacements/1/protection/suppression',
+                'deleteProtection',
+            ],
+            'repatriate from the copy' => [
+                'POST',
+                '/config/stockage/emplacements/1/protection/rapatriement',
+                'repatriate',
+            ],
             'test a connection' => ['POST', '/config/stockage/test-connexion', 'testConnection'],
             'explain an S3 error' => ['POST', '/config/stockage/expliquer-erreur-s3', 'explainS3Error'],
         ];
@@ -1342,6 +1424,16 @@ class StorageConfigControllerTest extends TestCase
         $request->method('getRawBody')->willReturn((string) json_encode($data));
 
         return $request;
+    }
+
+    /** A completed, restorable backup dated $days days ago. */
+    private function completeBackupAgedInDays(int $days): void
+    {
+        $backups = new BackupRepository($this->pdo);
+        $id = $backups->create('full_no_gallery', null);
+        $this->pdo->prepare(
+            "UPDATE backups SET status = 'completed', completed_at = ?, db_dump_file_id = 1 WHERE id = ?"
+        )->execute([(new \DateTimeImmutable('-' . $days . ' days'))->format('Y-m-d H:i:s'), $id]);
     }
 
     /** A POST carrying nothing but a valid token. */

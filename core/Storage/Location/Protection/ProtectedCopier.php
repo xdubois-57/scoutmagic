@@ -123,6 +123,18 @@ class ProtectedCopier
         $context = $resumed ? null : hash_init('md5');
 
         try {
+            // **An empty file still has to be materialised**, and this is
+            // not a theoretical key: `list()` reports a zero-byte object
+            // like any other. The loop below never runs for it, so nothing
+            // would ever create the partial object, and `promotePartial()`
+            // would then throw « no partial upload to promote ». The pass
+            // records that as a failure, removes the entry, and meets the
+            // same file again tomorrow — a file that can never be
+            // protected and that fails every night for ever, silently.
+            if ($expectedSizeBytes === 0) {
+                $destination->appendToPartial($key, '');
+            }
+
             while ($offset < $expectedSizeBytes) {
                 if (!$hasTimeLeft()) {
                     return CopyOutcome::paused($offset);
@@ -212,11 +224,13 @@ class ProtectedCopier
     ): CopyOutcome {
         $storedSize = $destination->size($key);
         if ($storedSize !== null && $storedSize !== $expectedSizeBytes) {
-            return $this->disagree($destination, $key, sprintf(
+            $reason = sprintf(
                 'La copie fait %d octets alors que la source en annonce %d.',
                 $storedSize,
                 $expectedSizeBytes
-            ));
+            );
+
+            return $this->disagree($destination, $key, $reason);
         }
 
         $announced = $this->comparableChecksum($destination, $key);

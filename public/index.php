@@ -2430,6 +2430,17 @@ $diskBudget = new \Core\Storage\DiskBudget($storagePath, $settingService);
 // modules that answer.
 $storageLocationRepository = new \Core\Storage\Location\StorageLocationRepository($pdo, $encryptionService);
 $storageLocationConsumers = new \Core\Storage\Location\StorageLocationConsumerRegistry();
+$storageProtectionRepository = new \Core\Storage\Location\Protection\StorageProtectionRepository($pdo);
+// **The one consumer that is not a module's**, so it is registered here
+// and unconditionally rather than in a block further down: a safety copy
+// is part of the storage subsystem itself and exists whatever is enabled.
+// Without it, deleting a location somebody's copy is written to reaches
+// the `RESTRICT` foreign key and surfaces a PDOException — a 500 in front
+// of an administrator, which is the exact thing this registry exists to
+// replace with a French refusal naming « Copies de secours ».
+$storageLocationConsumers->register(
+    new \Core\Storage\Location\Protection\StorageProtectionConsumer($storageProtectionRepository)
+);
 $storageBackendFactory = new \Core\Storage\Location\Backend\StorageBackendFactory(
     $storageLocationRepository,
     $storagePath
@@ -5322,7 +5333,7 @@ $frontController->registerController(
         new \Core\Storage\Location\Diagnostics\ObjectStorageErrorExplainer($llmConnectorForOthers),
         __DIR__,
         new \Core\Storage\Location\Protection\StorageProtectionService(
-            new \Core\Storage\Location\Protection\StorageProtectionRepository($pdo),
+            $storageProtectionRepository,
             $storageLocationRepository,
             $backupRepository
         ),

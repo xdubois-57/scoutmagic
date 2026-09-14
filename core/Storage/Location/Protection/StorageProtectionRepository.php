@@ -152,16 +152,36 @@ class StorageProtectionRepository
 
     /**
      * Records where a pass got to. Every column here is disposable (D12).
+     *
+     * **`$passStartedAt` is the run's own stamp, never a « now » computed
+     * here**, and the difference is not cosmetic. The run that is pausing
+     * has just written that exact string into `lastSeenAt` on every
+     * inventory entry it met; the next run reads this column back and
+     * compares its own stamp to those for equality
+     * ({@see InventoryEntry::seenBy()}). This method used to write
+     * `COALESCE(pass_started_at, date('Y-m-d H:i:s'))`, which on the first
+     * pause of a pass stored a moment a whole time budget LATER than the
+     * one the entries carry — so run 2 stamped with a value run 1's
+     * entries could never match, and the sweep concluded that every file
+     * run 1 had just seen had disappeared from the source. Written
+     * unconditionally rather than coalesced: on a resume the value handed
+     * back is the one already stored, so the write is a no-op, and when it
+     * is not (a stored value that could not be parsed, so the run fell
+     * back to its own clock) the run's stamp is the truthful one.
      */
-    public function recordPassProgress(int $id, string $phase, ?string $cursor, int $seenCount): void
-    {
+    public function recordPassProgress(
+        int $id,
+        string $phase,
+        ?string $cursor,
+        int $seenCount,
+        string $passStartedAt
+    ): void {
         $stmt = $this->pdo->prepare(
             'UPDATE storage_protections
-                SET pass_phase = ?, pass_cursor = ?, pass_seen_count = ?,
-                    pass_started_at = COALESCE(pass_started_at, ?)
+                SET pass_phase = ?, pass_cursor = ?, pass_seen_count = ?, pass_started_at = ?
               WHERE id = ?'
         );
-        $stmt->execute([$phase, $cursor, $seenCount, date('Y-m-d H:i:s'), $id]);
+        $stmt->execute([$phase, $cursor, $seenCount, $passStartedAt, $id]);
     }
 
     /**

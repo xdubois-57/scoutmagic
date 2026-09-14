@@ -163,11 +163,14 @@ class StorageConfigController extends AbstractController
             return new Response('Not Found', 404);
         }
 
+        $destinationId = (int) $request->getBody('destination_location_id');
+        $gracePeriodDays = (int) $request->getBody('grace_period_days');
+
         try {
             $this->protections->save(
                 $location->id,
-                (int) $request->getBody('destination_location_id'),
-                (int) $request->getBody('grace_period_days'),
+                $destinationId,
+                $gracePeriodDays,
                 (int) $request->getBody('cadence_hours'),
                 $request->getBody('enabled') !== null
             );
@@ -186,7 +189,32 @@ class StorageConfigController extends AbstractController
             (int) AuthSession::getUserAccountId()
         );
 
-        FlashMessage::set('success', "Copie de secours enregistrée pour « {$location->label} ».");
+        // **What is true about the relation that was just accepted**, said
+        // at the one moment it can be acted on. These are the arrangements
+        // the service deliberately does not refuse — two remote locations,
+        // whose every byte transits through this server; a grace period
+        // shorter than the oldest restorable backup, which would let a
+        // restore resurrect album rows whose files the copy has already
+        // erased. Computed and then never shown, they protected nobody:
+        // the screen's static hint says the same thing whatever was
+        // submitted, and cannot name the number that makes it matter.
+        $destination = $this->storageLocationRepository->findById($destinationId);
+        $warnings = $destination === null
+            ? []
+            : $this->protections->warningsFor($location, $destination, $gracePeriodDays);
+
+        $confirmation = "Copie de secours enregistrée pour « {$location->label} ».";
+        if ($warnings !== []) {
+            // One flash holds one message, so the confirmation and what
+            // qualifies it travel together rather than one replacing the
+            // other. A « warning » that did not also confirm would leave
+            // an administrator unsure whether anything was saved.
+            FlashMessage::set('warning', $confirmation . ' ' . implode(' ', $warnings));
+
+            return $this->redirect(self::LOCATIONS_URL);
+        }
+
+        FlashMessage::set('success', $confirmation);
 
         return $this->redirect(self::LOCATIONS_URL);
     }

@@ -97,7 +97,7 @@ final class StorageProtectionServiceTest extends TestCase
     {
         $source = $this->local('Galerie');
         $id = $this->service->save($source, $this->local('NAS'), 30, 24, true);
-        $this->protections->recordPassProgress($id, 'inventory', 'page-7', 4200);
+        $this->protections->recordPassProgress($id, 'inventory', 'page-7', 4200, '2026-09-01 02:00:00');
 
         $this->service->save($source, $this->local('Second disque', 'autre'), 30, 24, true);
 

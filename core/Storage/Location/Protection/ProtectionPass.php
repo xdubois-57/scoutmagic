@@ -159,6 +159,7 @@ class ProtectionPass
                 if (!$hasTimeLeft()) {
                     return ProtectionPassResult::paused(
                         StorageProtection::PHASE_INVENTORY,
+                        $passStartedAt,
                         $cursor,
                         $seen,
                         $copied,
@@ -197,6 +198,7 @@ class ProtectionPass
                         // partial object ends.
                         return ProtectionPassResult::paused(
                             StorageProtection::PHASE_INVENTORY,
+                            $passStartedAt,
                             $cursor,
                             $seen,
                             $copied,
@@ -205,14 +207,15 @@ class ProtectionPass
                     }
 
                     if ($outcome->isCompleted()) {
-                        $inventory->put($object->key, new InventoryEntry(
+                        $entry = new InventoryEntry(
                             sizeBytes: $object->sizeBytes,
                             md5: $outcome->md5,
                             copiedAt: $passStartedAt,
                             absentFromSourceSince: null,
                             resumeSession: null,
                             lastSeenAt: $passStartedAt
-                        ));
+                        );
+                        $inventory->put($object->key, $entry);
                         $copied++;
                     } else {
                         // Refused or failed: noted, and the pass moves on
@@ -232,6 +235,7 @@ class ProtectionPass
             if ($listing->cursor === null) {
                 return ProtectionPassResult::finished(
                     StorageProtection::PHASE_INVENTORY,
+                    $passStartedAt,
                     $seen,
                     $copied,
                     $failures
@@ -247,6 +251,7 @@ class ProtectionPass
             if (!$hasTimeLeft()) {
                 return ProtectionPassResult::paused(
                     StorageProtection::PHASE_INVENTORY,
+                    $passStartedAt,
                     $cursor,
                     $seen,
                     $copied,
@@ -319,6 +324,7 @@ class ProtectionPass
         }
 
         return ProtectionPassResult::finishedSweep(
+            $passStartedAt,
             count($missing),
             $deleted,
             $refusedAsTooMany

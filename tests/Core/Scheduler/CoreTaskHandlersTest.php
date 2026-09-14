@@ -79,4 +79,59 @@ class CoreTaskHandlersTest extends TestCase
             $this->assertInstanceOf($handlerClass, $registered['core::' . $taskKey]);
         }
     }
+
+    /**
+     * Every core handler CLASS reaches a registration, not just every
+     * declared key.
+     *
+     * **The three tests above all read `all()` as their source of truth**,
+     * so a handler written, routed to and scheduled — but never added to
+     * that list — is invisible to all of them, and to PHPStan, and to its
+     * own unit tests. What it is not invisible to is the scheduler, which
+     * marks the task failed with « No handler registered for core::… » on
+     * its next pass, long after a screen has told the administrator the
+     * thing was launched. That is §8.17's failure exactly, and it happened
+     * again during the « emplacements de stockage » chantier with
+     * `repatriate_from_copy`.
+     *
+     * So this reads the DISK instead. A class under `core/**\/Task/` that
+     * implements the interface is a scheduled task by construction, and
+     * has to be reachable from one of the two registration paths: the
+     * declaration for the ones a bare `new` can make, or an explicit
+     * factory in the scheduler bootstrap for the one that needs a graph
+     * (`GenerateRgpdContentHandler`).
+     */
+    public function testEveryCoreTaskHandlerOnDiskIsRegisteredSomewhere(): void
+    {
+        $root = dirname(__DIR__, 3);
+        $bootstrap = (string) file_get_contents($root . '/public/scheduler-bootstrap.php');
+        $declared = CoreTaskHandlers::all();
+
+        $found = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root . '/core'));
+        foreach ($found as $file) {
+            if (!$file instanceof \SplFileInfo || $file->getExtension() !== 'php') {
+                continue;
+            }
+            if (!str_contains(str_replace('\\', '/', $file->getPathname()), '/Task/')) {
+                continue;
+            }
+
+            $relative = substr($file->getPathname(), strlen($root . '/core/'));
+            $class = 'Core\\' . str_replace('/', '\\', substr($relative, 0, -4));
+            if (!class_exists($class) || !is_subclass_of($class, TaskHandlerInterface::class)) {
+                continue;
+            }
+
+            $registered = in_array($class, $declared, true)
+                || str_contains($bootstrap, $class . '::TASK_KEY');
+
+            $this->assertTrue(
+                $registered,
+                "{$class} implements TaskHandlerInterface but nothing registers it: add it to "
+                    . 'CoreTaskHandlers::all(), or to a registerHandlerFactory() call in '
+                    . 'public/scheduler-bootstrap.php when it cannot be built with no arguments. '
+                    . 'Otherwise the scheduler answers "No handler registered" and the task never runs.'
+            );
+        }
+    }
 }

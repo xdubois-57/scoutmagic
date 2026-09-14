@@ -189,7 +189,13 @@ final class RunStorageProtectionsHandlerTest extends TestCase
         $source = $this->declareLocal('Galerie', 'gallery');
         $destination = $this->declareLocal('NAS', 'nas');
         $id = $this->protections->save($source, $destination, 30, 24, true);
-        $this->protections->recordPassProgress($id, StorageProtection::PHASE_INVENTORY, '12/a.jpg', 17);
+        $this->protections->recordPassProgress(
+            $id,
+            StorageProtection::PHASE_INVENTORY,
+            '12/a.jpg',
+            17,
+            '2026-09-01 02:00:00'
+        );
 
         $throwing = new class (
             new \Core\Storage\Location\Protection\StorageInventoryStore(),
@@ -219,6 +225,152 @@ final class RunStorageProtectionsHandlerTest extends TestCase
         $rows = $this->pdo->query("SELECT * FROM event_log WHERE event_type = 'storage_protection_failed'")
             ->fetchAll(\PDO::FETCH_ASSOC);
         $this->assertCount(1, $rows);
+    }
+
+    /**
+     * A pass that needs two runs must not conclude that its own first
+     * run's files have disappeared from the source.
+     *
+     * **The seam is the stamp**, and it is only visible end to end. Run 1
+     * writes its start into every entry it meets and, when it pauses,
+     * hands that same string to the row. Run 2 reads the row back,
+     * stamps its own entries with it, and the sweep then asks which
+     * entries were NOT seen by this pass — exact string equality
+     * ({@see \Core\Storage\Location\Protection\InventoryEntry::seenBy()}).
+     * Persisting a moment computed at write time instead — a whole time
+     * budget later than the one the entries carry — made run 1's files
+     * unmatchable, so the sweep marked every one of them absent and
+     * started the deletion countdown on files that were sitting in the
+     * source all along.
+     *
+     * Neither half of this shows up on its own: the pass is right about
+     * the stamp it used, the row is right about being written, and only
+     * the round trip is wrong.
+     */
+    public function testAPassSpreadOverTwoRunsDoesNotConcludeItsOwnFilesVanished(): void
+    {
+        $source = $this->declareLocal('Galerie', 'gallery');
+        $destination = $this->declareLocal('NAS', 'nas');
+        mkdir($this->storagePath . '/gallery/12', 0755, true);
+        foreach (['a', 'b', 'c', 'd'] as $name) {
+            file_put_contents($this->storagePath . '/gallery/12/' . $name . '.jpg', 'photo-' . $name);
+        }
+        $this->protections->save($source, $destination, 30, 24, true);
+
+        // The budget is keyed on what actually ARRIVED rather than on a
+        // count of calls: the copier consumes the same budget, so a
+        // call-counting closure stops at an unpredictable point.
+        $copyPath = $this->storagePath . '/nas/12/';
+        $stopAfterTwo = static function () use ($copyPath): bool {
+            $arrived = 0;
+            foreach (['a', 'b', 'c', 'd'] as $name) {
+                if (is_file($copyPath . $name . '.jpg')) {
+                    $arrived++;
+                }
+            }
+
+            return $arrived < 2;
+        };
+
+        $budgeted = new class ($stopAfterTwo) extends \Core\Storage\Location\Protection\ProtectionPass {
+            public function __construct(private readonly \Closure $budget)
+            {
+                parent::__construct(
+                    new \Core\Storage\Location\Protection\StorageInventoryStore(),
+                    new \Core\Storage\Location\Protection\ProtectedCopier()
+                );
+            }
+
+            public function run(
+                StorageProtection $protection,
+                \Core\Storage\Location\Backend\StorageBackendInterface $source,
+                \Core\Storage\Location\Backend\StorageBackendInterface $destination,
+                string $sourceLabel,
+                callable $hasTimeLeft
+            ): \Core\Storage\Location\Protection\ProtectionPassResult {
+                return parent::run($protection, $source, $destination, $sourceLabel, $this->budget);
+            }
+        };
+
+        (new RunStorageProtectionsHandler($budgeted))->handle([], $this->context);
+
+        $paused = $this->protections->findBySourceId($source);
+        $this->assertNotNull($paused);
+        $this->assertTrue($paused->isPassInProgress(), 'the first run was expected to stop on its budget');
+
+        // The next tick, on the real pass and with time to finish.
+        (new RunStorageProtectionsHandler())->handle([], $this->context);
+
+        $completed = $this->protections->findBySourceId($source);
+        $this->assertNotNull($completed);
+        $this->assertNotNull($completed->lastCompletedPassAt);
+
+        $inventory = (new \Core\Storage\Location\Protection\StorageInventoryStore())->load(
+            new \Core\Storage\Location\Backend\LocalStorageBackend($this->storagePath . '/nas'),
+            $source,
+            'Galerie',
+            $destination
+        );
+
+        $this->assertSame(4, $inventory->count(), 'every file of the source belongs to the copy');
+        foreach (['a', 'b', 'c', 'd'] as $name) {
+            $entry = $inventory->get('12/' . $name . '.jpg');
+            $this->assertNotNull($entry, "12/{$name}.jpg is missing from the inventory");
+            $this->assertNull(
+                $entry->absentFromSourceSince,
+                "12/{$name}.jpg is still in the source and must not be counting down to deletion"
+            );
+        }
+    }
+
+    /**
+     * What an administrator reads in « last_error » is never the
+     * exception's own words.
+     *
+     * A backend's \RuntimeException names a raw storage key; an
+     * AwsException names a bucket, a host and sometimes a request id. This
+     * column is written by a background task and rendered by a template
+     * much later, so AGENTS.md's rule applies at the WRITE site — it uses
+     * a `last_error` column as its own example of why.
+     */
+    public function testTheRecordedErrorIsAFrenchSentenceAndNotTheDriversWords(): void
+    {
+        $source = $this->declareLocal('Galerie', 'gallery');
+        $destination = $this->declareLocal('NAS', 'nas');
+        mkdir($this->storagePath . '/gallery', 0755, true);
+        $this->protections->save($source, $destination, 30, 24, true);
+
+        $throwing = new class extends \Core\Storage\Location\Protection\ProtectionPass {
+            public function __construct()
+            {
+                parent::__construct(
+                    new \Core\Storage\Location\Protection\StorageInventoryStore(),
+                    new \Core\Storage\Location\Protection\ProtectedCopier()
+                );
+            }
+
+            public function run(
+                StorageProtection $protection,
+                \Core\Storage\Location\Backend\StorageBackendInterface $source,
+                \Core\Storage\Location\Backend\StorageBackendInterface $destination,
+                string $sourceLabel,
+                callable $hasTimeLeft
+            ): \Core\Storage\Location\Protection\ProtectionPassResult {
+                throw new \RuntimeException(
+                    'S3 AccessDenied for bucket scoutmagic-prod at /var/www/storage/gallery/12/marie.jpg'
+                );
+            }
+        };
+
+        (new RunStorageProtectionsHandler($throwing))->handle([], $this->context);
+
+        $protection = $this->protections->findBySourceId($source);
+        $this->assertNotNull($protection);
+        $this->assertNotNull($protection->lastError);
+        $this->assertStringNotContainsString('scoutmagic-prod', $protection->lastError);
+        $this->assertStringNotContainsString('/var/www', $protection->lastError);
+        $this->assertStringNotContainsString('marie.jpg', $protection->lastError);
+        $this->assertStringContainsString('copie de secours', $protection->lastError);
     }
 
     private function removeDirectory(string $dir): void
