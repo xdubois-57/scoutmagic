@@ -185,7 +185,7 @@ class DeskImportBarrierTest extends TestCase
         $this->importFullRoster();
 
         // A chef d'unité is only a chef d'unité once the function's role
-        // has been confirmed on Config Desk — do that, then hand the
+        // has been confirmed on Correspondances Desk — do that, then hand the
         // import a file that no longer carries them.
         $stmt = $this->pdo->prepare("UPDATE functions SET role = 'admin', confirmed = 1 WHERE desk_code = ?");
         $stmt->execute(["Intendant d'unité"]);

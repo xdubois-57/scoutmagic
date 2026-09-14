@@ -55,5 +55,5 @@ consulte ; leur ajout et leur gestion sont décrits dans le sujet
 ## Nom et adresse de la section
 
 Le nom affiché et l'adresse e-mail de la section ne se changent pas
-ici : ils se règlent depuis Configuration, page « Config Desk », par la
-personne qui administre le site.
+ici : ils se règlent depuis Configuration, page
+« Correspondances Desk », par la personne qui administre le site.

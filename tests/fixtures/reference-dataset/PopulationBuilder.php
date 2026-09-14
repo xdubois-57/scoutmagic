@@ -816,7 +816,7 @@ final class PopulationBuilder
 
         // "Staff d'U" is never a Section value in a Desk export — the section
         // is synthesised by UnitStaffSectionService from the admin role, and
-        // that role is only known once Config Desk confirms the function.
+        // that role is only known once Correspondances Desk confirms the function.
         $person->years[$year] = new PersonYear(
             functions: [$this->unitFunction($this->filler[$tiers]['unitFunction'] ?? UnitBlueprint::UNIT_LEVEL_FUNCTIONS[0], true)],
             feeCode: UnitBlueprint::FEE_CODES['normal'],

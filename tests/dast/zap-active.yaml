@@ -67,7 +67,7 @@ env:
         # Settings hold base_url: rewrite it and every absolute URL the
         # application builds points somewhere the scanner is not.
         - "\\Q${DAST_TARGET}\\E/config/settings/.*"
-        # Config Desk binds a Desk function to a site role. Changing one
+        # Correspondances Desk binds a Desk function to a site role. Changing one
         # changes what each account may reach — while the scan is busy
         # measuring exactly that.
         - "\\Q${DAST_TARGET}\\E/config/functions/.*"

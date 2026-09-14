@@ -114,7 +114,7 @@ class E2eRoleAccountsTest extends TestCase
     }
 
     /**
-     * Config Desk labels each of its controls with a Desk code —
+     * Correspondances Desk labels each of its controls with a Desk code —
      * "Rôle pour <code>", "Nom de la section <code>" — and Playwright's
      * getByLabel() matches on a SUBSTRING. A code that merely STARTS
      * WITH one an existing fixture uses therefore makes
@@ -143,8 +143,8 @@ class E2eRoleAccountsTest extends TestCase
             foreach ($existing as $taken) {
                 $this->assertFalse(
                     str_starts_with($code, $taken),
-                    "{$code} starts with {$taken}, which makes Config Desk's label for it ambiguous "
-                    . 'with the one the existing end-to-end scenario already targets'
+                    "{$code} starts with {$taken}, which makes Correspondances Desk's label "
+                    . 'for it ambiguous with the one the existing end-to-end scenario already targets'
                 );
                 $this->assertFalse(
                     str_starts_with($taken, $code),

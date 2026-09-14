@@ -243,7 +243,7 @@ dire quelque chose.
   branche ou de section destiné à autre chose ne doit contenir « unité ».
 - **`Staff d'U` n'apparaît jamais dans un CSV** : `UnitStaffSectionService` le
   synthétise depuis les fonctions de rôle `admin`, rôle qui n'est connu qu'après
-  confirmation dans Config Desk. Une nouvelle `FONCTION` s'importe toujours en
+  confirmation dans Correspondances Desk. Une nouvelle `FONCTION` s'importe toujours en
   `role = 'identified'`, non confirmée.
 
 ## 7. Exception assumée au « rien sous core/ »
@@ -333,7 +333,7 @@ une cible pour ce script.
 3. **Les trois années scoutes et les trois imports Desk**, dans l'ordre
    chronologique, par le vrai `DeskImportService` — le même
    `DeskImportReplay` que le test d'import de bout en bout.
-4. **La confirmation des rôles**, par le chemin de Config Desk
+4. **La confirmation des rôles**, par le chemin de Correspondances Desk
    (`FunctionRepository::updateRole(..., true)` puis
    `UnitStaffSectionService::syncMembership()` sur les trois années). C'est le
    seul endroit d'où Staff d'U peut naître.
@@ -687,7 +687,7 @@ lignes qui diffèrent sur n'importe quel champ (« Animateur / Louveteaux » et
 #### Le vocabulaire des FONCTION
 
 Ce sont les libellés qu'un vrai export Desk d'unité belge porte, au caractère
-près. La table `UnitBlueprint::FUNCTIONS` en donne le rôle que Config Desk sera
+près. La table `UnitBlueprint::FUNCTIONS` en donne le rôle que Correspondances Desk sera
 prié de confirmer — le CSV, lui, ne porte jamais de rôle.
 
 | Niveau | Fonction | Rôle confirmé |
@@ -730,7 +730,7 @@ Trois règles que le générateur tient :
   `UnitBlueprint::BRAND_NEW_FUNCTION` (`Délégué de branche`), qui n'apparaît
   qu'en A3. `DeskImportReplay::confirmFunctionRoles()` la laisse non confirmée,
   ce qui est le cas « une fonction toute neuve qu'aucun chef n'a encore vue dans
-  Config Desk ». Sans elle, ce cas disparaîtrait du jeu.
+  Correspondances Desk ». Sans elle, ce cas disparaîtrait du jeu.
 
 #### Les foyers
 

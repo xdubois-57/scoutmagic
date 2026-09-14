@@ -62,7 +62,7 @@ final class UnitBlueprint
      * that method routes to the Staff d'U slot (50).
      *
      * `email` fills `sections.email`, the one section column no Desk export
-     * carries: it is typed on Configuration > Config Desk and read by every
+     * carries: it is typed on Configuration > Correspondances Desk and read by every
      * page that offers "écrire à la section". The column existed and was
      * empty in every earlier version of this dataset, which made those pages
      * look broken rather than unconfigured. The domain is the unit's own,
@@ -154,7 +154,7 @@ final class UnitBlueprint
     ];
 
     /**
-     * Every FONCTION the dataset uses, and the role Config Desk will be asked
+     * Every FONCTION the dataset uses, and the role Correspondances Desk will be asked
      * to confirm for it (the CSV itself never carries a role — every new
      * function imports as 'identified', unconfirmed).
      *
@@ -246,10 +246,10 @@ final class UnitBlueprint
     /**
      * The one function deliberately ABSENT from FUNCTIONS.
      *
-     * DeskImportReplay::confirmFunctionRoles() replays Config Desk against
+     * DeskImportReplay::confirmFunctionRoles() replays Correspondances Desk against
      * FUNCTIONS and leaves anything missing from it unconfirmed, at the
      * `identified` role the import created. That case — « a function so new
-     * no chef has seen it in Config Desk yet » — is a deliberate part of the
+     * no chef has seen it in Correspondances Desk yet » — is a deliberate part of the
      * dataset (scenario 14), and it only exists as long as at least one
      * generated label is outside the table. It used to be `Accompagnateur
      * d'unité`; with the vocabulary corrected, every function a unit really

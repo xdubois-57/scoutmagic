@@ -78,7 +78,7 @@ final class ScenarioCatalog
         10 => [
             'name' => 'Animateur devenu animateur d\'unité',
             'tiers' => ['T0015'],
-            'expectation' => 'Animateur avec section en A1 ; Animateur d\'unité sans section en A2 et A3, donc rattaché à Staff d\'U — mais seulement une fois le rôle admin confirmé dans Config Desk.',
+            'expectation' => 'Animateur avec section en A1 ; Animateur d\'unité sans section en A2 et A3, donc rattaché à Staff d\'U — mais seulement une fois le rôle admin confirmé dans Correspondances Desk.',
         ],
         11 => [
             'name' => 'Intendant de section',
@@ -98,7 +98,7 @@ final class ScenarioCatalog
         14 => [
             'name' => 'FONCTION inédite en A3',
             'tiers' => ['T0019'],
-            'expectation' => 'Délégué de branche (UnitBlueprint::BRAND_NEW_FUNCTION) n\'existe qu\'en A3 et n\'est dans aucune table de rôles : la fonction doit être créée en role=identified, confirmed=false, compter dans newFunctionsCount, et rester non confirmée après le rejeu de Config Desk.',
+            'expectation' => 'Délégué de branche (UnitBlueprint::BRAND_NEW_FUNCTION) n\'existe qu\'en A3 et n\'est dans aucune table de rôles : la fonction doit être créée en role=identified, confirmed=false, compter dans newFunctionsCount, et rester non confirmée après le rejeu de Correspondances Desk.',
         ],
         15 => [
             'name' => 'Section vidée',

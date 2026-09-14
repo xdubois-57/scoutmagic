@@ -3,7 +3,7 @@
  * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
  */
 
-// Config Desk page (core/View/templates/config/functions.html.twig): the
+// Correspondances Desk page (core/View/templates/config/functions.html.twig): the
 // per-function role selects and the module-provided per-function flag
 // switches, the per-section name / organisational email / colour /
 // visibility controls, and the per-branch explanation link. Every control

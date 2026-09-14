@@ -92,8 +92,9 @@ class MenuRegistrationOrderTest extends TestCase
         $this->assertSame('Installation & serveur', $labels[0]);
         $this->assertSame(
             [
-                'Modules', 'Badges', 'Desk', 'Réglages', 'RGPD', 'Actions planifiées', 'Comptes superadmin',
-                'Maintenance', 'Notifications', 'E-mails', 'Courrier sortant', 'Stockage', 'Support',
+                'Modules', 'Badges', 'Correspondances Desk', 'Réglages', 'RGPD',
+                'Actions planifiées', 'Comptes superadmin', 'Maintenance', 'Notifications',
+                'E-mails', 'Courrier sortant', 'Stockage', 'Support',
             ],
             array_slice($labels, 1)
         );

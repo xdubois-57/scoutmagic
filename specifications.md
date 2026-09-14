@@ -49,7 +49,7 @@ Two of them never exist on a unit's installation: `test_tools` (reference and de
 | Admin | 4 | Chef d'unité | + admin area |
 | Superadmin | 5 | Designated site administrators | + Configuration |
 
-"Admin" is displayed as "Chef d'Unité" throughout the UI (e.g. Config Desk's function role picker) — it is never labeled "Admin" to an end user. "Superadmin" is the true top-level site administrator role and has no distinct UI label.
+"Admin" is displayed as "Chef d'Unité" throughout the UI (e.g. Correspondances Desk's function role picker) — it is never labeled "Admin" to an end user. "Superadmin" is the true top-level site administrator role and has no distinct UI label.
 
 ### 2.2 Identity model
 
@@ -130,7 +130,7 @@ Two photos, never mixed. A **member's** photo belongs to a scout year and is the
 
 | Page | Role | Content |
 |---|---|---|
-| Staffs | intendant | SectionPicker + staff info per section (chief/chief-d'unité only — animés are not shown). Section's staff group photo, editable in configuration mode (one per scout year, falls back to the most recent earlier year). Badges assignable to staff (chief only, see Core\Badge). Section documents (an animateur of that section only, see §15.2): add/reorder/delete/update PDF attachments per section and scout year (e.g. planning, camp info sheets), displayed both on the Staffs page and the member page. Section name/email are configured from Config Desk (§4.5), not here. |
+| Staffs | intendant | SectionPicker + staff info per section (chief/chief-d'unité only — animés are not shown). Section's staff group photo, editable in configuration mode (one per scout year, falls back to the most recent earlier year). Badges assignable to staff (chief only, see Core\Badge). Section documents (an animateur of that section only, see §15.2): add/reorder/delete/update PDF attachments per section and scout year (e.g. planning, camp info sheets), displayed both on the Staffs page and the member page. Section name/email are configured from Correspondances Desk (§4.5), not here. |
 | Finances (module) | intendant | Bank statement import, receivables, receipts, movements, outils (§30). `intendant` opens the module; which **accounts** it opens is narrower — see §28. |
 | Statistiques (module) | chief | Member statistics |
 | Calendrier (module) | chief | Chiefs' calendar view (month grid, event edit) |
@@ -216,7 +216,7 @@ All pages in this menu require the `superadmin` role, except Maintenance (`admin
 | Page | Content |
 |---|---|
 | Configuration générale | Badges (transversal roles, e.g. Infirmier/Trésorier, plus one auto-generated "Référent {section}" badge per visible section, assignable only to Staff d'U members — add/rename/activate/deactivate; default badges and badges already assigned can only be deactivated, never deleted). Module registry + configuration mode toggle. |
-| Config Desk | Map Desk functions to site roles; rename sections, set section email, and toggle section visibility across the site. Per age branch: federation logo (uploaded, falls back to a shipped default per canonical branch, else nothing) and explanation link (defaults to the Les Scouts federation page), shown on the member page's branch card (§4.2). |
+| Correspondances Desk | Map Desk functions to site roles; rename sections, set section email, and toggle section visibility across the site. Per age branch: federation logo (uploaded, falls back to a shipped default per canonical branch, else nothing) and explanation link (defaults to the Les Scouts federation page), shown on the member page's branch card (§4.2). |
 | Paramètres | Key-value settings grouped by module, edit via dialog. |
 | Actions planifiées | Scheduled actions list with status. |
 | Configuration RGPD | Choose the RGPD page's content mode: default reference text, custom rich text, or AI-generated from an admin-provided prompt (requires an AI connector module to be enabled). Auto-saved on every mode/content change; each mode tracks its own last real content-change date/time (UTC), never "today" on every view. |
@@ -319,7 +319,7 @@ l'autre vivant.
 Section identity always comes from the "Section" column. The Desk export also has a separate "SECTION" (all-caps) column, which is never used — it can hold incorrect/stale data.
 
 ### 7.3 Section configuration
-Sections identified by Desk code. Name and email configurable from the Staffs page (chief). Name and site-wide visibility also configurable from Configuration > Config Desk (admin) — a hidden section disappears from every section picker (Staffs, Trombinoscope, public Sections page) until made visible again.
+Sections identified by Desk code. Name and email configurable from the Staffs page (chief). Name and site-wide visibility also configurable from Configuration > Correspondances Desk (admin) — a hidden section disappears from every section picker (Staffs, Trombinoscope, public Sections page) until made visible again.
 
 A section with no member in a given import becomes inactive automatically (kept, never deleted) and is likewise excluded from every section picker until a later import gives it members again — see §7.1 pipeline and ARCHITECTURE.md §8.1/§8.8.
 
@@ -1488,7 +1488,7 @@ d'une facture à l'autre signale que le gabarit a changé.
 
 Les personnes se rapprochent sur **nom + prénom + date de naissance** : les
 jumeaux existent et figurent sur la même facture. Les sections se rapprochent
-sur le code Desk, jamais sur le nom affiché — un renommage depuis Config Desk
+sur le code Desk, jamais sur le nom affiché — un renommage depuis Correspondances Desk
 ne doit rien casser. « Staff d'unité » est un libellé, pas un code, et
 correspond au Staff d'U du site.
 
@@ -1741,7 +1741,7 @@ Nobody prints all of it. A parent of Louveteaux prints page one and their own se
 
 **Nobody is added or removed by hand.** The wall is rebuilt from the Desk import: somebody missing or wrongly present is a function to correct at the federation, not a row to edit here. The photos are the ones on the members' own pages, which each animateur changes for themselves.
 
-**Which function marks a section's responsable is configured once**, per function, on Configuration > Config Desk — a flag on the function, not a designation per section per year.
+**Which function marks a section's responsable is configured once**, per function, on Configuration > Correspondances Desk — a flag on the function, not a designation per section per year.
 
 **That flag feeds three other places**, through a core hook rather than any direct dependency: the responsable's name on the public Sections page, the same on a member's own page, and the default on-call target of the SOS module (§38). When the module is disabled, each of those simply shows or resolves nothing.
 

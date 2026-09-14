@@ -62,7 +62,7 @@ class FunctionsController extends AbstractController
     }
 
     /**
-     * GET /config/functions — render the "Config Desk" page (function → role
+     * GET /config/functions — render the "Correspondances Desk" page (function → role
      * mapping, plus section name/visibility).
      *
      * @param array<string, string> $params

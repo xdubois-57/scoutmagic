@@ -10,9 +10,9 @@ namespace Core\Module;
 
 /**
  * Optional hook a module can implement to attach a configurable, per-function
- * boolean flag to the core "Config Desk" configuration page (Configuration >
- * Config Desk — ARCHITECTURE.md §3: functions are managed on a core page, not
- * via a module).
+ * boolean flag to the core "Correspondances Desk" configuration page
+ * (Configuration > Correspondances Desk — ARCHITECTURE.md §3: functions are
+ * managed on a core page, not via a module).
  *
  * Example: the trombinoscope module shows every active chief/chief-d'unité
  * member on the staff photo wall (role-based, not configurable), but needs to

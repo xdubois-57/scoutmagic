@@ -424,7 +424,7 @@ class UploadControllerTest extends TestCase
 
     /**
      * age_branch_logo is a direct role check, not configuration-mode-only
-     * — Config Desk is its own superadmin-only admin area with no session
+     * — Correspondances Desk is its own superadmin-only admin area with no session
      * flag to toggle, unlike editable_image/section_photo.
      */
     public function testAgeBranchLogoContextAllowedForSuperadminWithoutConfigMode(): void

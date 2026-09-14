@@ -236,7 +236,7 @@ final class ScenarioPeople
     private function leaderBecomesUnitChief(): array
     {
         // Section animateur, then a unit-level function with no Section at
-        // all. Staff d'U membership only appears once Config Desk confirms
+        // all. Staff d'U membership only appears once Correspondances Desk confirms
         // "Animateur d'unité" as role=admin — never from the CSV, which
         // carries no role.
         $person = $this->factory->make('T0015', 1996, null);
