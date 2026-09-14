@@ -8,9 +8,13 @@ declare(strict_types=1);
 
 namespace Tests\Core\Http\Controller;
 
+use Core\Config\AppConfig;
 use Core\Http\Controller\GoogleDriveConnectionController;
+use Core\Http\FrontController;
 use Core\Http\Request;
+use Core\Http\Router;
 use Core\Journal\JournalService;
+use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
 use Core\Security\SessionStore;
@@ -26,7 +30,8 @@ use Core\Storage\Location\StorageLocationType;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Twig\Environment;
-use Twig\Loader\ArrayLoader;
+use Twig\TwigFunction;
+use Twig\Loader\FilesystemLoader;
 
 /**
  * The OAuth round trip, decision by decision.
@@ -81,8 +86,139 @@ final class GoogleDriveConnectionControllerTest extends TestCase
 
     protected function tearDown(): void
     {
+        AuthSession::logout();
         $_SESSION = [];
         $_POST = [];
+    }
+
+    // ————— La frontière RBAC —————
+
+    /**
+     * **Every route here is `superadmin`, and `AGENTS.md` § Tests asks
+     * each one to prove it in both directions** — allowed at its floor,
+     * denied one level below. The cases above call the controller
+     * directly, which is the right shape for what they assert and is also
+     * exactly what would keep passing if `public/index.php` published
+     * these routes to an admin tomorrow: they never reach the guard. So
+     * these two drive the real `FrontController`.
+     *
+     * The route table is declared here rather than read from
+     * `public/index.php`: this asserts what the routes MUST be, and a test
+     * that read them from the file under test would agree with it however
+     * it changed. {@see \Tests\Core\Http\RemoteBackupRbacTest} is what
+     * reads the declaration, which is the half that can actually regress.
+     *
+     * @param string $method the HTTP verb
+     * @param string $path   the route as declared
+     * @param string $action the controller action behind it
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('googleRoutes')]
+    public function testAnAdminOneLevelBelowSuperadminIsDenied(string $method, string $path, string $action): void
+    {
+        AuthSession::login(2, 'admin@test.be', 'admin');
+
+        $response = $this->frontControllerFor($method, $path, $action)
+            ->handle(new Request($method, $path, [], [], [], []));
+
+        $this->assertSame(403, $response->getStatusCode(), "{$method} {$path} must refuse an admin.");
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('googleRoutes')]
+    public function testASuperadminIsAllowedThrough(string $method, string $path, string $action): void
+    {
+        AuthSession::login(1, 'super@test.be', 'superadmin');
+
+        // The CSRF token travels, because a form POST without one is ALSO
+        // refused with 403 — and a test that could not tell that apart
+        // from a role refusal would pass whatever the route's role_min
+        // said.
+        $body = $method === 'POST' ? ['_csrf_token' => $this->postRequest([])->getBody('_csrf_token')] : [];
+
+        $response = $this->frontControllerFor($method, $path, $action)
+            ->handle(new Request($method, $path, [], $body, [], []));
+
+        // Not 200: a callback with no `state` redirects, and a location
+        // that is not a Drive one answers 404. What is asserted is that
+        // the ROLE is not what stopped it.
+        $this->assertNotSame(403, $response->getStatusCode(), "{$method} {$path} must let a superadmin through.");
+    }
+
+    /** @return array<string, array{0: string, 1: string, 2: string}> */
+    public static function googleRoutes(): array
+    {
+        return [
+            'save the OAuth client' => [
+                'POST',
+                '/config/stockage/emplacements/1/google/identifiants',
+                'saveCredentials',
+            ],
+            'leave for the consent screen' => [
+                'GET',
+                '/config/stockage/emplacements/1/google/raccordement',
+                'connect',
+            ],
+            'forget the account' => [
+                'POST',
+                '/config/stockage/emplacements/1/google/deraccordement',
+                'disconnect',
+            ],
+            // The one a browser reaches from somewhere else, and the one
+            // that writes a refresh token. Left open it would be a route
+            // where anybody able to compose a URL decides which Google
+            // account this site writes to.
+            'the return from Google' => ['GET', '/config/stockage/google/retour', 'callback'],
+        ];
+    }
+
+    private function frontControllerFor(string $method, string $path, string $action): FrontController
+    {
+        $router = new Router();
+        // The declared path, with its placeholder restored: the router
+        // matches patterns, and the request above carries a concrete id.
+        $pattern = (string) preg_replace('#/emplacements/1(?=/|$)#', '/emplacements/{id}', $path);
+        $router->addRoute($method, $pattern, GoogleDriveConnectionController::class, $action, 'superadmin');
+
+        $configFile = sys_get_temp_dir() . '/test_drive_config_' . bin2hex(random_bytes(6)) . '.php';
+        file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
+
+        $frontController = new FrontController($router, $this->twig(), new AppConfig($configFile));
+        $frontController->registerController(GoogleDriveConnectionController::class, $this->controller());
+
+        return $frontController;
+    }
+
+    /**
+     * The real templates, with the handful of functions and globals
+     * `Core\View\TwigFactory` registers in production.
+     *
+     * Needed because a refusal RENDERS: the 403 page extends
+     * `base.html.twig`, and a bare Environment fails to parse it — which
+     * would look exactly like the route having gone wrong.
+     */
+    private function twig(): Environment
+    {
+        $twig = new Environment(
+            new FilesystemLoader(dirname(__DIR__, 4) . '/core/View/templates'),
+            ['cache' => false, 'autoescape' => 'html']
+        );
+        $twig->addFunction(new TwigFunction('asset', static fn (string $path): string => $path));
+        $twig->addFunction(new TwigFunction('csrf_token', static fn (): string => 'test'));
+        $twig->addFunction(new TwigFunction(
+            'csrf_field',
+            static fn (): string => '<input type="hidden" name="_csrf_token" value="test">',
+            ['is_safe' => ['html']]
+        ));
+        $twig->addFunction(new TwigFunction('get_flash', static fn (): ?string => null));
+        $twig->addFunction(new TwigFunction('file_url', static fn (): string => ''));
+        $twig->addGlobal('site_name', 'Test');
+        $twig->addGlobal('is_authenticated', true);
+        $twig->addGlobal('current_user_role', 'admin');
+        $twig->addGlobal('current_path', '/config/stockage');
+        $twig->addGlobal('config_mode', false);
+        $twig->addGlobal('cookie_consent_given', true);
+        $twig->addGlobal('menus', null);
+
+        return $twig;
     }
 
     public function testSavingCredentialsStoresThemAndSaysSo(): void
@@ -422,7 +558,7 @@ final class GoogleDriveConnectionControllerTest extends TestCase
         $this->journal = new RecordingJournalRepository();
 
         return new GoogleDriveConnectionController(
-            new Environment(new ArrayLoader([])),
+            new Environment(new FilesystemLoader(dirname(__DIR__, 4) . '/core/View/templates')),
             $this->locations,
             $this->locationService,
             $this->settings,
