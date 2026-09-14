@@ -1,0 +1,80 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  « Activer les notifications ? » — the invitation the installed
+  application offers once (ARCHITECTURE.md §8.110, design.md §7.14).
+
+  Two halves decide whether this is ever seen. The server decides whether
+  the markup ships at all (Core\Notification\PushInvitationService: signed
+  in, VAPID configured, never refused, not on one of the excluded pages);
+  the browser decides whether it opens, because "is this page being read
+  inside the installed application" is a media query and a per-device
+  fact — see /assets/js/push-invitation.js.
+
+  The subscription is created through the same endpoint « Mon compte »
+  uses, so there is no second way to subscribe. What closes this dialog
+  is a single call to /api/notifications/invitation.
+
+  No <form> around the body and the footer, for §8.95's reason: nothing is
+  submitted here, the persistence is a fetch, and a <form> spanning both
+  halves of a scrollable modal pushes its footer off a phone's screen.
+
+  The data-vapid-public-key attribute is the same value « Mon compte »
+  hands the toggle — a base64url public key, the one part of the VAPID
+  pair that is meant to be public (see Core\Notification\
+  VapidKeyPairFactory).
+#}
+{% embed 'partials/modal.html.twig' with {
+    id: 'push-invitation-modal',
+    title: 'Activer les notifications ?',
+    static_backdrop: false,
+} only %}
+    {% block body %}
+        <div data-vapid-public-key="{{ vapid_public_key }}" id="push-invitation-body">
+            <p class="mb-3">
+                L'application est installée sur cet appareil. Le site peut désormais vous prévenir
+                directement ici — un message dans un groupe, un rappel avant une activité, une tâche
+                terminée — même quand l'application est fermée.
+            </p>
+            <p class="text-body-secondary small mb-0">
+                Votre appareil vous demandera de confirmer. Vous choisirez ensuite, type par type,
+                ce que vous voulez recevoir, et vous pourrez tout couper quand vous le souhaitez
+                depuis « Mon compte ».
+            </p>
+
+            <output class="text-warning small mt-3 d-none d-block" data-push-invitation-denied>
+                Votre appareil a refusé les notifications. Vous pouvez modifier ce choix dans les
+                réglages de votre navigateur, puis les activer depuis « Mon compte ».
+            </output>
+            <p class="text-danger small mt-3 mb-0 d-none" data-push-invitation-error role="alert">
+                Une erreur est survenue. Vous pourrez réessayer depuis « Mon compte ».
+            </p>
+            <p class="text-success small mt-3 mb-0 d-none" data-push-invitation-success role="status">
+                C'est fait : les notifications arriveront sur cet appareil.
+            </p>
+        </div>
+    {% endblock %}
+
+    {% block footer %}
+        <div class="d-flex flex-column gap-2 w-100">
+            {# Three buttons rather than one whose label the script
+               rewrites: every word a reader sees stays in this file. #}
+            <button type="button" class="btn btn-primary w-100" data-push-invitation-enable>
+                Activer les notifications
+            </button>
+            <button type="button" class="btn btn-primary w-100 d-none" data-push-invitation-done
+                    data-bs-dismiss="modal">Terminé</button>
+            {# « Plus tard » is a real answer and not an escape: it is
+               recorded, and after it the invitation never comes back —
+               which is why the sentence says where to go instead. The
+               close cross, Escape and a click on the backdrop all mean
+               the same thing and are recorded the same way. #}
+            <button type="button" class="btn btn-link w-100" data-push-invitation-later
+                    data-bs-dismiss="modal">
+                Plus tard — je les activerai depuis « Mon compte »
+            </button>
+        </div>
+    {% endblock %}
+{% endembed %}

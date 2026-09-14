@@ -719,6 +719,13 @@ formulaire pousse son pied hors de l'écran sur mobile, parce qu'un
 `<form>` sans `overflow` ne rétrécit jamais. Ici il n'y a rien à
 soumettre — la persistance est un `fetch`.
 
+**Une seule fenêtre par passage.** L'application installée propose, une
+fois, « Activer les notifications ? » (§7.14) : ce jour-là, aucune
+astuce. Tant que cette fenêtre est à l'écran la fenêtre d'astuces ne
+s'ouvre pas et ne consomme rien, et une fois la question répondue le délai
+ordinaire s'applique pour le reste de la journée. Deux modales l'une après
+l'autre, c'est ce qui fait fermer les deux sans lire ni l'une ni l'autre.
+
 **Quelle astuce, et quand — la clé `discovery`.** L'ordre dans lequel les
 sujets sont proposés est **éditorial** et se déclare dans le sujet
 lui-même, comme `role_min` et `paths` : écrire de l'aide ne touche jamais
@@ -900,3 +907,30 @@ An autosaving page **says so**, once, near the controls: « L'enregistrement
 est automatique — il n'y a pas de bouton "Enregistrer". » A visitor cannot
 tell the two shapes apart by looking, and someone who assumes the other
 one either loses their change or hunts for a button that does not exist.
+
+### 7.14 « Activer les notifications ? »
+
+La fenêtre que l'application **installée** propose une fois, à la
+première page ouverte depuis l'icône par un compte qui n'a jamais
+répondu (ARCHITECTURE.md §8.110). Le moment est la décision : la
+personne vient de choisir de garder ce site sur son téléphone, et c'est
+le seul instant où la question va de soi. Un mois plus tard, c'est une
+interruption.
+
+Même squelette de modale que la fenêtre d'astuces (§7.11) et le même pied
+en colonne : **« Activer les notifications »** en bouton primaire, puis
+**« Plus tard — je les activerai depuis « Mon compte » »** en lien
+discret. Le libellé porte la destination, et ce n'est pas une précaution
+de style : ce refus est définitif, la fenêtre ne revient jamais, et un
+simple « Plus tard » se lirait comme un report. La croix, Échap et un clic
+sur le fond disent la même chose et sont enregistrés de même. Une fois
+l'autorisation accordée, les deux réponses disparaissent au profit d'un
+seul **« Terminé »** — il n'y a plus de question à poser.
+
+Le corps dit ce que la personne gagne (« un message dans un groupe, un
+rappel avant une activité »), prévient que l'appareil demandera de
+confirmer, et rappelle que tout se coupe depuis « Mon compte ». Un refus
+du navigateur n'est pas une erreur : la fenêtre reste ouverte sur son
+explication, en avertissement et non en rouge, parce que rien n'est cassé
+et qu'il n'y a rien à réessayer — seuls les réglages du navigateur
+peuvent revenir dessus.

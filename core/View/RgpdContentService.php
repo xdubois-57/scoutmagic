@@ -657,7 +657,9 @@ n'ont aucun lien avec l'unité et aucun compte sur le site.
     modules camps/inbound_mail est absent, retire les trois : sans boîte dédiée, rien n'est jamais créé de cette
     façon.
 23. **Notifications push (fonctionnalité core, PAS un module)** : Contrairement aux sections 2.4/4.2 qui dépendent des
-modules actifs, les mentions des notifications push (souscription en section 2.1, service de push du navigateur en
+modules actifs, les mentions des notifications push (souscription en section 2.1, réponse à la proposition
+d'activer les notifications que l'application installée affiche une fois — en section 2.1 également, et dans les
+durées de conservation —, service de push du navigateur en
 section 4.1, transfert hors UE en section 5.2) concernent une fonctionnalité du cœur du site, disponible sur toute
 installation ScoutMagic indépendamment des modules activés ou désactivés. Conserve-les TOUJOURS intégralement, quelle
 que soit la liste de modules actifs — ne les retire et ne les conditionne jamais à {$modulesText}. Elles restent

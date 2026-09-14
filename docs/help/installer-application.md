@@ -8,7 +8,7 @@ discovery: 1
 question: Comment installer le site comme application sur mon téléphone ?
 question: Comment consulter le site sans connexion internet ?
 paths: /
-related: cookies, decouvrir-le-site
+related: cookies, decouvrir-le-site, notifications-preferences
 ---
 
 Le site peut s'installer comme une application sur votre téléphone,
@@ -27,6 +27,20 @@ pas de magasin d'applications à passer.
 - **Sur ordinateur (Chrome, Edge)** : cliquez sur l'icône
   d'installation à droite de la barre d'adresse, ou passez par le menu
   du navigateur.
+
+## Les notifications
+
+À la première ouverture depuis l'icône, l'application vous propose
+d'activer les notifications : vous recevez alors sur votre appareil ce
+que le site a à vous dire — un message dans un groupe, un rappel avant
+une activité — même l'application fermée. Votre appareil vous demande de
+confirmer.
+
+Si vous répondez « Plus tard », la proposition ne revient pas : ouvrez
+« Mon compte » et activez « Notifications push ». L'autorisation vaut
+appareil par appareil — votre téléphone et votre ordinateur s'activent
+séparément. Ce que vous recevez, type par type, se règle ensuite dans
+vos préférences de notification.
 
 ## Consulter hors connexion
 

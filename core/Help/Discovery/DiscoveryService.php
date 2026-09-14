@@ -268,6 +268,28 @@ class DiscoveryService
     }
 
     /**
+     * Holds the dialog back for one ordinary interval, without consuming
+     * anything — nothing was shown, so nothing is marked seen.
+     *
+     * Written for the one caller outside this feature:
+     * Core\Http\Controller\PushInvitationController, because the
+     * installed application's « Activer les notifications ? » dialog
+     * (§8.110) takes the day when it is answered. A tip on the very page
+     * somebody just decided about notifications on would be the second
+     * modal of one visit, and two dialogs in a row is what makes people
+     * close both without reading either.
+     *
+     * Here rather than in that controller's own reach into
+     * SeenTopicRepository: when this feature's delay may be set is this
+     * feature's rule, and a second writer of `snoozed_until` outside
+     * Core\Help\Discovery is how the two delays would drift apart.
+     */
+    public function holdBack(int $accountId): void
+    {
+        $this->seenTopics->snooze($accountId, $this->nextOrdinaryOpening());
+    }
+
+    /**
      * When it may come back after an explicit « Pas avant une semaine ».
      */
     public function nextOpeningAfterSnooze(): \DateTimeImmutable
