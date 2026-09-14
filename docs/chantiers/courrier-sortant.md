@@ -419,3 +419,101 @@ C'est la troisième fois sur cette PR qu'un correctif ouvre la porte
 suivante, et les trois fois la relecture complète l'a trouvée. Vaut d'être
 noté pour la suite du chantier : les corrections d'ordonnancement se
 propagent aux appelants, et il faut les relire ensemble.
+
+---
+
+## IT-02 — La réserve, le report et les alertes
+
+**Livré.**
+
+- `Core\Mail\Transport\MailReserve` et `Reserve` (D14) : pointe
+  quotidienne hors publipostage sur trente jours, marge de vingt,
+  plancher de trente, plafond à la moitié du quota, et application au
+  seul fournisseur partagé entre la voie « Masse » et une autre.
+  `Reserve::provenance()` rend la phrase que l'écran imprime.
+- `MailFailure`, `ProviderHealth`, `ProviderHealthRepository` et la table
+  `mail_provider_health` (D15) : classification de l'erreur, trois échecs
+  consécutifs, verrou de cinq minutes doublant jusqu'à quatre heures,
+  refermeture au premier succès. `MailTransportChain::withoutOpenCircuits()`
+  garantit qu'une voie n'est jamais vidée.
+- `DeferredMessage`, `DeferredMailRepository`, `DeferredMailQueue`,
+  `LaneExhaustedException`, la table `mail_deferred_messages` et
+  `Task\DrainDeferredMailHandler` (D9, D16, D17, D18).
+- `Core\Alert\Check\AuthenticationLaneCheck` et
+  `DeferredMailBacklogCheck`, tous deux dans
+  `OperationalAlertService::MAIL_KEYS`.
+- Deux réglages scalaires dans la page Paramètres générique : durée de
+  vie d'un message en file, rétention des abandonnés.
+- L'écran : la réserve avec sa provenance sous la voie
+  « Authentification », son rappel sur la fiche du fournisseur, l'état du
+  coupe-circuit, le compteur de la file et le formulaire de relance.
+- `OutboundMailCollector` gagne trois sections ; `mail_lane_exhausted`
+  rejoint le journal, en `security` sur l'authentification.
+
+### Décisions prises seul
+
+**Le coupe-circuit n'est pas consulté par l'alerte de la voie
+d'authentification.** La règle impérative de D15 — la chaîne essaie sa
+dernière entrée même circuit ouvert — rend les deux lectures
+incompatibles : compter un circuit ouvert comme un fournisseur manquant
+donnerait l'alarme sur une voie qui fonctionne encore, et le ferait
+pendant exactement la panne que le coupe-circuit traverse. PHPStan a
+d'ailleurs signalé la dépendance comme jamais lue, ce qui était la même
+observation par un autre chemin.
+
+**`open_count` n'est jamais remis à zéro.** D15 demande la remise à zéro
+« au premier succès » ; c'est le compteur d'échecs consécutifs qui l'est.
+Le nombre d'ouvertures, lui, est la mémoire de la fréquence des rechutes,
+et c'est lui qui allonge le verrou suivant : le remettre à zéro donnerait
+à un relais qui tombe toutes les dix minutes le même verrou de cinq
+minutes pour toujours.
+
+**Une erreur inconnue est celle du fournisseur.** Le sens de ce défaut a
+été choisi par le coût de l'erreur : une panne réelle prise pour un refus
+de destinataire laisse un relais mort réessayé quatre cents fois par un
+publipostage ; l'inverse coûte à un fournisseur quelques minutes hors
+d'une chaîne qui, par construction, ne se vide jamais.
+
+**Le compte par âge ne déchiffre plus rien.** `abandonedByAge()` lisait
+les messages entiers pour regarder une date. La date de mise en file est
+en clair une colonne à côté : `abandonedCreatedAt()` et `abandonedIds()`
+la lisent seules, et le corps ne quitte plus la base pour compter ou
+relancer (D18). La relance est un `UPDATE` sur une clé primaire ; rien
+n'obligeait des centaines d'e-mails à passer par la mémoire pour cela.
+
+**Le formulaire de relance est une carte, pas une boîte de dialogue.** Le
+document dit « boîte de dialogue » ; ce qu'elle devait contenir tient en
+trois lignes — la répartition par âge et deux choix — et un dialogue
+qu'il faut ouvrir pour savoir s'il valait la peine d'être ouvert n'est
+ouvert par personne. La fenêtre par défaut la plus courte, elle, est
+respectée à la lettre : c'est la sûreté du bouton.
+
+**La voie d'authentification est refusée côté serveur à la relance**,
+bien que l'écran n'en propose pas la case : elle n'a jamais rien mis en
+file, donc un formulaire qui la nomme ne vient pas de l'écran.
+
+### Écarts entre le document et le dépôt
+
+**`MailService` ne recevait la file de personne.** La file, sa tâche de
+purge et ses réglages étaient en place et testés, mais
+`MailServiceFactory::create()` ne prenait pas de file : en production
+`MailService::$deferred` restait nul et rien n'aurait jamais été différé.
+Corrigé dans les deux racines de composition — `public/index.php` et
+`public/cron.php` — parce qu'un message différé d'un côté et perdu de
+l'autre serait pire que pas de file du tout. À retenir pour la suite du
+chantier : une fonctionnalité entièrement testée peut n'être branchée
+nulle part, et aucun test unitaire ne le dit.
+
+**`{% for x in y if z %}` n'existe plus en Twig 3.** Remplacé par
+`|filter`. Trouvé par les tests de contrôleur, pas par PHPStan.
+
+**Le nom de la table du journal est `event_log`**, pas
+`journal_entries` — le service s'appelle `JournalService`, la table non.
+
+### Reporté
+
+Rien de fonctionnel. La cadence « collante » après bascule, refusée en
+IT-01 faute de coupe-circuit, est désormais possible : `ProviderHealth`
+existe. Elle n'est pas faite ici parce qu'elle appartient à `BulkCadence`
+et qu'aucune décision de ce document ne la demande — elle sera proposée
+quand une itération touchera la cadence.

@@ -2063,7 +2063,26 @@ $mailTransportChain = $mailTransport['chain'];
 $mailProviderDirectory = $mailTransport['directory'];
 $providerConnections = $mailTransport['connections'];
 
-$mailService = MailServiceFactory::create($secrets, $dkimManager, $mailTransportChain, $journalService);
+// The queue a message falls into when its whole lane has run out (D9).
+// Built here rather than inside MailServiceFactory because it needs the
+// encryption service — the payload is a recipient and a body, so it is
+// ciphertext at rest (D18) — and the factory is also what the setup
+// wizard calls, on an installation that has neither keys nor a cron to
+// drain anything.
+$deferredMailRepository = new \Core\Mail\Transport\DeferredMailRepository($pdo, $encryptionService);
+$deferredMailQueue = new \Core\Mail\Transport\DeferredMailQueue(
+    $deferredMailRepository,
+    $settingService,
+    $journalService
+);
+
+$mailService = MailServiceFactory::create(
+    $secrets,
+    $dkimManager,
+    $mailTransportChain,
+    $journalService,
+    $deferredMailQueue
+);
 
 // Automatic e-mails (Core\Mail\Template, ARCHITECTURE.md §8.7bis).
 //
@@ -3696,6 +3715,13 @@ $router->addRoute(
     'superadmin',
 );
 $router->addRoute(
+    'POST',
+    '/config/courrier-sortant/relance',
+    \Core\Http\Controller\OutboundMailController::class,
+    'relaunch',
+    'superadmin',
+);
+$router->addRoute(
     'GET',
     '/config/courrier-sortant/fournisseurs/nouveau',
     \Core\Http\Controller\OutboundMailController::class,
@@ -5064,7 +5090,11 @@ $frontController->registerController(
             $mailProviderDirectory,
             $journalService
         ),
-        $settingService
+        $settingService,
+        new \Core\Mail\Transport\MailReserve($sendCounterRepository, $laneChainRepository),
+        new \Core\Mail\Transport\ProviderHealthRepository($pdo),
+        $deferredMailRepository,
+        $deferredMailQueue
     )
 );
 

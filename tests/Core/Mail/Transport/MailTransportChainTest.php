@@ -431,6 +431,63 @@ class MailTransportChainTest extends TestCase
         );
     }
 
+    /**
+     * A lane running out is a different event from one relay refusing,
+     * and on the authentication lane it is a different KIND of event:
+     * `security`, because nobody can enter the site — including whoever
+     * would come and repair it.
+     */
+    public function testAnExhaustedAuthenticationLaneIsJournaledAsSecurity(): void
+    {
+        $relay = $this->addRelay('Relais', 'smtp.relais.test');
+        $this->enable(MailLane::Authentication, [$relay]);
+
+        try {
+            $this->chain($this->recordingTransport(refuseHosts: ['smtp.relais.test']))
+                ->deliver($this->message(), MailPurpose::MagicLink);
+            $this->fail('The lane had nothing left to try.');
+        } catch (LaneExhaustedException) {
+            // expected
+        }
+
+        $entry = $this->lastJournalEntry('mail_lane_exhausted');
+        $this->assertSame('security', $entry['level']);
+        $this->assertSame('authentication', json_decode((string) $entry['context'], true)['lane']);
+    }
+
+    /** The mailing lane running out is a bad day, not an incident. */
+    public function testAnExhaustedBulkLaneIsJournaledAsInfo(): void
+    {
+        $relay = $this->addRelay('Relais', 'smtp.relais.test');
+        $this->enable(MailLane::Bulk, [$relay]);
+
+        try {
+            $this->chain($this->recordingTransport(refuseHosts: ['smtp.relais.test']))
+                ->deliver($this->message(), MailPurpose::Bulk);
+            $this->fail('The lane had nothing left to try.');
+        } catch (LaneExhaustedException) {
+            // expected
+        }
+
+        $this->assertSame('info', $this->lastJournalEntry('mail_lane_exhausted')['level']);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function lastJournalEntry(string $type): array
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT level, context FROM event_log WHERE event_type = ? ORDER BY id DESC LIMIT 1'
+        );
+        $statement->execute([$type]);
+        $row = $statement->fetch(\PDO::FETCH_ASSOC);
+
+        $this->assertIsArray($row, 'No journal entry of type ' . $type . '.');
+
+        return $row;
+    }
+
     private function chain(
         MailTransportInterface $delivery,
         ?ProviderHealthRepository $health = null,

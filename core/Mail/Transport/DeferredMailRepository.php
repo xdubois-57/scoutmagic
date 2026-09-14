@@ -131,6 +131,42 @@ final class DeferredMailRepository
     }
 
     /**
+     * The abandoned messages a relaunch would take, by id only.
+     *
+     * Same reasoning as {@see abandonedCreatedAt()}: reviving a message
+     * is an UPDATE keyed on its id, and decrypting a body to find out
+     * which ids those are would bring hundreds of people's e-mails into
+     * memory to do arithmetic on a primary key (D18).
+     *
+     * @param string|null $since Queued at or after this moment — the
+     *        Relance dialog's window (D17).
+     * @return array<int, int>
+     */
+    public function abandonedIds(?MailLane $lane = null, ?string $since = null): array
+    {
+        $sql = 'SELECT id FROM mail_deferred_messages WHERE status = ?';
+        $parameters = [DeferredMessage::STATUS_ABANDONED];
+
+        if ($lane !== null) {
+            $sql .= ' AND lane = ?';
+            $parameters[] = $lane->value;
+        }
+
+        if ($since !== null) {
+            $sql .= ' AND created_at >= ?';
+            $parameters[] = $since;
+        }
+
+        $statement = $this->pdo->prepare($sql . ' ORDER BY created_at DESC, id DESC');
+        $statement->execute($parameters);
+
+        return array_map(
+            static fn(array $row): int => (int) $row['id'],
+            $statement->fetchAll(PDO::FETCH_ASSOC)
+        );
+    }
+
+    /**
      * When each abandoned message was queued, and nothing else.
      *
      * Separate from {@see abandoned()} because counting by age is the

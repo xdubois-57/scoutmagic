@@ -273,11 +273,19 @@ $mailTransport = \Core\Mail\Transport\MailTransportFactory::build(
 );
 $mailProviderDirectory = $mailTransport['directory'];
 
+// Same construction as public/index.php: a message deferred on one entry
+// point and not on the other would mean a mailing that queues from a
+// browser and fails from cron.
 $mailService = MailServiceFactory::create(
     $secrets,
     $dkimManager,
     $mailTransport['chain'],
-    $journalService
+    $journalService,
+    new \Core\Mail\Transport\DeferredMailQueue(
+        new \Core\Mail\Transport\DeferredMailRepository($pdo, $encryptionService),
+        $settingService,
+        $journalService
+    )
 );
 
 // Web Push (Core\Notification) — same construction as public/index.php.

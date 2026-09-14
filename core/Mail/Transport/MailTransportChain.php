@@ -94,6 +94,8 @@ final class MailTransportChain implements MailTransportInterface
         }
 
         if ($candidates === []) {
+            $this->journalLaneExhausted($lane, 'aucun fournisseur disponible');
+
             throw new LaneExhaustedException($lane, 'aucun fournisseur disponible');
         }
 
@@ -131,7 +133,44 @@ final class MailTransportChain implements MailTransportInterface
             return;
         }
 
+        $this->journalLaneExhausted($lane, $lastReason);
+
         throw new LaneExhaustedException($lane, $lastReason);
+    }
+
+    /**
+     * A whole lane has run out, which is a different event from one relay
+     * refusing.
+     *
+     * **`security` on the authentication lane, `info` on the other two**,
+     * and the gap between those two words is the gap between an
+     * inconvenience and an incident. A mailing that cannot go out today
+     * goes out tomorrow; a sign-in link that cannot go out means nobody
+     * can enter the site, the person who would repair it included, and
+     * that belongs in the journal a security review reads rather than in
+     * the stream of ordinary operational noise.
+     */
+    private function journalLaneExhausted(MailLane $lane, string $reason): void
+    {
+        try {
+            $this->journal?->log(
+                'core',
+                'mail_lane_exhausted',
+                $lane === MailLane::Authentication ? 'security' : 'info',
+                sprintf('Voie « %s » épuisée : aucun fournisseur n\'a pu prendre le message', $lane->label()),
+                [
+                    'lane' => $lane->value,
+                    // Already redacted of addresses where it comes from a
+                    // transport (MailErrorRedaction, applied at the catch
+                    // above); redacted again here because the empty-chain
+                    // branch builds its own string and a future edit to
+                    // either one should not have to remember this.
+                    'reason' => MailErrorRedaction::withoutAddresses($reason),
+                ]
+            );
+        } catch (\Throwable) {
+            // Same posture as every other journal call on this path.
+        }
     }
 
     /**

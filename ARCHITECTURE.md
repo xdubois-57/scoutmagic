@@ -3897,13 +3897,116 @@ message is `warning` and not `error` — the next entry is about to be
 tried, and one relay refusing is the ordinary event a chain exists for;
 `MailService` writes the `error` entry if every one of them refuses.
 
+**A share of each quota is kept back for the sign-in links** (D14,
+`Core\Mail\Transport\MailReserve`). A provider that carries both the
+mailing lane and another one can spend its whole daily allowance on a
+publipostage and leave nothing for the magic links — which is the
+original failure, arrived at through a quota instead of an outage. The
+reserve is subtracted from the ceiling the **mailing** lane sees and from
+no other, so a newsletter stops early and a sign-in link still goes. Its
+size is read from the site's own history rather than configured: the
+daily peak outside the mailing lane over thirty days, plus a margin of
+twenty, floored at thirty for a site with no history and capped at half
+the quota — past which the reserve would be the bigger problem. **It
+applies only to a provider shared between the mailing lane and another
+one**: on a provider that carries nothing but mailings there is nothing
+to protect. `Reserve::provenance()` returns the sentence the screen
+prints, because the number alone is unfalsifiable and the sentence is
+arithmetic somebody can disagree with.
+
+**A provider that keeps failing is taken out of the rotation** (D15,
+`ProviderHealth`, `ProviderHealthRepository`). Three consecutive failures
+that are the PROVIDER's open the circuit for five minutes, doubling on
+each reopening to a ceiling of four hours; the first success closes it
+and clears the consecutive count. Whose failure it was is
+`MailFailure::classify()`, and getting that backwards would be worse than
+having no breaker: a `550` is one address the relay will not accept, and
+counting it as a strike would shut out a perfectly healthy relay because
+somebody mistyped an e-mail — on the mailing lane, where dead addresses
+accumulate, almost every run. **An unrecognised failure counts as the
+provider's**, deliberately: the other direction leaves a dead relay being
+retried four hundred times by one publipostage, which is the exact harm.
+`open_count` is never reset, because it is what makes the next lockout
+longer than the last.
+
+**A lane is never emptied by the breaker.** `withoutOpenCircuits()`
+returns the last candidate when every entry's circuit is open, so the
+chain always tries something. That rule is not a nicety: an
+authentication lane whose providers are all shut out would be a site
+nobody can sign into, produced by the mechanism meant to protect it — and
+the cost of the rule is one attempt against a relay that is probably
+still down.
+
+**A message nobody could send is kept rather than lost** (D9, D16, D18,
+`DeferredMailQueue`, `DeferredMailRepository`, `mail_deferred_messages`).
+When a whole lane runs out, `MailService` catches `LaneExhaustedException`
+and queues the **call** — recipient, subject, both bodies, headers and
+the attachments' bytes, read at that moment because the paths will not
+exist tomorrow — rather than an assembled message: what drains later is
+signed, routed, counted and captured exactly like a message that left the
+first time, because `Task\DrainDeferredMailHandler` replays
+`MailService::send()`. There is one way to send mail on this site.
+Retries are five minutes, then fifteen, forty-five, two hours, four;
+**the deadline is fixed when the message is queued**, so lengthening the
+setting later never resurrects something already given up on. A message
+too heavy to carry (2 MiB of attachments) is not queued at all — failing
+loudly beats draining tomorrow without the attachment.
+
+**The authentication lane never defers**, and it is the decision D9 is
+most emphatic about: a magic link delivered tomorrow is not a magic link,
+the token lives fifteen minutes, and the person is standing at a login
+form waiting to be told the truth rather than reassured about later.
+
+**The payload is ciphertext at rest** (D18): it is a recipient and a
+body. `DeferredMailRepository` is the only place it is decrypted, and
+everything that merely counts or ages the queue — the backlog alert, the
+Relance dialog's buckets, the support archive — reads the timestamps and
+the lane, which are in plain text one column over. A message that goes out
+is deleted rather than marked; an abandoned one is kept for the Relance
+screen and then purged with its body.
+
+**Abandoned messages can be relaunched, by window and by lane** (D17).
+The dialog shows an age distribution rather than a count, because « 23
+échecs » does not tell anybody whether relaunching is a good idea and
+« 18 de moins de 24 h, 5 de plus d'une semaine » does. **The default
+window is the shortest one**, and that is the whole safety of the
+feature: the failures somebody means to relaunch are this morning's, and
+a dialog opening on « tout » would re-send a fortnight of messages on the
+first click — to a relay that has only just come back.
+
+**Two alerts, and neither travels by e-mail** (`Core\Alert\Check\
+AuthenticationLaneCheck`, `DeferredMailBacklogCheck`, both in
+`OperationalAlertService::MAIL_KEYS`, `role_min: superadmin`). One fires
+when nothing is left that can carry a sign-in link; the other when the
+queue stops draining, which is the failure the deferral was hiding —
+every sender was told their message left, and none of them has. The
+authentication one is the sharpest case there is for routing an alert
+away from e-mail: it fires precisely when nothing on the site can carry a
+message. The lane check deliberately does NOT consult the breaker, for
+the reason above — the chain tries the last entry anyway, so an open
+circuit is not a missing provider, and counting it as one would raise the
+alarm during exactly the outage the breaker is riding out.
+
+**A lane running out is journaled as `security` on the authentication
+lane and `info` on the other two** (`mail_lane_exhausted`). The gap
+between those two words is the gap between an inconvenience and an
+incident: a mailing that cannot leave today leaves tomorrow.
+
 **The screen** is Configuration > Courrier sortant (`/config/courrier-
 sortant`, `role_min: superadmin`, `Core\Http\Controller\
 OutboundMailController`) — the pendant of `/config/courrier-entrant`,
 with sub-pages on the shared `partials/page_picker.html.twig` rail.
 Fournisseurs and Acheminement arrive with the transport itself rather
 than later, for a plain reason: a chain nobody can configure is a chain
-nobody can test.
+nobody can test. Fournisseurs carries each provider's quota, the
+reserve standing on it, whether the breaker is currently holding it out,
+and the deferral queue with its Relance form; Acheminement carries the
+reserve's provenance, under the lane it exists FOR rather than the one it
+is subtracted from — which is where somebody asking « will people still
+be able to log in during the newsletter » is looking. The message
+lifetime and the abandoned-message retention are two ordinary scalars and
+live on Configuration > Réglages like any other, because neither needs a
+context to be understood.
 
 ## 9. Installation / bootstrap
 

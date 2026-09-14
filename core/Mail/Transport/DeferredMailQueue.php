@@ -147,6 +147,77 @@ final class DeferredMailQueue
         return date('Y-m-d H:i:s', $next);
     }
 
+    /**
+     * The windows the Relance dialog offers, in hours (D17).
+     *
+     * **The default is the shortest one**, and that choice is the whole
+     * safety of this feature. The failures a volunteer means to relaunch
+     * are the ones from this morning's outage; a dialog that defaults to
+     * « tout » would, on the first click, re-send a fortnight of messages
+     * whose recipients have long since been told by other means — and
+     * would do it to a relay that has only just come back.
+     *
+     * @var array<string, int>
+     */
+    public const WINDOWS = [
+        'recent' => 6,
+        'day' => 24,
+        'week' => 24 * 7,
+    ];
+
+    public const DEFAULT_WINDOW = 'day';
+
+    /**
+     * Put abandoned messages back in the queue (D17).
+     *
+     * Per lane and per window, both chosen by the person clicking:
+     * relaunching yesterday's newsletters and this morning's receipts are
+     * different decisions, and a single button that did both would be
+     * used for neither.
+     *
+     * A revived message starts a fresh life — attempts back to zero, a
+     * new deadline from the current setting — because it is being sent
+     * again on purpose, not resumed. The reason it failed is cleared with
+     * it: keeping « délai de vie dépassé » on a message now due in five
+     * minutes would describe the last attempt as if it were this one.
+     *
+     * @param array<int, MailLane> $lanes
+     * @return int How many were put back.
+     */
+    public function relaunch(array $lanes, string $window, ?string $now = null): int
+    {
+        $hours = self::WINDOWS[$window] ?? self::WINDOWS[self::DEFAULT_WINDOW];
+        $moment = strtotime($now ?? date('Y-m-d H:i:s'));
+        $since = date('Y-m-d H:i:s', $moment - $hours * 3600);
+        $nextAttemptAt = date('Y-m-d H:i:s', $moment);
+        $expiresAt = date('Y-m-d H:i:s', $moment + $this->lifetimeHours() * 3600);
+
+        $revived = 0;
+        foreach ($lanes as $lane) {
+            if (!$this->defers($lane)) {
+                // The authentication lane has nothing to relaunch — it
+                // never queued anything (D9) — and accepting it here
+                // would let a crafted form imply otherwise.
+                continue;
+            }
+
+            foreach ($this->repository->abandonedIds($lane, $since) as $id) {
+                $this->repository->revive($id, $nextAttemptAt, $expiresAt);
+                $revived++;
+            }
+        }
+
+        if ($revived > 0) {
+            $this->journalEvent('mail_deferred_relaunched', 'Relance manuelle des messages abandonnés', [
+                'count' => $revived,
+                'window_hours' => $hours,
+                'lanes' => array_map(static fn(MailLane $lane): string => $lane->value, $lanes),
+            ]);
+        }
+
+        return $revived;
+    }
+
     public function lifetimeHours(): int
     {
         return max(1, (int) $this->settings->get(self::SETTING_LIFETIME_HOURS, null, (string) self::DEFAULT_LIFETIME_HOURS));
