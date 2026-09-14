@@ -93,7 +93,18 @@ class ReenrollmentMenuHookService implements MenuEntryProvider
                 // requests, which use 1000 and up: this is a page about
                 // next year, not one of the visitor's own members.
                 2000,
-                true,
+                // Sorted with the member entries (SORT_GROUP_DYNAMIC just
+                // below) but NOT rendered like one: `isDynamic` drives the
+                // avatar-circle treatment in partials/nav.html.twig, which
+                // ignores `icon` entirely and draws person_avatar() from the
+                // label. This entry stands for no member — it is one page
+                // summarising the whole family — so the circle came out
+                // holding two letters of « Réinscription 2027-2028 ». False
+                // is the documented pairing for exactly this case
+                // (Core\View\MenuBuilder::addPage(), and the Espace des
+                // animés empty state in public/index.php), and it is what
+                // lets `bi-arrow-repeat` below actually reach the menu.
+                false,
                 $this->campaign->isOpen()
                     ? ($unanswered > 0
                         ? $unanswered
