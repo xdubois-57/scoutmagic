@@ -702,6 +702,19 @@ peut le pointer vers un endroit non inscriptible après qu'un autre y a
 touché. La lacune est écrite à côté du test voisin plutôt que masquée par
 une simulation qui n'en serait pas une.
 
+**Le même défaut, une couche plus bas, et cette fois le commentaire se
+défaussait.** `hydrate()` passait une pièce jointe dont le base64 ne se
+décode pas, en écrivant que « la vidange décidera ». Or la vidange
+n'inspecte rien : elle écrit sur disque ce qu'on lui donne. L'entrée
+gardait donc son texte base64, livré au destinataire sous le nom d'origine
+— un « recu.pdf » plein d'ASCII —, et la ligne était supprimée comme un
+succès propre. Elle lève désormais, et `due()` l'abandonne.
+
+À retenir, deuxième fois aujourd'hui : **un commentaire qui délègue une
+décision à un autre code doit être vérifié contre ce code**. Ici comme
+pour `5.7.1`, les deux se contredisaient et seule une relecture ligne à
+ligne pouvait le voir.
+
 ### Reporté
 
 Rien de fonctionnel. La cadence « collante » après bascule, refusée en

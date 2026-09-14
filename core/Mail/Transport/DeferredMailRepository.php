@@ -361,11 +361,15 @@ final class DeferredMailRepository
         foreach ($payload['attachments'] as $index => $attachment) {
             $content = base64_decode((string) $attachment['content'], true);
             if ($content === false) {
-                // Written by a version that stored raw bytes, or damaged.
-                // Left as it is rather than dropped: the drain is what
-                // decides what an unusable message becomes, and it is the
-                // only place that can write that decision down.
-                continue;
+                // Damaged, or written by a version that stored raw bytes.
+                // **Thrown, not skipped.** Leaving the entry as it stands
+                // would hand the drain the base64 text itself, which it
+                // writes to disk without looking and delivers under the
+                // original file name — a recipient opening a « recu.pdf »
+                // full of ASCII, and the row deleted as a clean success.
+                // `due()` catches this and abandons the row, which is the
+                // one place that can write the decision down.
+                throw new \RuntimeException('Deferred attachment is not readable.');
             }
 
             $payload['attachments'][$index]['content'] = $content;

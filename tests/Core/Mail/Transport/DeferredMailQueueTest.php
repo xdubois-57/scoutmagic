@@ -260,6 +260,36 @@ class DeferredMailQueueTest extends TestCase
         );
     }
 
+    /**
+     * An attachment whose bytes cannot be read back is the same case as
+     * an unreadable row, and settles the same way. Skipping it would hand
+     * the drain the base64 text itself — written to disk unexamined and
+     * delivered under the original file name, with the row then deleted
+     * as a clean success.
+     */
+    public function testAnAttachmentThatCannotBeDecodedAbandonsTheRow(): void
+    {
+        $payload = $this->payload();
+        $payload['attachments'] = [['name' => 'recu.pdf', 'content' => 'octets']];
+        $this->queue->defer(MailLane::Bulk, MailPurpose::Bulk, $payload, 'raison');
+
+        // Re-encrypt the row with an attachment body that is not base64.
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $payload['attachments'][0]['content'] = 'ceci n’est pas du base64 !!';
+        $this->pdo->prepare('UPDATE mail_deferred_messages SET payload_encrypted = ? WHERE id = 1')
+            // The context string is the repository's own private constant;
+            // repeated here rather than opened up, because widening a
+            // class's surface for one test is how a private detail stops
+            // being one.
+            ->execute([$encryption->encrypt(
+                (string) json_encode($payload),
+                'mail_deferred_messages.payload'
+            )]);
+
+        $this->assertSame([], $this->repository->due(10, '2099-01-01 00:00:00'));
+        $this->assertSame(1, $this->repository->countAbandoned());
+    }
+
     /** Purging an abandoned message takes its body with it (D18). */
     public function testPurgingAnAbandonedMessageTakesItsBody(): void
     {
