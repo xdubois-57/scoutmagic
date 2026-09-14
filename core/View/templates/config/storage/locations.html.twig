@@ -61,6 +61,19 @@
                     <div class="alert alert-danger small mt-2 mb-0">{{ location.lastCheckError }}</div>
                 {% endif %}
 
+                {# **What no archive covers, said on the card that could act
+                   on it.** Since D10 a file archive contains `storage/`
+                   minus every declared location, so this is true of every
+                   card here and not of some of them — which is exactly why
+                   it belongs on each one rather than in a note at the top
+                   of the page that a reader scrolls past. The remedy is a
+                   location's own copy, which is IT-04; until it exists the
+                   sentence stops at the fact rather than promising one. #}
+                <div class="small text-warning-emphasis mt-2">
+                    <i class="bi bi-shield-exclamation" aria-hidden="true"></i>
+                    Le contenu de cet emplacement n'est repris dans aucune archive de sauvegarde.
+                </div>
+
                 {# The consequences, produced from the capabilities the backend
                    declares — never the capabilities themselves (D3). #}
                 <ul class="list-unstyled small text-body-secondary mt-2 mb-0">

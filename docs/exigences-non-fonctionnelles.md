@@ -38,10 +38,15 @@ defaults to 2 048, so a dozen camp videos outweigh five years of photos.
 A unit that publishes video sizes its hosting for video; nothing here
 predicts that for them.
 
-**One archive that includes the gallery breaks the sum.** A
-`full_with_gallery` backup is larger than everything else in `storage/`
-put together, which is why only one of them is ever kept — the
-cross-family cap. The 2 GiB row above assumes that cap holds.
+**No archive includes the gallery any more, and the sum is simpler for
+it.** A file archive contains `storage/` minus every directory declared as
+a storage location (D10 of the storage chantier, `ARCHITECTURE.md`
+§8.109), and `storage/gallery` is one on every installation. So the row
+above is the gallery itself, once, and not the gallery plus a copy of it —
+which is also why the cross-family cap that used to keep exactly one
+gallery-bearing archive was removed rather than adjusted. What protects
+the gallery instead is the location's own copy (IT-04), whose destination
+is another location and whose size is therefore somebody else's disk.
 
 **10 GiB is more than the cheapest shared hosting gives**, which is the
 point rather than an oversight: a unit keeping five years of gallery
@@ -201,29 +206,22 @@ those are copies of the site and somebody with the disk for more of them is
 entitled to more. This one carries `master.key`: the second copy is a
 second liability sitting on the very server the backup exists to survive.
 
-Plus one cap across all families: **a single archive containing the photo
-gallery**, not configurable — and it applies to `full_with_gallery` and
-`auto_reset` alike.
+**There used to be one cap across all families** — a single archive
+containing the photo gallery, not configurable — and IT-03 of the storage
+chantier removed it along with the thing it weighed. No archive carries a
+declared storage location any more (D10, `ARCHITECTURE.md` §8.109), so no
+archive is gallery-sized and every family now reaches the number its
+setting promises. A run of **resets** used to stop at one whatever
+`backup_keep_operational` said; it reaches three like the rest.
 
-**`auto_reset` is on that list and `auto_update` is not**, which is the
-one thing here that cannot be read off the names. A reset or a restore
-can wipe `storage/gallery/`, so its safety copy calls
-`createFileBackup(true)` and has to hold the photos. An update replaces
-code — and what settles it is not what the update does but what the
-rollback undoes: `BackupService::restoreFiles()` extracts over the live
-tree and deletes nothing the archive omits, so a gallery left out of the
-archive is a gallery left exactly as it stands (issue #298).
-
-The consequence is worth stating because it was true the other way round
-for one iteration. A run of **resets** still reaches the cap of one before
-`backup_keep_operational`: those archives are gallery-bearing, and the cap
-is what has to win — three of them is six GiB against the §1 sizing of a
-two-GiB gallery on shared hosting. A run of **updates** reaches the quota
-instead, so `backup_keep_operational` is three archives and not an upper
-bound nothing touches. That is also what makes the chantier document's
-premise — « une `full_with_gallery` peut peser plus que les huit autres
-réunies » — true again for the update path, which was the arithmetic it
-assumed.
+**`full_with_gallery` is no longer produced and is still in the table
+above.** Rows written before it was retired still carry it, and narrowing
+the column is not available: the schema is applied by a pure differ with
+no data-migration step, and under `STRICT_TRANS_TABLES` an `ALTER`
+dropping a value a row still holds is refused — the migration would then
+abandon and report itself broken on the Maintenance page. Classifying it
+as *Manual* is what keeps those rows counted and purged rather than kept
+for ever.
 
 One number for everything was the previous rule, and it kept the wrong
 backups: the automatic ones outnumber the deliberate ones on any

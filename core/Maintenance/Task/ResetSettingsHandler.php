@@ -15,6 +15,7 @@ use Core\Maintenance\RequesterNotice;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 use Core\Storage\DiskBudget;
+use Core\Storage\Location\DeclaredStorageDirectories;
 
 /**
  * Background "Paramètres par défaut" reset — scheduled by
@@ -47,7 +48,8 @@ class ResetSettingsHandler implements TaskHandlerInterface
             $context->connection,
             $context->storagePath,
             $basePath,
-            new DiskBudget($context->storagePath, $context->settings)
+            new DiskBudget($context->storagePath, $context->settings),
+            DeclaredStorageDirectories::fromDatabase($pdo, $context->encryption, $context->storagePath)
         );
         $backupRepository = new BackupRepository($pdo);
         $fileRepository = new FileRepository($pdo);
@@ -55,10 +57,10 @@ class ResetSettingsHandler implements TaskHandlerInterface
         try {
             // Both writes reserved at once, against the reading they are
             // both sized on — see the method's docblock.
-            $backupService->ensureRoomForDumpAndArchive(true);
+            $backupService->ensureRoomForDumpAndArchive();
 
             $dbDumpPath = $backupService->createDatabaseDump();
-            $filesZipPath = $backupService->createFileBackup(true);
+            $filesZipPath = $backupService->createFileBackup();
 
             $backupId = $backupRepository->create('auto_reset', $requestedBy);
             $zipFileId = $fileRepository->create(

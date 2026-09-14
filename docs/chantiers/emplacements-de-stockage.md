@@ -902,3 +902,134 @@ Le choix de l'emplacement des nouveaux albums quitte par ailleurs
 `GalleryConfigController` pour `GalleryLocationService` (frontière
 Controller → Service), et §8.108 rejoint le chapitre 8, où un lecteur le
 cherche.
+
+---
+
+# IT-03 — Les archives cessent de reprendre les emplacements
+
+## La règle était une orthographe, pas une dérivation
+
+`BackupService::excludedArchivePrefixes()` nommait un chemin à la main —
+`storage/gallery` — et `createFileBackup()` prenait un booléen de son
+appelant. Les deux se trompaient de la même façon.
+
+Un emplacement que quelqu'un avait déplacé était repris **quoi qu'on
+demande**, parce que l'exclusion connaissait un nom et pas une déclaration.
+Et le booléen posait à l'appelant une question à laquelle il ne pouvait pas
+bien répondre : une archive reprend le contenu d'un emplacement ou non, et
+la réponse ne peut pas dépendre du bouton sur lequel on a cliqué quand cet
+emplacement a un cycle de vie — une rétention, une destination, un délai de
+grâce — dont l'archive ne sait rien.
+
+`DeclaredStorageDirectories` est cette dérivation, et la seule. Elle lit les
+DTO de `storage_locations` et résout chaque emplacement local par
+`StorageBackendFactory::localDirectoryFor()` — la même résolution que
+`VolumeInventory`, donc un emplacement est un répertoire pour les deux. Elle
+ne déchiffre rien : le chemin d'un emplacement local est dans la colonne de
+configuration, jamais dans le secret.
+
+**Un chemin que l'application refuse d'ouvrir n'entre pas dans la liste**,
+et c'est le bon sens de l'erreur. L'application n'y a jamais écrit, donc
+l'exclure ne protège rien ; alors qu'inventer un préfixe à partir d'un
+chemin qu'on n'a pas su résoudre ferait sauter de l'archive un répertoire
+que personne n'a désigné. Un stockage objet ne rend aucun répertoire : il
+n'y a rien sur un volume à tenir hors d'un zip.
+
+**Une table absente répond « aucun ».** Ce n'est pas de la programmation
+défensive : la sauvegarde que prennent ces appelants est prise *avant*
+l'opération qu'elle protège, donc le schéma est normalement intact. Le seul
+cas réel est celui-ci : une installation antérieure au chantier prend sa
+copie d'avant-mise-à-jour pendant que `storage_locations` n'existe pas
+encore, parce que la migration tourne après le remplacement des fichiers.
+Un site sans cette table n'a déclaré aucun emplacement ; l'archive produite
+est exactement celle que cette version-là écrivait déjà.
+
+## `full_with_gallery` ne pouvait plus tenir sa promesse
+
+Sur une installation ordinaire, `storage/gallery` **est** un emplacement
+déclaré — `ensureDefaultExists()` le crée au premier démarrage. Une archive
+« avec galerie » ne différerait donc d'une archive sans que sur un site
+n'ayant rien déclaré : l'inverse de ce que son nom annonce, exactement
+quand quelqu'un en aurait besoin.
+
+La portée disparaît de la page Maintenance et de `createFullBackup()`. Le
+plafond transversal « une seule archive contenant la galerie » et
+`Backup::GALLERY_TYPES` disparaissent avec ce qu'ils pesaient : plus aucune
+archive n'est de la taille d'une galerie, donc chaque famille atteint enfin
+le nombre que son réglage annonce — une série de réinitialisations
+s'arrêtait à une, elle en garde trois comme les autres. Le réglage « Envoyer
+aussi la galerie hors site » disparaît aussi : la question a été retirée,
+pas répondue.
+
+### La valeur reste dans l'ENUM, et c'est la bonne décision
+
+Sondé sur le moteur réel plutôt que supposé. Sous `STRICT_TRANS_TABLES` —
+le `sql_mode` effectif —, un `ALTER TABLE … MODIFY COLUMN t ENUM("a")` avec
+une ligne portant la valeur retirée est **refusé** :
+
+```
+SQLSTATE[01000]: Warning: 1265 Data truncated for column 't' at row 1
+```
+
+`MigrationRunner` est un pur différentiel de schéma, sans fichiers de
+migration et sans couture pour une migration de données. Il réessaierait,
+abandonnerait après trois passes identiques, et se déclarerait cassé sur la
+page Maintenance d'un site dont le seul tort est d'avoir pris une
+sauvegarde.
+
+Et réétiqueter ces lignes serait **pire** que les garder : une archive
+`full_with_gallery` contient réellement les photographies, et l'appeler
+`full_no_gallery` mentirait à qui la restaure. `BackupFamily` continue donc
+de la classer Manuelle — un type qu'il ne sait pas classer est gardé et
+jamais supprimé, ce qui est le bon réflexe et le mauvais résultat pour une
+valeur que le schéma livre encore.
+
+## La remise à zéro était devenue silencieusement plus destructrice
+
+`FullResetHandler` vide `storage/` en entier sauf `keys/master.key`.
+C'était réversible tant que la copie de sécurité prise à l'étape 1
+contenait la galerie. Elle ne la contient plus — et la même opération
+détruisait donc, sans retour, ce qu'aucune archive ne couvrait, sans que
+personne ne l'ait demandé.
+
+Les répertoires déclarés survivent. Des deux lectures irréversibles, c'est
+la récupérable : des fichiers laissés sur un disque se suppriment encore à
+la main. Et c'est la seule cohérente avec D10 — un emplacement a son propre
+cycle de vie, dont la remise à zéro du site n'est pas un événement. L'écran
+le dit à l'endroit où on confirme, et le journal nomme combien de dossiers
+ont été gardés.
+
+**Ils sont lus avant que quoi que ce soit ne soit détruit**, et c'est toute
+la subtilité : l'étape 2 vide `storage_locations`, donc la même question
+posée après répondrait « aucun » et l'étape 4 les supprimerait tous.
+
+## Le cliquet a changé de place plutôt que de disparaître
+
+`GalleryTypeCoverageTest` lisait les sites d'appel de
+`createFileBackup(true)`, parce que le nom d'un type ne dit rien de son
+contenu. Le drapeau n'existe plus ; la défaillance silencieuse, elle, a
+simplement déménagé de l'**appel** vers la **construction**. Un
+`new BackupService(...)` qui oublie son cinquième argument produit une
+archive qui reprend de nouveau tout : rien n'échoue, rien n'est journalisé,
+et le seul symptôme est une facture chez qui héberge le résultat.
+
+`Tests\Architecture\BackupServiceWiringTest` lit donc les neuf sites de
+construction et refuse celui que personne n'a classé. Une seule exception
+est prévue et elle est nommée — `SetupController`, qui restaure une archive
+dans un site en cours d'installation — et elle s'écrit
+`DeclaredStorageDirectories::none()` plutôt que de s'omettre, pour que
+« rien n'est déclaré » et « personne n'a câblé ça » ne se ressemblent pas.
+Vérifié en cassant un site d'appel.
+
+## Ce que les tests disent, et ce qu'ils ne diraient pas
+
+Une archive perd un emplacement déclaré **et garde tout autre répertoire de
+`storage/`** : sans la seconde moitié, la règle se lirait « une archive ne
+reprend plus `storage/` ». Le même dossier non déclaré y reste, donc ce
+qu'on observe est la déclaration et pas le nom `gallery` — précisément ce
+que l'ancien booléen ne savait pas distinguer. Un emplacement déclaré
+**hors** de `storage/` en sort aussi : le cas que l'ancienne règle ne savait
+pas exprimer du tout.
+
+Et l'envoi hors site est rejoué deux fois à travers la vraie base, sur le
+même site et la même photographie, à une déclaration près.

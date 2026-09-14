@@ -11,6 +11,7 @@ use Core\Database\SchemaIntrospector;
 use Core\Database\SqlParser;
 use Core\Maintenance\BackupException;
 use Core\Maintenance\BackupService;
+use Core\Storage\Location\DeclaredStorageDirectories;
 use PHPUnit\Framework\TestCase;
 
 class BackupServiceTest extends TestCase
@@ -57,6 +58,22 @@ class BackupServiceTest extends TestCase
         $this->removeDirectory($this->basePath);
     }
 
+    /**
+     * The same service, told that these absolute directories are declared
+     * storage locations — which since D10 is the only thing that keeps a
+     * directory out of an archive.
+     */
+    private function serviceDeclaring(string ...$directories): BackupService
+    {
+        return new BackupService(
+            $this->connection,
+            $this->storagePath,
+            $this->basePath,
+            null,
+            DeclaredStorageDirectories::fromPaths(array_values($directories))
+        );
+    }
+
     private function makeFile(string $relativePath, string $content): void
     {
         $path = $this->basePath . '/' . $relativePath;
@@ -90,16 +107,19 @@ class BackupServiceTest extends TestCase
     public function testTheFileBackupEstimateCoversTheTreeItIsAboutToArchive(): void
     {
         // core/App.php + modules/gallery/module.json + public/index.php +
-        // vendor ×2 + schema/core.sql + storage/uploads/doc.pdf. The
-        // excluded trees (keys, config, temp, gallery) are not in it.
-        $withoutGallery = $this->service->estimateFileBackupBytes(false);
-        $withGallery = $this->service->estimateFileBackupBytes(true);
+        // vendor ×2 + schema/core.sql + storage/uploads/doc.pdf + the
+        // gallery photo. The excluded trees (keys, config, temp) are not
+        // in it — and the gallery IS, because this installation has
+        // declared no storage location.
+        $nothingDeclared = $this->service->estimateFileBackupBytes();
+        $galleryDeclared = $this->serviceDeclaring($this->storagePath . '/gallery')
+            ->estimateFileBackupBytes();
 
-        $this->assertGreaterThan(0, $withoutGallery);
+        $this->assertGreaterThan(0, $galleryDeclared);
         $this->assertSame(
-            $withoutGallery + strlen('fake-jpeg-bytes'),
-            $withGallery,
-            'the gallery is exactly the difference between the two scopes'
+            $galleryDeclared + strlen('fake-jpeg-bytes'),
+            $nothingDeclared,
+            'a declared location is exactly the difference between the two estimates'
         );
     }
 
@@ -112,8 +132,8 @@ class BackupServiceTest extends TestCase
         }
 
         $this->assertSame(
-            $everything - $excludedBytes - strlen('fake-jpeg-bytes'),
-            $this->service->estimateFileBackupBytes(false)
+            $everything - $excludedBytes,
+            $this->service->estimateFileBackupBytes()
         );
     }
 
@@ -125,8 +145,8 @@ class BackupServiceTest extends TestCase
      */
     public function testTheEstimateSizesOnlyTheTreesTheCallerWillArchive(): void
     {
-        $everything = $this->service->estimateFileBackupBytes(false);
-        $fullBackupOnly = $this->service->estimateFileBackupBytes(false, ['core', 'modules', 'public', 'storage']);
+        $everything = $this->service->estimateFileBackupBytes();
+        $fullBackupOnly = $this->service->estimateFileBackupBytes(['core', 'modules', 'public', 'storage']);
 
         $vendorAndSchema = strlen('<?php // composer')
             + strlen('<?php // twig')
@@ -151,7 +171,7 @@ class BackupServiceTest extends TestCase
 
         $this->expectException(\Core\Storage\InsufficientDiskSpaceException::class);
         try {
-            $service->createFileBackup(false);
+            $service->createFileBackup();
         } finally {
             $this->assertSame(
                 [],
@@ -203,7 +223,7 @@ class BackupServiceTest extends TestCase
     public function testTheDumpAndTheArchiveAreReservedTogether(): void
     {
         $dump = $this->service->estimateDatabaseDumpBytes();
-        $archive = $this->service->estimateFileBackupBytes(true);
+        $archive = $this->service->estimateFileBackupBytes();
         $margin = \Core\Storage\DiskBudget::SAFETY_MARGIN_BYTES;
 
         // A quota that covers the larger of the two writes with its margin,
@@ -217,12 +237,12 @@ class BackupServiceTest extends TestCase
         );
 
         $this->expectException(\Core\Storage\InsufficientDiskSpaceException::class);
-        $service->ensureRoomForDumpAndArchive(true);
+        $service->ensureRoomForDumpAndArchive();
     }
 
     public function testARoomyBudgetReservesThePairSilently(): void
     {
-        $this->service->ensureRoomForDumpAndArchive(true);
+        $this->service->ensureRoomForDumpAndArchive();
 
         $this->addToAssertionCount(1);
     }
@@ -236,7 +256,7 @@ class BackupServiceTest extends TestCase
     public function testAnExtraWriteIsChargedWithThePairRatherThanAfterIt(): void
     {
         $dump = $this->service->estimateDatabaseDumpBytes();
-        $archive = $this->service->estimateFileBackupBytes(true);
+        $archive = $this->service->estimateFileBackupBytes();
         $margin = \Core\Storage\DiskBudget::SAFETY_MARGIN_BYTES;
         $extra = 8 * 1024 * 1024;
 
@@ -249,10 +269,10 @@ class BackupServiceTest extends TestCase
             $this->budgetWithQuota($quota)
         );
 
-        $service->ensureRoomForDumpAndArchive(true);
+        $service->ensureRoomForDumpAndArchive();
 
         $this->expectException(\Core\Storage\InsufficientDiskSpaceException::class);
-        $service->ensureRoomForDumpAndArchive(true, $extra);
+        $service->ensureRoomForDumpAndArchive($extra);
     }
 
     private function budgetWithQuota(int $bytes): \Core\Storage\DiskBudget
@@ -286,7 +306,7 @@ class BackupServiceTest extends TestCase
 
     public function testCreateFileBackupExcludesKeysConfigAndTempByDefault(): void
     {
-        $zipPath = $this->service->createFileBackup(true);
+        $zipPath = $this->service->createFileBackup();
         $entries = $this->zipEntryNames($zipPath);
 
         $this->assertNotContains('storage/keys/master.key', $entries);
@@ -311,7 +331,7 @@ class BackupServiceTest extends TestCase
      */
     public function testCreateFileBackupArchivesVendorAndSchemaSoARollbackCanPutThemBack(): void
     {
-        $zipPath = $this->service->createFileBackup(true);
+        $zipPath = $this->service->createFileBackup();
         $entries = $this->zipEntryNames($zipPath);
 
         $this->assertContains('vendor/autoload.php', $entries);
@@ -321,9 +341,19 @@ class BackupServiceTest extends TestCase
         unlink($zipPath);
     }
 
-    public function testCreateFileBackupExcludesGalleryByDefault(): void
+    /**
+     * D10, both halves in one test: a declared location leaves the
+     * archive, and a `storage/` directory nobody declared stays in it.
+     *
+     * The second assertion is the one that stops the rule being read as
+     * « an archive no longer carries `storage/` ». It carries all of it
+     * except what has a lifecycle of its own.
+     */
+    public function testAnArchiveDropsADeclaredLocationAndKeepsEveryOtherStorageDirectory(): void
     {
-        $zipPath = $this->service->createFileBackup(false);
+        $service = $this->serviceDeclaring($this->storagePath . '/gallery');
+
+        $zipPath = $service->createFileBackup();
         $entries = $this->zipEntryNames($zipPath);
 
         $this->assertNotContains('storage/gallery/1/photo.jpg', $entries);
@@ -332,11 +362,47 @@ class BackupServiceTest extends TestCase
         unlink($zipPath);
     }
 
-    public function testCreateFileBackupIncludesGalleryWhenRequested(): void
+    /**
+     * The same directory, undeclared, is archived — so what the previous
+     * test observes is the DECLARATION and not the name `gallery`, which
+     * is exactly what the old `$includeGallery` could not tell apart.
+     */
+    public function testAnArchiveKeepsTheGalleryFolderWhenNoLocationIsDeclared(): void
     {
-        $zipPath = $this->service->createFileBackup(true);
+        $zipPath = $this->service->createFileBackup();
         $entries = $this->zipEntryNames($zipPath);
 
+        $this->assertContains('storage/gallery/1/photo.jpg', $entries);
+
+        unlink($zipPath);
+    }
+
+    /**
+     * A location declared OUTSIDE `storage/` — a mounted disk, a second
+     * volume — is excluded too, and the archive is otherwise untouched.
+     *
+     * This is the case the old rule could not express at all: it spelled
+     * one path under `storage/`, so a location anybody had moved was
+     * archived whatever the caller asked for.
+     */
+    public function testAnArchiveDropsALocationDeclaredOutsideTheStorageFolder(): void
+    {
+        $this->makeFile('mounted/photos/holiday.jpg', 'fake-jpeg-on-a-nas');
+        $this->makeFile('storage/uploads/kept.pdf', 'still-archived');
+
+        $service = new BackupService(
+            $this->connection,
+            $this->storagePath,
+            $this->basePath,
+            null,
+            DeclaredStorageDirectories::fromPaths([$this->basePath . '/mounted/photos'])
+        );
+
+        $zipPath = $service->createFileBackup();
+        $entries = $this->zipEntryNames($zipPath);
+
+        $this->assertNotContains('mounted/photos/holiday.jpg', $entries);
+        $this->assertContains('storage/uploads/kept.pdf', $entries);
         $this->assertContains('storage/gallery/1/photo.jpg', $entries);
 
         unlink($zipPath);
@@ -362,7 +428,7 @@ class BackupServiceTest extends TestCase
     {
         // A real archive from this service round-trips cleanly through the
         // new entry-vetting guard.
-        $zipPath = $this->service->createFileBackup(true);
+        $zipPath = $this->service->createFileBackup();
 
         $dest = sys_get_temp_dir() . '/backup_restore_' . uniqid();
         mkdir($dest, 0755, true);
@@ -397,7 +463,7 @@ class BackupServiceTest extends TestCase
      */
     public function testAGalleryFreeArchiveRestoresWithoutTouchingThePhotosOnDisk(): void
     {
-        $zipPath = $this->service->createFileBackup(false);
+        $zipPath = $this->serviceDeclaring($this->storagePath . '/gallery')->createFileBackup();
 
         // The failed update: code overwritten, photos added since the
         // safety copy was taken.

@@ -26,12 +26,9 @@ Chaque ligne porte deux icônes à droite : une **flèche vers le bas**
 pour télécharger l'archive, une **corbeille** pour la supprimer.
 
 Le site en garde **trois de chaque sorte**, comptées séparément : les
-vôtres et les planifiées — une série de mises à jour n'efface donc plus
-la sauvegarde que vous veniez de faire. Une seule archive contenant la
-galerie est gardée, toutes sortes confondues : c'est la plus lourde. Les
-sauvegardes prises avant une opération contiennent la galerie, donc une
-seule est conservée. Ces nombres se règlent dans Configuration ›
-Réglages.
+vôtres, les planifiées et celles prises avant une opération — une série
+de mises à jour n'efface donc plus la sauvegarde que vous veniez de
+faire. Ces nombres se règlent dans Configuration › Réglages.
 
 > Téléchargez régulièrement une copie et gardez-la hors du serveur —
 > une sauvegarde qui vit sur le serveur ne protège pas d'un problème

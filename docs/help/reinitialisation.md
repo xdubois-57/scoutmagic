@@ -42,6 +42,11 @@ retrouvera l'assistant d'installation, comme sur un site neuf. Il faut
 cocher la case de compréhension, taper EFFACER, puis confirmer encore
 une fois.
 
+Les dossiers déclarés comme **emplacements de stockage** ne sont pas
+effacés : leur contenu n'est repris dans aucune archive, il serait donc
+perdu sans retour. Le site cesse simplement de les connaître ;
+supprimez-les vous-même si vous vouliez repartir d'un disque vide.
+
 > Cette action est irréversible. La seule façon de revenir en arrière
 > est une sauvegarde complète téléchargée **avant** — celle prise
 > automatiquement au moment d'agir disparaît avec le serveur si

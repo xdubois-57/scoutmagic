@@ -23,7 +23,7 @@ interface BackupServiceInterface
 
     public function createConfigOnlyDump(): string;
 
-    public function createFileBackup(bool $includeGallery = false): string;
+    public function createFileBackup(): string;
 
     /**
      * Reserves the dump AND the archive together, before either exists —
@@ -32,7 +32,7 @@ interface BackupServiceInterface
      *
      * @throws \Core\Storage\InsufficientDiskSpaceException
      */
-    public function ensureRoomForDumpAndArchive(bool $includeGallery, int $extraBytes = 0): void;
+    public function ensureRoomForDumpAndArchive(int $extraBytes = 0): void;
 
     /**
      * @return array{zipPath: string, dbDumpPath: string}

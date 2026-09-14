@@ -31,7 +31,6 @@ use Core\Maintenance\UpdateHistoryRepository;
 use Core\Maintenance\Task\SendRemoteBackupHandler;
 use Core\Maintenance\UpdateTargetSelector;
 use Core\Maintenance\VersionFile;
-use Core\Module\ModuleManager;
 use Core\Scheduler\CronHealth;
 use Core\Scheduler\SchedulerService;
 use Core\Security\AuthSession;
@@ -48,8 +47,17 @@ use Twig\Environment;
  */
 class MaintenanceController extends AbstractController
 {
-    /** @var string[] */
-    private const FULL_BACKUP_SCOPES = ['full_config', 'full_no_gallery', 'full_with_gallery'];
+    /**
+     * The scopes the button offers — two since D10, not three.
+     *
+     * `full_with_gallery` is gone from the list because no archive
+     * carries a declared storage location any more, so the scope could
+     * not have kept its name's promise. It stays readable in
+     * {@see Backup::TYPES} for rows written before that change.
+     *
+     * @var string[]
+     */
+    private const FULL_BACKUP_SCOPES = ['full_config', 'full_no_gallery'];
 
     /**
      * How many rows « Sauvegardes récentes » shows before « voir plus ».
@@ -114,7 +122,6 @@ class MaintenanceController extends AbstractController
         private FileRepository $fileRepository,
         private UpdateHistoryRepository $updateHistoryRepository,
         private SchedulerService $schedulerService,
-        private ModuleManager $moduleManager,
         private EncryptionService $encryption,
         private JournalService $journalService,
         private SettingService $settingService,
@@ -243,8 +250,6 @@ class MaintenanceController extends AbstractController
             // just above.
             'remote_backup_last_success' =>
                 (string) ($this->settingService->get(SendRemoteBackupHandler::LAST_SUCCESS_SETTING) ?: ''),
-            'remote_backup_include_gallery' =>
-                (string) ($this->settingService->get(SendRemoteBackupHandler::INCLUDE_GALLERY_SETTING) ?: '0') === '1',
             'remote_backup_keep' => $remoteRetention->keep(),
             'remote_backup_max_bytes' => \Core\Storage\ByteFormatter::format($remoteRetention->maxBytes()),
             'remote_backup_interval_hours' => SendRemoteBackupHandler::INTERVAL_HOURS,
@@ -269,7 +274,6 @@ class MaintenanceController extends AbstractController
             // safety belt on a table retention already keeps small.
             'backups' => $this->backupList(),
             'backups_shown_at_once' => self::BACKUPS_SHOWN_AT_ONCE,
-            'gallery_enabled' => in_array('gallery', $this->moduleManager->getEnabledModuleIds(), true),
             'zip_encryption_supported' => $this->backupService->supportsZipEncryption(),
             // The screen promises a minimum and the server enforces it;
             // handing the number to the template is what keeps the two
@@ -776,9 +780,6 @@ class MaintenanceController extends AbstractController
 
         if (!in_array($scope, self::FULL_BACKUP_SCOPES, true)) {
             return $this->json(['success' => false, 'error' => 'Portée de sauvegarde invalide.'], 400);
-        }
-        if ($scope === 'full_with_gallery' && !in_array('gallery', $this->moduleManager->getEnabledModuleIds(), true)) {
-            return $this->json(['success' => false, 'error' => 'Le module galerie n\'est pas actif.'], 400);
         }
         if ($password === '') {
             return $this->json(['success' => false, 'error' => 'Un mot de passe est requis.'], 400);

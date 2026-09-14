@@ -190,7 +190,7 @@ class MaintenanceControllerTest extends TestCase
         ): MaintenanceController {
             return new MaintenanceController(
                 $this->twig, $service, $this->backupRepository, $fileRepository, $this->updateHistoryRepository,
-                $schedulerService, $moduleManager, $encryption, $journalService, $this->settingService, $storagePath,
+                $schedulerService, $encryption, $journalService, $this->settingService, $storagePath,
                 $this->secretManager, $this->fakeReleaseClient,
                 null,
                 // The health block's crontab line is spelled from the public
@@ -874,7 +874,17 @@ class MaintenanceControllerTest extends TestCase
         $this->assertSame(400, $response->getStatusCode());
     }
 
-    public function testCreateFullBackupRejectsGalleryScopeWhenModuleDisabled(): void
+    /**
+     * The retired scope is refused like any other unknown one.
+     *
+     * It used to be accepted, and refused only when the gallery module
+     * was off. D10 removed it from what the button offers — no archive
+     * carries a declared storage location, so the scope could not keep
+     * its name's promise — and a request still naming it, from a stale
+     * page or a script somebody wrote, must not quietly produce an
+     * archive under a type this code no longer writes.
+     */
+    public function testCreateFullBackupRejectsTheRetiredGalleryScope(): void
     {
         $token = $this->csrfToken();
 
@@ -884,6 +894,8 @@ class MaintenanceControllerTest extends TestCase
 
         $decoded = json_decode($response->getBody(), true);
         $this->assertFalse($decoded['success']);
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame('Portée de sauvegarde invalide.', $decoded['error']);
     }
 
     public function testCreateFullBackupRejectsEmptyPassword(): void

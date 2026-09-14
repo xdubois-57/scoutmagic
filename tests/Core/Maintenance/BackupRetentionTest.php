@@ -80,22 +80,23 @@ final class BackupRetentionTest extends TestCase
     }
 
     /**
-     * Each family keeps its own — and the pre-operation one keeps ONE
-     * when what it keeps is a pre-RESET copy, which is the gallery cap
-     * binding before its quota does.
+     * Each family keeps its own quota, and nothing else bends it.
      *
-     * A pre-reset archive carries the photo gallery
-     * (`createFileBackup(true)`: the operation it protects against can
-     * wipe `storage/gallery/`, so its safety copy has to hold it), and
-     * the cap on gallery-bearing archives is one across all families. So
-     * a run of resets reaches one rather than `backup_keep_operational` —
-     * stated here because it is surprising, and written into the
-     * setting's own description and
-     * `docs/exigences-non-fonctionnelles.md` §4bis for the same reason.
+     * **There used to be an exception here, and D10 removed it.** A
+     * pre-reset archive carried the photo gallery — the operation it
+     * protects against can wipe `storage/gallery/`, so its safety copy
+     * had to hold it — and a cross-family cap kept exactly one
+     * gallery-bearing archive, so a run of resets reached one rather than
+     * `backup_keep_operational`. That was surprising enough to be written
+     * into the setting's own description and into
+     * `docs/exigences-non-fonctionnelles.md` §4bis.
      *
-     * A run of UPDATES does not: see the test below, and issue #298.
+     * No archive carries a declared storage location any more, so no
+     * archive is gallery-sized, so the cap is gone and every family
+     * reaches the number its setting promises. This test is the one that
+     * says the surprise is over.
      */
-    public function testEachFamilyKeepsItsOwnQuotaAndTheGalleryCapBindsFirst(): void
+    public function testEveryFamilyNowReachesTheQuotaItsSettingPromises(): void
     {
         foreach (['database', 'auto_backup', 'auto_reset'] as $type) {
             for ($i = 0; $i < 5; $i++) {
@@ -112,31 +113,24 @@ final class BackupRetentionTest extends TestCase
 
         ksort($byFamily);
         $this->assertSame(
-            ['manual' => 3, 'operational' => BackupRetention::KEEP_GALLERY, 'scheduled' => 3],
+            ['manual' => 3, 'operational' => 3, 'scheduled' => 3],
             $byFamily
         );
     }
 
     /**
-     * What issue #298 bought: three safety copies before an update, which
-     * is what `backup_keep_operational` promised all along.
+     * What issue #298 bought, and what D10 finished: three safety copies
+     * before an update, which is what `backup_keep_operational` promised
+     * all along.
      *
-     * The quota was an upper bound nothing reached while `auto_update`
-     * carried the gallery — the cap of one bound first and an
-     * installation kept a single pre-operation archive whatever the
-     * setting said. An update's safety copy leaves the gallery on disk
-     * now, so nothing about it is gallery-sized and the number in the
-     * setting is the number of archives.
+     * The quota was an upper bound nothing reached while a cross-family
+     * cap kept a single gallery-bearing archive. The cap is gone with the
+     * thing it weighed, so the number in the setting is now the number of
+     * archives — for every family, not just this one.
      */
-    public function testAnUpdatesSafetyCopyNoLongerSpendsTheGallerySlot(): void
+    public function testAnUpdatesSafetyCopyReachesItsFamilyQuota(): void
     {
-        $this->assertNotContains(
-            'auto_update',
-            Backup::GALLERY_TYPES,
-            'An update archive is back under the gallery cap, so the quota below is unreachable again.'
-        );
-
-        $gallery = $this->completed('full_with_gallery');
+        $manual = $this->completed('full_no_gallery');
         for ($i = 0; $i < 4; $i++) {
             $this->completed('auto_update');
             $this->retention()->purgeAfterCreating('auto_update');
@@ -147,30 +141,40 @@ final class BackupRetentionTest extends TestCase
 
         $this->assertCount(3, $updates, 'The pre-operation quota is a real number now, not an upper bound.');
         $this->assertContains(
-            $gallery,
+            $manual,
             array_map(static fn(Backup $b): int => $b->id, $surviving),
-            'An update archive that holds no gallery must not evict the one that does.'
+            'A run of updates evicted a manual backup somebody took on purpose.'
         );
     }
 
     /**
-     * The cross-family cap, and the reason it is not a family quota: one
-     * gallery archive can weigh more than every other backup on the disk
-     * put together, so a second one is the single most expensive thing
-     * retention can allow.
+     * **The cap is gone, and a row of the retired type still behaves.**
+     *
+     * Two things at once, because they are the same fact seen from two
+     * sides. `full_with_gallery` is no longer produced — no archive
+     * carries a declared storage location, so the scope could not keep
+     * its name's promise — but rows written before that change still
+     * exist, and retention has to go on counting and purging them. It
+     * does, because {@see BackupFamily::tryFromType()} still classifies
+     * the value as Manual: a type it cannot classify is kept and never
+     * deleted, which is the right instinct and the wrong outcome for a
+     * value the schema still ships.
+     *
+     * And both survive, where the old cross-family cap would have evicted
+     * the older one on the next scheduled creation of any kind.
      */
-    public function testOnlyOneGalleryArchiveSurvivesAcrossAllFamilies(): void
+    public function testTwoArchivesOfTheRetiredTypeBothSurviveAScheduledCreation(): void
     {
         $old = $this->completed('full_with_gallery');
         $recent = $this->completed('full_with_gallery');
 
-        // Triggered by a SCHEDULED creation: the cap reads every family,
-        // which is what "transversal" has to mean to be worth anything.
+        // Triggered by a SCHEDULED creation, which is what used to reach
+        // across families and take one of these with it.
         $this->completed('auto_backup');
         $this->retention()->purgeAfterCreating('auto_backup');
 
         $surviving = array_map(fn($b) => $b->id, $this->backups->findAllNewestFirst());
-        $this->assertNotContains($old, $surviving);
+        $this->assertContains($old, $surviving, 'A cross-family eviction is back, and the cap was removed.');
         $this->assertContains($recent, $surviving);
     }
 
@@ -348,14 +352,16 @@ final class BackupRetentionTest extends TestCase
      * A row is inserted `pending` before its background job runs, and a
      * job that fails leaves it behind as `failed` with no file at all.
      * Counting by family alone made that empty row the newest member of
-     * its family — and with the gallery cap at one, the next creation of
-     * ANY kind kept the failure and deleted the last archive that
-     * actually contained the gallery.
+     * its family — and under the cross-family cap this codebase used to
+     * carry, the next creation of ANY kind kept the failure and deleted
+     * the last archive that actually held anything. The cap went with
+     * D10; the family quota counts the same way and the rule still
+     * decides which of two rows is the real one.
      */
     public function testAFailedAttemptNeverEvictsTheArchiveThatSucceeded(): void
     {
-        $good = $this->completed('full_with_gallery', archive: 'good.zip');
-        $failed = $this->backups->create('full_with_gallery', null);
+        $good = $this->completed('full_no_gallery', archive: 'good.zip');
+        $failed = $this->backups->create('full_no_gallery', null);
         $this->backups->markFailed($failed, 'disque plein');
 
         $this->completed('auto_backup');
@@ -432,30 +438,6 @@ final class BackupRetentionTest extends TestCase
     }
 
     /**
-     * A pre-RESET archive counts towards the gallery cap, because it holds
-     * the gallery — the name of a type says nothing about its contents.
-     *
-     * With `auto_reset` left out of the cap, an installation could hold
-     * four gallery-sized archives at once: one manual, plus a
-     * pre-operation family quota of three. That is the exact disk the cap
-     * exists to defend. Its sibling `auto_update` is deliberately not this
-     * test's subject any more — that archive stopped carrying a gallery
-     * with issue #298, and the test above is what pins the consequence.
-     */
-    public function testAPreOperationArchiveCountsTowardsTheGalleryCap(): void
-    {
-        $manualGallery = $this->completed('full_with_gallery', archive: 'manual.zip');
-        $operationalGallery = $this->completed('auto_reset', archive: 'safety.zip');
-
-        $this->completed('database');
-        $this->retention()->purgeAfterCreating('database');
-
-        $surviving = array_map(fn($b) => $b->id, $this->backups->findAllNewestFirst());
-        $this->assertContains($operationalGallery, $surviving, 'The newest gallery-bearing archive stays.');
-        $this->assertNotContains($manualGallery, $surviving, 'The older one is over the cap, whatever its family.');
-    }
-
-    /**
      * And retention must not become a way to delete the net of an
      * operation that is running — the exact deletion the manual path
      * refuses.
@@ -465,11 +447,10 @@ final class BackupRetentionTest extends TestCase
      * install's rollback can start from: silently, with nobody having
      * asked for anything to be deleted.
      *
-     * The eviction pressure here is the pre-operation family quota rather
-     * than the gallery cap, which is the pressure an `auto_update` archive
-     * actually feels since it stopped carrying a gallery (issue #298).
-     * The refusal is the same one either way: it is about the row being in
-     * use, never about what the row weighs.
+     * The eviction pressure here is the pre-operation family quota, which
+     * since D10 is the only pressure there is — the cross-family gallery
+     * cap went with the archives that were gallery-sized. The refusal was
+     * never about what a row weighs: it is about the row being in use.
      */
     public function testRetentionNeverEvictsTheNetOfARunningOperation(): void
     {

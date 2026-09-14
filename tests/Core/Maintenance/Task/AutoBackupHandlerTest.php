@@ -69,11 +69,9 @@ class AutoBackupHandlerTest extends TestCase
 
         return new class ($dir) implements BackupServiceInterface {
             // Nothing to reserve: this fake writes a couple of bytes.
-            public function ensureRoomForDumpAndArchive(bool $includeGallery, int $extraBytes = 0): void
+            public function ensureRoomForDumpAndArchive(int $extraBytes = 0): void
             {
             }
-
-            public bool $includeGalleryRequested = false;
 
             public function __construct(private string $dir)
             {
@@ -91,9 +89,8 @@ class AutoBackupHandlerTest extends TestCase
                 return $this->createDatabaseDump();
             }
 
-            public function createFileBackup(bool $includeGallery = false): string
+            public function createFileBackup(): string
             {
-                $this->includeGalleryRequested = $includeGallery;
                 $path = $this->dir . '/files_' . bin2hex(random_bytes(4)) . '.zip';
                 $zip = new \ZipArchive();
                 $zip->open($path, \ZipArchive::CREATE);
@@ -133,17 +130,6 @@ class AutoBackupHandlerTest extends TestCase
         $this->assertCount(1, $recent);
         $this->assertSame('auto_backup', $recent[0]->type);
         $this->assertSame('completed', $recent[0]->status);
-    }
-
-    public function testHandleNeverIncludesTheGallery(): void
-    {
-        $this->settings->set('backup_auto_frequency', 'daily');
-        $fake = $this->fakeBackupService();
-        $handler = new AutoBackupHandler($fake);
-
-        $handler->handle([], $this->context);
-
-        $this->assertFalse($fake->includeGalleryRequested);
     }
 
     public function testHandleUpdatesLastRunSetting(): void
@@ -245,13 +231,13 @@ class AutoBackupHandlerTest extends TestCase
         $this->settings->set('backup_auto_frequency', 'daily');
         $failing = new class implements BackupServiceInterface {
             // Nothing to reserve: this fake writes a couple of bytes.
-            public function ensureRoomForDumpAndArchive(bool $includeGallery, int $extraBytes = 0): void
+            public function ensureRoomForDumpAndArchive(int $extraBytes = 0): void
             {
             }
 
             public function createDatabaseDump(): string { throw new \RuntimeException('mysqldump unavailable'); }
             public function createConfigOnlyDump(): string { return $this->createDatabaseDump(); }
-            public function createFileBackup(bool $includeGallery = false): string { return ''; }
+            public function createFileBackup(): string { return ''; }
             public function createFullBackup(string $scope, string $password): array { return ['zipPath' => '', 'dbDumpPath' => '']; }
             public function supportsZipEncryption(): bool { return true; }
             public function restoreDatabase(string $dumpPath): void {}

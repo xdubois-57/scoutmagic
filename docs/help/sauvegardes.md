@@ -40,9 +40,8 @@ vous.
   sensible — il est réservé aux chefs d'unité.
 - **Sauvegarde complète (chiffrée)** : une archive protégée par le mot
   de passe que vous choisissez, générée en arrière-plan — une
-  notification vous prévient quand elle est prête. Trois portées au
-  choix : la configuration seule, le site complet sans la galerie
-  photo, ou avec elle.
+  notification vous prévient quand elle est prête. Deux portées au
+  choix : la configuration seule, ou le site complet.
 
 - **Sauvegarde portable** : la même chose, plus les clés de
   chiffrement du site — la seule archive qui se restaure sur une
@@ -55,9 +54,8 @@ signale : la sauvegarde de la base seule reste disponible.
 ## Les sauvegardes automatiques
 
 Le bloc « Sauvegarde automatique » porte la fréquence (quotidienne à
-mensuelle) : le site génère seul une sauvegarde complète, sans la
-galerie. Ces sauvegardes-là ne sont pas portables : elles restent sans
-les clés. Il prend aussi une sauvegarde de sécurité avant chaque mise à
+mensuelle) : le site génère seul une sauvegarde complète. Ces
+sauvegardes-là ne sont pas portables : elles restent sans les clés. Il prend aussi une sauvegarde de sécurité avant chaque mise à
 jour et chaque action de réinitialisation, sans que vous ayez rien à
 faire.
 

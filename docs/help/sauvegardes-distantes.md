@@ -27,10 +27,11 @@ deux ne partagent aucun réglage : celui-là garde une archive non
 chiffrée sur votre serveur, celui-ci construit la sienne, chiffrée, et
 c'est elle qui part.
 
-La **galerie photo n'est pas envoyée**. Elle se compte en gigaoctets, et
-un envoi quotidien remplirait un Drive gratuit en quelques semaines ;
-après quoi plus rien ne partirait du tout. Si vous avez la place, un
-réglage permet de l'inclure.
+**Aucun emplacement de stockage n'est envoyé** — ni la galerie photo,
+ni les autres. Ils se comptent en gigaoctets, et un envoi quotidien
+remplirait un Drive gratuit en quelques semaines ; après quoi plus rien
+ne partirait du tout. Leur contenu se protège autrement, et les sujets
+liés ci-dessous expliquent comment.
 
 Le site conserve chez vous **30 archives au maximum et 10 Go au plus** :
 la plus contraignante des deux s'applique, et les plus anciennes sont
