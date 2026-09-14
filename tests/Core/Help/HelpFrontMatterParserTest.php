@@ -212,36 +212,59 @@ class HelpFrontMatterParserTest extends TestCase
         $this->assertStringNotContainsString('role_min', $body);
     }
 
-    public function testDiscoveryDefaultsToNormalWhenTheKeyIsAbsent(): void
+    public function testDiscoveryDefaultsToTheOrdinaryRankWhenTheKeyIsAbsent(): void
     {
         $dir = $this->makeTopicDir();
         $path = $this->writeTopic($dir, 'sans-cle');
 
-        $this->assertSame(DiscoveryPriority::Normal, $this->parser->parse($path)->discovery);
+        $discovery = $this->parser->parse($path)->discovery;
+
+        $this->assertFalse($discovery->isOff());
+        $this->assertSame(DiscoveryPriority::DEFAULT_RANK, $discovery->rank());
     }
 
     /**
-     * @return array<string, array{0: string, 1: DiscoveryPriority}>
+     * The key takes a WHOLE NUMBER, not one of three cases — which is
+     * what lets a topic be placed before every other without an enum
+     * growing a name for it (ARCHITECTURE.md §8.64). `0` is the value
+     * `installer-application` carries in the shipped corpus, and it used
+     * to be the example of a refused typo.
+     *
+     * @return array<string, array{0: string, 1: int}>
      */
-    public static function discoveryValues(): array
+    public static function discoveryRanks(): array
     {
         return [
-            'haute' => ['1', DiscoveryPriority::High],
-            'normale' => ['2', DiscoveryPriority::Normal],
-            'basse' => ['3', DiscoveryPriority::Low],
-            'jamais' => ['off', DiscoveryPriority::Off],
+            'en tête' => ['0', 0],
+            'haute' => ['1', 1],
+            'ordinaire, écrite en toutes lettres' => ['2', 2],
+            'basse' => ['3', 3],
+            'intercalée' => ['15', 15],
+            'très basse' => ['900', 900],
+            'sous zéro' => ['-5', -5],
         ];
     }
 
-    #[\PHPUnit\Framework\Attributes\DataProvider('discoveryValues')]
-    public function testDiscoveryRecognisesEveryDeclaredValue(string $declared, DiscoveryPriority $expected): void
+    #[\PHPUnit\Framework\Attributes\DataProvider('discoveryRanks')]
+    public function testDiscoveryReadsAnyWholeNumberAsARank(string $declared, int $expected): void
     {
         $dir = $this->makeTopicDir();
-        $path = $this->writeTopic($dir, 'valeur-' . ($declared === 'off' ? 'off' : $declared), [
+        $path = $this->writeTopic($dir, 'valeur-' . str_replace('-', 'moins', $declared), [
             'discovery' => $declared,
         ]);
 
-        $this->assertSame($expected, $this->parser->parse($path)->discovery);
+        $discovery = $this->parser->parse($path)->discovery;
+
+        $this->assertFalse($discovery->isOff());
+        $this->assertSame($expected, $discovery->rank());
+    }
+
+    public function testDiscoveryOffIsTheAbsenceOfARankRatherThanALargeOne(): void
+    {
+        $dir = $this->makeTopicDir();
+        $path = $this->writeTopic($dir, 'valeur-off', ['discovery' => 'off']);
+
+        $this->assertTrue($this->parser->parse($path)->discovery->isOff());
     }
 
     /**
@@ -249,23 +272,32 @@ class HelpFrontMatterParserTest extends TestCase
      * default, and the reason it is worth a test of its own: a silent
      * downgrade turns a typo into a topic that never leads a batch, and
      * nothing anywhere ever says so. Same rule as role_min.
+     *
+     * What is refused is a SPELLING, not a range: every whole number is a
+     * legitimate rank, so these are the ways of writing something that is
+     * not one.
+     *
+     * @return array<string, array{0: string}>
      */
-    public function testAnUnknownDiscoveryValueThrowsAndNamesTheFile(): void
+    public static function unreadableDiscoveryValues(): array
+    {
+        return [
+            'un rang décimal' => ['1.5'],
+            'un ordinal' => ['1er'],
+            'un mot' => ['premier'],
+            'une valeur vide' => [''],
+            'off mal orthographié' => ['OFF'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('unreadableDiscoveryValues')]
+    public function testAnUnreadableDiscoveryValueThrowsAndNamesTheFile(string $declared): void
     {
         $dir = $this->makeTopicDir();
-        $path = $this->writeTopic($dir, 'valeur-inconnue', ['discovery' => '0']);
+        $path = $this->writeTopic($dir, 'valeur-refusee', ['discovery' => $declared]);
 
         $this->expectException(HelpException::class);
         $this->expectExceptionMessage($path);
-        $this->parser->parse($path);
-    }
-
-    public function testAnEmptyDiscoveryValueThrows(): void
-    {
-        $dir = $this->makeTopicDir();
-        $path = $this->writeTopic($dir, 'valeur-vide', ['discovery' => '']);
-
-        $this->expectException(HelpException::class);
         $this->parser->parse($path);
     }
 }

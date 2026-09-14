@@ -117,6 +117,7 @@ class DatabaseTestHelper
             quiet_hours_end TEXT,
             notification_discretion INTEGER NOT NULL DEFAULT 0,
             help_discovery_snoozed_until TEXT,
+            push_invitation_dismissed_at TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             last_login_at TEXT
         )');

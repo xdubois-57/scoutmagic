@@ -1,7 +1,8 @@
 // Isolated JavaScript unit test — jsdom-simulated DOM only. No real
 // service worker, PushManager or network: all mocked below. Exercises the
-// REAL implementation in public/assets/js/push-notifications.js (imported
-// below, never reimplemented here).
+// REAL implementations in public/assets/js/push-notifications.js and the
+// public/assets/js/push-subscribe.js it drives (imported below, never
+// reimplemented here).
 //
 // Focus: aria-checked stays in sync with .checked through every path that
 // sets .checked WITHOUT the browser firing a native 'change' event —
@@ -40,10 +41,14 @@ describe('push-notifications.js — aria-checked stays in sync on programmatic .
         });
         global.fetch = vi.fn(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ success: true }) }));
 
-        // The real fetch toolbox — push-notifications.js posts through
-        // window.ScoutMagicApi (base.html.twig guarantees this load order
-        // in production).
+        // The real fetch toolbox and the real subscribe toolbox —
+        // push-notifications.js is the « Mon compte » switch over
+        // window.ScoutMagicPush (public/assets/js/push-subscribe.js,
+        // shared with the installed application's invitation, see
+        // ARCHITECTURE.md §8.111) and posts through window.ScoutMagicApi.
+        // base.html.twig guarantees this load order in production.
         await import('../../public/assets/js/api.js');
+        await import('../../public/assets/js/push-subscribe.js');
     });
 
     it('reflects "no subscription" on load with aria-checked kept in sync (no native change event fires here)', async () => {

@@ -255,6 +255,25 @@ interface Window {
     ScoutMagicImportBarrier?: {
         matchesConfirmation: (typed: string, word: string) => boolean;
     };
+    // public/assets/js/push-subscribe.js — subscribing and unsubscribing
+    // this device to Web Push, shared by the « Mon compte » switch and by
+    // the installed application's invitation (ARCHITECTURE.md §8.111).
+    // Every call resolves a status string rather than throwing: both
+    // callers have to tell "the browser said no" apart from "something
+    // broke" to say the right sentence.
+    ScoutMagicPush?: {
+        isSupported: (vapidPublicKey: string) => boolean;
+        currentSubscription: () => Promise<PushSubscription | null>;
+        enable: (vapidPublicKey: string) => Promise<'enabled' | 'denied' | 'error'>;
+        disable: () => Promise<'disabled' | 'error'>;
+    };
+    // public/assets/js/push-invitation.js — « Activer les notifications ? ».
+    // `showing` is set SYNCHRONOUSLY, before that file can return, because
+    // /assets/js/help-discovery.js reads it on its first statement to know
+    // whether the page already has a dialog in it.
+    ScoutMagicPushInvitation?: {
+        showing: boolean;
+    };
     ScoutMagicNav?: {
         showDesktopMenu?: (menuId: string) => void;
         syncSwitchAriaChecked?: (input: HTMLInputElement) => void;

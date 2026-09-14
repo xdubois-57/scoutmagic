@@ -3297,6 +3297,12 @@ $helpService = new \Core\Help\HelpService($helpRegistry);
 // Built here so both the Twig global below and
 // Core\Http\Controller\HelpDiscoveryController share one instance.
 $seenHelpTopicRepository = new \Core\Help\Discovery\SeenTopicRepository($pdo);
+// The one piece of stored state behind « Activer les notifications ? »
+// (§8.111): whether this account has already answered « Plus tard ».
+// Built here for the same reason as the line above — the Twig global that
+// decides whether the dialog ships and the controller that records the
+// answer share one instance.
+$pushInvitationRepository = new \Core\Notification\PushInvitationRepository($pdo);
 // The « aller sur la page » link a topic carries (Core\Help\
 // HelpPageLinkResolver): it reads the router's own table for the label
 // and the role floor of the page a topic documents, so the link never
@@ -3673,6 +3679,20 @@ $router->addRoute(
 );
 $router->addRoute('POST', '/api/push-subscription', PushSubscriptionController::class, 'subscribe', 'identified');
 $router->addRoute('DELETE', '/api/push-subscription', PushSubscriptionController::class, 'unsubscribe', 'identified');
+// The answer to « Activer les notifications ? », the invitation the
+// installed application offers once (ARCHITECTURE.md §8.111). The
+// subscription itself still goes through the route just above, whichever
+// surface asked for it. role_min: identified — the account it records
+// against is the session's, never a value in the payload — and a CSRF
+// token is mandatory like on every other POST of this site (SECURITY.md
+// §4; the GitHub webhook is the single exception).
+$router->addRoute(
+    'POST',
+    '/api/notifications/invitation',
+    \Core\Http\Controller\PushInvitationController::class,
+    'answer',
+    'identified'
+);
 
 // Notification centre (Core\Notification, Lot 2)
 $router->addRoute(
@@ -4934,6 +4954,35 @@ if ($helpDiscovery !== null) {
     $twig->addGlobal('help_discovery', $helpDiscovery);
 }
 
+// « Activer les notifications ? » (Core\Notification, ARCHITECTURE.md
+// §8.111) — the same server-side shape as the tips dialog just above: the
+// global is set only when this account may be asked at all, so
+// base.html.twig includes the partial or does not.
+//
+// Unlike the tips, the server is only half the decision. Whether the page
+// is being read INSIDE the installed application is a media query and a
+// per-device fact, so public/assets/js/push-invitation.js is what opens
+// the dialog — this only decides whether it is in the page to be opened.
+// Timing does not matter here the way it does for the two globals above
+// (nothing about it depends on the modules having registered anything),
+// but it belongs next to them: the three are one decision from a
+// reader's point of view — which single dialog, if any, this page carries.
+$pushInvitationService = new \Core\Notification\PushInvitationService(
+    $pushInvitationRepository,
+    (string) ($secrets['vapid_public_key'] ?? '')
+);
+if ($pushInvitationService->offerForRequest(
+    AuthSession::getUserAccountId(),
+    $request->getMethod(),
+    $request->getPath(),
+    // Answered, either way — never accepted. Same reading and the same
+    // reason as the tips dialog above: a modal backdrop over the consent
+    // banner swallows the very decision the site is asking for.
+    $cookieConsentService->hasConsented()
+)) {
+    $twig->addGlobal('push_invitation', true);
+}
+
 // Determine the active menu section AND which specific page button should
 // be highlighted from the current path. A page's own sub-routes (e.g.
 // finance's /finance/movements, /finance/receipts — registered with an
@@ -5048,6 +5097,18 @@ $frontController->registerController(
         $twig,
         $helpDiscoveryService,
         $seenHelpTopicRepository
+    )
+);
+// « Activer les notifications ? » (§8.111). Here rather than next to the
+// other Core\Notification controllers because of the dependency, not the
+// subject: answering that dialog holds the day's tips back, which needs
+// the discovery service built just above.
+$frontController->registerController(
+    \Core\Http\Controller\PushInvitationController::class,
+    new \Core\Http\Controller\PushInvitationController(
+        $twig,
+        $pushInvitationRepository,
+        $helpDiscoveryService
     )
 );
 

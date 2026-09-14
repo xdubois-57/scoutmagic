@@ -10,7 +10,6 @@ namespace Core\Help\Discovery;
 
 use Core\Config\AppClock;
 use Core\Config\SettingService;
-use Core\Help\DiscoveryPriority;
 use Core\Help\HelpService;
 use Core\Help\HelpTopic;
 use Core\Security\Role;
@@ -137,7 +136,7 @@ class DiscoveryService
         $eligible = [];
         foreach ($this->helpService->listForRole($role) as $topics) {
             foreach ($topics as $topic) {
-                if ($topic->discovery === DiscoveryPriority::Off || isset($seen[$topic->id])) {
+                if ($topic->discovery->isOff() || isset($seen[$topic->id])) {
                     continue;
                 }
                 $eligible[] = $topic;
@@ -265,6 +264,45 @@ class DiscoveryService
         return AppClock::now()->modify(
             '+' . $this->positiveSetting(self::SETTING_INTERVAL_HOURS, self::DEFAULT_INTERVAL_HOURS) . ' hours'
         );
+    }
+
+    /**
+     * Holds the dialog back for one ordinary interval, without consuming
+     * anything — nothing was shown, so nothing is marked seen.
+     *
+     * Written for the one caller outside this feature:
+     * Core\Http\Controller\PushInvitationController, because the
+     * installed application's « Activer les notifications ? » dialog
+     * (§8.111) takes the day when it is answered. A tip on the very page
+     * somebody just decided about notifications on would be the second
+     * modal of one visit, and two dialogs in a row is what makes people
+     * close both without reading either.
+     *
+     * Here rather than in that controller's own reach into
+     * SeenTopicRepository: when this feature's delay may be set is this
+     * feature's rule, and a second writer of `snoozed_until` outside
+     * Core\Help\Discovery is how the two delays would drift apart.
+     *
+     * **It only ever pushes the delay further away, never nearer**, and
+     * that is the whole difference from the `close` of
+     * HelpDiscoveryController::record(). A close answers a dialog that
+     * WAS on screen, which it could only be once the previous delay had
+     * elapsed — so there is nothing to shorten. This is called with no
+     * tip shown at all, so a delay may well still be running: somebody
+     * who chose « Pas avant une semaine » in their browser, then
+     * installed the application and answered its invitation, would
+     * otherwise have their seven days silently cut to one. A method
+     * called « holds the dialog back » must never bring it forward.
+     */
+    public function holdBack(int $accountId): void
+    {
+        $until = $this->nextOrdinaryOpening();
+        $current = $this->seenTopics->snoozedUntil($accountId);
+        if ($current !== null && $current > $until) {
+            return;
+        }
+
+        $this->seenTopics->snooze($accountId, $until);
     }
 
     /**

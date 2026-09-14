@@ -43,9 +43,11 @@ disponibles pour un administrateur du site.
 
 ## La colonne « Push »
 
-Elle reste grisée tant que cet appareil n'a pas été autorisé : ouvrez
-« Mon compte », activez « Notifications push » et acceptez la demande
-du navigateur. L'autorisation vaut appareil par appareil — votre
+Elle reste grisée tant que cet appareil n'a pas été autorisé. Si vous
+avez installé le site comme application, celle-ci vous l'a proposé à sa
+première ouverture ; sinon, ou si vous aviez répondu « Plus tard »,
+ouvrez « Mon compte », activez « Notifications push » et acceptez la
+demande du navigateur. L'autorisation vaut appareil par appareil — votre
 téléphone et votre ordinateur s'activent séparément. Sur iPhone et
 iPad, installez d'abord le site comme application sur l'écran
 d'accueil : sans cela, les notifications sur l'appareil ne sont pas

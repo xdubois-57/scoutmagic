@@ -58,8 +58,13 @@ class HelpRegistry
      * applied) on every request until the next release. `discovery` was
      * the first field to be added after this cache shipped, which is when
      * this mark was introduced.
+     *
+     * It is bumped for a changed SHAPE as well as for a new field, and 3
+     * is the second reason: `discovery` stopped being an enum and became
+     * a Core\Help\DiscoveryPriority value object, so an index serialized
+     * under 2 holds enum instances a reader would call isOff() on.
      */
-    private const CACHE_FORMAT = 2;
+    private const CACHE_FORMAT = 3;
 
     /** @var array<string, string> moduleId => absolute topics directory */
     private array $moduleDirectories = [];
@@ -171,10 +176,21 @@ class HelpRegistry
     {
         return new \Core\Cache\SerializedFileCache(
             $this->cacheFilePath(),
-            // Every class the stored index may contain, enums included: an
-            // enum is not something unserialize() can degrade into an
-            // incomplete object, so one missing from this list is a fatal
-            // rather than the miss the cache is written to survive.
+            // Every class the stored index may contain. Listing them is
+            // what lets the index be READ at all — `allowed_classes` is a
+            // whitelist, and anything left out comes back as
+            // __PHP_Incomplete_Class for an ordinary object.
+            //
+            // An enum is the exception, and knowing which way it fails
+            // matters: it cannot degrade into an incomplete object, so a
+            // missing — or no-longer-enum — class makes unserialize()
+            // emit a warning and return false. `SerializedFileCache::read()`
+            // suppresses the warning and turns false into null, which is
+            // the miss this cache is written to survive; it is NOT a fatal,
+            // and Tests\Core\Help\HelpRegistryCacheTest pins that against
+            // a stored index from before DiscoveryPriority stopped being an
+            // enum. That is also why the format mark can be checked after
+            // the read rather than before it.
             [HelpTopic::class, \Core\Security\Role::class, DiscoveryPriority::class]
         );
     }

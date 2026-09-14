@@ -177,6 +177,35 @@ class DiscoveryServiceTest extends TestCase
     }
 
     /**
+     * The key is a WHOLE NUMBER and not one of three cases, so a topic
+     * can be placed ahead of the whole promoted set without anything
+     * being renumbered — which is what `installer-application` does in
+     * the shipped corpus (ARCHITECTURE.md §8.64, §8.111), and what
+     * Tests\Core\Help\HelpDiscoveryInvariantsTest holds it to there.
+     *
+     * Twelve draws for the same reason as the test above: a lucky seed
+     * must not be able to explain the result.
+     */
+    public function testALowerRankLeadsWhateverTheSeed(): void
+    {
+        $topics = [];
+        foreach (range(1, 20) as $i) {
+            $topics['haute-' . $i] = ['discovery' => '1'];
+        }
+        $topics['en-tete'] = ['discovery' => '0'];
+        $topics['intercalee'] = ['discovery' => '15'];
+        $topics['tout-en-bas'] = ['discovery' => '900'];
+        $service = $this->serviceOver($topics);
+
+        for ($draw = 0; $draw < 12; $draw++) {
+            $ordered = $this->ids($service->eligibleTopics(Role::IDENTIFIED, $this->createAccount()));
+            $this->assertSame('en-tete', $ordered[0]);
+            $this->assertSame('intercalee', $ordered[count($ordered) - 2]);
+            $this->assertSame('tout-en-bas', $ordered[array_key_last($ordered)]);
+        }
+    }
+
+    /**
      * The whole reason the order is a computed key rather than a
      * shuffle(): the dialog reappears on every page load until it is
      * closed, so two consecutive requests must serve the same cards.
@@ -225,6 +254,38 @@ class DiscoveryServiceTest extends TestCase
             1,
             count(array_unique($firstCards)),
             'Eight accounts of the same role all opening on the same card is a seed that is not being used.'
+        );
+    }
+
+    /**
+     * `holdBack()` is the one entry point that sets the delay WITHOUT a
+     * tip having been shown, so unlike a close it can meet a delay that
+     * is still running. It may only push that delay further away.
+     */
+    public function testHoldBackNeverBringsARunningDelayForward(): void
+    {
+        $service = $this->serviceOver($this->manyTopics(5));
+        $inAWeek = AppClock::now()->modify('+7 days');
+        $this->seenTopics->snooze($this->accountId, $inAWeek);
+
+        $service->holdBack($this->accountId);
+
+        $until = $this->seenTopics->snoozedUntil($this->accountId);
+        $this->assertNotNull($until);
+        $this->assertSame($inAWeek->format('Y-m-d H:i'), $until->format('Y-m-d H:i'));
+    }
+
+    public function testHoldBackSetsTheOrdinaryDelayWhenNothingHoldsTheAccountBack(): void
+    {
+        $service = $this->serviceOver($this->manyTopics(5));
+
+        $service->holdBack($this->accountId);
+
+        $until = $this->seenTopics->snoozedUntil($this->accountId);
+        $this->assertNotNull($until);
+        $this->assertSame(
+            AppClock::now()->modify('+' . DiscoveryService::DEFAULT_INTERVAL_HOURS . ' hours')->format('Y-m-d H'),
+            $until->format('Y-m-d H')
         );
     }
 

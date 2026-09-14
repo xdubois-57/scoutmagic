@@ -86,6 +86,14 @@ CREATE TABLE user_accounts (
     -- nothing back, which is the value of every row predating this
     -- column, so adding it never hides the tips from anybody.
     help_discovery_snoozed_until DATETIME,
+    -- When this account answered « Plus tard » to the invitation the
+    -- installed application offers once (ARCHITECTURE.md §8.111). Set by
+    -- that refusal and by nothing else: accepting does not write here,
+    -- because a Web Push subscription belongs to ONE device and a second
+    -- installed device still has to be asked. NULL means never answered,
+    -- which is the value of every row predating this column, so adding it
+    -- offers the invitation to everybody rather than to nobody.
+    push_invitation_dismissed_at DATETIME,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_login_at DATETIME,
     UNIQUE INDEX idx_email_blind (email_blind_index)
