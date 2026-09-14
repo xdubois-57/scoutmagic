@@ -115,11 +115,21 @@ class StorageLocationRepository
         //
         // A transaction alone would not be enough either: under
         // REPEATABLE READ a plain SELECT reads a snapshot and takes no
-        // lock at all, so both would still count zero. `FOR UPDATE` on an
-        // empty table takes the gap lock that makes the second caller
-        // wait for the first to commit. The cost is a table-wide lock on
-        // an action an administrator performs by hand, a few times in the
-        // life of a site.
+        // lock at all, so both would still count zero and both insert.
+        // `FOR UPDATE` fixes that, but NOT by making the second caller
+        // queue behind the first — that reading is wrong and was believed
+        // here once. On an empty table the clause takes a gap lock on the
+        // supremum, and gap locks are purely inhibitive: two transactions
+        // hold the same one quite happily. What they inhibit is the
+        // INSERT, whose insert-intention lock DOES conflict with the
+        // other's gap lock. So the two collide at the insert and InnoDB
+        // resolves it — a deadlock (1213), or a lock-wait timeout (1205)
+        // — instead of letting both write a default.
+        //
+        // Which means the loser here dies rather than losing gracefully,
+        // and StorageLocationService::ensureDefaultExists() is where that
+        // is turned back into « adopt what the winner created ». Its list
+        // of race outcomes and this comment have to stay in agreement.
         //
         // SQLite, which some of the tests run on, has no `FOR UPDATE` and
         // needs none — it serialises writers itself — so the clause is

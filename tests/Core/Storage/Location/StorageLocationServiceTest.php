@@ -8,6 +8,7 @@ use Core\Security\EncryptionService;
 use Core\Storage\Location\Backend\StorageBackendFactory;
 use Core\Storage\Location\Config\LocalLocationConfig;
 use Core\Storage\Location\Config\ObjectStorageLocationConfig;
+use Core\Storage\Location\StorageLocation;
 use Core\Storage\Location\StorageLocationConsumer;
 use Core\Storage\Location\StorageLocationConsumerRegistry;
 use Core\Storage\Location\StorageLocationException;
@@ -124,11 +125,37 @@ class StorageLocationServiceTest extends TestCase
         $this->assertCount(1, $this->repository->findAll());
     }
 
-    public function testEnsureDefaultExistsAdoptsWhatARaceCreatedRatherThanFailingTheRequest(): void
+    /**
+     * @return array<string, array{0: string, 1: int, 2: string}>
+     */
+    public static function lostRaceFailures(): array
     {
-        // Two first-ever requests both see an empty table and both insert;
-        // the UNIQUE index on the label rejects the loser. That is the one
-        // failure this method is allowed to swallow.
+        // The loser arrives by three routes, not one. create() takes a gap
+        // lock, and gap locks do not conflict with each other — what
+        // conflicts is the INSERT's insert-intention lock against the
+        // other's gap lock, which InnoDB resolves as a deadlock or a
+        // lock-wait timeout. The UNIQUE index's 1062 is only the shape the
+        // race takes when both callers reach the INSERT.
+        return [
+            'duplicate label' => ['23000', 1062, 'Duplicate entry'],
+            'deadlock' => ['40001', 1213, 'Deadlock found when trying to get lock'],
+            'lock wait timeout' => ['HY000', 1205, 'Lock wait timeout exceeded'],
+        ];
+    }
+
+    /**
+     * @dataProvider lostRaceFailures
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('lostRaceFailures')]
+    public function testEnsureDefaultExistsAdoptsWhatARaceCreatedRatherThanFailingTheRequest(
+        string $sqlState,
+        int $driverCode,
+        string $message
+    ): void {
+        // On a fresh install the table is empty and a browser fetching
+        // several renditions of one photo calls this concurrently — so
+        // treating any of these as a real failure 500s the very request
+        // the method exists to keep working.
         $winner = $this->repository->create(
             StorageLocationType::Local,
             StorageLocationService::DEFAULT_LABEL,
@@ -136,7 +163,7 @@ class StorageLocationServiceTest extends TestCase
             null
         );
         $service = $this->serviceWhoseCreateThrows(
-            self::pdoException('23000', 1062, 'Duplicate entry')
+            self::pdoException($sqlState, $driverCode, $message)
         );
 
         $this->assertSame($winner, $service->ensureDefaultExists()?->id);
@@ -156,12 +183,37 @@ class StorageLocationServiceTest extends TestCase
         $service->ensureDefaultExists();
     }
 
+    /**
+     * A service whose `create()` fails the way a lost race fails.
+     *
+     * **The first `findDefault()` answers null on purpose.** That is what
+     * makes this the race rather than a no-op: `ensureDefaultExists()`
+     * looks first and returns early when a default already exists, so a
+     * double that only throws from `create()` never reaches the `catch`
+     * being tested and the test passes whatever the catch allows. The
+     * first read is the one taken before the winner committed; every read
+     * after it sees the winner's row, which is what the method must go on
+     * to return.
+     */
     private function serviceWhoseCreateThrows(\PDOException $failure): StorageLocationService
     {
         $repository = new class ($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $failure) extends StorageLocationRepository {
+            private bool $looked = false;
+
             public function __construct(\PDO $pdo, EncryptionService $encryption, private \PDOException $failure)
             {
                 parent::__construct($pdo, $encryption);
+            }
+
+            public function findDefault(): ?StorageLocation
+            {
+                if (!$this->looked) {
+                    $this->looked = true;
+
+                    return null;
+                }
+
+                return parent::findDefault();
             }
 
             public function create(

@@ -493,6 +493,31 @@ attend un objet, ce qui ne dit rien du tout à l'administrateur. Le refus
 est désormais rendu en JSON avec son 422, comme partout ailleurs sur cet
 écran.
 
+**Et le verrou ne faisait pas ce que j'avais écrit qu'il faisait.** Le
+commentaire de `create()` disait que le verrou d'intervalle « fait
+attendre le second appelant » : c'est faux, et vérifié faux contre le
+vrai moteur — deux transactions prennent le **même** verrou d'intervalle
+sans se gêner, parce qu'un gap lock est purement inhibiteur. Ce qui entre
+en conflit, c'est l'INSERT : son *insert-intention lock* contre le gap
+lock de l'autre. InnoDB tranche alors par un interblocage (1213) ou par
+une expiration d'attente (1205).
+
+Le verrou empêche donc bien deux défauts — mais le perdant **meurt** au
+lieu de perdre gracieusement, et `ensureDefaultExists()` n'avalait que le
+1062 de l'index UNIQUE. Sur une installation neuve la table est vide et
+un navigateur qui demande plusieurs tailles d'une même photo appelle
+cette méthode en parallèle : c'est précisément la requête que la méthode
+existe pour faire aboutir qui partait en 500. Les trois codes sont
+désormais reconnus comme « couru et perdu ».
+
+**Le test de ce cas ne testait rien.** Il créait la ligne gagnante
+*avant* d'appeler le service — donc `ensureDefaultExists()` trouvait un
+défaut du premier coup, repartait aussitôt, et n'atteignait jamais le
+`catch` en question. Il passait quoi qu'autorise ce `catch`. Le doublon
+rend maintenant `null` à la première lecture seulement, ce qui est la
+lecture faite avant que le gagnant ne valide ; vérifié en échec sur les
+deux nouveaux codes.
+
 **Et un refus de capacité ne nommait pas l'emplacement.** Le seul appel
 réel en production, dans la fusion de deux albums délégués, disait « cet
 album » — or ce qu'un administrateur peut aller re-pointer, c'est un

@@ -234,12 +234,23 @@ class StorageLocationService
      * insert; the UNIQUE index on the label rejects the loser, which then
      * adopts what the winner created rather than failing the request.
      *
-     * **Only that one failure is swallowed.** Catching every `PDOException`
-     * here would turn a missing table, a dead connection or a refused
-     * write into « cette installation n'a pas d'emplacement par défaut » —
-     * a sentence that sends an administrator looking at the storage
+     * **Only the race is swallowed.** Catching every `PDOException` here
+     * would turn a missing table, a dead connection or a refused write
+     * into « cette installation n'a pas d'emplacement par défaut » — a
+     * sentence that sends an administrator looking at the storage
      * configuration for a fault that is in the database. So the race is
-     * recognised by its SQLSTATE and everything else is left to travel.
+     * recognised by its error codes and everything else is left to travel.
+     *
+     * **The race has three shapes, not one**, because
+     * {@see StorageLocationRepository::create()} locks. The gap lock it
+     * takes does not make the loser wait — gap locks do not conflict with
+     * each other — it makes the two INSERTs collide, and InnoDB resolves
+     * that with a deadlock or a lock-wait timeout. So the loser arrives
+     * here as 1213 or 1205 as readily as as the UNIQUE index's 1062, and
+     * treating only the last as « lost the race » would 500 the very
+     * request this method exists to keep working: on a fresh install the
+     * table is empty and a browser fetching several renditions of one
+     * photo calls this concurrently.
      */
     public function ensureDefaultExists(): ?StorageLocation
     {
@@ -256,10 +267,10 @@ class StorageLocationService
                 null
             );
         } catch (\PDOException $e) {
-            if (!self::isDuplicateEntry($e)) {
+            if (!self::isLostRace($e)) {
                 throw $e;
             }
-            // Lost the race — see above.
+            // Lost the race — see above. The winner's row is read below.
         }
 
         $this->locationsById = [];
@@ -268,20 +279,31 @@ class StorageLocationService
     }
 
     /**
-     * Whether this failure is a UNIQUE index refusing a duplicate, as
+     * Whether this failure is another request having got there first, as
      * opposed to any other reason an INSERT can fail.
      *
-     * SQLSTATE `23000` is « integrity constraint violation » and covers
-     * the foreign keys too, so the driver's own code decides: MySQL and
-     * MariaDB both report 1062 for a duplicate key.
+     * Three driver codes, because the loser can arrive by three routes:
+     *
+     * - **1062**, the UNIQUE index on the label refusing a duplicate —
+     *   the shape the race takes when both callers reach the INSERT.
+     * - **1213**, a deadlock: the two insert-intention locks each
+     *   conflicting with the other's gap lock, which is what
+     *   {@see StorageLocationRepository::create()}'s `FOR UPDATE`
+     *   actually produces.
+     * - **1205**, the same collision resolved by a lock-wait timeout
+     *   instead of by the deadlock detector.
+     *
+     * The driver code decides rather than the SQLSTATE: `23000` covers
+     * every integrity constraint including the foreign keys, and `HY000`
+     * covers almost everything else there is.
+     *
+     * All three roll the loser's transaction back, so re-reading
+     * {@see StorageLocationRepository::findDefault()} afterwards returns
+     * the winner's row and nothing half-written.
      */
-    private static function isDuplicateEntry(\PDOException $e): bool
+    private static function isLostRace(\PDOException $e): bool
     {
-        if ($e->getCode() !== '23000') {
-            return false;
-        }
-
-        return (int) ($e->errorInfo[1] ?? 0) === 1062;
+        return in_array((int) ($e->errorInfo[1] ?? 0), [1062, 1213, 1205], true);
     }
 
     /**
