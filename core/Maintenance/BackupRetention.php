@@ -28,9 +28,15 @@ use Core\File\FileRepository;
  * capped at five let three consecutive updates evict the full backup an
  * administrator had taken deliberately: the automatic backups outnumber
  * the wanted ones, so the noise always won. Each family now evicts its
- * own, plus one cap that cuts across all of them — at most a single
- * archive containing the photo gallery, which can weigh more than
- * everything else on the disk together.
+ * own, and nothing else does.
+ *
+ * **There used to be a cap cutting across all of them** — at most one
+ * archive containing the photo gallery, which could weigh more than
+ * everything else on the disk together. D10 removed the thing it was
+ * weighing: no archive carries a declared storage location any more, so
+ * every archive is now of the same modest order and the family quotas
+ * are the whole of the policy. A cap that could no longer fire would
+ * have been a rule nobody could test.
  *
  * **Purging happens on creation and nowhere else.** Not at boot, not
  * during a migration: an installation holding five backups must not watch
@@ -40,16 +46,6 @@ use Core\File\FileRepository;
  */
 final class BackupRetention
 {
-    /**
-     * How many gallery-bearing archives survive, all families together.
-     *
-     * One, and not a setting: this is the cap that actually decides
-     * whether the disk holds. Two of them is routinely more than every
-     * other backup combined, and an administrator who wants a second copy
-     * has somewhere better to put it than the server it is meant to
-     * survive.
-     */
-    public const KEEP_GALLERY = 1;
 
     public function __construct(
         private readonly BackupRepository $backups,
@@ -94,10 +90,6 @@ final class BackupRetention
             foreach ($this->supersededFailures($all, $family) as $old) {
                 $this->forgetUnlessInUse($old, $protected);
             }
-        }
-
-        foreach ($this->galleryArchivesBeyondCap($all) as $old) {
-            $this->forgetUnlessInUse($old, $protected);
         }
     }
 
@@ -196,11 +188,13 @@ final class BackupRetention
      * destroyed real archives. A row is inserted `pending` before its
      * background job runs, and a job that fails leaves the row behind as
      * `failed` with no file at all — so counting by family alone made the
-     * newest member of a family an empty record of a failure. With
-     * {@see KEEP_GALLERY} at one, the next creation of ANY kind then kept
-     * that empty row and deleted the last archive that actually contained
-     * the gallery. The quota is a promise about how many usable copies
-     * exist; a row that is not one cannot spend it.
+     * newest member of a family an empty record of a failure. Under the
+     * gallery cap this codebase used to carry — one archive, all families
+     * together — the next creation of ANY kind then kept that empty row
+     * and deleted the last archive that actually contained the gallery.
+     * The cap is gone with D10, the lesson is not: the quota is a promise
+     * about how many usable copies exist, and a row that is not one
+     * cannot spend it.
      *
      * @param Backup[] $all
      * @return Backup[]
@@ -244,21 +238,4 @@ final class BackupRetention
         return array_slice($failures, 1);
     }
 
-    /**
-     * Completed gallery-bearing archives beyond {@see KEEP_GALLERY}, any
-     * family — and completed for the reason {@see beyondQuota()} gives.
-     *
-     * @param Backup[] $all
-     * @return Backup[]
-     */
-    private function galleryArchivesBeyondCap(array $all): array
-    {
-        $withGallery = array_values(array_filter(
-            $all,
-            static fn(Backup $backup): bool => $backup->status === 'completed'
-                && in_array($backup->type, Backup::GALLERY_TYPES, true)
-        ));
-
-        return array_slice($withGallery, self::KEEP_GALLERY);
-    }
 }

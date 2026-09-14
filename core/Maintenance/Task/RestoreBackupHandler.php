@@ -30,6 +30,7 @@ use Core\Scheduler\TaskHandlerInterface;
 use Core\Security\EncryptionService;
 use Core\Security\SecretManager;
 use Core\Storage\DiskBudget;
+use Core\Storage\Location\DeclaredStorageDirectories;
 
 /**
  * Background "Restaurer un backup" — scheduled by Core\Http\Controller\
@@ -165,7 +166,12 @@ class RestoreBackupHandler implements TaskHandlerInterface
             $context->connection,
             $context->storagePath,
             $basePath,
-            new DiskBudget($context->storagePath, $context->settings)
+            new DiskBudget($context->storagePath, $context->settings),
+            DeclaredStorageDirectories::fromDatabase(
+                $context->connection->getPdo(),
+                $context->encryption,
+                $context->storagePath
+            )
         );
 
         $safetyDbDump = null;
@@ -367,7 +373,12 @@ class RestoreBackupHandler implements TaskHandlerInterface
             $context->connection,
             $context->storagePath,
             $basePath,
-            new DiskBudget($context->storagePath, $context->settings)
+            new DiskBudget($context->storagePath, $context->settings),
+            DeclaredStorageDirectories::fromDatabase(
+                $context->connection->getPdo(),
+                $context->encryption,
+                $context->storagePath
+            )
         );
         $backupRepository = new BackupRepository($pdo);
         $fileRepository = new FileRepository($pdo);
@@ -559,10 +570,10 @@ class RestoreBackupHandler implements TaskHandlerInterface
         // both sized on. This safety backup is the only thing the
         // automatic rollback below can restore from, so a truncated
         // one is unrecoverable.
-        $backupService->ensureRoomForDumpAndArchive(true);
+        $backupService->ensureRoomForDumpAndArchive();
 
         $safetyDbDump = $backupService->createDatabaseDump();
-        $safetyZip = $backupService->createFileBackup(true);
+        $safetyZip = $backupService->createFileBackup();
 
         $safetyBackupId = $backupRepository->create('auto_reset', $requestedBy);
         $safetyZipFileId = $fileRepository->create(
@@ -772,7 +783,12 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 $context->connection,
                 $context->storagePath,
                 $basePath,
-                new DiskBudget($context->storagePath, $context->settings)
+                new DiskBudget($context->storagePath, $context->settings),
+                DeclaredStorageDirectories::fromDatabase(
+                    $context->connection->getPdo(),
+                    $context->encryption,
+                    $context->storagePath
+                )
             );
             $this->rollbackToSafetyBackup(
                 $context,

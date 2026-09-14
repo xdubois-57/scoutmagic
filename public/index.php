@@ -2564,7 +2564,13 @@ $twig->addGlobal('unit_logo_available', $unitLogoService->resolveIconContent('64
 
 // Create backup service (Configuration > Maintenance)
 $backupRepository = new BackupRepository($pdo);
-$backupService = new BackupService($connection, $storagePath, dirname($storagePath), $diskBudget);
+$backupService = new BackupService(
+    $connection,
+    $storagePath,
+    dirname($storagePath),
+    $diskBudget,
+    \Core\Storage\Location\DeclaredStorageDirectories::fromDatabase($pdo, $encryptionService, $storagePath)
+);
 $updateHistoryRepository = new \Core\Maintenance\UpdateHistoryRepository($pdo);
 
 // Core "photo per person per year" component (ARCHITECTURE.md §8) — see
@@ -5306,7 +5312,6 @@ $frontController->registerController(
         $fileRepository,
         $updateHistoryRepository,
         $schedulerService,
-        $moduleManager,
         $encryptionService,
         $journalService,
         $settingService,

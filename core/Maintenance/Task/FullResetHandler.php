@@ -13,6 +13,7 @@ use Core\Maintenance\BackupServiceInterface;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 use Core\Storage\DiskBudget;
+use Core\Storage\Location\DeclaredStorageDirectories;
 
 /**
  * Background "Réinitialisation complète" — scheduled by
@@ -48,7 +49,8 @@ class FullResetHandler implements TaskHandlerInterface
             $context->connection,
             $context->storagePath,
             $basePath,
-            new DiskBudget($context->storagePath, $context->settings)
+            new DiskBudget($context->storagePath, $context->settings),
+            DeclaredStorageDirectories::fromDatabase($pdo, $context->encryption, $context->storagePath)
         );
 
         $preserveDir = null;
@@ -66,10 +68,10 @@ class FullResetHandler implements TaskHandlerInterface
             // take this pair: step 4 wipes `storage/` and step 2 empties
             // every table, so a safety backup truncated half-way through
             // is the only copy of a site that no longer exists.
-            $backupService->ensureRoomForDumpAndArchive(true);
+            $backupService->ensureRoomForDumpAndArchive();
 
             $dbDumpPath = $backupService->createDatabaseDump();
-            $filesZipPath = $backupService->createFileBackup(true);
+            $filesZipPath = $backupService->createFileBackup();
 
             $preserveDir = sys_get_temp_dir() . '/scoutmagic_reset_preserve_' . bin2hex(random_bytes(8));
             mkdir($preserveDir, 0755, true);

@@ -649,15 +649,14 @@
                                 </div>
                                 <div class="form-check">
                                     <input class="form-check-input" type="radio" name="scope" id="scope-no-gallery" value="full_no_gallery">
-                                    <label class="form-check-label small" for="scope-no-gallery">Site complet, sans la galerie photo</label>
+                                    <label class="form-check-label small" for="scope-no-gallery">Site complet, hors emplacements de stockage</label>
                                 </div>
-                                {% if gallery_enabled %}
-                                    <div class="form-check">
-                                        <input class="form-check-input" type="radio" name="scope" id="scope-with-gallery" value="full_with_gallery">
-                                        <label class="form-check-label small" for="scope-with-gallery">Site complet, avec la galerie photo</label>
-                                    </div>
-                                {% endif %}
                             </fieldset>
+                            <p class="form-text mb-2">
+                                Aucune archive ne reprend le contenu d'un emplacement de stockage — ni la galerie
+                                photo, ni les autres. Chaque emplacement a son propre cycle de vie&nbsp;:
+                                <a href="/config/stockage">Configuration &gt; Stockage</a>.
+                            </p>
                             {% include 'partials/form_field.html.twig' with {
                                 field_id: 'full-backup-password', type: 'password',
                                 label: "Mot de passe de l'archive", required: true,
@@ -955,13 +954,10 @@
                 <p class="small text-body-secondary mb-2">
                     Conservation chez la destination : {{ remote_backup_keep }} archives au maximum, et
                     {{ remote_backup_max_bytes }} au plus — la plus contraignante des deux s'applique.
-                    {% if remote_backup_include_gallery %}
-                        La galerie fait partie des envois.
-                    {% else %}
-                        La galerie n'est pas envoyée : elle se compte en gigaoctets et remplirait le compte
-                        distant en quelques semaines.
-                    {% endif %}
-                    Ces trois réglages se modifient dans
+                    Aucun emplacement de stockage n'est envoyé : ni la galerie, ni les autres. Leur contenu a
+                    son propre cycle de vie, décrit dans
+                    <a href="/config/stockage">Configuration &gt; Stockage</a>.
+                    Ces deux réglages se modifient dans
                     <a href="/config/settings">Configuration &gt; Réglages</a>.
                 </p>
 

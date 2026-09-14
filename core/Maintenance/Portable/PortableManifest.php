@@ -88,12 +88,10 @@ final class PortableManifest
      *        here to fill a field would give a site an identity as a side
      *        effect of taking a backup. A restore assigns a NEW identifier
      *        anyway (D6), so the honest value is "unknown".
-     * @param bool        $includesGallery   whether `storage/gallery/` is in it
      */
     public function __construct(
         private readonly string $scoutmagicVersion,
         private readonly ?string $installationId,
-        private readonly bool $includesGallery,
         private readonly \DateTimeImmutable $createdAt
     ) {
     }
@@ -143,7 +141,15 @@ final class PortableManifest
             'scoutmagic_version' => $this->scoutmagicVersion,
             'created_at' => $this->createdAt->format(\DateTimeInterface::ATOM),
             'installation_id' => $this->installationId,
-            'includes_gallery' => $this->includesGallery,
+            // **Always false, and the field stays.** Since D10 no archive
+            // carries a directory declared as a storage location, so
+            // there is no longer anything for a caller to decide. The
+            // member is not dropped from the format: an archive written
+            // before that change can legitimately say `true`, and
+            // {@see PortableArchive::includesGallery()} still reads it —
+            // a reader that met an absent field would have to guess, and
+            // the guess it would make is the wrong one.
+            'includes_gallery' => false,
             'includes_secrets' => array_values(self::SECRET_MEMBERS),
             'members' => $this->members,
         ];

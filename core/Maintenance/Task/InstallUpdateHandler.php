@@ -29,6 +29,7 @@ use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 use Core\Storage\DiskBudget;
+use Core\Storage\Location\DeclaredStorageDirectories;
 
 /**
  * Background installation of either a GitHub release or (development mode)
@@ -192,7 +193,17 @@ class InstallUpdateHandler implements TaskHandlerInterface
 
         $basePath = dirname($context->storagePath);
         $diskBudget = new DiskBudget($context->storagePath, $context->settings);
-        $backupService = new BackupService($context->connection, $context->storagePath, $basePath, $diskBudget);
+        $backupService = new BackupService(
+            $context->connection,
+            $context->storagePath,
+            $basePath,
+            $diskBudget,
+            DeclaredStorageDirectories::fromDatabase(
+                $context->connection->getPdo(),
+                $context->encryption,
+                $context->storagePath
+            )
+        );
         $tempDir = $context->storagePath . '/temp/update_' . $historyId;
 
         $dbDumpPath = null;
@@ -218,7 +229,7 @@ class InstallUpdateHandler implements TaskHandlerInterface
             // cleanly: it leaves a half-copied install over a running
             // site, which is the failure a rollback is least able to
             // recover from.
-            $backupService->ensureRoomForDumpAndArchive(false, self::UPDATE_WORKSPACE_ESTIMATE_BYTES);
+            $backupService->ensureRoomForDumpAndArchive(self::UPDATE_WORKSPACE_ESTIMATE_BYTES);
 
             // Step 1: mandatory safety backup — the only thing an automatic
             // rollback can restore from, so it must be a genuine, restorable
@@ -243,7 +254,7 @@ class InstallUpdateHandler implements TaskHandlerInterface
             // measures are one list, or they eventually disagree.
             $updateHistoryRepository->setStatus($historyId, 'backing_up');
             $dbDumpPath = $backupService->createDatabaseDump();
-            $filesZipPath = $backupService->createFileBackup(false);
+            $filesZipPath = $backupService->createFileBackup();
 
             $backupId = $backupRepository->create('auto_update', $history->requestedBy);
             $zipFileId = $fileRepository->create(
@@ -416,7 +427,12 @@ class InstallUpdateHandler implements TaskHandlerInterface
             $context->connection,
             $context->storagePath,
             $basePath,
-            new DiskBudget($context->storagePath, $context->settings)
+            new DiskBudget($context->storagePath, $context->settings),
+            DeclaredStorageDirectories::fromDatabase(
+                $context->connection->getPdo(),
+                $context->encryption,
+                $context->storagePath
+            )
         );
 
         // This invocation changes no status — a resumed migration re-enters

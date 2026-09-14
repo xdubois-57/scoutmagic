@@ -70,12 +70,21 @@ final class BackupFamilyCoverageTest extends TestCase
         }
     }
 
-    /** Every gallery-bearing type must be a type. */
-    public function testTheGalleryTypesAreRealTypes(): void
+    /**
+     * The retired type is still in the schema, and still classified.
+     *
+     * `full_with_gallery` stopped being produced with D10 — no archive
+     * carries a declared storage location, so the scope could not keep
+     * its name's promise — and stayed in the column because rows written
+     * before that change still hold it, and because a pure schema differ
+     * cannot narrow an ENUM a row still uses. A value the schema ships
+     * and this code cannot classify would be a backup retention counts
+     * nothing towards and never purges.
+     */
+    public function testTheRetiredTypeIsStillInTheSchemaAndStillClassified(): void
     {
-        foreach (Backup::GALLERY_TYPES as $type) {
-            $this->assertContains($type, $this->schemaTypes());
-        }
+        $this->assertContains('full_with_gallery', $this->schemaTypes());
+        $this->assertSame(BackupFamily::Manual, BackupFamily::tryFromType('full_with_gallery'));
     }
 
     /**

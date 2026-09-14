@@ -21,55 +21,34 @@ class Backup
      */
     public const PORTABLE_TYPE = 'portable';
 
-    /** @var string[] */
+    /**
+     * Every value `backups.type` can hold — which is not the same as
+     * every value this code still WRITES.
+     *
+     * **`full_with_gallery` is here and is no longer produced.** D10 took
+     * every declared storage location out of every archive, so a scope
+     * promising one was a scope that could not keep its promise; the
+     * Maintenance page stopped offering it and `createFullBackup()`
+     * stopped accepting it. The value stays readable because rows
+     * written before that change still carry it, and because narrowing
+     * the column is not available to us: this schema is applied by a
+     * pure differ ({@see \Core\Database\MigrationRunner}) with no
+     * data-migration step, and under `STRICT_TRANS_TABLES` an `ALTER`
+     * dropping a value some row still holds is refused outright — the
+     * migration would then retry, abandon, and report itself broken on
+     * the Maintenance page of a site whose only fault was having taken a
+     * backup. Re-labelling those rows would be worse than keeping them:
+     * a `full_with_gallery` archive really does contain the photographs,
+     * and calling it `full_no_gallery` would lie to whoever restores it.
+     *
+     * @var string[]
+     */
     public const TYPES = ['database', 'full_config', 'full_no_gallery', 'full_with_gallery', 'auto_update',
         'auto_reset', 'auto_backup', self::PORTABLE_TYPE];
 
     /** @var string[] */
     public const STATUSES = ['pending', 'in_progress', 'completed', 'failed'];
 
-    /**
-     * Types whose archive carries the photo gallery.
-     *
-     * The one thing a cap has to know about a type beyond its family: a
-     * gallery archive can weigh more than every other backup on the disk
-     * put together, so exactly one of them is kept, across all families
-     * ({@see BackupRetention}).
-     *
-     * **`auto_reset` is here, and leaving it out was a real hole.** The
-     * name of a type says nothing about its contents: it is recorded by
-     * handlers that call `BackupService::createFileBackup(true)` —
-     * `ResetSettingsHandler`, `RestoreBackupHandler` — because the
-     * operation they protect against can wipe `storage/gallery/`, so
-     * their safety copy has to hold it. With only `full_with_gallery`
-     * listed, an installation could sit on four gallery-sized archives at
-     * once (one manual plus a family quota of three operational ones) —
-     * exactly the disk the cap exists to defend.
-     *
-     * **`auto_update` was here too, and left when its archive did.** An
-     * update replaces code; its rollback extracts over the live tree and
-     * deletes nothing the archive omits, so the photos survive a safety
-     * copy that never held them (issue #298). `InstallUpdateHandler` asks
-     * for `createFileBackup(false)` since, and a type whose archive no
-     * longer carries the gallery must not spend the one slot the cap
-     * has — that would evict a real gallery archive to protect a disk
-     * nothing is filling.
-     *
-     * **`portable` is deliberately absent too**, and for the opposite
-     * reason to a name being unreliable: this one is decided by
-     * `BackupService::createPortableBackup()`, which passes `false` and
-     * offers no scope at all. The archive that leaves the server is the
-     * one that must stay small enough to leave it.
-     *
-     * `FullResetHandler` also takes one, and is deliberately absent: it
-     * records no `backups` row at all (see its own comment about keeping
-     * the file rather than the bookkeeping, for a reset whose point is an
-     * empty database). `GalleryTypeCoverageTest` refuses a new
-     * gallery-bearing call site that nobody has classified.
-     *
-     * @var string[]
-     */
-    public const GALLERY_TYPES = ['full_with_gallery', 'auto_reset'];
 
     /**
      * @param int|null $sizeBytes what the backup occupies on disk, both of

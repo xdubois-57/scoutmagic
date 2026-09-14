@@ -41,6 +41,7 @@ use Core\Security\SecretManager;
 use Core\Security\SessionStore;
 use Core\Statistics\InstallationDateService;
 use Core\Statistics\InstallationIdentityService;
+use Core\Storage\Location\DeclaredStorageDirectories;
 use Twig\Environment;
 
 class SetupController extends AbstractController
@@ -530,7 +531,16 @@ class SetupController extends AbstractController
             // carries.
             $restore->apply(
                 $archive,
-                new BackupService($connection, $storageRoot, $installRoot),
+                // No budget and no locations: the site is still being
+                // installed, so there is no declared quota to read and
+                // `storage_locations` holds no row yet.
+                new BackupService(
+                    $connection,
+                    $storageRoot,
+                    $installRoot,
+                    null,
+                    DeclaredStorageDirectories::none()
+                ),
                 $credentials + ['base_url' => $baseUrl]
             );
 

@@ -28,7 +28,6 @@ final class PortableManifestTest extends TestCase
         return new PortableManifest(
             '2.4.1',
             $installationId,
-            false,
             new \DateTimeImmutable('2026-09-10 08:30:00', new \DateTimeZone('UTC'))
         );
     }
@@ -48,6 +47,12 @@ final class PortableManifestTest extends TestCase
         $this->assertSame('2.4.1', $decoded['scoutmagic_version']);
         $this->assertSame('abc123', $decoded['installation_id']);
         $this->assertSame('2026-09-10T08:30:00+00:00', $decoded['created_at']);
+        // Kept in the format and always false since D10: no archive
+        // carries a directory declared as a storage location, so there is
+        // nothing left for a caller to decide. The field stays because an
+        // archive written before that change can legitimately say true,
+        // and PortableArchive still reads it — a reader meeting an absent
+        // field would have to guess, and would guess wrong.
         $this->assertFalse($decoded['includes_gallery']);
     }
 

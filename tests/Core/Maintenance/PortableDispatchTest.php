@@ -50,8 +50,9 @@ final class PortableDispatchTest extends TestCase
      * deleted and the comment describing it left behind — a test that
      * checks the documentation of the thing instead of the thing. That is
      * the same mistake, in the same file, that IT-05's review caught in
-     * its ratchet and IT-04's in `GALLERY_TYPES`: what a piece of code is
-     * CALLED, or says about itself, is not evidence of what it does.
+     * its ratchet and IT-04's in the gallery-type ratchet IT-03 retired:
+     * what a piece of code is CALLED, or says about itself, is not
+     * evidence of what it does.
      */
     private function handlerCode(): string
     {

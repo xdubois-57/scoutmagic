@@ -67,7 +67,7 @@ class FullResetHandlerTest extends TestCase
 
         return new class ($dbDumpDir) implements BackupServiceInterface {
             // Nothing to reserve: this fake writes a couple of bytes.
-            public function ensureRoomForDumpAndArchive(bool $includeGallery, int $extraBytes = 0): void
+            public function ensureRoomForDumpAndArchive(int $extraBytes = 0): void
             {
             }
 
@@ -87,7 +87,7 @@ class FullResetHandlerTest extends TestCase
                 return $this->createDatabaseDump();
             }
 
-            public function createFileBackup(bool $includeGallery = false): string
+            public function createFileBackup(): string
             {
                 $path = $this->dir . '/files_' . bin2hex(random_bytes(4)) . '.zip';
                 $zip = new \ZipArchive();
@@ -182,7 +182,7 @@ class FullResetHandlerTest extends TestCase
     {
         $failingBackupService = new class implements BackupServiceInterface {
             // Nothing to reserve: this fake writes a couple of bytes.
-            public function ensureRoomForDumpAndArchive(bool $includeGallery, int $extraBytes = 0): void
+            public function ensureRoomForDumpAndArchive(int $extraBytes = 0): void
             {
             }
 
@@ -191,7 +191,7 @@ class FullResetHandlerTest extends TestCase
                 throw new \RuntimeException('mysqldump unavailable');
             }
             public function createConfigOnlyDump(): string { return $this->createDatabaseDump(); }
-            public function createFileBackup(bool $includeGallery = false): string { return ''; }
+            public function createFileBackup(): string { return ''; }
             public function createFullBackup(string $scope, string $password): array { return ['zipPath' => '', 'dbDumpPath' => '']; }
             public function supportsZipEncryption(): bool { return true; }
             public function restoreDatabase(string $dumpPath): void {}
