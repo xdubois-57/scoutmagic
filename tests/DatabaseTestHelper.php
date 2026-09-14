@@ -804,6 +804,30 @@ class DatabaseTestHelper
             UNIQUE(label)
         )');
 
+        // One location's safety copy on another (schema/core.sql:
+        // storage_protections, ARCHITECTURE.md §8.110). No foreign keys
+        // here: SQLite enforces them only when asked to, and every test
+        // that needs the refusal exercises it through
+        // Protection\StorageProtectionConsumer, which is where an
+        // administrator actually meets it.
+        $pdo->exec('CREATE TABLE storage_protections (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_location_id INTEGER NOT NULL,
+            destination_location_id INTEGER NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            grace_period_days INTEGER NOT NULL DEFAULT 30,
+            cadence_hours INTEGER NOT NULL DEFAULT 24,
+            pass_phase TEXT NULL,
+            pass_started_at TEXT NULL,
+            pass_cursor TEXT NULL,
+            pass_page_last_key TEXT NULL,
+            pass_seen_count INTEGER NOT NULL DEFAULT 0,
+            last_completed_pass_at TEXT NULL,
+            last_error TEXT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(source_location_id)
+        )');
+
         return $pdo;
     }
 }

@@ -2461,6 +2461,20 @@ $diskBudget = new \Core\Storage\DiskBudget($storagePath, $settingService);
 // modules that answer.
 $storageLocationRepository = new \Core\Storage\Location\StorageLocationRepository($pdo, $encryptionService);
 $storageLocationConsumers = new \Core\Storage\Location\StorageLocationConsumerRegistry();
+$storageProtectionRepository = new \Core\Storage\Location\Protection\StorageProtectionRepository($pdo);
+// **The one consumer that is not a module's**, so it is registered here
+// and unconditionally rather than in a block further down: a safety copy
+// is part of the storage subsystem itself and exists whatever is enabled.
+// Without it, deleting a location somebody's copy is written to reaches
+// the `RESTRICT` foreign key and surfaces a PDOException — a 500 in front
+// of an administrator, which is the exact thing this registry exists to
+// replace with a French refusal naming « Copies de secours ».
+$storageLocationConsumers->register(
+    new \Core\Storage\Location\Protection\StorageProtectionConsumer(
+        $storageProtectionRepository,
+        $storageLocationRepository
+    )
+);
 $storageBackendFactory = new \Core\Storage\Location\Backend\StorageBackendFactory(
     $storageLocationRepository,
     $storagePath
@@ -3398,6 +3412,19 @@ $schedulerService->seed(
     new DateTimeImmutable()
 );
 
+// Same bootstrap for the nightly safety copies (Core\Storage\Location\
+// Protection\Task\RunStorageProtectionsHandler). Armed unconditionally,
+// protections declared or not: the handler's first act is to ask which are
+// due, and a run that finds none simply re-arms. Arming it only when a
+// protection exists would mean the chain never starts on the request that
+// declares the first one — and nothing would ever start it afterwards.
+$schedulerService->seed(
+    'core',
+    \Core\Storage\Location\Protection\Task\RunStorageProtectionsHandler::TASK_KEY,
+    \Core\Storage\Location\Protection\Task\RunStorageProtectionsHandler::REFERENCE,
+    new DateTimeImmutable()
+);
+
 // Same bootstrap for the notification retention purge (Core\Notification\
 // Task\PurgeNotificationsHandler).
 $schedulerService->rearm(
@@ -4003,6 +4030,27 @@ $router->addRoute(
     '/config/stockage/emplacements/{id}/test',
     \Core\Http\Controller\StorageConfigController::class,
     'test',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/stockage/emplacements/{id}/protection',
+    \Core\Http\Controller\StorageConfigController::class,
+    'saveProtection',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/stockage/emplacements/{id}/protection/suppression',
+    \Core\Http\Controller\StorageConfigController::class,
+    'deleteProtection',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/stockage/emplacements/{id}/protection/rapatriement',
+    \Core\Http\Controller\StorageConfigController::class,
+    'repatriate',
     'superadmin',
 );
 $router->addRoute(
@@ -5351,7 +5399,13 @@ $frontController->registerController(
         $volumeInventory,
         $journalService,
         new \Core\Storage\Location\Diagnostics\ObjectStorageErrorExplainer($llmConnectorForOthers),
-        __DIR__
+        __DIR__,
+        new \Core\Storage\Location\Protection\StorageProtectionService(
+            $storageProtectionRepository,
+            $storageLocationRepository,
+            $backupRepository
+        ),
+        $schedulerService
     )
 );
 
