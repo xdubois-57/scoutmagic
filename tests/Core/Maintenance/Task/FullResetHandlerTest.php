@@ -13,6 +13,9 @@ use Core\Maintenance\BackupServiceInterface;
 use Core\Maintenance\Task\FullResetHandler;
 use Core\Mail\MailService;
 use Core\Scheduler\TaskContext;
+use Core\Storage\Location\Config\LocalLocationConfig;
+use Core\Storage\Location\StorageLocationRepository;
+use Core\Storage\Location\StorageLocationType;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
 use PHPUnit\Framework\TestCase;
@@ -147,6 +150,77 @@ class FullResetHandlerTest extends TestCase
         $this->assertFileDoesNotExist($this->storagePath . '/uploads/doc.pdf');
     }
 
+    /**
+     * **A declared storage location survives the wipe, and it has to.**
+     *
+     * Until D10 the safety copy taken in step 1 contained it, so deleting
+     * it here was reversible. It no longer does — no archive carries a
+     * declared location — and wiping it would have made this operation
+     * quietly more destructive than it had ever been, with no archive and
+     * no warning between an administrator and the only copy of six years
+     * of photographs.
+     *
+     * The undeclared folder in the same tree is asserted in the same
+     * test on purpose: what survives is the DECLARATION, not a name, and
+     * a reset that spared all of `storage/` would be a reset that reset
+     * nothing.
+     */
+    public function testADeclaredLocationSurvivesTheWipeAndAnUndeclaredFolderDoesNot(): void
+    {
+        $this->declareLocation('Galerie', 'gallery');
+        mkdir($this->storagePath . '/gallery/1', 0755, true);
+        file_put_contents($this->storagePath . '/gallery/1/photo.jpg', 'fake-jpeg-bytes');
+
+        $handler = new FullResetHandler($this->fakeBackupService());
+        $handler->handle([], $this->context);
+
+        $this->assertFileExists(
+            $this->storagePath . '/gallery/1/photo.jpg',
+            'A reset destroyed a declared location that no archive covers.'
+        );
+        $this->assertSame('fake-jpeg-bytes', file_get_contents($this->storagePath . '/gallery/1/photo.jpg'));
+        $this->assertFileDoesNotExist($this->storagePath . '/uploads/doc.pdf');
+    }
+
+    /**
+     * The locations are read BEFORE the tables are emptied.
+     *
+     * Step 2 truncates `storage_locations`; asking afterwards which
+     * directories were declared answers "none", and step 4 would then
+     * delete every one of them. The bug would be invisible in any test
+     * that declared nothing, which is why this one declares a location
+     * whose folder is nested two levels deep — the shallow case is
+     * already covered above, and a nested one also exercises the
+     * recursion's preserve check rather than only its first level.
+     */
+    public function testALocationNestedUnderAnotherFolderAlsoSurvives(): void
+    {
+        $this->declareLocation('Disque monté', 'media/photos');
+        mkdir($this->storagePath . '/media/photos', 0755, true);
+        file_put_contents($this->storagePath . '/media/photos/holiday.jpg', 'fake-jpeg-on-a-nas');
+        file_put_contents($this->storagePath . '/media/README.txt', 'not-a-location');
+
+        $handler = new FullResetHandler($this->fakeBackupService());
+        $handler->handle([], $this->context);
+
+        $this->assertFileExists($this->storagePath . '/media/photos/holiday.jpg');
+        $this->assertFileDoesNotExist(
+            $this->storagePath . '/media/README.txt',
+            'Only the declared folder is spared, not the one that happens to contain it.'
+        );
+    }
+
+    /**
+     * Declares a local storage location the way a real installation does.
+     */
+    private function declareLocation(string $label, string $path): void
+    {
+        (new StorageLocationRepository(
+            $this->pdo,
+            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        ))->create(StorageLocationType::Local, $label, new LocalLocationConfig($path), null);
+    }
+
     public function testHandlePreservesTheSafetyBackupFilesUnderMaintenance(): void
     {
         $handler = new FullResetHandler($this->fakeBackupService());
@@ -176,6 +250,28 @@ class FullResetHandlerTest extends TestCase
         $this->assertCount(1, $rows);
         $this->assertSame('full_reset_performed', $rows[0]['event_type']);
         $this->assertNull($rows[0]['user_account_id']);
+        $this->assertStringNotContainsString('emplacement', (string) $rows[0]['description']);
+    }
+
+    /**
+     * The journal names what is still on the disk.
+     *
+     * An entry saying only « retour à l'état d'installation neuve » would
+     * be read, by whoever comes to the journal after a reset, as an empty
+     * disk — and the folders it left are exactly the ones with something
+     * irreplaceable in them.
+     */
+    public function testTheJournalSaysAFolderWasKeptWhenOneWas(): void
+    {
+        $this->declareLocation('Galerie', 'gallery');
+        mkdir($this->storagePath . '/gallery', 0755, true);
+
+        $handler = new FullResetHandler($this->fakeBackupService());
+        $handler->handle([], $this->context);
+
+        $rows = $this->pdo->query('SELECT * FROM event_log')->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertStringContainsString('1 emplacement de stockage conservé', (string) $rows[0]['description']);
+        $this->assertStringContainsString('aucune archive', (string) $rows[0]['description']);
     }
 
     public function testHandleJournalsFailureWhenTheSafetyBackupFails(): void

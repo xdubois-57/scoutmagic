@@ -23,6 +23,13 @@ use Core\Storage\Location\DeclaredStorageDirectories;
  * storage/keys/master.key — after this runs, the next request hits the
  * setup wizard (ARCHITECTURE.md §9) exactly like a fresh install.
  *
+ * **Except the storage locations, which survive it.** Since D10 no archive
+ * carries a declared location, so the safety copy this handler takes in
+ * step 1 no longer holds one either — and wiping them here would have
+ * turned "reset the site" into "destroy the photographs, irrecoverably",
+ * as a side effect nobody asked for. A location has a lifecycle of its own;
+ * a reset of the site is not an event in it.
+ *
  * No rollback: unlike Task\RestoreBackupHandler, a mid-wipe failure here is
  * not recoverable by design — the module spec accepts that the site may be
  * left in a broken, setup-wizard-bound state either way, which is the
@@ -45,12 +52,25 @@ class FullResetHandler implements TaskHandlerInterface
     {
         $pdo = $context->connection->getPdo();
         $basePath = dirname($context->storagePath);
+
+        // **Read BEFORE anything is destroyed, and that is the whole
+        // subtlety.** Step 2 truncates every table, `storage_locations`
+        // among them, so asking afterwards which directories were
+        // declared would answer "none" — and step 4 would then delete
+        // every one of them. Resolved once, here, and used twice: the
+        // archive leaves them out (D10), and the wipe leaves them alone.
+        $declaredLocations = DeclaredStorageDirectories::fromDatabase(
+            $pdo,
+            $context->encryption,
+            $context->storagePath
+        );
+
         $backupService = $this->backupService ?? new BackupService(
             $context->connection,
             $context->storagePath,
             $basePath,
             new DiskBudget($context->storagePath, $context->settings),
-            DeclaredStorageDirectories::fromDatabase($pdo, $context->encryption, $context->storagePath)
+            $declaredLocations
         );
 
         $preserveDir = null;
@@ -86,8 +106,24 @@ class FullResetHandler implements TaskHandlerInterface
             // Step 3: delete secrets.enc (forces DB/SMTP reconfiguration at setup).
             @unlink($context->storagePath . '/config/secrets.enc');
 
-            // Step 4: wipe storage/ except keys/master.key.
-            $this->removeTreeExcept($context->storagePath, [$context->storagePath . '/keys/master.key']);
+            // Step 4: wipe storage/ except keys/master.key and every
+            // directory declared as a storage location.
+            //
+            // **Those directories survive because nothing else would
+            // bring them back.** Until D10 the safety copy taken in step 1
+            // contained them, so wiping them was reversible; it no longer
+            // does — a location has its own lifecycle and no archive
+            // carries it — and deleting them here would have made this
+            // operation quietly more destructive than it was, without
+            // anybody asking for that. Between the two irreversible
+            // readings, this one is the recoverable one: files left on a
+            // disk can still be deleted by hand, and a reset is described
+            // to the operator as putting the SITE back to a fresh
+            // install (`maintenance.html.twig` says which folders stay).
+            $this->removeTreeExcept(
+                $context->storagePath,
+                [$context->storagePath . '/keys/master.key', ...$declaredLocations->all()]
+            );
 
             // Step 5: recreate the empty directory structure, and move the
             // preserved safety backup back under storage/maintenance/.
@@ -109,7 +145,7 @@ class FullResetHandler implements TaskHandlerInterface
                 'core',
                 'full_reset_performed',
                 'security',
-                'Réinitialisation complète effectuée — retour à l\'état d\'installation neuve'
+                $this->resetSummary($declaredLocations)
             );
         } catch (\Throwable $e) {
             if ($preserveDir !== null) {
@@ -151,6 +187,30 @@ class FullResetHandler implements TaskHandlerInterface
             $pdo->exec('TRUNCATE TABLE `' . $table . '`');
         }
         $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
+    }
+
+    /**
+     * What the journal records, naming the folders that are still there.
+     *
+     * A reset whose entry said only « retour à l'état d'installation
+     * neuve » would be read, by whoever comes to the journal after it, as
+     * an empty disk — and the folders it left are exactly the ones with
+     * something irreplaceable in them.
+     */
+    private function resetSummary(DeclaredStorageDirectories $declaredLocations): string
+    {
+        $kept = count($declaredLocations->all());
+        if ($kept === 0) {
+            return 'Réinitialisation complète effectuée — retour à l\'état d\'installation neuve';
+        }
+
+        return sprintf(
+            'Réinitialisation complète effectuée — retour à l\'état d\'installation neuve. %s %s '
+                . 'conservé%s : son contenu n\'est repris dans aucune archive.',
+            $kept,
+            $kept === 1 ? 'emplacement de stockage' : 'emplacements de stockage',
+            $kept === 1 ? '' : 's'
+        );
     }
 
     /**

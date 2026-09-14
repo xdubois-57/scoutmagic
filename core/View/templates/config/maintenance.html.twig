@@ -1131,6 +1131,13 @@
                             Efface définitivement toutes les données du site. Le prochain accès déclenchera
                             l'assistant d'installation, comme pour un site neuf.
                         </p>
+                        <p class="text-body-secondary small">
+                            Les dossiers déclarés comme
+                            <a href="/config/stockage">emplacements de stockage</a> ne sont pas effacés&nbsp;:
+                            leur contenu n'est repris dans aucune archive, il serait donc perdu sans retour.
+                            Le site, lui, ne les référencera plus&nbsp;; supprimez-les vous-même si vous
+                            vouliez repartir d'un disque vide.
+                        </p>
                         <form id="full-reset-form">
                             {{ csrf_field()|raw }}
                             <div class="form-check mb-2">
