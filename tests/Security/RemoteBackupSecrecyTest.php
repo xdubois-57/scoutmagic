@@ -56,6 +56,20 @@ final class RemoteBackupSecrecyTest extends TestCase
             'dossier-1',
             '2026-09-01T00:00:00+00:00'
         );
+        // **The permitted keys, exactly** — not three forbidden names.
+        // A denylist only ever catches what somebody already thought of:
+        // a field added later under some other name (`oauth_token`,
+        // `credentials`) would carry a secret straight onto the screen and
+        // into the support package, and pass every assertion below.
+        // `fromArray()` ignores keys it does not know, so nothing needs a
+        // new name to be readable — which is what makes the exhaustive
+        // form affordable here.
+        $this->assertSame(
+            ['client_id', 'folder_id', 'connected_at'],
+            array_keys($config->toArray()),
+            'the clear configuration record gained or lost a field'
+        );
+
         $serialised = (string) json_encode($config->toArray());
 
         foreach (['client_secret', 'refresh_token', 'account'] as $forbidden) {
@@ -103,10 +117,16 @@ final class RemoteBackupSecrecyTest extends TestCase
     public function testNoCodeWritesAnyOfTheThreeIntoTheSettingsTable(): void
     {
         $root = dirname(__DIR__, 2);
+        // `Backend/Drive/*.php` is listed in its own right: the pattern
+        // above stops at the directory, and the Drive client — the one
+        // file in this feature that HOLDS the three values — lives under
+        // it. A scan that cannot see the code most able to break the rule
+        // is a scan that reports green for the wrong reason.
         $files = array_merge(
             glob($root . '/core/Maintenance/Remote/*.php') ?: [],
             glob($root . '/core/Storage/Location/Config/*.php') ?: [],
             glob($root . '/core/Storage/Location/Backend/*.php') ?: [],
+            glob($root . '/core/Storage/Location/Backend/Drive/*.php') ?: [],
             [
                 $root . '/core/Http/Controller/GoogleDriveConnectionController.php',
                 $root . '/core/Http/Controller/RemoteBackupController.php',
@@ -117,7 +137,29 @@ final class RemoteBackupSecrecyTest extends TestCase
 
         foreach ($files as $file) {
             foreach (explode("\n", (string) file_get_contents($file)) as $number => $line) {
-                if (!str_contains($line, '->set(') && !str_contains($line, '->setInternal(')) {
+                // **Every writer `Config\SettingService` exposes**, not
+                // the two that happened to be in use. The rule is about
+                // the settings table, and `setMany()`, `claimIfEmpty()`,
+                // `replaceIfUnchanged()` and `register()` reach it just as
+                // surely — the last one by way of a DEFAULT, which is a
+                // stored value like any other. A scan naming two of six
+                // reads as enforcement and is a coin toss.
+                $writers = [
+                    '->set(',
+                    '->setMany(',
+                    '->setInternal(',
+                    '->claimIfEmpty(',
+                    '->replaceIfUnchanged(',
+                    '->register(',
+                ];
+                $writes = false;
+                foreach ($writers as $writer) {
+                    if (str_contains($line, $writer)) {
+                        $writes = true;
+                        break;
+                    }
+                }
+                if (!$writes) {
                     continue;
                 }
                 foreach (['client_secret', 'refresh_token', "'account'"] as $secretKey) {

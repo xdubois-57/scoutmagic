@@ -94,7 +94,7 @@ class RunOperationalChecksHandler implements TaskHandlerInterface
             // and one a site backing up perfectly to its own disk fails
             // completely (Core\Alert\Check\RemoteBackupAgeCheck).
             new RemoteBackupAgeCheck($this->remoteDestination($context), $context->settings),
-            new RemoteQuotaCheck($this->remoteBackend($context)),
+            $this->remoteQuotaCheck($context),
             new MailDeliveryCheck(new JournalRepository($pdo)),
             // The two the outbound chantier adds (D9, ARCHITECTURE.md
             // §8.106). Both are built here rather than inside the check,
@@ -137,33 +137,39 @@ class RunOperationalChecksHandler implements TaskHandlerInterface
     }
 
     /**
-     * The destination to ask about free space, or null when there is
-     * nothing to ask.
+     * The free-space check, told which of three situations this site is
+     * in.
      *
-     * **Null means "nothing to measure", never "the grant is gone".**
-     * Null is what makes the check re-arm, and re-arming is « all clear »
-     * — so returning it for a destination that has stopped accepting
-     * anything would put the quota alert out on exactly the site that
-     * needs it. A backend is therefore built for that site too; every
-     * call it makes fails, and {@see RemoteQuotaCheck} turns that into
-     * *inconclusive*, which leaves a standing alert where it was.
+     * **A backend, « nothing to measure », and « I could not measure »
+     * are three answers, and only the last two look alike.** A null
+     * backend re-arms the alert, which is « all clear » — the right
+     * answer for a site with no destination chosen, and for one whose
+     * destination simply cannot say (a bucket, a folder on this server's
+     * own disk). The capability decides that, so a backend that gains or
+     * loses the aptitude changes one declaration and this follows.
      *
-     * Null is also the honest answer for a destination that simply cannot
-     * say — a bucket, a folder on this server's own disk — which is what
-     * the capability check below is reading, not a Drive-shaped guess.
+     * A destination that is chosen and cannot be BUILT is neither. « All
+     * clear » there would drop a standing alert about an account nobody
+     * measured, on the very site whose destination has just broken, so it
+     * is handed back as unreadable and the check calls it inconclusive.
      */
-    private function remoteBackend(TaskContext $context): ?QuotaReportingBackend
+    private function remoteQuotaCheck(TaskContext $context): RemoteQuotaCheck
     {
         try {
             $backend = $this->remoteDestination($context)->backend();
         } catch (\Throwable) {
-            // A destination that cannot even be built is not a quota
-            // reading and not an alert of this kind: the send that fails
-            // reports it, once, in the operator's own terms.
-            return null;
+            // **Not null.** A destination that is chosen and cannot be
+            // built is the one case where « nothing to measure » would be
+            // a lie: null re-arms, and re-arming drops a standing alert
+            // about an account that may well be full — on the site whose
+            // destination has just stopped working, which is where the
+            // alert is worth most. The failure itself is not reported
+            // here; the send that fails says it once, in the operator's
+            // own terms.
+            return RemoteQuotaCheck::unreadable();
         }
 
-        return $backend instanceof QuotaReportingBackend ? $backend : null;
+        return new RemoteQuotaCheck($backend instanceof QuotaReportingBackend ? $backend : null);
     }
 
     /**

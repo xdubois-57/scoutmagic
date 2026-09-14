@@ -166,14 +166,21 @@ final class RemoteRetention
         // provider that changed its default ordering would otherwise
         // silently start deleting the wrong end.
         //
-        // **The key breaks the tie, and on a destination that announces no
-        // date it decides outright.** Every archive this application
-        // writes carries `Y-m-d-His` in its name ({@see nameFor()}), so
-        // the names sort into the same order the timestamps do — which is
-        // what keeps a backend with no `lastModifiedAt` from being purged
-        // in list order, i.e. arbitrarily.
+        // **One instant per archive, then one comparison.** Reading the
+        // date « when both sides have one, else the names » is the
+        // obvious rule and is not an ordering at all: it can hold A after
+        // B, B after C and C after A, and a sort given that is free to
+        // return anything.
+        //
+        // So each file is reduced to a single instant first, and the key
+        // only ever breaks ties. Preferring the NAME's timestamp is not a
+        // fallback either: it is the moment this application wrote the
+        // archive, where `lastModifiedAt` is whatever the destination last
+        // did to the object — a re-upload, a metadata touch, a restore
+        // from that provider's own trash all move it, and none of them
+        // make the archive newer.
         usort($files, static function (StoredObject $a, StoredObject $b): int {
-            return [$b->lastModifiedAt ?? '', $b->key] <=> [$a->lastModifiedAt ?? '', $a->key];
+            return [self::writtenAt($b), $b->key] <=> [self::writtenAt($a), $a->key];
         });
 
         $keep = max(1, $this->keep());
@@ -245,6 +252,32 @@ final class RemoteRetention
             max(1, $generation),
             self::ARCHIVE_SUFFIX
         );
+    }
+
+    /**
+     * When an archive was written, as a sortable instant.
+     *
+     * The name first, because {@see nameFor()} puts `Y-m-d-His` in it at
+     * the moment of writing and nothing afterwards edits it. Then the
+     * destination's own date, for an archive named under some future
+     * scheme this deliberately tolerant {@see isArchive()} still accepts.
+     * Then zero — nothing is known, and an archive nothing is known about
+     * has to sort somewhere; it sorts oldest, with its key still
+     * separating it from its peers rather than leaving them in list
+     * order.
+     */
+    private static function writtenAt(StoredObject $file): int
+    {
+        if (preg_match('/^' . self::ARCHIVE_PREFIX . '(\d{4}-\d{2}-\d{2})-(\d{2})(\d{2})(\d{2})/', $file->key, $m) === 1) {
+            $parsed = strtotime(sprintf('%sT%s:%s:%sZ', $m[1], $m[2], $m[3], $m[4]));
+            if ($parsed !== false) {
+                return $parsed;
+            }
+        }
+
+        $announced = $file->lastModifiedAt === null ? false : strtotime($file->lastModifiedAt);
+
+        return $announced === false ? 0 : $announced;
     }
 
     /** Whether a remote file is one of {@see nameFor()}'s. */

@@ -264,7 +264,7 @@ final class GoogleDriveClient
     {
         $query = sprintf(
             "mimeType='application/vnd.google-apps.folder' and trashed=false and name='%s'",
-            str_replace("'", "\\'", $name)
+            self::quoted($name)
         );
         $found = $this->apiJson(
             'GET',
@@ -321,7 +321,7 @@ final class GoogleDriveClient
     public function listPage(string $accessToken, string $folderId, ?string $pageToken, int $pageSize): array
     {
         $parameters = [
-            'q' => sprintf("'%s' in parents and trashed=false", str_replace("'", "\\'", $folderId)),
+            'q' => sprintf("'%s' in parents and trashed=false", self::quoted($folderId)),
             'fields' => 'nextPageToken,files(id,name,size,md5Checksum,modifiedTime)',
             'orderBy' => 'createdTime desc',
             'pageSize' => max(1, min(self::LIST_PAGE_SIZE, $pageSize)),
@@ -369,8 +369,8 @@ final class GoogleDriveClient
     {
         $query = sprintf(
             "'%s' in parents and trashed=false and name='%s'",
-            str_replace("'", "\\'", $folderId),
-            str_replace("'", "\\'", $name)
+            self::quoted($folderId),
+            self::quoted($name)
         );
         $url = self::API_BASE . '/files?' . http_build_query([
             'q' => $query,
@@ -405,8 +405,8 @@ final class GoogleDriveClient
     {
         $query = sprintf(
             "'%s' in parents and trashed=false and name='%s'",
-            str_replace("'", "\\'", $folderId),
-            str_replace("'", "\\'", $name)
+            self::quoted($folderId),
+            self::quoted($name)
         );
         $url = self::API_BASE . '/files?' . http_build_query([
             'q' => $query,
@@ -749,6 +749,25 @@ final class GoogleDriveClient
         }
 
         return $id;
+    }
+
+    /**
+     * One value, safe to sit inside the single quotes of a Drive query.
+     *
+     * Drive's query language escapes with a backslash, so a backslash in
+     * the value has to go first: escaping the quotes alone leaves `\\` to be
+     * read as the escape for whatever follows it. A key ending in one then
+     * escapes the CLOSING quote, and the literal runs on into the rest of
+     * the query.
+     *
+     * That is not only a malformed request. `GoogleDriveBackend::
+     * removeNamesakes()` hands this a key, then DELETES every id the
+     * answer names — so a literal that stops meaning what the caller wrote
+     * is a file of somebody else's deleted out of the same folder.
+     */
+    private static function quoted(string $value): string
+    {
+        return str_replace(['\\', "'"], ['\\\\', "\\'"], $value);
     }
 
     /**

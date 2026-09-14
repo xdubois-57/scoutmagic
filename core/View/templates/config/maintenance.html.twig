@@ -850,7 +850,26 @@
                     </div>
                 {% endif %}
 
-                <form method="post" action="/config/maintenance/remote/destination" class="mb-3">
+                {# ————— Changing where the archives go —————
+
+                   The confirmation is rendered only while a destination is
+                   actually set, because only then is there something to
+                   lose. On a fresh site this form is how an operator sets
+                   one up, and a modal in front of the first useful action
+                   on the page teaches people to click past modals.
+
+                   When one IS set, both outcomes deserve the question and
+                   neither announces itself: « Aucune » stops every off-site
+                   copy, and switching sends tomorrow's archives somewhere
+                   the old ones are not. Both are silent until the day
+                   somebody needs an archive — so the wording names the
+                   destination being left rather than asking « are you
+                   sure ». #}
+                <form method="post" action="/config/maintenance/remote/destination" class="mb-3"
+                      {% if remote_backup_location %}
+                          data-confirm="Les sauvegardes hors site vont aujourd'hui vers « {{ remote_backup_location.label }} ». Changer de destination, ou n'en choisir aucune, n'y déplace ni n'y supprime rien : les archives déjà déposées restent où elles sont, et les prochaines n'iront plus là. Si vous ne choisissez aucune destination, plus rien ne quittera ce serveur."
+                          data-confirm-label="Enregistrer"
+                      {% endif %}>
                     {{ csrf_field()|raw }}
                     <div class="mb-2" style="max-width:480px;">
                         <label class="form-label small" for="remote-backup-location">Emplacement de destination</label>

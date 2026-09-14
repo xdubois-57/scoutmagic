@@ -7,7 +7,7 @@ role_min: admin
 discovery: off
 question: Comment envoyer mes sauvegardes sur Google Drive ?
 question: Pourquoi mon raccordement Google Drive s'arrête-t-il au bout d'une semaine ?
-paths: /config/stockage/emplacements
+paths: /config/stockage/emplacements, /config/maintenance
 related: sauvegardes-distantes, sauvegarde-portable, sauvegardes, restaurer-ailleurs
 ---
 

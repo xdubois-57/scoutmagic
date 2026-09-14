@@ -276,6 +276,27 @@ final class RemoteBackupChecksTest extends TestCase
         $this->assertTrue($reading->underRearm);
     }
 
+    /**
+     * **A destination that cannot be BUILT is inconclusive too**, and
+     * that is the case the null backend hides.
+     *
+     * The two are a single `null` at the call site and mean opposite
+     * things: a site with no destination, or one whose destination cannot
+     * report a quota, has nothing to measure and re-arms — while a site
+     * whose chosen destination no longer constructs (a secret that stopped
+     * decrypting, an emplacement that lost the aptitude the backups need)
+     * has an account that may be full and a reading that is simply
+     * missing. Re-arming there drops the standing alert precisely where
+     * it is worth most.
+     */
+    public function testADestinationThatCannotBeBuiltIsInconclusiveRatherThanAllClear(): void
+    {
+        $reading = RemoteQuotaCheck::unreadable()->read();
+
+        $this->assertFalse($reading->overTrigger);
+        $this->assertFalse($reading->underRearm);
+    }
+
     // ————— Plumbing —————
 
     private function connect(?string $connectedAt = null): void

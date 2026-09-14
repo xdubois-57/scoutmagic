@@ -1992,6 +1992,43 @@ if ($settingService->get('scheduler_chain_settings_pruned') !== '1') {
     $settingRepo->updateValue(null, 'scheduler_chain_settings_pruned', '1');
 }
 
+// The six `remote_backup_*` keys `Maintenance\Remote\RemoteBackupConnection`
+// declared, gone with the class in IT-05. `RemoteBackupDestination` declares
+// one key in their place, and nothing removes a `module_id IS NULL` row that
+// stopped being registered — so without this every upgraded site keeps six
+// dead rows that Configuration > Réglages lists and the settings export
+// carries. Same shape and same reason as the scheduler-chain block above.
+//
+// **A cleanup and not a migration**, deliberately: D16 has the old
+// configuration rebuilt rather than carried over, so nothing here reads a
+// value before deleting it. None of the six held a secret — the client
+// secret and the refresh token lived in `secrets.enc` and now live in the
+// location's own encrypted column (D7) — so there is nothing to lose by
+// dropping them outright.
+if ($settingService->get('remote_backup_settings_pruned') !== '1') {
+    $settingService->register(
+        'remote_backup_settings_pruned',
+        '0',
+        'boolean',
+        'Nettoyage des réglages de sauvegarde hors site effectué',
+        'Indique si les anciens réglages du raccordement distant ont été supprimés.',
+        null,
+        null,
+        null,
+        false,
+        999
+    );
+    $settingRepo->deleteCoreSettings([
+        'remote_backup_provider',
+        'remote_backup_client_id',
+        'remote_backup_folder_id',
+        'remote_backup_connected_at',
+        'remote_backup_state',
+        'remote_backup_last_error',
+    ]);
+    $settingRepo->updateValue(null, 'remote_backup_settings_pruned', '1');
+}
+
 // Register param() Twig function — reads from settings database
 $twig->addFunction(new TwigFunction(
     'param',

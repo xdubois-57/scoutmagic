@@ -330,6 +330,47 @@ final class RemoteBackupControllerTest extends TestCase
         );
     }
 
+    /**
+     * **The screen asks before the archives stop leaving the server.**
+     *
+     * `chooseDestination` accepts `0` — « Aucune » — and the controller's
+     * own flash reports the loss AFTER it has happened, which is the one
+     * thing a warning cannot undo. Nothing else on this page announces
+     * itself either: no archive fails, no alert fires, and the site looks
+     * exactly as it did until the day somebody needs a copy that was
+     * never sent.
+     *
+     * Asserted on the form's opening tag rather than on the file, so that
+     * the attribute is shown to sit UNDER the `remote_backup_location`
+     * guard: the confirmation belongs to a site that has a destination to
+     * lose, and a fresh site — where this form is the way to set the first
+     * one up — must not meet a modal in front of it.
+     */
+    public function testTheDestinationFormAsksBeforeItCanStopEveryOffsiteBackup(): void
+    {
+        $template = file_get_contents(
+            dirname(__DIR__, 4) . '/core/View/templates/config/maintenance.html.twig'
+        );
+        $this->assertIsString($template, 'The maintenance template is unreadable.');
+
+        $at = strpos($template, '<form method="post" action="/config/maintenance/remote/destination"');
+        $this->assertIsInt($at, 'The destination form is no longer on the maintenance page.');
+
+        $openingTag = substr($template, $at, (int) strpos($template, '>', $at) - $at);
+
+        $this->assertStringContainsString(
+            'data-confirm',
+            $openingTag,
+            'Choosing « Aucune » stops every off-site backup without asking: the form carries no confirmation.'
+        );
+        $this->assertStringContainsString(
+            '{% if remote_backup_location %}',
+            $openingTag,
+            'The confirmation is unconditional, so a site with no destination yet is asked to confirm '
+            . 'setting its first one up — which teaches operators to click past this dialog.'
+        );
+    }
+
     /** @param array<string, string> $body */
     private function postRequest(array $body): Request
     {

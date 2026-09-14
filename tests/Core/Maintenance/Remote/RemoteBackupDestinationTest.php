@@ -128,13 +128,25 @@ final class RemoteBackupDestinationTest extends TestCase
         $this->destination->choose($this->declareDrive('2026-03-01T00:00:00+00:00'));
         $this->assertSame('2026-03-01T00:00:00+00:00', $this->destination->activeSince());
 
-        $this->destination->choose($this->locations->create(
+        $id = $this->locations->create(
             StorageLocationType::Local,
             'Disque réseau',
             new LocalLocationConfig('/mnt/nas/backups'),
             null
-        ));
-        $this->assertNotSame('', $this->destination->activeSince(), 'a location with no grant has no date at all');
+        );
+        $this->destination->choose($id);
+
+        // Compared against the row's own `createdAt`, not merely asserted
+        // non-empty: « not the empty string » passes for any date at all,
+        // including a wrong one — and a wrong date here is the whole
+        // failure, since RemoteBackupAgeCheck measures « rien n'est jamais
+        // parti » from exactly this value. A fallback that answered today
+        // would keep the alert permanently re-armed on a site nothing has
+        // ever left.
+        $this->assertSame(
+            $this->locations->findById($id)?->createdAt,
+            $this->destination->activeSince()
+        );
     }
 
     // ————— The consumer —————

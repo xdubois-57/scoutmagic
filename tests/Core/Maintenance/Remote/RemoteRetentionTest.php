@@ -76,6 +76,32 @@ final class RemoteRetentionTest extends TestCase
         $this->assertSame([$this->nameOf(6)], $this->keysOf($doomed));
     }
 
+    /**
+     * **The newest archive is kept even when the destination forgot to
+     * date it.**
+     *
+     * A folder where some objects carry `lastModifiedAt` and some do not
+     * is the case a single « date, or empty string » comparison gets
+     * exactly backwards: the empty string sorts below every real date, so
+     * every undated archive lands at the old end whatever its name says,
+     * and the purge starts with the one written last night.
+     *
+     * Here the newest of five announces no date at all. Keeping three, it
+     * must still be among them.
+     */
+    public function testAnUndatedArchiveIsPlacedByItsNameRatherThanTreatedAsAncient(): void
+    {
+        $this->settings->values[RemoteRetention::KEEP_SETTING] = '3';
+        $this->settings->values[RemoteRetention::MAX_BYTES_SETTING] = '10 Go';
+
+        $files = $this->archives(5, 1024);
+        $files[0] = new StoredObject($files[0]->key, $files[0]->sizeBytes, null, null);
+
+        $doomed = $this->retention->beyondTheBounds($files);
+
+        $this->assertSame([$this->nameOf(4), $this->nameOf(5)], $this->keysOf($doomed));
+    }
+
     /** And where both bite, the more constraining one decides. */
     public function testTheMoreConstrainingOfTheTwoBoundsWins(): void
     {

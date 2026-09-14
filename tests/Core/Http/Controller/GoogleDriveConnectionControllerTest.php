@@ -397,6 +397,11 @@ final class GoogleDriveConnectionControllerTest extends TestCase
         // person's, so the entry says what happened and not who it
         // happened to — the precedent SECURITY.md sets for the mail
         // probe, « le journal compte les boîtes et n'en nomme aucune ».
+        // The entry FIRST: `textOf()` answers '' for a type it never
+        // recorded, so « the address is absent » passes just as well on a
+        // controller that stopped journalling the connection altogether —
+        // and the two mean opposite things.
+        $this->assertSame(1, $this->journal->countOf('storage_location_connected'));
         $this->assertStringNotContainsString(
             'unite@example.org',
             $this->journal->textOf('storage_location_connected')

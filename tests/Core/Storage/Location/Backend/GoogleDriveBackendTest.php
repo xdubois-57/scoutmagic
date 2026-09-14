@@ -186,6 +186,57 @@ final class GoogleDriveBackendTest extends TestCase
     }
 
     /**
+     * **The empty source the local disk used to refuse works here too.**
+     *
+     * Asserted on both backends rather than on the one that was broken:
+     * the interface says a copy announced, appended to and promoted ends
+     * with the object in place, and « except when it has no bytes » is
+     * not a clause either implementation may add on its own.
+     */
+    public function testAnEmptySourceFileCanStillBeCopied(): void
+    {
+        $backend = $this->backend();
+
+        $backend->beginPartial('vide.txt', 0);
+        $backend->promotePartial('vide.txt', 'text/plain');
+
+        $this->assertSame('', $backend->get('vide.txt'));
+    }
+
+    /**
+     * **A key carrying a backslash must not sweep away its neighbours.**
+     *
+     * Drive's query language escapes with a backslash, so a key that
+     * contains one has to have it doubled before it goes inside the
+     * quotes of `name='…'`. Escaping only the quotes leaves the
+     * backslash to escape whatever follows — and when what follows is
+     * the closing quote, the literal runs on into the rest of the query
+     * and stops describing the file that was asked for.
+     *
+     * That is not a failed request one retries. `promotePartial()` sweeps
+     * namesakes: it asks which files share this name and DELETES every
+     * id but the one it just wrote. A literal that no longer means the
+     * key is therefore somebody else's archive deleted out of the same
+     * folder — so the object written here is asserted alongside the
+     * bystander that has to survive it.
+     */
+    public function testAKeyWithABackslashDoesNotDeleteItsNeighbour(): void
+    {
+        $backend = $this->backend();
+        $backend->put('voisin.txt', 'a garder', 'text/plain');
+
+        // Chosen so the consequence is visible rather than argued: with
+        // the backslash left unescaped the literal reads `'\voisin.txt'`,
+        // whose backslash escapes the `v` — so the query asks for
+        // « voisin.txt », and the namesake sweep deletes the file above
+        // as a duplicate of this one.
+        $backend->put('\\voisin.txt', 'contenu', 'text/plain');
+
+        $this->assertSame('a garder', $backend->get('voisin.txt'));
+        $this->assertSame('contenu', $backend->get('\\voisin.txt'));
+    }
+
+    /**
      * **Nothing is readable under the key until the upload finishes**,
      * which the interface requires: a consumer listing this location
      * mid-copy must see no object rather than half of one.
@@ -229,6 +280,36 @@ final class GoogleDriveBackendTest extends TestCase
 
         $this->assertSame($first . $second, $this->drive->contentOf('archive.zip'));
         $this->assertNotContains('.scoutmagic-part-' . sha1('archive.zip') . '.json', $this->drive->names());
+    }
+
+    /**
+     * **A run that died between opening the session and its first chunk
+     * resumes from zero, not from one.**
+     *
+     * `beginPartial()` opens the session and writes the note; the first
+     * `appendToPartial()` is a separate call and a run may never reach it
+     * — a cron killed, a deploy, a machine rebooted. The next run probes
+     * a session holding nothing, and « nothing » is the one answer a
+     * `Range` header cannot carry: Google omits the header entirely,
+     * because `bytes=0-0` would name byte zero as committed. Read as
+     * offset 1, the archive is then sent one byte late and the send is
+     * refused for a mismatch.
+     */
+    public function testASessionInterruptedBeforeItsFirstChunkResumesFromZero(): void
+    {
+        $payload = str_repeat('a', GoogleDriveBackend::BUFFERED_UPLOAD_LIMIT_BYTES + 1024);
+
+        // The run that opens the session and then stops.
+        $this->backend()->beginPartial('archive.zip', strlen($payload));
+
+        // The next one, with nothing in memory.
+        $next = $this->backend();
+        $this->assertSame(0, $next->partialSize('archive.zip'));
+
+        $next->appendToPartial('archive.zip', $payload);
+        $next->promotePartial('archive.zip', 'application/zip');
+
+        $this->assertSame($payload, $this->drive->contentOf('archive.zip'));
     }
 
     /**

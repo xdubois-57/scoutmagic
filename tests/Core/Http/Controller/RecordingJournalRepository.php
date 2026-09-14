@@ -46,6 +46,24 @@ final class RecordingJournalRepository extends JournalRepository
     }
 
     /** Everything one entry could show a human, in one string. */
+    /**
+     * How many entries of this type were recorded.
+     *
+     * {@see textOf()} answers `''` both for « the entry says nothing about
+     * that » and for « there is no entry », and the two are opposite
+     * findings: an assertion that some address does NOT appear in the
+     * journal passes trivially once the code stops journalling at all.
+     * Counting first is what keeps such an assertion about the entry
+     * rather than about its absence.
+     */
+    public function countOf(string $type): int
+    {
+        return count(array_filter(
+            $this->entries,
+            static fn (array $entry): bool => $entry['type'] === $type
+        ));
+    }
+
     public function textOf(string $type): string
     {
         $text = '';

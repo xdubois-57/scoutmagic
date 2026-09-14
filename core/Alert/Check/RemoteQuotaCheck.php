@@ -50,8 +50,35 @@ final class RemoteQuotaCheck implements OperationalCheck
      *        what decides, so a destination that gains or loses the
      *        aptitude changes one declaration and this follows.
      */
-    public function __construct(private readonly ?QuotaReportingBackend $backend)
+    public function __construct(
+        private readonly ?QuotaReportingBackend $backend,
+        /**
+         * Whether the destination is declared and could not be built at
+         * all — a secret that no longer decrypts, a location row pointing
+         * at a type this build does not have, an emplacement that lost
+         * the aptitude the backups need.
+         *
+         * Kept apart from a null backend because the two look identical
+         * and mean opposite things. « Nothing to measure » is a site in
+         * good order and re-arms the alert; « I could not measure » is a
+         * site whose destination may be full and whose reading is simply
+         * missing, so it must leave a standing alert exactly where it
+         * was.
+         */
+        private readonly bool $unreadable = false
+    ) {
+    }
+
+    /**
+     * The check for a destination that is declared and cannot be built.
+     *
+     * A named constructor rather than a second boolean at the call site:
+     * `new RemoteQuotaCheck(null, true)` reads as « no backend, true »
+     * and says nothing about which of the two nulls this is.
+     */
+    public static function unreadable(): self
     {
+        return new self(null, true);
     }
 
     public function key(): string
@@ -66,6 +93,13 @@ final class RemoteQuotaCheck implements OperationalCheck
 
     public function read(): AlertReading
     {
+        if ($this->unreadable) {
+            // Inconclusive, never re-armed: the destination is still
+            // chosen, so « all clear » would be an answer about a site
+            // nobody measured.
+            return AlertReading::inconclusive();
+        }
+
         if ($this->backend === null) {
             // Re-armed rather than inconclusive, for the reason
             // RemoteBackupAgeCheck gives: dropping a destination has to

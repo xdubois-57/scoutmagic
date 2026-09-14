@@ -175,7 +175,12 @@ final class FakeDrive
         parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
         $q = (string) ($query['q'] ?? '');
 
-        $wanted = preg_match("/name='([^']*)'/", $q, $m) === 1 ? $m[1] : null;
+        $wanted = self::literalAfter($q, "name=");
+        if ($wanted === null && str_contains($q, "name=")) {
+            // A name was asked for and the literal does not close: Drive
+            // refuses the query rather than answering the folder.
+            return ['status' => 400, 'body' => '{"error":{"message":"Invalid query"}}'];
+        }
         $isFolderQuery = str_contains($q, 'google-apps.folder');
 
         $files = [];
@@ -199,6 +204,45 @@ final class FakeDrive
     }
 
     /**
+     * The value of a single-quoted Drive query literal, decoded.
+     *
+     * Deliberately not a regular expression over `[^']*`: that stops at
+     * the first quote whatever precedes it, so it reads an ESCAPED quote
+     * as the end of the literal and silently answers a truncated name.
+     * A fake that does that cannot tell a correctly escaped query from a
+     * broken one — both come back plausible — which is precisely the
+     * difference the escaping exists to make.
+     *
+     * So this walks the literal the way Drive does: a backslash escapes
+     * the character after it, and only an unescaped quote closes.
+     */
+    private static function literalAfter(string $query, string $prefix): ?string
+    {
+        $at = strpos($query, $prefix . "'");
+        if ($at === false) {
+            return null;
+        }
+
+        $value = '';
+        for ($i = $at + strlen($prefix) + 1; $i < strlen($query); $i++) {
+            if ($query[$i] === '\\' && $i + 1 < strlen($query)) {
+                $value .= $query[++$i];
+                continue;
+            }
+            if ($query[$i] === "'") {
+                return $value;
+            }
+            $value .= $query[$i];
+        }
+
+        // An unterminated literal is a malformed query, and Drive answers
+        // an error rather than a best guess. Returning null here would
+        // read as « no name asked for », which lists the whole folder —
+        // the answer that makes a namesake sweep delete everything.
+        return null;
+    }
+
+    /**
      * @return array{status: int, body: string, location: string}
      */
     private function openSession(string $body): array
@@ -209,6 +253,20 @@ final class FakeDrive
         $this->sessions[$url] = ['name' => $name, 'total' => 0, 'received' => ''];
 
         return ['status' => 200, 'body' => '{}', 'location' => $url];
+    }
+
+    /**
+     * One multipart part's payload — everything past its own headers.
+     *
+     * A part with no blank line carries no payload, which is not the same
+     * thing as an empty one: answering the whole part there would hand
+     * back the headers as if they were content.
+     */
+    private static function afterHeaders(string $part): string
+    {
+        $split = explode("\r\n\r\n", $part, 2);
+
+        return count($split) === 2 ? $split[1] : '';
     }
 
     /**
@@ -226,12 +284,18 @@ final class FakeDrive
             static fn (string $part): bool => trim($part) !== ''
         ));
 
-        $name = preg_match('/"name":"([^"]*)"/', $parts[0] ?? '', $m) === 1 ? $m[1] : '';
-        $content = '';
-        if (isset($parts[1])) {
-            $split = explode("\r\n\r\n", $parts[1], 2);
-            $content = count($split) === 2 ? (string) preg_replace("/\r\n$/", '', $split[1]) : '';
+        // Decoded as JSON rather than matched with a regular expression.
+        // `"name":"([^"]*)"` reads the ESCAPED form, so a name carrying a
+        // backslash comes back with two and the file is filed under a
+        // name no query will ever ask for — a fake failing where the real
+        // Drive would not, which makes an escaping bug look like a bug in
+        // the escaping's own test.
+        $name = '';
+        $metadata = json_decode(self::afterHeaders($parts[0] ?? ''), true);
+        if (is_array($metadata) && is_string($metadata['name'] ?? null)) {
+            $name = $metadata['name'];
         }
+        $content = (string) preg_replace("/\r\n$/", '', self::afterHeaders($parts[1] ?? ''));
 
         $id = $this->put($name, $content);
 
@@ -261,9 +325,19 @@ final class FakeDrive
             $this->sessions[$url]['total'] = (int) $m[1];
             $held = strlen($session['received']);
 
-            return $held >= (int) $m[1] && $held > 0
-                ? ['status' => 200, 'body' => (string) json_encode(['id' => $this->commit($url)])]
-                : ['status' => 308, 'body' => '', 'range' => 'bytes=0-' . max(0, $held - 1)];
+            if ($held >= (int) $m[1] && $held > 0) {
+                return ['status' => 200, 'body' => (string) json_encode(['id' => $this->commit($url)])];
+            }
+
+            // **No `Range` at all when the session holds nothing**, which
+            // is what Google answers and `bytes=0-0` is not: that names
+            // byte zero as committed, so the client resumes at offset 1
+            // over a session holding no bytes, and every later chunk is
+            // refused for a mismatch. The path is reached whenever a run
+            // stops between opening the session and its first chunk.
+            return $held === 0
+                ? ['status' => 308, 'body' => '']
+                : ['status' => 308, 'body' => '', 'range' => 'bytes=0-' . ($held - 1)];
         }
 
         if (preg_match('#^bytes (\d+)-(\d+)/(\d+)$#', $range, $m) !== 1) {
