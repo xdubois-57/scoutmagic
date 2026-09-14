@@ -678,6 +678,16 @@ moins de 24 h » — à côté d'une fenêtre de relance « Les 24 dernières
 heures » qui, elle, les prend bien tous. Les libellés nomment désormais
 les bandes.
 
+**La même distinction manquait au rejeu.** Le garde-fou qui refuse de
+différer un refus de destinataire s'exécute à la mise en file ; or les
+deux échecs ne sont pas nécessairement le même. Un message mis de côté
+pendant une panne est rejoué quand le relais revient — et si l'adresse
+était fausse aussi, c'est là que le 550 se fait entendre pour la première
+fois. `settleFailure()` reprenait alors l'échelle depuis le début et
+dépensait huit tentatives de plus, sur une journée, à réapprendre ce que
+le relais avait déjà dit clairement. Il classe désormais la raison lui
+aussi.
+
 ### Reporté
 
 Rien de fonctionnel. La cadence « collante » après bascule, refusée en

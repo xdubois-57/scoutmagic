@@ -48,6 +48,8 @@ class DrainDeferredMailHandlerTest extends TestCase
     /** @var array<int, string> */
     private array $refuse = [];
 
+    private string $refusalReason = 'SMTP connect() failed.';
+
     /** @var array<int, string> */
     private array $temporaryPathsSeen = [];
 
@@ -155,6 +157,41 @@ class DrainDeferredMailHandlerTest extends TestCase
 
         $this->assertSame([], $this->sent, 'An expired message is never given one more try.');
         $this->assertSame(1, $this->repository->countAbandoned());
+    }
+
+    /**
+     * **A refusal on replay is heard the first time too.**
+     *
+     * The guard in `MailService` runs when a message is queued, and the
+     * two failures need not be the same one: a message put aside during
+     * an outage is replayed once the relay comes back, and if the address
+     * was also wrong, THAT is when the 550 is first heard. Walking the
+     * ladder from there would spend eight more attempts over a day
+     * learning what the relay already said plainly.
+     */
+    public function testARecipientRefusalOnReplayIsAbandonedAtOnce(): void
+    {
+        $this->queue(MailLane::Bulk, nextAttemptAt: $this->minutesAgo(5));
+        $this->refuse = ['parent@exemple.test'];
+        $this->refusalReason = 'SMTP Error: 550 5.1.1 Recipient address rejected';
+
+        $this->drain();
+
+        $this->assertSame([], $this->repository->due(10, '2099-01-01 00:00:00'), 'Nothing is waiting any more.');
+        $this->assertSame(1, $this->repository->countAbandoned());
+    }
+
+    /** A provider failure on the same replay still walks the ladder. */
+    public function testAProviderFailureOnReplayIsStillRescheduled(): void
+    {
+        $this->queue(MailLane::Bulk, nextAttemptAt: $this->minutesAgo(5));
+        $this->refuse = ['parent@exemple.test'];
+        $this->refusalReason = 'SMTP connect() failed.';
+
+        $this->drain();
+
+        $this->assertCount(1, $this->repository->due(10, '2099-01-01 00:00:00'));
+        $this->assertSame(0, $this->repository->countAbandoned());
     }
 
     /**
@@ -297,7 +334,7 @@ class DrainDeferredMailHandlerTest extends TestCase
                 }
 
                 if (in_array($to, $this->refuse, true)) {
-                    throw new \RuntimeException('SMTP connect() failed.');
+                    throw new \RuntimeException($this->refusalReason);
                 }
 
                 $this->sent[] = [

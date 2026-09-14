@@ -11,6 +11,7 @@ namespace Core\Mail\Transport\Task;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Mail\MailErrorRedaction;
+use Core\Mail\Transport\MailFailure;
 use Core\Mail\Transport\DeferredMailQueue;
 use Core\Mail\Transport\DeferredMailRepository;
 use Core\Mail\Transport\DeferredMessage;
@@ -185,6 +186,20 @@ class DrainDeferredMailHandler implements TaskHandlerInterface
         DeferredMailQueue $queue,
         string $reason
     ): bool {
+        // **Somebody said no: there is nothing to wait for.** The same
+        // distinction `MailService` draws before queueing a message has to
+        // be drawn again here, because the two failures need not be the
+        // same one. A message queued during an outage is replayed once the
+        // relay comes back; if the address was also wrong, that replay is
+        // the FIRST time anybody hears the 550 — and walking the ladder
+        // from there would spend eight more attempts over a day learning
+        // what the relay already said plainly.
+        if (MailFailure::classify($reason) === MailFailure::Recipient) {
+            $repository->abandon($message->id, $message->attempts + 1, $reason);
+
+            return true;
+        }
+
         // `attempts + 1` on BOTH sides of this: the attempt that has just
         // failed is not yet counted on the object, and the backoff rung is
         // chosen from how many have failed in total. Reading the stale
