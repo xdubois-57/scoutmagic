@@ -20,6 +20,14 @@ use PHPUnit\Framework\TestCase;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 
+// The file is a CLI entry point as well as a library of inventory
+// helpers; the constant is what stops its command dispatcher from running
+// under PHPUnit, exactly as Tests\Core\Http\RemoteBackupRbacTest does.
+if (!defined('AUTHZ_SUPPORT_TEST')) {
+    define('AUTHZ_SUPPORT_TEST', true);
+}
+require_once dirname(__DIR__, 4) . '/scripts/authz-support.php';
+
 /**
  * The role boundary of the route « Activer les notifications ? » writes
  * through (ARCHITECTURE.md §8.111): `identified`, allowed at that floor
@@ -66,6 +74,29 @@ final class PushInvitationRbacTest extends TestCase
     protected function tearDown(): void
     {
         $_SESSION = [];
+    }
+
+    /**
+     * **What `public/index.php` actually declares**, read from the file
+     * rather than restated here — the same reflex as
+     * Tests\Core\Http\RemoteBackupRbacTest.
+     *
+     * The behaviour cases below register the route themselves, so on their
+     * own they prove that a route declared `identified` behaves like one,
+     * which is true of any floor somebody chose to type into a test. This
+     * is the case that fails when the declaration in the application moves
+     * — or disappears.
+     */
+    public function testTheRouteIsDeclaredAtTheIdentifiedFloorInTheApplicationItself(): void
+    {
+        $declared = [];
+        foreach (\authzCoreRoutes() as $route) {
+            $declared[$route['method'] . ' ' . $route['path']] = $route['role_min'];
+        }
+
+        $key = 'POST ' . self::PATH;
+        $this->assertArrayHasKey($key, $declared, "{$key} is not registered in public/index.php at all");
+        $this->assertSame('identified', $declared[$key], "{$key} is not behind the identified floor");
     }
 
     public function testAnIdentifiedAccountIsAllowed(): void
@@ -115,7 +146,7 @@ final class PushInvitationRbacTest extends TestCase
 
         $response = $this->handle();
 
-        $this->assertNotSame(200, $response->getStatusCode());
+        $this->assertSame(403, $response->getStatusCode());
         $this->assertStringNotContainsString('success', $response->getBody());
     }
 

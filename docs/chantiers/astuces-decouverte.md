@@ -323,9 +323,10 @@ que « l'ordre se déclare dans le sujet » existe pour éviter.
 
 Ce qui a changé, et ce qui n'a pas changé :
 
-- **Le corpus n'a pas été renuméroté.** Les 24 `1`, les 40 `3` et les 19
-  `off` sont écrits pareil et veulent dire pareil. Seul
-  `installer-application` a bougé, de `1` à `0`.
+- **Le corpus n'a pas été renuméroté.** Les 23 `1` restants, les 40 `3` et
+  les 19 `off` d'aujourd'hui sont écrits pareil et veulent dire pareil.
+  Seul `installer-application` a bougé, de `1` à `0` — d'où 23 et non les
+  24 que comptait IT-03, qui reste le compte de ce qu'IT-03 a livré.
 - `off` n'est plus un très grand nombre mais **l'absence de rang** :
   `rank()` jette pour lui, parce qu'un sujet jamais proposé n'a pas de
   place dans un ordre et qu'un appelant qui a oublié de l'écarter doit
