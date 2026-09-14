@@ -8,39 +8,22 @@ declare(strict_types=1);
 
 namespace Modules\Retro\Menu;
 
-use Core\Member\MemberService;
 use Core\Module\MenuEntry;
-use Core\Module\MenuEntryProvider;
-use Core\ScoutYear\ScoutYearResolver;
-use Core\Security\Role;
+use Core\Module\UnitChiefMenuHook;
 use Core\View\MenuBuilder;
 
 /**
- * The « Rétrospective » entry of Espace chefs d'U — contributed here
- * rather than declared as a `label` in module.json, because the page it
- * points at is not open to everyone the route's `role_min` admits.
+ * The « Rétrospective » entry of Espace chefs d'U.
  *
- * `/config/retro` is `role_min: admin`, and Controller\RetroConfigController
- * then narrows to the people actually registered in the Staff d'U section
- * for the authorization year (Core\Member\MemberService::isUnitChief()).
- * A static `label` is drawn from `role_min` alone, so an « Administrateur
- * du site » who is not himself a chef d'U was shown the entry, clicked it,
- * and was refused — issue #347. The manifest cannot express the
- * difference; this hook can, and asks exactly the question the controller
- * will ask.
- *
- * **This is not what protects the page**, and removing it would not open
- * anything (ARCHITECTURE.md §12, SECURITY.md §3): the route keeps its
- * `role_min`, the controller keeps its own check, and this only decides
- * whether a link is offered. What it buys is that the menu stops making a
- * promise the page will break.
- *
- * It runs on **every request that builds a menu**, so it asks nothing at
- * all below `admin` — the role that could not open the page anyway — and
- * the one lookup it does make above it is already memoised per request by
- * MemberService, which the controller then reads for free.
+ * Contributed here rather than declared as a `label` in module.json
+ * because `/config/retro` is not open to everyone its `role_min: admin`
+ * admits: Controller\RetroConfigController narrows to the Staff d'U of the
+ * authorization year, and the menu used to offer the link to an
+ * « Administrateur du site » the page then refused (issue #347). The
+ * condition, and why hiding an entry protects nothing, are in
+ * Core\Module\UnitChiefMenuHook; this class is the entry itself.
  */
-class RetroMenuHookService implements MenuEntryProvider
+class RetroMenuHookService extends UnitChiefMenuHook
 {
     /**
      * Well clear of the core pages' small orders — MenuBuilder ranks by
@@ -50,40 +33,19 @@ class RetroMenuHookService implements MenuEntryProvider
      */
     private const CONFIG_ORDER = 510;
 
-    public function __construct(
-        private MemberService $memberService,
-        private ScoutYearResolver $scoutYearResolver,
-        private Role $viewerRole
-    ) {
-    }
-
-    public function getMenuEntries(?string $email): array
+    protected function entry(): MenuEntry
     {
-        if ($email === null || !$this->viewerRole->hasAccess(Role::ADMIN)) {
-            return [];
-        }
-
-        // The year the session is authorised in, never the date-computed
-        // one — the same year the controller asks about, for the reason
-        // RetroConfigController::requireUnitChief() spells out.
-        $scoutYearId = $this->scoutYearResolver->getAuthorizationYear()->id;
-        if (!$this->memberService->isUnitChief($email, $scoutYearId)) {
-            return [];
-        }
-
-        return [
-            new MenuEntry(
-                MenuBuilder::MENU_ESPACE_ADMIN,
-                'Rétrospective',
-                '/config/retro',
-                'admin',
-                self::CONFIG_ORDER,
-                false,
-                null,
-                MenuBuilder::SORT_GROUP_MODULE,
-                'bi-sticky',
-                'services'
-            ),
-        ];
+        return new MenuEntry(
+            MenuBuilder::MENU_ESPACE_ADMIN,
+            'Rétrospective',
+            '/config/retro',
+            'admin',
+            self::CONFIG_ORDER,
+            false,
+            null,
+            MenuBuilder::SORT_GROUP_MODULE,
+            'bi-sticky',
+            'services'
+        );
     }
 }

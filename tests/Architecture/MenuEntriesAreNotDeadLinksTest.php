@@ -177,12 +177,20 @@ final class MenuEntriesAreNotDeadLinksTest extends TestCase
                 . 'is reachable only by typing its address.',
             );
             $this->assertStringContainsString(
-                'isUnitChief',
+                'extends UnitChiefMenuHook',
                 (string) file_get_contents($hook),
-                'The hook no longer asks the question the controller asks, which is the whole reason it '
-                . 'exists rather than a manifest label.',
+                'The hook no longer inherits the condition, so nothing narrows the entry it contributes '
+                . 'and it is offered to every admin role again.',
             );
         }
+
+        $this->assertStringContainsString(
+            'isUnitChief',
+            (string) file_get_contents(RouteInventory::root() . '/core/Module/UnitChiefMenuHook.php'),
+            'Core\\Module\\UnitChiefMenuHook is where both entries above get their condition — one copy '
+            . 'of it, since the two modules that needed it first held one each. Without that call it '
+            . 'contributes them unconditionally, which is issue #347 with more files.',
+        );
     }
 
     /**
