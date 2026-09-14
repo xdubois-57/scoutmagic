@@ -16,19 +16,22 @@ use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\Media;
 use Modules\Gallery\Repository\MediaRepository;
-use Modules\Gallery\Repository\ObjectStorageSecretRepository;
-use Modules\Gallery\Repository\StorageLocation;
-use Modules\Gallery\Repository\StorageLocationRepository;
+use Core\Storage\Location\StorageLocation;
+use Core\Storage\Location\StorageLocationRepository;
 use Modules\Gallery\Service\FfmpegAvailability;
 use Modules\Gallery\Service\GalleryAccessService;
 use Modules\Gallery\Api\GalleryException;
 use Modules\Gallery\Service\MediaService;
-use Modules\Gallery\Service\Storage\StorageBackendFactory;
-use Modules\Gallery\Service\StorageLocationService;
+use Core\Storage\Location\Backend\StorageBackendFactory;
+use Core\Storage\Location\StorageLocationService;
 use Modules\Gallery\Service\StoredFileCleaner;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Gallery\GalleryTestHelper;
+use Modules\Gallery\Service\GalleryStorageWiring;
+use Core\Storage\Location\StorageLocationType;
+use Core\Storage\Location\Config\LocalLocationConfig;
+use Modules\Gallery\Service\GalleryLocationService;
 
 /**
  * @group database
@@ -36,6 +39,8 @@ use Tests\Modules\Gallery\GalleryTestHelper;
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class MediaServiceTest extends TestCase
 {
+    private GalleryLocationService $galleryLocationService;
+
     private \PDO $pdo;
     private MediaRepository $mediaRepository;
     private AlbumRepository $albumRepository;
@@ -71,17 +76,18 @@ class MediaServiceTest extends TestCase
         $this->settingService->method('get')->willReturnCallback(fn($key, $module, $default) => $default);
         $this->accessService = $this->createMock(GalleryAccessService::class);
         $this->accessService->method('canManageAlbum')->willReturn(true);
-        $this->storageLocationService = new StorageLocationService(
-            $this->storageLocationRepository, $this->albumRepository, $this->storageBackendFactory,
-            $this->settingService, new ObjectStorageSecretRepository($this->pdo, $encryption), $this->storagePath
-        );
+        $storageWiring = GalleryStorageWiring::build(
+                $this->pdo, $encryption, $this->settingService, $this->storagePath, $this->albumRepository
+            );
+        $this->storageLocationService = $storageWiring->locationService;
+        $this->galleryLocationService = $storageWiring->galleryLocations;
         $ffmpegAvailability = $this->createMock(FfmpegAvailability::class);
         $ffmpegAvailability->method('check')->willReturn(false);
 
         $this->service = new MediaService(
             $this->mediaRepository, $this->albumRepository, $uploadHandler, $schedulerService,
             $this->settingService, $this->accessService, $this->storageBackendFactory,
-            $this->storageLocationService, $ffmpegAvailability, $this->storedFileCleaner
+            $this->galleryLocationService, $ffmpegAvailability, $this->storedFileCleaner
         );
 
         $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
@@ -92,7 +98,7 @@ class MediaServiceTest extends TestCase
         $scoutYearId = (int) $this->pdo->lastInsertId();
 
         $locationId = $this->storageLocationRepository->create(
-            StorageLocation::TYPE_LOCAL, 'Stockage local', 'gallery', null, null, null, null, null, null, null
+            StorageLocationType::Local, 'Stockage local', new LocalLocationConfig('gallery'), null
         );
         $this->albumId = $this->albumRepository->create(Album::TYPE_LOCAL, 'Camp', null, '2026-01-01', null, $scoutYearId, null, $locationId, $this->authorId);
     }
@@ -100,7 +106,7 @@ class MediaServiceTest extends TestCase
     private function otherLocationId(): int
     {
         return $this->storageLocationRepository->create(
-            StorageLocation::TYPE_LOCAL, 'Cible ' . uniqid(), 'gallery2', null, null, null, null, null, null, null
+            StorageLocationType::Local, 'Cible ' . uniqid(), new LocalLocationConfig('gallery2'), null
         );
     }
 
@@ -202,7 +208,7 @@ class MediaServiceTest extends TestCase
             $this->mediaRepository, $this->albumRepository, $uploadHandler,
             new SchedulerService(new SchedulerRepository($this->pdo)),
             $this->settingService, $this->accessService, $this->storageBackendFactory,
-            $this->storageLocationService, $ffmpegAvailability, $this->storedFileCleaner
+            $this->galleryLocationService, $ffmpegAvailability, $this->storedFileCleaner
         );
     }
 
@@ -225,7 +231,7 @@ class MediaServiceTest extends TestCase
         return new MediaService(
             $this->mediaRepository, $this->albumRepository, new UploadHandler($this->fileRepository, sys_get_temp_dir()),
             new SchedulerService(new SchedulerRepository($this->pdo)), $settingService, $this->accessService,
-            $this->storageBackendFactory, $this->storageLocationService, $this->createMock(FfmpegAvailability::class),
+            $this->storageBackendFactory, $this->galleryLocationService, $this->createMock(FfmpegAvailability::class),
             $this->storedFileCleaner
         );
     }

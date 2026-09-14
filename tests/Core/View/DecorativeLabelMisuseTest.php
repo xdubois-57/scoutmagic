@@ -171,7 +171,7 @@ class DecorativeLabelMisuseTest extends TestCase
         $this->assertTextIsNotInsideALabel($htmlNewAlbum, "Type d'album");
 
         $htmlLocalAlbum = $twig->render('@gallery/album_form.html.twig', [
-            'album' => (object) ['id' => 1, 'type' => 'local', 'storageLocationId' => 1, 'title' => 'Album', 'coverMediaId' => null, 'migrationStatus' => null],
+            'album' => (object) ['id' => 1, 'type' => 'local', 'locationId' => 1, 'title' => 'Album', 'coverMediaId' => null, 'migrationStatus' => null],
             'allow_local' => true,
             'allow_external' => false,
             'locations' => [],

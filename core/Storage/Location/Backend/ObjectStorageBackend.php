@@ -6,24 +6,65 @@
 
 declare(strict_types=1);
 
-namespace Modules\Gallery\Service\Storage;
+namespace Core\Storage\Location\Backend;
 
 use Aws\Exception\AwsException;
 use Aws\S3\S3Client;
+use Core\Storage\Location\StorageCapability;
+use Core\Storage\Location\StorageListing;
+use Core\Storage\Location\StoredObject;
 
 /**
  * Any S3-compatible object storage (Hetzner, Cloudflare R2, Scaleway,
  * OVHcloud, or a custom endpoint) via aws/aws-sdk-php — every provider in
  * the config page's preset list speaks the same S3 API, so one client
- * class covers them all; only the endpoint/region differ (Controller\
- * GalleryConfigController's provider presets).
+ * class covers them all; only the endpoint and the region differ (the
+ * Stockage screen's provider presets).
  */
-class ObjectStorageBackend implements StorageBackendInterface
+class ObjectStorageBackend implements RangeReadableBackend, ServerSideCopyBackend
 {
     /**
+     * Four of the six, and the two that are missing are the interesting
+     * ones. **No quota**: S3 cannot say what a bucket occupies without
+     * listing every object in it, so a screen that showed a bar here would
+     * be showing a number nobody measured. **No announced checksum**: the
+     * ETag equals the MD5 only for an object uploaded in one piece — a
+     * multipart upload's ETag is a digest of digests with the part count
+     * appended, and this backend cannot tell the two apart from a `HEAD`,
+     * so it says nothing rather than saying something that compares as
+     * corrupt every time.
+     *
+     * Resumable upload is genuinely available (S3's multipart API) and is
+     * declared the iteration that implements it, not before: a capability
+     * announced ahead of its method is exactly the lie this mechanism
+     * exists to prevent.
+     *
+     * @return list<StorageCapability>
+     */
+    public static function declaredCapabilities(): array
+    {
+        return [
+            StorageCapability::RangeRead,
+            StorageCapability::SignedUrl,
+            StorageCapability::ServerSideCopy,
+        ];
+    }
+
+    public function capabilities(): array
+    {
+        return self::declaredCapabilities();
+    }
+
+    public function supports(StorageCapability $capability): bool
+    {
+        return in_array($capability, self::declaredCapabilities(), true);
+    }
+
+    /**
      * Dedicated, non-colliding prefix for testConnection()'s canary object —
-     * every real album lives under a numeric "{albumId}/..." prefix, so a
-     * leading dot can never collide with one.
+     * every key a consumer writes here is application-generated and starts
+     * with a path segment of its own, so a leading dot can never collide
+     * with one.
      */
     private const HEALTH_CHECK_PREFIX = '.scoutmagic-healthcheck';
 
@@ -101,8 +142,8 @@ class ObjectStorageBackend implements StorageBackendInterface
 
     /**
      * The origin (scheme://host, no path/query) that image URLs are ACTUALLY
-     * served from — Controller\GalleryConfigController::buildContext() /
-     * public/index.php use this to allow it in the CSP img-src directive,
+     * served from — the Stockage screen and public/index.php use this to
+     * allow it in the CSP img-src directive,
      * for whichever provider is currently configured (never hardcode a
      * specific provider's hostname). Mirrors url()'s own public-URL-vs-
      * presigned-endpoint precedence exactly, since that's what actually
@@ -178,7 +219,7 @@ class ObjectStorageBackend implements StorageBackendInterface
                 'Range' => "bytes={$offset}-{$last}",
             ]);
         } catch (\Throwable $e) {
-            throw new \RuntimeException("Gallery file range not readable: {$key}", 0, $e);
+            throw new \RuntimeException("Stored file range not readable: {$key}", 0, $e);
         }
 
         return (string) $result['Body'];
@@ -187,7 +228,7 @@ class ObjectStorageBackend implements StorageBackendInterface
     public function copy(string $fromKey, string $toKey): void
     {
         // CopyObject is server-side: the object never leaves the provider,
-        // so a 900 MB video changes album without a download/upload round
+        // so a 900 MB video changes prefix without a download/upload round
         // trip through this process.
         $this->client->copyObject([
             'Bucket' => $this->bucket,
@@ -200,21 +241,166 @@ class ObjectStorageBackend implements StorageBackendInterface
         ]);
     }
 
+    /**
+     * A key that is not there is a success — see the interface. S3's
+     * `DeleteObject` is already idempotent for a missing key, but a
+     * credentials or network failure is not, and a caller deleting from an
+     * inventory older than the bucket must not die on a ghost: the one
+     * thing swallowed here is the « not found » family, everything else
+     * still raises.
+     */
     public function delete(string $key): void
     {
-        $this->client->deleteObject([
+        try {
+            $this->client->deleteObject([
+                'Bucket' => $this->bucket,
+                'Key' => $key,
+            ]);
+        } catch (AwsException $e) {
+            if (!in_array((string) $e->getAwsErrorCode(), ['NoSuchKey', 'NotFound', '404'], true)) {
+                throw $e;
+            }
+        }
+    }
+
+    /**
+     * One page of the objects under $prefix. The cursor is S3's own
+     * continuation token, handed back untouched — which is why the
+     * interface calls it opaque.
+     */
+    public function list(string $prefix, ?string $cursor = null, int $limit = 1000): StorageListing
+    {
+        $request = [
             'Bucket' => $this->bucket,
-            'Key' => $key,
-        ]);
+            'Prefix' => $prefix === '' ? '' : rtrim($prefix, '/') . '/',
+            'MaxKeys' => max(1, min($limit, self::DELETE_BATCH_SIZE)),
+        ];
+        if ($cursor !== null && $cursor !== '') {
+            $request['ContinuationToken'] = $cursor;
+        }
+
+        $result = $this->client->listObjectsV2($request);
+
+        $objects = [];
+        foreach ($result['Contents'] ?? [] as $entry) {
+            $key = $entry['Key'] ?? null;
+            if (!is_string($key) || $key === '') {
+                continue;
+            }
+            $modified = $entry['LastModified'] ?? null;
+            $objects[] = new StoredObject(
+                key: $key,
+                sizeBytes: (int) ($entry['Size'] ?? 0),
+                // **No checksum from a listing, ever.** ListObjectsV2
+                // carries an ETag, but it carries nothing that says
+                // whether the object was encrypted with SSE-C or SSE-KMS
+                // — and for those the ETag is not a digest of the content
+                // at all. Announcing it would report « empreinte
+                // différente » for a copy that is perfectly intact.
+                // HeadObject does return that metadata, so the decision
+                // belongs there alone: see announcedChecksum().
+                announcedChecksum: null,
+                lastModifiedAt: $modified instanceof \DateTimeInterface
+                    ? $modified->format('Y-m-d H:i:s')
+                    : null
+            );
+        }
+
+        $token = $result['NextContinuationToken'] ?? null;
+
+        return new StorageListing(
+            $objects,
+            ($result['IsTruncated'] ?? false) && is_string($token) && $token !== '' ? $token : null
+        );
+    }
+
+    /**
+     * The ETag, but **only when it is actually an MD5**.
+     *
+     * This is the trap the whole capability exists around. S3's ETag
+     * equals the object's MD5 for an upload made in one request; for a
+     * multipart upload it is the MD5 of the concatenated part digests,
+     * hexadecimal, followed by `-` and the number of parts. Comparing
+     * THAT to an imprint computed while reading a source fails for every
+     * large file — and whoever read the report would conclude that every
+     * copy they own is corrupt, which is worse than checking nothing.
+     *
+     * So a value carrying a part count is discarded, and a caller that
+     * gets null falls back on comparing sizes. That is also why this
+     * backend does not declare {@see StorageCapability::Checksum}: it can
+     * answer sometimes, and « sometimes » is not a capability a consumer
+     * can plan around.
+     *
+     * **Server-side encryption breaks the equality a second way.** For an
+     * object written with SSE-C or SSE-KMS, the ETag is not an MD5 of the
+     * content at all, and nothing in its shape says so — it is thirty-two
+     * hexadecimal characters like any other. That is why this reads the
+     * HEAD response rather than a listing entry: the encryption headers
+     * only come back here, and without them the 32-hex test alone would
+     * happily announce a value that can never match.
+     */
+    public function announcedChecksum(string $key): ?string
+    {
+        try {
+            $result = $this->client->headObject([
+                'Bucket' => $this->bucket,
+                'Key' => $key,
+            ]);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if (self::isServerSideEncrypted($result)) {
+            return null;
+        }
+
+        return self::comparableChecksum($result['ETag'] ?? null);
+    }
+
+    /**
+     * Whether the HEAD response says the object was encrypted with a mode
+     * that detaches the ETag from the content's MD5.
+     *
+     * `AES256` is S3-managed encryption (SSE-S3), which leaves the ETag an
+     * ordinary MD5; every other value — `aws:kms`, `aws:kms:dsse` — and
+     * any customer-provided key does not.
+     *
+     * @param mixed $head
+     */
+    private static function isServerSideEncrypted($head): bool
+    {
+        if (!is_array($head) && !$head instanceof \ArrayAccess) {
+            return false;
+        }
+
+        if (isset($head['SSECustomerAlgorithm'])) {
+            return true;
+        }
+
+        $mode = $head['ServerSideEncryption'] ?? null;
+
+        return is_string($mode) && strtolower($mode) !== 'aes256';
+    }
+
+    /** @param mixed $etag */
+    private static function comparableChecksum($etag): ?string
+    {
+        if (!is_string($etag)) {
+            return null;
+        }
+
+        $value = strtolower(trim($etag, '"'));
+
+        return preg_match('/^[0-9a-f]{32}$/', $value) === 1 ? $value : null;
     }
 
     /**
      * ListObjectsV2 returns at most 1000 keys per response and DeleteObjects
      * accepts at most 1000 per call, so both sides are paged/chunked: an
-     * album at the default gallery_max_media_per_album (200) already holds up
-     * to 800 renditions, and a single unpaged pass silently left everything
-     * past the first page behind — orphaned objects the operator keeps paying
-     * for, on every album deletion and every post-migration source cleanup.
+     * gallery album of 200 media already holds up to 800 renditions, and a
+     * single unpaged pass silently left everything past the first page
+     * behind — orphaned objects the operator keeps paying for, on every
+     * deletion and every post-migration source cleanup.
      */
     public function deletePrefix(string $prefix): void
     {
@@ -249,7 +435,13 @@ class ObjectStorageBackend implements StorageBackendInterface
         } while ($continuationToken !== null);
     }
 
-    public function url(string $key, string $ttl = '+1 hour'): string
+    /**
+     * Never null for a bucket: a public URL prefix when one is
+     * configured, a freshly minted pre-signed URL otherwise. Either way
+     * the visitor talks to the provider and not to this site — which is
+     * precisely what {@see StorageCapability::SignedUrl} declares.
+     */
+    public function directUrl(string $key, string $ttl = '+1 hour'): ?string
     {
         if ($this->publicUrl !== null && $this->publicUrl !== '') {
             return rtrim($this->publicUrl, '/') . '/' . ltrim($key, '/');
@@ -261,8 +453,8 @@ class ObjectStorageBackend implements StorageBackendInterface
         ]);
         // Minted fresh on every call, per $ttl — a presigned URL remains
         // valid for the whole of its expiry once handed out, so callers
-        // that need a short-lived grant (Controller\GalleryController::
-        // serveMedia() for a delegated album) pass a short one; nothing
+        // that need a short-lived grant (a delegated album's media, served
+        // per request) pass a short one; nothing
         // here ever caches or reuses a previously minted URL.
         $request = $this->client->createPresignedRequest($command, $ttl);
         return (string) $request->getUri();
@@ -275,10 +467,10 @@ class ObjectStorageBackend implements StorageBackendInterface
      */
     private const STABLE_URL_WINDOW_SECONDS = 3600;
 
-    public function stableUrl(string $key): string
+    public function stableDirectUrl(string $key): ?string
     {
         if ($this->publicUrl !== null && $this->publicUrl !== '') {
-            return $this->url($key);
+            return $this->directUrl($key);
         }
 
         // A presigned URL embeds its signing time (X-Amz-Date), so two
@@ -316,14 +508,14 @@ class ObjectStorageBackend implements StorageBackendInterface
      * PutObject (this happened for real: a Scaleway policy scoped to
      * read-only let every prior health check pass right up until a real
      * upload/migration hit AccessDenied). Writes a small canary object
-     * under HEALTH_CHECK_PREFIX (never collides with a real album's numeric
+     * under HEALTH_CHECK_PREFIX (never collides with a consumer's own key
      * prefix), reads it back to catch silent write corruption, then removes
      * it via deletePrefix() — the exact same list-then-batch-delete call
-     * production code uses to clean up an album — so ListObjectsV2 and
+     * production code uses to clean up a prefix — so ListObjectsV2 and
      * DeleteObjects permissions are verified too, not just PutObject/
-     * GetObject. Called from Controller\GalleryConfigController::
-     * testConnection() (admin-triggered) and Service\StorageLocationService
-     * ::checkNow() (TTL-gated background refresh).
+     * GetObject. Called from the Stockage screen's « Tester » button and from
+     * Core\Storage\Location\StorageLocationService::checkNow() (the
+     * TTL-gated refresh).
      *
      * @return string|null null on success, otherwise a FRENCH sentence
      *                      naming the operation that failed and, where the
@@ -331,9 +523,7 @@ class ObjectStorageBackend implements StorageBackendInterface
      *                      SDK's own English — "Error executing
      *                      \"HeadBucket\" … AWS HTTP error: cURL error 6" —
      *                      which reached the configuration page through
-     *                      Service\StorageLocationService's `lastCheckError`
-     *                      column and Controller\GalleryConfigController's
-     *                      JSON. The SDK's words are still available, on
+     *                      the location's own `last_check_error` column. The SDK's words are still available, on
      *                      {@see self::lastTechnicalError()}, for the caller
      *                      to journal.
      */

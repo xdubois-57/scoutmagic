@@ -12,7 +12,7 @@ namespace Modules\Gallery\Api;
  * A delegated album as seen from outside the gallery module — just enough
  * for the owning module to keep the id (to pass back into
  * DelegatedAlbumManager's other methods) and render a title, never
- * gallery's own internal Repository\Album (storage_location_id,
+ * gallery's own internal Repository\Album (location_id,
  * migration state, etc. stay module-private).
  */
 final class DelegatedAlbum

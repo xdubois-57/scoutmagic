@@ -18,6 +18,8 @@ trouve être exécutable ailleurs.
 | `maquette-courrier-entrant.jsx` | Courrier entrant transversal | `/courrier` — Chef d'Unité, et le composant de tri métier | IT-06, IT-07 |
 | `maquette-trombinoscope-pdf.jsx` | Trombinoscope imprimable | Le PDF A4 — page d'annuaire et page de section | IT-02, IT-03 |
 | `maquette-courrier-sortant.jsx` | Courrier sortant | `/config/courrier-sortant` — superadmin, les sept sous-pages | IT-01 à IT-07 |
+| `maquette-stockage.jsx` | Emplacements de stockage | `/config/stockage` — superadmin, les deux sous-pages | IT-02, IT-07 |
+| `maquette-galerie-config.jsx` | Emplacements de stockage | `/config/gallery` — superadmin, les quatre onglets | IT-02 |
 
 ## Le cas du trombinoscope imprimable
 
@@ -41,3 +43,21 @@ choix segmenté « qui peut lire ». C'est la v2 qui fait foi.
 **Le rôle `rental` de la maquette est le composant de tri d'IT-07**, pas un
 second écran : même liste, filtrée au périmètre de l'utilisateur, sans
 filtres de boîte ni bascule de courrier automatique.
+
+## Les deux maquettes du stockage se lisent ensemble
+
+`maquette-stockage.jsx` fait foi pour l'écran où l'on **déclare** un
+emplacement ; `maquette-galerie-config.jsx` pour l'écran où un
+consommateur en **choisit** un. C'est le partage du chantier : les
+emplacements sont déclarés au centre, chacun choisit chez soi.
+
+Deux points que ces maquettes portent et qui ne sont pas de la mise en
+page :
+
+- **Les capacités techniques n'apparaissent jamais telles quelles.**
+  Personne ne choisit un stockage sur « lecture par plage d'octets ».
+  L'écran montre des conséquences — Photos, Vidéos, Sauvegardes, Place
+  restante — produites à partir des capacités déclarées par les backends.
+- **L'espace se mesure par volume, pas par emplacement.** Deux dossiers
+  sur le même disque partagent la même place libre ; les afficher
+  séparément laisserait croire qu'on en a deux fois plus.

@@ -14,11 +14,17 @@ use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
-use Modules\Gallery\Repository\StorageLocation;
-use Modules\Gallery\Repository\StorageLocationRepository;
+use Core\Storage\Location\Config\LocalLocationConfig;
+use Core\Storage\Location\Config\LocationConfig;
+use Core\Storage\Location\Config\ObjectStorageLocationConfig;
+use Core\Storage\Location\StorageLocation;
+use Core\Storage\Location\StorageLocationException;
+use Core\Storage\Location\StorageLocationRepository;
+use Core\Storage\Location\StorageLocationService;
+use Core\Storage\Location\StorageLocationType;
 use Modules\Gallery\Api\GalleryException;
+use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Service\ObjectStorageErrorExplainerService;
-use Modules\Gallery\Service\StorageLocationService;
 use Twig\Environment;
 
 class GalleryStorageLocationController extends AbstractController
@@ -31,7 +37,8 @@ class GalleryStorageLocationController extends AbstractController
         private StorageLocationRepository $storageLocationRepository,
         private StorageLocationService $storageLocationService,
         private JournalService $journalService,
-        private ObjectStorageErrorExplainerService $s3ErrorExplainerService
+        private ObjectStorageErrorExplainerService $s3ErrorExplainerService,
+        private AlbumRepository $albumRepository
     ) {
     }
 
@@ -56,49 +63,26 @@ class GalleryStorageLocationController extends AbstractController
             return $guard;
         }
 
-        $type = (string) $request->getBody('type', StorageLocation::TYPE_LOCAL) === StorageLocation::TYPE_S3
-            ? StorageLocation::TYPE_S3
-            : StorageLocation::TYPE_LOCAL;
+        $type = (string) $request->getBody('type', StorageLocationType::Local->value)
+            === StorageLocationType::ObjectStorage->value
+                ? StorageLocationType::ObjectStorage
+                : StorageLocationType::Local;
         $label = trim((string) $request->getBody('label', ''));
 
         try {
             if ($label === '') {
                 throw new GalleryException('Le nom de l\'emplacement est obligatoire.');
             }
-            if ($this->storageLocationRepository->findByLabel($label) !== null) {
-                throw new GalleryException('Ce nom d\'emplacement est déjà utilisé.');
-            }
 
-            if ($type === StorageLocation::TYPE_S3) {
-                $s3Endpoint = (string) $request->getBody('s3_endpoint', '');
-                $this->assertValidS3Endpoint($s3Endpoint);
-                $id = $this->storageLocationRepository->create(
-                    StorageLocation::TYPE_S3,
-                    $label,
-                    null,
-                    $this->nullableProvider($request->getBody('s3_provider')),
-                    $s3Endpoint,
-                    (string) $request->getBody('s3_region', ''),
-                    (string) $request->getBody('s3_bucket', ''),
-                    (string) $request->getBody('s3_access_key', ''),
-                    $this->nullableString($request->getBody('s3_public_url')),
-                    $this->nullableString($request->getBody('s3_secret_key'))
-                );
-            } else {
-                $id = $this->storageLocationRepository->create(
-                    StorageLocation::TYPE_LOCAL,
-                    $label,
-                    $this->normalizeSubdir($request->getBody('subdir')),
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null
-                );
-            }
-        } catch (GalleryException $e) {
+            $id = $this->storageLocationService->create(
+                $type,
+                $label,
+                $this->configFromRequest($type, $request),
+                $type === StorageLocationType::ObjectStorage
+                    ? $this->nullableString($request->getBody('s3_secret_key'))
+                    : null
+            );
+        } catch (GalleryException | StorageLocationException $e) {
             $context = $this->formContext(null);
             $context['submit_error'] = $e->getMessage();
             return $this->render('@gallery/location_form.html.twig', $context)->setStatusCode(422);
@@ -164,41 +148,19 @@ class GalleryStorageLocationController extends AbstractController
             if ($label === '') {
                 throw new GalleryException('Le nom de l\'emplacement est obligatoire.');
             }
-            $existingWithLabel = $this->storageLocationRepository->findByLabel($label);
-            if ($existingWithLabel !== null && $existingWithLabel->id !== $location->id) {
-                throw new GalleryException('Ce nom d\'emplacement est déjà utilisé.');
-            }
 
-            if ($location->isS3()) {
-                $s3Endpoint = (string) $request->getBody('s3_endpoint', '');
-                $this->assertValidS3Endpoint($s3Endpoint);
-                $this->storageLocationRepository->update(
-                    $location->id,
-                    $label,
-                    null,
-                    $this->nullableProvider($request->getBody('s3_provider')),
-                    $s3Endpoint,
-                    (string) $request->getBody('s3_region', ''),
-                    (string) $request->getBody('s3_bucket', ''),
-                    (string) $request->getBody('s3_access_key', ''),
-                    $this->nullableString($request->getBody('s3_public_url')),
-                    $this->nullableString($request->getBody('s3_secret_key'))
-                );
-            } else {
-                $this->storageLocationRepository->update(
-                    $location->id,
-                    $label,
-                    $this->normalizeSubdir($request->getBody('subdir')),
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null
-                );
-            }
-        } catch (GalleryException $e) {
+            $config = $this->configFromRequest($location->type, $request);
+            $this->assertNoDelegatedAlbumWouldBeStranded($location, $config);
+
+            $this->storageLocationService->update(
+                $location->id,
+                $label,
+                $config,
+                $location->type === StorageLocationType::ObjectStorage
+                    ? $this->nullableString($request->getBody('s3_secret_key'))
+                    : null
+            );
+        } catch (GalleryException | StorageLocationException $e) {
             $context = $this->formContext($location);
             $context['submit_error'] = $e->getMessage();
             return $this->render('@gallery/location_form.html.twig', $context)->setStatusCode(422);
@@ -240,8 +202,8 @@ class GalleryStorageLocationController extends AbstractController
         }
 
         try {
-            $this->storageLocationRepository->delete($id);
-        } catch (GalleryException $e) {
+            $this->storageLocationService->delete($id);
+        } catch (StorageLocationException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
         }
 
@@ -275,7 +237,38 @@ class GalleryStorageLocationController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Emplacement introuvable.'], 404);
         }
 
-        $this->storageLocationRepository->setDefault($location->id);
+        // The same stranding, through the other door. A delegated album
+        // whose location_id is still null is not on « no » location: it is
+        // on the DEFAULT, and resolveLocationForAlbum() pins it there the
+        // next time anything touches it. Promoting a publicly-serving
+        // location to default therefore hands those albums to a
+        // destination serveDelegatedMedia() will refuse — for ever, and
+        // silently. `true` for the second argument because the question is
+        // about the location this is ABOUT to make the default.
+        if (
+            $location->servesPubliclyWithoutExpiry()
+            && $this->albumRepository->hasDelegatedAlbumsOn($location->id, true)
+        ) {
+            return $this->json(['success' => false, 'error' =>
+                'Des albums délégués seraient hébergés sur cet emplacement, et une URL publique les rendrait '
+                . 'lisibles par toute personne connaissant le lien — le site refuserait alors de les servir. '
+                . 'Choisissez un emplacement privé par défaut, ou déplacez ces albums d\'abord.',
+            ], 422);
+        }
+
+        try {
+            $this->storageLocationService->setDefault($location->id);
+        } catch (StorageLocationException $e) {
+            // The row can vanish between the findById() above and this
+            // promotion — deleted from another session, or this page
+            // reopened after a deletion — and the repository refuses that
+            // rather than demoting everything and promoting nobody. This
+            // endpoint answers in JSON, so the refusal has to as well: an
+            // uncaught exception here is an HTML error page landing in a
+            // fetch() that expects an object, which tells the
+            // administrator nothing at all.
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
+        }
 
         $this->journalService->log(
             'gallery',
@@ -326,21 +319,30 @@ class GalleryStorageLocationController extends AbstractController
     {
         return [
             'location' => $location,
-            'referenced_count' => $location !== null
-                ? $this->storageLocationRepository->countAlbumsUsing($location->id)
-                : 0,
+            // What still stands on this location, by name — « Galeries
+            // photo ». A count would only say « 3 » and leave the
+            // administrator to guess three what.
+            'usages' => $location !== null ? $this->storageLocationService->usagesOf($location->id) : [],
             'gallery_s3_ai_available' => $this->s3ErrorExplainerService->isAvailable(),
+            // One spelling of « the default folder », shared with
+            // StorageLocationService::ensureDefaultExists() and with
+            // normalizeSubdir()'s blank-submit fallback. Two spellings is
+            // how a form accepted as-is creates a location pointing at a
+            // different directory from the one the site already made,
+            // both presented as the default local storage.
+            'default_local_path' => StorageLocationService::DEFAULT_PATH,
             'csrf_token' => CsrfGuard::generateToken(),
         ];
     }
 
     /**
-     * The local sub-directory is concatenated straight onto the storage root
-     * by Service\Storage\LocalStorageBackend, so it is validated here rather
-     * than trusted: a value like "../../public" would put every rendition
-     * inside the webroot. Kept to plain relative segments — the backend also
-     * refuses to resolve outside its own directory, this just makes the
-     * refusal a readable message at the point of entry.
+     * The local sub-directory is joined onto the storage root by
+     * Core\Storage\Location\Backend\StorageBackendFactory, so it is
+     * validated here rather than trusted: a value like "../../public" would
+     * put every rendition inside the webroot. Kept to plain relative
+     * segments — the backend also refuses to resolve outside its own
+     * directory, this just makes the refusal a readable message at the
+     * point of entry.
      *
      * @throws GalleryException on an absolute path, a parent-directory hop, or
      *                           a character outside [A-Za-z0-9._-] and "/"
@@ -357,7 +359,13 @@ class GalleryStorageLocationController extends AbstractController
 
         $subdir = trim($raw, " \t\n\r\0\x0B/");
         if ($subdir === '') {
-            return 'gallery';
+            // The SAME folder ensureDefaultExists() creates, not a second
+            // spelling of « the default ». They were 'gallery' here and
+            // 'modules/gallery' there, so accepting this form blank
+            // produced a location pointing at a different directory from
+            // the one the site had already made — both presented as the
+            // default local storage.
+            return StorageLocationService::DEFAULT_PATH;
         }
         if (mb_strlen($subdir) > 255) {
             throw new GalleryException('Le sous-dossier ne peut pas dépasser 255 caractères.');
@@ -375,6 +383,72 @@ class GalleryStorageLocationController extends AbstractController
         }
 
         return $subdir;
+    }
+
+    /**
+     * The per-type configuration record the form just described.
+     *
+     * One method for both create and update, because the two used to hold
+     * two copies of the same ten-argument call and the S3 endpoint check
+     * had already been forgotten in one of them once.
+     *
+     * @throws GalleryException on a sub-directory or an endpoint the site refuses
+     */
+    /**
+     * Refuses an edit that would turn a location a delegated album lives
+     * on into one that serves publicly, for ever, to whoever holds a URL.
+     *
+     * The restriction itself is not new — `DelegatedAlbumService::
+     * ensureAlbum()` refuses such a location at creation, and
+     * `GalleryController::serveDelegatedMedia()` re-asserts it when the
+     * bytes are handed out. What was missing is the third moment: the
+     * album is created on a private location, the location is later edited
+     * to carry a public URL, and the serve-time guard then does exactly
+     * its job — every media of every delegated album on that location
+     * becomes a 404, permanently, with nothing anywhere saying why.
+     *
+     * Nothing was exposed by that: the guard held, which is the whole
+     * point of having it. But « silently stopped working » is not an
+     * acceptable outcome of a form whose own help text promises that only
+     * the name and the connection details can be changed.
+     *
+     * @throws GalleryException when the new configuration would strand one
+     */
+    private function assertNoDelegatedAlbumWouldBeStranded(
+        StorageLocation $location,
+        LocationConfig $config
+    ): void {
+        if (!$config->servesPubliclyWithoutExpiry()) {
+            return;
+        }
+        if (!$this->albumRepository->hasDelegatedAlbumsOn($location->id, $location->isDefault)) {
+            return;
+        }
+
+        throw new GalleryException(
+            'Des albums délégués sont hébergés sur cet emplacement, et une URL publique les rendrait '
+            . 'lisibles par toute personne connaissant le lien — le site refuserait alors de les servir. '
+            . 'Déplacez-les vers un autre emplacement avant de configurer une URL publique ici.'
+        );
+    }
+
+    private function configFromRequest(StorageLocationType $type, Request $request): LocationConfig
+    {
+        if ($type !== StorageLocationType::ObjectStorage) {
+            return new LocalLocationConfig($this->normalizeSubdir($request->getBody('subdir')));
+        }
+
+        $endpoint = (string) $request->getBody('s3_endpoint', '');
+        $this->assertValidS3Endpoint($endpoint);
+
+        return new ObjectStorageLocationConfig(
+            endpoint: $endpoint,
+            region: (string) $request->getBody('s3_region', ''),
+            bucket: (string) $request->getBody('s3_bucket', ''),
+            accessKey: (string) $request->getBody('s3_access_key', ''),
+            provider: $this->nullableProvider($request->getBody('s3_provider')),
+            publicUrl: $this->nullableString($request->getBody('s3_public_url'))
+        );
     }
 
     private function nullableProvider(mixed $value): string

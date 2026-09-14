@@ -24,19 +24,23 @@ use Minishlink\WebPush\WebPush;
 use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\MediaRepository;
-use Modules\Gallery\Repository\ObjectStorageSecretRepository;
-use Modules\Gallery\Repository\StorageLocation;
-use Modules\Gallery\Repository\StorageLocationRepository;
+use Core\Storage\Location\StorageLocation;
+use Core\Storage\Location\StorageLocationRepository;
 use Modules\Gallery\Service\AlbumService;
 use Modules\Gallery\Service\GalleryAccessService;
 use Modules\Gallery\Api\GalleryException;
 use Modules\Gallery\Service\OgScraperService;
-use Modules\Gallery\Service\Storage\StorageBackendFactory;
-use Modules\Gallery\Service\StorageLocationService;
+use Core\Storage\Location\Backend\StorageBackendFactory;
+use Core\Storage\Location\StorageLocationService;
 use Modules\Gallery\Service\StoredFileCleaner;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Gallery\GalleryTestHelper;
+use Modules\Gallery\Service\GalleryStorageWiring;
+use Core\Storage\Location\StorageLocationType;
+use Core\Storage\Location\Config\LocalLocationConfig;
+use Core\Storage\Location\Config\ObjectStorageLocationConfig;
+use Modules\Gallery\Service\GalleryLocationService;
 
 /**
  * @group database
@@ -44,6 +48,8 @@ use Tests\Modules\Gallery\GalleryTestHelper;
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class AlbumServiceTest extends TestCase
 {
+    private GalleryLocationService $galleryLocationService;
+
     private \PDO $pdo;
     private AlbumRepository $albumRepository;
     private StorageLocationRepository $storageLocationRepository;
@@ -77,10 +83,11 @@ class AlbumServiceTest extends TestCase
         $this->storageBackendFactory = $this->createMock(StorageBackendFactory::class);
         $settingService = $this->createMock(SettingService::class);
         $settingService->method('get')->willReturnCallback(fn($key, $module, $default) => $default);
-        $this->storageLocationService = new StorageLocationService(
-            $this->storageLocationRepository, $this->albumRepository, $this->storageBackendFactory,
-            $settingService, new ObjectStorageSecretRepository($this->pdo, $encryption), sys_get_temp_dir()
-        );
+        $storageWiring = GalleryStorageWiring::build(
+                $this->pdo, $encryption, $settingService, sys_get_temp_dir(), $this->albumRepository
+            );
+        $this->storageLocationService = $storageWiring->locationService;
+        $this->galleryLocationService = $storageWiring->galleryLocations;
 
         $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
         $stmt->execute(['enc', 'idx']);
@@ -98,7 +105,7 @@ class AlbumServiceTest extends TestCase
         $this->sectionId = (int) $this->pdo->lastInsertId();
 
         $this->locationId = $this->storageLocationRepository->create(
-            StorageLocation::TYPE_LOCAL, 'Stockage local', 'gallery', null, null, null, null, null, null, null
+            StorageLocationType::Local, 'Stockage local', new LocalLocationConfig('gallery'), null
         );
 
         $this->schedulerService = $this->createMock(SchedulerService::class);
@@ -109,6 +116,7 @@ class AlbumServiceTest extends TestCase
         $this->service = new AlbumService(
             $this->albumRepository, $mediaRepository, $this->accessService, $ogScraperService,
             $this->storageBackendFactory, $this->storageLocationRepository, $this->storageLocationService,
+            $this->galleryLocationService,
             $scoutYearService, $settingService, $this->schedulerService, $this->uploadHandler,
             null, null, $this->storedFileCleaner
         );
@@ -122,13 +130,13 @@ class AlbumServiceTest extends TestCase
 
         $this->assertSame('Camp', $album->title);
         $this->assertSame($this->scoutYearId, $album->scoutYearId);
-        $this->assertSame($this->locationId, $album->storageLocationId);
+        $this->assertSame($this->locationId, $album->locationId);
     }
 
     public function testCreateAlwaysUsesTheDefaultLocationRegardlessOfHowManyExist(): void
     {
         $otherLocationId = $this->storageLocationRepository->create(
-            StorageLocation::TYPE_LOCAL, 'Autre emplacement', 'gallery2', null, null, null, null, null, null, null
+            StorageLocationType::Local, 'Autre emplacement', new LocalLocationConfig('gallery2'), null
         );
         // $this->locationId (created first in setUp) stays the default —
         // creating a second location never changes that.
@@ -136,7 +144,7 @@ class AlbumServiceTest extends TestCase
 
         $album = $this->service->create(Album::TYPE_LOCAL, 'Titre', null, '2026-07-01', null, null, $this->authorId, Role::CHIEF, 'chief@test.com');
 
-        $this->assertSame($this->locationId, $album->storageLocationId);
+        $this->assertSame($this->locationId, $album->locationId);
     }
 
     public function testCreateRejectsEmptyTitle(): void
@@ -165,7 +173,7 @@ class AlbumServiceTest extends TestCase
         $service = new AlbumService(
             $this->albumRepository, new MediaRepository($this->pdo), $this->accessService,
             $ogScraperService, $this->storageBackendFactory, $this->storageLocationRepository,
-            $this->storageLocationService, new ScoutYearService($this->pdo), $settingService, $this->schedulerService, $this->uploadHandler
+            $this->storageLocationService, $this->galleryLocationService, new ScoutYearService($this->pdo), $settingService, $this->schedulerService, $this->uploadHandler
         );
 
         $album = $service->create(Album::TYPE_EXTERNAL, '', null, '2026-07-01', null, 'https://example.com/album', $this->authorId, Role::CHIEF, 'chief@test.com');
@@ -188,7 +196,7 @@ class AlbumServiceTest extends TestCase
         $service = new AlbumService(
             $this->albumRepository, new MediaRepository($this->pdo), $this->accessService,
             $ogScraperService, $this->storageBackendFactory, $this->storageLocationRepository,
-            $this->storageLocationService, new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything(),
+            $this->storageLocationService, $this->galleryLocationService, new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything(),
             $this->schedulerService, $this->uploadHandler
         );
 
@@ -208,7 +216,7 @@ class AlbumServiceTest extends TestCase
         $service = new AlbumService(
             $this->albumRepository, new MediaRepository($this->pdo), $this->accessService,
             $ogScraperService, $this->storageBackendFactory, $this->storageLocationRepository,
-            $this->storageLocationService, new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything(),
+            $this->storageLocationService, $this->galleryLocationService, new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything(),
             $this->schedulerService, $this->uploadHandler
         );
 
@@ -224,7 +232,7 @@ class AlbumServiceTest extends TestCase
         $service = new AlbumService(
             $this->albumRepository, new MediaRepository($this->pdo), $this->accessService,
             $ogScraperService, $this->storageBackendFactory, $this->storageLocationRepository,
-            $this->storageLocationService, new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything(), $this->schedulerService, $this->uploadHandler
+            $this->storageLocationService, $this->galleryLocationService, new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything(), $this->schedulerService, $this->uploadHandler
         );
 
         $this->expectException(GalleryException::class);
@@ -238,7 +246,7 @@ class AlbumServiceTest extends TestCase
         $service = new AlbumService(
             $this->albumRepository, new MediaRepository($this->pdo), $this->accessService,
             $ogScraperService, $this->storageBackendFactory, $this->storageLocationRepository,
-            $this->storageLocationService, new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything(), $this->schedulerService, $this->uploadHandler
+            $this->storageLocationService, $this->galleryLocationService, new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything(), $this->schedulerService, $this->uploadHandler
         );
 
         $album = $service->create(Album::TYPE_EXTERNAL, 'Mon titre à moi', null, '2026-07-01', null, 'https://example.com/album', $this->authorId, Role::CHIEF, 'chief@test.com');
@@ -253,7 +261,7 @@ class AlbumServiceTest extends TestCase
         $service = new AlbumService(
             $this->albumRepository, new MediaRepository($this->pdo), $accessService,
             $this->createMock(OgScraperService::class), $this->storageBackendFactory, $this->storageLocationRepository,
-            $this->storageLocationService, new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything(), $this->schedulerService, $this->uploadHandler
+            $this->storageLocationService, $this->galleryLocationService, new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything(), $this->schedulerService, $this->uploadHandler
         );
 
         $this->expectException(GalleryException::class);
@@ -278,7 +286,7 @@ class AlbumServiceTest extends TestCase
     public function testDeleteRemovesTheAlbum(): void
     {
         $id = $this->albumRepository->create(Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, null, $this->locationId, $this->authorId);
-        $backend = $this->createMock(\Modules\Gallery\Service\Storage\StorageBackendInterface::class);
+        $backend = $this->createMock(\Core\Storage\Location\Backend\StorageBackendInterface::class);
         $backend->expects($this->once())->method('deletePrefix')->with((string) $id);
         $this->storageBackendFactory->method('create')->willReturn($backend);
 
@@ -331,15 +339,23 @@ class AlbumServiceTest extends TestCase
         $albumRepository = new AlbumRepository($pdo);
         $storageBackendFactory = $this->createMock(StorageBackendFactory::class);
         $settingService = $this->settingServiceAllowingEverything();
-        $storageLocationService = new StorageLocationService(
-            $storageLocationRepository, $albumRepository, $storageBackendFactory,
-            $settingService, new ObjectStorageSecretRepository($pdo, $encryption), sys_get_temp_dir()
+        // Deliberately its OWN connection: this case is about an
+        // installation with no location declared at all, which the shared
+        // fixture always has.
+        $storageWiring = GalleryStorageWiring::build(
+            $pdo,
+            $encryption,
+            $settingService,
+            sys_get_temp_dir(),
+            $albumRepository
         );
+        $storageLocationService = $storageWiring->locationService;
+        $galleryLocationService = $storageWiring->galleryLocations;
         $service = new AlbumService(
             $albumRepository, new MediaRepository($pdo), $this->accessService,
             $this->createMock(OgScraperService::class), $storageBackendFactory, $storageLocationRepository,
-            $storageLocationService, new ScoutYearService($pdo), $settingService, $this->schedulerService,
-            new UploadHandler(new FileRepository($pdo), sys_get_temp_dir())
+            $storageLocationService, $galleryLocationService, new ScoutYearService($pdo), $settingService,
+            $this->schedulerService, new UploadHandler(new FileRepository($pdo), sys_get_temp_dir())
         );
 
         $this->assertSame([], $storageLocationRepository->findAll());
@@ -348,14 +364,61 @@ class AlbumServiceTest extends TestCase
 
         $backfilled = $storageLocationRepository->findDefault();
         $this->assertNotNull($backfilled);
-        $this->assertSame($backfilled->id, $album->storageLocationId);
+        $this->assertSame($backfilled->id, $album->locationId);
+    }
+
+    /**
+     * An album whose `location_id` is still null does not live nowhere: it
+     * lives on the default and has not been told so. Comparing the target
+     * against the raw null let « migrer vers le défaut » read as a move to
+     * a DIFFERENT location, and the pass that followed found no source to
+     * read from — leaving the album at 'in_progress' for ever, unavailable
+     * and un-retryable, since the retry guard reads that same column.
+     */
+    public function testMigratingAnUnpinnedAlbumToItsOwnDefaultIsRefusedRatherThanStarted(): void
+    {
+        $id = $this->albumRepository->create(
+            Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, null, null, $this->authorId
+        );
+        $this->storageLocationRepository->setDefault($this->locationId);
+        $this->storageLocationRepository->recordCheckResult($this->locationId, true, null);
+
+        try {
+            $this->service->startMigration($id, $this->locationId, Role::CHIEF, 'chief@test.com');
+            $this->fail('Migrating an album onto the location it already resolves to must be refused.');
+        } catch (GalleryException $e) {
+            $this->assertStringContainsString('différent', $e->getMessage());
+        }
+
+        $this->assertSame(Album::MIGRATION_NONE, $this->albumRepository->findById($id)?->migrationStatus);
+    }
+
+    public function testMigratingAnUnpinnedAlbumElsewhereFirstPinsItToItsRealSource(): void
+    {
+        $id = $this->albumRepository->create(
+            Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, null, null, $this->authorId
+        );
+        $this->storageLocationRepository->setDefault($this->locationId);
+        $targetId = $this->storageLocationRepository->create(
+            StorageLocationType::Local, 'Ailleurs', new LocalLocationConfig('gallery2'), null
+        );
+        $this->storageLocationRepository->recordCheckResult($targetId, true, null);
+
+        $this->service->startMigration($id, $targetId, Role::CHIEF, 'chief@test.com');
+
+        $album = $this->albumRepository->findById($id);
+        // Resolving wrote the source down, so the background pass has
+        // somewhere to read from instead of aborting.
+        $this->assertSame($this->locationId, $album?->locationId);
+        $this->assertSame($targetId, $album?->migrationTargetId);
+        $this->assertSame(Album::MIGRATION_IN_PROGRESS, $album?->migrationStatus);
     }
 
     public function testStartMigrationSchedulesTheTaskAndMarksInProgress(): void
     {
         $id = $this->albumRepository->create(Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, null, $this->locationId, $this->authorId);
         $targetId = $this->storageLocationRepository->create(
-            StorageLocation::TYPE_LOCAL, 'Autre emplacement', 'gallery2', null, null, null, null, null, null, null
+            StorageLocationType::Local, 'Autre emplacement', new LocalLocationConfig('gallery2'), null
         );
         $this->storageLocationRepository->recordCheckResult($targetId, true, null);
 
@@ -366,7 +429,7 @@ class AlbumServiceTest extends TestCase
 
         $album = $this->albumRepository->findById($id);
         $this->assertSame(Album::MIGRATION_IN_PROGRESS, $album->migrationStatus);
-        $this->assertSame($targetId, $album->migrationTargetLocationId);
+        $this->assertSame($targetId, $album->migrationTargetId);
     }
 
     public function testADelegatedAlbumCanBeMovedByAnAdministrator(): void
@@ -380,7 +443,7 @@ class AlbumServiceTest extends TestCase
             'discussion_group', 7
         );
         $targetId = $this->storageLocationRepository->create(
-            StorageLocation::TYPE_LOCAL, 'Autre emplacement', 'gallery2', null, null, null, null, null, null, null
+            StorageLocationType::Local, 'Autre emplacement', new LocalLocationConfig('gallery2'), null
         );
         $this->storageLocationRepository->recordCheckResult($targetId, true, null);
 
@@ -400,7 +463,7 @@ class AlbumServiceTest extends TestCase
             'discussion_group', 7
         );
         $targetId = $this->storageLocationRepository->create(
-            StorageLocation::TYPE_LOCAL, 'Autre emplacement', 'gallery2', null, null, null, null, null, null, null
+            StorageLocationType::Local, 'Autre emplacement', new LocalLocationConfig('gallery2'), null
         );
         $this->storageLocationRepository->recordCheckResult($targetId, true, null);
 
@@ -422,8 +485,9 @@ class AlbumServiceTest extends TestCase
             'discussion_group', 7
         );
         $targetId = $this->storageLocationRepository->create(
-            StorageLocation::TYPE_S3, 'Bucket public', null, 'custom', 'https://s3.test', 'eu',
-            'bucket', 'ak', 'https://cdn.test', 'sk'
+            StorageLocationType::ObjectStorage, 'Bucket public', new ObjectStorageLocationConfig(
+                'https://s3.test', 'eu', 'bucket', 'ak', 'custom', 'https://cdn.test'
+            ), 'sk'
         );
         $this->storageLocationRepository->recordCheckResult($targetId, true, null);
 
@@ -442,8 +506,9 @@ class AlbumServiceTest extends TestCase
             $this->scoutYearId, null, $this->locationId, $this->authorId
         );
         $targetId = $this->storageLocationRepository->create(
-            StorageLocation::TYPE_S3, 'Bucket public', null, 'custom', 'https://s3.test', 'eu',
-            'bucket', 'ak', 'https://cdn.test', 'sk'
+            StorageLocationType::ObjectStorage, 'Bucket public', new ObjectStorageLocationConfig(
+                'https://s3.test', 'eu', 'bucket', 'ak', 'custom', 'https://cdn.test'
+            ), 'sk'
         );
         $this->storageLocationRepository->recordCheckResult($targetId, true, null);
 
@@ -476,7 +541,9 @@ class AlbumServiceTest extends TestCase
     {
         $id = $this->albumRepository->create(Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, null, $this->locationId, $this->authorId);
         $targetId = $this->storageLocationRepository->create(
-            StorageLocation::TYPE_S3, 'Bucket cassé', null, 'custom', 'https://x', 'eu', 'bucket', 'ak', null, 'sk'
+            StorageLocationType::ObjectStorage, 'Bucket cassé', new ObjectStorageLocationConfig(
+                'https://x', 'eu', 'bucket', 'ak', 'custom', null
+            ), 'sk'
         );
         $this->storageLocationRepository->recordCheckResult($targetId, false, 'Connexion refusée.');
 
@@ -496,7 +563,7 @@ class AlbumServiceTest extends TestCase
     {
         $id = $this->albumRepository->create(Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, null, $this->locationId, $this->authorId);
         $targetId = $this->storageLocationRepository->create(
-            StorageLocation::TYPE_LOCAL, 'Autre emplacement', 'gallery2', null, null, null, null, null, null, null
+            StorageLocationType::Local, 'Autre emplacement', new LocalLocationConfig('gallery2'), null
         );
         $this->storageLocationRepository->recordCheckResult($targetId, true, null);
         $this->albumRepository->startMigration($id, $targetId);
@@ -509,7 +576,7 @@ class AlbumServiceTest extends TestCase
     {
         $id = $this->albumRepository->create(Album::TYPE_EXTERNAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, 'https://example.com', null, $this->authorId);
         $targetId = $this->storageLocationRepository->create(
-            StorageLocation::TYPE_LOCAL, 'Autre emplacement', 'gallery2', null, null, null, null, null, null, null
+            StorageLocationType::Local, 'Autre emplacement', new LocalLocationConfig('gallery2'), null
         );
         $this->storageLocationRepository->recordCheckResult($targetId, true, null);
 
@@ -570,7 +637,7 @@ class AlbumServiceTest extends TestCase
             $this->authorId, 'some_owner_type', 42
         );
         $targetId = $this->storageLocationRepository->create(
-            StorageLocation::TYPE_LOCAL, 'Autre emplacement', 'gallery2', null, null, null, null, null, null, null
+            StorageLocationType::Local, 'Autre emplacement', new LocalLocationConfig('gallery2'), null
         );
         $this->storageLocationRepository->recordCheckResult($targetId, true, null);
 
@@ -765,7 +832,7 @@ class AlbumServiceTest extends TestCase
             $fileIds[] = $fileId;
             $this->mediaRepository->create($id, 'photo', $fileId, 0, null);
         }
-        $backend = $this->createMock(\Modules\Gallery\Service\Storage\StorageBackendInterface::class);
+        $backend = $this->createMock(\Core\Storage\Location\Backend\StorageBackendInterface::class);
         $this->storageBackendFactory->method('create')->willReturn($backend);
 
         $this->service->delete($id, Role::CHIEF, 'chief@test.com');
@@ -826,6 +893,7 @@ class AlbumServiceTest extends TestCase
         return new AlbumService(
             $this->albumRepository, $this->mediaRepository, $this->accessService, $ogScraperService,
             $this->storageBackendFactory, $this->storageLocationRepository, $this->storageLocationService,
+            $this->galleryLocationService,
             new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything(), $this->schedulerService,
             $this->uploadHandler, null, null, $this->storedFileCleaner
         );
@@ -868,6 +936,7 @@ class AlbumServiceTest extends TestCase
         $service = new AlbumService(
             $this->albumRepository, new MediaRepository($this->pdo), $this->accessService, $this->createMock(OgScraperService::class),
             $this->storageBackendFactory, $this->storageLocationRepository, $this->storageLocationService,
+            $this->galleryLocationService,
             new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything(), $this->schedulerService, $this->uploadHandler,
             $notificationService, $userAccountRepository
         );

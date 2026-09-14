@@ -231,7 +231,7 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
             // the media-status endpoint returns data only.
             var thumb = cell.querySelector('img');
             expect(thumb).not.toBeNull();
-            expect(thumb.getAttribute('src')).toBe('/gallery/media/42/thumb');
+            expect(thumb.getAttribute('src')).toBe('/gallery/media/42/medium');
         } finally {
             vi.useRealTimers();
         }
@@ -281,7 +281,7 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
             await vi.advanceTimersByTimeAsync(2000);
 
             var cell = document.querySelector('[data-media-id="42"]');
-            expect(cell.querySelector('img').getAttribute('src')).toBe('/gallery/media/42/thumb');
+            expect(cell.querySelector('img').getAttribute('src')).toBe('/gallery/media/42/medium');
             expect(cell.innerHTML).not.toContain('onerror');
             expect(window.__xss).toBeUndefined();
         } finally {
@@ -349,6 +349,83 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
             var cell = document.querySelector('[data-media-id="11"]');
             expect(cell.querySelector('img')).not.toBeNull();
             expect(cell.querySelector('.bi-play-circle-fill')).not.toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    /**
+     * Issue #330: the 300px thumbnail is too small for a feed cell that
+     * fills a phone's width. A cell resolved by the poll must be drawn
+     * from the same rendition as one the server rendered directly — a
+     * swap that disagreed would be a photo changing sharpness the moment
+     * it loads.
+     */
+    it('draws a photo it swaps in from the medium rendition', async () => {
+        vi.useFakeTimers();
+        try {
+            document.body.innerHTML = `
+                <div id="groups-feed" data-group-id="7">
+                    <div class="groups-load-more-wrapper">
+                        <button class="groups-load-more" data-url="/groups/7/feed?cursor=abc">Charger plus</button>
+                    </div>
+                </div>
+            `;
+            global.fetch = vi.fn()
+                .mockResolvedValueOnce({
+                    ok: true,
+                    text: () => Promise.resolve(
+                        '<a class="groups-media-cell" data-media-id="42" data-status="pending"></a>'
+                    )
+                })
+                .mockResolvedValue({
+                    ok: true,
+                    json: () => Promise.resolve([{ id: 42, status: 'done', media_type: 'photo' }])
+                });
+
+            document.querySelector('.groups-load-more').click();
+            await vi.advanceTimersByTimeAsync(0);
+            await vi.advanceTimersByTimeAsync(2000);
+
+            var thumb = document.querySelector('[data-media-id="42"] img');
+            expect(thumb.getAttribute('src')).toBe('/gallery/media/42/medium');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    /**
+     * A video's « medium » is an MP4 file, never an image. Its poster is
+     * an unscaled frame already, so the cell keeps it.
+     */
+    it('keeps a video on its own poster rather than its mp4 rendition', async () => {
+        vi.useFakeTimers();
+        try {
+            document.body.innerHTML = `
+                <div id="groups-feed" data-group-id="7">
+                    <div class="groups-load-more-wrapper">
+                        <button class="groups-load-more" data-url="/groups/7/feed?cursor=abc">Charger plus</button>
+                    </div>
+                </div>
+            `;
+            global.fetch = vi.fn()
+                .mockResolvedValueOnce({
+                    ok: true,
+                    text: () => Promise.resolve(
+                        '<a class="groups-media-cell" data-media-id="11" data-status="processing"></a>'
+                    )
+                })
+                .mockResolvedValue({
+                    ok: true,
+                    json: () => Promise.resolve([{ id: 11, status: 'done', media_type: 'video' }])
+                });
+
+            document.querySelector('.groups-load-more').click();
+            await vi.advanceTimersByTimeAsync(0);
+            await vi.advanceTimersByTimeAsync(2000);
+
+            var thumb = document.querySelector('[data-media-id="11"] img');
+            expect(thumb.getAttribute('src')).toBe('/gallery/media/11/thumb');
         } finally {
             vi.useRealTimers();
         }

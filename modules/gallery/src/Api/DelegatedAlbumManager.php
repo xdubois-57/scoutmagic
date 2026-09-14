@@ -32,7 +32,7 @@ interface DelegatedAlbumManager
     /**
      * Finds the delegated album already owned by (ownerType, ownerId), or
      * creates one when none exists yet — idempotent, safe to call on
-     * every request that might need the album. $storageLocationId pins the
+     * every request that might need the album. $locationId pins the
      * album to a specific configured location; null uses whichever
      * location is currently the default, same resolution as an ordinary
      * local album.
@@ -50,7 +50,7 @@ interface DelegatedAlbumManager
         string $title,
         string $albumDate,
         int $createdBy,
-        ?int $storageLocationId = null
+        ?int $locationId = null
     ): DelegatedAlbum;
 
     /**

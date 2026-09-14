@@ -16,7 +16,7 @@ namespace Core\Maintenance\Remote;
  * destination today, and a second one is not planned — so the interface
  * earns its place on two other grounds. The first is precedent: the
  * gallery already stores its renditions behind
- * `Modules\Gallery\Service\Storage\StorageBackendInterface`, with a local
+ * `Core\Storage\Location\Backend\StorageBackendInterface`, with a local
  * disk and an S3 bucket behind it, and a destination for files is exactly
  * that shape of problem. The second is testability, which is not a
  * nicety here: everything below crosses the network to a service that

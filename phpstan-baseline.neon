@@ -109,12 +109,6 @@ parameters:
 			path: modules/finance/src/Service/AccountTransferCategoryService.php
 
 		-
-			message: '#^If condition is always false\.$#'
-			identifier: if.alwaysFalse
-			count: 1
-			path: modules/gallery/src/Repository/StorageLocationRepository.php
-
-		-
 			message: '#^Strict comparison using \!\=\= between mixed and null will always evaluate to true\.$#'
 			identifier: notIdentical.alwaysTrue
 			count: 3

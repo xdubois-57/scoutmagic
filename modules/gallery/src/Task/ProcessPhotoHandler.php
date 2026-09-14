@@ -11,14 +11,11 @@ namespace Modules\Gallery\Task;
 use Core\File\FileRepository;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
+use Modules\Gallery\Api\GalleryException;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\MediaRepository;
-use Modules\Gallery\Repository\ObjectStorageSecretRepository;
-use Modules\Gallery\Repository\StorageLocationRepository;
-use Modules\Gallery\Api\GalleryException;
+use Modules\Gallery\Service\GalleryStorageWiring;
 use Modules\Gallery\Service\ImageProcessingService;
-use Modules\Gallery\Service\Storage\StorageBackendFactory;
-use Modules\Gallery\Service\StorageLocationService;
 
 /**
  * Background photo resize (module spec) — scheduled by Service\
@@ -92,19 +89,16 @@ class ProcessPhotoHandler implements TaskHandlerInterface
             if ($album === null) {
                 throw new GalleryException('Album introuvable pour ce média.');
             }
-            $storageLocationRepository = new StorageLocationRepository($pdo, $context->encryption);
-            $storageBackendFactory = new StorageBackendFactory($storageLocationRepository, $context->storagePath);
-            $storageLocationService = $this->storageLocationService(
-                $context,
-                $storageLocationRepository,
-                $albumRepository,
-                $storageBackendFactory
-            );
-            $location = $storageLocationService->resolveLocationForAlbum($album);
+            // Resolving through the service rather than reading
+            // gallery_albums.location_id directly, so an album that has
+            // none yet gets put on the default instead of failing every
+            // single upload with « Emplacement de stockage introuvable ».
+            $storageWiring = GalleryStorageWiring::forTask($context, $albumRepository);
+            $location = $storageWiring->galleryLocations->resolveLocationForAlbum($album);
             if ($location === null) {
                 throw new GalleryException('Emplacement de stockage introuvable pour cet album.');
             }
-            $storage = $storageBackendFactory->create($location);
+            $storage = $storageWiring->backends->create($location);
             $thumbKey = "{$media->albumId}/thumb_{$mediaId}.jpg";
             $mediumKey = "{$media->albumId}/med_{$mediaId}.jpg";
             $largeKey = "{$media->albumId}/lg_{$mediaId}.jpg";
@@ -137,28 +131,5 @@ class ProcessPhotoHandler implements TaskHandlerInterface
                 ['media_id' => $mediaId, 'album_id' => $media->albumId, 'error' => $e->getMessage()]
             );
         }
-    }
-
-    /**
-     * Resolving through the service rather than reading
-     * gallery_albums.storage_location_id directly, so an album that predates
-     * multi-location support (a still-null storage_location_id, right after an
-     * upgrade) gets backfilled instead of failing every single upload with
-     * "Emplacement de stockage introuvable".
-     */
-    private function storageLocationService(
-        TaskContext $context,
-        StorageLocationRepository $storageLocationRepository,
-        AlbumRepository $albumRepository,
-        StorageBackendFactory $storageBackendFactory
-    ): StorageLocationService {
-        return new StorageLocationService(
-            $storageLocationRepository,
-            $albumRepository,
-            $storageBackendFactory,
-            $context->settings,
-            new ObjectStorageSecretRepository($context->connection->getPdo(), $context->encryption),
-            $context->storagePath
-        );
     }
 }

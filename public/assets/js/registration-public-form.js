@@ -49,6 +49,42 @@
     var friendWishBranchLabels = data.friendWishBranchLabels || [];
     var friendWishesZone = document.getElementById('friend-wishes-zone');
 
+    // « Déjà membre d'une autre unité Les Scouts ? » and the unit it was
+    // (issue #331). The name field is rendered VISIBLE by the template, so
+    // a browser with no JavaScript keeps both fields and a working form;
+    // what this adds is folding the second one away until it is needed.
+    var previousUnitAnswer = /** @type {HTMLSelectElement|null} */ (
+        document.getElementById('previous_unit_answer')
+    );
+    var previousUnitNameZone = document.getElementById('previous-unit-name-zone');
+    var previousUnitName = /** @type {HTMLInputElement|null} */ (
+        document.getElementById('previous_unit_name')
+    );
+
+    /**
+     * Show « Laquelle ? » for a « Oui », fold it away otherwise.
+     *
+     * `required` is toggled with it rather than written into the template:
+     * a hidden field carrying `required` blocks the submit button with a
+     * validation message the browser cannot point at, which is a form that
+     * refuses to send and says nothing. The server validates the same pair
+     * regardless — the browser is never the boundary.
+     *
+     * The typed name is kept when the answer goes back to « Non », the
+     * same way the « avec qui » names are: a family correcting an answer
+     * twice should find their text where they left it. Nothing is stored
+     * for a « Non » — the server drops it.
+     */
+    function updatePreviousUnit() {
+        if (!previousUnitAnswer || !previousUnitNameZone) return;
+
+        var asked = previousUnitAnswer.value === 'yes';
+        previousUnitNameZone.classList.toggle('d-none', !asked);
+        if (previousUnitName) {
+            previousUnitName.required = asked;
+        }
+    }
+
     // « Section souhaitée ». Every <option> the template writes carries
     // the branch it belongs to (`data-branch-id`), so the list can be
     // narrowed to the branch the birth date lands in without asking the
@@ -162,6 +198,13 @@
             typeof match.age_branch_id === 'number' ? match.age_branch_id : null
         );
     }
+
+    if (previousUnitAnswer) {
+        previousUnitAnswer.addEventListener('change', updatePreviousUnit);
+    }
+    // Also on load: a rejected submission comes back with the family's own
+    // answer already selected (the template's `sticky` values).
+    updatePreviousUnit();
 
     birthDateInput.addEventListener('change', updateHint);
     // A browser that restored a previously typed date on a reload must

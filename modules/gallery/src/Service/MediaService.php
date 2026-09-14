@@ -19,7 +19,7 @@ use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\Media;
 use Modules\Gallery\Repository\MediaRepository;
-use Modules\Gallery\Service\Storage\StorageBackendFactory;
+use Core\Storage\Location\Backend\StorageBackendFactory;
 
 class MediaService
 {
@@ -42,7 +42,7 @@ class MediaService
         private SettingService $settingService,
         private GalleryAccessService $accessService,
         private StorageBackendFactory $storageBackendFactory,
-        private StorageLocationService $storageLocationService,
+        private GalleryLocationService $galleryLocationService,
         private FfmpegAvailability $ffmpegAvailability,
         private ?StoredFileCleaner $storedFileCleaner = null
     ) {
@@ -241,7 +241,7 @@ class MediaService
     private function remove(Media $media, Album $album): void
     {
         if ($album->isLocal()) {
-            $location = $this->storageLocationService->resolveLocationForAlbum($album);
+            $location = $this->galleryLocationService->resolveLocationForAlbum($album);
             if ($location !== null) {
                 $backend = $this->storageBackendFactory->create($location);
                 foreach ([$media->thumbPath, $media->mediumPath, $media->largePath, $media->originalPath] as $path) {
@@ -323,18 +323,20 @@ class MediaService
             return null;
         }
 
-        $location = $this->storageLocationService->resolveLocationForAlbum($album);
+        $location = $this->galleryLocationService->resolveLocationForAlbum($album);
         if ($location === null) {
             return null;
         }
 
-        if ($location->isS3()) {
-            // stableUrl, not url(): a page's thumbnails must keep the same
-            // URL across renders or the browser can never cache them.
-            return $this->storageBackendFactory->create($location)->stableUrl($path);
-        }
-
-        return '/gallery/media/' . $media->id . '/' . $size;
+        // stableDirectUrl(), not directUrl(): a page's thumbnails must keep
+        // the same URL across renders or the browser can never cache them.
+        // Null means this destination cannot serve a visitor itself — the
+        // local disk, and every destination without signed URLs — so the
+        // gallery's own access-controlled route does the serving. That
+        // fallback is the whole reason the backend answers null instead of
+        // each new kind of storage inventing a serving path of its own.
+        return $this->storageBackendFactory->create($location)->stableDirectUrl($path)
+            ?? '/gallery/media/' . $media->id . '/' . $size;
     }
 
     /**

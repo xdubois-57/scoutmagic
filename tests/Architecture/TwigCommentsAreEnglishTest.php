@@ -142,7 +142,6 @@ final class TwigCommentsAreEnglishTest extends TestCase
         'modules/registration/views/_passage_statistics.html.twig' => 1,
         'modules/registration/views/config.html.twig' => 6,
         'modules/registration/views/forecast.html.twig' => 3,
-        'modules/registration/views/public.html.twig' => 1,
         'modules/rental/views/management/booking.html.twig' => 1,
         'modules/support_dashboard/views/_nav.html.twig' => 1,
         'modules/support_dashboard/views/index.html.twig' => 12,

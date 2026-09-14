@@ -72,7 +72,9 @@ class RequestExportServiceTest extends TestCase
             null,
             $overrides['acceptedEmailSentAt'] ?? null,
             $overrides['refusedEmailSentAt'] ?? null,
-            null
+            null,
+            $overrides['previousUnitAnswer'] ?? null,
+            $overrides['previousUnitName'] ?? null
         );
     }
 
@@ -124,6 +126,38 @@ class RequestExportServiceTest extends TestCase
         $this->assertContains('2', $row);
         $this->assertContains('famille@example.test', $row);
         $this->assertContains('Allergie aux arachides.', $row);
+    }
+
+    /**
+     * Issue #331 — the column a chief sorts on before encoding in Desk.
+     * Three states, three different cells: the unit when there is one, a
+     * written-out « Non », and an empty cell for a request filed before
+     * the question existed. « Non » and « never asked » must never read
+     * alike in a spreadsheet.
+     */
+    public function testThePreviousUnitColumnTellsTheThreeAnswersApart(): void
+    {
+        $this->assertContains('Autre unité Les Scouts', RequestExportService::headers());
+
+        $yes = $this->sheetRows([[
+            'request' => $this->request([
+                'previousUnitAnswer' => RegistrationRequest::PREVIOUS_UNIT_YES,
+                'previousUnitName' => '57e Unité Saint-Michel',
+            ]),
+        ]])[1];
+        $this->assertContains('Oui — 57e Unité Saint-Michel', $yes);
+
+        $no = $this->sheetRows([[
+            'request' => $this->request(['previousUnitAnswer' => RegistrationRequest::PREVIOUS_UNIT_NO]),
+        ]])[1];
+        $this->assertContains('Non', $no);
+
+        $neverAsked = $this->sheetRows([['request' => $this->request()]])[1];
+        $this->assertNotContains('Non', $neverAsked);
+        $this->assertSame(
+            '',
+            $neverAsked[array_search('Autre unité Les Scouts', RequestExportService::headers(), true)]
+        );
     }
 
     public function testInternalNotesNeverReachACell(): void

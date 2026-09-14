@@ -10,18 +10,24 @@ use Core\Security\EncryptionService;
 use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\MediaRepository;
-use Modules\Gallery\Repository\ObjectStorageSecretRepository;
-use Modules\Gallery\Repository\StorageLocation;
-use Modules\Gallery\Repository\StorageLocationRepository;
+use Core\Storage\Location\StorageLocation;
+use Core\Storage\Location\StorageLocationRepository;
 use Modules\Gallery\Service\DelegatedAlbumService;
 use Modules\Gallery\Api\GalleryException;
 use Modules\Gallery\Service\MediaService;
-use Modules\Gallery\Service\Storage\LocalStorageBackend;
-use Modules\Gallery\Service\Storage\StorageBackendFactory;
-use Modules\Gallery\Service\StorageLocationService;
+use Core\Storage\Location\Backend\LocalStorageBackend;
+use Core\Storage\Location\Backend\StorageBackendFactory;
+use Core\Storage\Location\Backend\StorageBackendInterface;
+use Core\Storage\Location\StorageCapability;
+use Core\Storage\Location\StorageLocationService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Gallery\GalleryTestHelper;
+use Modules\Gallery\Service\GalleryStorageWiring;
+use Core\Storage\Location\StorageLocationType;
+use Core\Storage\Location\Config\LocalLocationConfig;
+use Core\Storage\Location\Config\ObjectStorageLocationConfig;
+use Modules\Gallery\Service\GalleryLocationService;
 
 /**
  * @group database
@@ -29,6 +35,9 @@ use Tests\Modules\Gallery\GalleryTestHelper;
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class DelegatedAlbumServiceTest extends TestCase
 {
+    private GalleryLocationService $galleryLocationService;
+    private StorageLocationService $storageLocationService;
+
     private \PDO $pdo;
     private AlbumRepository $albumRepository;
     private MediaRepository $mediaRepository;
@@ -51,10 +60,11 @@ class DelegatedAlbumServiceTest extends TestCase
         $this->storageBackendFactory = $this->createMock(StorageBackendFactory::class);
         $settingService = $this->createMock(SettingService::class);
         $settingService->method('get')->willReturnCallback(fn($key, $module, $default) => $default);
-        $storageLocationService = new StorageLocationService(
-            $this->storageLocationRepository, $this->albumRepository, $this->storageBackendFactory,
-            $settingService, new ObjectStorageSecretRepository($this->pdo, $encryption), sys_get_temp_dir()
-        );
+        $storageWiring = GalleryStorageWiring::build(
+                $this->pdo, $encryption, $settingService, sys_get_temp_dir(), $this->albumRepository
+            );
+        $this->storageLocationService = $storageWiring->locationService;
+        $this->galleryLocationService = $storageWiring->galleryLocations;
         $mediaService = $this->createMock(MediaService::class);
 
         $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
@@ -64,12 +74,13 @@ class DelegatedAlbumServiceTest extends TestCase
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
 
         $this->localLocationId = $this->storageLocationRepository->create(
-            StorageLocation::TYPE_LOCAL, 'Stockage local', 'gallery', null, null, null, null, null, null, null
+            StorageLocationType::Local, 'Stockage local', new LocalLocationConfig('gallery'), null
         );
 
         $this->service = new DelegatedAlbumService(
             $this->albumRepository, $this->mediaRepository, $mediaService, $this->storageLocationRepository,
-            $storageLocationService, $this->storageBackendFactory, new ScoutYearService($this->pdo)
+            $this->storageLocationService, $this->galleryLocationService, $this->storageBackendFactory,
+            new ScoutYearService($this->pdo)
         );
     }
 
@@ -96,7 +107,7 @@ class DelegatedAlbumServiceTest extends TestCase
         $stored = $this->albumRepository->findByOwner('some_owner_type', 42);
         $this->assertNotNull($stored);
         $this->assertTrue($stored->isDelegated());
-        $this->assertSame($this->localLocationId, $stored->storageLocationId);
+        $this->assertSame($this->localLocationId, $stored->locationId);
     }
 
     public function testEnsureAlbumIsIdempotentAndReturnsTheSameAlbumOnASecondCall(): void
@@ -112,8 +123,9 @@ class DelegatedAlbumServiceTest extends TestCase
     public function testEnsureAlbumRefusesAStorageLocationWithAPublicUrlConfigured(): void
     {
         $publicLocationId = $this->storageLocationRepository->create(
-            StorageLocation::TYPE_S3, 'Bucket public', null, 'custom', 'https://s3.example.com', 'eu',
-            'bucket', 'ak', 'https://cdn.example.com', 'sk'
+            StorageLocationType::ObjectStorage, 'Bucket public', new ObjectStorageLocationConfig(
+                'https://s3.example.com', 'eu', 'bucket', 'ak', 'custom', 'https://cdn.example.com'
+            ), 'sk'
         );
 
         $this->expectException(GalleryException::class);
@@ -123,14 +135,15 @@ class DelegatedAlbumServiceTest extends TestCase
     public function testEnsureAlbumAcceptsAPrivateS3Location(): void
     {
         $privateLocationId = $this->storageLocationRepository->create(
-            StorageLocation::TYPE_S3, 'Bucket privé', null, 'custom', 'https://s3.example.com', 'eu',
-            'bucket', 'ak', null, 'sk'
+            StorageLocationType::ObjectStorage, 'Bucket privé', new ObjectStorageLocationConfig(
+                'https://s3.example.com', 'eu', 'bucket', 'ak', 'custom', null
+            ), 'sk'
         );
 
         $album = $this->service->ensureAlbum('some_owner_type', 42, 'Titre', '2026-01-01', $this->authorId, $privateLocationId);
 
         $stored = $this->albumRepository->findById($album->id);
-        $this->assertSame($privateLocationId, $stored->storageLocationId);
+        $this->assertSame($privateLocationId, $stored->locationId);
     }
 
     public function testListMediaThrowsForAnUnknownAlbum(): void
@@ -179,7 +192,7 @@ class DelegatedAlbumServiceTest extends TestCase
     public function testDeleteAlbumRemovesTheAlbumRowAndCleansUpStorage(): void
     {
         $album = $this->service->ensureAlbum('some_owner_type', 42, 'Titre', '2026-01-01', $this->authorId);
-        $backend = $this->createMock(\Modules\Gallery\Service\Storage\StorageBackendInterface::class);
+        $backend = $this->createMock(\Core\Storage\Location\Backend\StorageBackendInterface::class);
         $backend->expects($this->once())->method('deletePrefix')->with((string) $album->id);
         $this->storageBackendFactory->method('create')->willReturn($backend);
 
@@ -209,7 +222,7 @@ class DelegatedAlbumServiceTest extends TestCase
 
             public function create(
                 string $type, string $title, ?string $subtitle, string $albumDate, ?int $sectionId,
-                int $scoutYearId, ?string $externalUrl, ?int $storageLocationId, int $createdBy,
+                int $scoutYearId, ?string $externalUrl, ?int $locationId, int $createdBy,
                 ?string $ownerType = null, ?int $ownerId = null
             ): int {
                 // The "other request" wins the race, committing its own
@@ -217,12 +230,12 @@ class DelegatedAlbumServiceTest extends TestCase
                 // runs — parent::create() below must now collide with it.
                 $this->competitorAlbumId = parent::create(
                     $type, 'Compétiteur', $subtitle, $albumDate, $sectionId, $scoutYearId,
-                    $externalUrl, $storageLocationId, $createdBy, $ownerType, $ownerId
+                    $externalUrl, $locationId, $createdBy, $ownerType, $ownerId
                 );
 
                 return parent::create(
                     $type, $title, $subtitle, $albumDate, $sectionId, $scoutYearId,
-                    $externalUrl, $storageLocationId, $createdBy, $ownerType, $ownerId
+                    $externalUrl, $locationId, $createdBy, $ownerType, $ownerId
                 );
             }
         };
@@ -230,9 +243,11 @@ class DelegatedAlbumServiceTest extends TestCase
         $service = new DelegatedAlbumService(
             $racingRepository, $this->mediaRepository, $this->createMock(MediaService::class),
             $this->storageLocationRepository,
-            new StorageLocationService(
-                $this->storageLocationRepository, $racingRepository, $this->storageBackendFactory,
-                $this->createMock(SettingService::class), new ObjectStorageSecretRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))),
+            $this->storageLocationService,
+            new GalleryLocationService(
+                $this->storageLocationService,
+                $racingRepository,
+                $this->createMock(SettingService::class),
                 sys_get_temp_dir()
             ),
             $this->storageBackendFactory, new ScoutYearService($this->pdo)
@@ -333,6 +348,54 @@ class DelegatedAlbumServiceTest extends TestCase
         $this->assertSame(0, $this->service->moveMedia('some_owner_type', $from->id, $to->id));
     }
 
+    public function testMoveMediaNamesTheLocationWhenItCannotCopyInternally(): void
+    {
+        // A refusal an administrator can act on has to say WHICH of their
+        // destinations cannot do this — « cet album » is not something you
+        // can go and re-point. ARCHITECTURE.md § 8.107 states the rule and
+        // StorageCapabilities::require() is where it normally lives; this
+        // call site builds the same sentence from the same enum.
+        $backend = $this->createMock(StorageBackendInterface::class);
+        $this->storageBackendFactory->method('create')->willReturn($backend);
+
+        $from = $this->service->ensureAlbum('some_owner_type', 42, 'Source', '2026-01-01', $this->authorId);
+        $to = $this->service->ensureAlbum('some_owner_type', 43, 'Cible', '2026-01-01', $this->authorId);
+        $this->createUncopiedPhoto($from->id);
+
+        try {
+            $this->service->moveMedia('some_owner_type', $from->id, $to->id);
+            $this->fail('A backend that cannot copy internally must refuse the merge.');
+        } catch (GalleryException $e) {
+            $this->assertStringContainsString('Stockage local', $e->getMessage());
+            $this->assertStringContainsString(
+                StorageCapability::ServerSideCopy->frenchDescription(),
+                $e->getMessage()
+            );
+        }
+    }
+
+    /** A media whose renditions are recorded but whose bytes are nobody's business here. */
+    private function createUncopiedPhoto(int $albumId): int
+    {
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min) VALUES (?, ?, ?, ?, ?)'
+        );
+        $stmt->execute(['originals/photo.jpg', 'photo.jpg', 'image/jpeg', 10, 'identified']);
+        $fileId = (int) $this->pdo->lastInsertId();
+
+        $mediaId = $this->mediaRepository->create($albumId, 'photo', $fileId, 0, 'photo.jpg');
+        $this->mediaRepository->markPhotoDone(
+            $mediaId,
+            "{$albumId}/thumb_{$mediaId}.jpg",
+            "{$albumId}/med_{$mediaId}.jpg",
+            "{$albumId}/lg_{$mediaId}.jpg",
+            800,
+            600
+        );
+
+        return $mediaId;
+    }
+
     public function testMoveMediaRefusesAnAlbumBelongingToAnotherOwnerType(): void
     {
         $from = $this->service->ensureAlbum('some_owner_type', 42, 'Source', '2026-01-01', $this->authorId);
@@ -374,7 +437,7 @@ class DelegatedAlbumServiceTest extends TestCase
     {
         $this->useRealLocalBackend();
         $otherLocationId = $this->storageLocationRepository->create(
-            StorageLocation::TYPE_LOCAL, 'Second stockage', 'gallery2', null, null, null, null, null, null, null
+            StorageLocationType::Local, 'Second stockage', new LocalLocationConfig('gallery2'), null
         );
         $from = $this->service->ensureAlbum('some_owner_type', 42, 'Source', '2026-01-01', $this->authorId);
         $to = $this->service->ensureAlbum('some_owner_type', 43, 'Cible', '2026-01-01', $this->authorId, $otherLocationId);

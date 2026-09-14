@@ -31,14 +31,14 @@
                                     <li class="mb-1">
                                         {{ year }}
                                         {% if waitlist_enabled %}
-                                            {# « Complet » ne s'affiche que pour une année de naissance
-                                               explicitement rangée dans le niveau `heavy` par
-                                               Service\SlotService. Une branche sans capacité enregistrée
-                                               (NULL en base — « pas de limite », jamais 0) n'y arrive
-                                               jamais : elle est annoncée « Disponible », comme une branche
-                                               qui a de la place. Ne jamais remplacer cette cascade par un
-                                               calcul sur un nombre : un NULL lu comme un nombre vaut 0, et
-                                               une branche non configurée basculerait en « Complet ». #}
+                                            {# « Complet » shows only for a birth year Service\SlotService
+                                               explicitly placed in the `heavy` tier. A branch with no
+                                               recorded capacity (NULL in the database — « pas de
+                                               limite », never 0) never reaches it: it is announced
+                                               « Disponible », like a branch that has room. Never
+                                               replace this cascade with arithmetic on a number — a
+                                               NULL read as one is 0, and an unconfigured branch would
+                                               flip to « Complet ». #}
                                             {% if year in waitlist_tiers.limited|default([]) %}
                                                 <span class="badge text-bg-warning ms-1">Limitée</span>
                                             {% elseif year in waitlist_tiers.heavy|default([]) %}
@@ -239,6 +239,43 @@
                             {% endfor %}
                         </div>
                     {% endif %}
+
+                    {# « Déjà membre d'une autre unité ? » (issue #331). The
+                       chief's encoding procedure in Desk is a different one
+                       for somebody the federation already knows, so this is
+                       a required question rather than a remark a family may
+                       or may not think of writing.
+
+                       The unit's own name is a separate field, shown by
+                       registration-public-form.js only once the answer is
+                       « Oui ». It is rendered VISIBLE here rather than
+                       `d-none`: with no JavaScript both fields stay on the
+                       page and the form still works, and hiding it is the
+                       enhancement rather than the baseline. The server
+                       keeps the same rule either way — a name arriving with
+                       a « Non » is dropped, never stored. #}
+                    <div class="mb-3">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'previous_unit_answer', field_name: 'previous_unit_answer', type: 'select',
+                            label: 'Déjà membre d\'une autre unité Les Scouts ?', required: true,
+                            help: 'Aujourd\'hui ou par le passé, comme animé, animateur ou intendant.',
+                            wrapper_class: 'mb-2',
+                            options: [
+                                { value: '', label: 'Choisissez…' },
+                                { value: 'no', label: 'Non', selected: sticky.previous_unit_answer|default('') == 'no' },
+                                { value: 'yes', label: 'Oui', selected: sticky.previous_unit_answer|default('') == 'yes' },
+                            ],
+                        } only %}
+                        <div id="previous-unit-name-zone">
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'previous_unit_name', field_name: 'previous_unit_name',
+                                label: 'Laquelle ?',
+                                placeholder: 'Nom et localité de l\'unité',
+                                maxlength: 150, value: sticky.previous_unit_name|default(''),
+                                wrapper_class: 'mb-0',
+                            } only %}
+                        </div>
+                    </div>
 
                     {% include 'partials/form_field.html.twig' with {
                         field_id: 'remarks', field_name: 'remarks', type: 'textarea',

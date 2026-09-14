@@ -14,8 +14,10 @@ use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\EncryptionService;
 use Core\View\EditableContentRepository;
 use Core\View\EditableContentService;
+use Modules\Registration\Repository\RegistrationRequest;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\RegistrationYearCodeRepository;
+use Modules\Registration\Service\RegistrationException;
 use Modules\Registration\Service\RegistrationService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -180,6 +182,58 @@ class RegistrationServiceTest extends TestCase
 
         $row = $this->pdo->query('SELECT child_first_name_encrypted FROM registration_requests WHERE id = ' . $requestId)->fetch(\PDO::FETCH_ASSOC);
         $this->assertStringNotContainsString('Léa', (string) $row['child_first_name_encrypted']);
+    }
+
+    /**
+     * Issue #331 — the module's own invariant, not the public form's.
+     * Controller\PublicRegistrationController::validate() already refuses
+     * this pair with a field error and the family's data kept; the guard
+     * here is for a caller that never goes through that form, since a
+     * « oui » naming no unit is a claim the fiche cannot substantiate.
+     */
+    public function testSubmitRefusesAPreviousUnitClaimedButNotNamed(): void
+    {
+        $target = $this->service->resolveTargetYear(null);
+
+        $this->expectException(RegistrationException::class);
+        $this->expectExceptionMessage('de quelle unité');
+
+        $this->service->submit(
+            (int) $target['id'],
+            (string) $target['label'],
+            $this->sampleFields([
+                'previous_unit_answer' => RegistrationRequest::PREVIOUS_UNIT_YES,
+                'previous_unit_name' => '   ',
+            ]),
+            null,
+            [],
+            'Baladins — 1ère année'
+        );
+    }
+
+    /**
+     * The third state stays legitimate: a caller that does not carry the
+     * question at all — the reference dataset's seeder, every request
+     * filed before the column existed — files a request on which nobody
+     * was asked, and nothing refuses it.
+     */
+    public function testSubmitAcceptsARequestThatNeverCarriedTheQuestion(): void
+    {
+        $target = $this->service->resolveTargetYear(null);
+
+        $requestId = $this->service->submit(
+            (int) $target['id'],
+            (string) $target['label'],
+            $this->sampleFields(),
+            null,
+            [],
+            'Baladins — 1ère année'
+        );
+
+        $stored = $this->requestRepository->findById($requestId);
+        $this->assertNotNull($stored);
+        $this->assertNull($stored->previousUnitAnswer);
+        $this->assertFalse($stored->hasPreviousUnit());
     }
 
     public function testSubmitSendsReceiptToParentAndAlertToUnitWithOnlyFirstName(): void

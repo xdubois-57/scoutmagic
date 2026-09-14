@@ -64,8 +64,7 @@ class LinkPreviewCacheRepository
         $now = date('Y-m-d H:i:s');
 
         // Portable insert-or-update (no MySQL-only ON DUPLICATE KEY — this
-        // repository is exercised against SQLite in tests too), same
-        // pattern as Repository\ObjectStorageSecretRepository::set().
+        // repository is exercised against SQLite in tests too).
         if ($this->urlHashExists($urlHash)) {
             $stmt = $this->pdo->prepare(
                 'UPDATE gallery_link_preview_cache SET title = ?, description = ?, image_url = ?, fetched_at = ?
