@@ -73,7 +73,9 @@ final class MailTransportChain implements MailTransportInterface
         private SendCounterRepository $counters,
         private TransportConfigurator $configurator,
         private MailTransportInterface $delivery,
-        private ?JournalService $journal = null
+        private ?JournalService $journal = null,
+        private ?ProviderHealthRepository $health = null,
+        private ?MailReserve $reserve = null
     ) {
     }
 
@@ -92,10 +94,7 @@ final class MailTransportChain implements MailTransportInterface
         }
 
         if ($candidates === []) {
-            throw new \RuntimeException(sprintf(
-                'Aucun fournisseur d’envoi disponible pour la voie « %s ».',
-                $lane->label()
-            ));
+            throw new LaneExhaustedException($lane, 'aucun fournisseur disponible');
         }
 
         $lastReason = '';
@@ -107,8 +106,11 @@ final class MailTransportChain implements MailTransportInterface
             } catch (\Throwable $e) {
                 $lastReason = MailErrorRedaction::withoutAddresses($mail->ErrorInfo ?: $e->getMessage());
                 $this->journalAttemptFailure($provider, $lane, $lastReason);
+                $this->recordFailure($provider, $lane, $lastReason);
                 continue;
             }
+
+            $this->recordSuccess($provider);
 
             // After the transport returned, never before: a counter moved
             // on an attempt would step the lane past a provider that is
@@ -129,11 +131,7 @@ final class MailTransportChain implements MailTransportInterface
             return;
         }
 
-        throw new \RuntimeException(sprintf(
-            'Tous les fournisseurs de la voie « %s » ont échoué. Dernière raison : %s',
-            $lane->label(),
-            $lastReason !== '' ? $lastReason : 'inconnue'
-        ));
+        throw new LaneExhaustedException($lane, $lastReason);
     }
 
     /**
@@ -173,26 +171,170 @@ final class MailTransportChain implements MailTransportInterface
                 continue;
             }
 
-            if ($this->hasSpentItsQuota($provider, $usedToday)) {
+            if ($this->hasSpentItsQuota($provider, $usedToday, $lane)) {
                 continue;
             }
 
             $candidates[] = $provider;
         }
 
-        return $candidates;
+        return $this->withoutOpenCircuits($candidates);
     }
 
     /**
+     * Drop the providers the breaker is stepping over — unless that would
+     * leave the lane with nothing.
+     *
+     * **This is the imperative rule of D15**, and it is worth being blunt
+     * about why. A breaker still armed after the outage was repaired,
+     * applied without this exception, locks every member out of the site
+     * — including the super-admin who would have come to fix it. That is
+     * the exact failure the whole chain was built to end, so the breaker
+     * is not allowed to cause it.
+     *
+     * The last entry is the one kept, not the first: lane order is
+     * preference order, and the last is where the local send sits by
+     * construction (TransportSeeder), so « everything is shut » falls
+     * back to the server's own `mail()` rather than to the relay that
+     * has been refusing all morning.
+     *
+     * @param array<int, MailProvider> $candidates
+     * @return array<int, MailProvider>
+     */
+    private function withoutOpenCircuits(array $candidates): array
+    {
+        if ($this->health === null || $candidates === []) {
+            return $candidates;
+        }
+
+        try {
+            $health = $this->health->all();
+        } catch (\Throwable) {
+            // The breaker is an optimisation over trying and failing; if
+            // its table cannot be read, trying and failing is still
+            // correct. It must never be the reason a message stops.
+            return $candidates;
+        }
+
+        $closed = [];
+        foreach ($candidates as $provider) {
+            if (!($health[$provider->id] ?? null)?->isOpen()) {
+                $closed[] = $provider;
+            }
+        }
+
+        return $closed === [] ? [$candidates[count($candidates) - 1]] : $closed;
+    }
+
+    /**
+     * Whether this provider has nothing left for THIS lane today.
+     *
+     * The lane is an argument because the ceiling is not the same for all
+     * three. On the mailing lane the reserve comes off the quota first
+     * (D8): a publipostage may spend what is left once the day's sign-in
+     * links and transactional mail have been set aside. The other two
+     * lanes are what the reserve protects, so they see the whole quota —
+     * reserving part of a quota against its own beneficiary would be a
+     * tax paid to nobody.
+     *
      * @param array<int, int> $usedToday
      */
-    private function hasSpentItsQuota(MailProvider $provider, array $usedToday): bool
+    private function hasSpentItsQuota(MailProvider $provider, array $usedToday, MailLane $lane): bool
     {
         if ($provider->dailyQuota === null) {
             return false;
         }
 
-        return ($usedToday[$provider->id] ?? 0) >= $provider->dailyQuota;
+        $ceiling = $provider->dailyQuota;
+
+        if ($lane === MailLane::Bulk && $this->reserve !== null) {
+            try {
+                $ceiling -= $this->reserve->forProvider($provider)->messages;
+            } catch (\Throwable) {
+                // Same posture as the breaker: a reserve that cannot be
+                // computed must not become a reason to stop sending.
+            }
+        }
+
+        return ($usedToday[$provider->id] ?? 0) >= max(0, $ceiling);
+    }
+
+    /**
+     * Tell the breaker a provider refused — but only when the refusal was
+     * its own doing (D15, {@see MailFailure}).
+     *
+     * A `550` walks straight past this. The relay answered, correctly,
+     * about one address; counting that as a strike would shut a provider
+     * out because somebody mistyped an e-mail, and the mailing lane —
+     * where dead addresses collect — would shut one out nearly every run.
+     */
+    private function recordFailure(MailProvider $provider, MailLane $lane, string $reason): void
+    {
+        if ($this->health === null || MailFailure::classify($reason) === MailFailure::Recipient) {
+            return;
+        }
+
+        try {
+            $health = $this->health->recordFailure($provider->id, $reason);
+        } catch (\Throwable) {
+            return;
+        }
+
+        if ($health->isOpen() && $health->openedAt !== null) {
+            $this->journalCircuit($provider, $lane, 'mail_provider_circuit_opened', sprintf(
+                'Fournisseur d’envoi écarté jusqu’à %s',
+                $health->openedUntil ?? '?'
+            ), ['until' => $health->openedUntil, 'reason' => $reason]);
+        }
+    }
+
+    /**
+     * A provider answered, so whatever the breaker held against it is out
+     * of date. Only the closing of an OPEN circuit is worth a line — the
+     * ordinary success of a healthy relay is not news.
+     */
+    private function recordSuccess(MailProvider $provider): void
+    {
+        if ($this->health === null) {
+            return;
+        }
+
+        try {
+            $closed = $this->health->recordSuccess($provider->id);
+        } catch (\Throwable) {
+            return;
+        }
+
+        if ($closed) {
+            $this->journalCircuit(
+                $provider,
+                null,
+                'mail_provider_circuit_closed',
+                'Fournisseur d’envoi de nouveau disponible',
+                []
+            );
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $extra
+     */
+    private function journalCircuit(
+        MailProvider $provider,
+        ?MailLane $lane,
+        string $event,
+        string $title,
+        array $extra
+    ): void {
+        try {
+            $this->journal?->log('core', $event, 'info', $title, array_merge([
+                'provider_id' => $provider->id,
+                'provider' => $provider->name,
+            ], $lane === null ? [] : ['lane' => $lane->value], $extra));
+        } catch (\Throwable) {
+            // Same posture as every other journal call on this path: the
+            // message is what matters, not the note about it.
+        }
     }
 
     /**
