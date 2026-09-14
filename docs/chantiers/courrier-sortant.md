@@ -885,6 +885,19 @@ qu'une décision n'a eu lieu qu'une fois. `mail_return_probe_sent` et
 `mail_return_probe_received` complètent la ligne « Vérification des
 retours : résultat » du tableau.
 
+**Et la leçon d'IT-02 a été appliquée avant de se répéter.** Trois
+dépendances de cette itération ont exactement la forme qui avait produit
+deux mécanismes morts en production : une passerelle nullable, une clé de
+réglage fusionnée à la main dans `$secrets` à chaque point d'entrée, deux
+arguments de collecteur. Toutes les trois échouent en silence — la plus
+discrète étant la passerelle : avec `null`, chaque état lit « vérification
+impossible », **ce qui est aussi la réponse honnête** sur une installation
+sans le module, donc l'écran aurait eu l'air juste partout et aurait été
+faux là où le module est actif. `OutboundMailWiringTest` lit les racines
+de composition et épingle les trois ; sa première assertion a été vérifiée
+en cassant délibérément le câblage, parce qu'un test de câblage qui ne
+tombe pas est un test qui ne sert à rien.
+
 Un troisième nettoyage est venu de là : la mémoire DNS était analysée dans
 le contrôleur **et** dans le collecteur, deux fois le même `json_decode`
 et les mêmes trois booléens à trois états. `Core\Mail\DnsCheckMemory` la
