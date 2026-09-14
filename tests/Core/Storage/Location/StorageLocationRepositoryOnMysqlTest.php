@@ -121,6 +121,37 @@ class StorageLocationRepositoryOnMysqlTest extends TestCase
         }
     }
 
+    public function testDeletingTheDefaultPromotesTheSurvivorOnTheRealEngine(): void
+    {
+        // The promotion updates a table it also selects from. MariaDB
+        // 10.11 — this container, and production — accepts that written
+        // either way; MySQL 8, which CI's `test` job runs, is the engine
+        // that raises 1093 unless the subquery sits in a derived table.
+        // So the statement is spelled for the stricter of the two and
+        // exercised here against a real server rather than only SQLite.
+        $first = $this->repository->create(
+            StorageLocationType::Local,
+            'Premier ' . bin2hex(random_bytes(4)),
+            new LocalLocationConfig('gallery'),
+            null
+        );
+        $second = $this->repository->create(
+            StorageLocationType::Local,
+            'Second ' . bin2hex(random_bytes(4)),
+            new LocalLocationConfig('autre'),
+            null
+        );
+        $this->repository->setDefault($second);
+
+        try {
+            $this->repository->delete($second);
+
+            $this->assertTrue($this->repository->findById($first)?->isDefault);
+        } finally {
+            $this->repository->delete($first);
+        }
+    }
+
     public function testPromotingALocationThatIsGoneIsRefusedOnTheRealEngine(): void
     {
         // MySQL reports zero affected rows both for an id that matches

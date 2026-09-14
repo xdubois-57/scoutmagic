@@ -251,10 +251,68 @@ class StorageLocationRepository
         return $row !== false ? $this->hydrate($row) : null;
     }
 
+    /**
+     * Removes a location and, when it was the default, hands that flag to
+     * the survivor that was already going to receive the files anyway.
+     *
+     * **Deleting the default used to leave the table with none**, which is
+     * half of the state this class exists to keep unobservable (see the
+     * docblock above) and the half that is easy to miss, because nothing
+     * breaks: {@see findDefault()} falls back to the lowest id, so
+     * consumers keep writing somewhere sensible and
+     * {@see StorageLocationService::ensureDefaultExists()} sees a non-null
+     * answer and repairs nothing. What an administrator saw was a
+     * configuration page where NO location is marked « Défaut » while new
+     * albums quietly landed on one of them.
+     *
+     * The successor is the lowest id — **the same row `findDefault()` was
+     * already resolving to**. So this promotion decides nothing on the
+     * administrator's behalf that was not already decided; it only makes
+     * the recorded flag agree with where the bytes actually go. That is
+     * also why the deletion is not simply refused: refusing would forbid
+     * an operation that is safe, to protect an invariant that costs one
+     * UPDATE to keep.
+     *
+     * Deleting the last location leaves the table empty, and that is a
+     * legitimate state: `ensureDefaultExists()` recreates the default on
+     * the next request, exactly as on a fresh install.
+     */
     public function delete(int $id): void
     {
-        $stmt = $this->pdo->prepare('DELETE FROM storage_locations WHERE id = ?');
+        $this->pdo->beginTransaction();
+        try {
+            $wasDefault = $this->isDefaultWithin($id);
+
+            $stmt = $this->pdo->prepare('DELETE FROM storage_locations WHERE id = ?');
+            $stmt->execute([$id]);
+
+            if ($wasDefault) {
+                // The derived table is not decoration: this UPDATE reads
+                // the table it writes, which MySQL 8 refuses (error 1093)
+                // unless the subquery is wrapped. MariaDB accepts both
+                // spellings, so the stricter one is the one written.
+                $this->pdo->prepare(
+                    'UPDATE storage_locations SET is_default = 1
+                     WHERE id = (SELECT id FROM (SELECT MIN(id) AS id FROM storage_locations) AS successor)'
+                )->execute();
+            }
+
+            $this->pdo->commit();
+        } catch (\Throwable $e) {
+            $this->pdo->rollBack();
+
+            throw $e;
+        }
+    }
+
+    /** Whether this row carries the default flag, read inside the open transaction. */
+    private function isDefaultWithin(int $id): bool
+    {
+        $stmt = $this->pdo->prepare('SELECT is_default FROM storage_locations WHERE id = ?');
         $stmt->execute([$id]);
+        $flag = $stmt->fetchColumn();
+
+        return $flag !== false && (int) $flag === 1;
     }
 
     public function recordCheckResult(int $id, bool $ok, ?string $error): void

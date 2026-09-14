@@ -408,6 +408,31 @@ est avalé, parce que le diagnostic dont l'administrateur a besoin est
 `ObjectStorageBackend` gardait déjà chacune de ses étapes ; c'est
 `LocalStorageBackend` qui faisait exception.
 
+### Et supprimer le défaut laissait la table sans aucun
+
+`setDefault()` se donne beaucoup de mal — transaction, garde sur le nombre
+de lignes touchées — pour qu'aucune lecture n'observe deux défauts. La
+suppression, elle, faisait un `DELETE` nu : supprimer l'emplacement marqué
+par défaut laissait **zéro** ligne marquée, soit l'autre moitié exacte de
+l'état que la classe existe pour rendre inobservable.
+
+C'est la moitié qu'on ne voit pas, parce que rien ne casse :
+`findDefault()` se rabat sur la plus petite ligne, les albums continuent
+d'atterrir quelque part de sensé, et `ensureDefaultExists()` reçoit une
+réponse non nulle donc ne répare rien. Ce que l'administrateur voyait,
+c'est une page de configuration où **aucun** emplacement n'est marqué
+« Défaut » pendant que les nouveaux albums en choisissaient un tout seuls.
+
+Le successeur promu est la plus petite ligne — **exactement celle vers
+laquelle `findDefault()` se rabattait déjà**. La promotion ne décide donc
+rien à la place de l'administrateur qui ne fût déjà décidé : elle met le
+drapeau enregistré d'accord avec l'endroit où les octets vont réellement.
+C'est aussi pourquoi la suppression n'est pas simplement refusée —
+interdire une opération sans danger pour protéger un invariant qui coûte
+un `UPDATE` serait payer le mauvais prix. Supprimer le dernier emplacement
+laisse la table vide, et c'est légitime : `ensureDefaultExists()` recrée le
+défaut à la requête suivante, comme sur une installation neuve.
+
 ### Divergences constatées avec les maquettes, et ce qui fait foi
 
 Les deux maquettes déposées dans `docs/chantiers/maquettes/` sont la

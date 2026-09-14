@@ -190,6 +190,51 @@ class StorageLocationRepositoryTest extends TestCase
         $this->assertNull($this->repository->findById($id));
     }
 
+    public function testDeletingTheDefaultHandsTheFlagToTheSurvivor(): void
+    {
+        // Leaving the table with no default at all is half of the state
+        // this class exists to keep unobservable — and the half nothing
+        // breaks on, because findDefault() falls back to the lowest id.
+        // What an administrator saw was a page marking NO location as
+        // « Défaut » while new albums landed on one of them anyway.
+        $firstId = $this->repository->create(StorageLocationType::Local, 'Premier', new LocalLocationConfig('a'), null);
+        $secondId = $this->repository->create(StorageLocationType::Local, 'Second', new LocalLocationConfig('b'), null);
+        $this->repository->setDefault($secondId);
+
+        $this->repository->delete($secondId);
+
+        $this->assertTrue($this->repository->findById($firstId)?->isDefault);
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM storage_locations WHERE is_default = 1')->fetchColumn()
+        );
+    }
+
+    public function testDeletingALocationThatIsNotTheDefaultLeavesTheDefaultWhereItIs(): void
+    {
+        $firstId = $this->repository->create(StorageLocationType::Local, 'Premier', new LocalLocationConfig('a'), null);
+        $secondId = $this->repository->create(StorageLocationType::Local, 'Second', new LocalLocationConfig('b'), null);
+        $thirdId = $this->repository->create(StorageLocationType::Local, 'Troisième', new LocalLocationConfig('c'), null);
+        $this->repository->setDefault($thirdId);
+
+        $this->repository->delete($secondId);
+
+        $this->assertSame($thirdId, $this->repository->findDefault()?->id);
+        $this->assertFalse($this->repository->findById($firstId)?->isDefault);
+    }
+
+    public function testDeletingTheLastLocationLeavesAnEmptyTableRatherThanFailing(): void
+    {
+        // An empty table is legitimate: ensureDefaultExists() recreates the
+        // default on the next request, exactly as on a fresh install.
+        $id = $this->repository->create(StorageLocationType::Local, 'Seul', new LocalLocationConfig('a'), null);
+
+        $this->repository->delete($id);
+
+        $this->assertNull($this->repository->findDefault());
+        $this->assertSame([], $this->repository->findAll());
+    }
+
     public function testRecordCheckResultPersistsBothOutcomes(): void
     {
         $id = $this->repository->create(
