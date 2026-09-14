@@ -282,6 +282,70 @@ class VolumeInventoryTest extends TestCase
         $this->assertTrue($volumes[1]->hasDirectoryOutsideStorage());
     }
 
+    // ————— The screen and the enforcer answer the same question —————
+
+    /**
+     * **The invariant this file exists to protect, stated as one
+     * assertion**: the primary volume must never promise more room than
+     * `DiskBudget` will actually grant.
+     *
+     * They are computed from different walks — the screen sums the
+     * DECLARED directories, the budget charges the whole installation
+     * (`vendor/`, `core/`, `modules/`, `public/`) because the quota is the
+     * hosting account's allowance — and while the screen used the narrow
+     * one it read « il reste de la place » where the budget had less. An
+     * administrator plans an import on the screen, and IT-02 removed the
+     * Maintenance panel that used to show the wide figure.
+     */
+    public function testThePrimaryVolumeNeverPromisesMoreRoomThanTheBudgetGrants(): void
+    {
+        $this->settings->set(DiskBudget::QUOTA_SETTING, '100 Mo');
+        // Under `storage/`, so both walks see it...
+        $this->writeBytes($this->storagePath . '/gallery/photo.bin', 4 * self::MIB);
+        // ...and beside it, inside the installation: the quota pays for
+        // this too, and the declared directories do not contain it.
+        $this->writeBytes($this->installPath . '/vendor/library.bin', 8 * self::MIB);
+
+        $volumes = $this->inventory([$this->storagePath => '8'])->measure();
+        $primary = $volumes[0];
+        $budget = new DiskBudget($this->storagePath, $this->settings);
+
+        $this->assertTrue($primary->isPrimary);
+        $screenSaysFree = $primary->availableBytes();
+        $budgetGrants = $budget->availableBytes();
+
+        $this->assertNotNull($screenSaysFree);
+        $this->assertNotNull($budgetGrants);
+        $this->assertLessThanOrEqual(
+            $budgetGrants,
+            $screenSaysFree,
+            'The screen promised more room than the budget grants — the direction that truncates a write.'
+        );
+    }
+
+    /**
+     * And the occupation it prints counts the installation, not just the
+     * declared directories — otherwise the percentage on the card is a
+     * different measurement from the refusal.
+     */
+    public function testThePrimaryVolumeOccupationUnderAQuotaCountsTheInstallation(): void
+    {
+        $this->settings->set(DiskBudget::QUOTA_SETTING, '100 Mo');
+        $this->writeBytes($this->storagePath . '/gallery/photo.bin', 4 * self::MIB);
+        $this->writeBytes($this->installPath . '/vendor/library.bin', 8 * self::MIB);
+
+        $primary = $this->inventory([$this->storagePath => '8'])->measure()[0];
+
+        $this->assertSame(VolumeUsage::BASIS_QUOTA, $primary->basis());
+        $used = $primary->basisUsedBytes();
+        $this->assertNotNull($used);
+        $this->assertGreaterThanOrEqual(
+            11 * self::MIB,
+            $used,
+            'The 8 MiB beside storage/ are on the allowance too, and were not being counted.'
+        );
+    }
+
     // ————— Absent, unreadable, and measured are three answers —————
 
     /**

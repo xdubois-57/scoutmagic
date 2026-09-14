@@ -95,7 +95,17 @@ class VolumeInventory
             $deviceOf[$key] = $device;
         }
 
-        $quota = (new DiskBudget($this->storagePath, $this->settings))->declaredQuotaBytes();
+        // **One budget, read twice, and the second read is the point.**
+        // `declaredQuotaBytes()` is the allowance; `quotaChargedBytes()` is
+        // what `DiskBudget::availableBytes()` actually charges against it —
+        // the whole installation, `vendor/` included, not just the declared
+        // directories. Taking only the first here made the screen and the
+        // enforcer two different answers; see VolumeUsage::$quotaChargedBytes.
+        $budget = new DiskBudget($this->storagePath, $this->settings);
+        $quota = $budget->declaredQuotaBytes();
+        // Only asked for when a quota exists: it is the cached walk of the
+        // whole installation, and nothing on a volume-basis screen reads it.
+        $quotaCharged = $quota !== null ? $budget->measure()->quotaChargedBytes() : null;
 
         $volumes = [];
         foreach ($byDevice as $key => $directories) {
@@ -120,7 +130,8 @@ class VolumeInventory
                 // quota: the hosting contract that figure comes from says
                 // nothing about a disk somebody mounted onto the account.
                 declaredQuotaBytes: $isPrimary ? $quota : null,
-                occupiedBytes: self::occupiedBytes($directories)
+                occupiedBytes: self::occupiedBytes($directories),
+                quotaChargedBytes: $isPrimary ? $quotaCharged : null
             );
         }
 

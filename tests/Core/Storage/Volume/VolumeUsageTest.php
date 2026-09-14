@@ -83,6 +83,84 @@ class VolumeUsageTest extends TestCase
     }
 
     /**
+     * **The screen and the enforcer have to answer the same question.**
+     * `DiskBudget::availableBytes()` charges the allowance against the
+     * whole installation (`StorageUsage::quotaChargedBytes()`), `vendor/`
+     * included; the declared directories are a narrower figure. Printing
+     * the narrow one under a quota said « il reste de la place » where the
+     * budget had less — over-reporting the room left, which is the
+     * direction that ends in a truncated write.
+     */
+    public function testTheQuotaBasisCountsWhatTheBudgetChargesRatherThanTheDeclaredDirectories(): void
+    {
+        $volume = $this->volume(
+            freeBytes: 50 * self::GIB,
+            totalBytes: 100 * self::GIB,
+            declaredQuotaBytes: 10 * self::GIB,
+            occupiedBytes: 2 * self::GIB,
+            quotaChargedBytes: 6 * self::GIB
+        );
+
+        $this->assertSame(6 * self::GIB, $volume->basisUsedBytes(), 'The installation footprint, not storage/ alone.');
+        $this->assertSame(60, $volume->usedPercent());
+        $this->assertSame(
+            4 * self::GIB,
+            $volume->availableBytes(),
+            'What is left of the allowance, computed on the same figure the budget subtracts.'
+        );
+    }
+
+    /**
+     * Falls back on the declared directories when the installation could
+     * not be walked — narrower than the truth, but it is what there is,
+     * and `quotaChargedBytes()` upstream is a `max()` for the same reason.
+     */
+    public function testTheQuotaBasisFallsBackOnTheDeclaredDirectoriesWhenNothingChargedIsKnown(): void
+    {
+        $volume = $this->volume(
+            freeBytes: 50 * self::GIB,
+            totalBytes: 100 * self::GIB,
+            declaredQuotaBytes: 10 * self::GIB,
+            occupiedBytes: 2 * self::GIB,
+            quotaChargedBytes: null
+        );
+
+        $this->assertSame(2 * self::GIB, $volume->basisUsedBytes());
+    }
+
+    /** Never narrower than the directories themselves, which are inside it. */
+    public function testTheQuotaBasisIsNeverLessThanTheDeclaredDirectories(): void
+    {
+        $volume = $this->volume(
+            freeBytes: 50 * self::GIB,
+            totalBytes: 100 * self::GIB,
+            declaredQuotaBytes: 10 * self::GIB,
+            occupiedBytes: 7 * self::GIB,
+            quotaChargedBytes: 3 * self::GIB
+        );
+
+        $this->assertSame(7 * self::GIB, $volume->basisUsedBytes());
+    }
+
+    /**
+     * A volume the quota does not cover is untouched by any of this: the
+     * hosting contract says nothing about a disk somebody mounted on.
+     */
+    public function testAVolumeWithoutAQuotaIsUnaffectedByTheChargedFigure(): void
+    {
+        $volume = $this->volume(
+            freeBytes: 3 * self::GIB,
+            totalBytes: 10 * self::GIB,
+            declaredQuotaBytes: null,
+            occupiedBytes: self::GIB,
+            isPrimary: false
+        );
+
+        $this->assertSame(VolumeUsage::BASIS_VOLUME, $volume->basis());
+        $this->assertSame(7 * self::GIB, $volume->basisUsedBytes(), 'The system figure, as before.');
+    }
+
+    /**
      * Under a quota, an unmeasurable occupation is unknown too — the same
      * rule, on the other basis.
      */
@@ -168,7 +246,8 @@ class VolumeUsageTest extends TestCase
         ?int $totalBytes,
         ?int $declaredQuotaBytes = null,
         ?int $occupiedBytes = 0,
-        bool $isPrimary = true
+        bool $isPrimary = true,
+        ?int $quotaChargedBytes = null
     ): VolumeUsage {
         return new VolumeUsage(
             deviceId: '8',
@@ -177,7 +256,8 @@ class VolumeUsageTest extends TestCase
             freeBytes: $freeBytes,
             totalBytes: $totalBytes,
             declaredQuotaBytes: $declaredQuotaBytes,
-            occupiedBytes: $occupiedBytes
+            occupiedBytes: $occupiedBytes,
+            quotaChargedBytes: $quotaChargedBytes
         );
     }
 }

@@ -67,6 +67,11 @@ final class VolumeUsage
      * @param int|null $declaredQuotaBytes the contract share, on the primary volume only
      * @param int|null $occupiedBytes what the declared directories on this
      *        volume measure, or null when none of them could be measured
+     * @param int|null $quotaChargedBytes what the declared quota is
+     *        actually charged for — carried by the primary volume alone,
+     *        and null everywhere else. See the note below: this is the
+     *        figure {@see \Core\Storage\DiskBudget::availableBytes()}
+     *        enforces, and the screen has to state the same one.
      */
     public function __construct(
         public readonly ?string $deviceId,
@@ -75,8 +80,45 @@ final class VolumeUsage
         public readonly ?int $freeBytes,
         public readonly ?int $totalBytes,
         public readonly ?int $declaredQuotaBytes,
-        public readonly ?int $occupiedBytes
+        public readonly ?int $occupiedBytes,
+        public readonly ?int $quotaChargedBytes = null
     ) {
+    }
+
+    /**
+     * What the quota is charged for, which is **not** what the declared
+     * directories occupy.
+     *
+     * `DiskBudget::availableBytes()` charges the allowance against
+     * {@see \Core\Storage\StorageUsage::quotaChargedBytes()} — the whole
+     * installation footprint, `vendor/`, `core/`, `modules/` and `public/`
+     * included — because the quota is the hosting ACCOUNT's allowance and
+     * those trees sit on it too. {@see $occupiedBytes} counts only the
+     * declared directories, which is the right figure for « what does the
+     * site's own storage weigh » and the wrong one for « how much of the
+     * allowance is left ».
+     *
+     * Printing the narrow figure under a quota let the screen say « 4 Go
+     * libres » while the budget had a gigabyte less, and it is the screen
+     * that an administrator plans an import on. Over-reporting the room
+     * left is the direction that ends in a truncated write, and this
+     * iteration removed the Maintenance panel that used to show the wide
+     * figure — so this became the only number anybody sees.
+     *
+     * Falls back on {@see $occupiedBytes} when the installation could not
+     * be walked: narrower than the truth, but it is what there is, and
+     * `quotaChargedBytes()` upstream is itself a `max()` for the same
+     * reason.
+     */
+    private function quotaBasisUsedBytes(): ?int
+    {
+        if ($this->quotaChargedBytes === null) {
+            return $this->occupiedBytes;
+        }
+
+        return $this->occupiedBytes === null
+            ? $this->quotaChargedBytes
+            : max($this->occupiedBytes, $this->quotaChargedBytes);
     }
 
     /**
@@ -151,7 +193,7 @@ final class VolumeUsage
     public function basisUsedBytes(): ?int
     {
         return match ($this->basis()) {
-            self::BASIS_QUOTA => $this->occupiedBytes,
+            self::BASIS_QUOTA => $this->quotaBasisUsedBytes(),
             self::BASIS_VOLUME => $this->totalBytes !== null && $this->freeBytes !== null
                 ? max(0, $this->totalBytes - $this->freeBytes)
                 : null,
@@ -188,7 +230,9 @@ final class VolumeUsage
         $candidates = [];
 
         if ($this->declaredQuotaBytes !== null && $this->declaredQuotaBytes > 0) {
-            $candidates[] = max(0, $this->declaredQuotaBytes - ($this->occupiedBytes ?? 0));
+            // The SAME figure the budget subtracts, or this line answers a
+            // different question than the one that refuses the write.
+            $candidates[] = max(0, $this->declaredQuotaBytes - ($this->quotaBasisUsedBytes() ?? 0));
         }
         if ($this->freeBytes !== null) {
             $candidates[] = max(0, $this->freeBytes);
