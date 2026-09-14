@@ -2384,9 +2384,9 @@ $storageLocationService = new \Core\Storage\Location\StorageLocationService(
     $storageBackendFactory,
     $storageLocationConsumers
 );
-// Quels systèmes de fichiers ce site écrit vraiment, et lequel porte
-// quelle écriture. Regroupe les dossiers déclarés par leur périphérique :
-// trois dossiers d'un même disque sont un volume, pas trois.
+// Which filesystems this site really writes to, and which one carries
+// which write. Groups the declared directories by their device: three
+// directories on one disk are one volume, not three.
 $volumeInventory = new \Core\Storage\Volume\VolumeInventory(
     $storagePath,
     $settingService,
@@ -3105,19 +3105,19 @@ $menuBuilder->addPage(
     null,
     'exploitation'
 );
-// « Stockage » — juste avant Support dans « Exploitation » : c'est une
-// page d'exploitation comme les deux courriers, et la question qu'elle
-// répond (« où partent les fichiers de l'unité ») se pose au même moment
-// que les leurs.
+// « Stockage » — just before Support inside « Exploitation »: it is an
+// operations page like the two mail ones, and the question it answers
+// (« where do the unit's files go ») comes up at the same moment as
+// theirs.
 //
-// **49, et Support passe à 50.** MenuBuilder::visibleEntries() trie sur
-// ce nombre et rien d'autre ; l'ordre d'enregistrement ne départage que
-// les ex æquo. « Stockage » a d'abord porté 47 — le numéro d'« E-mails » —
-// et se rendait donc entre « E-mails » et « Courrier sortant », c'est-à-dire
-// exactement là où le commentaire ci-dessus dit qu'il n'est pas. Le test
-// structurel ne l'a pas vu : il lit l'ordre d'enregistrement de ce
-// fichier, pas l'ordre rendu. D'où un numéro à lui, et un bloc placé ici
-// pour que la lecture de ce fichier dise la même chose que le menu.
+// **49, and Support moves to 50.** MenuBuilder::visibleEntries() sorts
+// on that number and on nothing else; registration order only breaks
+// ties. « Stockage » first carried 47 — « E-mails »'s number — and so
+// rendered between « E-mails » and « Courrier sortant », which is
+// exactly where the comment above says it is not. The structural test
+// did not see it: it reads this file's registration order, not the
+// rendered one. Hence a number of its own, and a block placed here so
+// that reading this file says the same thing as the menu.
 $menuBuilder->addPage(
     MenuBuilder::MENU_CONFIGURATION,
     'Stockage',
@@ -3749,17 +3749,17 @@ $router->addRoute(
     'superadmin',
 );
 
-// « Stockage » — les emplacements où ce site écrit ses fichiers.
+// « Stockage » — the locations this site writes its files to.
 //
-// Dans le cœur et superadmin pour la raison qui met le modèle dans le
-// cœur (D1) : les sauvegardes sont du cœur et ne peuvent pas dépendre
-// d'un module. Ces routes viennent de `/config/gallery/locations/*` ;
-// une installation sans galerie n'avait jusqu'ici aucun moyen de
-// déclarer une destination.
+// In the core and superadmin for the reason that puts the model in the
+// core (D1): backups are core and cannot depend on a module. These
+// routes come from `/config/gallery/locations/*`; an installation
+// without a gallery had until now no way to declare a destination at
+// all.
 //
-// `/emplacements/nouveau` est déclaré AVANT `/emplacements/{id}/…` : la
-// littérale avant la joker est le sens sûr (§7.1), et un `{id}` ne
-// capture que des chiffres de toute façon (SECURITY.md §35).
+// `/emplacements/nouveau` is declared BEFORE `/emplacements/{id}/…`:
+// literal before wildcard is the safe order (§7.1), and an `{id}`
+// captures nothing but digits anyway (SECURITY.md §35).
 $router->addRoute(
     'GET',
     '/config/stockage',
@@ -5180,18 +5180,17 @@ $frontController->registerController(
     )
 );
 
-// Configuration > Stockage — où ce site écrit ses fichiers.
+// Configuration > Stockage — where this site writes its files.
 //
-// Dans le cœur pour la raison de D1, la même que pour le courrier
-// sortant ci-dessus : les sauvegardes en dépendent et ne peuvent pas
-// dépendre d'un module. Le registre des consommateurs est passé tel
-// quel plutôt que lu : il est encore vide ici et les modules le
-// remplissent plus bas (ARCHITECTURE.md §7.6), ce qui est exactement
-// la forme qu'il a pour ça.
+// In the core for D1's reason, the same one as the outbound mail above:
+// backups depend on it and cannot depend on a module. The consumer
+// registry is passed as-is rather than read: it is still empty here and
+// the modules fill it in further down (ARCHITECTURE.md §7.6), which is
+// exactly the shape it has for that.
 //
-// `$publicPath` sert à un seul refus, et il vaut la peine : un
-// emplacement local pointant dans la racine web rendrait chaque
-// photographie téléchargeable sans le moindre contrôle d'accès.
+// `$publicPath` serves one single refusal, and it is worth it: a local
+// location pointing inside the web root would make every photograph
+// downloadable with no access control whatsoever.
 $frontController->registerController(
     \Core\Http\Controller\StorageConfigController::class,
     new \Core\Http\Controller\StorageConfigController(
