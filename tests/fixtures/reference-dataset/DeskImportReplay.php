@@ -58,7 +58,7 @@ use Core\Security\UserAccountRepository;
  *     run. This is the one place that has to remember.
  *   - **Roles are confirmed after all three imports, then membership is
  *     resynced for every year.** A Desk import can never know a role: a new
- *     FONCTION always lands as `identified`, unconfirmed, and only Config Desk
+ *     FONCTION always lands as `identified`, unconfirmed, and only Correspondances Desk
  *     (FunctionsController::updateRole) turns it into `chief`/`admin`/
  *     `intendant`. Staff d'U is populated by that second step, never by the
  *     import — which is exactly why the dataset has to perform both.
@@ -159,7 +159,7 @@ final class DeskImportReplay
     }
 
     /**
-     * Confirm every FONCTION's role, the same way Config Desk does: set the
+     * Confirm every FONCTION's role, the same way Correspondances Desk does: set the
      * role and mark it confirmed, then resync Staff d'U membership.
      *
      * The FONCTION → role table is declarative data (UnitBlueprint::FUNCTIONS),
@@ -167,7 +167,7 @@ final class DeskImportReplay
      *
      * A function present in the database but absent from that table is left
      * untouched and unconfirmed on purpose — that is what a brand-new function
-     * looks like to a chief who has not been to Config Desk yet, and the
+     * looks like to a chief who has not been to Correspondances Desk yet, and the
      * dataset is meant to contain one.
      *
      * @param array<string, int> $yearIds

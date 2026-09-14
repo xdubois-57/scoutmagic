@@ -463,7 +463,7 @@ class SectionServiceTest extends TestCase
         $this->pdo->exec("UPDATE sections SET is_active = 0 WHERE id = {$inactiveId}");
 
         // includeHidden only bypasses is_visible — an inactive section stays
-        // excluded everywhere, including the Config Desk admin listing.
+        // excluded everywhere, including the Correspondances Desk admin listing.
         $ids = array_column($this->service->getAllWithBranches(includeHidden: true), 'id');
 
         $this->assertNotContains($inactiveId, $ids);

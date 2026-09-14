@@ -1371,7 +1371,7 @@ function e2eSeedSectionWithBothMembers(Core\Database\Connection $connection): vo
  * is unit-tested directly — see Tests\Core\System\E2eRoleAccountsTest.
  *
  * The function codes deliberately do NOT start with `E2E-FCT`, the code
- * e2eSeedSectionWithBothMembers() already uses. Config Desk labels
+ * e2eSeedSectionWithBothMembers() already uses. Correspondances Desk labels
  * each role select "Rôle pour <desk code>", and Playwright's getByLabel()
  * matches on a SUBSTRING: `E2E-FCT-INT` made
  * tests/e2e/specs/config-desk.spec.js's `getByLabel('Rôle pour E2E-FCT')`
@@ -1441,7 +1441,7 @@ function e2eRoleAccounts(): array
  *
  * Like the function codes in e2eRoleAccounts(), these must not merely
  * be UNIQUE — they must not be a PREFIX of, or prefixed by, a code an
- * existing fixture already uses. Config Desk labels each control
+ * existing fixture already uses. Correspondances Desk labels each control
  * "Nom de la section <desk code>" / "Rôle pour <desk code>", and
  * Playwright's getByLabel() matches on a substring, so `E2E-SEC-ROLES`
  * made tests/e2e/specs/config-desk.spec.js's own
@@ -1508,7 +1508,7 @@ function e2eRoleAccountPassword(array $account): string
  *
  * Core\Member\UnitStaffSectionService::syncMembership() reassigns every
  * `admin`-role function to the STAFFDU section after a Desk import and
- * after every role change (Config Desk does exactly that, mid-run, in
+ * after every role change (Correspondances Desk does exactly that, mid-run, in
  * tests/e2e/specs/config-desk.spec.js). It only claims functions with
  * `section_id IS NULL`, so the admin's function is created WITH this
  * section's id and the sweep passes over it — which is the rule working

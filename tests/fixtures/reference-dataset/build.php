@@ -31,7 +31,7 @@ declare(strict_types=1);
  * someone's data. See InstanceReset and README.md §8.4.
  *
  * Everything the BUILD does goes through the application's own services: the
- * Desk import, the Config Desk role confirmation, the finance import, the
+ * Desk import, the Correspondances Desk role confirmation, the finance import, the
  * upload pipeline. Nothing is written to a table by hand, which is why a
  * schema change is absorbed instead of breaking a frozen artefact — and why
  * `vendor/bin/phpstan analyse` catches a signature drift here before anybody

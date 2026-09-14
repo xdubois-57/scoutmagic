@@ -97,7 +97,7 @@ class CoreAttentionRepository
     }
 
     /**
-     * Desk functions still awaiting a role on Config Desk.
+     * Desk functions still awaiting a role on Correspondances Desk.
      *
      * Whoever holds one sees no more than an ordinary member until
      * somebody qualifies it (SECURITY.md §3) — the first cause of "I

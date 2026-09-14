@@ -137,7 +137,7 @@ class AgeBranchRepository
 
     /**
      * Sets (or replaces) the uploaded federation logo for a branch —
-     * Configuration > Config Desk (superadmin), via the generic /upload
+     * Configuration > Correspondances Desk (superadmin), via the generic /upload
      * flow's `age_branch_logo` context.
      */
     public function setLogo(int $id, int $fileId): void

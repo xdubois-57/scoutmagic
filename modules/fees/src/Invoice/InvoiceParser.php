@@ -214,7 +214,7 @@ class InvoiceParser
     /**
      * The section a line is about, matched on the code the site imports
      * (`sections.desk_code`) rather than on a displayed name — a rename in
-     * Config Desk touches `sections.name` and must break nothing here.
+     * Correspondances Desk touches `sections.name` and must break nothing here.
      *
      * A descriptor with no code at all is not a defect: `COT_iAM_LOCAL` and
      * the deposit deduction genuinely have no section.

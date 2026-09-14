@@ -101,7 +101,7 @@ class FunctionsControllerTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $body = $response->getBody();
-        $this->assertStringContainsString('Config Desk', $body);
+        $this->assertStringContainsString('Correspondances Desk', $body);
         $this->assertStringContainsString('Aucune fonction importée', $body);
         $this->assertStringContainsString('Aucune section importée', $body);
     }

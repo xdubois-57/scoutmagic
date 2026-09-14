@@ -81,7 +81,7 @@ class CoreAttentionProvider implements AttentionPointProvider
                 . ($count > 1 ? 's' : ''),
             why: implode(', ', $labels) . ($count > 1 ? ' sont arrivées' : ' est arrivée')
                 . ' au rôle minimum. Les personnes concernées ne voient rien de plus qu\'un membre ordinaire.',
-            actionLabel: 'Qualifier dans Config Desk',
+            actionLabel: 'Qualifier dans Correspondances Desk',
             actionUrl: '/config/functions',
             severity: AttentionPoint::SEVERITY_URGENT
         )];

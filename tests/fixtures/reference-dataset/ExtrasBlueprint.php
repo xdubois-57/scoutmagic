@@ -100,7 +100,7 @@ final class ExtrasBlueprint
      * The email address of every section, and of the synthesised Staff d'U.
      *
      * `sections.email` is the one section column no Desk export carries — it
-     * is typed on Config Desk — and it was empty in every earlier version of
+     * is typed on Correspondances Desk — and it was empty in every earlier version of
      * this dataset, which made the "écrire à la section" surfaces look broken
      * rather than unconfigured. The addresses themselves live in
      * UnitBlueprint, beside the sections they belong to.

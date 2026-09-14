@@ -743,7 +743,7 @@ class StatisticsPayloadBuilderTest extends TestCase
         );
         $functions->execute(['Animateur', 'Animateur', 'chief', 1]);
         // The interesting half of the list: a function nobody has confirmed
-        // in Config Desk yet, which is what a brand-new federation label
+        // in Correspondances Desk yet, which is what a brand-new federation label
         // looks like on the day it appears.
         $functions->execute(['Délégué de branche', 'Délégué de branche', 'identified', 0]);
     }

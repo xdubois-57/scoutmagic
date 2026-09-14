@@ -50,7 +50,7 @@ final class ReferenceDatasetImportTest extends TestCase
     /** @var list<string> */
     private array $unconfirmed;
 
-    /** Staff d'U membership as it stood after the imports, before Config Desk. */
+    /** Staff d'U membership as it stood after the imports, before Correspondances Desk. */
     private int $unitStaffBeforeConfirmation;
 
     protected function setUp(): void
@@ -64,7 +64,7 @@ final class ReferenceDatasetImportTest extends TestCase
         $replay->importAll($this->yearIds, 1);
 
         // The state between the last import and the confirmation is the state
-        // a real chief sees before their first visit to Config Desk, and it is
+        // a real chief sees before their first visit to Correspondances Desk, and it is
         // worth capturing rather than describing: every function is
         // `identified`, so Staff d'U must have nobody in it yet even though
         // DeskImportService::import() already called syncMembership() three
@@ -300,7 +300,7 @@ final class ReferenceDatasetImportTest extends TestCase
         // (UnitStaffSectionService::ensureSection(), because
         // deactivateAllSections() would otherwise leave it off), but a Desk
         // import can never know a ROLE: the membership only appears once
-        // Config Desk confirms "Chef d'unité" as admin.
+        // Correspondances Desk confirms "Chef d'unité" as admin.
         $section = $this->sectionRow(null, UnitStaffSectionService::DESK_CODE);
         self::assertNotNull($section, 'La section Staff d\'U n\'a pas été créée.');
 
@@ -343,7 +343,7 @@ final class ReferenceDatasetImportTest extends TestCase
         self::assertNotFalse($row, 'La fonction inédite de A3 n\'a pas été créée.');
         self::assertSame('identified', (string) $row['role']);
 
-        // And it STAYS unconfirmed after Config Desk is replayed, because it
+        // And it STAYS unconfirmed after Correspondances Desk is replayed, because it
         // is deliberately absent from UnitBlueprint::FUNCTIONS. That is the
         // case a chief has to act on, and the dataset is meant to contain at
         // least one — see UnitBlueprint::BRAND_NEW_FUNCTION.

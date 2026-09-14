@@ -61,8 +61,8 @@ Une fonction Desk jamais vue est créée avec le rôle « Animé », sans
 aucun accès particulier : **un import n'accorde jamais de droits tout
 seul**. La page vous signale les fonctions à confirmer ; leur rôle réel
 (Animé, Intendant, Chef, Chef d'Unité) s'attribue ensuite sur la page
-« Config Desk », et prend effet à la prochaine connexion des personnes
-concernées.
+« Correspondances Desk », et prend effet à la prochaine connexion des
+personnes concernées.
 
 ## Quand importer
 

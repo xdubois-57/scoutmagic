@@ -80,7 +80,7 @@ class SectionRosterPdfService
      *        already carrying the `color` Core\Member\SectionService::
      *        colorForSection() resolved. The colour is taken from here and
      *        never recomputed: a colour set by hand in Configuration >
-     *        Config Desk wins over the branch's, so re-deriving it would
+     *        Correspondances Desk wins over the branch's, so re-deriving it would
      *        print something different from the screen for any unit that
      *        has customised a section.
      * @param array<int, array{animateurs: MemberRosterRow[], intendants: MemberRosterRow[],

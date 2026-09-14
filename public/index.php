@@ -2981,7 +2981,7 @@ $menuBuilder->addPage(
 );
 $menuBuilder->addPage(
     MenuBuilder::MENU_CONFIGURATION,
-    'Desk',
+    'Correspondances Desk',
     '/config/functions',
     'superadmin',
     20,
@@ -4448,7 +4448,7 @@ $router->addRoute(
     FunctionsController::class,
     'index',
     'superadmin',
-    ['label' => 'Desk', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
+    ['label' => 'Correspondances Desk', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
 );
 $router->addRoute('POST', '/config/functions/update', FunctionsController::class, 'update', 'superadmin');
 $router->addRoute('POST', '/config/functions/flags', FunctionsController::class, 'updateFlags', 'superadmin');
@@ -5407,7 +5407,7 @@ if ($isEnabled('trombinoscope')) {
     // The module's three core-hook implementations (§7.4), registered
     // once into $moduleHooks and resolved by their consumers per request:
     // the sections/member pages' "responsable" name, the offline
-    // manifest's staff directory, and the Config Desk page's
+    // manifest's staff directory, and the Correspondances Desk page's
     // per-function "responsable" flag. The FunctionsController,
     // PageController and OfflineController re-registrations this block
     // used to carry are gone with the per-hook constructor arguments.

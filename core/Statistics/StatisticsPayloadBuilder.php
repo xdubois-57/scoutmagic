@@ -459,7 +459,7 @@ class StatisticsPayloadBuilder
                 'desk_code' => (string) $row['desk_code'],
                 'label' => (string) $row['label'],
                 'role' => (string) $row['role'],
-                // `confirmed` false is « nobody has seen this in Config Desk
+                // `confirmed` false is « nobody has seen this in Correspondances Desk
                 // yet », which on this list is the interesting half: it is
                 // where a function the federation just invented shows up.
                 'confirmed' => (bool) $row['confirmed'],
