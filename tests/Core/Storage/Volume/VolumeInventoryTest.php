@@ -173,6 +173,45 @@ class VolumeInventoryTest extends TestCase
         );
     }
 
+    /**
+     * The same double-count, through the door the first test does not open:
+     * a child declared BEFORE its parent.
+     *
+     * The de-duplication skips a directory nested inside one already
+     * counted, so it depends entirely on a parent being seen first — and a
+     * parent is never `isUnder()` its own child. `declaredDirectories()`
+     * happens to seed `storage/` first, which is what makes the nested case
+     * above pass; two arbitrary locations on one device have no such order.
+     * The inflated occupation feeds `VolumeUsage::availableBytes()`, which
+     * `DiskBudget::ensureRoomOn()` uses to refuse a write — this subsystem's
+     * own defect, pointing the other way: refusing room that exists.
+     */
+    public function testANestedDirectoryIsNotCountedTwiceWhateverOrderItWasDeclaredIn(): void
+    {
+        $parent = $this->nasPath();
+        $child = $parent . '/photos';
+        mkdir($child, 0777, true);
+        $this->writeBytes($child . '/photo.jpg', 4096);
+        // The child first, the parent second — the order this method must
+        // not depend on.
+        $this->declareLocal('Photos', $child);
+        $this->declareLocal('Disque réseau', $parent);
+
+        $volumes = $this->inventory([
+            $this->storagePath => '8',
+            $child => '42',
+            $parent => '42',
+        ])->measure();
+
+        $nas = $volumes[1];
+        $this->assertSame('42', $nas->deviceId);
+        $this->assertSame(
+            4096,
+            $nas->occupiedBytes,
+            'The child is inside the parent, so its bytes are counted once whichever was declared first.'
+        );
+    }
+
     /** An S3 location is on nobody's filesystem, and must not become a volume. */
     public function testAnObjectStorageLocationIsNotAVolume(): void
     {

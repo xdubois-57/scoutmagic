@@ -213,8 +213,21 @@ class VolumeInventory
      */
     private static function occupiedBytes(array $directories): ?int
     {
-        $paths = array_map(static fn (VolumeDirectory $d): string => $d->path, $directories);
-        usort($paths, static fn (string $a, string $b): int => strlen($a) <=> strlen($b));
+        // **Shortest path first, and it is the directories themselves that
+        // are sorted.** The skip below only fires for a directory nested
+        // inside one ALREADY counted, and a parent is never `isUnder()` its
+        // own child — so without this ordering the rule depends on a parent
+        // happening to be declared before its children. `storage/` is
+        // seeded first, which hides it; two locations on a mounted disk,
+        // `/mnt/nas/photos` declared before `/mnt/nas`, do not have that
+        // luck and their bytes were counted twice. An inflated occupation
+        // feeds `VolumeUsage::availableBytes()` and thence a refusal, which
+        // is this subsystem's own defect pointing the other way: refusing
+        // room that exists.
+        usort(
+            $directories,
+            static fn (VolumeDirectory $a, VolumeDirectory $b): int => strlen($a->path) <=> strlen($b->path)
+        );
 
         $total = null;
         /** @var list<string> $counted */

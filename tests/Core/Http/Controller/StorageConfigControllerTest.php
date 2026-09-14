@@ -6,7 +6,10 @@ namespace Tests\Core\Http\Controller;
 
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
+use Core\Config\AppConfig;
 use Core\Http\Controller\StorageConfigController;
+use Core\Http\FrontController;
+use Core\Http\Router;
 use Core\Http\Request;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
@@ -326,6 +329,52 @@ class StorageConfigControllerTest extends TestCase
         $this->assertStringContainsString('servie directement par le serveur web', $response->getBody());
     }
 
+    /**
+     * The spellings that reach the web root without looking like it.
+     *
+     * `realpath()` answers false for a directory that does not exist yet —
+     * which is the ORDINARY case on this form, since declaring a location
+     * is how the directory comes to exist — so a check that falls back on
+     * comparing the raw string against the canonical web root compares two
+     * different alphabets. A `.` segment or a doubled slash is then enough
+     * to walk in, and every file in the location becomes downloadable with
+     * no access check at all.
+     *
+     * @param string $spelling how the path is typed
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('webRootSpellings')]
+    public function testStoreRefusesEverySpellingThatReachesTheWebRoot(string $spelling): void
+    {
+        $path = str_replace(
+            ['{public}', '{root}'],
+            [$this->publicPath, dirname($this->publicPath)],
+            $spelling
+        );
+
+        $response = $this->controller->store($this->formRequest([
+            'type' => 'local', 'label' => 'Dans la racine web', 'subdir' => $path,
+        ]), []);
+
+        $this->assertSame(422, $response->getStatusCode(), "« {$path} » reaches the web root and must be refused.");
+        $this->assertSame([], $this->repository->findAll());
+    }
+
+    /** @return array<string, array{0: string}> */
+    public static function webRootSpellings(): array
+    {
+        return [
+            'plainly inside it' => ['{public}/photos'],
+            'a dot segment inside it' => ['{public}/./photos'],
+            'a trailing slash' => ['{public}/photos/'],
+            // The three that a raw-string comparison lets through: the
+            // difference is BEFORE the `public` segment, so the candidate
+            // no longer starts with the canonical web root as text.
+            'a dot segment before the web root' => ['{root}/./public/photos'],
+            'a doubled slash before the web root' => ['{root}//public/photos'],
+            'the web root itself, spelled with a dot' => ['{root}/./public'],
+        ];
+    }
+
     public function testStoreRefusesTheWebRootItself(): void
     {
         $response = $this->controller->store($this->formRequest([
@@ -349,6 +398,29 @@ class StorageConfigControllerTest extends TestCase
 
         $response = $this->controller->store($this->formRequest([
             'type' => 'local', 'label' => 'Lien', 'subdir' => $link,
+        ]), []);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame([], $this->repository->findAll());
+    }
+
+    /**
+     * The deploy-layout case: `current -> releases/41`, and the folder
+     * being declared under it does not exist yet.
+     *
+     * `realpath()` cannot resolve a missing leaf, so a check that gives up
+     * and compares the raw string never canonicalises the symbolic link —
+     * which is precisely the case the guard claims to close.
+     */
+    public function testStoreRefusesANotYetCreatedFolderUnderASymlinkedWebRoot(): void
+    {
+        $link = dirname($this->storagePath) . '/current';
+        if (!@symlink($this->publicPath, $link)) {
+            $this->markTestSkipped('This filesystem does not allow creating a symbolic link.');
+        }
+
+        $response = $this->controller->store($this->formRequest([
+            'type' => 'local', 'label' => 'Sous un lien', 'subdir' => $link . '/pas-encore-la',
         ]), []);
 
         $this->assertSame(422, $response->getStatusCode());
@@ -807,6 +879,121 @@ class StorageConfigControllerTest extends TestCase
 
         $this->assertSame(422, $response->getStatusCode());
         $this->assertFalse($this->decode($response->getBody())['success']);
+    }
+
+    // ————— La frontière RBAC —————
+
+    /**
+     * Every `/config/stockage…` route is `role_min: superadmin`, and
+     * `AGENTS.md` § Tests asks each one to prove the boundary in both
+     * directions — allowed at its floor, denied one level below. The
+     * earlier version of this file only ever authenticated as superadmin,
+     * so its `403`s were CSRF refusals and nothing here held the role.
+     *
+     * The route table is declared here rather than read from
+     * `public/index.php`: this asserts what the routes MUST be, and a test
+     * that read them from the file under test would agree with it however
+     * it changed. `Tests\Security\AuthorizationMatrixInventoryTest` is
+     * what keeps the two lists from drifting apart.
+     *
+     * @param string $method the HTTP verb
+     * @param string $path   the route as declared
+     * @param string $action the controller action behind it
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('storageRoutes')]
+    public function testAnAdminOneLevelBelowSuperadminIsDenied(string $method, string $path, string $action): void
+    {
+        AuthSession::login(2, 'admin@test.be', 'admin');
+
+        $response = $this->frontControllerFor($method, $path, $action)
+            ->handle(new Request($method, $path, [], [], [], []));
+
+        $this->assertSame(403, $response->getStatusCode(), "{$method} {$path} must refuse an admin.");
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('storageRoutes')]
+    public function testASuperadminIsAllowedThrough(string $method, string $path, string $action): void
+    {
+        // The CSRF token travels, because a form POST without one is ALSO
+        // refused with 403 — and a test that could not tell that apart from
+        // a role refusal would pass whatever the route's role_min said.
+        $body = $method === 'POST' ? ['_csrf_token' => $this->csrfToken()] : [];
+
+        $response = $this->frontControllerFor($method, $path, $action)
+            ->handle(new Request($method, $path, [], $body, [], []));
+
+        // Not 200: a JSON endpoint reading an empty raw body answers 400,
+        // and a GET on a location that does not exist answers 404. What is
+        // asserted is that the ROLE is not what stopped it.
+        $this->assertNotSame(403, $response->getStatusCode(), "{$method} {$path} must let a superadmin through.");
+    }
+
+    /** @return array<string, array{0: string, 1: string, 2: string}> */
+    public static function storageRoutes(): array
+    {
+        return [
+            'dashboard' => ['GET', '/config/stockage', 'dashboard'],
+            'locations' => ['GET', '/config/stockage/emplacements', 'locations'],
+            'creation form' => ['GET', '/config/stockage/emplacements/nouveau', 'create'],
+            'store' => ['POST', '/config/stockage/emplacements', 'store'],
+            'edit form' => ['GET', '/config/stockage/emplacements/1/modification', 'edit'],
+            'update' => ['POST', '/config/stockage/emplacements/1', 'update'],
+            'delete' => ['POST', '/config/stockage/emplacements/1/suppression', 'delete'],
+            'set default' => ['POST', '/config/stockage/emplacements/1/defaut', 'setDefault'],
+            'test one location' => ['POST', '/config/stockage/emplacements/1/test', 'test'],
+            'test a connection' => ['POST', '/config/stockage/test-connexion', 'testConnection'],
+            'explain an S3 error' => ['POST', '/config/stockage/expliquer-erreur-s3', 'explainS3Error'],
+        ];
+    }
+
+    /**
+     * And the routes really are declared at that floor.
+     *
+     * The two tests above prove the FrontController ENFORCES a role_min;
+     * they declare it themselves, so they would go on passing if
+     * `public/index.php` published these routes to an admin tomorrow. This
+     * one reads the declaration, which is the half that can actually
+     * regress.
+     *
+     * @param string $method the HTTP verb
+     * @param string $path   the route as declared
+     * @param string $action the controller action behind it, unused here —
+     *        the provider is shared, and a signature that dropped it would
+     *        raise a PHPUnit warning, which fails the whole run
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('storageRoutes')]
+    public function testTheRouteIsDeclaredSuperadminInTheCompositionRoot(
+        string $method,
+        string $path,
+        string $action
+    ): void
+    {
+        $index = (string) file_get_contents(dirname(__DIR__, 4) . '/public/index.php');
+        $declared = str_replace('/emplacements/1', '/emplacements/{id}', $path);
+
+        $pattern = '#addRoute\(\s*\'' . preg_quote($method, '#') . '\',\s*\''
+            . preg_quote($declared, '#') . '\',\s*[^,]+,\s*[^,]+,\s*\'([a-z]+)\'#';
+
+        $this->assertMatchesRegularExpression($pattern, $index, "{$method} {$declared} is not declared as expected.");
+        preg_match($pattern, $index, $matches);
+        $this->assertSame('superadmin', $matches[1], "{$method} {$declared} must be superadmin-only.");
+    }
+
+    private function frontControllerFor(string $method, string $path, string $action): FrontController
+    {
+        $router = new Router();
+        // The declared path, with its placeholder restored: the router
+        // matches patterns, and the request above carries a concrete id.
+        $pattern = (string) preg_replace('#/emplacements/1(?=/|$)#', '/emplacements/{id}', $path);
+        $router->addRoute($method, $pattern, StorageConfigController::class, $action, 'superadmin');
+
+        $configFile = sys_get_temp_dir() . '/test_storage_config_' . bin2hex(random_bytes(6)) . '.php';
+        file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
+
+        $frontController = new FrontController($router, $this->twig, new AppConfig($configFile));
+        $frontController->registerController(StorageConfigController::class, $this->controller);
+
+        return $frontController;
     }
 
     // ————— Helpers —————

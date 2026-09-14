@@ -762,11 +762,20 @@ class StorageConfigController extends AbstractController
      *
      * Everything this site stores is handed out through a route that
      * checks who is asking; a location inside `public/` bypasses all of
-     * it, for every file, permanently and silently. The comparison is
-     * against the resolved real path on both sides so a symbolic link
-     * cannot walk around it, and falls back on the configured path when
-     * the directory does not exist yet — which is the ordinary case when
-     * an administrator is declaring one.
+     * it, for every file, permanently and silently.
+     *
+     * **Both sides are canonical, and the candidate's canonical form is
+     * built rather than asked for.** `realpath()` answers false for a
+     * directory that does not exist yet — which is the ORDINARY case here,
+     * since declaring a location is how the directory comes to exist — so
+     * an earlier version fell back on the raw string and compared two
+     * different alphabets. A `.` segment or a doubled slash placed before
+     * the `public` component was then enough to walk straight in:
+     * `/var/www/./public/photos` does not start with `/var/www/public/`
+     * as text and is the same directory to the kernel. Same for a leaf
+     * under a symlinked ancestor, which is exactly the case this check
+     * claims to close. {@see canonicalise()} resolves what exists and
+     * re-attaches what does not.
      *
      * @throws StorageLocationException
      */
@@ -774,8 +783,7 @@ class StorageConfigController extends AbstractController
     {
         $webRoot = realpath($this->publicPath);
         $webRoot = $webRoot !== false ? $webRoot : rtrim($this->publicPath, '/');
-        $candidate = realpath($path);
-        $candidate = $candidate !== false ? $candidate : rtrim($path, '/');
+        $candidate = self::canonicalise($path);
 
         if ($webRoot === '' || $candidate === '') {
             return;
@@ -787,6 +795,53 @@ class StorageConfigController extends AbstractController
                     . 'dossier situé ailleurs.'
             );
         }
+    }
+
+    /**
+     * A path in its canonical form, whether or not it exists yet.
+     *
+     * Walks up to the nearest ancestor the filesystem can resolve,
+     * `realpath()`s that — which settles `.`, doubled slashes and symbolic
+     * links in one step — then re-attaches the segments that do not exist
+     * yet. A path with no resolvable ancestor at all comes back trimmed
+     * rather than empty, so the caller still has something to compare.
+     *
+     * The result is used for COMPARING only, never stored: resolving
+     * symbolic links into what gets written down would turn a deploy
+     * layout's `/var/www/current/photos` into `/var/www/releases/41/photos`
+     * and break it at the next release.
+     */
+    private static function canonicalise(string $path): string
+    {
+        $existing = rtrim($path, '/');
+        if ($existing === '') {
+            return '/';
+        }
+
+        /** @var list<string> $missing */
+        $missing = [];
+        while (!file_exists($existing)) {
+            $segment = basename($existing);
+            $parent = dirname($existing);
+            if ($parent === $existing) {
+                return rtrim($path, '/');
+            }
+            // A `.` segment names its own parent and must not come back as
+            // a directory name when the tail is re-attached.
+            if ($segment !== '' && $segment !== '.') {
+                $missing[] = $segment;
+            }
+            $existing = $parent;
+        }
+
+        $resolved = realpath($existing);
+        if ($resolved === false) {
+            return rtrim($path, '/');
+        }
+
+        return $missing === []
+            ? $resolved
+            : rtrim($resolved, '/') . '/' . implode('/', array_reverse($missing));
     }
 
     /**

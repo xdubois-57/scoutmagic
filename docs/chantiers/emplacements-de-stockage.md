@@ -790,3 +790,61 @@ chemin, le `namespace` et le nom de classe n'a ramené que celui-là (les
 autres correspondances sont le `namespace` délibéré de
 `tests/fixtures/reference-dataset/` et des classes d'appoint déclarées
 avant la classe de test dans leur fichier).
+
+## La relecture a trouvé cinq choses, et elles étaient toutes vraies
+
+Quatre corrigées, une requalifiée. Ce qui suit est ce qu'elles avaient en
+commun : chacune portait sur du code que j'avais écrit en croyant l'avoir
+vérifié.
+
+**Le dédoublonnage dépendait de l'ordre de déclaration.** `occupiedBytes()`
+construisait un tableau de chemins, le triait du plus court au plus long,
+puis ne le lisait jamais : la boucle parcourait `$directories` non trié. Le
+saut ne joue que pour un dossier imbriqué dans un dossier **déjà compté**, et
+un parent n'est jamais `isUnder()` son propre enfant — donc la règle tenait
+uniquement parce que `declaredDirectories()` place `storage/` en premier.
+Deux emplacements sur un même disque, `/mnt/nas/photos` déclaré avant
+`/mnt/nas`, comptaient leurs octets deux fois. L'occupation gonflée alimente
+`availableBytes()`, donc un refus : le défaut de ce sous-système, retourné —
+refuser de la place qui existe. Le test le reproduit (8192 au lieu de 4096).
+
+**Le garde-fou de la racine web était contournable.** `realpath()` rend
+`false` pour un dossier qui n'existe pas encore — c'est-à-dire le cas
+ORDINAIRE de ce formulaire, puisque déclarer un emplacement est la façon dont
+le dossier vient à exister — et le code retombait alors sur une comparaison
+de la chaîne brute avec la racine web canonique. Deux alphabets différents :
+`/var/www/./public/photos` ne commence pas par `/var/www/public/` comme
+texte et désigne le même dossier pour le noyau. Une double barre oblique
+faisait la même chose, et un dossier absent sous un ancêtre lié
+symboliquement aussi — précisément le cas que le commentaire disait
+fermer. `canonicalise()` remonte jusqu'au premier ancêtre qui existe, le
+résout, et rattache le reste. Le résultat sert à COMPARER seulement : le
+stocker transformerait le `/var/www/current/photos` d'un déploiement en
+`/var/www/releases/41/photos` et le casserait à la livraison suivante.
+
+**L'exclusion de `FileAccessAuditTest` portait sur la ligne entière.** Une
+ligne mêlant un lien externe et un vrai `href="storage/…"` était donc
+exemptée en bloc — plus large que ce que son propre commentaire affirmait.
+L'exclusion vise maintenant les URL elles-mêmes.
+
+**La frontière RBAC n'était pas testée.** `AGENTS.md` demande, pour chaque
+nouvelle route, l'accès autorisé au plancher et refusé un cran en dessous ;
+ce fichier ne s'authentifiait qu'en superadmin, et ses seuls 403 étaient des
+refus CSRF. Deux jeux de tests couvrent les onze routes — et un troisième
+lit le rôle **déclaré dans `public/index.php`**, parce que les deux premiers
+déclarent eux-mêmes le `role_min` qu'ils vérifient et continueraient de
+passer si la composition publiait ces routes à un admin.
+
+**Et `ensureRoomOn()` n'a aucun appelant de production.** C'est exact, et la
+description de la PR comme `ARCHITECTURE.md` l'énonçaient au présent. La
+raison pour laquelle rien n'a cassé est la même que celle pour laquelle
+câbler la méthode ne changerait rien aujourd'hui : les quatre appelants
+existants de `DiskBudget` — `UploadHandler`, `ChunkedUploadStore`,
+`ImportController`, `BackupService` — écrivent tous sous `storage/`, donc
+tous sur le volume principal, où `ensureRoomOn()` retombe exactement sur la
+vérification qu'ils font déjà. Les écritures qui atteignent réellement un
+emplacement déclaré passent par `StorageBackendInterface::put()` et n'ont
+jamais consulté le budget disque — un trou antérieur à ce chantier. Le
+mécanisme est livré et testé ; le premier appelant pour qui la distinction
+existe arrive avec IT-05. Les deux affirmations au présent sont corrigées
+plutôt que laissées à découvrir.

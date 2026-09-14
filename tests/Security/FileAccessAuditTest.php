@@ -40,11 +40,16 @@ class FileAccessAuditTest extends TestCase
                 // matched on the word « storage » inside a third party's
                 // path. A site-relative `/storage/…` and a bare
                 // `href="storage/…"` both still match, which is the whole
-                // of what the rule ever caught.
-                if (preg_match('#https?://#i', $line) === 1 && preg_match('#(?<![a-z_])/storage/#i', $line) !== 1) {
-                    continue;
-                }
-                if (preg_match('#(?<![a-z_])(/storage/|href\s*=\s*["\'][^"\']*storage/)#i', $line)) {
+                // of what the rule ever caught — including when they sit
+                // on the same line as an external link.
+                //
+                // The exclusion is scoped to the URLs THEMSELVES, not to
+                // the line carrying them. Skipping the whole line exempted
+                // a genuine `href="storage/…"` that merely shared a line
+                // with an unrelated external link — broader than this
+                // comment claims, and silently so.
+                $scanned = (string) preg_replace('#https?://[^"\'\s>]*#i', '', $line);
+                if (preg_match('#(?<![a-z_])(/storage/|href\s*=\s*["\'][^"\']*storage/)#i', $scanned)) {
                     $relativePath = str_replace(dirname(__DIR__, 2) . '/', '', $file->getPathname());
                     $violations[] = "{$relativePath}:" . ($lineNum + 1) . ": {$line}";
                 }
