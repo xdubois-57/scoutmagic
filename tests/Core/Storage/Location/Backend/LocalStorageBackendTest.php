@@ -216,10 +216,18 @@ class LocalStorageBackendTest extends TestCase
         $this->assertSame('ok', $this->backend->get('9/thumb_1.jpg'));
     }
 
-    public function testItDeclaresRangeReadingAndServerSideCopyAndNothingElse(): void
+    public function testItDeclaresThreeCapabilitiesAndNothingElse(): void
     {
         $this->assertSame(
-            [StorageCapability::RangeRead, StorageCapability::ServerSideCopy],
+            [
+                StorageCapability::RangeRead,
+                // Since IT-04: a folder can be appended to and the partial
+                // file's own size is the resume offset, which is what lets
+                // a safety copy carry a film across several nights instead
+                // of re-sending the same first gigabyte every time.
+                StorageCapability::ResumableUpload,
+                StorageCapability::ServerSideCopy,
+            ],
             $this->backend->capabilities()
         );
         $this->assertTrue($this->backend->supports(StorageCapability::RangeRead));
@@ -233,11 +241,16 @@ class LocalStorageBackendTest extends TestCase
     public function testAnAbsentCapabilityIsRefusedWithAFrenchSentenceRatherThanAMissingMethod(): void
     {
         $this->expectException(UnsupportedCapabilityException::class);
-        $this->expectExceptionMessage("L'emplacement « Disque du serveur » ne sait pas reprendre un envoi interrompu.");
+        $this->expectExceptionMessage(
+            "L'emplacement « Disque du serveur » ne sait pas indiquer la place restante."
+        );
 
+        // `Quota` and not `ResumableUpload`, which this backend gained in
+        // IT-04: what is under test is the refusal, so the example has to
+        // be something the local disk genuinely cannot do.
         StorageCapabilities::require(
             $this->backend,
-            StorageCapability::ResumableUpload,
+            StorageCapability::Quota,
             'Disque du serveur'
         );
     }

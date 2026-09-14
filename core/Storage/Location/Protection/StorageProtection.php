@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Storage\Location\Protection;
 
+use Core\Service\DateInput;
+
 /**
  * One location's safety copy on another — a row of `storage_protections`.
  *
@@ -79,8 +81,14 @@ final class StorageProtection
             return true;
         }
 
-        $last = \DateTimeImmutable::createFromFormat('Y-m-d H:i:s', $this->lastCompletedPassAt);
-        if ($last === false) {
+        // Through DateInput, and not because of a style rule: this string
+        // comes out of a column, and PHP's format-based parser raises a
+        // ValueError rather than answering false when a value carries a
+        // NUL byte — which the usual `!== false` guard lets through as an
+        // uncaught exception five frames above anything that could handle
+        // it (`Tests\Security\DateParsingConvergenceTest`).
+        $last = DateInput::fromStorage($this->lastCompletedPassAt);
+        if ($last === null) {
             // An unreadable timestamp is a reason to run, never a reason to
             // stop: the cost of one extra pass is a listing, and the cost
             // of skipping for ever is the copy going stale in silence.

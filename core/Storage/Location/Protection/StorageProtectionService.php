@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Storage\Location\Protection;
 
 use Core\Maintenance\BackupRepository;
+use Core\Service\DateInput;
 use Core\Storage\Location\StorageLocation;
 use Core\Storage\Location\StorageLocationException;
 use Core\Storage\Location\StorageLocationRepository;
@@ -158,8 +159,8 @@ class StorageProtectionService
             return null;
         }
 
-        $completedAt = \DateTimeImmutable::createFromFormat('Y-m-d H:i:s', $oldest);
-        if ($completedAt === false) {
+        $completedAt = DateInput::fromStorage($oldest);
+        if ($completedAt === null) {
             return null;
         }
 
