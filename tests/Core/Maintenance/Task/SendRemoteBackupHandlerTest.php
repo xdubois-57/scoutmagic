@@ -735,6 +735,55 @@ final class SendRemoteBackupHandlerTest extends TestCase
     // ---------------------------------------------------------------
 
     /**
+     * **A destination whose secret no longer decrypts is a failure, not a
+     * crash — and the difference is a key-bearing archive left on disk.**
+     *
+     * `backend()` reaches `StorageBackendFactory`, which reads the
+     * location's encrypted column; a master key that has been rotated
+     * makes that read raise `Security\\DecryptionException`, which is not
+     * a `RemoteBackupException`. Caught too narrowly, it escapes past
+     * `recordFailure()` — and `recordFailure()` is what climbs the counter
+     * and, at the ceiling, DELETES the archive. The archive is a portable
+     * backup: it carries `master.key`. So the run dies, the file stays,
+     * the same thing happens every night, and the ceiling that would have
+     * removed it is never reached.
+     *
+     * That rotation is precisely the scenario D7 cites for moving these
+     * credentials out of `secrets.enc` in the first place.
+     */
+    public function testADestinationWhoseSecretNoLongerDecryptsIsRecordedRatherThanThrown(): void
+    {
+        $archive = $this->archiveOf(64);
+
+        // The same rows, read with a different key: what a master-key
+        // rotation leaves behind.
+        $rotated = new RemoteBackupDestination(
+            $this->settings,
+            new StorageLocationRepository(
+                $this->pdo,
+                new EncryptionService(str_repeat('z', 32), str_repeat('y', 32))
+            ),
+            new StorageBackendFactory(
+                new StorageLocationRepository(
+                    $this->pdo,
+                    new EncryptionService(str_repeat('z', 32), str_repeat('y', 32))
+                ),
+                $this->storagePath
+            )
+        );
+
+        // No backend handed in: this is the path that builds one.
+        (new SendRemoteBackupHandler(null, $rotated, fn (): float => $this->clock, 1024))
+            ->handle($this->payloadFor($archive), $this->context());
+
+        $next = $this->pending();
+        $this->assertNotNull($next, 'the run died instead of recording a failure');
+        $this->assertSame(1, $next['payload']['failures']);
+        $this->assertSame($archive, $next['payload']['archive_path']);
+        $this->assertFileExists($archive, 'the archive was thrown away on the first failure');
+    }
+
+    /**
      * Declares a destination and points the off-site backup at it, exactly
      * as the two screens would.
      */

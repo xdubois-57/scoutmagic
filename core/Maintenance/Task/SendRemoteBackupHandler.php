@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace Core\Maintenance\Task;
 
 use Core\Config\SettingService;
+use Core\Exception\UserFacingMessage;
 use Core\Maintenance\Remote\RemoteBackupDestination;
 use Core\Maintenance\Remote\RemoteBackupException;
 use Core\Maintenance\Remote\RemotePassphrase;
@@ -165,13 +166,35 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
 
         try {
             $backend = $this->backend ?? $destination->backend();
-        } catch (RemoteBackupException $e) {
-            // A destination that cannot resume an interrupted upload. Not
-            // a transient failure and not something a retry mends, so it
-            // travels through the ordinary failure path — which journals
-            // the sentence and eventually stops trying — rather than
-            // being thrown at a scheduler nobody is watching.
-            $this->recordFailure($payload, $context, $e->getMessage());
+        } catch (\RuntimeException $e) {
+            // **Every way building a backend can fail, not just the one
+            // this feature declares.** `RemoteBackupException` covers a
+            // destination that cannot resume an interrupted upload; but
+            // `backend()` reaches `StorageBackendFactory`, which reads the
+            // location's encrypted column — so a secret that no longer
+            // decrypts raises `Security\DecryptionException`, and a type
+            // this build cannot open raises `StorageLocationException`.
+            // Neither is a `RemoteBackupException`.
+            //
+            // Escaping here is not merely an unreported failure. It is
+            // `recordFailure()` that climbs the counter and, at the
+            // ceiling, DELETES the archive — a portable backup carrying
+            // `master.key`. A resumed run that dies on this line leaves
+            // that file on the disk, re-attempts it every night, and never
+            // reaches the ceiling that would remove it. The master-key
+            // rotation that makes a secret unreadable is the very scenario
+            // D7 cites for moving these credentials.
+            //
+            // Not widened at the send site below, deliberately: the
+            // backend is already built by then, so this family of failures
+            // cannot arise there.
+            $this->recordFailure($payload, $context, UserFacingMessage::from(
+                $e,
+                // `DecryptionException` is not a `UserFacingException`, and
+                // its message names the cipher rather than the remedy.
+                'La destination hors site n\'a pas pu être ouverte : ses identifiants sont illisibles. '
+                . 'Reraccordez le compte depuis Configuration > Stockage.'
+            ));
 
             return;
         }
