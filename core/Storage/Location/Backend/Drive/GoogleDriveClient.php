@@ -372,12 +372,13 @@ final class GoogleDriveClient
             str_replace("'", "\\'", $folderId),
             str_replace("'", "\\'", $name)
         );
-        $decoded = $this->apiJson('GET', self::API_BASE . '/files?' . http_build_query([
+        $url = self::API_BASE . '/files?' . http_build_query([
             'q' => $query,
             'fields' => 'files(id,size,md5Checksum,modifiedTime)',
             'orderBy' => 'createdTime desc',
             'pageSize' => 1,
-        ]), $accessToken);
+        ]);
+        $decoded = $this->apiJson('GET', $url, $accessToken);
 
         $files = is_array($decoded['files'] ?? null) ? $decoded['files'] : [];
         $entry = is_array($files[0] ?? null) ? $files[0] : null;
@@ -407,11 +408,12 @@ final class GoogleDriveClient
             str_replace("'", "\\'", $folderId),
             str_replace("'", "\\'", $name)
         );
-        $decoded = $this->apiJson('GET', self::API_BASE . '/files?' . http_build_query([
+        $url = self::API_BASE . '/files?' . http_build_query([
             'q' => $query,
             'fields' => 'files(id)',
             'pageSize' => self::LIST_PAGE_SIZE,
-        ]), $accessToken);
+        ]);
+        $decoded = $this->apiJson('GET', $url, $accessToken);
 
         $ids = [];
         foreach (is_array($decoded['files'] ?? null) ? $decoded['files'] : [] as $entry) {
@@ -868,8 +870,11 @@ final class GoogleDriveClient
      *
      * @param array{status: int, body: string, location?: string, range?: string} $response
      */
-    private function errorFor(array $response, string $fallback, string $endpoint = self::ENDPOINT_API): DriveAccessException
-    {
+    private function errorFor(
+        array $response,
+        string $fallback,
+        string $endpoint = self::ENDPOINT_API
+    ): DriveAccessException {
         $detail = new \RuntimeException('Google responded ' . $response['status'] . ': ' . substr($response['body'], 0, 500));
 
         if ($endpoint === self::ENDPOINT_TOKEN && $response['status'] === 401) {

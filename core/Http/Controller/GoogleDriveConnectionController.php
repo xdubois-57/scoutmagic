@@ -166,9 +166,12 @@ final class GoogleDriveConnectionController extends AbstractController
         // from this site's own address, and there is no honest way to
         // compose it without one.
         if ($this->baseUrl() === '') {
-            FlashMessage::set('error', 'Ce site ne connaît pas encore sa propre adresse. Renseignez-la dans '
+            FlashMessage::set(
+                'error',
+                'Ce site ne connaît pas encore sa propre adresse. Renseignez-la dans '
                 . 'Configuration > Réglages (« Adresse du site ») avant de raccorder un compte Google : c\'est '
-                . 'elle qui compose l\'adresse de redirection à déclarer chez Google.');
+                . 'elle qui compose l\'adresse de redirection à déclarer chez Google.'
+            );
 
             return $this->redirect(self::LOCATIONS_URL);
         }

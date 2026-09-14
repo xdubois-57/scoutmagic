@@ -4677,7 +4677,11 @@ $router->addRoute(
 // its raccordement belongs on its own card. What is left is the
 // ASSIGNMENT, which is D4: it belongs to the consumer that made it.
 $router->addRoute(
-    'POST', '/config/maintenance/remote/destination', RemoteBackupController::class, 'chooseDestination', 'admin',
+    'POST',
+    '/config/maintenance/remote/destination',
+    RemoteBackupController::class,
+    'chooseDestination',
+    'admin',
 );
 $router->addRoute(
     'POST',

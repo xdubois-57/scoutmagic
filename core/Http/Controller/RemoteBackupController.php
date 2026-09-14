@@ -193,27 +193,36 @@ final class RemoteBackupController extends AbstractController
                 [],
                 AuthSession::getUserAccountId()
             );
-            FlashMessage::set('warning', 'Aucune destination hors site : les sauvegardes ne quittent plus ce '
-                . 'serveur.');
+            FlashMessage::set(
+                'warning',
+                'Aucune destination hors site : les sauvegardes ne quittent plus ce '
+                . 'serveur.'
+            );
 
             return $this->redirect('/config/maintenance#remote-backup');
         }
 
         $location = $this->locations->findById($locationId);
         if ($location === null) {
-            FlashMessage::set('error', 'Cet emplacement de stockage n\'existe plus — la page a peut-être été '
-                . 'rouverte après sa suppression.');
+            FlashMessage::set(
+                'error',
+                'Cet emplacement de stockage n\'existe plus — la page a peut-être été '
+                . 'rouverte après sa suppression.'
+            );
 
             return $this->redirect('/config/maintenance#remote-backup');
         }
 
         if (!$location->supports(StorageCapability::ResumableUpload)) {
-            FlashMessage::set('error', sprintf(
-                'L\'emplacement « %s » ne sait pas %s. Une archive de sauvegarde ne part jamais en une seule '
-                . 'fois : choisissez une destination qui sait reprendre un envoi interrompu.',
-                $location->label,
-                StorageCapability::ResumableUpload->frenchDescription()
-            ));
+            FlashMessage::set(
+                'error',
+                sprintf(
+                    'L\'emplacement « %s » ne sait pas %s. Une archive de sauvegarde ne part jamais en une '
+                    . 'seule fois : choisissez une destination qui sait reprendre un envoi interrompu.',
+                    $location->label,
+                    StorageCapability::ResumableUpload->frenchDescription()
+                )
+            );
 
             return $this->redirect('/config/maintenance#remote-backup');
         }
