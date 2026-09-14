@@ -36,12 +36,33 @@ class StatDeviceResolverTest extends TestCase
         @rmdir($this->root);
     }
 
+    /**
+     * **The reference answer is pinned non-null first, in every test
+     * below.** `assertSame(null, null)` passes, so comparing two answers
+     * and nothing else leaves this whole file green on a resolver that has
+     * stopped identifying anything at all — `open_basedir`, a `stat()`
+     * that fails, a regression in the climb loop — while the inventory
+     * silently splits one filesystem into as many volumes as it has
+     * directories. That is exactly the failure these tests exist to catch,
+     * so the non-null is asserted rather than assumed.
+     */
+    private function pinnedDeviceIdOf(StatDeviceResolver $resolver, string $path): string
+    {
+        $deviceId = $resolver->deviceIdOf($path);
+        $this->assertNotNull(
+            $deviceId,
+            'The test machine must be able to identify ' . $path . ', or this file proves nothing.'
+        );
+
+        return $deviceId;
+    }
+
     public function testTwoDirectoriesOnOneFilesystemGetTheSameAnswer(): void
     {
         $resolver = new StatDeviceResolver();
 
         $this->assertSame(
-            $resolver->deviceIdOf($this->root),
+            $this->pinnedDeviceIdOf($resolver, $this->root),
             $resolver->deviceIdOf($this->root . '/nested/deeper'),
             'One filesystem must answer once, or the inventory would split it into several volumes.'
         );
@@ -52,7 +73,10 @@ class StatDeviceResolverTest extends TestCase
     {
         $resolver = new StatDeviceResolver();
 
-        $this->assertSame($resolver->deviceIdOf($this->root), $resolver->deviceIdOf($this->root . '/'));
+        $this->assertSame(
+            $this->pinnedDeviceIdOf($resolver, $this->root),
+            $resolver->deviceIdOf($this->root . '/')
+        );
     }
 
     /**
@@ -66,7 +90,7 @@ class StatDeviceResolverTest extends TestCase
         $resolver = new StatDeviceResolver();
 
         $this->assertSame(
-            $resolver->deviceIdOf($this->root),
+            $this->pinnedDeviceIdOf($resolver, $this->root),
             $resolver->deviceIdOf($this->root . '/not-created-yet/photos'),
             'A declared folder not yet created sits on the volume it will be created on.'
         );
@@ -91,7 +115,7 @@ class StatDeviceResolverTest extends TestCase
         file_put_contents($file, 'x');
         $resolver = new StatDeviceResolver();
 
-        $this->assertSame($resolver->deviceIdOf($this->root), $resolver->deviceIdOf($file));
+        $this->assertSame($this->pinnedDeviceIdOf($resolver, $this->root), $resolver->deviceIdOf($file));
 
         unlink($file);
     }

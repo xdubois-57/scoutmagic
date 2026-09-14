@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Http\Controller;
 
+use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
@@ -58,6 +59,9 @@ class StorageConfigController extends AbstractController
 {
     /** @var string[] */
     public const S3_PROVIDERS = ['hetzner', 'cloudflare_r2', 'scaleway', 'ovhcloud', 'custom'];
+
+    /** Where every form on this controller comes back to. */
+    private const LOCATIONS_URL = '/config/stockage/emplacements';
 
     public function __construct(
         protected Environment $twig,
@@ -199,7 +203,7 @@ class StorageConfigController extends AbstractController
             (int) AuthSession::getUserAccountId()
         );
 
-        return $this->redirect('/config/stockage/emplacements');
+        return $this->redirect(self::LOCATIONS_URL);
     }
 
     /**
@@ -294,30 +298,42 @@ class StorageConfigController extends AbstractController
             );
         }
 
-        return $this->redirect('/config/stockage/emplacements');
+        return $this->redirect(self::LOCATIONS_URL);
     }
 
     /**
-     * POST /config/stockage/emplacements/{id}/suppression
+     * POST /config/stockage/emplacements/{id}/suppression — a form post,
+     * not an AJAX call, and that is the point.
+     *
+     * This is the page's one destructive action, and AGENTS.md asks for a
+     * destructive confirmation on a FORM. A button only a script can
+     * actuate is a button that vanishes the day the script does not load —
+     * and deleting a location has no second door, unlike « Tester » or
+     * « Définir par défaut », whose absence costs a convenience rather than
+     * the ability to repair the configuration at all. So the refusals land
+     * as a flash message on the list rather than as a JSON envelope: the
+     * commonest of them (« un usage en dépend ») is a sentence the
+     * administrator has to read, not a toast.
      *
      * @param array<string, string> $params
      */
     public function delete(Request $request, array $params): Response
     {
-        $data = json_decode($request->getRawBody(), true);
-        if (!is_array($data) || !CsrfGuard::validateToken((string) ($data['_csrf_token'] ?? ''))) {
-            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        if (($guard = $this->guardCsrf($request, self::LOCATIONS_URL)) !== null) {
+            return $guard;
         }
 
-        $location = $this->storageLocationRepository->findById((int) $params['id']);
+        $location = $this->storageLocationRepository->findById((int) ($params['id'] ?? 0));
         if ($location === null) {
-            return $this->json(['success' => false, 'error' => 'Emplacement introuvable.'], 404);
+            return new Response('Not Found', 404);
         }
 
         try {
             $this->storageLocationService->delete($location->id);
         } catch (StorageLocationException $e) {
-            return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
+            FlashMessage::set('error', $e->getMessage());
+
+            return $this->redirect(self::LOCATIONS_URL);
         }
 
         $this->journalService->log(
@@ -329,7 +345,9 @@ class StorageConfigController extends AbstractController
             (int) AuthSession::getUserAccountId()
         );
 
-        return $this->json(['success' => true]);
+        FlashMessage::set('success', "Emplacement « {$location->label} » supprimé.");
+
+        return $this->redirect(self::LOCATIONS_URL);
     }
 
     /**

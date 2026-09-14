@@ -313,6 +313,22 @@ class VolumeInventoryTest extends TestCase
         $nas = $this->nasPath();
         $this->declareLocal('Disque réseau', $nas);
 
+        // **Only the device ids are stubbed**, so the free space of the
+        // NAS volume is whatever the machine running this really has —
+        // and `ensureRoomOn()` wants 1 Kio plus DiskBudget's fixed safety
+        // margin of it. On a small tmpfs this test would fail for a reason
+        // that has nothing to do with what it asserts, which is that the
+        // PRIMARY volume's quota does not reach here. Checked after the
+        // 2 MiB written above, since that write comes out of the same
+        // filesystem when sys_get_temp_dir() holds both.
+        $reallyFree = @disk_free_space($nas);
+        if (!is_float($reallyFree) || $reallyFree < 1024 + DiskBudget::SAFETY_MARGIN_BYTES) {
+            $this->markTestSkipped(
+                'The filesystem behind ' . $nas . ' has less free space than DiskBudget\'s own margin, '
+                    . 'so its verdict here would say nothing about the quota.'
+            );
+        }
+
         $inventory = $this->inventory([$this->storagePath => '8', $nas => '42']);
         $budget = new DiskBudget($this->storagePath, $this->settings);
 

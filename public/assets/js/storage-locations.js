@@ -86,31 +86,13 @@
         });
     });
 
-    document.querySelectorAll('.storage-location-delete').forEach(function (btn) {
-        var button = /** @type {HTMLButtonElement} */ (btn);
-        button.addEventListener('click', async function () {
-            if (button.disabled) return;
-            var confirmed = await window.ScoutMagicConfirm.ask({
-                message: 'Supprimer « ' + (button.dataset.label || 'cet emplacement') + ' » ? Les fichiers qui s\'y trouvent ne sont pas supprimés : seule la déclaration disparaît.',
-                confirmLabel: 'Supprimer'
-            });
-            if (!confirmed) return;
-            button.disabled = true;
-            window.ScoutMagicApi.postJson('/config/stockage/emplacements/' + button.dataset.id + '/suppression', {}).then(function (res) {
-                if (isNetworkFailure(res)) {
-                    button.disabled = false;
-                    return;
-                }
-                var data = envelopeData(res);
-                if (data.success) {
-                    window.location.reload();
-                } else {
-                    button.disabled = false;
-                    window.ScoutMagicToast.show(data.error || 'Suppression impossible.', { variant: 'error' });
-                }
-            });
-        });
-    });
+    // Deleting a location is NOT here, deliberately. It is the one
+    // destructive action on this page, so it is a plain POST form carrying
+    // `csrf_field()` and the shared `data-confirm` attribute
+    // (config/storage/locations.html.twig) — the same shape Configuration ›
+    // Maintenance and Courrier sortant use. A destructive action that only
+    // a script can reach disappears entirely on the day the script does
+    // not load, and this one has no other door.
 
     // ------------------------------------------------------------------
     // Add/edit location form (config/storage/location_form.html.twig)
@@ -232,7 +214,13 @@
     function syncOutsideWarning() {
         if (!pathInput || !outsideWarning) return;
         var value = pathInput.value.trim();
-        var isAbsolute = value.startsWith('/') || /^[A-Za-z]:[\\/]/.test(value);
+        // Three spellings of « absolute », and the third is the one that
+        // looks like an oversight: a UNC path (`\\nas\photos`) names
+        // another machine entirely, so it is as far outside storage/ as a
+        // path can get while starting with neither a slash nor a drive.
+        var isAbsolute = value.startsWith('/')
+            || value.startsWith('\\\\')
+            || /^[A-Za-z]:[\\/]/.test(value);
         outsideWarning.classList.toggle('d-none', !isAbsolute);
     }
     if (pathInput && outsideWarning) {

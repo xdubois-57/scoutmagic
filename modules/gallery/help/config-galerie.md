@@ -55,9 +55,13 @@ source n'est libérée qu'à la toute dernière étape.
 
 Certains albums de cette liste appartiennent à un autre module — les
 photos d'un groupe de discussion, par exemple. Ils n'apparaissent nulle
-part ailleurs dans la galerie, mais ils occupent une place réelle sur
-un emplacement réel : les lister ici est ce qui vous permet d'expliquer
-l'espace consommé.
+part ailleurs dans la galerie, et c'est voulu : leur module propriétaire
+est le seul chemin vers leur contenu, et c'est lui qui décide qui peut
+les voir. Cette liste-ci est la seule exception, et elle ne l'est que
+pour l'administration : elle donne le module propriétaire, la place
+occupée et le déplacement — jamais les photos elles-mêmes. Les lister
+ici est ce qui vous permet d'expliquer l'espace consommé, et de
+déplacer ces albums comme les autres.
 
 ## Où voir la place restante
 

@@ -41,11 +41,16 @@ portable — celle qui emporte les clés de chiffrement du site — c'est
 elle qu'il faut utiliser : sans les clés, les données chiffrées de
 l'ancienne base restent illisibles sur la nouvelle installation.
 
-**3. Déclarez la destination comme emplacement**, dans
-Configuration › Stockage › Emplacements. Saisissez exactement les mêmes
-paramètres qu'avant — même dossier, même bucket, mêmes identifiants.
-Le contenu est déjà là ; vous ne faites que redire au site où il se
-trouve.
+**3. Rouvrez l'emplacement restauré** — ne le recréez pas. La base
+restaurée contient déjà vos emplacements, et chaque album désigne le
+sien par un numéro interne. Un emplacement **recréé** en reçoit un
+nouveau : les albums restaurés désigneraient toujours l'ancien et ne
+trouveraient plus leurs fichiers.
+
+Dans Configuration › Stockage › Emplacements, retrouvez donc la
+destination, « Modifier », et ne corrigez que ce qui a changé : des
+identifiants régénérés, un dossier ailleurs. Absente de la liste ?
+L'étape 2 n'a pas repris la base attendue : reprenez-la.
 
 **4. Testez-le.** Le bouton « Tester » écrit un fichier témoin et le
 relit. Tant qu'il n'est pas au vert, inutile d'aller plus loin.
@@ -57,9 +62,8 @@ nouveaux albums ».
 
 > Ce champ ne concerne que les **nouveaux** albums. Les albums restaurés
 > pointent déjà, par la base de données, vers l'emplacement où leurs
-> fichiers ont toujours été — c'est pourquoi l'étape 3 demande
-> exactement les mêmes paramètres qu'avant. Un emplacement redéclaré
-> autrement est un emplacement vide.
+> fichiers ont toujours été — c'est pourquoi l'étape 3 corrige
+> l'emplacement existant au lieu d'en créer un autre.
 
 ## Si les identifiants ont été perdus aussi
 

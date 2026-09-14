@@ -30,7 +30,7 @@
         action_url: '/config/stockage/emplacements/nouveau',
     } only %}
 
-    {% include 'config/storage/_nav.html.twig' %}
+    {% include 'config/storage/_nav.html.twig' with {current_path: current_path} only %}
 
     {% for location in locations %}
         {% set usages = location_usages[location.id] ?? [] %}
@@ -85,10 +85,23 @@
                         <button type="button" class="btn btn-link btn-sm p-0 storage-location-set-default"
                                 data-id="{{ location.id }}">Définir par défaut</button>
                     {% endif %}
+                    {# Destructive, so a POST form with its CSRF token and the
+                       shared data-confirm attribute — the shape
+                       config/maintenance.html.twig and
+                       config/outbound_mail/providers.html.twig already use —
+                       rather than a button only a script can actuate. This
+                       action has no second door: on a page whose JavaScript
+                       did not load, a script-only button leaves no way to
+                       delete a location at all. #}
                     {% if usages is empty %}
-                        <button type="button" class="btn btn-link btn-sm p-0 text-danger storage-location-delete"
-                                data-id="{{ location.id }}"
-                                data-label="{{ location.label }}">Supprimer</button>
+                        <form method="post"
+                              action="/config/stockage/emplacements/{{ location.id }}/suppression"
+                              data-confirm="Supprimer l'emplacement « {{ location.label }} » ? Les fichiers déjà écrits à la destination ne sont pas effacés : le site cesse seulement de la connaître."
+                              data-confirm-label="Supprimer"
+                              class="d-inline">
+                            {{ csrf_field()|raw }}
+                            <button type="submit" class="btn btn-link btn-sm p-0 text-danger">Supprimer</button>
+                        </form>
                     {% endif %}
                 </div>
 

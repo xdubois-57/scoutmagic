@@ -443,26 +443,41 @@ class StorageConfigControllerTest extends TestCase
 
     // ————— Deleting —————
 
+    /**
+     * **A form post, not a fetch()** — the page's one destructive action
+     * goes through `<form data-confirm>` + `csrf_field()`, so a bad token
+     * lands as a flash message on the list rather than as a JSON 400. A
+     * button only a script could actuate would leave a page whose
+     * JavaScript did not load with no way to delete a location at all.
+     */
     public function testDeleteRequiresCsrf(): void
     {
         $id = $this->declareLocal('Local', 'gallery');
 
-        $response = $this->controller->delete($this->jsonRequest(['_csrf_token' => 'bad']), ['id' => (string) $id]);
+        $response = $this->controller->delete(
+            new Request('POST', '/x', [], ['_csrf_token' => 'bad'], [], []),
+            ['id' => (string) $id]
+        );
 
-        $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertNotNull($this->repository->findById($id), 'A refused token must delete nothing.');
     }
 
     public function testDeleteRemovesAnUnreferencedLocation(): void
     {
         $id = $this->declareLocal('Local', 'gallery');
 
-        $response = $this->controller->delete(
-            $this->jsonRequest(['_csrf_token' => $this->csrfToken()]),
-            ['id' => (string) $id]
-        );
+        $response = $this->controller->delete($this->formRequest([]), ['id' => (string) $id]);
 
-        $this->assertTrue($this->decode($response->getBody())['success']);
+        $this->assertSame(302, $response->getStatusCode());
         $this->assertNull($this->repository->findById($id));
+    }
+
+    public function testDeleteAnswersNotFoundForALocationThatIsNoLongerThere(): void
+    {
+        $response = $this->controller->delete($this->formRequest([]), ['id' => '4242']);
+
+        $this->assertSame(404, $response->getStatusCode());
     }
 
     public function testDeleteRefusesALocationAConsumerStillStandsOn(): void
@@ -470,13 +485,12 @@ class StorageConfigControllerTest extends TestCase
         $id = $this->declareLocal('Local', 'gallery');
         $this->consumers->register($this->consumerHolding('Galeries photo', [$id]));
 
-        $response = $this->controller->delete(
-            $this->jsonRequest(['_csrf_token' => $this->csrfToken()]),
-            ['id' => (string) $id]
-        );
+        $response = $this->controller->delete($this->formRequest([]), ['id' => (string) $id]);
 
-        $this->assertSame(422, $response->getStatusCode());
-        $this->assertFalse($this->decode($response->getBody())['success']);
+        // The refusal comes back as a flash message on the list, which is
+        // where the administrator is: « un usage en dépend » is a sentence
+        // to read, not a toast to miss.
+        $this->assertSame(302, $response->getStatusCode());
         $this->assertNotNull($this->repository->findById($id));
     }
 

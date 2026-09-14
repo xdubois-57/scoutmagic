@@ -848,3 +848,57 @@ jamais consulté le budget disque — un trou antérieur à ce chantier. Le
 mécanisme est livré et testé ; le premier appelant pour qui la distinction
 existe arrive avec IT-05. Les deux affirmations au présent sont corrigées
 plutôt que laissées à découvrir.
+
+### La seconde relecture automatique, et six affirmations à corriger
+
+**Le paquet de support énonçait trois promesses, il en tenait une.**
+`StorageLocationsCollector` affirmait dans son propre en-tête qu'aucun
+chemin pouvant nommer une personne et qu'aucun hôte de point de
+terminaison n'y figurent. Or `SupportCollectorContext::redact()` remplace
+les secrets connus du run et normalise les espaces — le nom d'une personne
+dans un dossier n'est ni l'un ni l'autre —, et la ligne « Cible » imprimait
+`describe()`, qui pour un bucket est précisément l'hôte du point de
+terminaison. Ce fichier quitte l'installation et part chez un tiers. Les
+chemins passent désormais par `maskPath()` — relatifs à la racine du projet
+quand ils y sont, sinon le dossier lui-même derrière une empreinte de
+l'arbre au-dessus, pour que deux emplacements d'un même montage restent
+lisibles comme tels — et la cible d'un bucket est le nom du fournisseur.
+La limite qui reste (le dernier segment survit) est énoncée plutôt que
+maquillée. Rien ne testait ce collecteur ; c'est fait.
+
+**« Sert à : rien » était une réponse fausse, pas une réponse manquante.**
+Le registre est vide dans la tâche planifiée qui produit le paquet : la
+question n'a jamais été posée. Écrire « rien » en face d'un emplacement sur
+lequel une galerie se tient est exactement la conclusion sur laquelle on
+supprime. `isEmpty()` existait déjà pour distinguer les deux.
+
+**Un volume dont la place libre est inconnue se disait plein à 100 %.**
+`VolumeInventory` garde `disk_free_space()` et `disk_total_space()`
+séparément ; soustraire une place libre absente d'une taille connue donne
+« tout est occupé », et c'est la lecture qui fait supprimer des
+photographies. La règle « inconnu vaut null, jamais 0 » que ce fichier
+énonçait pour le pourcentage s'applique un chiffre plus tôt.
+
+**« Stockage » se rendait deux entrées trop haut.** Le menu trie sur le
+numéro ; 47 était déjà celui d'« E-mails », et l'ordre d'enregistrement ne
+départage que les ex æquo. Le test structurel lisait cet ordre
+d'enregistrement, pas l'ordre rendu — il restait vert. Deux tests
+s'ajoutent : l'ordre rendu, et l'unicité des numéros qui le rend lisible.
+
+**La suppression d'un emplacement n'était qu'un bouton JavaScript.** La
+seule action destructrice de la page, et la seule sans seconde porte :
+sur une page dont le script n'a pas chargé, il n'y avait plus aucun moyen
+de supprimer un emplacement. C'est un formulaire POST avec `csrf_field()`
+et le `data-confirm` partagé, comme Maintenance et Courrier sortant.
+
+**Et l'aide après sinistre faisait perdre les fichiers qu'elle venait
+sauver.** L'étape 2 restaure la base, qui contient déjà les emplacements ;
+l'étape 3 demandait de « déclarer » la destination, donc d'en créer une
+avec un nouveau numéro, pendant que les albums restaurés continuaient de
+désigner l'ancien. Elle demande maintenant de rouvrir l'emplacement
+restauré et de ne corriger que ce qui a changé.
+
+Le choix de l'emplacement des nouveaux albums quitte par ailleurs
+`GalleryConfigController` pour `GalleryLocationService` (frontière
+Controller → Service), et §8.108 rejoint le chapitre 8, où un lecteur le
+cherche.

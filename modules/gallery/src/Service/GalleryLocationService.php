@@ -141,4 +141,50 @@ class GalleryLocationService
 
         return $this->locations->ensureDefaultExists();
     }
+
+    /**
+     * Records the administrator's choice of « emplacement des nouveaux
+     * albums », and answers what changed.
+     *
+     * **Here rather than in `GalleryConfigController`**, and that is the
+     * mandatory Controller → Service boundary rather than a preference.
+     * Four steps make this one decision — read what was there, check the
+     * identifier still names a location, write it, work out whether it
+     * moved — and a controller that owns them owns the rule: the next
+     * caller (a future API route, an import) would have to reproduce all
+     * four to behave the same way, and the one that forgets the third
+     * writes an identifier naming nothing.
+     *
+     * `0` is « the site's default » and is always accepted — it is what
+     * the setting holds on a site that never chose, and what
+     * {@see locationForNewAlbums()} falls back on.
+     *
+     * The journal entry stays with the caller: this service has no idea
+     * who is signed in, and « qui a décidé » is exactly what that entry
+     * is for.
+     *
+     * @throws GalleryLocationException when the identifier names no
+     *         location — deleted between the page being rendered and the
+     *         form being sent, which is a sentence for the administrator
+     *         rather than a silent fallback onto the default.
+     */
+    public function chooseForNewAlbums(int $locationId): NewAlbumLocationChoice
+    {
+        $previousId = (int) $this->settingService->get(self::NEW_ALBUM_LOCATION_SETTING, 'gallery', 0);
+
+        $selected = null;
+        if ($locationId > 0) {
+            $selected = $this->locations->findById($locationId);
+            if ($selected === null) {
+                throw new GalleryLocationException(
+                    "L'emplacement choisi pour les nouveaux albums n'existe plus. Rechargez la page et "
+                        . 'choisissez-en un autre.'
+                );
+            }
+        }
+
+        $this->settingService->set(self::NEW_ALBUM_LOCATION_SETTING, (string) max(0, $locationId), 'gallery');
+
+        return new NewAlbumLocationChoice($previousId, max(0, $locationId), $selected);
+    }
 }

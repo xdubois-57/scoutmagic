@@ -1718,7 +1718,7 @@ Each local location displays the free space on the disk that holds it, with the 
 
 ### 33.5 Albums this module hosts for somebody else
 
-Another module may own an album that gallery merely stores — a discussion group's photos (§20). Such an album is **excluded from every one of gallery's own listings, pickers and public interfaces**; it is reachable only through its owning module, which is also what decides who may see it. The link-preview cache this module maintains is shared the same way: it caches a URL's metadata, never the image, so that one group's private preview can never be served to somebody with no membership in it.
+Another module may own an album that gallery merely stores — a discussion group's photos (§20). Such an album is **excluded from every one of gallery's own listings, pickers and public interfaces**; it is reachable only through its owning module, which is also what decides who may see it. **One exception, and it is an administration one**: Configuration > Galerie, onglet « Albums » lists delegated albums beside the others, superadmin-only, because they occupy real space on a real location and an administrator reconciling « pourquoi ce volume est-il plein » would otherwise be looking at an account of the space that does not add up — and because migrating an album off a location has to be possible for those too. That list names the owning module and offers the migration; it opens no album, serves no medium, and is not a path to their contents. The link-preview cache this module maintains is shared the same way: it caches a URL's metadata, never the image, so that one group's private preview can never be served to somebody with no membership in it.
 
 ### 33.6 Notification, and what is out of scope
 

@@ -169,52 +169,49 @@ describe('storage-locations.js error rendering', () => {
     });
 });
 
-describe('storage-locations.js confirmations', () => {
-    function renderLocationCard() {
+describe('storage-locations.js « hors de storage/ » warning', () => {
+    function renderPathField() {
         document.head.innerHTML = '<meta name="csrf-token" content="tok">';
         document.body.innerHTML = `
-            <button class="storage-location-delete" data-id="4" data-label="Nextcloud de l'unité"></button>
+            <input id="storage-local-subdir" value="">
+            <div id="storage-local-outside-warning" class="d-none"></div>
         `;
     }
 
     beforeEach(() => {
         vi.restoreAllMocks();
-        renderLocationCard();
-        // Both success paths reload the page; jsdom has no navigation.
-        Object.defineProperty(window, 'location', {
-            configurable: true,
-            value: { href: '/config/stockage/emplacements', reload: vi.fn() },
-        });
-        // The shared dialog is stubbed — what this block owns is that it is
-        // asked, with the right words, before anything is sent.
-        window.ScoutMagicConfirm = { ask: vi.fn(() => Promise.resolve(true)) };
+        renderPathField();
     });
 
-    it('asks « Supprimer » before deleting a storage location', async () => {
-        global.fetch = vi.fn(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ success: true }) }));
+    async function warningShownFor(value) {
+        const input = /** @type {HTMLInputElement} */ (document.getElementById('storage-local-subdir'));
+        input.value = value;
         await loadScript();
+        input.dispatchEvent(new Event('input'));
 
-        document.querySelector('.storage-location-delete').click();
-        await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+        return !document.getElementById('storage-local-outside-warning').classList.contains('d-none');
+    }
 
-        expect(window.ScoutMagicConfirm.ask).toHaveBeenCalledWith(expect.objectContaining({
-            message: "Supprimer « Nextcloud de l'unité » ? Les fichiers qui s'y trouvent ne sont pas "
-                + 'supprimés : seule la déclaration disparaît.',
-            confirmLabel: 'Supprimer',
-        }));
-        expect(fetch.mock.calls[0][0]).toBe('/config/stockage/emplacements/4/suppression');
+    it('stays hidden for a folder inside storage/', async () => {
+        expect(await warningShownFor('gallery/photos')).toBe(false);
     });
 
-    it('deletes nothing when the deletion confirmation is declined', async () => {
-        global.fetch = vi.fn();
-        window.ScoutMagicConfirm.ask = vi.fn(() => Promise.resolve(false));
-        await loadScript();
+    it('warns on a Unix absolute path', async () => {
+        expect(await warningShownFor('/mnt/nas/photos')).toBe(true);
+    });
 
-        document.querySelector('.storage-location-delete').click();
-        await vi.waitFor(() => expect(window.ScoutMagicConfirm.ask).toHaveBeenCalled());
-        await Promise.resolve();
+    it('warns on a Windows drive path', async () => {
+        expect(await warningShownFor('D:\\photos')).toBe(true);
+    });
 
-        expect(fetch).not.toHaveBeenCalled();
-        expect(/** @type {HTMLButtonElement} */ (document.querySelector('.storage-location-delete')).disabled).toBe(false);
+    // The one that looks like an oversight: a UNC path starts with neither
+    // a slash nor a drive letter, yet it names another machine entirely —
+    // as far outside storage/ as a path can get.
+    it('warns on a Windows UNC path', async () => {
+        expect(await warningShownFor('\\\\nas\\photos')).toBe(true);
+    });
+
+    it('warns on a UNC path typed with surrounding spaces', async () => {
+        expect(await warningShownFor('  \\\\nas\\photos  ')).toBe(true);
     });
 });

@@ -3935,8 +3935,6 @@ nobody can test.
 
 **Galleries are not forbidden under `storage/` (D9).** Also refused: it would break the simplest case (`storage/modules/gallery`, no configuration at all), and in layout B there is sometimes no writable directory outside the web root at all. What replaces both refusals is a rule about the ARCHIVE rather than about the path — **an archive takes `storage/` minus every directory declared as a storage location**, since a location has its own life cycle and has no business in the archive whether it sits inside or outside. That rule lands with the iteration that rewrites `BackupService::createFileBackup()` (`docs/chantiers/emplacements-de-stockage.md`, IT-03); until it does, §8.15's `excludedArchivePrefixes()` still decides, and the two refusals above hold on their own arguments.
 
-## 9. Installation / bootstrap
-
 ### 8.108 Space is measured per volume (`Core\Storage\Volume`)
 
 **Free space is a property of a filesystem, never of a folder**, and until IT-02 this application measured it as though it were the other way round. `Core\Storage\DiskBudget` (§8.98) is built with a single `$storagePath`, its quota is a single key, and `measureNow()` walks hard-coded sub-directories — so every approval it granted described the system disk. The moment a local location points anywhere else, which is precisely what declaring a network mount or a second disk means, the write it approved lands on a disk nobody measured: a backup on a NAS approved because the system disk was empty, or refused because the system disk was full while the mount had terabytes. The first of those truncates an archive, and nothing reveals a truncated archive until the day somebody restores it.
@@ -3950,6 +3948,8 @@ nobody can test.
 **`DiskBudget::ensureRoomOn()` is the mechanism that charges a write to the volume it will land on**, falling back on `ensureRoom()` for a destination on the primary volume or on none the inventory knows — a guess beats approving a write against nothing at all. **Nothing calls it yet, and that is worth stating rather than leaving to be discovered.** Every present `DiskBudget` caller — `UploadHandler`, `ChunkedUploadStore`, `ImportController`, `BackupService` — writes under `storage/`, so each is on the primary volume and `ensureRoomOn()` would resolve to exactly the check they already make. The writes that DO land on a declared location go through `Backend\StorageBackendInterface::put()` and have never consulted the disk budget at all — a gap that predates this namespace. The first caller for which the distinction is real arrives with the iteration that makes an off-site backup a location (IT-05), which is also when refusing the wrong volume would cost an archive.
 
 **`DeviceResolver` is an interface because the rule is what needs testing, not the kernel.** A test of « two devices are two volumes » needs two devices, a CI runner will not let a test mount one, and writing it against whatever second filesystem the machine happens to have is how it becomes a test that proves nothing on the machine that has only one. `StatDeviceResolver` is the production answer and has a much smaller test of its own.
+
+## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php
 

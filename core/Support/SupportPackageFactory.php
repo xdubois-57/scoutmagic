@@ -134,9 +134,14 @@ final class SupportPackageFactory
      *
      * The consumer registry is built EMPTY here, and that is not an
      * oversight. This runs in a scheduled task rather than in the request
-     * that serves a page, so no module has registered anything — and the
-     * honest consequence is « Sert à : rien » on every location rather
-     * than a wrong answer. The screen is where that question is answered
+     * that serves a page, so no module has registered anything. What the
+     * collector must therefore print is « indéterminé », NOT « rien »:
+     * those two are opposite answers, and a location a gallery is standing
+     * on would be read as a location nobody uses — which is exactly the
+     * conclusion somebody deletes on.
+     * {@see StorageLocationConsumerRegistry::isEmpty()} is what lets it
+     * tell « nobody uses this » from « nobody was asked », from memory and
+     * without a query. The screen is where that question is answered
      * completely; what this file is for is the health results, the
      * capability consequences and the volume grouping, none of which
      * depends on a consumer.

@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Support\Collector;
 
+use Core\Storage\Location\Config\LocalLocationConfig;
+use Core\Storage\Location\Config\ObjectStorageLocationConfig;
 use Core\Storage\Location\StorageLocation;
 use Core\Storage\Location\StorageLocationConsumerRegistry;
 use Core\Storage\Location\StorageLocationRepository;
@@ -40,12 +42,24 @@ use Core\Support\SupportCollectorInterface;
  *   collector cannot print one by accident. What it does say is whether a
  *   secret is configured, which is a yes/no and is exactly what
  *   distinguishes « never set up » from « set up and refused ».
- * - **No path that could name a person.** A storage path is a server
- *   directory, and `/mnt/nas/photos` says nothing about anybody — but
- *   `/home/marie.dupont/...` does, and a site is free to have one. So
- *   local paths go through {@see SupportCollectorContext::redact()} like
- *   every other free-text value in this package rather than being trusted
- *   because they usually happen to be innocuous.
+ * - **No absolute path.** A storage path is a server directory, and
+ *   `/mnt/nas/photos` says nothing about anybody — but
+ *   `/home/marie.dupont/...` does, and a site is free to have one.
+ *   {@see SupportCollectorContext::redact()} does NOT cover this: it
+ *   replaces the credentials this run knows about and normalises
+ *   whitespace, and a person's name in a directory is neither. So every
+ *   path printed here goes through {@see maskPath()} instead — relative to
+ *   the project root where it is under it (`storage/gallery`, whose
+ *   segments are ours), and otherwise the directory's own name behind a
+ *   fingerprint of the tree above it. The fingerprint is what keeps two
+ *   entries on one mount readable as two entries on one mount, which is
+ *   the whole diagnostic value the absolute path carried.
+ *
+ *   **The limit is stated rather than papered over**, the way SECURITY.md
+ *   §11 states the one for the triage extract: the last segment survives,
+ *   so a site that declared `/mnt/photos/marie.dupont` prints that word.
+ *   Nothing can tell that segment from `photos` automatically, and
+ *   dropping it too would leave a line that says nothing at all.
  * - **No endpoint host.** A bucket's endpoint is a provider's public
  *   address and would normally be safe, but combined with the bucket name
  *   it is half of a target; the provider NAME answers every diagnostic
@@ -106,7 +120,7 @@ class StorageLocationsCollector implements SupportCollectorInterface
             $location->type->value,
             $location->isDefault ? ' — par défaut' : ''
         );
-        $lines[] = '  Cible          : ' . $context->redact($location->describe(), 200);
+        $lines[] = '  Cible          : ' . $context->redact($this->targetOf($location, $context), 200);
         $lines[] = '  Identifiants   : ' . ($location->secretConfigured ? 'configurés' : 'aucun');
         $lines[] = '  Dernier test   : ' . ($location->lastCheckedAt ?? 'jamais');
         $lines[] = '  Résultat       : ' . match ($location->lastCheckOk) {
@@ -114,7 +128,7 @@ class StorageLocationsCollector implements SupportCollectorInterface
             false => 'en erreur — ' . $context->redact((string) $location->lastCheckError, 300),
             default => 'jamais testé',
         };
-        $lines[] = '  Sert à         : ' . ($this->usagesOf($location->id) ?: 'rien');
+        $lines[] = '  Sert à         : ' . $this->usagesOf($location->id);
         // The consequences rather than the capability names, for the same
         // reason the screen shows them: whoever reads this package is
         // diagnosing « les vidéos ne se lisent pas », not auditing an enum.
@@ -131,9 +145,13 @@ class StorageLocationsCollector implements SupportCollectorInterface
     private function describeVolume(VolumeUsage $volume, SupportCollectorContext $context): array
     {
         $lines = [];
+        $label = $volume->label();
         $lines[] = sprintf(
             '%s%s',
-            $context->redact($volume->label(), 200),
+            $context->redact(
+                str_starts_with($label, '/') ? $this->maskPath($label, $context) : $label,
+                200
+            ),
             $volume->isPrimary ? ' (volume principal)' : ''
         );
         $lines[] = '  Périphérique   : ' . ($volume->deviceId ?? 'non identifié par le système');
@@ -151,7 +169,7 @@ class StorageLocationsCollector implements SupportCollectorInterface
         foreach ($volume->directories as $directory) {
             $lines[] = sprintf(
                 '  · %s — %s%s',
-                $context->redact($directory->path, 200),
+                $context->redact($this->maskPath($directory->path, $context), 200),
                 $directory->exists ? ($directory->sizeLabel() ?: 'taille inconnue') : 'dossier absent',
                 $directory->isUnderStoragePath ? '' : ' (hors storage/)'
             );
@@ -169,10 +187,76 @@ class StorageLocationsCollector implements SupportCollectorInterface
      */
     private function usagesOf(int $locationId): string
     {
+        // **« rien » is only true once somebody has been asked.** This
+        // collector runs inside a scheduled task, where no module has
+        // registered a consumer — so the question was never put, and
+        // printing « rien » beside a location a gallery is standing on
+        // would be a wrong answer rather than a missing one. The registry
+        // answers that from memory, without a query.
+        if ($this->consumers->isEmpty()) {
+            return 'indéterminé (aucun module n\'a été interrogé — voir Configuration > Stockage)';
+        }
+
         try {
-            return implode(', ', $this->consumers->usagesOf($locationId));
+            $usages = $this->consumers->usagesOf($locationId);
         } catch (\Throwable) {
             return 'indéterminé (un module n\'a pas pu répondre)';
         }
+
+        return $usages === [] ? 'rien' : implode(', ', $usages);
+    }
+
+    /**
+     * Where a location points, without the two things this file never
+     * carries (see the class docblock): an absolute path, and a bucket's
+     * endpoint host.
+     *
+     * Deliberately NOT {@see StorageLocation::describe()}, which is built
+     * for a screen an administrator is looking at on their own server and
+     * says both.
+     */
+    private function targetOf(StorageLocation $location, SupportCollectorContext $context): string
+    {
+        $config = $location->config;
+
+        if ($config instanceof LocalLocationConfig) {
+            return $this->maskPath($config->describe(), $context);
+        }
+
+        if ($config instanceof ObjectStorageLocationConfig) {
+            return ($config->provider ?? 'point de terminaison personnalisé') . ' / ' . $config->bucket;
+        }
+
+        return $location->type->value;
+    }
+
+    /**
+     * A path this file may print. See the class docblock for the rule and
+     * for the limit it does not pretend to cover.
+     */
+    private function maskPath(string $path, SupportCollectorContext $context): string
+    {
+        $path = rtrim($path, '/');
+        $root = rtrim($context->projectRoot(), '/');
+
+        if ($path === '' || !str_starts_with($path, '/')) {
+            // Already relative — `storage/gallery`, the shape
+            // LocalLocationConfig::describe() gives a non-absolute
+            // location. Every segment of it is ours.
+            return $path;
+        }
+
+        if ($root !== '' && $path === $root) {
+            return '.';
+        }
+        if ($root !== '' && str_starts_with($path, $root . '/')) {
+            return substr($path, strlen($root) + 1);
+        }
+
+        return sprintf(
+            '[hors racine #%s]/%s',
+            substr(hash('sha256', dirname($path)), 0, 6),
+            basename($path)
+        );
     }
 }

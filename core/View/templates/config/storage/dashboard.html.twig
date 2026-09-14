@@ -24,7 +24,7 @@
         subtitle: "Où ce site écrit ses fichiers, et ce qu'il y a dessus.",
     } only %}
 
-    {% include 'config/storage/_nav.html.twig' %}
+    {% include 'config/storage/_nav.html.twig' with {current_path: current_path} only %}
 
     <div class="card mb-4">
         <div class="card-header py-2"><span class="fw-semibold small">État</span></div>

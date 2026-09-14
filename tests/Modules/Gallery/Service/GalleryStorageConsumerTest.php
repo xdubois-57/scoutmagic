@@ -181,8 +181,12 @@ class GalleryStorageConsumerTest extends TestCase
         $source = $this->locations->create(StorageLocationType::Local, 'Source', new LocalLocationConfig('a'), null);
         $target = $this->locations->create(StorageLocationType::Local, 'Cible', new LocalLocationConfig('b'), null);
         $albumId = $this->createDelegatedAlbum($source);
-        $this->pdo->prepare('UPDATE gallery_albums SET migration_target_id = ? WHERE id = ?')
-            ->execute([$target, $albumId]);
+        // Through the repository rather than a bare UPDATE: startMigration()
+        // also writes migration_status = 'in_progress', and a row carrying
+        // a target while still saying « none » is not an in-flight
+        // migration. Building the state by hand would leave this test green
+        // on the day hasDelegatedAlbumsOn() starts filtering on the status.
+        $this->albumRepository->startMigration($albumId, $target);
         $location = $this->locations->findById($target);
         $this->assertNotNull($location);
 

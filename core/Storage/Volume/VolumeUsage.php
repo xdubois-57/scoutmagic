@@ -137,12 +137,24 @@ final class VolumeUsage
      * charged to it. On the system basis it is everything on the volume,
      * this site included, because the host reported the volume and not our
      * share of it.
+     *
+     * **The system basis needs BOTH figures, and a missing free space is
+     * `null` rather than zero.** {@see VolumeInventory} guards
+     * `disk_free_space()` and `disk_total_space()` separately, so a host
+     * that answers one and refuses the other is a real shape rather than a
+     * theoretical one — and subtracting a missing free space from a known
+     * total reads as « ce volume est plein à 100 % », which is the one
+     * reading that makes an administrator go and delete photographs. The
+     * rule this file already states for the percentage (« unavailable is
+     * null, never 0 ») is the same rule, one figure earlier.
      */
     public function basisUsedBytes(): ?int
     {
         return match ($this->basis()) {
             self::BASIS_QUOTA => $this->occupiedBytes,
-            self::BASIS_VOLUME => max(0, ($this->totalBytes ?? 0) - ($this->freeBytes ?? 0)),
+            self::BASIS_VOLUME => $this->totalBytes !== null && $this->freeBytes !== null
+                ? max(0, $this->totalBytes - $this->freeBytes)
+                : null,
             default => null,
         };
     }

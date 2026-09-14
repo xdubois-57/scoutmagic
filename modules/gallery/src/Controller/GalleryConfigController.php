@@ -24,6 +24,7 @@ use Modules\Gallery\Service\AlbumService;
 use Modules\Gallery\Service\DelegatedAlbumDescriberRegistry;
 use Modules\Gallery\Service\FfmpegAvailability;
 use Modules\Gallery\Api\GalleryException;
+use Modules\Gallery\Service\GalleryLocationException;
 use Modules\Gallery\Service\GalleryLocationService;
 use Core\Storage\Location\StorageLocationService;
 use Core\Storage\Location\StorageLocationType;
@@ -161,32 +162,16 @@ class GalleryConfigController extends AbstractController
         $tab = $this->activeTab($request);
         $booleanKeys = self::TABS[$tab]['boolean'];
 
-        // « Emplacement des nouveaux albums » lives on the Général tab, and
-        // 0 means « the site's default » — which is also what an identifier
-        // naming a location that has since been deleted resolves to, see
-        // Service\GalleryLocationService::locationForNewAlbums().
+        // « Emplacement des nouveaux albums » lives on the Général tab. What
+        // that choice MEANS — the identifier still naming a location, 0
+        // standing for the site's default, whether it moved — belongs to
+        // Service\GalleryLocationService::chooseForNewAlbums() and not
+        // here; this controller keeps the two things that are genuinely
+        // its own, the HTTP refusal and the journal entry.
         $ownsLocation = $tab === 'general';
         $newAlbumLocationId = $ownsLocation
             ? (int) $request->getBody(GalleryLocationService::NEW_ALBUM_LOCATION_SETTING, '0')
             : 0;
-        // Read before anything is written, so the « a changé » test below
-        // compares against what was there rather than against what this
-        // request just put there.
-        $previousLocationId = (int) $this->settingService->get(
-            GalleryLocationService::NEW_ALBUM_LOCATION_SETTING,
-            'gallery',
-            0
-        );
-        if (
-            $ownsLocation && $newAlbumLocationId > 0
-            && $this->storageLocationRepository->findById($newAlbumLocationId) === null
-        ) {
-            return $this->saveError(
-                "L'emplacement choisi pour les nouveaux albums n'existe plus. Rechargez la page et "
-                    . 'choisissez-en un autre.',
-                $tab
-            );
-        }
 
         // Validate every numeric field up front, so a single bad value can't
         // leave half the settings written and half not.
@@ -207,6 +192,8 @@ class GalleryConfigController extends AbstractController
             $numericValues[$key] = (string) $value;
         }
 
+        $locationChoice = null;
+
         try {
             foreach ($numericValues as $key => $value) {
                 $this->settingService->set($key, $value, 'gallery');
@@ -215,12 +202,14 @@ class GalleryConfigController extends AbstractController
                 $this->settingService->set($key, $request->getBody($key) !== null ? '1' : '0', 'gallery');
             }
             if ($ownsLocation) {
-                $this->settingService->set(
-                    GalleryLocationService::NEW_ALBUM_LOCATION_SETTING,
-                    (string) $newAlbumLocationId,
-                    'gallery'
-                );
+                $locationChoice = $this->galleryLocationService->chooseForNewAlbums($newAlbumLocationId);
             }
+        } catch (GalleryLocationException $e) {
+            // Its own catch, ahead of the catch-all below: this message is
+            // written for the administrator (the location they picked has
+            // just been deleted) and says what to do about it, so it is
+            // shown rather than turned into « vérifiez les valeurs saisies ».
+            return $this->saveError($e->getMessage(), $tab);
         } catch (\Throwable $e) {
             // A bare \Throwable: a PDOException naming a column, a
             // SettingException naming a key. The journal keeps it; the page
@@ -257,17 +246,12 @@ class GalleryConfigController extends AbstractController
         // rest of the configuration, because « la galerie écrit désormais
         // ailleurs » is the line somebody auditing this site looks for and
         // it is invisible inside « la configuration a été modifiée ».
-        if ($ownsLocation && $previousLocationId !== $newAlbumLocationId) {
+        if ($locationChoice !== null && $locationChoice->changed()) {
             $this->journalService->log(
                 'gallery',
                 'storage_location_chosen',
                 'security',
-                sprintf(
-                    'Les nouveaux albums iront désormais sur « %s »',
-                    $newAlbumLocationId > 0
-                        ? (string) $this->storageLocationRepository->findById($newAlbumLocationId)?->label
-                        : 'l\'emplacement par défaut du site'
-                ),
+                sprintf('Les nouveaux albums iront désormais sur « %s »', $locationChoice->frenchName()),
                 [],
                 (int) AuthSession::getUserAccountId()
             );

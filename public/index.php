@@ -3105,33 +3105,42 @@ $menuBuilder->addPage(
     null,
     'exploitation'
 );
-$menuBuilder->addPage(
-    MenuBuilder::MENU_CONFIGURATION,
-    'Support',
-    '/config/support',
-    'superadmin',
-    49,
-    false,
-    null,
-    MenuBuilder::SORT_GROUP_CORE,
-    'bi-life-preserver',
-    null,
-    'exploitation'
-);
 // « Stockage » — juste avant Support dans « Exploitation » : c'est une
 // page d'exploitation comme les deux courriers, et la question qu'elle
 // répond (« où partent les fichiers de l'unité ») se pose au même moment
 // que les leurs.
+//
+// **49, et Support passe à 50.** MenuBuilder::visibleEntries() trie sur
+// ce nombre et rien d'autre ; l'ordre d'enregistrement ne départage que
+// les ex æquo. « Stockage » a d'abord porté 47 — le numéro d'« E-mails » —
+// et se rendait donc entre « E-mails » et « Courrier sortant », c'est-à-dire
+// exactement là où le commentaire ci-dessus dit qu'il n'est pas. Le test
+// structurel ne l'a pas vu : il lit l'ordre d'enregistrement de ce
+// fichier, pas l'ordre rendu. D'où un numéro à lui, et un bloc placé ici
+// pour que la lecture de ce fichier dise la même chose que le menu.
 $menuBuilder->addPage(
     MenuBuilder::MENU_CONFIGURATION,
     'Stockage',
     '/config/stockage',
     'superadmin',
-    47,
+    49,
     false,
     null,
     MenuBuilder::SORT_GROUP_CORE,
     'bi-hdd-stack',
+    null,
+    'exploitation'
+);
+$menuBuilder->addPage(
+    MenuBuilder::MENU_CONFIGURATION,
+    'Support',
+    '/config/support',
+    'superadmin',
+    50,
+    false,
+    null,
+    MenuBuilder::SORT_GROUP_CORE,
+    'bi-life-preserver',
     null,
     'exploitation'
 );
