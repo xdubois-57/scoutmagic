@@ -154,9 +154,14 @@ class HelpRegistryCacheTest extends TestCase
         $this->registry('1.0.0')->all();
         unlink($this->topicsDir . '/second.md');
 
-        $this->assertSame(
-            \Core\Help\DiscoveryPriority::High,
-            $this->registry('1.0.0')->all()['second']->discovery
-        );
+        $discovery = $this->registry('1.0.0')->all()['second']->discovery;
+
+        // A value object rather than an enum since the key became a whole
+        // number (ARCHITECTURE.md §8.64), so this is the assertion that
+        // catches a cache holding an instance of the OLD shape: `rank()`
+        // is what a reader calls, and an enum unserialized under the new
+        // class name would not answer it.
+        $this->assertFalse($discovery->isOff());
+        $this->assertSame(1, $discovery->rank());
     }
 }

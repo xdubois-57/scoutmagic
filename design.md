@@ -729,8 +729,19 @@ l'autre, c'est ce qui fait fermer les deux sans lire ni l'une ni l'autre.
 **Quelle astuce, et quand — la clé `discovery`.** L'ordre dans lequel les
 sujets sont proposés est **éditorial** et se déclare dans le sujet
 lui-même, comme `role_min` et `paths` : écrire de l'aide ne touche jamais
-au code. Quatre valeurs, et le choix se fait à la rédaction :
+au code. La valeur est **un nombre entier — le plus petit passe en
+premier — ou `off`**. Le corpus n'en utilise que quatre, et le choix se
+fait à la rédaction :
 
+- **`discovery: 0`** — un seul sujet, `installer-application`, et c'est
+  le seul endroit du corpus où l'ordre n'est pas une préférence mais un
+  enchaînement : on montre comment installer l'application, la personne
+  l'installe, et l'application lui propose alors les notifications
+  (§7.14). Cet enchaînement commence par cette astuce, donc elle ouvre
+  la toute première fenêtre d'un compte — « quelque part parmi les
+  vingt-quatre `1` » ne serait pas ouvrir. **Ne créez pas un second `0`** :
+  à deux, c'est de nouveau la graine qui choisit lequel passe devant, et
+  `HelpDiscoveryInvariantsTest` le refuse.
 - **`discovery: 1`** — le sujet décrit une capacité qu'une personne peut
   ignorer et qui lui fait gagner du temps. C'est la première carte qu'on
   lui montrera. Exemples du corpus : `presences-feuille`, `publipostage`,
@@ -748,6 +759,15 @@ au code. Quatre valeurs, et le choix se fait à la rédaction :
   minimum `cookies`, `donnees-personnelles`, `se-connecter`,
   `mon-compte`, `reinitialisation`, `installation-serveur`,
   `sauvegardes`, `mises-a-jour`.
+
+**Les quatre valeurs ci-dessus sont une convention du corpus, pas une
+limite du format.** La clé accepte n'importe quel entier — 15 s'intercale
+entre 3 et le reste, 900 relègue — précisément pour qu'un arbitrage
+éditorial nouveau ne demande pas de renuméroter cent trente fichiers ni
+d'ajouter un cas dans le code. Servez-vous-en quand un sujet doit
+réellement passer avant ou après un autre, jamais pour graduer finement
+ce que 1, 2 et 3 disent déjà : quatre valeurs se tiennent en tête, vingt
+ne se tiennent plus et le corpus cesse d'être relisible.
 
 **Une vingtaine de `1` au total, pas davantage.** Leur intérêt est d'être
 les premières cartes, ce que cinquante sujets prioritaires ne permettent

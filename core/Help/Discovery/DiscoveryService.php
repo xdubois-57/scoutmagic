@@ -10,7 +10,6 @@ namespace Core\Help\Discovery;
 
 use Core\Config\AppClock;
 use Core\Config\SettingService;
-use Core\Help\DiscoveryPriority;
 use Core\Help\HelpService;
 use Core\Help\HelpTopic;
 use Core\Security\Role;
@@ -137,7 +136,7 @@ class DiscoveryService
         $eligible = [];
         foreach ($this->helpService->listForRole($role) as $topics) {
             foreach ($topics as $topic) {
-                if ($topic->discovery === DiscoveryPriority::Off || isset($seen[$topic->id])) {
+                if ($topic->discovery->isOff() || isset($seen[$topic->id])) {
                     continue;
                 }
                 $eligible[] = $topic;

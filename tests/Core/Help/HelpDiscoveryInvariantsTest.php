@@ -49,6 +49,19 @@ final class HelpDiscoveryInvariantsTest extends TestCase
      */
     private const MAX_HIGH_TOTAL = 30;
 
+    /**
+     * The one topic that leads, and the id it is. Everything below rank 1
+     * is ahead of the whole promoted set, so it is a place for exactly one
+     * subject rather than a fourth tier — see testExactlyOneTopicLeadsAndItIsTheInstallationTip().
+     */
+    private const LEADING_TOPIC = 'installer-application';
+
+    /**
+     * At or below this rank, a topic counts as promoted: the `1`s the
+     * charter talks about, plus whatever leads them.
+     */
+    private const PROMOTED_RANK = 1;
+
     /** @return string repo root */
     private static function root(): string
     {
@@ -111,7 +124,12 @@ final class HelpDiscoveryInvariantsTest extends TestCase
             }
         }
 
-        $this->assertSame([], $offenders, "Only 1, 2, 3 and off exist (Core\\Help\\DiscoveryPriority).");
+        $this->assertSame(
+            [],
+            $offenders,
+            "A discovery value is a whole number or `off` (Core\\Help\\DiscoveryPriority):\n  "
+            . implode("\n  ", $offenders)
+        );
     }
 
     /**
@@ -123,7 +141,7 @@ final class HelpDiscoveryInvariantsTest extends TestCase
     {
         $offenders = [];
         foreach (self::declaredDiscoveryValues() as [$file, $value]) {
-            if ($value === DiscoveryPriority::Normal->value) {
+            if ($value === (string) DiscoveryPriority::DEFAULT_RANK) {
                 $offenders[] = $file;
             }
         }
@@ -216,7 +234,7 @@ final class HelpDiscoveryInvariantsTest extends TestCase
         $floors = [];
         foreach (self::shippedTopics() as $topic) {
             $floors[$topic->roleMin->value] = true;
-            if ($topic->discovery === DiscoveryPriority::High) {
+            if (self::isPromoted($topic)) {
                 $highPerRole[$topic->roleMin->value] = ($highPerRole[$topic->roleMin->value] ?? 0) + 1;
             }
         }
@@ -242,10 +260,7 @@ final class HelpDiscoveryInvariantsTest extends TestCase
 
     public function testPriorityOneStaysASmallSet(): void
     {
-        $high = array_filter(
-            self::shippedTopics(),
-            static fn (HelpTopic $t): bool => $t->discovery === DiscoveryPriority::High
-        );
+        $high = array_filter(self::shippedTopics(), static fn (HelpTopic $t): bool => self::isPromoted($t));
 
         $this->assertLessThanOrEqual(
             self::MAX_HIGH_TOTAL,
@@ -288,10 +303,55 @@ final class HelpDiscoveryInvariantsTest extends TestCase
         }
 
         $this->assertArrayHasKey($id, $topics, "The corpus no longer ships '{$id}' — this list needs revisiting.");
-        $this->assertSame(
-            DiscoveryPriority::Off,
-            $topics[$id]->discovery,
+        $this->assertTrue(
+            $topics[$id]->discovery->isOff(),
             "'{$id}' is consulted at the moment it is needed, never discovered (design.md §7.11)."
+        );
+    }
+
+    /**
+     * Whether a topic is one of the promoted ones — the `1`s and whatever
+     * the corpus places ahead of them. `off` carries no rank at all, so
+     * it is asked about first rather than compared.
+     */
+    private static function isPromoted(HelpTopic $topic): bool
+    {
+        return !$topic->discovery->isOff() && $topic->discovery->rank() <= self::PROMOTED_RANK;
+    }
+
+    /**
+     * **Exactly one topic leads, and it is « Installer le site comme
+     * application ».**
+     *
+     * This is the one place in the corpus where the running order is not
+     * editorial preference but a chain: somebody is shown how to install
+     * the application, installs it, and is then offered push
+     * notifications by the application itself (ARCHITECTURE.md §8.110).
+     * The chain starts with that tip, so it has to be the FIRST card an
+     * account is ever shown — not one of twenty-four the seed shuffles.
+     *
+     * Two failures are worth different sentences, which is why they are
+     * asserted apart: the tip losing its lead (the chain silently stops
+     * starting anywhere) and a second topic joining it (whichever of the
+     * two the seed picks leads, which is the shuffle again with extra
+     * steps).
+     */
+    public function testExactlyOneTopicLeadsAndItIsTheInstallationTip(): void
+    {
+        $leading = [];
+        foreach (self::shippedTopics() as $topic) {
+            if (!$topic->discovery->isOff() && $topic->discovery->rank() < self::PROMOTED_RANK) {
+                $leading[] = $topic->id;
+            }
+        }
+        sort($leading);
+
+        $this->assertSame(
+            [self::LEADING_TOPIC],
+            $leading,
+            "« Le saviez-vous ? » opens on « Installer le site comme application » for an account that has\n"
+            . "never seen it, because everything the installed application then offers starts there\n"
+            . "(ARCHITECTURE.md §8.110). Below rank 1 there is room for one topic, and this is it."
         );
     }
 

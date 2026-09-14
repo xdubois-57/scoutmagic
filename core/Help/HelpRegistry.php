@@ -58,8 +58,13 @@ class HelpRegistry
      * applied) on every request until the next release. `discovery` was
      * the first field to be added after this cache shipped, which is when
      * this mark was introduced.
+     *
+     * It is bumped for a changed SHAPE as well as for a new field, and 3
+     * is the second reason: `discovery` stopped being an enum and became
+     * a Core\Help\DiscoveryPriority value object, so an index serialized
+     * under 2 holds enum instances a reader would call isOff() on.
      */
-    private const CACHE_FORMAT = 2;
+    private const CACHE_FORMAT = 3;
 
     /** @var array<string, string> moduleId => absolute topics directory */
     private array $moduleDirectories = [];

@@ -303,3 +303,37 @@ décision 1) :
   sont bien en `off`, plus cinq autres.
 
 **Reporté.** Rien.
+
+---
+
+## Après coup — la clé `discovery` devient un entier
+
+`DiscoveryPriority` était une énumération `1`/`2`/`3`/`off`. Elle est
+devenue un objet valeur portant **un entier quelconque**, ou `off`, à
+l'occasion de la fenêtre « Activer les notifications ? » (ARCHITECTURE.md
+§8.110).
+
+La raison est un cas que les trois rangs ne couvraient pas :
+`installer-application` doit passer **avant tous les autres**, parce que
+l'enchaînement qui suit — on installe l'application, l'application propose
+les notifications — commence par cette astuce, et « quelque part parmi les
+vingt-quatre `1` » n'est pas passer en premier. Une énumération aurait dû
+gagner un cas, dans le code, pour un arbitrage éditorial — exactement ce
+que « l'ordre se déclare dans le sujet » existe pour éviter.
+
+Ce qui a changé, et ce qui n'a pas changé :
+
+- **Le corpus n'a pas été renuméroté.** Les 24 `1`, les 40 `3` et les 19
+  `off` sont écrits pareil et veulent dire pareil. Seul
+  `installer-application` a bougé, de `1` à `0`.
+- `off` n'est plus un très grand nombre mais **l'absence de rang** :
+  `rank()` jette pour lui, parce qu'un sujet jamais proposé n'a pas de
+  place dans un ordre et qu'un appelant qui a oublié de l'écarter doit
+  échouer plutôt que le trier en dernier.
+- `HelpRegistry::CACHE_FORMAT` est passé à 3. C'est le deuxième usage de
+  cette marque, et le premier pour une **forme** qui change plutôt qu'un
+  champ qui apparaît : un index sérialisé sous 2 contient des instances de
+  l'énumération, à qui un lecteur d'aujourd'hui demanderait `isOff()`.
+- `HelpDiscoveryInvariantsTest` gagne un invariant : **un seul sujet sous
+  le rang 1, et c'est `installer-application`**. À deux, c'est de nouveau
+  la graine qui choisit lequel ouvre.

@@ -1088,18 +1088,25 @@ Corps en Markdown…
   rather than pad the list. `tests/Core/Help/HelpInvariantsTest` enforces
   all of it.
 - `discovery` (optional): where the topic sits in the « Le saviez-vous ? »
-  running order (ARCHITECTURE.md §8.95). `1` for a capability somebody can
-  plainly not know about and that saves them time — it will be one of
-  their first cards; `3` for a special case, or a variant of a topic
-  already tagged `1`; `off` for what is never discovered — account
-  hygiene, a legal obligation, a technical operation, each consulted at
-  the moment it is needed. The default is `2` and **is never written**: an
-  absent key already means it, and the test refuses the value spelled out.
-  An unknown value is a load error, exactly like an unknown `role_min` and
-  for the same reason — a silent downgrade turns a typo into a topic that
-  never appears. The charter that decides which value a topic carries is
-  design.md §7.11; `tests/Core/Help/HelpDiscoveryInvariantsTest` holds the
-  floor (three `1`s per role floor) and the ceiling.
+  running order (ARCHITECTURE.md §8.95) — **a whole number, lowest offered
+  first, or `off`**. In practice the corpus writes four values: `1` for a
+  capability somebody can plainly not know about and that saves them time
+  — it will be one of their first cards; `3` for a special case, or a
+  variant of a topic already tagged `1`; `off` for what is never
+  discovered — account hygiene, a legal obligation, a technical operation,
+  each consulted at the moment it is needed. The default is `2` and **is
+  never written**: an absent key already means it, and the test refuses
+  the value spelled out. `0` is taken, by `installer-application`, and
+  stays a set of one — everything below `1` leads the whole promoted set,
+  and two topics there means the seed picks which one leads. Any other
+  integer is legal (15 slots between 3 and the rest) and is for a real
+  ordering decision, never for grading finely what 1, 2 and 3 already say.
+  A value that is neither `off` nor a whole number is a load error,
+  exactly like an unknown `role_min` and for the same reason — a silent
+  downgrade turns a typo into a topic that never appears. The charter that
+  decides which value a topic carries is design.md §7.11;
+  `tests/Core/Help/HelpDiscoveryInvariantsTest` holds the floor (three
+  promoted topics per role floor), the ceiling, and the single leader.
 - **Quote a control exactly as the screen writes it.** A topic that says
   « à catégoriser » where the page shows « À catégoriser » is already
   drifting, and `tests/Core/Help/HelpLabelDriftTest` fails on a citation
