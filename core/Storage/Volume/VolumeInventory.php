@@ -88,7 +88,7 @@ class VolumeInventory
             $byDevice[$key][] = new VolumeDirectory(
                 path: $path,
                 label: $label,
-                sizeBytes: is_dir($path) ? DirectorySize::measure($path) : null,
+                sizeBytes: self::measuredSize($path),
                 isUnderStoragePath: self::isUnder($path, $storageRoot),
                 exists: is_dir($path)
             );
@@ -281,6 +281,44 @@ class VolumeInventory
         }
 
         return false;
+    }
+
+    /**
+     * What walking $path measured, or **null** when it could not be
+     * walked — which {@see VolumeDirectory::$sizeBytes} promises and
+     * `DirectorySize::measure()` cannot deliver on its own.
+     *
+     * Under {@see \Core\Storage\DirectoryWalk::Measurement} an unreadable
+     * directory is swallowed and comes back as `0`. That leniency is right
+     * where it lives — one folder with wrong permissions must not turn a
+     * configuration page into a 500 — and wrong as an occupation figure:
+     * `0` says « this holds nothing », so the volume's occupation comes out
+     * short by exactly what nobody could see, and under a declared quota
+     * {@see VolumeUsage::availableBytes()} turns that straight into
+     * OVERSTATED room left. Over-reporting the room left is the one
+     * direction this namespace exists never to be wrong in — it is what
+     * lets a write be approved onto a volume that cannot take it.
+     *
+     * A network mount whose permissions are wrong is the case, and it is
+     * the case this whole iteration is built around.
+     *
+     * **The limit this does not close, stated rather than implied**: an
+     * unreadable directory DEEPER in the tree is still skipped in silence,
+     * because `CATCH_GET_CHILD` is what keeps the page open on a site with
+     * one bad folder. Closing it means changing what a measurement does
+     * for every `DiskBudget` caller, which is not this namespace's to
+     * change from here.
+     */
+    private static function measuredSize(string $path): ?int
+    {
+        // Absent and unreadable are two answers, and `exists` on the
+        // VolumeDirectory is what tells them apart on the screen. Both are
+        // null here, because neither is an occupation of zero.
+        if (!is_dir($path) || !is_readable($path)) {
+            return null;
+        }
+
+        return DirectorySize::measure($path);
     }
 
     /** Null when the host would not say — never 0, which would mean « full ». */

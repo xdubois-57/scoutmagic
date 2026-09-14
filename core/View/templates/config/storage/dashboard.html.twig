@@ -3,7 +3,7 @@
  Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
 #}
 {#
-  « Stockage » — tableau de bord.
+  « Stockage » — the dashboard.
 
   The order is an order of URGENCY, not of category, and it is the
   mockup's: what is broken, then who uses what, then how full each volume
@@ -92,7 +92,12 @@
                     {% for directory in volume.directories %}
                         <code>{{ directory.path }}</code>{% if not loop.last %} · {% endif %}
                     {% endfor %}
-                    · {{ volume.basis == 'quota' ? 'quota déclaré' : 'mesure système' }}
+                    {# The label comes from the object, not from a ternary
+                       here: basis() has THREE answers, and the two-way
+                       ternary this replaces printed « mesure système » for
+                       the third — contradicting `volume.basisSentence`, a
+                       few lines below on this same card. #}
+                    · {{ volume.basisLabel }}
                 </div>
 
                 {% if volume.usedPercent is not null %}

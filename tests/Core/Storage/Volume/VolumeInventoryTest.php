@@ -282,6 +282,81 @@ class VolumeInventoryTest extends TestCase
         $this->assertTrue($volumes[1]->hasDirectoryOutsideStorage());
     }
 
+    // ————— Absent, unreadable, and measured are three answers —————
+
+    /**
+     * A declared directory that is simply not there weighs nothing and is
+     * SAID to weigh nothing-known — `exists` is false and the size is
+     * null, never an occupation of zero.
+     */
+    public function testADeclaredDirectoryThatIsNotThereHasNoSizeRatherThanZero(): void
+    {
+        $gone = $this->nasPath() . '/montage-disparu';
+        $this->declareLocal('Montage disparu', $gone);
+
+        $volumes = $this->inventory([$this->storagePath => '8', $gone => '42'])->measure();
+        $directory = $this->directoryNamed($volumes, $gone);
+
+        $this->assertFalse($directory->exists, 'The mount is gone, and the screen says so.');
+        $this->assertNull($directory->sizeBytes, 'Absent is unknown, never zero.');
+    }
+
+    /**
+     * **The one that costs something when it is wrong.**
+     * `DirectorySize::measure()` swallows an unreadable directory under
+     * `DirectoryWalk::Measurement` and answers `0` — right for a page that
+     * must not 500 over one folder's permissions, wrong as an occupation:
+     * the volume then comes out short by exactly what nobody could see,
+     * and under a declared quota `availableBytes()` turns that into
+     * OVERSTATED room left, which is what lets a write be approved onto a
+     * volume that cannot take it.
+     *
+     * Skipped as root rather than run as root: the permission bits do not
+     * apply to uid 0, so `is_readable()` answers true whatever the mode and
+     * this test would pass without exercising a single thing it asserts —
+     * green for the wrong reason is worse than absent.
+     */
+    public function testADirectoryThatExistsButCannotBeReadHasNoSizeRatherThanZero(): void
+    {
+        if (function_exists('posix_geteuid') && posix_geteuid() === 0) {
+            $this->markTestSkipped('Running as root: the permission bits this test turns on do not apply.');
+        }
+
+        $locked = $this->nasPath() . '/sans-permission';
+        mkdir($locked, 0777, true);
+        $this->writeBytes($locked . '/photo.bin', 4096);
+        $this->declareLocal('Montage verrouillé', $locked);
+
+        try {
+            $this->assertTrue(chmod($locked, 0000), 'The test needs to be able to take the permissions away.');
+
+            $volumes = $this->inventory([$this->storagePath => '8', $locked => '42'])->measure();
+            $directory = $this->directoryNamed($volumes, $locked);
+
+            $this->assertTrue($directory->exists, 'It IS there — that is what makes zero the wrong answer.');
+            $this->assertNull(
+                $directory->sizeBytes,
+                'An unreadable directory has an unknown size, and reporting 0 overstates the room left.'
+            );
+        } finally {
+            @chmod($locked, 0777);
+        }
+    }
+
+    /** @param list<\Core\Storage\Volume\VolumeUsage> $volumes */
+    private function directoryNamed(array $volumes, string $path): \Core\Storage\Volume\VolumeDirectory
+    {
+        foreach ($volumes as $volume) {
+            foreach ($volume->directories as $directory) {
+                if (rtrim($directory->path, '/') === rtrim($path, '/')) {
+                    return $directory;
+                }
+            }
+        }
+
+        $this->fail('No declared directory named ' . $path . ' came back from the inventory.');
+    }
+
     // ————— The refusal that follows the write —————
 
     /**

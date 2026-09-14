@@ -220,6 +220,27 @@ final class VolumeUsage
     }
 
     /**
+     * The same fact as {@see basisSentence()}, in two or three words —
+     * what the dashboard prints beside the directories.
+     *
+     * **Here rather than in the template**, and that is a correction: the
+     * screen derived it with a two-way ternary on {@see basis()}, which
+     * has THREE answers. A volume reporting nothing came out as
+     * « mesure système » while `basisSentence()`, on the same card a few
+     * lines below, said the volume reports neither its size nor its free
+     * space. One source of truth cannot contradict itself; two can, and
+     * did.
+     */
+    public function basisLabel(): string
+    {
+        return match ($this->basis()) {
+            self::BASIS_QUOTA => 'quota déclaré',
+            self::BASIS_VOLUME => 'mesure système',
+            default => 'aucune mesure',
+        };
+    }
+
+    /**
      * The one sentence that keeps « 62 % » from meaning two different
      * things on two rows of the same screen.
      */

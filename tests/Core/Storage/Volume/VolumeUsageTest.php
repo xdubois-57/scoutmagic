@@ -128,6 +128,32 @@ class VolumeUsageTest extends TestCase
         $this->assertNull($this->volume(freeBytes: null, totalBytes: null)->availableBytes());
     }
 
+    /**
+     * All three, because the screen used to derive this with a two-way
+     * ternary and printed « mesure système » for a volume that reports
+     * nothing — contradicting the sentence on the same card.
+     */
+    public function testEveryBasisHasAShortLabelOfItsOwn(): void
+    {
+        $quota = $this->volume(
+            freeBytes: self::GIB,
+            totalBytes: 10 * self::GIB,
+            declaredQuotaBytes: 4 * self::GIB
+        );
+        $system = $this->volume(freeBytes: self::GIB, totalBytes: 10 * self::GIB);
+        $nothing = $this->volume(freeBytes: null, totalBytes: null);
+
+        $this->assertSame('quota déclaré', $quota->basisLabel());
+        $this->assertSame('mesure système', $system->basisLabel());
+        $this->assertSame('aucune mesure', $nothing->basisLabel());
+
+        $this->assertNotSame(
+            $system->basisLabel(),
+            $nothing->basisLabel(),
+            'A volume that reports nothing must not read as one the system measured.'
+        );
+    }
+
     public function testTheBasisSentenceDistinguishesThePrimaryVolumeFromTheOthers(): void
     {
         $primary = $this->volume(freeBytes: self::GIB, totalBytes: 10 * self::GIB, isPrimary: true);
