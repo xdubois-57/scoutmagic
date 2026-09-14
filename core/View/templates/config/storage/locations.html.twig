@@ -66,13 +66,38 @@
                    minus every declared location, so this is true of every
                    card here and not of some of them — which is exactly why
                    it belongs on each one rather than in a note at the top
-                   of the page that a reader scrolls past. The remedy is a
-                   location's own copy, which is IT-04; until it exists the
-                   sentence stops at the fact rather than promising one. #}
-                <div class="small text-warning-emphasis mt-2">
-                    <i class="bi bi-shield-exclamation" aria-hidden="true"></i>
-                    Le contenu de cet emplacement n'est repris dans aucune archive de sauvegarde.
-                </div>
+                   of the page that a reader scrolls past.
+
+                   Since IT-04 the sentence names the remedy on the same
+                   line, because the remedy is now one form away: what
+                   replaces an archive is the location's own copy. A card
+                   that already has one says so instead. #}
+                {% set protection = protections[location.id] ?? null %}
+                {% if protection is null %}
+                    <div class="small text-warning-emphasis mt-2">
+                        <i class="bi bi-shield-exclamation" aria-hidden="true"></i>
+                        Le contenu de cet emplacement n'est repris dans aucune archive de sauvegarde, et il
+                        n'a pas de copie de secours.
+                    </div>
+                {% elseif not protection.enabled %}
+                    <div class="small text-warning-emphasis mt-2">
+                        <i class="bi bi-shield-exclamation" aria-hidden="true"></i>
+                        La copie de secours de cet emplacement est en pause : rien n'est copié.
+                    </div>
+                {% else %}
+                    <div class="small text-success-emphasis mt-2">
+                        <i class="bi bi-shield-check" aria-hidden="true"></i>
+                        Copié vers « {{ location_labels[protection.destinationLocationId] ?? 'un emplacement supprimé' }} »
+                        {% if protection.lastCompletedPassAt %}
+                            — dernière passe {{ protection.lastCompletedPassAt|relative_date }}.
+                        {% else %}
+                            — aucune passe n'est encore arrivée à son terme.
+                        {% endif %}
+                    </div>
+                    {% if protection.lastError %}
+                        <div class="alert alert-warning small mt-2 mb-0">{{ protection.lastError }}</div>
+                    {% endif %}
+                {% endif %}
 
                 {# The consequences, produced from the capabilities the backend
                    declares — never the capabilities themselves (D3). #}
@@ -122,6 +147,116 @@
                     <div class="small text-body-secondary mt-1">
                         Sert : {{ usages|join(', ') }} — suppression impossible tant qu'un usage en dépend.
                     </div>
+                {% endif %}
+
+                {# ————— La copie de secours (IT-04) —————
+
+                   In a <details> rather than open on the card: a location
+                   that has one says so in a line above, and the form is
+                   what somebody opens on the day they change it. Four
+                   controls open at once on every card would bury the
+                   consequences the card exists to show (D3).
+
+                   The destination list holds every OTHER location, with no
+                   filtering: which pairings are refused — a cycle, a
+                   destination that publishes what the source does not — is
+                   the service's to say in a sentence. A destination
+                   missing from a picker because the screen guessed it was
+                   invalid is a destination nobody can find out why they
+                   cannot choose. #}
+                {% if protection_offered %}
+                    <details class="mt-3">
+                        <summary class="small">Copie de secours</summary>
+                        <form method="post"
+                              action="/config/stockage/emplacements/{{ location.id }}/protection"
+                              class="mt-2">
+                            {{ csrf_field()|raw }}
+                            <div class="row g-2 align-items-end">
+                                <div class="col-12 col-md-5">
+                                    <label class="form-label small"
+                                           for="destination-{{ location.id }}">Destination</label>
+                                    <select class="form-select form-select-sm" required
+                                            id="destination-{{ location.id }}" name="destination_location_id">
+                                        {# `|filter`, not the inline `for … if`, which Twig 3
+                                           removed. #}
+                                        {% for candidate in locations|filter(c => c.id != location.id) %}
+                                            <option value="{{ candidate.id }}"
+                                                {{ protection and protection.destinationLocationId == candidate.id
+                                                    ? 'selected' : '' }}>{{ candidate.label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="col-6 col-md-3">
+                                    <label class="form-label small" for="grace-{{ location.id }}">
+                                        Délai de grâce (jours)
+                                    </label>
+                                    <input class="form-control form-control-sm" type="number" min="1" required
+                                           id="grace-{{ location.id }}" name="grace_period_days"
+                                           value="{{ protection ? protection.gracePeriodDays : 30 }}">
+                                </div>
+                                <div class="col-6 col-md-2">
+                                    <label class="form-label small" for="cadence-{{ location.id }}">
+                                        Cadence (heures)
+                                    </label>
+                                    <input class="form-control form-control-sm" type="number" min="1" required
+                                           id="cadence-{{ location.id }}" name="cadence_hours"
+                                           value="{{ protection ? protection.cadenceHours : 24 }}">
+                                </div>
+                                <div class="col-12 col-md-2">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox"
+                                               id="enabled-{{ location.id }}" name="enabled"
+                                               {{ protection is null or protection.enabled ? 'checked' : '' }}>
+                                        <label class="form-check-label small"
+                                               for="enabled-{{ location.id }}">Active</label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {# **Arithmetic, not documentation.** Restoring a
+                               database older than the grace period brings
+                               back rows whose files the copy has already
+                               purged: the albums come back holed, for ever,
+                               and nothing anywhere says why. #}
+                            {% if restorable_horizon_days is not null %}
+                                <p class="form-text mb-2">
+                                    Votre plus ancienne sauvegarde restaurable date de
+                                    {{ restorable_horizon_days }} jours. Un délai de grâce plus court
+                                    signifie qu'une restauration ferait réapparaître des albums dont les
+                                    fichiers auraient déjà été effacés de la copie.
+                                </p>
+                            {% endif %}
+
+                            <button type="submit" class="btn btn-outline-primary btn-sm mt-2">
+                                Enregistrer la copie de secours
+                            </button>
+                        </form>
+
+                        {% if protection %}
+                            <div class="d-flex flex-wrap gap-3 small mt-2">
+                                <form method="post"
+                                      action="/config/stockage/emplacements/{{ location.id }}/protection/rapatriement"
+                                      data-confirm="Rapatrier depuis la copie les fichiers que « {{ location.label }} » n'a plus ? Rien n'est écrasé : seuls les fichiers absents sont remis en place."
+                                      data-confirm-label="Rapatrier"
+                                      class="d-inline">
+                                    {{ csrf_field()|raw }}
+                                    <button type="submit" class="btn btn-link btn-sm p-0">
+                                        Rapatrier depuis la copie
+                                    </button>
+                                </form>
+                                <form method="post"
+                                      action="/config/stockage/emplacements/{{ location.id }}/protection/suppression"
+                                      data-confirm="Retirer la copie de secours de « {{ location.label }} » ? Les fichiers déjà copiés restent à la destination : c'est la relation qui s'arrête."
+                                      data-confirm-label="Retirer"
+                                      class="d-inline">
+                                    {{ csrf_field()|raw }}
+                                    <button type="submit" class="btn btn-link btn-sm p-0 text-danger">
+                                        Retirer la copie de secours
+                                    </button>
+                                </form>
+                            </div>
+                        {% endif %}
+                    </details>
                 {% endif %}
             </div>
         </div>

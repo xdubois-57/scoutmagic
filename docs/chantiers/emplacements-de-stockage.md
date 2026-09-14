@@ -1033,3 +1033,117 @@ pas exprimer du tout.
 
 Et l'envoi hors site est rejoué deux fois à travers la vraie base, sur le
 même site et la même photographie, à une déclaration près.
+
+---
+
+# IT-04 — La protection d'un emplacement
+
+Le cœur du chantier. D10 a retiré tout emplacement déclaré de toute
+archive ; le remède doit donc vivre au même niveau que le manque (D11), et
+rien de plus petit ne conviendrait — une archive plus grosse est exactement
+ce que D10 a supprimé, et pour la raison qui l'a fait supprimer.
+
+## Trois refus et deux avertissements, et le partage est la conception
+
+Un refus est pour une relation qui ne peut pas fonctionner ou qui exposerait
+les fichiers de quelqu'un ; un avertissement est pour une relation qui
+fonctionnera et dont l'administrateur doit connaître le prix. Transformer un
+avertissement en refus rendrait la fonction inutilisable pour les unités qui
+en ont le plus besoin — celle dont les photos sont déjà hors site n'a nulle
+part ailleurs où les mettre. Transformer un refus en avertissement
+laisserait un clic publier définitivement un album privé.
+
+### Le trou que cette itération crée elle-même
+
+Un consommateur avec son propre contrôle d'accès — un album délégué, les
+photos d'un groupe de discussion — se voit déjà refuser un emplacement qui
+distribue des adresses publiques permanentes. Ce garde-fou lit l'emplacement
+sur lequel le consommateur se **tient**, et ne sait rien d'un second vers
+lequel les octets vont être copiés : D4 garde l'affectation chez le
+consommateur, et **une protection n'est pas une affectation**. Un album
+privé sur un emplacement privé, protégé vers un bucket public, aurait donc
+eu chacun de ses fichiers lisible par quiconque en a l'adresse, sans qu'un
+seul écran le dise.
+
+Énoncé comme une propriété des deux emplacements plutôt que demandé aux
+consommateurs : aucune question nouvelle sur l'interface, vrai pour un
+consommateur que personne n'a encore écrit, et l'erreur penche du côté du
+refus — la bonne direction quand la panne est « publié pour toujours, en
+silence ».
+
+### Le calcul que l'écran peut faire seul
+
+Le délai de grâce contre l'horizon de restauration n'est pas de la
+documentation. Restaurer une base plus ancienne que le délai ressuscite des
+lignes `gallery_media` dont la copie a déjà purgé les fichiers : les albums
+reviennent troués, définitivement, et rien nulle part ne dit pourquoi.
+`oldestRestorableCompletedAt()` répond sur `db_dump_file_id IS NOT NULL`
+plutôt que sur une liste de types — ce qui compte est que des lignes
+reviennent, et une liste de types serait à revoir à chaque type retiré, ce
+qui venait d'arriver.
+
+## L'inventaire, et ce qu'il achète
+
+Rien en base ne fait autorité sur une copie (D12) ; ce document l'est, et il
+vit dans la destination, à côté des fichiers qu'il décrit. Restaurer la base
+de ce site ne fait donc rien reculer, et une copie retrouvée sur un disque
+dans trois ans se décrit elle-même.
+
+Il n'est jamais réécrit en place : une écriture interrompue de plusieurs
+mégaoctets ne s'analyse plus, et un inventaire illisible fait croire à la
+passe suivante que la destination ne contient rien — donc tout recopier au
+mieux, et ne plus jamais rien supprimer une fois les entrées perdues. Clé
+neuve horodatée, puis suppression de l'ancienne ; si ça casse entre les
+deux, le lecteur garde le plus récent **complet**.
+
+## Ce qui se paie, et qu'il faut dire
+
+La feuille de route demande deux choses qui ne peuvent pas être vraies
+ensemble : « le contexte de hachage est jetable, une copie interrompue le
+perd et ce fichier recommence » et « reprise au milieu d'un gros fichier
+sans retransmettre ce qui est passé ». Reconstruire le contexte impose de
+relire, donc de retransmettre.
+
+Choix fait : **la reprise gagne**. Une copie qui enjambe deux nuits
+n'enregistre pas d'empreinte et se vérifie sur la taille — exactement comme
+une copie vers une destination qui n'annonce rien de comparable. Relire pour
+hacher doublerait le transfert, qui est le seul coût que toute cette
+conception existe pour éviter.
+
+## Quatre défauts trouvés en écrivant les tests, tous silencieux
+
+**`LocalStorageBackend::list()` prend un préfixe de répertoire** là où un
+bucket prend un vrai préfixe de chaîne. Demander `…/protection-source-3.`
+marchait d'un côté et répondait « rien » de l'autre — ce qui se lit
+exactement comme une destination vide, et une destination vide fait tout
+recopier.
+
+**`seenBy()` comparait « à partir de », pas « égal ».** L'estampille est
+l'identifiant de CETTE passe ; une plus récente appartient à une autre passe
+et ne dit rien de ce que la source a maintenant. Lue comme « vue », elle
+faisait conclure à la purge que rien n'avait jamais disparu — ce qui ne se
+remarque que sous la forme « la copie ne lâche jamais rien ».
+
+**La purge recalculait le début de passe depuis la ligne** au lieu de le
+recevoir. La phase 1 retombe sur « maintenant » quand la ligne n'en porte
+pas — c'est-à-dire à chaque première exécution — donc la comparaison ne
+correspondait à rien précisément ces fois-là.
+
+**Le budget de temps n'était demandé que dans la boucle des objets.** Une
+page ne contenant rien à regarder ne le consultait pas une seule fois, donc
+une source paginant sur beaucoup de pages pareilles dépassait le budget sans
+jamais être interrogée.
+
+Et deux cliquets du dépôt en ont attrapé deux autres : l'analyseur de dates
+par format lève une `ValueError` sur un octet NUL, et le constructeur brut
+répond *maintenant* pour une chaîne vide — ce qui aurait fait recommencer
+chaque nuit le compte à rebours d'une entrée, donc gardé pour toujours un
+fichier supprimé il y a des mois.
+
+## Un paramètre ajouté au milieu d'un constructeur
+
+Les deux nouveaux paramètres de `StorageConfigController` ont d'abord été
+insérés avant `$publicPath`, ce qui a re-lié silencieusement tous les appels
+positionnels. Une erreur de type l'a signalé ici parce que les types
+différaient ; entre deux paramètres de même type, rien ne l'aurait fait. Ils
+sont à la fin, et optionnels.

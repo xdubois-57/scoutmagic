@@ -10,6 +10,7 @@ use Core\Config\AppConfig;
 use Core\Http\Controller\StorageConfigController;
 use Core\Http\FrontController;
 use Core\Http\Router;
+use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
@@ -24,6 +25,11 @@ use Core\Storage\Location\Diagnostics\ObjectStorageTestFailure;
 use Core\Storage\Location\StorageLocation;
 use Core\Storage\Location\StorageLocationConsumer;
 use Core\Storage\Location\StorageLocationConsumerRegistry;
+use Core\Maintenance\BackupRepository;
+use Core\Scheduler\SchedulerRepository;
+use Core\Scheduler\SchedulerService;
+use Core\Storage\Location\Protection\StorageProtectionRepository;
+use Core\Storage\Location\Protection\StorageProtectionService;
 use Core\Storage\Location\StorageLocationRepository;
 use Core\Storage\Location\StorageLocationService;
 use Core\Storage\Location\StorageLocationType;
@@ -673,6 +679,137 @@ class StorageConfigControllerTest extends TestCase
      * and a reader who scrolls to the one they came for must not be the
      * reader who misses it.
      */
+    // ————— La copie de secours (IT-04) —————
+
+    /**
+     * Declaring a safety copy, and what the card says once there is one.
+     */
+    public function testDeclaringASafetyCopyIsRecordedAndShownOnTheCard(): void
+    {
+        $source = $this->declareLocal('Galerie', 'gallery');
+        $destination = $this->declareLocal('NAS', 'nas');
+
+        $response = $this->controller->saveProtection(
+            new Request('POST', '/x', [], [
+                'destination_location_id' => (string) $destination,
+                'grace_period_days' => '30',
+                'cadence_hours' => '24',
+                'enabled' => '1',
+                '_csrf_token' => $this->csrfToken(),
+            ], [], []),
+            ['id' => (string) $source]
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $protection = (new StorageProtectionRepository($this->pdo))->findBySourceId($source);
+        $this->assertNotNull($protection);
+        $this->assertSame($destination, $protection->destinationLocationId);
+
+        $body = $this->controller->locations(
+            new Request('GET', '/config/stockage/emplacements', [], [], [], []),
+            []
+        )->getBody();
+        $this->assertStringContainsString('Copié vers « NAS »', $body);
+    }
+
+    /**
+     * **A refusal reaches the administrator as a sentence**, not as a
+     * destination quietly missing from the picker: a pairing somebody
+     * cannot choose and cannot find out why is worse than one refused out
+     * loud.
+     */
+    public function testARefusedPairingComesBackAsAFrenchSentence(): void
+    {
+        $source = $this->declareLocal('Galerie', 'gallery');
+
+        $response = $this->controller->saveProtection(
+            new Request('POST', '/x', [], [
+                'destination_location_id' => (string) $source,
+                'grace_period_days' => '30',
+                'cadence_hours' => '24',
+                'enabled' => '1',
+                '_csrf_token' => $this->csrfToken(),
+            ], [], []),
+            ['id' => (string) $source]
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertNull((new StorageProtectionRepository($this->pdo))->findBySourceId($source));
+        $this->assertStringContainsString('sa propre copie de secours', $this->flashMessage());
+    }
+
+    public function testSavingAProtectionRequiresCsrf(): void
+    {
+        $source = $this->declareLocal('Galerie', 'gallery');
+        $destination = $this->declareLocal('NAS', 'nas');
+
+        $response = $this->controller->saveProtection(
+            new Request('POST', '/x', [], [
+                'destination_location_id' => (string) $destination,
+                'grace_period_days' => '30',
+                'cadence_hours' => '24',
+                '_csrf_token' => 'wrong',
+            ], [], []),
+            ['id' => (string) $source]
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertNull((new StorageProtectionRepository($this->pdo))->findBySourceId($source));
+    }
+
+    /**
+     * Removing the relation leaves the copy where it is — exactly as
+     * deleting a location has never deleted its files.
+     */
+    public function testRemovingTheRelationKeepsWhatIsAlreadyCopied(): void
+    {
+        $source = $this->declareLocal('Galerie', 'gallery');
+        $destination = $this->declareLocal('NAS', 'nas');
+        (new StorageProtectionRepository($this->pdo))->save($source, $destination, 30, 24, true);
+
+        $this->controller->deleteProtection($this->csrfPost(), ['id' => (string) $source]);
+
+        $this->assertNull((new StorageProtectionRepository($this->pdo))->findBySourceId($source));
+        $this->assertNotNull(
+            $this->repository->findById($destination),
+            'the destination itself must survive losing the relation'
+        );
+    }
+
+    /**
+     * **Repatriation is scheduled, never done in the request.** It asks
+     * the source about every file the copy holds, which on a bucket is one
+     * request each; a page doing that inline would time out on any
+     * installation big enough to need it.
+     */
+    public function testRepatriationIsScheduledRatherThanDoneInTheRequest(): void
+    {
+        $source = $this->declareLocal('Galerie', 'gallery');
+        $destination = $this->declareLocal('NAS', 'nas');
+        (new StorageProtectionRepository($this->pdo))->save($source, $destination, 30, 24, true);
+
+        $response = $this->controller->repatriate($this->csrfPost(), ['id' => (string) $source]);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $rows = $this->pdo->query(
+            "SELECT * FROM scheduled_actions WHERE task_key = 'repatriate_from_copy'"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertCount(1, $rows);
+    }
+
+    public function testRepatriationIsRefusedWhenThereIsNoCopyToBringBack(): void
+    {
+        $source = $this->declareLocal('Galerie', 'gallery');
+
+        $this->controller->repatriate($this->csrfPost(), ['id' => (string) $source]);
+
+        $rows = $this->pdo->query(
+            "SELECT * FROM scheduled_actions WHERE task_key = 'repatriate_from_copy'"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertSame([], $rows);
+        $this->assertStringContainsString('pas de copie de secours', $this->flashMessage());
+    }
+
     public function testEachLocationCardSaysItsContentIsInNoArchive(): void
     {
         $this->declareLocal('Disque du serveur', 'gallery');
@@ -706,11 +843,51 @@ class StorageConfigControllerTest extends TestCase
             []
         )->getBody();
 
-        $this->assertStringContainsString('Aucune archive ne reprend le contenu', $body);
+        $this->assertStringContainsString('pas de copie de secours qui tourne', $body);
         $this->assertStringContainsString('2 emplacements sont concernés', $body);
         $this->assertStringContainsString('Nextcloud de l&#039;unité', $body);
         $this->assertStringContainsString('Disque monté', $body);
         $this->assertStringContainsString('rendra les fiches, pas les fichiers', $body);
+    }
+
+    /**
+     * **A location with a running copy leaves the list**, which is the
+     * whole reason the block reads a variable rather than the location
+     * list: until IT-04 it was every declared location, and now it is the
+     * ones that would really be lost tonight.
+     */
+    public function testALocationWithARunningCopyLeavesTheUnprotectedList(): void
+    {
+        $source = $this->declareLocal('Galerie', 'gallery');
+        $destination = $this->declareLocal('NAS', 'nas');
+        (new StorageProtectionRepository($this->pdo))->save($source, $destination, 30, 24, true);
+
+        $body = $this->controller->dashboard(
+            new Request('GET', '/config/stockage', [], [], [], []),
+            []
+        )->getBody();
+
+        $this->assertStringContainsString('1 emplacement est concerné', $body, 'only the destination is left');
+        $this->assertStringNotContainsString('Galerie, NAS', $body);
+    }
+
+    /**
+     * And a PAUSED copy counts as unprotected: what this block answers is
+     * « what would I lose tonight », and a copy that is not running
+     * protects exactly nothing.
+     */
+    public function testAPausedCopyStillCountsAsUnprotected(): void
+    {
+        $source = $this->declareLocal('Galerie', 'gallery');
+        $destination = $this->declareLocal('NAS', 'nas');
+        (new StorageProtectionRepository($this->pdo))->save($source, $destination, 30, 24, false);
+
+        $body = $this->controller->dashboard(
+            new Request('GET', '/config/stockage', [], [], [], []),
+            []
+        )->getBody();
+
+        $this->assertStringContainsString('2 emplacements sont concernés', $body);
     }
 
     public function testTheDashboardNamesEachUsageAndTheLocationItStandsOn(): void
@@ -1089,7 +1266,13 @@ class StorageConfigControllerTest extends TestCase
             $this->inventory(),
             $this->journal,
             new ObjectStorageErrorExplainer(),
-            $this->publicPath
+            $this->publicPath,
+            new StorageProtectionService(
+                new StorageProtectionRepository($this->pdo),
+                $repository,
+                new BackupRepository($this->pdo)
+            ),
+            new SchedulerService(new SchedulerRepository($this->pdo))
         );
     }
 
@@ -1159,6 +1342,20 @@ class StorageConfigControllerTest extends TestCase
         $request->method('getRawBody')->willReturn((string) json_encode($data));
 
         return $request;
+    }
+
+    /** A POST carrying nothing but a valid token. */
+    private function csrfPost(): Request
+    {
+        return new Request('POST', '/x', [], ['_csrf_token' => $this->csrfToken()], [], []);
+    }
+
+    /** The flash message as a string, or '' when there is none. */
+    private function flashMessage(): string
+    {
+        $flash = FlashMessage::get();
+
+        return is_array($flash) ? (string) ($flash['message'] ?? '') : '';
     }
 
     private function csrfToken(): string

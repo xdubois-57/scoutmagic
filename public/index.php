@@ -3927,6 +3927,27 @@ $router->addRoute(
 );
 $router->addRoute(
     'POST',
+    '/config/stockage/emplacements/{id}/protection',
+    \Core\Http\Controller\StorageConfigController::class,
+    'saveProtection',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/stockage/emplacements/{id}/protection/suppression',
+    \Core\Http\Controller\StorageConfigController::class,
+    'deleteProtection',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/stockage/emplacements/{id}/protection/rapatriement',
+    \Core\Http\Controller\StorageConfigController::class,
+    'repatriate',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
     '/config/stockage/test-connexion',
     \Core\Http\Controller\StorageConfigController::class,
     'testConnection',
@@ -5299,7 +5320,13 @@ $frontController->registerController(
         $volumeInventory,
         $journalService,
         new \Core\Storage\Location\Diagnostics\ObjectStorageErrorExplainer($llmConnectorForOthers),
-        __DIR__
+        __DIR__,
+        new \Core\Storage\Location\Protection\StorageProtectionService(
+            new \Core\Storage\Location\Protection\StorageProtectionRepository($pdo),
+            $storageLocationRepository,
+            $backupRepository
+        ),
+        $schedulerService
     )
 );
 

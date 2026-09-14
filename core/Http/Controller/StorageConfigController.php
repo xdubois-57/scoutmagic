@@ -12,6 +12,7 @@ use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
+use Core\Scheduler\SchedulerService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\SsrfUrlValidator;
@@ -19,6 +20,8 @@ use Core\Storage\Location\Backend\ObjectStorageBackend;
 use Core\Storage\Location\Config\LocalLocationConfig;
 use Core\Storage\Location\Config\LocationConfig;
 use Core\Storage\Location\Config\ObjectStorageLocationConfig;
+use Core\Storage\Location\Protection\StorageProtectionService;
+use Core\Storage\Location\Protection\Task\RepatriateFromCopyHandler;
 use Core\Storage\Location\Diagnostics\ObjectStorageErrorExplainer;
 use Core\Storage\Location\Diagnostics\ObjectStorageTestFailure;
 use Core\Storage\Location\StorageLocation;
@@ -75,7 +78,22 @@ class StorageConfigController extends AbstractController
          * The directory the web server actually serves. Needed to refuse
          * a location pointing inside it — see {@see normalizeLocalPath()}.
          */
-        private string $publicPath
+        private string $publicPath,
+        /**
+         * Declaring a location's safety copy (IT-04).
+         *
+         * **Last, and optional, so that adding it moved no existing
+         * argument.** A required parameter inserted in the middle of a
+         * constructor is a silent re-binding of every positional call
+         * site — which is caught here by a type error, and would not be
+         * where two of the arguments happened to share a type.
+         *
+         * Null means the Protection block is not offered on the screen —
+         * never that a protection stops being honoured, which is the
+         * scheduled task's business and not this screen's.
+         */
+        private ?StorageProtectionService $protections = null,
+        private ?SchedulerService $scheduler = null
     ) {
     }
 
@@ -106,16 +124,15 @@ class StorageConfigController extends AbstractController
             // the storage page has no idea what a gallery is, and D4 keeps
             // it that way.
             'usages' => $this->usageRows($locations),
-            // **Every declared location, and that is the point.** Since
-            // D10 a file archive contains `storage/` minus every declared
-            // location, so none of them is covered by one — the list is
-            // the whole list, and saying so plainly is the honest reading
-            // of a screen whose job is to say what is at risk. It becomes
-            // a real filter with IT-04, when a location can name another
-            // as its copy; the template reads a variable rather than the
-            // location list directly so that the day it stops being « all
-            // of them » is a change here and not there.
-            'unprotected' => $locations,
+            // **A real filter since IT-04**, which is what the variable
+            // was introduced for. Until a location could name another as
+            // its copy this was every declared location — no archive
+            // carries one (D10) — and now it is the ones that still have
+            // no copy, or whose copy is paused. A paused relation counts
+            // as unprotected on purpose: what an administrator needs from
+            // this block is « what would I lose tonight », and a copy that
+            // is not running protects exactly nothing.
+            'unprotected' => $this->locationsWithoutAWorkingCopy($locations),
             'volumes' => $this->volumes->measure(),
             'remote_locations' => array_values(array_filter(
                 $locations,
@@ -124,6 +141,154 @@ class StorageConfigController extends AbstractController
             'health_ttl_minutes' => (int) round(StorageLocationService::HEALTH_CHECK_TTL_SECONDS / 60),
             'csrf_token' => CsrfGuard::generateToken(),
         ]);
+    }
+
+    /**
+     * POST /config/stockage/emplacements/{id}/protection — declare or
+     * correct this location's safety copy.
+     *
+     * @param array<string, string> $params
+     */
+    public function saveProtection(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, self::LOCATIONS_URL)) !== null) {
+            return $guard;
+        }
+        if ($this->protections === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $location = $this->storageLocationRepository->findById((int) ($params['id'] ?? 0));
+        if ($location === null) {
+            return new Response('Not Found', 404);
+        }
+
+        try {
+            $this->protections->save(
+                $location->id,
+                (int) $request->getBody('destination_location_id'),
+                (int) $request->getBody('grace_period_days'),
+                (int) $request->getBody('cadence_hours'),
+                $request->getBody('enabled') !== null
+            );
+        } catch (StorageLocationException $e) {
+            FlashMessage::set('error', $e->getMessage());
+
+            return $this->redirect(self::LOCATIONS_URL);
+        }
+
+        $this->journalService->log(
+            'storage',
+            'storage_protection_declared',
+            'security',
+            "Copie de secours déclarée pour l'emplacement « {$location->label} »",
+            [],
+            (int) AuthSession::getUserAccountId()
+        );
+
+        FlashMessage::set('success', "Copie de secours enregistrée pour « {$location->label} ».");
+
+        return $this->redirect(self::LOCATIONS_URL);
+    }
+
+    /**
+     * POST /config/stockage/emplacements/{id}/protection/suppression
+     *
+     * **The copy already written is not touched**, exactly as deleting a
+     * location has never deleted its files. What stops is the relation.
+     *
+     * @param array<string, string> $params
+     */
+    public function deleteProtection(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, self::LOCATIONS_URL)) !== null) {
+            return $guard;
+        }
+        if ($this->protections === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $location = $this->storageLocationRepository->findById((int) ($params['id'] ?? 0));
+        if ($location === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $protection = $this->protections->forSource($location->id);
+        if ($protection !== null) {
+            $this->protections->delete($protection->id);
+            $this->journalService->log(
+                'storage',
+                'storage_protection_removed',
+                'security',
+                "Copie de secours retirée pour l'emplacement « {$location->label} » — les fichiers déjà "
+                    . 'copiés restent à la destination',
+                [],
+                (int) AuthSession::getUserAccountId()
+            );
+        }
+
+        FlashMessage::set('success', "Copie de secours retirée pour « {$location->label} ».");
+
+        return $this->redirect(self::LOCATIONS_URL);
+    }
+
+    /**
+     * POST /config/stockage/emplacements/{id}/protection/rapatriement —
+     * bring back, from the copy, what this location no longer has.
+     *
+     * **Scheduled, never done in the request.** It asks the source about
+     * every file the copy holds, which on a bucket is one request each; a
+     * page that did it inline would time out on any installation big
+     * enough to need it.
+     *
+     * @param array<string, string> $params
+     */
+    public function repatriate(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, self::LOCATIONS_URL)) !== null) {
+            return $guard;
+        }
+        if ($this->protections === null || $this->scheduler === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $location = $this->storageLocationRepository->findById((int) ($params['id'] ?? 0));
+        if ($location === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $protection = $this->protections->forSource($location->id);
+        if ($protection === null) {
+            FlashMessage::set('error', "« {$location->label} » n'a pas de copie de secours à rapatrier.");
+
+            return $this->redirect(self::LOCATIONS_URL);
+        }
+
+        $this->scheduler->scheduleAfter(
+            'core',
+            RepatriateFromCopyHandler::TASK_KEY,
+            0,
+            ['protection_id' => $protection->id],
+            null,
+            (int) AuthSession::getUserAccountId()
+        );
+
+        $this->journalService->log(
+            'storage',
+            'storage_repatriation_requested',
+            'security',
+            "Rapatriement demandé pour l'emplacement « {$location->label} »",
+            [],
+            (int) AuthSession::getUserAccountId()
+        );
+
+        FlashMessage::set(
+            'success',
+            "Rapatriement lancé pour « {$location->label} ». Les fichiers reviennent en arrière-plan ; "
+                . 'le journal dira combien ont été remis en place.'
+        );
+
+        return $this->redirect(self::LOCATIONS_URL);
     }
 
     /**
@@ -139,8 +304,71 @@ class StorageConfigController extends AbstractController
         return $this->render('config/storage/locations.html.twig', [
             'locations' => $locations,
             'location_usages' => $this->usagesByLocationId($locations),
+            // Keyed by SOURCE, which is the card the block is rendered on.
+            'protections' => $this->protectionsBySourceId(),
+            // Every location may be somebody's destination, itself
+            // included — the refusals are the service's to state, in
+            // words, rather than a picker's to hide. A destination missing
+            // from the list because the screen guessed it was invalid is a
+            // destination nobody can find out why they cannot choose.
+            'protection_offered' => $this->protections !== null,
+            // A destination's label, by id — so a card can name where its
+            // copy goes without the template walking the list itself.
+            // A relation whose destination is gone renders « un
+            // emplacement supprimé » rather than a blank, because a blank
+            // reads as « nowhere » and this one means « somewhere that no
+            // longer exists », which is a different thing to do about.
+            'location_labels' => array_reduce(
+                $locations,
+                static function (array $carry, StorageLocation $location): array {
+                    $carry[$location->id] = $location->label;
+
+                    return $carry;
+                },
+                []
+            ),
+            'restorable_horizon_days' => $this->protections?->restorableHorizonInDays(),
             'csrf_token' => CsrfGuard::generateToken(),
         ]);
+    }
+
+    /**
+     * The locations nothing is copying tonight.
+     *
+     * @param list<StorageLocation> $locations
+     * @return list<StorageLocation>
+     */
+    private function locationsWithoutAWorkingCopy(array $locations): array
+    {
+        $protections = $this->protectionsBySourceId();
+
+        return array_values(array_filter(
+            $locations,
+            static function (StorageLocation $location) use ($protections): bool {
+                $protection = $protections[$location->id] ?? null;
+
+                return $protection === null || !$protection->enabled;
+            }
+        ));
+    }
+
+    /**
+     * Every declared protection, keyed by the location it protects.
+     *
+     * @return array<int, \Core\Storage\Location\Protection\StorageProtection>
+     */
+    private function protectionsBySourceId(): array
+    {
+        if ($this->protections === null) {
+            return [];
+        }
+
+        $bySource = [];
+        foreach ($this->protections->all() as $protection) {
+            $bySource[$protection->sourceLocationId] = $protection;
+        }
+
+        return $bySource;
     }
 
     /**
