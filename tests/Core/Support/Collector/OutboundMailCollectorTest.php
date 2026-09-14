@@ -7,7 +7,13 @@ namespace Tests\Core\Support\Collector;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Database\Connection;
+use Core\Mail\MailPurpose;
+use Core\Mail\Transport\DeferredMailQueue;
+use Core\Mail\Transport\DeferredMailRepository;
 use Core\Mail\Transport\LaneChainRepository;
+use Core\Mail\Transport\MailReserve;
+use Core\Mail\Transport\ProviderHealth;
+use Core\Mail\Transport\ProviderHealthRepository;
 use Core\Mail\Transport\MailLane;
 use Core\Mail\Transport\MailProvider;
 use Core\Mail\Transport\MailProviderDirectory;
@@ -15,6 +21,7 @@ use Core\Mail\Transport\MailProviderRepository;
 use Core\Mail\Transport\ProviderConnections;
 use Core\Mail\Transport\SendCounterRepository;
 use Core\Support\Collector\OutboundMailCollector;
+use Core\Security\EncryptionService;
 use Core\Support\SupportCollectorContext;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -42,6 +49,8 @@ class OutboundMailCollectorTest extends TestCase
     private MailProviderRepository $providers;
     private LaneChainRepository $chains;
     private SendCounterRepository $counters;
+    private ProviderHealthRepository $health;
+    private DeferredMailRepository $deferred;
 
     /** @var array<string, string> */
     private array $secrets = [];
@@ -53,6 +62,11 @@ class OutboundMailCollectorTest extends TestCase
         $this->providers = new MailProviderRepository($this->pdo);
         $this->chains = new LaneChainRepository($this->pdo);
         $this->counters = new SendCounterRepository($this->pdo);
+        $this->health = new ProviderHealthRepository($this->pdo);
+        $this->deferred = new DeferredMailRepository(
+            $this->pdo,
+            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
 
         $this->projectRoot = sys_get_temp_dir() . '/scoutmagic-outbound-' . bin2hex(random_bytes(6));
         $this->storagePath = $this->projectRoot . '/storage';
@@ -124,6 +138,117 @@ class OutboundMailCollectorTest extends TestCase
         $this->assertStringContainsString('fournisseur #4242 (introuvable)', $report);
     }
 
+    // ── ce que le coupe-circuit, la réserve et la file racontent ──────
+
+    /**
+     * The column worth having is `ouvertures`: a provider closed right
+     * now that has opened eleven times this month is a relay on its way
+     * out, and no screenshot taken between two outages shows that.
+     */
+    public function testItReportsWhatTheBreakerHasBeenDoing(): void
+    {
+        $relay = $this->addRelay('Relais fatigué', 'smtp.fatigue.test');
+        for ($i = 0; $i < ProviderHealth::FAILURES_BEFORE_OPEN; $i++) {
+            $this->health->recordFailure($relay, 'SMTP connect() failed.');
+        }
+
+        $report = $this->collect();
+
+        $this->assertStringContainsString('── Coupe-circuit', $report);
+        $this->assertMatchesRegularExpression('/Relais fatigué\s+ouvert\s+3\s+1/u', $report);
+        $this->assertStringContainsString('SMTP connect() failed.', $report);
+    }
+
+    /**
+     * The reserve is the one figure on this page that looks arbitrary, so
+     * it travels with the sentence saying where it came from — a sentence
+     * the reader can check against the counters printed further down.
+     */
+    public function testTheReserveTravelsWithItsProvenance(): void
+    {
+        $relay = $this->addRelay('Relais', 'smtp.relais.test', dailyQuota: 1000);
+        $this->chains->append(MailLane::Authentication, $relay, true);
+        $this->chains->append(MailLane::Bulk, $relay, true);
+        for ($i = 0; $i < 54; $i++) {
+            $this->counters->increment($relay, MailLane::Transactional, date('Y-m-d'));
+        }
+
+        $report = $this->collect();
+
+        $this->assertStringContainsString('── Réserve pour les liens de connexion', $report);
+        $this->assertStringContainsString('votre pointe hors publipostage', $report);
+        $this->assertStringContainsString('(54)', $report);
+    }
+
+    /** « Un report n'est pas un silence » — so the depth is in the archive. */
+    public function testItReportsTheQueueDepthByLane(): void
+    {
+        $this->queueOne(MailLane::Transactional);
+        $this->queueOne(MailLane::Bulk);
+        $abandoned = $this->queueOne(MailLane::Bulk);
+        $this->deferred->abandon($abandoned, 3, 'délai de vie dépassé');
+
+        $report = $this->collect();
+
+        $this->assertStringContainsString('── Messages différés', $report);
+        $this->assertMatchesRegularExpression('/Transactionnel\S*\s+1 en attente/u', $report);
+        $this->assertStringContainsString('abandonnés     : 1', $report);
+    }
+
+    /**
+     * **The assertion this whole file exists for, extended to the three
+     * new sections.** A deferred message holds a subject and a recipient;
+     * the archive goes to a third party, and neither may leave with it.
+     */
+    public function testTheQueueSectionCarriesNoMessage(): void
+    {
+        $this->queueOne(MailLane::Transactional);
+
+        $report = $this->collect();
+
+        $this->assertStringNotContainsString('parent@exemple.test', $report);
+        $this->assertStringNotContainsString('Reçu de paiement', $report);
+    }
+
+    /**
+     * A table that is not there yet — a support package collected
+     * mid-migration — costs the section, not the file. The chains and the
+     * counters are still the thing somebody asked for.
+     */
+    public function testAMissingTableCostsOnlyItsOwnSection(): void
+    {
+        $this->pdo->exec('DROP TABLE mail_deferred_messages');
+        $this->pdo->exec('DROP TABLE mail_provider_health');
+
+        $report = $this->collect();
+
+        $this->assertStringNotContainsString('── Messages différés', $report);
+        $this->assertStringNotContainsString('── Coupe-circuit', $report);
+        $this->assertStringContainsString('── Chaînes, dans leur ordre', $report);
+    }
+
+    private function queueOne(MailLane $lane): int
+    {
+        return $this->deferred->add(
+            $lane,
+            MailPurpose::Ordinary,
+            [
+                'to' => 'parent@exemple.test',
+                'subject' => 'Reçu de paiement',
+                'bodyHtml' => '<p>Bonjour</p>',
+                'bodyText' => 'Bonjour',
+                'replyTo' => null,
+                'fromAddressOverride' => null,
+                'fromNameOverride' => null,
+                'extraHeaders' => [],
+                'attachments' => [],
+            ],
+            'quota épuisé',
+            date('Y-m-d H:i:s'),
+            date('Y-m-d H:i:s', time() + 3600)
+        );
+    }
+
     private function addRelay(string $name, string $host, ?int $dailyQuota = null): int
     {
         $id = $this->providers->create($name, $dailyQuota, 50, 10);
@@ -141,7 +266,11 @@ class OutboundMailCollectorTest extends TestCase
         $connections = new ProviderConnections($this->secrets);
         $collector = new OutboundMailCollector(
             new MailProviderDirectory($this->providers, $connections, $this->settings),
-            $this->chains
+            $this->chains,
+            $this->health,
+            new MailReserve($this->counters, $this->chains),
+            $this->deferred,
+            new DeferredMailQueue($this->deferred, $this->settings)
         );
 
         $archivePath = $this->storagePath . '/temp/outbound-' . bin2hex(random_bytes(6)) . '.zip';

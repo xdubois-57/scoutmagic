@@ -8,10 +8,14 @@ declare(strict_types=1);
 
 namespace Core\Support\Collector;
 
+use Core\Mail\Transport\DeferredMailQueue;
+use Core\Mail\Transport\DeferredMailRepository;
 use Core\Mail\Transport\LaneChainRepository;
 use Core\Mail\Transport\MailLane;
 use Core\Mail\Transport\MailProvider;
 use Core\Mail\Transport\MailProviderDirectory;
+use Core\Mail\Transport\MailReserve;
+use Core\Mail\Transport\ProviderHealthRepository;
 use Core\Support\SupportCollectorContext;
 use Core\Support\SupportCollectorInterface;
 
@@ -34,15 +38,33 @@ use Core\Support\SupportCollectorInterface;
  * `MailProvider` helps rather than hinders: it has no password property
  * at all, so this collector cannot print one by accident. Only
  * `Core\Mail\Transport\TransportConfigurator` reads one.
+ *
+ * **The one line that needed thought is the circuit breaker's reason.**
+ * It is an SMTP server's own sentence, and a server refusing a message
+ * says whose — « 550 5.1.1 <...>: Recipient address rejected ». It is
+ * safe to print here only because it was redacted of addresses before it
+ * was ever stored ({@see \Core\Mail\MailErrorRedaction}), and it goes
+ * through {@see SupportCollectorContext::redact()} on the way out as
+ * well, which is what turns « safe » into « safe twice ».
  */
 class OutboundMailCollector implements SupportCollectorInterface
 {
     /** Deep enough to see a pattern, short enough to stay readable. */
     private const COUNTER_DAYS = 30;
 
+    /**
+     * Everything after the chains is optional, and null means the section
+     * is left out rather than printed empty: a support package collected
+     * on an installation whose schema predates one of these tables is
+     * still worth having.
+     */
     public function __construct(
         private MailProviderDirectory $directory,
-        private LaneChainRepository $chains
+        private LaneChainRepository $chains,
+        private ?ProviderHealthRepository $health = null,
+        private ?MailReserve $reserve = null,
+        private ?DeferredMailRepository $deferred = null,
+        private ?DeferredMailQueue $queue = null
     ) {
     }
 
@@ -104,6 +126,18 @@ class OutboundMailCollector implements SupportCollectorInterface
             $lines[] = '';
         }
 
+        foreach ($this->circuitLines($providers, $context) as $line) {
+            $lines[] = $line;
+        }
+
+        foreach ($this->reserveLines($providers) as $line) {
+            $lines[] = $line;
+        }
+
+        foreach ($this->queueLines() as $line) {
+            $lines[] = $line;
+        }
+
         $lines[] = sprintf('── Compteurs, %d derniers jours ────────────────────────────', self::COUNTER_DAYS);
         $lines[] = 'date        fournisseur                         voie             envoyés';
         foreach ($this->counterRows($context, $providers) as $row) {
@@ -111,6 +145,146 @@ class OutboundMailCollector implements SupportCollectorInterface
         }
 
         $context->addFileFromContent('outbound-mail.txt', implode("\n", $lines) . "\n");
+    }
+
+    /**
+     * What the breaker has been doing (D15).
+     *
+     * The interesting column is `ouvertures` rather than the current
+     * state: a provider closed right now that has opened eleven times
+     * this month is a relay on its way out, and that is exactly the
+     * pattern nobody can see from a screenshot taken between two
+     * outages.
+     *
+     * @param array<int, MailProvider> $providers
+     * @return array<int, string>
+     */
+    private function circuitLines(array $providers, SupportCollectorContext $context): array
+    {
+        if ($this->health === null) {
+            return [];
+        }
+
+        try {
+            $records = $this->health->all();
+        } catch (\Throwable) {
+            return [];
+        }
+
+        $lines = ['── Coupe-circuit ───────────────────────────────────────────'];
+
+        if ($records === []) {
+            $lines[] = '(aucun fournisseur n\'a jamais échoué)';
+            $lines[] = '';
+
+            return $lines;
+        }
+
+        $lines[] = 'fournisseur                         état     échecs  ouvertures  dernière ouverture';
+        foreach ($records as $record) {
+            $lines[] = sprintf(
+                '%-35s %-8s %-7d %-11d %s',
+                $providers[$record->providerId]->name ?? ('#' . $record->providerId),
+                $record->isOpen() ? 'ouvert' : 'fermé',
+                $record->consecutiveFailures,
+                $record->openCount,
+                $record->openedAt ?? '-'
+            );
+            if ($record->lastReason !== '') {
+                $lines[] = '    dernier échec : ' . $context->redact($record->lastReason, 120);
+            }
+        }
+        $lines[] = '';
+
+        return $lines;
+    }
+
+    /**
+     * What each provider is holding back for the authentication lane, and
+     * the month that produced the number (D14).
+     *
+     * Printed with its provenance because the reserve is the one figure
+     * on this page that looks arbitrary: « 74 » means nothing, « votre
+     * pointe hors publipostage des 30 derniers jours (54), plus une marge
+     * de 20 » can be checked against the counters two sections below.
+     *
+     * @param array<int, MailProvider> $providers
+     * @return array<int, string>
+     */
+    private function reserveLines(array $providers): array
+    {
+        if ($this->reserve === null) {
+            return [];
+        }
+
+        $lines = ['── Réserve pour les liens de connexion ─────────────────────'];
+
+        foreach ($providers as $provider) {
+            try {
+                $reserve = $this->reserve->forProvider($provider);
+            } catch (\Throwable) {
+                continue;
+            }
+
+            $lines[] = $provider->name;
+            $lines[] = '  ' . $reserve->provenance();
+        }
+
+        $lines[] = '';
+
+        return $lines;
+    }
+
+    /**
+     * The queue, in counts (D9, D17).
+     *
+     * Counts and ages only — never a subject, never a recipient. What
+     * this section answers is « a-t-elle cessé de se vider », and a
+     * depth per lane plus an age spread answers it without a single
+     * message being decrypted.
+     *
+     * @return array<int, string>
+     */
+    private function queueLines(): array
+    {
+        if ($this->deferred === null) {
+            return [];
+        }
+
+        try {
+            $pending = $this->deferred->pendingCountByLane();
+            $buckets = $this->queue?->abandonedByAge();
+        } catch (\Throwable) {
+            return [];
+        }
+
+        $lines = ['── Messages différés ───────────────────────────────────────'];
+
+        foreach (MailLane::ordered() as $lane) {
+            $waiting = $pending[$lane->value] ?? 0;
+            $lines[] = sprintf(
+                '  %-16s %d en attente%s',
+                $lane->label(),
+                $waiting,
+                $lane === MailLane::Authentication ? ' (cette voie ne diffère jamais)' : ''
+            );
+        }
+
+        if ($buckets !== null) {
+            $lines[] = sprintf(
+                '  abandonnés     : %d — dont %d de moins de 6 h, %d de moins de 24 h, '
+                    . '%d de moins d\'une semaine, %d au-delà',
+                $buckets['total'],
+                $buckets['recent'],
+                $buckets['day'],
+                $buckets['week'],
+                $buckets['older']
+            );
+        }
+
+        $lines[] = '';
+
+        return $lines;
     }
 
     private function lanesOf(int $providerId): string

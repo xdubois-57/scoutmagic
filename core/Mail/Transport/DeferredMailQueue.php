@@ -177,8 +177,12 @@ final class DeferredMailQueue
     {
         $buckets = ['recent' => 0, 'day' => 0, 'week' => 0, 'older' => 0, 'total' => 0];
 
-        foreach ($this->repository->abandoned($lane) as $message) {
-            $hours = $message->ageHours($now);
+        $moment = strtotime($now ?? date('Y-m-d H:i:s'));
+
+        foreach ($this->repository->abandonedCreatedAt($lane) as $createdAt) {
+            // Read from the timestamps alone: counting how old something
+            // is never needs its body decrypted (D18).
+            $hours = max(0.0, ($moment - strtotime($createdAt)) / 3600);
             $buckets['total']++;
 
             if ($hours < 24) {

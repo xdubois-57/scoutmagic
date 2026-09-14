@@ -131,6 +131,35 @@ final class DeferredMailRepository
     }
 
     /**
+     * When each abandoned message was queued, and nothing else.
+     *
+     * Separate from {@see abandoned()} because counting by age is the
+     * common case and hydrating a message decrypts its body — personal
+     * data brought into memory for no reason other than to look at a
+     * timestamp sitting in plain text one column over (D18).
+     *
+     * @return array<int, string> `created_at`, newest first
+     */
+    public function abandonedCreatedAt(?MailLane $lane = null): array
+    {
+        $sql = 'SELECT created_at FROM mail_deferred_messages WHERE status = ?';
+        $parameters = [DeferredMessage::STATUS_ABANDONED];
+
+        if ($lane !== null) {
+            $sql .= ' AND lane = ?';
+            $parameters[] = $lane->value;
+        }
+
+        $statement = $this->pdo->prepare($sql . ' ORDER BY created_at DESC, id DESC');
+        $statement->execute($parameters);
+
+        return array_map(
+            static fn(array $row): string => (string) $row['created_at'],
+            $statement->fetchAll(PDO::FETCH_ASSOC)
+        );
+    }
+
+    /**
      * How many messages are waiting, per lane — the counter the page
      * shows, because « un report n'est pas un silence » (D9).
      *
