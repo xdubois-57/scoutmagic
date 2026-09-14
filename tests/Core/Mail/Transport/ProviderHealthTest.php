@@ -177,6 +177,22 @@ class ProviderHealthTest extends TestCase
                 MailFailure::Recipient,
             ],
             'a relay asking us to slow down' => ['421 4.7.0 Too many messages', MailFailure::Provider],
+            // **A policy refusal wears a 550 too**, and it is the
+            // provider's: these mean the credentials this site uses are
+            // not allowed to send at all. Read after the recipient
+            // markers they would match the bare `550` and be filed as a
+            // bad address — a relay refusing everything would then never
+            // open its circuit, and the message would be discarded
+            // instead of queued.
+            'a relay refusing to relay for us' => [
+                'SMTP Error: 550 5.7.1 Relay access denied',
+                MailFailure::Provider,
+            ],
+            'a sender the tenant will not allow' => [
+                '550 5.7.60 Client does not have permissions to send as this sender',
+                MailFailure::Provider,
+            ],
+            'a policy refusal under 554' => ['554 5.7.1 Message refused', MailFailure::Provider],
             'a refused connection' => ['SMTP connect() failed', MailFailure::Provider],
             'refused credentials' => ['SMTP Error: Could not authenticate', MailFailure::Provider],
             'a TLS failure' => ['Could not start TLS', MailFailure::Provider],

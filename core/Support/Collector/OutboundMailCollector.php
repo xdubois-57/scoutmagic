@@ -272,8 +272,12 @@ class OutboundMailCollector implements SupportCollectorInterface
 
         if ($buckets !== null) {
             $lines[] = sprintf(
-                '  abandonnés     : %d — dont %d de moins de 6 h, %d de moins de 24 h, '
-                    . '%d de moins d\'une semaine, %d au-delà',
+                // Disjoint bands, named as such: « de moins de 24 h » for
+                // a count that leaves out the last six hours would be read
+                // as a total, and the relaunch window of the same name IS
+                // a total.
+                '  abandonnés     : %d — dont %d de moins de 6 h, %d de 6 à 24 h, '
+                    . '%d de 1 à 7 jours, %d au-delà',
                 $buckets['total'],
                 $buckets['recent'],
                 $buckets['day'],

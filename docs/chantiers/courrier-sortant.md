@@ -653,6 +653,31 @@ gardait sa dernière raison SMTP en base et dans toutes les archives de
 support suivantes, et aurait transmis son `open_count` — voire un verrou
 non expiré — à qui aurait repris cet identifiant.
 
+**Un commentaire qui affirmait ce que le code ne faisait pas.** Le
+docblock de `MailFailure::classify()` expliquait longuement pourquoi
+`5.7.1` était tenu hors de la liste des refus de destinataire — c'est un
+refus de politique, et « Relay access denied » porte le même code. Sauf
+que `'550'` était dans la liste et que la recherche est un `str_contains`
+dans l'ordre de déclaration : « 550 5.7.1 Relay access denied » trouvait
+`550` au premier tour et repartait en `Recipient`. L'exclusion réfléchie
+n'avait jamais eu l'occasion de s'appliquer, et depuis que
+`MailService` refuse de différer un refus de destinataire, un relais
+répondant cela à tout aurait vu ses messages jetés au lieu d'être mis en
+file, sans que son circuit ne s'ouvre jamais. Les codes de politique sont
+maintenant lus en premier.
+
+À retenir : un commentaire qui explique une décision n'est pas une preuve
+qu'elle est appliquée — ici les deux se contredisaient depuis le début, et
+seule une relecture ligne à ligne pouvait le voir.
+
+**Et les tranches d'âge étaient disjointes sous un libellé cumulatif.**
+`abandonedByAge()` compte « moins de 6 h », « de 6 à 24 h », etc., mais
+l'écran écrivait « de moins de 24 h » pour la deuxième. Trente messages
+abandonnés il y a deux heures donnaient donc « 30 de moins de 6 h, 0 de
+moins de 24 h » — à côté d'une fenêtre de relance « Les 24 dernières
+heures » qui, elle, les prend bien tous. Les libellés nomment désormais
+les bandes.
+
 ### Reporté
 
 Rien de fonctionnel. La cadence « collante » après bascule, refusée en

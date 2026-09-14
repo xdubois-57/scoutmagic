@@ -151,9 +151,12 @@
             <p class="small mb-2">
                 <strong>{{ queue.abandoned.total }}</strong>
                 message{{ queue.abandoned.total > 1 ? 's ont' : ' a' }} fini par être abandonné{{ queue.abandoned.total > 1 ? 's' : '' }} :
+                {# Disjoint bands, and the words say so. « de moins de 24 h » for a
+                   count that excludes the last six hours would read as « rien depuis
+                   ce matin » next to a relaunch window that does include them. #}
                 {{ queue.abandoned.recent }} de moins de 6 h,
-                {{ queue.abandoned.day }} de moins de 24 h,
-                {{ queue.abandoned.week }} de moins d'une semaine,
+                {{ queue.abandoned.day }} de 6 à 24 h,
+                {{ queue.abandoned.week }} de 1 à 7 jours,
                 {{ queue.abandoned.older }} au-delà.
                 Ils sont conservés {{ queue.retention_days }} jours, puis effacés, corps compris.
             </p>

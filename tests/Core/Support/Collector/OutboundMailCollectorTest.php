@@ -193,6 +193,7 @@ class OutboundMailCollectorTest extends TestCase
         $this->assertStringContainsString('── Messages différés', $report);
         $this->assertMatchesRegularExpression('/Transactionnel\S*\s+1 en attente/u', $report);
         $this->assertStringContainsString('abandonnés     : 1', $report);
+        $this->assertStringContainsString('de 6 à 24 h', $report, 'The bands are disjoint and say so.');
     }
 
     /**

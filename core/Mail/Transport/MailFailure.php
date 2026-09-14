@@ -54,21 +54,33 @@ enum MailFailure
     {
         $haystack = mb_strtolower($reason);
 
+        // **Policy refusals are read first, and they are the provider's.**
+        // RFC 3463's 5.7.x family says « refused on principle » without
+        // saying whose principle: « 550 5.7.1 Relay access denied » means
+        // the credentials this site uses are not allowed to send AT ALL,
+        // and « 550 5.7.60 Client does not have permissions to send as
+        // this sender » is the same thing in Microsoft's words. Both
+        // arrive with a 550 in front of them, so this test has to come
+        // before the recipient markers below — reading them in the other
+        // order matches `550` on the first pass and calls a relay that
+        // refuses everything a bad address, which is exactly the case the
+        // recipient list exists to keep out. Two harms at once: the
+        // breaker never opens on a dead relay, and `MailService` discards
+        // the message instead of queueing it.
+        //
+        // The cost of this direction is a message retried for a day
+        // against a relay that will keep refusing it — the same cost as
+        // any unknown failure, and the one this enum already chooses.
+        foreach (['5.7.', '4.7.'] as $policy) {
+            if (str_contains($haystack, $policy)) {
+                return self::Provider;
+            }
+        }
+
         // Permanent recipient rejections. `550` is the common one; the
         // rest are its neighbours in RFC 3463's 5.1.x «bad destination
         // address» family, plus the wording used by relays that answer in
         // prose rather than codes.
-        //
-        // **`5.7.1` is deliberately NOT here**, though it looks like it
-        // belongs. RFC 3463 makes it a policy refusal, and the policy can
-        // be about the recipient OR about us — « Relay access denied » is
-        // the same code, and it means the credentials this site is using
-        // are not allowed to send at all. Counting that as somebody
-        // else's address would leave a relay refusing every message
-        // eligible for the next one, for ever, with the breaker never
-        // opening. The prose that comes with it settles the case: an
-        // address rejection also says so in words, which the markers
-        // below catch.
         $recipientMarkers = [
             '550', '551', '553',
             '5.1.0', '5.1.1', '5.1.2', '5.1.3', '5.1.6',
