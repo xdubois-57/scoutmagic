@@ -183,6 +183,50 @@ class MailProbeSenderTest extends TestCase
         $this->assertSame(0, $this->probes->count());
     }
 
+    /**
+     * The one outcome that is neither a success nor a failure.
+     *
+     * `record()` runs after the send — it has to — so there is a narrow
+     * window where the relay accepted the probe and the database refuses
+     * the insert. Reporting that as « la sonde n'a pas pu partir » is
+     * false twice over: the message is on its way, and the operator,
+     * told it failed, presses the button again and sends a duplicate.
+     */
+    public function testAProbeThatLeftButCouldNotBeRecordedSaysSoAndHandsOverTheCode(): void
+    {
+        $id = $this->addRelay('Brevo', 'smtp-relay.brevo.com');
+        $sender = $this->senderWith($this->capturingTransport($captured));
+
+        // The table goes away between the send and the insert.
+        $this->pdo->exec('DROP TABLE mail_probes');
+
+        try {
+            $sender->send('vous@exemple.be', $id, MailLane::Bulk);
+            $this->fail('A probe whose row could not be written must say so.');
+        } catch (\Core\Mail\Probe\MailProbeNotRecordedException $e) {
+            $this->assertInstanceOf(PHPMailer::class, $captured, 'The message did leave.');
+            $this->assertSame(
+                MailProbeSender::codeIn($captured->Subject),
+                $e->probeCode,
+                'The code it carries is the one the operator is told to search for.'
+            );
+            $this->assertStringContainsString($e->probeCode, $e->getMessage());
+            $this->assertStringContainsString('ne relancez pas', $e->getMessage());
+        }
+    }
+
+    /**
+     * And it is a `MailProbeException`, so the controller's single catch
+     * still covers it — one `catch`, two sentences.
+     */
+    public function testTheUnrecordedOutcomeIsStillAProbeExceptionAndIsUserFacing(): void
+    {
+        $exception = new \Core\Mail\Probe\MailProbeNotRecordedException('SM-ABC234');
+
+        $this->assertInstanceOf(MailProbeException::class, $exception);
+        $this->assertInstanceOf(\Core\Exception\UserFacingException::class, $exception);
+    }
+
     public function testAnAddressThatIsNotAnAddressIsRefusedBeforeAnythingIsSent(): void
     {
         $id = $this->addRelay('Brevo', 'smtp-relay.brevo.com');
@@ -247,7 +291,7 @@ class MailProbeSenderTest extends TestCase
         $probe = $sender->send('parent@exemple.be', $id, MailLane::Bulk);
         $sender->recordVerdict($probe->id, MailProbeVerdict::Spam);
 
-        $this->pdo->exec('DELETE FROM mail_providers WHERE id = ' . $id);
+        $this->pdo->prepare('DELETE FROM mail_providers WHERE id = ?')->execute([$id]);
 
         $history = $this->probes->recent();
 
@@ -337,11 +381,22 @@ class MailProbeSenderTest extends TestCase
         }
 
         // And no task handler anywhere, core's or a module's.
+        // **Two levels as well as one**, and that is not thoroughness for
+        // its own sake: `core/Mail/Transport/Task/` is two deep, and it is
+        // the single most likely home for a future « envoyer une sonde
+        // chaque semaine » handler. A one-level glob left the exact
+        // directory this test exists to watch outside its own scan.
         $handlers = array_merge(
             glob($root . '/core/*/Task/*.php') ?: [],
+            glob($root . '/core/*/*/Task/*.php') ?: [],
             glob($root . '/modules/*/src/Task/*.php') ?: []
         );
         $this->assertNotSame([], $handlers, 'The handlers moved; this test is looking at nothing.');
+        $this->assertContains(
+            $root . '/core/Mail/Transport/Task/DrainDeferredMailHandler.php',
+            $handlers,
+            'The mail lane\'s own task directory must be in the scan — it is where a cadence would go.'
+        );
 
         foreach ($handlers as $handler) {
             $this->assertStringNotContainsString(

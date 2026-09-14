@@ -20,6 +20,7 @@ use Core\Mail\Feedback\ReturnState;
 use Core\Mail\DnsVerifier;
 use Core\Mail\MailIdentity;
 use Core\Mail\Probe\MailProbeException;
+use Core\Mail\Probe\MailProbeNotRecordedException;
 use Core\Mail\Probe\MailProbeRepository;
 use Core\Mail\Probe\MailProbeSender;
 use Core\Mail\Probe\MailProbeVerdict;
@@ -1276,6 +1277,14 @@ class OutboundMailController extends AbstractController
                 (int) ($request->getBody('provider_id') ?? 0),
                 $lane
             );
+        } catch (MailProbeNotRecordedException $e) {
+            // `warning` and not `error`: the message DID leave. Calling
+            // it an error is what makes somebody press the button again
+            // and send a duplicate — which is precisely what the sentence
+            // in the exception asks them not to do.
+            FlashMessage::set('warning', $e->getMessage());
+
+            return $this->redirect(self::PROBE_URL);
         } catch (MailProbeException $e) {
             FlashMessage::set('error', $e->getMessage());
 
@@ -1348,17 +1357,28 @@ class OutboundMailController extends AbstractController
             $verdicts[] = ['value' => $verdict->value, 'label' => $verdict->label()];
         }
 
-        $lanes = [];
+        // Shaped for partials/form_field.html.twig, which is what the
+        // section's other form already uses.
+        $laneOptions = [];
         foreach (MailProbeSender::OFFERED_LANES as $lane) {
-            $lanes[] = ['value' => $lane->value, 'label' => $lane->label(), 'detail' => $lane->detail()];
+            $laneOptions[] = [
+                'value' => $lane->value,
+                'label' => $lane->label(),
+                'selected' => $lane === MailProbeSender::DEFAULT_LANE,
+            ];
+        }
+
+        $providerOptions = [];
+        foreach ($this->probeProviders() as $provider) {
+            $providerOptions[] = ['value' => (string) $provider['id'], 'label' => $provider['name']];
         }
 
         return $this->render('config/outbound_mail/probe.html.twig', [
             'available' => $this->probes !== null,
             'unavailable_reason' => self::PROBE_UNAVAILABLE,
             'providers' => $this->probeProviders(),
-            'lanes' => $lanes,
-            'default_lane' => MailProbeSender::DEFAULT_LANE->value,
+            'provider_options' => $providerOptions,
+            'lane_options' => $laneOptions,
             'verdicts' => $verdicts,
             'pending' => $this->probeLines($this->probeHistory?->pending() ?? []),
             'history' => $this->probeLines($this->probeHistory?->recent() ?? []),

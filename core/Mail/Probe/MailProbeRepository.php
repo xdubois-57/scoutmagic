@@ -127,9 +127,10 @@ final class MailProbeRepository
      */
     public function pending(): array
     {
-        $statement = $this->pdo->query($this->selectClause() . ' WHERE verdict IS NULL ORDER BY id DESC');
+        $statement = $this->pdo->prepare($this->selectClause() . ' WHERE verdict IS NULL ORDER BY id DESC');
+        $statement->execute();
 
-        return $statement === false ? [] : $this->hydrateAll($statement->fetchAll(PDO::FETCH_ASSOC));
+        return $this->hydrateAll($statement->fetchAll(PDO::FETCH_ASSOC));
     }
 
     /**
@@ -139,7 +140,14 @@ final class MailProbeRepository
      */
     public function recent(int $limit = self::RECENT_LIMIT): array
     {
-        $statement = $this->pdo->prepare($this->selectClause() . ' ORDER BY id DESC LIMIT ' . max(1, $limit));
+        // Bound, not concatenated. The value is an int this class
+        // controls, so there is no live injection here — but « prepared
+        // unless the value looked safe » is the rule that eventually
+        // meets a value somebody else chose, and the repository already
+        // binds its limits this way (Core\Notification\
+        // NotificationRepository, Core\Scheduler\SchedulerRepository).
+        $statement = $this->pdo->prepare($this->selectClause() . ' ORDER BY id DESC LIMIT ?');
+        $statement->bindValue(1, max(1, $limit), PDO::PARAM_INT);
         $statement->execute();
 
         return $this->hydrateAll($statement->fetchAll(PDO::FETCH_ASSOC));
@@ -148,9 +156,10 @@ final class MailProbeRepository
     /** How many runs are on file, whatever the screen shows of them. */
     public function count(): int
     {
-        $statement = $this->pdo->query('SELECT COUNT(*) FROM mail_probes');
+        $statement = $this->pdo->prepare('SELECT COUNT(*) FROM mail_probes');
+        $statement->execute();
 
-        return $statement === false ? 0 : (int) $statement->fetchColumn();
+        return (int) $statement->fetchColumn();
     }
 
     private function selectClause(): string

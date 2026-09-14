@@ -327,9 +327,12 @@ documentation is a rule read after the mistake.
 The **historique** shows the destination, which no other outbound-mail
 surface does. It is the address the operator typed one minute ago, and
 the comparison the table exists for — same recipient, two relays, two
-verdicts — cannot be made without it. It stays out of the journal and out
-of the support package all the same, because those are read elsewhere and
-kept far longer.
+verdicts — cannot be made without it. **The destination** is what stays
+out of the journal and out of the support package: the archive does carry
+the probe history, road and verdict per line, because « par quels chemins
+cette unité a-t-elle testé » is a question support has to answer — it
+carries no address, because those two files are read elsewhere and kept
+far longer.
 
 And the page carries its own **absence of a feature**, in a card: there
 is no automatic repeat, because a test message that lands in the spam

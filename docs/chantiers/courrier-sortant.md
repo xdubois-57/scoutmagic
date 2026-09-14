@@ -1226,7 +1226,7 @@ regarder. Tout le reste de l'écran découle de ça.
 
 ### Livré
 
-`/config/courrier-sortant/sonde` envoie un message **identique à un vrai
+`/config/courrier-sortant/sonde` envoie un message **bâti comme un vrai
 envoi de l'unité** — cadre `email/base.html.twig`, expéditeur affiché,
 signature DKIM, les deux moitiés du multipart — vers une destination
 libre, **par un fournisseur choisi et par lui seul**, sur une voie
@@ -1305,7 +1305,10 @@ que rien n'appliquait, et qui produisait de vraies erreurs `Unknown
 column` en production. Le schéma déclaré entier est migré comme un tout.
 J'ai suivi AGENTS.md, qui est la règle non négociable du dépôt.
 
-**`List-Unsubscribe` : presque identique, pas identique.** Un vrai
+**Le contrat exact : « bâti comme un vrai envoi », pas « identique ».**
+La différence tient en un en-tête, et elle est nommée plutôt que
+sous-entendue — un mot absolu dans une documentation est un mot que
+quelqu'un cite six mois plus tard contre le code. Un vrai
 publipostage porte l'en-tête sous sa forme URL à un clic, construite avec
 le jeton du destinataire — qu'une sonde n'a pas, et un lien fabriqué qui
 répondrait 404 serait pire que rien. L'omettre n'est pas neutre non plus :

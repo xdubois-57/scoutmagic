@@ -75,7 +75,7 @@
         <div class="card-body">
             <h2 class="h5">Envoyer une sonde</h2>
             <p class="text-body-secondary small">
-                Un message identique à un vrai envoi de l'unité — même mise en page, même expéditeur
+                Un message bâti comme un vrai envoi de l'unité — même mise en page, même expéditeur
                 affiché, même signature DKIM — par le chemin de votre choix. Un message dépouillé serait
                 classé autrement, et vous mesureriez alors autre chose que ce que vous envoyez.
             </p>
@@ -89,43 +89,56 @@
                 <form method="post" action="{{ send_url }}">
                     {{ csrf_field()|raw }}
 
+                    {#
+                      Through partials/form_field.html.twig, like the
+                      provider form two tabs over. The help texts are the
+                      reason it matters here rather than a style point:
+                      written by hand they are a <div> nothing points at,
+                      so a screen reader announces the label and stops —
+                      and on this page the help text carries the whole
+                      instruction (« par celui-là et par aucun autre »,
+                      « l'adresse témoin d'un service extérieur »).
+                    #}
                     <div class="row g-3">
                         <div class="col-md-6">
-                            <label for="probe-destination" class="form-label">Destination</label>
-                            <input type="email" class="form-control" id="probe-destination" name="destination"
-                                   required autocomplete="off" placeholder="vous@exemple.be">
-                            <div class="form-text">
-                                Votre propre adresse chez un grand fournisseur en dit déjà long. Vous pouvez
-                                aussi coller ici l'adresse témoin d'un service d'analyse extérieur : ces
-                                services donnent un verdict chez plusieurs fournisseurs d'un coup, c'est
-                                gratuit et cela ne demande aucune installation.
-                            </div>
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'probe-destination',
+                                field_name: 'destination',
+                                label: 'Destination',
+                                type: 'email',
+                                required: true,
+                                autocomplete: 'off',
+                                placeholder: 'vous@exemple.be',
+                                help: "Votre propre adresse chez un grand fournisseur en dit déjà long. Vous
+                                       pouvez aussi coller ici l'adresse témoin d'un service d'analyse
+                                       extérieur : ces services donnent un verdict chez plusieurs
+                                       fournisseurs d'un coup, c'est gratuit et cela ne demande aucune
+                                       installation.",
+                            } only %}
                         </div>
 
                         <div class="col-md-3">
-                            <label for="probe-provider" class="form-label">Fournisseur</label>
-                            <select class="form-select" id="probe-provider" name="provider_id" required>
-                                {% for provider in providers %}
-                                    <option value="{{ provider.id }}">{{ provider.name }}</option>
-                                {% endfor %}
-                            </select>
-                            <div class="form-text">Le message part par celui-là, et par aucun autre.</div>
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'probe-provider',
+                                field_name: 'provider_id',
+                                label: 'Fournisseur',
+                                type: 'select',
+                                required: true,
+                                options: provider_options,
+                                help: 'Le message part par celui-là, et par aucun autre.',
+                            } only %}
                         </div>
 
                         <div class="col-md-3">
-                            <label for="probe-lane" class="form-label">Voie</label>
-                            <select class="form-select" id="probe-lane" name="lane">
-                                {% for lane in lanes %}
-                                    <option value="{{ lane.value }}"
-                                            {% if lane.value == default_lane %}selected{% endif %}>
-                                        {{ lane.label }}
-                                    </option>
-                                {% endfor %}
-                            </select>
-                            <div class="form-text">
-                                « Masse » par défaut : c'est celle qui pose problème. Tester la voie
-                                d'authentification mesurerait ce qui n'échoue jamais.
-                            </div>
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'probe-lane',
+                                field_name: 'lane',
+                                label: 'Voie',
+                                type: 'select',
+                                options: lane_options,
+                                help: "« Masse » par défaut : c'est la voie la plus exposée au tri. Les
+                                       autres sont là pour comparer quand vous en avez besoin.",
+                            } only %}
                         </div>
                     </div>
 

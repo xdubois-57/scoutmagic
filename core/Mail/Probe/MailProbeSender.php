@@ -96,6 +96,9 @@ final class MailProbeSender
      *   is NOT recorded: a row with no verdict would sit in the history
      *   for ever waiting for an answer nobody can give, and « jamais
      *   reçu » would then mean two different things in one column.
+     * @throws MailProbeNotRecordedException when the message DID leave and
+     *   the history could not be told — neither a success nor a failure,
+     *   and the one outcome a retry would make worse.
      */
     public function send(
         string $destination,
@@ -149,7 +152,24 @@ final class MailProbeSender
             );
         }
 
-        $id = $this->probes->record($code, $destination, $provider->id, $provider->name, $lane, $now);
+        // **The message is gone from here on**, so nothing below may
+        // report it as unsent. `record()` runs after the send and has to
+        // — a row for a message that never left would wait for ever for a
+        // verdict nobody can give — which leaves this narrow window where
+        // the relay accepted the probe and the database refuses the
+        // insert. Saying « elle n'a pas pu partir » there would be false
+        // twice: the message is on its way, and the operator would press
+        // the button again and send a duplicate.
+        try {
+            $id = $this->probes->record($code, $destination, $provider->id, $provider->name, $lane, $now);
+        } catch (\Throwable $e) {
+            // Tried anyway: the journal has its own storage and its own
+            // swallowed failure, so on a partial outage this may be the
+            // only durable trace that the message left.
+            $this->journalSent($code, $provider, $lane);
+
+            throw new MailProbeNotRecordedException($code, $e);
+        }
 
         $this->journalSent($code, $provider, $lane);
 

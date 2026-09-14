@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Mail\Probe;
 
+use Core\Exception\UserFacingException;
+
 /**
  * A probe that could not be sent, or a verdict that could not be
  * recorded (roadmap IT-04).
@@ -17,7 +19,16 @@ namespace Core\Mail\Probe;
  * technical, and quite capable of quoting the recipient's address back.
  * The cause is chained for the journal; what the operator reads is the
  * sentence written here.
+ *
+ * `Core\Exception\UserFacingException` is what makes that a contract
+ * rather than a claim in a comment: it is the marker the codebase uses to
+ * say « this message may be shown as written », and a class whose
+ * docblock promised it without implementing it was promising nothing.
+ *
+ * Not `final`, because {@see MailProbeNotRecordedException} narrows it:
+ * the two need one `catch` in the controller and two different sentences
+ * on the screen.
  */
-final class MailProbeException extends \RuntimeException
+class MailProbeException extends \RuntimeException implements UserFacingException
 {
 }
