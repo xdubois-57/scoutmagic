@@ -61,6 +61,31 @@
             </div>
         {% endfor %}
 
+        {# **What no archive covers.** A separate line from « en erreur »
+           because it is a different kind of trouble: an unreachable
+           location is a fault to correct today, an unprotected one is a
+           state of affairs to decide about. Both belong in « État », and
+           an administrator who reads only this card has to come away
+           knowing both.
+
+           Today this is every declared location — D10 took all of them
+           out of every archive — so the sentence says so rather than
+           listing the same names the page already shows twice. IT-04 is
+           what turns it into a real filter. #}
+        {% if unprotected is not empty %}
+            <div class="card-body border-bottom">
+                <p class="small text-body-secondary mb-1">
+                    <i class="bi bi-shield-exclamation text-warning" aria-hidden="true"></i>
+                    <span class="fw-medium">Aucune archive ne reprend le contenu d'un emplacement de stockage.</span>
+                </p>
+                <p class="small text-body-secondary mb-0">
+                    {{ unprotected|length ~ (unprotected|length == 1 ? ' emplacement est concerné' : ' emplacements sont concernés') }} :
+                    {{ unprotected|map(l => l.label)|join(', ') }}.
+                    Une sauvegarde restaurée rendra les fiches, pas les fichiers.
+                </p>
+            </div>
+        {% endif %}
+
         <div class="card-body">
             <div class="text-uppercase small fw-semibold text-body-secondary mb-2">Usages</div>
             {% for row in usages %}

@@ -46,7 +46,6 @@ use Core\File\FileRepository;
  */
 final class BackupRetention
 {
-
     public function __construct(
         private readonly BackupRepository $backups,
         private readonly FileRepository $files,
@@ -59,16 +58,9 @@ final class BackupRetention
     /**
      * Enforces retention after a backup of `$createdType` has been written.
      *
-     * Two rules, in order. The family's own quota first — the family of
-     * the row just created, and no other, so a scheduled backup never
-     * evicts a manual one. Then the gallery cap, which by its nature reads
-     * every family at once.
-     *
-     * The gallery cap runs after every creation rather than only after a
-     * gallery one, and that is a deliberate reading of "at creation": a
-     * second gallery archive can only exist because somebody made one, and
-     * an installation that already had two when this shipped should not
-     * have to make a third before the cap notices.
+     * One rule since D10 (see the class docblock): the family's own
+     * quota — the family of the row just created, and no other, so a
+     * scheduled backup never evicts a manual one.
      */
     public function purgeAfterCreating(string $createdType): void
     {
@@ -98,17 +90,17 @@ final class BackupRetention
      * on it.
      *
      * **The automatic purge needs the same refusal the delete button
-     * has**, and it needs it more since IT-04 put `auto_reset` under the
-     * gallery cap: a restore takes a gallery-bearing safety copy, and one
-     * manual gallery backup taken while that restore is running would
-     * otherwise evict the only thing its rollback can start from —
-     * silently, with nobody having asked for anything to be deleted. The
-     * refusal is not about the gallery, though, and outlived the case
-     * that motivated it: an `auto_update` copy holds no gallery since
-     * issue #298 and is still protected, because the family quota can
-     * evict just as quietly.
+     * has.** The case that motivated it was the gallery cap — a restore
+     * took a gallery-bearing safety copy, and one manual gallery backup
+     * made while that restore was running evicted the only thing its
+     * rollback could start from, silently and with nobody having asked
+     * for anything to be deleted. The cap is gone with D10 and the
+     * refusal outlived it, because it was never about the gallery: an
+     * `auto_update` copy has held no gallery since issue #298 and is
+     * still protected, because the family quota can evict just as
+     * quietly.
      *
-     * A protected row is **skipped, not deferred**: the cap is exceeded
+     * A protected row is **skipped, not deferred**: the quota is exceeded
      * by one until the operation ends and the next creation purges it.
      * That overshoot lasts minutes and costs one archive; the alternative
      * costs an installation its way back.

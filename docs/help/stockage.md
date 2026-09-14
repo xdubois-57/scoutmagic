@@ -40,21 +40,22 @@ raisonnable et ne demande aucune configuration. Un stockage externe
 devient intéressant quand les photos dépassent ce que l'hébergement peut
 porter.
 
-## Un dossier ailleurs sur le serveur
+## Ce qu'aucune sauvegarde ne reprend
 
-Un emplacement local vise un simple sous-dossier du site, ou un **chemin
-absolu** — un disque réseau, un second disque. Dans ce second cas, le
-site vous prévient au moment où vous saisissez le chemin : ce dossier
-n'est pas effacé par une réinitialisation complète, et son contenu n'est
-repris dans aucune archive de sauvegarde.
+**Le contenu d'un emplacement n'est repris dans aucune archive**, où
+qu'il soit — y compris un simple sous-dossier du site. Une
+réinitialisation complète ne l'efface pas non plus.
 
 Les deux moitiés comptent. Ne pas être effacé est une protection ; ne
-pas être dans les archives veut dire que ce dossier a besoin de sa
+pas être dans les archives veut dire que cet emplacement a besoin de sa
 propre copie de secours.
 
-Un dossier situé dans la partie du site servie par le serveur web est
-refusé : tout ce qui y serait déposé deviendrait téléchargeable par
-n'importe qui, sans aucun contrôle.
+## Un dossier ailleurs sur le serveur
+
+Un emplacement local vise un sous-dossier du site, ou un **chemin
+absolu** — un disque réseau, un second disque. Un dossier situé dans la
+partie servie par le serveur web est refusé : tout ce qui y serait
+déposé deviendrait téléchargeable par n'importe qui, sans contrôle.
 
 ## Tester un emplacement
 

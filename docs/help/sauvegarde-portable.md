@@ -75,6 +75,6 @@ un endroit dont vous vous souviendrez.
 
 ## Ce qu'elle ne contient pas
 
-La galerie photo. C'est l'archive faite pour partir, et les photos sont
-ce qui la rendrait trop lourde pour ça — sauvegardez-les à part si vous
-y tenez.
+Le contenu des emplacements de stockage, la galerie photo comprise.
+C'est l'archive faite pour partir, et les fichiers sont ce qui la
+rendrait trop lourde pour ça — sauvegardez-les à part si vous y tenez.
