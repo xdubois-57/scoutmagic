@@ -124,11 +124,9 @@ class StorageLocationRepository
         // SQLite, which some of the tests run on, has no `FOR UPDATE` and
         // needs none — it serialises writers itself — so the clause is
         // added only for the engines that have it.
-        $forUpdate = $this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'sqlite' ? '' : ' FOR UPDATE';
-
         $this->pdo->beginTransaction();
         try {
-            $count = $this->pdo->prepare('SELECT COUNT(*) FROM storage_locations' . $forUpdate);
+            $count = $this->pdo->prepare('SELECT COUNT(*) FROM storage_locations' . $this->forUpdate());
             $count->execute();
             $isFirst = (int) $count->fetchColumn() === 0;
 
@@ -305,14 +303,44 @@ class StorageLocationRepository
         }
     }
 
-    /** Whether this row carries the default flag, read inside the open transaction. */
+    /**
+     * Whether this row carries the default flag — read inside the open
+     * transaction, and **locked**.
+     *
+     * A plain `SELECT` would not do, for the reason {@see create()}'s own
+     * docblock gives: under REPEATABLE READ it reads a snapshot and takes
+     * no lock, so a concurrent transaction could delete or re-flag this
+     * row between the read and the promotion that depends on it. Two
+     * concurrent deletions could then agree that neither needs to promote
+     * anybody, and leave the table with no default at all — the very state
+     * this class exists to keep unobservable.
+     *
+     * {@see setDefault()}'s own read needs no such clause: it runs after
+     * that method's blanket `UPDATE … SET is_default = 0`, which has
+     * already taken an exclusive lock on every row of the table in the
+     * same transaction. This one has no preceding write to inherit from.
+     */
     private function isDefaultWithin(int $id): bool
     {
-        $stmt = $this->pdo->prepare('SELECT is_default FROM storage_locations WHERE id = ?');
+        $stmt = $this->pdo->prepare(
+            'SELECT is_default FROM storage_locations WHERE id = ?' . $this->forUpdate()
+        );
         $stmt->execute([$id]);
         $flag = $stmt->fetchColumn();
 
         return $flag !== false && (int) $flag === 1;
+    }
+
+    /**
+     * ` FOR UPDATE`, or nothing on SQLite.
+     *
+     * SQLite has no such clause and needs none — it serialises writers
+     * itself. Every other engine this runs on needs it wherever a read
+     * decides what a later write in the same transaction will do.
+     */
+    private function forUpdate(): string
+    {
+        return $this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'sqlite' ? '' : ' FOR UPDATE';
     }
 
     public function recordCheckResult(int $id, bool $ok, ?string $error): void

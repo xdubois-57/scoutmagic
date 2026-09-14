@@ -465,6 +465,24 @@ albums délégués d'une installation mise à jour, pas un cas limite.
 argument puisque la question porte sur l'emplacement qu'on s'apprête à
 faire devenir le défaut.
 
+**Et la lecture qui décide de la promotion ne verrouillait pas.** Le
+docblock de `create()` explique pourquoi une transaction ne suffit pas —
+sous REPEATABLE READ un `SELECT` nu lit un instantané et ne pose aucun
+verrou — et `delete()` faisait exactement cela pour savoir si la ligne
+supprimée portait le drapeau. Un `setDefault()` concurrent pouvait
+déplacer le drapeau entre cette lecture et la promotion qui en dépend, et
+deux lignes se retrouvaient marquées. `isDefaultWithin()` verrouille donc
+sa lecture, et la clause est factorisée pour que les deux endroits qui en
+ont besoin la prennent au même endroit. `setDefault()`, lui, n'en a pas
+besoin : sa lecture suit son propre `UPDATE … SET is_default = 0`, qui a
+déjà verrouillé toutes les lignes de la table dans la même transaction.
+
+L'entrelacement lui-même n'est pas atteignable depuis un test — il
+faudrait glisser une seconde transaction entre deux instructions de
+`delete()` — et le test ajouté le dit : il épingle le mécanisme (la
+lecture verrouillée fait bien attendre un écrivain concurrent sur le vrai
+moteur), pas le scénario.
+
 **Et un refus de capacité ne nommait pas l'emplacement.** Le seul appel
 réel en production, dans la fusion de deux albums délégués, disait « cet
 album » — or ce qu'un administrateur peut aller re-pointer, c'est un

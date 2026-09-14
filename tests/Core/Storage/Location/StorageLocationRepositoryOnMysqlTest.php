@@ -32,20 +32,7 @@ class StorageLocationRepositoryOnMysqlTest extends TestCase
 
     protected function setUp(): void
     {
-        $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
-        $port = (int) (getenv('TEST_DB_PORT') ?: 3306);
-        $dbName = getenv('TEST_DB_NAME') ?: 'test_db';
-
-        try {
-            $this->pdo = new \PDO(
-                "mysql:host={$host};port={$port};dbname={$dbName}",
-                getenv('TEST_DB_USER') ?: 'root',
-                getenv('TEST_DB_PASSWORD') ?: '',
-                [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
-            );
-        } catch (\PDOException $e) {
-            $this->markTestSkipped('Database connection not available: ' . $e->getMessage());
-        }
+        $this->pdo = $this->connect();
 
         // The shared test database is not migrated, so the table is
         // created here from `schema/core.sql` itself — which also means
@@ -67,6 +54,24 @@ class StorageLocationRepositoryOnMysqlTest extends TestCase
             $this->pdo,
             new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
         );
+    }
+
+    private function connect(): \PDO
+    {
+        $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
+        $port = (int) (getenv('TEST_DB_PORT') ?: 3306);
+        $dbName = getenv('TEST_DB_NAME') ?: 'test_db';
+
+        try {
+            return new \PDO(
+                "mysql:host={$host};port={$port};dbname={$dbName}",
+                getenv('TEST_DB_USER') ?: 'root',
+                getenv('TEST_DB_PASSWORD') ?: '',
+                [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
+            );
+        } catch (\PDOException $e) {
+            $this->markTestSkipped('Database connection not available: ' . $e->getMessage());
+        }
     }
 
     protected function tearDown(): void
@@ -148,6 +153,65 @@ class StorageLocationRepositoryOnMysqlTest extends TestCase
 
             $this->assertTrue($this->repository->findById($first)?->isDefault);
         } finally {
+            $this->repository->delete($first);
+        }
+    }
+
+    public function testTheLockingReadDeleteIssuesMakesAConcurrentWriterWait(): void
+    {
+        // What this pins, and what it does not.
+        //
+        // `delete()` reads whether the row is the default and then, on the
+        // strength of that answer, promotes a successor. Under REPEATABLE
+        // READ a plain SELECT reads a snapshot: a concurrent `setDefault()`
+        // could move the flag between the read and the promotion, and both
+        // rows would end up flagged. `FOR UPDATE` is what serialises the
+        // two.
+        //
+        // That interleaving is NOT reachable from a test: the race needs a
+        // second transaction driven between two statements inside
+        // `delete()`, and nothing can get in there without instrumenting
+        // the method. So this pins the mechanism instead — that the
+        // statement `delete()` now issues really does take a row lock a
+        // concurrent writer has to wait for, on the engine that matters.
+        // The correctness of the scenario rests on the isolation
+        // semantics, not on this assertion.
+        $first = $this->repository->create(
+            StorageLocationType::Local,
+            'Premier ' . bin2hex(random_bytes(4)),
+            new LocalLocationConfig('gallery'),
+            null
+        );
+        $second = $this->repository->create(
+            StorageLocationType::Local,
+            'Second ' . bin2hex(random_bytes(4)),
+            new LocalLocationConfig('autre'),
+            null
+        );
+
+        $other = $this->connect();
+        $other->exec('SET SESSION innodb_lock_wait_timeout = 1');
+
+        // The statement is spelled exactly as StorageLocationRepository::
+        // isDefaultWithin() spells it — if that method loses its clause,
+        // this test keeps passing, which is precisely the limit stated
+        // above.
+        $this->pdo->beginTransaction();
+        $held = $this->pdo->prepare('SELECT is_default FROM storage_locations WHERE id = ? FOR UPDATE');
+        $held->execute([$first]);
+        $held->fetchColumn();
+
+        try {
+            $blocked = $other->prepare('UPDATE storage_locations SET is_default = 0 WHERE id = ?');
+            $blocked->execute([$first]);
+            $this->fail('A second writer reached the row this transaction had locked.');
+        } catch (\PDOException $e) {
+            // 1205 = lock wait timeout. That the second writer had to wait
+            // at all is the whole assertion.
+            $this->assertSame('1205', (string) ($e->errorInfo[1] ?? ''), $e->getMessage());
+        } finally {
+            $this->pdo->rollBack();
+            $this->repository->delete($second);
             $this->repository->delete($first);
         }
     }
