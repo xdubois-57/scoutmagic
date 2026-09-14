@@ -603,23 +603,35 @@ final class GoogleDriveClient
     }
 
     /**
-     * Asks Google how much of this file it already holds.
+     * Asks Google how much of this file it already holds — or answers
+     * **null when the session no longer exists**.
      *
      * **The question after a failure, instead of sending it all again.**
-     * A run that died mid-chunk — the process was killed, the link
-     * dropped — leaves this application unsure how much arrived, and
-     * guessing either resends what was received or skips what was not.
-     * An empty `PUT` with `Content-Range: bytes * / total` is the
-     * protocol's way of asking, and the answer is authoritative in a way
-     * no local bookkeeping can be.
+     * A run that died mid-chunk leaves this application unsure how much
+     * arrived, and guessing either resends what was received or skips
+     * what was not. An empty `PUT` with `Content-Range: bytes * / total`
+     * is the protocol's way of asking, and the answer is authoritative in
+     * a way no local bookkeeping can be.
      *
      * A 2xx here means the file is in fact already complete — the last
      * chunk landed and only the answer was lost — which is a resume that
      * has nothing left to do rather than an error.
      *
-     * @throws DriveAccessException
+     * **Null is an answer, and separating it from a refusal is the whole
+     * point of this signature.** A session Google has forgotten (404, or
+     * 410 once it has been cancelled) is *no transfer at all*: the caller
+     * has to throw the note away and open a fresh one. Every other
+     * failure — a 5xx, a rate limit, a cURL error on this one status
+     * query — is a transfer that is still there and still resumable, and
+     * it travels as an exception so the caller leaves it alone. Reading
+     * the two alike is what would let a single network hiccup destroy the
+     * resume state of a multi-gibibyte upload and send it again from byte
+     * zero, which is precisely what this class exists to avoid.
+     *
+     * @throws DriveAccessException when the session may still be good and
+     *         the question simply could not be answered
      */
-    public function probeUpload(string $sessionUrl, int $size): DriveUpload
+    public function probeUpload(string $sessionUrl, int $size): ?DriveUpload
     {
         $response = $this->send('PUT', $sessionUrl, [
             'Content-Length' => '0',
@@ -631,6 +643,9 @@ final class GoogleDriveClient
         }
         if ($response['status'] >= 200 && $response['status'] < 300) {
             return DriveUpload::completed($sessionUrl, $this->acceptedFileId($response));
+        }
+        if ($response['status'] === 404 || $response['status'] === 410) {
+            return null;
         }
 
         throw $this->errorFor($response, 'Google Drive n\'a pas dit où reprendre l\'envoi.');

@@ -504,14 +504,22 @@ final class GoogleDriveBackend implements ResumableUploadBackend, QuotaReporting
             return $session['total'];
         }
 
-        try {
-            $upload = $this->client->probeUpload($session['session'], $session['total']);
-        } catch (DriveAccessException) {
-            // A session Google no longer knows about — expired, cancelled
-            // — is not an offset of zero on a live transfer: it is no
-            // transfer at all. Throwing the note away is what lets the
-            // next call open a fresh session instead of appending to a
-            // URI that answers nothing.
+        // **Only « the session is gone » throws the note away, and every
+        // other failure travels.** A session Google no longer knows about
+        // is not an offset of zero on a live transfer — it is no transfer
+        // at all — so the note has to go or the next call would append to
+        // a URI that answers nothing. But a 5xx, a rate limit or a cURL
+        // error on this one status query says nothing about the transfer:
+        // it is still there and still resumable. Treating the two alike
+        // let a single network hiccup destroy the resume state of a
+        // multi-gibibyte upload and send the whole thing again from byte
+        // zero, which is the one cost this class exists to avoid. The
+        // client keeps them apart ({@see GoogleDriveClient::probeUpload()}
+        // answers null for the first and throws for the second), so the
+        // exception is deliberately NOT caught here: the run fails, the
+        // scheduler comes back, and the transfer picks up where it was.
+        $upload = $this->client->probeUpload($session['session'], $session['total']);
+        if ($upload === null) {
             $this->discardPartial($key);
 
             return 0;
@@ -573,7 +581,7 @@ final class GoogleDriveBackend implements ResumableUploadBackend, QuotaReporting
         // every slice would double the requests to learn what the previous
         // one just said. The probe is for the case that answer was never
         // seen: a run resuming a session another run opened.
-        $offset = $session['offset'] ?? $this->client->probeUpload($session['session'], $session['total'])->offset;
+        $offset = $session['offset'] ?? $this->probedOffset($session);
         $start = $offset;
         $end = $offset + strlen($chunk);
 
@@ -636,7 +644,7 @@ final class GoogleDriveBackend implements ResumableUploadBackend, QuotaReporting
         $fileId = $session['fileId'];
         if ($fileId === '') {
             $upload = $this->client->probeUpload($session['session'], $session['total']);
-            if (!$upload->isComplete()) {
+            if ($upload === null || !$upload->isComplete()) {
                 throw new \RuntimeException("Partial upload is not finished for: {$key}");
             }
             $fileId = $upload->fileId;
@@ -663,6 +671,26 @@ final class GoogleDriveBackend implements ResumableUploadBackend, QuotaReporting
             $this->client->cancelUpload($session['session']);
         }
         $this->forgetPartial($key);
+    }
+
+    /**
+     * Where a session this instance has not asked about yet stands.
+     *
+     * A session Google has forgotten cannot be appended to, so it is a
+     * refusal here rather than the null {@see partialSize()} turns into a
+     * fresh start: this method is reached with bytes in hand and a caller
+     * that believes a transfer is under way.
+     *
+     * @param array{session: string, total: int, offset: ?int, fileId: string} $session
+     */
+    private function probedOffset(array $session): int
+    {
+        $upload = $this->client->probeUpload($session['session'], $session['total']);
+        if ($upload === null) {
+            throw new \RuntimeException('The upload session no longer exists at the destination.');
+        }
+
+        return $upload->offset;
     }
 
     /**
@@ -719,15 +747,23 @@ final class GoogleDriveBackend implements ResumableUploadBackend, QuotaReporting
      */
     private function readPartial(string $key): ?array
     {
-        try {
-            $file = $this->metadataFor($this->partialKey($key));
-            if ($file === null) {
-                return null;
-            }
-            $raw = json_decode($this->client->download($this->accessToken(), $file['id']), true);
-        } catch (\Throwable) {
+        // **Nothing is caught here, and that is the fix rather than an
+        // omission.** Null out of this method means « there is no
+        // transfer under this key », which every caller turns into
+        // starting a fresh one — so swallowing a 5xx or a cURL error on
+        // the lookup would make a passing network failure indistinguishable
+        // from an upload that was never opened, and send a multi-gibibyte
+        // archive again from byte zero. A destination that cannot be
+        // asked is a run that fails and comes back, not a transfer that
+        // never existed. The one thing that IS tolerated is a note whose
+        // CONTENT does not parse, below: that object is this class's own,
+        // and an unreadable one describes no session anybody can resume.
+        $file = $this->metadataFor($this->partialKey($key));
+        if ($file === null) {
             return null;
         }
+
+        $raw = json_decode($this->client->download($this->accessToken(), $file['id']), true);
 
         $session = is_array($raw) && is_string($raw['session'] ?? null) ? $raw['session'] : '';
         $total = is_array($raw) ? (int) ($raw['total'] ?? 0) : 0;

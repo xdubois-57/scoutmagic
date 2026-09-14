@@ -279,6 +279,82 @@ final class GoogleDriveBackendTest extends TestCase
         );
     }
 
+    /**
+     * **A blip on the status query must not destroy the transfer.**
+     *
+     * The question « how far did it get » can fail for reasons that say
+     * nothing about the transfer: a 5xx, a rate limit, a cURL error on
+     * that one request. Reading those as « the session is gone » throws
+     * the note away, and the next run then opens a fresh transfer and
+     * pushes a multi-gibibyte archive again from byte zero — the one cost
+     * this whole design exists to avoid, paid for a network hiccup.
+     *
+     * Only a session the destination genuinely no longer has (404, 410)
+     * is a fresh start; everything else travels as an exception, and the
+     * scheduler comes back to the same transfer.
+     */
+    public function testATransientFailureOnTheProbeLeavesTheTransferIntact(): void
+    {
+        $limit = GoogleDriveBackend::BUFFERED_UPLOAD_LIMIT_BYTES;
+        $backend = $this->backend();
+        $backend->beginPartial('archive.zip', $limit + 1024);
+        $backend->appendToPartial('archive.zip', str_repeat('a', $limit));
+
+        // This instance already holds the session, so `partialSize()`
+        // goes straight to the probe — the request the failure lands on.
+        $this->drive->failNextWith = 503;
+
+        try {
+            $backend->partialSize('archive.zip');
+            $this->fail('a transient failure was read as a session that no longer exists');
+        } catch (DriveAccessException) {
+            // The run fails, which is the point: nothing was thrown away.
+        }
+
+        $this->assertNotSame([], $this->drive->sessions, 'the session was cancelled over a passing failure');
+        $this->assertSame($limit, $backend->partialSize('archive.zip'), 'the transfer did not survive the blip');
+    }
+
+    /**
+     * **And the same for the lookup that finds the note.**
+     *
+     * `readPartial()` answering null means « there is no transfer under
+     * this key », which every caller turns into starting a fresh one — so
+     * a swallowed failure there has exactly the consequence above, one
+     * layer earlier and with nothing in the folder to show for it.
+     */
+    public function testATransientFailureFindingTheNoteIsNotReadAsNoTransferAtAll(): void
+    {
+        $limit = GoogleDriveBackend::BUFFERED_UPLOAD_LIMIT_BYTES;
+        $one = $this->backend();
+        $one->beginPartial('archive.zip', $limit + 1024);
+        $one->appendToPartial('archive.zip', str_repeat('a', $limit));
+
+        // A fresh run, with nothing in memory: it has to find the note.
+        $two = $this->backend();
+        // Warm the token refresh so the induced failure lands on the
+        // lookup itself rather than on the request before it.
+        $two->exists('chauffe.txt');
+        $this->drive->failNextWith = 503;
+
+        try {
+            $two->partialSize('archive.zip');
+            $this->fail('a destination that could not be asked was read as one holding nothing');
+        } catch (DriveAccessException) {
+            // As above: the run fails and comes back.
+        }
+
+        $this->assertContains(
+            '.scoutmagic-part-' . sha1('archive.zip') . '.json',
+            $this->drive->names(),
+            'the note that makes the transfer resumable was deleted'
+        );
+
+        // And the next run really does pick it back up where it was.
+        $three = $this->backend();
+        $this->assertSame($limit, $three->partialSize('archive.zip'));
+    }
+
     public function testAnAbandonedUploadIsCancelledAtTheDestination(): void
     {
         $limit = GoogleDriveBackend::BUFFERED_UPLOAD_LIMIT_BYTES;

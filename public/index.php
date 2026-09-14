@@ -4069,7 +4069,7 @@ $router->addRoute(
     'superadmin',
 );
 
-// Raccorder un compte Google Drive à un emplacement (IT-05).
+// Connecting a Google Drive account to a location (IT-05).
 //
 // **`superadmin`, like every other route on this page**, and the callback
 // is not an exception to it: it arrives as a redirect from Google rather

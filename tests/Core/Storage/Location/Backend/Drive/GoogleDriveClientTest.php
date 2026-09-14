@@ -780,6 +780,7 @@ final class GoogleDriveClientTest extends TestCase
         $upload = $client->probeUpload('https://upload.example/s1', 10_000);
 
         $this->assertSame(['bytes */10000'], $asked);
+        $this->assertNotNull($upload);
         $this->assertFalse($upload->isComplete());
         $this->assertSame(4096, $upload->offset);
     }
@@ -795,8 +796,43 @@ final class GoogleDriveClientTest extends TestCase
 
         $upload = $client->probeUpload('https://upload.example/s1', 10_000);
 
+        $this->assertNotNull($upload);
         $this->assertTrue($upload->isComplete());
         $this->assertSame('drive-file-9', $upload->fileId);
+    }
+
+    /**
+     * **A session Google no longer has is null, and a session it merely
+     * could not answer about is an exception.**
+     *
+     * Everything downstream turns null into « open a fresh transfer »,
+     * which for a multi-gibibyte archive means sending it again from byte
+     * zero. So the two have to be told apart here, at the one place that
+     * sees the status code: 404 and 410 are a session that is genuinely
+     * gone; a 5xx, a rate limit or a transport error is a transfer that
+     * is still there and still resumable.
+     */
+    public function testAProbeSeparatesAGoneSessionFromOneItCouldNotAskAbout(): void
+    {
+        foreach ([404, 410] as $gone) {
+            $client = $this->clientAnswering(fn (): array => ['status' => $gone, 'body' => '{}']);
+
+            $this->assertNull(
+                $client->probeUpload('https://upload.example/s1', 10_000),
+                "a {$gone} is a session that no longer exists"
+            );
+        }
+
+        foreach ([429, 500, 503] as $transient) {
+            $client = $this->clientAnswering(fn (): array => ['status' => $transient, 'body' => '{}']);
+
+            try {
+                $client->probeUpload('https://upload.example/s1', 10_000);
+                $this->fail("a {$transient} was read as a session that no longer exists");
+            } catch (DriveAccessException $e) {
+                $this->assertStringContainsString('où reprendre l\'envoi', $e->getMessage());
+            }
+        }
     }
 
     private function fileOf(string $contents): string
