@@ -185,11 +185,11 @@ Everything dynamic in a template comes from a variable its declaration declares 
 ### 4.4 Courrier sortant: the screen
 
 One page, `/config/courrier-sortant`, on the sub-page rail every module
-page already uses (`partials/page_picker.html.twig`, §7.6). Four sub-pages
-today — **Tableau de bord**, **Authentification**, **Fournisseurs** and
-**Acheminement** — and the rail grows as the iterations that own the
-others land: an onglet pointing at a page that does not exist yet is a 404
-one click away.
+page already uses (`partials/page_picker.html.twig`, §7.6). Five sub-pages
+today — **Tableau de bord**, **Authentification**, **Fournisseurs**,
+**Acheminement** and **Sonde** — and the rail grows as the iterations
+that own the others land: an onglet pointing at a page that does not
+exist yet is a 404 one click away.
 
 **Tableau de bord took the section's own URL** and Fournisseurs moved
 under it, which is why the menu entry did not have to change: the first
@@ -296,6 +296,46 @@ accepted. Three green numbers otherwise read as « tout va bien » while a
 provider silently bins everything. On the dashboard it is not a footnote
 but its own block under the three lines, because that is the exact spot
 where somebody is about to conclude that everything is fine.
+
+**What IT-04 adds: the one screen whose instrument is a person.**
+
+**Sonde** is the only page in this section that cannot observe what it
+reports. Nobody can see inside another provider's spam folder from the
+outside, so the page sends a message and asks whoever opened the mailbox
+what they found. Everything about its layout follows from that: the
+verdict buttons sit at the TOP of the page when a probe is waiting,
+because the operator arrives having just looked; the form to send another
+is underneath, because sending is the thing they already did.
+
+Three choices and no more — destination, fournisseur, voie — and each
+carries the one sentence that makes the choice meanable. « Masse » is
+selected by default with the reason attached: it is the lane that has
+trouble, and testing the authentication lane would measure what never
+fails.
+
+**The message is built like a real one**, and the page says so, because a
+volunteer who assumed a test message is a stripped-down one would draw
+the wrong conclusion from a good result. Same frame, same visible sender,
+same DKIM signature.
+
+**« Ne le sortez pas des indésirables » is on the screen, not in the help
+topic.** It is the single instruction that can invalidate every future
+measurement, and the second somebody is about to disobey it is the second
+they are reading the verdict buttons. A rule that only lives in
+documentation is a rule read after the mistake.
+
+The **historique** shows the destination, which no other outbound-mail
+surface does. It is the address the operator typed one minute ago, and
+the comparison the table exists for — same recipient, two relays, two
+verdicts — cannot be made without it. It stays out of the journal and out
+of the support package all the same, because those are read elsewhere and
+kept far longer.
+
+And the page carries its own **absence of a feature**, in a card: there
+is no automatic repeat, because a test message that lands in the spam
+folder week after week teaches the receiver that this sender belongs
+there. An unexplained missing feature reads as an oversight somebody will
+helpfully add.
 
 ### 4.5 Stockage: the screen
 

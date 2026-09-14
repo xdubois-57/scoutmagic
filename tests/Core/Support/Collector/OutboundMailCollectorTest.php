@@ -56,6 +56,7 @@ class OutboundMailCollectorTest extends TestCase
     private ProviderHealthRepository $health;
     private DeferredMailRepository $deferred;
     private ReturnProbeRepository $returnProbes;
+    private \Core\Mail\Probe\MailProbeRepository $mailProbes;
     private ?InboundMailInterface $inboundMail = null;
 
     /** @var array<string, string> */
@@ -72,6 +73,7 @@ class OutboundMailCollectorTest extends TestCase
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $this->deferred = new DeferredMailRepository($this->pdo, $encryption);
         $this->returnProbes = new ReturnProbeRepository($this->pdo, $encryption);
+        $this->mailProbes = new \Core\Mail\Probe\MailProbeRepository($this->pdo, $encryption);
 
         $this->projectRoot = sys_get_temp_dir() . '/scoutmagic-outbound-' . bin2hex(random_bytes(6));
         $this->storagePath = $this->projectRoot . '/storage';
@@ -299,6 +301,60 @@ class OutboundMailCollectorTest extends TestCase
         $this->assertStringContainsString('PÉRIMÉE : les adresses ont changé depuis', $report);
     }
 
+    /**
+     * The archive answers « par quels chemins cette unité a-t-elle
+     * testé, et qu'est-ce que ça a donné » — which needs the road and
+     * the verdict, and not who was written to. The screen shows the
+     * destination because the person reading it typed it a minute ago;
+     * this file goes to a third party and is kept far longer.
+     */
+    public function testTheProbesAreReportedByRoadAndVerdictAndNeverByDestination(): void
+    {
+        $this->registerIdentity('info@unite.be', '');
+        $this->mailProbes->record(
+            'SM-ABC234',
+            'parent@exemple.be',
+            7,
+            'Brevo',
+            MailLane::Bulk,
+            new \DateTimeImmutable('2026-09-01 08:00:00')
+        );
+        $id = $this->mailProbes->record(
+            'SM-XYZ789',
+            'parent@exemple.be',
+            8,
+            'OVH',
+            MailLane::Bulk,
+            new \DateTimeImmutable('2026-09-01 09:00:00')
+        );
+        $this->mailProbes->recordVerdict(
+            $id,
+            \Core\Mail\Probe\MailProbeVerdict::Inbox,
+            new \DateTimeImmutable('2026-09-01 10:00:00')
+        );
+
+        $report = $this->collect();
+
+        $this->assertStringContainsString('── Sondes de délivrabilité', $report);
+        $this->assertStringContainsString('Brevo', $report);
+        $this->assertStringContainsString('OVH', $report);
+        $this->assertStringContainsString('Réception', $report);
+        // Sent, and nobody has said where it landed — a third state, not
+        // a missing value.
+        $this->assertStringContainsString('en attente', $report);
+        $this->assertStringNotContainsString('parent@exemple.be', $report);
+        // Nor the code, which is a handle on a row and says nothing an
+        // archive reader can use.
+        $this->assertStringNotContainsString('SM-ABC234', $report);
+    }
+
+    public function testAnInstallationThatHasNeverProbedSaysSo(): void
+    {
+        $this->registerIdentity('info@unite.be', '');
+
+        $this->assertStringContainsString('aucune sonde envoyée', $this->collect());
+    }
+
     public function testTheReturnVerificationIsReportedByRoleAndNeverByAddress(): void
     {
         $this->registerIdentity('info@unite.be', 'secretariat@unite.be');
@@ -482,7 +538,8 @@ class OutboundMailCollectorTest extends TestCase
             new DeferredMailQueue($this->deferred, $this->settings),
             $this->settings,
             $this->returnProbes,
-            $this->inboundMail
+            $this->inboundMail,
+            $this->mailProbes
         );
 
         $archivePath = $this->storagePath . '/temp/outbound-' . bin2hex(random_bytes(6)) . '.zip';

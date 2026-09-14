@@ -55,7 +55,7 @@ final class MailTransportFactory
      * @param MailTransportInterface|null $delivery The transport underneath
      *        — null keeps the ordinary `PhpMailerTransport`.
      * @return array{chain: MailTransportChain, directory: MailProviderDirectory,
-     *     connections: ProviderConnections}
+     *     connections: ProviderConnections, delivery: MailTransportInterface}
      */
     public static function build(
         PDO $pdo,
@@ -66,6 +66,14 @@ final class MailTransportFactory
         ?SecretManager $secretManager = null
     ): array {
         $connections = new ProviderConnections($secrets, $secretManager);
+        // Resolved once and handed back, because a second caller needing
+        // the transport UNDERNEATH the chain — the manual probe, which
+        // pins one relay and therefore cannot go through the chain at all
+        // — must get the one this installation actually uses. Spelling
+        // `?? new PhpMailerTransport()` a second time in a composition
+        // root is how a site configured to capture its mail would start
+        // really sending it from one screen (roadmap IT-04).
+        $delivery ??= new PhpMailerTransport();
         $directory = new MailProviderDirectory(new MailProviderRepository($pdo), $connections, $settings);
         $chains = new LaneChainRepository($pdo);
         $counters = new SendCounterRepository($pdo);
@@ -76,7 +84,7 @@ final class MailTransportFactory
                 $chains,
                 $counters,
                 new TransportConfigurator($connections),
-                $delivery ?? new PhpMailerTransport(),
+                $delivery,
                 $journal,
                 // Both are built HERE and not left to the callers, which is
                 // the whole point of this factory: they are optional on the
@@ -91,6 +99,7 @@ final class MailTransportFactory
             ),
             'directory' => $directory,
             'connections' => $connections,
+            'delivery' => $delivery,
         ];
     }
 }

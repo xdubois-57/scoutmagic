@@ -19,6 +19,10 @@ use Core\Mail\Feedback\ReturnPathVerifier;
 use Core\Mail\Feedback\ReturnState;
 use Core\Mail\DnsVerifier;
 use Core\Mail\MailIdentity;
+use Core\Mail\Probe\MailProbeException;
+use Core\Mail\Probe\MailProbeRepository;
+use Core\Mail\Probe\MailProbeSender;
+use Core\Mail\Probe\MailProbeVerdict;
 use Core\Mail\Transport\DeferredMailQueue;
 use Core\Mail\Transport\DeferredMailRepository;
 use Core\Mail\Transport\LaneChainRepository;
@@ -56,6 +60,13 @@ class OutboundMailController extends AbstractController
     public const AUTHENTICATION_URL = '/config/courrier-sortant/authentification';
     public const PROVIDERS_URL = '/config/courrier-sortant/fournisseurs';
 
+    public const PROBE_URL = '/config/courrier-sortant/sonde';
+    public const PROBE_SEND_URL = '/config/courrier-sortant/sonde/envoi';
+    public const PROBE_VERDICT_URL = '/config/courrier-sortant/sonde/verdict';
+
+    /** Said the same way wherever the probe cannot run at all. */
+    private const PROBE_UNAVAILABLE = 'La sonde n’est pas disponible sur cette installation.';
+
     public const RETURN_CHECK_URL = '/config/courrier-sortant/authentification/verification';
     public const DNS_CHECK_URL = '/config/courrier-sortant/authentification/dns';
 
@@ -73,7 +84,20 @@ class OutboundMailController extends AbstractController
         private DkimManager $dkim,
         private DnsVerifier $dns,
         private ReturnPathVerifier $returns,
-        private JournalService $journal
+        private JournalService $journal,
+        /**
+         * The manual probe (roadmap IT-04).
+         *
+         * Nullable for the one reason the others are not: it needs a
+         * Twig environment to render a message with, and the composition
+         * roots that build this controller without one — a narrow test,
+         * a boot path with no view layer — would otherwise be unable to
+         * build it at all. With null the sub-page says the probe is
+         * unavailable rather than erroring, which is the same posture
+         * `$returns` takes towards a missing `inbound_mail`.
+         */
+        private ?MailProbeSender $probes = null,
+        private ?MailProbeRepository $probeHistory = null
     ) {
     }
 
@@ -1208,6 +1232,193 @@ class OutboundMailController extends AbstractController
             ['roles' => implode(', ', $changed)],
             AuthSession::getUserAccountId()
         );
+    }
+
+    /**
+     * GET /config/courrier-sortant/sonde — the manual probe (roadmap
+     * IT-04).
+     *
+     * **One message, sent by hand, and a verdict typed in by the person
+     * who went and looked.** No site can observe another provider's spam
+     * folder, so the instrument here is a human being with a mailbox
+     * open; everything this page does is make that cheap to do and
+     * impossible to forget the result of.
+     *
+     * @param array<string, string> $params
+     */
+    public function probe(Request $request, array $params): Response
+    {
+        return $this->renderProbe();
+    }
+
+    /**
+     * POST /config/courrier-sortant/sonde/envoi — send one.
+     *
+     * @param array<string, string> $params
+     */
+    public function sendProbe(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, self::PROBE_URL)) !== null) {
+            return $guard;
+        }
+
+        if ($this->probes === null) {
+            FlashMessage::set('error', self::PROBE_UNAVAILABLE);
+
+            return $this->redirect(self::PROBE_URL);
+        }
+
+        $lane = MailLane::tryFrom($request->getBody('lane') ?? '') ?? MailProbeSender::DEFAULT_LANE;
+
+        try {
+            $probe = $this->probes->send(
+                (string) ($request->getBody('destination') ?? ''),
+                (int) ($request->getBody('provider_id') ?? 0),
+                $lane
+            );
+        } catch (MailProbeException $e) {
+            FlashMessage::set('error', $e->getMessage());
+
+            return $this->redirect(self::PROBE_URL);
+        }
+
+        FlashMessage::set(
+            'success',
+            sprintf(
+                'Sonde envoyée par « %s ». Cherchez %s dans le sujet — y compris dans les indésirables — '
+                    . 'puis dites ci-dessous où vous l’avez trouvée.',
+                $probe->providerName,
+                $probe->code
+            )
+        );
+
+        return $this->redirect(self::PROBE_URL);
+    }
+
+    /**
+     * POST /config/courrier-sortant/sonde/verdict — record where it
+     * landed.
+     *
+     * @param array<string, string> $params
+     */
+    public function recordProbeVerdict(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, self::PROBE_URL)) !== null) {
+            return $guard;
+        }
+
+        if ($this->probes === null) {
+            FlashMessage::set('error', self::PROBE_UNAVAILABLE);
+
+            return $this->redirect(self::PROBE_URL);
+        }
+
+        $verdict = MailProbeVerdict::tryFromInput((string) ($request->getBody('verdict') ?? ''));
+        if ($verdict === null) {
+            FlashMessage::set('error', 'Ce verdict n’existe pas.');
+
+            return $this->redirect(self::PROBE_URL);
+        }
+
+        try {
+            $written = $this->probes->recordVerdict((int) ($request->getBody('probe_id') ?? 0), $verdict);
+        } catch (MailProbeException $e) {
+            FlashMessage::set('error', $e->getMessage());
+
+            return $this->redirect(self::PROBE_URL);
+        }
+
+        // A verdict already on file is not an error and not a silence
+        // either: a double click, or a second tab, and the operator needs
+        // to know which answer stood.
+        FlashMessage::set(
+            $written ? 'success' : 'warning',
+            $written
+                ? 'Verdict consigné : ' . $verdict->label() . '. ' . $verdict->guidance()
+                : 'Cette sonde avait déjà un verdict ; il n’a pas été remplacé.'
+        );
+
+        return $this->redirect(self::PROBE_URL);
+    }
+
+    private function renderProbe(): Response
+    {
+        $verdicts = [];
+        foreach (MailProbeVerdict::ordered() as $verdict) {
+            $verdicts[] = ['value' => $verdict->value, 'label' => $verdict->label()];
+        }
+
+        $lanes = [];
+        foreach (MailProbeSender::OFFERED_LANES as $lane) {
+            $lanes[] = ['value' => $lane->value, 'label' => $lane->label(), 'detail' => $lane->detail()];
+        }
+
+        return $this->render('config/outbound_mail/probe.html.twig', [
+            'available' => $this->probes !== null,
+            'unavailable_reason' => self::PROBE_UNAVAILABLE,
+            'providers' => $this->probeProviders(),
+            'lanes' => $lanes,
+            'default_lane' => MailProbeSender::DEFAULT_LANE->value,
+            'verdicts' => $verdicts,
+            'pending' => $this->probeLines($this->probeHistory?->pending() ?? []),
+            'history' => $this->probeLines($this->probeHistory?->recent() ?? []),
+            'send_url' => self::PROBE_SEND_URL,
+            'verdict_url' => self::PROBE_VERDICT_URL,
+            'providers_url' => self::PROVIDERS_URL,
+            'current_path' => self::PROBE_URL,
+        ]);
+    }
+
+    /**
+     * The relays the form offers.
+     *
+     * @return list<array{id: int, name: string, host: string}>
+     */
+    private function probeProviders(): array
+    {
+        $lines = [];
+        foreach ($this->probes?->availableProviders() ?? [] as $provider) {
+            $lines[] = ['id' => $provider->id, 'name' => $provider->name, 'host' => $provider->hostSummary()];
+        }
+
+        return $lines;
+    }
+
+    /**
+     * The history, shaped for the template.
+     *
+     * **The destination IS shown here**, and it is the one screen where
+     * that is right: it is the address the operator typed themselves, one
+     * line ago, and a history that hid it could not answer « même
+     * destinataire, deux relais, deux verdicts » — which is the entire
+     * reason the table exists. It stays out of the journal and out of the
+     * support package all the same, because those are read elsewhere and
+     * kept far longer.
+     *
+     * @param list<\Core\Mail\Probe\MailProbe> $probes
+     * @return list<array{id: int, code: string, destination: string, provider: string, lane: string,
+     *     sent_at: string, verdict: ?string, verdict_label: ?string, verdict_badge: ?string,
+     *     guidance: ?string}>
+     */
+    private function probeLines(array $probes): array
+    {
+        $lines = [];
+        foreach ($probes as $probe) {
+            $lines[] = [
+                'id' => $probe->id,
+                'code' => $probe->code,
+                'destination' => $probe->destination,
+                'provider' => $probe->providerName,
+                'lane' => $probe->lane->label(),
+                'sent_at' => $probe->sentAt->format('d/m/Y à H:i'),
+                'verdict' => $probe->verdict?->value,
+                'verdict_label' => $probe->verdict?->label(),
+                'verdict_badge' => $probe->verdict?->badge(),
+                'guidance' => $probe->verdict?->guidance(),
+            ];
+        }
+
+        return $lines;
     }
 
     /**

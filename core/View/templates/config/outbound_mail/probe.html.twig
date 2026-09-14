@@ -1,0 +1,200 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  Courrier sortant › Sonde (roadmap IT-04).
+
+  The one screen on this section whose instrument is a person. Every other
+  page here reports something the site can observe; this one cannot —
+  nobody can see inside another provider's spam folder from the outside —
+  so it sends a message and asks whoever opened the mailbox what they
+  found.
+
+  Two things on this page exist to stop it ruining its own measurement.
+  « Ne le sortez pas des indésirables » is said next to the verdict
+  buttons rather than in the help topic, because that is the second
+  somebody is about to do it. And nothing here schedules a repeat: a test
+  message that lands in the spam folder week after week teaches the
+  receiver that this sender belongs there.
+#}
+{% extends 'base.html.twig' %}
+{% block title %}Sonde — {{ site_name }}{% endblock %}
+{% block content %}
+{% include 'partials/page_header.html.twig' with {
+    title: 'Sonde',
+    subtitle: "Envoyer un message comme un vrai, puis noter où il est arrivé.",
+} only %}
+
+{% include 'config/outbound_mail/_nav.html.twig' %}
+
+{% if not available %}
+    <div class="alert alert-warning">{{ unavailable_reason }}</div>
+{% else %}
+
+    {% if pending is not empty %}
+        <div class="card mb-3 border-primary">
+            <div class="card-body">
+                <h2 class="h5">Où sont-elles arrivées ?</h2>
+                <p class="text-body-secondary small">
+                    Ouvrez la boîte de destination et cherchez le code dans le sujet,
+                    <strong>y compris dans les indésirables</strong>. C'est souvent le seul endroit où on le
+                    trouve, et c'est justement le résultat qui vous intéresse.
+                </p>
+
+                {% for probe in pending %}
+                    <div class="border-top pt-3 mt-3">
+                        <div class="d-flex flex-wrap gap-2 align-items-baseline mb-2">
+                            <code class="fs-6">{{ probe.code }}</code>
+                            <span class="text-body-secondary small">
+                                vers {{ probe.destination }}, par « {{ probe.provider }} »,
+                                voie « {{ probe.lane }} », le {{ probe.sent_at }}
+                            </span>
+                        </div>
+                        <form method="post" action="{{ verdict_url }}" class="d-flex flex-wrap gap-2">
+                            {{ csrf_field()|raw }}
+                            <input type="hidden" name="probe_id" value="{{ probe.id }}">
+                            {% for verdict in verdicts %}
+                                <button type="submit" name="verdict" value="{{ verdict.value }}"
+                                        class="btn btn-outline-secondary btn-sm">{{ verdict.label }}</button>
+                            {% endfor %}
+                        </form>
+                    </div>
+                {% endfor %}
+
+                <p class="text-body-secondary small mt-3 mb-0">
+                    <strong>Ne sortez pas le message des indésirables.</strong> Le marquer comme légitime
+                    apprendrait quelque chose au fournisseur et fausserait la mesure suivante : vous ne
+                    sauriez plus si le message d'après est bien arrivé tout seul.
+                </p>
+            </div>
+        </div>
+    {% endif %}
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5">Envoyer une sonde</h2>
+            <p class="text-body-secondary small">
+                Un message identique à un vrai envoi de l'unité — même mise en page, même expéditeur
+                affiché, même signature DKIM — par le chemin de votre choix. Un message dépouillé serait
+                classé autrement, et vous mesureriez alors autre chose que ce que vous envoyez.
+            </p>
+
+            {% if providers is empty %}
+                <p class="text-warning small mb-0">
+                    Aucun fournisseur utilisable n'est configuré : commencez par la page
+                    <a href="{{ providers_url }}">Fournisseurs</a>.
+                </p>
+            {% else %}
+                <form method="post" action="{{ send_url }}">
+                    {{ csrf_field()|raw }}
+
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label for="probe-destination" class="form-label">Destination</label>
+                            <input type="email" class="form-control" id="probe-destination" name="destination"
+                                   required autocomplete="off" placeholder="vous@exemple.be">
+                            <div class="form-text">
+                                Votre propre adresse chez un grand fournisseur en dit déjà long. Vous pouvez
+                                aussi coller ici l'adresse témoin d'un service d'analyse extérieur : ces
+                                services donnent un verdict chez plusieurs fournisseurs d'un coup, c'est
+                                gratuit et cela ne demande aucune installation.
+                            </div>
+                        </div>
+
+                        <div class="col-md-3">
+                            <label for="probe-provider" class="form-label">Fournisseur</label>
+                            <select class="form-select" id="probe-provider" name="provider_id" required>
+                                {% for provider in providers %}
+                                    <option value="{{ provider.id }}">{{ provider.name }}</option>
+                                {% endfor %}
+                            </select>
+                            <div class="form-text">Le message part par celui-là, et par aucun autre.</div>
+                        </div>
+
+                        <div class="col-md-3">
+                            <label for="probe-lane" class="form-label">Voie</label>
+                            <select class="form-select" id="probe-lane" name="lane">
+                                {% for lane in lanes %}
+                                    <option value="{{ lane.value }}"
+                                            {% if lane.value == default_lane %}selected{% endif %}>
+                                        {{ lane.label }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                            <div class="form-text">
+                                « Masse » par défaut : c'est celle qui pose problème. Tester la voie
+                                d'authentification mesurerait ce qui n'échoue jamais.
+                            </div>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary mt-3">Envoyer la sonde</button>
+                </form>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5">Historique</h2>
+            {% if history is empty %}
+                <p class="text-body-secondary small mb-0">
+                    Aucune sonde envoyée pour l'instant. La première ligne ne dira pas grand-chose ; c'est la
+                    deuxième, par un autre chemin vers la même adresse, qui tranche.
+                </p>
+            {% else %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th scope="col">Date</th>
+                                <th scope="col">Destination</th>
+                                <th scope="col">Fournisseur</th>
+                                <th scope="col">Voie</th>
+                                <th scope="col">Verdict</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for probe in history %}
+                                <tr>
+                                    <td class="text-nowrap">{{ probe.sent_at }}</td>
+                                    <td class="text-break">{{ probe.destination }}</td>
+                                    <td>{{ probe.provider }}</td>
+                                    <td>{{ probe.lane }}</td>
+                                    <td>
+                                        {% if probe.verdict %}
+                                            <span class="badge {{ probe.verdict_badge }}">
+                                                {{ probe.verdict_label }}
+                                            </span>
+                                        {% else %}
+                                            <span class="badge text-bg-secondary">En attente</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <p class="text-body-secondary small mt-3 mb-0">
+                    Deux lignes vers la même adresse, par deux fournisseurs, avec deux verdicts différents :
+                    voilà ce qui tranche un débat que les explications ne tranchent pas.
+                </p>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5">Pourquoi pas d'envoi automatique</h2>
+            <p class="text-body-secondary small mb-0">
+                La sonde ne se répète pas toute seule, et ce n'est pas un oubli. Un message de test qui tombe
+                en indésirables et y reste renforce ce classement à chaque envoi : l'instrument finirait par
+                causer ce qu'il mesure. Envoyez-en une quand vous changez quelque chose, ou quand quelqu'un
+                signale un message manquant.
+            </p>
+        </div>
+    </div>
+
+{% endif %}
+{% endblock %}

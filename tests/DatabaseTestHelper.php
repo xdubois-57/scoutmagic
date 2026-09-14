@@ -718,6 +718,18 @@ class DatabaseTestHelper
             mailbox_id INTEGER
         )');
 
+        $pdo->exec('CREATE TABLE mail_probes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            code TEXT NOT NULL,
+            destination_encrypted TEXT NOT NULL,
+            provider_id INTEGER,
+            provider_name TEXT NOT NULL,
+            lane TEXT NOT NULL,
+            sent_at TEXT NOT NULL,
+            verdict TEXT,
+            verdict_at TEXT
+        )');
+
         $pdo->exec('CREATE TABLE human_check_rate_limits (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             ip_hash TEXT NOT NULL,

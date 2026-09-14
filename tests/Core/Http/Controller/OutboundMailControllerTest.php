@@ -186,6 +186,9 @@ class OutboundMailControllerTest extends TestCase
             'saving the addresses' => ['POST', '/config/courrier-sortant/authentification'],
             'checking the returns' => ['POST', '/config/courrier-sortant/authentification/verification'],
             'checking the DNS' => ['POST', '/config/courrier-sortant/authentification/dns'],
+            'the probe' => ['GET', '/config/courrier-sortant/sonde'],
+            'sending a probe' => ['POST', '/config/courrier-sortant/sonde/envoi'],
+            'recording a verdict' => ['POST', '/config/courrier-sortant/sonde/verdict'],
         ];
     }
 

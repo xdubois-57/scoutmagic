@@ -335,6 +335,27 @@ class MailService
     }
 
     /**
+     * The same service, delivering through another transport — what a
+     * diagnostic needs to pin one relay (roadmap IT-04).
+     *
+     * **A clone, and only the transport swapped**, for the reason the
+     * transport seam exists at all (ARCHITECTURE.md §8.7): everything
+     * that makes the message what it is — the From, the envelope sender,
+     * the DKIM signature, the subject prefix, the multipart body — is
+     * built here and stays built here. A probe that assembled its own
+     * PHPMailer to reach a chosen relay would be measuring a message the
+     * site never sends, which is precisely the mistake
+     * `Core\Mail\Probe\MailProbeSender` exists to avoid.
+     */
+    public function throughTransport(MailTransportInterface $transport): self
+    {
+        $clone = clone $this;
+        $clone->transport = $transport;
+
+        return $clone;
+    }
+
+    /**
      * An e-mail that did not leave, written down — **whatever** the
      * caller then does with the exception.
      *

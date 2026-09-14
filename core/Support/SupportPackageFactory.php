@@ -222,7 +222,13 @@ final class SupportPackageFactory
             // « jamais vérifié » from « vérification impossible » in the
             // archive. Null when the module is off — and that is then the
             // truthful answer rather than a missing one.
-            $context->getOptional(\Modules\InboundMail\Api\InboundMailInterface::class)
+            $context->getOptional(\Modules\InboundMail\Api\InboundMailInterface::class),
+            // The manual probes (roadmap IT-04), and the repository for
+            // the same reason as above: the archive reports what was
+            // tested and what came of it, and must not be able to send
+            // one. What travels is the road and the verdict — never the
+            // destination, which is a person.
+            new \Core\Mail\Probe\MailProbeRepository($pdo, $context->encryption)
         );
     }
 
