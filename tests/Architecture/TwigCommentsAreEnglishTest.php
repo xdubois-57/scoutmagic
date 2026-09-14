@@ -118,7 +118,7 @@ final class TwigCommentsAreEnglishTest extends TestCase
         'core/View/templates/admin/import_report.html.twig' => 1,
         'core/View/templates/admin/members/show.html.twig' => 7,
         'core/View/templates/base.html.twig' => 2,
-        'core/View/templates/config/maintenance.html.twig' => 11,
+        'core/View/templates/config/maintenance.html.twig' => 10,
         'core/View/templates/config/support.html.twig' => 18,
         'core/View/templates/members/show.html.twig' => 1,
         'core/View/templates/setup/index.html.twig' => 2,

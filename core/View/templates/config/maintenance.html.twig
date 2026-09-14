@@ -571,15 +571,15 @@
         <div class="card-body">
             {{ _self.section_header('maintenance-backups-body', 'Sauvegarde manuelle', false) }}
             <div class="collapse mt-3" id="maintenance-backups-body">
-                {# L'encart d'espace disque a quitté cette page en IT-02.
-                   Il mesurait un seul volume — celui de `storage/` — et
-                   disait donc la place restante du disque système quelle
-                   que soit la destination réelle de l'écriture. La mesure
-                   par volume, qui regroupe les dossiers déclarés par leur
-                   périphérique et dit volume par volume sur quelle mesure
-                   elle s'appuie, vit dans Configuration › Stockage. Un
-                   chiffre ici et un autre là-bas auraient été deux
-                   réponses à la même question, dont une fausse. #}
+                {# The disk-space panel left this page in IT-02. It measured
+                   a single volume — `storage/`'s — and so reported the
+                   system disk's free space whatever the write's real
+                   destination was. The per-volume measurement, which
+                   groups the declared directories by their device and
+                   states volume by volume which basis it used, lives in
+                   Configuration › Stockage. One figure here and another
+                   one there would have been two answers to the same
+                   question, one of them wrong. #}
                 <p class="small text-body-secondary mb-3">
                     La place disponible se lit sur
                     <a href="/config/stockage">Configuration › Stockage</a>, mesurée volume par volume.
