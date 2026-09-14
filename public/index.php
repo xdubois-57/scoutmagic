@@ -3367,6 +3367,19 @@ $schedulerService->seed(
     new DateTimeImmutable()
 );
 
+// Same bootstrap for the nightly safety copies (Core\Storage\Location\
+// Protection\Task\RunStorageProtectionsHandler). Armed unconditionally,
+// protections declared or not: the handler's first act is to ask which are
+// due, and a run that finds none simply re-arms. Arming it only when a
+// protection exists would mean the chain never starts on the request that
+// declares the first one — and nothing would ever start it afterwards.
+$schedulerService->seed(
+    'core',
+    \Core\Storage\Location\Protection\Task\RunStorageProtectionsHandler::TASK_KEY,
+    \Core\Storage\Location\Protection\Task\RunStorageProtectionsHandler::REFERENCE,
+    new DateTimeImmutable()
+);
+
 // Same bootstrap for the notification retention purge (Core\Notification\
 // Task\PurgeNotificationsHandler).
 $schedulerService->rearm(

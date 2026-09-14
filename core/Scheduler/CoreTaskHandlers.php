@@ -42,6 +42,8 @@ final class CoreTaskHandlers
             'backup_integrity' => \Core\Maintenance\Task\VerifyBackupIntegrityHandler::class,
             \Core\Maintenance\Task\SendRemoteBackupHandler::TASK_KEY =>
                 \Core\Maintenance\Task\SendRemoteBackupHandler::class,
+            \Core\Storage\Location\Protection\Task\RunStorageProtectionsHandler::TASK_KEY =>
+                \Core\Storage\Location\Protection\Task\RunStorageProtectionsHandler::class,
             'check_stable_update' => \Core\Maintenance\Task\CheckStableUpdateHandler::class,
             'operational_checks' => \Core\Alert\Task\RunOperationalChecksHandler::class,
             'compress_section_document' => \Core\Member\Task\CompressSectionDocumentHandler::class,
