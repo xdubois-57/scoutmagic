@@ -8,6 +8,7 @@ use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Database\Connection;
 use Core\Maintenance\BackupService;
+use Core\Storage\Location\DeclaredStorageDirectories;
 use Core\Storage\DiskBudget;
 use Core\Storage\Location\Config\LocalLocationConfig;
 use Core\Storage\Location\StorageLocationService;
@@ -113,31 +114,47 @@ class DefaultStorageFolderTest extends TestCase
         );
     }
 
-    public function testAnArchiveToldToLeaveTheGalleryOutReallyLeavesTheDefaultFolderOut(): void
+    /**
+     * The serious half of the same drift, restated for D10.
+     *
+     * The exclusion no longer names this folder by hand — it comes from
+     * the location itself — so the OLD failure (a constant pointing at a
+     * folder the gallery no longer writes to) cannot happen in that
+     * spelling any more. The equivalent one can: if
+     * `StorageBackendFactory::localDirectoryFor()` resolved the DEFAULT
+     * location to anywhere but the folder the gallery actually writes to,
+     * the prefix would match nothing and every photo would silently
+     * travel in every archive. Nothing would fail — the archive is
+     * produced, it is simply gigabytes larger than it should be, which is
+     * only noticed by whoever is paying for the destination.
+     *
+     * So this declares the default location the way a fresh installation
+     * does, and checks the photo is gone from the estimate.
+     */
+    public function testDeclaringTheDefaultLocationReallyKeepsItsFolderOutOfAnArchive(): void
     {
-        // The serious half of the same drift. `excludedArchivePrefixes()`
-        // names this folder by hand: pointed at one that holds nothing,
-        // the exclusion matches nothing, and a backup taken WITHOUT the
-        // gallery silently carries every photo in it. Nothing fails — the
-        // archive is produced, it is simply gigabytes larger than asked
-        // for, which is only noticed by whoever is paying for the
-        // destination.
         file_put_contents(
             $this->storagePath . '/' . StorageLocationService::DEFAULT_PATH . '/photo.jpg',
             str_repeat('x', 256 * 1024)
         );
 
-        $service = new BackupService(
-            new Connection('127.0.0.1', 3306, 'nonexistent_db', 'nobody', ''),
+        $connection = new Connection('127.0.0.1', 3306, 'nonexistent_db', 'nobody', '');
+        $undeclared = new BackupService($connection, $this->storagePath, dirname($this->storagePath));
+        $declared = new BackupService(
+            $connection,
             $this->storagePath,
-            dirname($this->storagePath)
+            dirname($this->storagePath),
+            null,
+            DeclaredStorageDirectories::fromPaths([
+                $this->storagePath . '/' . StorageLocationService::DEFAULT_PATH,
+            ])
         );
 
-        $this->assertLessThan(
-            $service->estimateFileBackupBytes(true),
-            $service->estimateFileBackupBytes(false),
-            'An archive told to exclude the gallery must be smaller than one that carries it. '
-                . 'Equal sizes mean the exclusion is naming a folder the gallery no longer writes to.'
+        $this->assertSame(
+            $undeclared->estimateFileBackupBytes() - 256 * 1024,
+            $declared->estimateFileBackupBytes(),
+            'Declaring the default location must remove exactly its folder from the archive. '
+                . 'An unchanged size means the prefix is naming a folder the gallery no longer writes to.'
         );
     }
 }

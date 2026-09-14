@@ -16,6 +16,7 @@ use Core\Database\SchemaIntrospector;
 use Core\Database\SqlParser;
 use Core\Maintenance\BackupException;
 use Core\Maintenance\BackupService;
+use Core\Storage\Location\DeclaredStorageDirectories;
 use Core\Maintenance\Portable\PortableKeys;
 use Core\Maintenance\Portable\PortableManifest;
 use Core\Maintenance\Portable\SecretEnvelope;
@@ -78,7 +79,17 @@ final class PortableBackupArchiveTest extends TestCase
      */
     private function buildArchive(): \ZipArchive
     {
-        $service = new BackupService($this->realDbConnection(), $this->storagePath, $this->basePath);
+        // The gallery folder is declared, exactly as a real installation
+        // declares it (`StorageLocationService::ensureDefaultExists()`) —
+        // and since D10 that declaration, not a flag on the call, is what
+        // keeps the photographs out of the archive that leaves the server.
+        $service = new BackupService(
+            $this->realDbConnection(),
+            $this->storagePath,
+            $this->basePath,
+            null,
+            DeclaredStorageDirectories::fromPaths([$this->storagePath . '/gallery'])
+        );
         if (!$service->supportsZipEncryption()) {
             $this->markTestSkipped('This PHP build has no AES zip encryption, which this feature refuses without.');
         }
@@ -354,6 +365,14 @@ final class PortableBackupArchiveTest extends TestCase
      * for both. The DKIM key is a second check on the same mechanism — the
      * exclusion of `storage/keys/` is still absolute, and only the two
      * files named in the map travel, by their own sealed path.
+     *
+     * **The two exclusions no longer work the same way, and the
+     * difference matters.** `storage/keys/` is out by NATURE: nothing can
+     * ask for it, on any installation. The gallery is out because this
+     * installation declared its folder as a storage location, which a
+     * real one does on first run — so what this asserts about the
+     * photographs is a property of that declaration, and `buildArchive()`
+     * above makes it rather than assuming it.
      */
     public function testTheGalleryAndTheOtherKeysStayOnTheServer(): void
     {

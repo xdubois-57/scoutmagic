@@ -55,6 +55,7 @@ final class SendRemoteBackupArchiveTest extends TestCase
     private Connection $connection;
     private InMemorySettingService $settings;
     private SecretManager $secrets;
+    private ?int $declaredLocationId = null;
 
     protected function setUp(): void
     {
@@ -82,6 +83,18 @@ final class SendRemoteBackupArchiveTest extends TestCase
 
     protected function tearDown(): void
     {
+        // The location row goes with the fixture, and it has to: this
+        // suite shares one database with every other `@group database`
+        // test, and a leftover row is a leftover DEFAULT — the next test
+        // to ask which location is the default gets this one's answer.
+        // Deleted by id and with a plain statement rather than through
+        // the repository, whose own delete() promotes a survivor.
+        if ($this->declaredLocationId !== null) {
+            $statement = $this->connection->getPdo()->prepare('DELETE FROM storage_locations WHERE id = ?');
+            $statement->execute([$this->declaredLocationId]);
+            $this->declaredLocationId = null;
+        }
+
         $this->removeDirectory($this->basePath);
     }
 
@@ -139,13 +152,23 @@ final class SendRemoteBackupArchiveTest extends TestCase
     }
 
     /**
-     * **The photographs stay behind, unless a unit says otherwise.** A
-     * gallery is measured in gibibytes; sent weekly it fills a free Drive
-     * in about three weeks, after which nothing leaves the server at all.
-     * The setting is the escape hatch for a unit with room to spare, and
-     * the default is what protects the one without.
+     * **The photographs stay behind, and the declaration is why.**
+     *
+     * A gallery is measured in gibibytes; sent weekly it fills a free
+     * Drive in about three weeks, after which nothing leaves the server
+     * at all. There used to be a setting for it, defaulting to off. D10
+     * removed the question instead of answering it: no archive carries a
+     * directory declared as a storage location, and a real installation
+     * declares its gallery folder on first run
+     * (`StorageLocationService::ensureDefaultExists()`).
+     *
+     * So this runs the send TWICE against the same site and the same
+     * photograph, one declaration apart — which is what makes the
+     * absence an exclusion rather than an empty archive, and what would
+     * catch a prefix that stopped matching the folder the gallery writes
+     * to.
      */
-    public function testTheArchiveSentOffSiteLeavesTheGalleryBehindUnlessAskedFor(): void
+    public function testTheArchiveSentOffSiteCarriesNoDeclaredLocation(): void
     {
         $this->skipWithoutZipEncryption();
         @mkdir($this->storagePath . '/gallery/1', 0755, true);
@@ -154,34 +177,49 @@ final class SendRemoteBackupArchiveTest extends TestCase
         file_put_contents($this->storagePath . '/uploads/doc.pdf', 'fake-pdf-bytes');
         $target = new RecordingTarget2();
 
-        (new SendRemoteBackupHandler($target))->handle([], $this->context());
-
-        $names = $this->entryNames($target->sent[0]['path']);
-
-        $this->assertNotContains('storage/gallery/1/photo.jpg', $names);
-        $this->assertContains('storage/uploads/doc.pdf', $names, 'this is not an archive of the site at all');
-
-        // And the switch is a switch, not a label: the same site, the
-        // same photograph, one setting apart.
-        $this->settings->values[SendRemoteBackupHandler::INCLUDE_GALLERY_SETTING] = '1';
+        // Nothing declared: the folder is part of the site like any other.
         (new SendRemoteBackupHandler($target))->handle([], $this->context());
         $this->assertContains(
             'storage/gallery/1/photo.jpg',
-            $this->entryNames($target->sent[1]['path']),
-            'a unit that asked for its photographs off-site did not get them'
+            $this->entryNames($target->sent[0]['path']),
+            'an undeclared folder under storage/ is archived like the rest of it'
         );
+
+        $this->declareTheGalleryFolderAsALocation();
+
+        (new SendRemoteBackupHandler($target))->handle([], $this->context());
+        $names = $this->entryNames($target->sent[1]['path']);
+
+        $this->assertNotContains(
+            'storage/gallery/1/photo.jpg',
+            $names,
+            'a unit\'s photographs left the server in the weekly archive'
+        );
+        $this->assertContains('storage/uploads/doc.pdf', $names, 'this is not an archive of the site at all');
 
         // **And the manifest agrees with the bytes.** It is what a restore
         // and an operator read to learn what an archive holds; one saying
-        // `includes_gallery: false` over gibibytes of photographs is worse
-        // than no manifest at all, because it is believed.
-        $this->assertTrue(
-            $this->manifestOf($target->sent[1]['path'])['includes_gallery'] ?? null,
-            'the manifest denies a gallery the archive actually carries'
-        );
+        // `includes_gallery: true` over an archive without a photograph in
+        // it is worse than no manifest at all, because it is believed.
         $this->assertFalse(
-            $this->manifestOf($target->sent[0]['path'])['includes_gallery'] ?? null,
+            $this->manifestOf($target->sent[1]['path'])['includes_gallery'] ?? null,
             'the manifest claims a gallery the archive does not carry'
+        );
+    }
+
+    /**
+     * Declares `storage/gallery` the way a fresh installation does.
+     */
+    private function declareTheGalleryFolderAsALocation(): void
+    {
+        $this->declaredLocationId = (new \Core\Storage\Location\StorageLocationRepository(
+            $this->connection->getPdo(),
+            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        ))->create(
+            \Core\Storage\Location\StorageLocationType::Local,
+            'Galerie',
+            new \Core\Storage\Location\Config\LocalLocationConfig('gallery'),
+            null
         );
     }
 

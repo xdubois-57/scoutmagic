@@ -29,6 +29,7 @@ use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 use Core\Storage\DiskBudget;
+use Core\Storage\Location\DeclaredStorageDirectories;
 
 /**
  * Background installation of either a GitHub release or (development mode)
@@ -192,7 +193,17 @@ class InstallUpdateHandler implements TaskHandlerInterface
 
         $basePath = dirname($context->storagePath);
         $diskBudget = new DiskBudget($context->storagePath, $context->settings);
-        $backupService = new BackupService($context->connection, $context->storagePath, $basePath, $diskBudget);
+        $backupService = new BackupService(
+            $context->connection,
+            $context->storagePath,
+            $basePath,
+            $diskBudget,
+            DeclaredStorageDirectories::fromDatabase(
+                $context->connection->getPdo(),
+                $context->encryption,
+                $context->storagePath
+            )
+        );
         $tempDir = $context->storagePath . '/temp/update_' . $historyId;
 
         $dbDumpPath = null;
@@ -218,32 +229,31 @@ class InstallUpdateHandler implements TaskHandlerInterface
             // cleanly: it leaves a half-copied install over a running
             // site, which is the failure a rollback is least able to
             // recover from.
-            $backupService->ensureRoomForDumpAndArchive(false, self::UPDATE_WORKSPACE_ESTIMATE_BYTES);
+            $backupService->ensureRoomForDumpAndArchive(self::UPDATE_WORKSPACE_ESTIMATE_BYTES);
 
             // Step 1: mandatory safety backup — the only thing an automatic
             // rollback can restore from, so it must be a genuine, restorable
             // backup (DB dump + full file tree).
             //
-            // WITHOUT THE GALLERY, and that is the one difference with the
-            // three other safety copies this codebase takes. A reset or a
-            // restore can wipe `storage/gallery/`, so their archive has to
-            // hold it; an update replaces code, and nothing in its path
-            // writes a photo — a migration only ever touches the database
-            // schema. What settles it is not what the update does but what
-            // the rollback undoes: {@see BackupService::restoreFiles()}
-            // extracts over the live tree and deletes nothing absent from
-            // the archive, so a gallery left out is a gallery left exactly
-            // as it stands on disk. The price of including it was 2 GiB per
-            // archive on the reference installation and, through the
-            // gallery cap, a `backup_keep_operational` of 3 that kept 1
-            // (issue #298, `docs/exigences-non-fonctionnelles.md` §4bis).
-            //
-            // The estimate above says `false` for the same reason it names
-            // its own trees: what the archive writes and what the estimate
-            // measures are one list, or they eventually disagree.
+            // WITHOUT ANY DECLARED STORAGE LOCATION, which since D10 is
+            // true of every archive rather than of this one alone — and
+            // this handler is where the reasoning was first written down,
+            // so it is worth saying what survived it. The question used to
+            // be per caller: a reset or a restore can wipe
+            // `storage/gallery/`, so their safety copy had to hold it,
+            // while an update replaces code and nothing in its path writes
+            // a photo. What settled it was never what the operation does
+            // but what the ROLLBACK undoes: {@see
+            // BackupService::restoreFiles()} extracts over the live tree
+            // and deletes nothing absent from the archive, so a gallery
+            // left out is a gallery left exactly as it stands on disk
+            // (issue #298). That argument now covers every safety copy
+            // here, and `Task\FullResetHandler` — the one operation that
+            // really did delete those folders — stopped doing so for the
+            // same reason.
             $updateHistoryRepository->setStatus($historyId, 'backing_up');
             $dbDumpPath = $backupService->createDatabaseDump();
-            $filesZipPath = $backupService->createFileBackup(false);
+            $filesZipPath = $backupService->createFileBackup();
 
             $backupId = $backupRepository->create('auto_update', $history->requestedBy);
             $zipFileId = $fileRepository->create(
@@ -416,7 +426,12 @@ class InstallUpdateHandler implements TaskHandlerInterface
             $context->connection,
             $context->storagePath,
             $basePath,
-            new DiskBudget($context->storagePath, $context->settings)
+            new DiskBudget($context->storagePath, $context->settings),
+            DeclaredStorageDirectories::fromDatabase(
+                $context->connection->getPdo(),
+                $context->encryption,
+                $context->storagePath
+            )
         );
 
         // This invocation changes no status — a resumed migration re-enters

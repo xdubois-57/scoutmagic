@@ -665,6 +665,54 @@ class StorageConfigControllerTest extends TestCase
         $this->assertStringNotContainsString('plage d&#039;octets', $body);
     }
 
+    /**
+     * **Each card says what no archive covers.**
+     *
+     * On the card rather than in a note at the top of the page, because
+     * since D10 it is true of every location and not of some of them —
+     * and a reader who scrolls to the one they came for must not be the
+     * reader who misses it.
+     */
+    public function testEachLocationCardSaysItsContentIsInNoArchive(): void
+    {
+        $this->declareLocal('Disque du serveur', 'gallery');
+
+        $body = $this->controller->locations(
+            new Request('GET', '/config/stockage/emplacements', [], [], [], []),
+            []
+        )->getBody();
+
+        $this->assertStringContainsString(
+            "n'est repris dans aucune archive de sauvegarde",
+            $body
+        );
+    }
+
+    /**
+     * And the dashboard names them, with the consequence spelled out.
+     *
+     * « Aucune archive ne les reprend » is a fact; « une sauvegarde
+     * restaurée rendra les fiches, pas les fichiers » is what an
+     * administrator acts on — the same choice the failing-location block
+     * above makes, for the other kind of trouble.
+     */
+    public function testTheDashboardListsTheLocationsNoArchiveCovers(): void
+    {
+        $this->declareLocal('Nextcloud de l\'unité', 'gallery');
+        $this->declareLocal('Disque monté', '/mnt/photos');
+
+        $body = $this->controller->dashboard(
+            new Request('GET', '/config/stockage', [], [], [], []),
+            []
+        )->getBody();
+
+        $this->assertStringContainsString('Aucune archive ne reprend le contenu', $body);
+        $this->assertStringContainsString('2 emplacements sont concernés', $body);
+        $this->assertStringContainsString('Nextcloud de l&#039;unité', $body);
+        $this->assertStringContainsString('Disque monté', $body);
+        $this->assertStringContainsString('rendra les fiches, pas les fichiers', $body);
+    }
+
     public function testTheDashboardNamesEachUsageAndTheLocationItStandsOn(): void
     {
         $id = $this->declareLocal('Nextcloud de l\'unité', 'gallery');

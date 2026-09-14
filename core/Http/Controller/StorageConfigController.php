@@ -106,6 +106,16 @@ class StorageConfigController extends AbstractController
             // the storage page has no idea what a gallery is, and D4 keeps
             // it that way.
             'usages' => $this->usageRows($locations),
+            // **Every declared location, and that is the point.** Since
+            // D10 a file archive contains `storage/` minus every declared
+            // location, so none of them is covered by one — the list is
+            // the whole list, and saying so plainly is the honest reading
+            // of a screen whose job is to say what is at risk. It becomes
+            // a real filter with IT-04, when a location can name another
+            // as its copy; the template reads a variable rather than the
+            // location list directly so that the day it stops being « all
+            // of them » is a change here and not there.
+            'unprotected' => $locations,
             'volumes' => $this->volumes->measure(),
             'remote_locations' => array_values(array_filter(
                 $locations,

@@ -18,6 +18,7 @@ use Core\Maintenance\Portable\SecretEnvelope;
 use Core\Storage\DirectorySize;
 use Core\Storage\DirectoryWalk;
 use Core\Storage\DiskBudget;
+use Core\Storage\Location\DeclaredStorageDirectories;
 
 /**
  * Mechanical backup/restore operations (Configuration > Maintenance,
@@ -52,9 +53,14 @@ class BackupService implements BackupServiceInterface
      * deliberately from the sealed members and never extracted as
      * ordinary files.
      *
-     * The gallery is deliberately NOT here: it is data, it is excluded by
-     * scope rather than by nature, and a `full_with_gallery` archive
-     * legitimately carries it.
+     * The gallery is deliberately NOT here, and the reason changed with
+     * IT-03 without changing the list. It used to be excluded by SCOPE —
+     * a boolean the caller passed, and a `full_with_gallery` archive that
+     * legitimately carried it. It is now excluded, when it is, because
+     * `storage/gallery` is a declared storage LOCATION like any other
+     * (D10, {@see DeclaredStorageDirectories}) — which is a property of
+     * the installation rather than of this list. An installation that
+     * declared no location at all still archives it.
      *
      * @var string[]
      */
@@ -73,12 +79,24 @@ class BackupService implements BackupServiceInterface
      *        did before the check existed. Everywhere else, pass one: a
      *        backup truncated by a quota reached mid-write is worse than no
      *        backup, because nothing reveals it until it is restored.
+     * @param DeclaredStorageDirectories|null $declaredLocations the
+     *        directories this installation has declared as storage
+     *        locations, every one of which an archive leaves out (D10 of
+     *        the storage chantier). Null carries the same weight as a null
+     *        budget and is legitimate in the same single place —
+     *        `SetupController`, where the table it reads does not yet hold
+     *        a row — and means "nothing is declared". Anywhere else it is
+     *        an omitted dependency rather than an empty table, and an
+     *        archive would quietly resume carrying gigabytes of somebody's
+     *        photographs; {@see \Tests\Architecture\BackupServiceWiringTest}
+     *        reads the construction sites so that it cannot happen silently.
      */
     public function __construct(
         private Connection $connection,
         private string $storagePath,
         private string $basePath,
-        private ?DiskBudget $diskBudget = null
+        private ?DiskBudget $diskBudget = null,
+        private ?DeclaredStorageDirectories $declaredLocations = null
     ) {
     }
 
@@ -166,17 +184,25 @@ class BackupService implements BackupServiceInterface
     private const FULL_BACKUP_TOP_LEVEL = ['core', 'modules', 'public', 'storage'];
 
     /**
-     * Zips BACKED_UP_TOP_LEVEL (excluding storage/keys/ and
-     * storage/config/ — secrets never leave the server in a backup
-     * archive, encrypted or not) into a single archive. $includeGallery
-     * controls whether storage/gallery/ (the gallery module's uploaded
-     * photos/videos, potentially very large) is included.
+     * Zips BACKED_UP_TOP_LEVEL into a single archive, minus two kinds of
+     * thing: the secrets (storage/keys/, storage/config/ — those never
+     * leave the server in a backup archive, encrypted or not) and every
+     * directory declared as a storage location (D10).
+     *
+     * **It takes no flag any more, and that is the iteration.** The old
+     * `$includeGallery` asked the caller a question the caller could not
+     * answer well: an archive either carries a location's content or it
+     * does not, and the answer cannot depend on which button was pressed
+     * when a location has a lifecycle — a retention, a destination, a
+     * grace period — that an archive knows nothing about. So a location's
+     * content is out of every archive, and what protects it is the
+     * location's own copy (IT-04) rather than a bigger zip.
      *
      * @throws BackupException
      */
-    public function createFileBackup(bool $includeGallery = false): string
+    public function createFileBackup(): string
     {
-        $this->diskBudget?->ensureRoom($this->estimateFileBackupBytes($includeGallery));
+        $this->diskBudget?->ensureRoom($this->estimateFileBackupBytes());
 
         $path = $this->stagingPath('files', 'zip');
 
@@ -186,7 +212,7 @@ class BackupService implements BackupServiceInterface
         }
 
         foreach (self::BACKED_UP_TOP_LEVEL as $topDir) {
-            $this->addDirectoryToZip($zip, $this->basePath . '/' . $topDir, $topDir, $includeGallery);
+            $this->addDirectoryToZip($zip, $this->basePath . '/' . $topDir, $topDir);
         }
 
         $zip->close();
@@ -196,10 +222,18 @@ class BackupService implements BackupServiceInterface
 
     /**
      * The full password-protected backup (module spec: DB dump + files per
-     * $scope, all inside one AES-256-encrypted zip). $scope is one of
-     * Backup::TYPES minus 'database'/'auto_*' — 'full_config' skips the
-     * file archive entirely (config doesn't need it), the other two
-     * scopes decide only whether storage/gallery/ is included.
+     * $scope, all inside one AES-256-encrypted zip).
+     *
+     * **Two scopes, not three.** `full_config` skips the file archive
+     * entirely — configuration does not need one — and `full_no_gallery`
+     * writes it. The third, `full_with_gallery`, is gone from what anybody
+     * can ask for: since D10 no archive carries a declared location, so an
+     * archive "with the gallery" would differ from one without it only on
+     * an installation that had declared no location at all — a distinction
+     * that would mean the opposite of what its name promises exactly when
+     * somebody needed it to be true. The value survives in
+     * `backups.type` for rows written before this change
+     * ({@see Backup::TYPES}); it is no longer produced.
      *
      * @return array{zipPath: string, dbDumpPath: string} zipPath is the
      *         password-protected archive; dbDumpPath is a separate,
@@ -218,7 +252,7 @@ class BackupService implements BackupServiceInterface
      */
     public function createFullBackup(string $scope, string $password): array
     {
-        if (!in_array($scope, ['full_config', 'full_no_gallery', 'full_with_gallery'], true)) {
+        if (!in_array($scope, ['full_config', 'full_no_gallery'], true)) {
             throw new BackupException('Portée de sauvegarde invalide.');
         }
 
@@ -246,38 +280,29 @@ class BackupService implements BackupServiceInterface
      * Maintenance page offers no choice of flavour here: this is the copy
      * that leaves the server, and somebody deciding between four of them
      * under a warning about master keys is somebody who picks wrong once.
-     * So `$includeGallery` is not a fifth scope on that button; it
-     * defaults to false and only the RECURRING off-site send
-     * ({@see \Core\Maintenance\Task\SendRemoteBackupHandler}) ever
-     * passes true, from a setting configured once rather than chosen in
-     * the moment. Photographs are what makes an archive too big to carry
-     * away and too big to upload weekly, which is why the default is the
-     * same on both paths.
+     * There used to be one exception — the recurring off-site send passed
+     * a `$includeGallery` read from a setting — and D10 removed it along
+     * with every other way of asking an archive to carry a location. The
+     * off-site copy is now the same archive as the one the button makes,
+     * which is also what makes it small enough to upload every week.
      *
      * @param string      $passphrase    already length-checked by
      *        {@see \Core\Maintenance\Portable\PortablePassphrase}; this
      *        class only refuses an empty one, as its sibling does.
      * @param string      $version       what to write in the manifest
      * @param string|null $installationId the origin, or null when unknown
-     * @param bool        $includeGallery whether `storage/gallery/` travels
      * @return array{zipPath: string, dbDumpPath: string}
      * @throws BackupException
      */
     public function createPortableBackup(
         string $passphrase,
         string $version,
-        ?string $installationId,
-        bool $includeGallery = false
+        ?string $installationId
     ): array {
         return $this->writeArchive(
             Backup::PORTABLE_TYPE,
             $passphrase,
-            // The SAME flag, not a hardcoded false: the manifest is what a
-            // restore and an operator read to learn what an archive holds,
-            // and one saying `includes_gallery: false` over gibibytes of
-            // photographs is worse than no manifest at all.
-            new PortableManifest($version, $installationId, $includeGallery, new \DateTimeImmutable()),
-            $includeGallery
+            new PortableManifest($version, $installationId, new \DateTimeImmutable())
         );
     }
 
@@ -292,19 +317,13 @@ class BackupService implements BackupServiceInterface
      * @param PortableManifest|null $manifest present exactly when this is a
      *        portable archive; its presence is what adds the sealed secrets
      *        and the manifest member, so the two can never be separated.
-     * @param bool $alsoGallery forces the gallery in for a scope that does
-     *        not name it — the portable one, whose caller decides. The
-     *        four named scopes still decide it by name, so nothing can
-     *        turn a `full_no_gallery` into an archive with photographs in
-     *        it by passing a flag.
      * @return array{zipPath: string, dbDumpPath: string}
      * @throws BackupException
      */
     private function writeArchive(
         string $scope,
         string $password,
-        ?PortableManifest $manifest,
-        bool $alsoGallery = false
+        ?PortableManifest $manifest
     ): array {
         if ($password === '') {
             throw new BackupException('Un mot de passe est requis.');
@@ -336,18 +355,11 @@ class BackupService implements BackupServiceInterface
         // time would let the dump succeed and the archive run out of room
         // half-written — the exact mid-write truncation this guard exists
         // to prevent, arrived at through the guard itself.
-        // The gallery is in exactly when the scope names it, or when a
-        // portable caller asked for it. Resolved once, here, so the
-        // estimate below and the walk further down cannot disagree — and
-        // an estimate that forgot the photographs is a reservation that
-        // runs out half way through writing them.
-        $includeGallery = $scope === 'full_with_gallery' || ($manifest !== null && $alsoGallery);
-
         $this->diskBudget?->ensureRoom(
             $this->estimateDatabaseDumpBytes()
             + ($scope === 'full_config'
                 ? 0
-                : $this->estimateFileBackupBytes($includeGallery, self::FULL_BACKUP_TOP_LEVEL))
+                : $this->estimateFileBackupBytes(self::FULL_BACKUP_TOP_LEVEL))
             + ($manifest !== null ? $this->estimateSecretMemberBytes() : 0)
         );
 
@@ -381,7 +393,6 @@ class BackupService implements BackupServiceInterface
                         $zip,
                         $this->basePath . '/' . $topDir,
                         $topDir,
-                        $includeGallery,
                         $archivePassword
                     );
                 }
@@ -854,12 +865,12 @@ class BackupService implements BackupServiceInterface
      *        than after it
      * @throws \Core\Storage\InsufficientDiskSpaceException
      */
-    public function ensureRoomForDumpAndArchive(bool $includeGallery, int $extraBytes = 0): void
+    public function ensureRoomForDumpAndArchive(int $extraBytes = 0): void
     {
         $this->diskBudget?->ensureRoom(
             $extraBytes
             + $this->estimateDatabaseDumpBytes()
-            + $this->estimateFileBackupBytes($includeGallery)
+            + $this->estimateFileBackupBytes()
         );
     }
 
@@ -881,9 +892,9 @@ class BackupService implements BackupServiceInterface
      *        inflates the check by hundreds of megabytes and can refuse a
      *        backup that would have fitted.
      */
-    public function estimateFileBackupBytes(bool $includeGallery, ?array $topLevel = null): int
+    public function estimateFileBackupBytes(?array $topLevel = null): int
     {
-        $excluded = $this->excludedArchivePrefixes($includeGallery);
+        $excluded = $this->excludedArchivePrefixes();
 
         $total = 0;
         foreach ($topLevel ?? self::BACKED_UP_TOP_LEVEL as $topDir) {
@@ -906,8 +917,8 @@ class BackupService implements BackupServiceInterface
     /**
      * What an archive never contains: the secrets (`storage/keys/`,
      * `storage/config/` — they never leave the server in a backup,
-     * encrypted or not), the scratch directories, and the gallery unless
-     * asked for.
+     * encrypted or not), the scratch directories, and **every directory
+     * declared as a storage location** (D10).
      *
      * One definition, read by both the archive walk and the size estimate
      * that decides whether the archive will fit. Two copies of this list
@@ -915,16 +926,25 @@ class BackupService implements BackupServiceInterface
      * quiet one: an estimate that leaves out what the archive puts in
      * reports "it fits" about a write that does not.
      *
+     * **A declared location is excluded wherever it is.** The old rule
+     * spelled one path — `storage/gallery` — and therefore only worked
+     * for a location that had not been moved. A prefix taken from the
+     * location itself covers the mounted disk, the second volume and the
+     * folder somebody renamed, none of which the old spelling reached;
+     * and a location OUTSIDE the archived trees costs nothing to list,
+     * since the walk never descends there in the first place.
+     *
      * @return string[] absolute path prefixes
      */
-    private function excludedArchivePrefixes(bool $includeGallery): array
+    private function excludedArchivePrefixes(): array
     {
         $excluded = [];
         foreach (self::NON_ARCHIVED_STORAGE_SUBDIRS as $subdir) {
             $excluded[] = $this->storagePath . '/' . $subdir;
         }
-        if (!$includeGallery) {
-            $excluded[] = $this->storagePath . '/gallery';
+
+        foreach (($this->declaredLocations ?? DeclaredStorageDirectories::none())->all() as $directory) {
+            $excluded[] = $directory;
         }
 
         return $excluded;
@@ -934,7 +954,6 @@ class BackupService implements BackupServiceInterface
         \ZipArchive $zip,
         string $sourceDir,
         string $zipPrefix,
-        bool $includeGallery,
         ?string $encryptWithPassword = null
     ): void {
         if (!is_dir($sourceDir)) {
@@ -947,7 +966,7 @@ class BackupService implements BackupServiceInterface
         // archive that silently contains none of it.
         $files = DirectorySize::files(
             $sourceDir,
-            $this->excludedArchivePrefixes($includeGallery),
+            $this->excludedArchivePrefixes(),
             DirectoryWalk::Archive
         );
 

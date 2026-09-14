@@ -65,7 +65,6 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
     /** How often a site with a connected destination sends, in hours. */
     public const INTERVAL_HOURS = 24;
 
-    public const INCLUDE_GALLERY_SETTING = 'backup_remote_include_gallery';
     public const MAX_FAILURES_SETTING = 'backup_remote_max_failures';
     public const LAST_SUCCESS_SETTING = 'backup_remote_last_success';
 
@@ -83,11 +82,13 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
      */
     public static function register(SettingService $settings): void
     {
-        $settings->register(self::INCLUDE_GALLERY_SETTING, '0', 'boolean',
-            'Envoyer aussi la galerie hors site',
-            'La galerie est exclue par défaut : un envoi hebdomadaire de plusieurs gigaoctets remplit un '
-            . 'Drive gratuit en trois semaines. Les photos restent alors sur le serveur uniquement.',
-            null, null, null, true, 322);
+        // There was a third setting here — « Envoyer aussi la galerie hors
+        // site » — and D10 removed the question rather than the answer. No
+        // archive carries a directory declared as a storage location any
+        // more, so a site that ticked the box would have been promised
+        // photographs in an archive that no longer holds any. What
+        // protects a location is its own copy (IT-04), which is
+        // configured on the location and not on the send.
         $settings->register(self::MAX_FAILURES_SETTING, (string) self::DEFAULT_MAX_FAILURES, 'number',
             'Échecs consécutifs avant abandon',
             'Après ce nombre d\'échecs de suite, l\'envoi en cours est abandonné et le suivant repart d\'une '
@@ -583,7 +584,12 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
             $context->connection,
             $context->storagePath,
             $basePath,
-            new \Core\Storage\DiskBudget($context->storagePath, $context->settings)
+            new \Core\Storage\DiskBudget($context->storagePath, $context->settings),
+            \Core\Storage\Location\DeclaredStorageDirectories::fromDatabase(
+                $context->connection->getPdo(),
+                $context->encryption,
+                $context->storagePath
+            )
         );
 
         // The room for the dump AND the archive is reserved by
@@ -595,8 +601,7 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
         $result = $backupService->createPortableBackup(
             $passphrase,
             \Core\Maintenance\VersionFile::read($basePath),
-            $this->installationId($context),
-            $this->includesGallery($context)
+            $this->installationId($context)
         );
 
         @unlink($result['dbDumpPath']);
@@ -624,20 +629,6 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
         // keep in step, and the purge is where getting it wrong deletes a
         // unit's only off-site copy.
         return RemoteRetention::nameFor(new \DateTimeImmutable(), $generation);
-    }
-
-    /**
-     * Whether the photographs travel too.
-     *
-     * **Off by default, and the default is the one that matters.** A
-     * gallery is measured in gibibytes; sent weekly it fills a free Drive
-     * in about three weeks, after which nothing leaves the server at all
-     * and the feature has quietly stopped protecting anything. A unit
-     * with room to spare can say so.
-     */
-    private function includesGallery(TaskContext $context): bool
-    {
-        return (string) ($context->settings->get(self::INCLUDE_GALLERY_SETTING) ?: '0') === '1';
     }
 
     private function installationId(TaskContext $context): ?string

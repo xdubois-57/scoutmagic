@@ -16,6 +16,7 @@ use Core\Maintenance\BackupService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 use Core\Storage\DiskBudget;
+use Core\Storage\Location\DeclaredStorageDirectories;
 
 /**
  * Background generation of a password-protected backup — the full one
@@ -70,7 +71,12 @@ class CreateBackupHandler implements TaskHandlerInterface
                 $context->connection,
                 $context->storagePath,
                 $basePath,
-                new DiskBudget($context->storagePath, $context->settings)
+                new DiskBudget($context->storagePath, $context->settings),
+                DeclaredStorageDirectories::fromDatabase(
+                    $context->connection->getPdo(),
+                    $context->encryption,
+                    $context->storagePath
+                )
             );
             // The one branch, and it is here rather than inside the
             // service because the two entry points validate different
