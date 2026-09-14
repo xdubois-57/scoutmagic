@@ -209,7 +209,9 @@ disabled control with no reason attached.
 
 **What IT-02 adds to those two pages, and where.** The reserve appears
 twice, deliberately and differently. On **Acheminement**, under the
-Authentification lane, it appears with its provenance — « 74 messages,
+Authentification lane — the lane whose failure is the one nobody
+recovers from, though the capacity it holds back serves every non-mailing
+lane — it appears with its provenance — « 74 messages,
 votre pointe hors publipostage des 30 derniers jours (54), plus une marge
 de 20 » — because that is the lane it exists FOR and the question it
 answers (« will people still be able to log in during the newsletter »)
@@ -222,8 +224,11 @@ restating it.
 The breaker shows on the card only when it has something to say: an
 alert while a provider is held out, naming the hour it will be tried
 again, and otherwise a quiet line counting how often it has been held out
-before — a provider closed right now that has opened eleven times this
-month is the thing no screenshot between two outages shows. A card that
+before — a provider closed right now that has been held out eleven times
+in its life is the thing no screenshot between two outages shows. The
+count is a lifetime total and never resets: that is what makes each
+lockout longer than the last, and it is the honest reading of « how often
+has this relay come back broken ». A card that
 said « actif, configuré » while nothing goes through it is a card that
 makes somebody start changing a correct configuration.
 

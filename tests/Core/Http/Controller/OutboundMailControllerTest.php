@@ -149,6 +149,7 @@ class OutboundMailControllerTest extends TestCase
             'one provider' => ['GET', '/config/courrier-sortant/fournisseurs/{id}'],
             'saving a provider' => ['POST', '/config/courrier-sortant/fournisseurs/{id}'],
             'deleting a provider' => ['POST', '/config/courrier-sortant/fournisseurs/{id}/suppression'],
+            'relaunching abandoned mail' => ['POST', '/config/courrier-sortant/relance'],
         ];
     }
 

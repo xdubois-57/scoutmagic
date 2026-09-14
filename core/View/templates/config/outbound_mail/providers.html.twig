@@ -94,8 +94,9 @@
                 <div class="alert alert-warning small mt-3 mb-0">
                     Mis à l'écart jusqu'à {{ provider.circuit.until }} après
                     {{ provider.circuit.failures }} échec{{ provider.circuit.failures > 1 ? 's' : '' }}
-                    d'affilée. Les voies où il est actif passent au suivant en attendant, et le
-                    réessaieront d'elles-mêmes.
+                    d'affilée. Les voies qui ont un autre fournisseur actif passent au suivant en
+                    attendant, et le réessaieront d'elles-mêmes. Celles où il est seul le tentent
+                    quand même : mieux vaut un essai inutile qu'une voie vide.
                 </div>
             {% elseif provider.circuit and provider.circuit.openings > 0 %}
                 <p class="small text-body-secondary mt-2 mb-0">

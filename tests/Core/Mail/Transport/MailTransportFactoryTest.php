@@ -18,6 +18,8 @@ use Core\Mail\Transport\MailTransportFactory;
 use Core\Mail\Transport\ProviderConnections;
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPUnit\Framework\TestCase;
+use Core\Mail\Transport\MailReserve;
+use Core\Mail\Transport\ProviderHealthRepository;
 use Tests\DatabaseTestHelper;
 
 /**
@@ -120,6 +122,42 @@ class MailTransportFactoryTest extends TestCase
      * The transport the chain delegates to once it has pointed PHPMailer
      * at a provider.
      */
+    /**
+     * **The breaker and the reserve have to arrive through here**, and
+     * this is the test that says so.
+     *
+     * Both are optional on `MailTransportChain`'s constructor so a unit
+     * test can leave them out, and that is exactly how they came to be
+     * absent everywhere that matters: the chain is built in one place in
+     * production, this factory, and IT-02 added the two dependencies to
+     * the class without adding them here. The screen showed a reserve
+     * nothing subtracted and a circuit state nothing ever wrote, and
+     * `MailTransportChainTest` passed throughout because it constructs
+     * the chain itself. Asserting on the properties rather than on
+     * behaviour is deliberate: what failed was the wiring, so the wiring
+     * is what is pinned.
+     */
+    public function testTheBreakerAndTheReserveAreWiredIn(): void
+    {
+        $built = MailTransportFactory::build($this->pdo, [], $this->settings);
+
+        $this->assertInstanceOf(
+            ProviderHealthRepository::class,
+            $this->propertyOf($built['chain'], 'health'),
+            'Without it no failure is ever recorded and no provider is ever set aside (D15).'
+        );
+        $this->assertInstanceOf(
+            MailReserve::class,
+            $this->propertyOf($built['chain'], 'reserve'),
+            'Without it a publipostage spends the quota the sign-in links depend on (D14).'
+        );
+    }
+
+    private function propertyOf(MailTransportChain $chain, string $name): mixed
+    {
+        return (new \ReflectionProperty(MailTransportChain::class, $name))->getValue($chain);
+    }
+
     private function deliveryOf(MailTransportChain $chain): MailTransportInterface
     {
         $property = new \ReflectionProperty(MailTransportChain::class, 'delivery');

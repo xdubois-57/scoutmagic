@@ -3897,17 +3897,23 @@ message is `warning` and not `error` — the next entry is about to be
 tried, and one relay refusing is the ordinary event a chain exists for;
 `MailService` writes the `error` entry if every one of them refuses.
 
-**A share of each quota is kept back for the sign-in links** (D14,
+**A share of each quota is kept back from the mailing lane** (D14,
 `Core\Mail\Transport\MailReserve`). A provider that carries both the
 mailing lane and another one can spend its whole daily allowance on a
 publipostage and leave nothing for the magic links — which is the
 original failure, arrived at through a quota instead of an outage. The
 reserve is subtracted from the ceiling the **mailing** lane sees and from
-no other, so a newsletter stops early and a sign-in link still goes. Its
-size is read from the site's own history rather than configured: the
-daily peak outside the mailing lane over thirty days, plus a margin of
-twenty, floored at thirty for a site with no history and capped at half
-the quota — past which the reserve would be the bigger problem. **It
+no other, so a newsletter stops early and everything else still goes.
+**What it protects is all the non-mailing traffic, not the sign-in links
+alone**: the figure is built from `dailyNonBulkTotals()`, so a
+transactional receipt counts towards it exactly like a magic link, and
+that is right — a provider shared with the Transactionnel lane owes that
+lane the same room. The sign-in links are what make it non-negotiable,
+not what make it exclusive. Its size is read from the site's own history
+rather than configured: the daily peak outside the mailing lane over
+thirty days, plus a margin of twenty, floored at thirty for a site with
+no history and capped at half the quota — past which the reserve would be
+the bigger problem. **It
 applies only to a provider shared between the mailing lane and another
 one**: on a provider that carries nothing but mailings there is nothing
 to protect. `Reserve::provenance()` returns the sentence the screen

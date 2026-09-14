@@ -52,9 +52,11 @@ class MailServiceDeferralTest extends TestCase
         $settings->register(
             DeferredMailQueue::SETTING_LIFETIME_HOURS,
             (string) DeferredMailQueue::DEFAULT_LIFETIME_HOURS,
-            'integer',
+            'number',
             'Durée de vie',
-            'Test'
+            'Test',
+            null,
+            '^[1-9][0-9]*$'
         );
         $this->queue = new DeferredMailQueue($this->repository, $settings);
     }
@@ -158,6 +160,78 @@ class MailServiceDeferralTest extends TestCase
 
         $this->assertStringContainsString('transactional', $context);
         $this->assertStringNotContainsString('parent@exemple.test', $context);
+    }
+
+    /**
+     * **The clone the drain sends through has no queue** — and that is
+     * what keeps a deferred message mortal. Replaying through an
+     * instance that can defer again would write a NEW row with its
+     * attempts back to zero and a fresh deadline, so the backoff ladder,
+     * the fixed expiry and the abandoned state would all be unreachable
+     * and the message would loop at the drain cadence for ever, journaled
+     * as a success every pass.
+     */
+    public function testTheQueuelessCloneThrowsInsteadOfDeferring(): void
+    {
+        $service = $this->serviceDeferring(MailLane::Transactional);
+
+        $this->expectException(MailException::class);
+
+        try {
+            $service->withoutDeferral()->send(
+                to: 'parent@exemple.test',
+                subject: 'Reçu de paiement',
+                bodyHtml: '<p>Bonjour</p>',
+                bodyText: 'Bonjour'
+            );
+        } finally {
+            $this->assertSame([], $this->repository->pendingCountByLane());
+        }
+    }
+
+    /** The original keeps its queue: the clone is a copy, not a switch. */
+    public function testTheOriginalStillDefersAfterTheCloneIsTaken(): void
+    {
+        $service = $this->serviceDeferring(MailLane::Transactional);
+        $service->withoutDeferral();
+
+        $service->send(
+            to: 'parent@exemple.test',
+            subject: 'Reçu de paiement',
+            bodyHtml: '<p>Bonjour</p>',
+            bodyText: 'Bonjour'
+        );
+
+        $this->assertSame(['transactional' => 1], $this->repository->pendingCountByLane());
+    }
+
+    /**
+     * **A real attachment is not valid UTF-8**, and `json_encode()`
+     * refuses what is not. Stored raw, a PDF made the whole payload
+     * encode to `false` — cast to `''`, encrypted and saved without a
+     * murmur, leaving a row that claimed a message was waiting and whose
+     * contents were gone, while the sender had been told it was on its
+     * way.
+     */
+    public function testAnAttachmentThatIsNotValidTextSurvivesTheRoundTrip(): void
+    {
+        $attachment = $this->tempDir . '/photo.jpg';
+        $bytes = "\xFF\xD8\xFF\xE0\x00\x10JFIF\x00\x01\xFF\xFE";
+        file_put_contents($attachment, $bytes);
+
+        $this->serviceDeferring(MailLane::Bulk)->send(
+            to: 'parent@exemple.test',
+            subject: 'Photo',
+            bodyHtml: '<p>Bonjour</p>',
+            bodyText: 'Bonjour',
+            attachments: [['path' => $attachment, 'name' => 'photo.jpg']],
+            purpose: MailPurpose::Bulk
+        );
+
+        $queued = $this->repository->due(1, '2099-01-01 00:00:00');
+
+        $this->assertCount(1, $queued, 'A message with a binary attachment must actually be queued.');
+        $this->assertSame($bytes, $queued[0]->payload['attachments'][0]['content']);
     }
 
     /**

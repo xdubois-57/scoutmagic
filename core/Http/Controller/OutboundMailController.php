@@ -576,7 +576,16 @@ class OutboundMailController extends AbstractController
             return null;
         }
 
-        if ($health->consecutiveFailures === 0 && $health->openedUntil === null) {
+        if (
+            $health->consecutiveFailures === 0
+            && $health->openedUntil === null
+            && $health->openCount === 0
+        ) {
+            // Nothing has ever gone wrong with this provider. `openCount`
+            // has to be in the test: a provider that recovered has its
+            // consecutive count cleared and its lockout lifted, and
+            // returning null there would hide the one figure worth
+            // showing — how often it has come back broken.
             return null;
         }
 

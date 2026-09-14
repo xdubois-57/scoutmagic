@@ -16,6 +16,7 @@ use Core\Mail\Transport\MailProvider;
 use Core\Mail\Transport\MailProviderDirectory;
 use Core\Mail\Transport\MailProviderRepository;
 use Core\Mail\Transport\ProviderConnections;
+use Core\Mail\Transport\SendCounterRepository;
 use Core\Security\EncryptionService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -41,6 +42,7 @@ class OutboundMailChecksTest extends TestCase
     private LaneChainRepository $chains;
     private SettingService $settings;
     private DeferredMailRepository $deferred;
+    private SendCounterRepository $counters;
 
     /** @var array<string, string> */
     private array $secrets = [];
@@ -51,6 +53,7 @@ class OutboundMailChecksTest extends TestCase
         $this->providers = new MailProviderRepository($this->pdo);
         $this->chains = new LaneChainRepository($this->pdo);
         $this->settings = new SettingService(new SettingRepository($this->pdo));
+        $this->counters = new SendCounterRepository($this->pdo);
         $this->deferred = new DeferredMailRepository(
             $this->pdo,
             new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
@@ -127,6 +130,39 @@ class OutboundMailChecksTest extends TestCase
         $this->chains->append(MailLane::Bulk, $relay, true);
 
         $this->assertTrue($this->laneCheck()->read()->overTrigger);
+    }
+
+    /**
+     * **A lane whose every provider has spent its quota is an empty
+     * lane**, and the chain treats it as one: unlike an open circuit,
+     * there is no last-resort rule for a spent quota — `candidates()`
+     * removes the provider outright and the send throws. Counting such a
+     * provider would re-arm this alert on the one evening it exists for:
+     * the night a mailing ate the day's allowance and nobody can sign in.
+     */
+    public function testAProviderThatHasSpentItsQuotaDoesNotCount(): void
+    {
+        $relay = $this->addRelay('Relais', 'smtp.relais.test', dailyQuota: 3);
+        $this->chains->append(MailLane::Authentication, $relay, true);
+
+        $this->assertFalse($this->laneCheck()->read()->overTrigger, 'Fresh quota: the lane works.');
+
+        for ($i = 0; $i < 3; $i++) {
+            $this->counters->increment($relay, MailLane::Bulk);
+        }
+
+        $this->assertTrue($this->laneCheck()->read()->overTrigger);
+    }
+
+    /** The local send has no quota, so it never runs out of one. */
+    public function testTheLocalSendIsNeverCountedOutOnQuota(): void
+    {
+        $this->chains->append(MailLane::Authentication, MailProvider::LOCAL_ID, true);
+        for ($i = 0; $i < 50; $i++) {
+            $this->counters->increment(MailProvider::LOCAL_ID, MailLane::Bulk);
+        }
+
+        $this->assertFalse($this->laneCheck()->read()->overTrigger);
     }
 
     /**
@@ -234,7 +270,8 @@ class OutboundMailChecksTest extends TestCase
                 $this->providers,
                 new ProviderConnections($this->secrets),
                 $this->settings
-            )
+            ),
+            $this->counters
         );
     }
 
@@ -243,9 +280,9 @@ class OutboundMailChecksTest extends TestCase
         return new DeferredMailBacklogCheck($this->deferred);
     }
 
-    private function addRelay(string $name, string $host): int
+    private function addRelay(string $name, string $host, ?int $dailyQuota = null): int
     {
-        $id = $this->providers->create($name, null, 50, 10);
+        $id = $this->providers->create($name, $dailyQuota, 50, 10);
         $prefix = ProviderConnections::prefixFor($id);
         $this->secrets[$prefix . '_host'] = $host;
         $this->secrets[$prefix . '_port'] = '587';

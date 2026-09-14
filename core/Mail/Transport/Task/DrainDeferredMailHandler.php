@@ -10,6 +10,7 @@ namespace Core\Mail\Transport\Task;
 
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
+use Core\Mail\MailErrorRedaction;
 use Core\Mail\Transport\DeferredMailQueue;
 use Core\Mail\Transport\DeferredMailRepository;
 use Core\Mail\Transport\DeferredMessage;
@@ -89,10 +90,11 @@ class DrainDeferredMailHandler implements TaskHandlerInterface
                 continue;
             }
 
-            if ($this->trySend($message, $repository, $queue, $context)) {
+            $reason = $this->trySend($message, $repository, $context);
+            if ($reason === null) {
                 $sent++;
             } else {
-                $abandoned += $this->settleFailure($message, $repository, $queue) ? 1 : 0;
+                $abandoned += $this->settleFailure($message, $repository, $queue, $reason) ? 1 : 0;
             }
         }
 
@@ -110,21 +112,38 @@ class DrainDeferredMailHandler implements TaskHandlerInterface
     /**
      * One attempt, replayed through the ordinary send path.
      *
+     * **Through a queue-less clone** ({@see \Core\Mail\MailService::withoutDeferral()}):
+     * this pass IS the queue, and a replay that could defer again would
+     * make a message immortal.
+     *
      * A message that goes out is deleted rather than marked: nothing
      * about it is worth keeping once it has arrived, and its body is
      * personal data that has no further reason to exist (D18).
+     *
+     * Rebuilding the attachments is INSIDE the try, deliberately. A row
+     * whose payload cannot be read back — corrupted, or written before a
+     * key changed — would otherwise throw out of this method, past
+     * `drain()` and `handle()`, so the purge and the re-arm at the end of
+     * the pass never ran; and since `due()` orders by date, the same row
+     * would be first again on every later pass. One unreadable message
+     * would stop the whole queue. Here it is a failure like any other and
+     * settles like one.
+     *
+     * @return string|null Null when it left; otherwise the redacted reason
+     *         it did not, which is what gets written down.
      */
     private function trySend(
         DeferredMessage $message,
         DeferredMailRepository $repository,
-        DeferredMailQueue $queue,
         TaskContext $context
-    ): bool {
-        $payload = $message->payload;
-        $attachments = $this->materialise($payload['attachments']);
+    ): ?string {
+        $attachments = ['files' => [], 'temporary' => []];
 
         try {
-            $context->mailService->send(
+            $payload = $message->payload;
+            $attachments = $this->materialise($payload['attachments']);
+
+            $context->mailService->withoutDeferral()->send(
                 $payload['to'],
                 $payload['subject'],
                 $payload['bodyHtml'],
@@ -137,16 +156,7 @@ class DrainDeferredMailHandler implements TaskHandlerInterface
                 $message->purpose
             );
         } catch (\Throwable $e) {
-            $repository->reschedule(
-                $message->id,
-                $message->attempts + 1,
-                $e->getMessage(),
-                // Re-read on the next pass; this is only a placeholder in
-                // case settleFailure() finds the message still has time.
-                $message->nextAttemptAt
-            );
-
-            return false;
+            return MailErrorRedaction::withoutAddresses($e->getMessage());
         } finally {
             foreach ($attachments['temporary'] as $path) {
                 @unlink($path);
@@ -155,28 +165,40 @@ class DrainDeferredMailHandler implements TaskHandlerInterface
 
         $repository->delete($message->id);
 
-        return true;
+        return null;
     }
 
     /**
      * It failed again: further out, or given up on (D16).
+     *
+     * **The single write of the failure path**, and it carries the reason
+     * the transport actually gave rather than a fixed phrase: « SMTP
+     * connect() failed » tells whoever opens the Relance screen what to
+     * repair, where « nouvel échec » tells them nothing they did not
+     * already know from the row existing.
      *
      * @return bool Whether it was abandoned.
      */
     private function settleFailure(
         DeferredMessage $message,
         DeferredMailRepository $repository,
-        DeferredMailQueue $queue
+        DeferredMailQueue $queue,
+        string $reason
     ): bool {
-        $next = $queue->nextAttemptFor($message);
+        // `attempts + 1` on BOTH sides of this: the attempt that has just
+        // failed is not yet counted on the object, and the backoff rung is
+        // chosen from how many have failed in total. Reading the stale
+        // count here would hand out five minutes twice and make the real
+        // ladder 5, 5, 15, 45 rather than 5, 15, 45.
+        $next = $queue->nextAttemptFor($message, $message->attempts + 1);
 
         if ($next === null) {
-            $repository->abandon($message->id, $message->attempts + 1, 'délai de vie dépassé');
+            $repository->abandon($message->id, $message->attempts + 1, $reason);
 
             return true;
         }
 
-        $repository->reschedule($message->id, $message->attempts + 1, 'nouvel échec', $next);
+        $repository->reschedule($message->id, $message->attempts + 1, $reason, $next);
 
         return false;
     }

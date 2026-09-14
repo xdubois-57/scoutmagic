@@ -535,6 +535,56 @@ seconde méritait de partir pour elle-même : rien sur le chemin de la
 relance ne lit le contenu d'un message abandonné, et laisser une méthode
 qui le ferait est une invitation.
 
+### La relecture, et la leçon qui revient
+
+**Les deux relecteurs ont trouvé indépendamment la même chose, et c'était
+la bonne.** `MailTransportFactory::build()` — le seul endroit où la chaîne
+est construite en production — n'avait pas été mis à jour : `$health` et
+`$reserve` sont optionnels sur le constructeur pour qu'un test puisse s'en
+passer, et c'est exactement par là qu'ils étaient absents partout où cela
+comptait. L'écran affichait une réserve que rien ne retranchait et un état
+de coupe-circuit que rien n'écrivait ; `MailTransportChainTest` restait
+vert parce qu'il construit la chaîne lui-même.
+
+**C'est la troisième fois dans cette itération.** La file non branchée
+dans `MailServiceFactory`, puis celle-ci. La leçon est la même et mérite
+d'être écrite une fois pour toutes : *une dépendance optionnelle ajoutée à
+une classe est une dépendance absente de la racine de composition tant
+qu'un test ne dit pas le contraire*. `MailTransportFactoryTest` affirme
+désormais les deux propriétés — sur le câblage, pas sur le comportement,
+parce que c'est le câblage qui a cassé.
+
+**Le rejeu pouvait rendre un message immortel.** `DrainDeferredMailHandler`
+appelait `MailService::send()` sur l'instance du `TaskContext`, laquelle
+porte une file. Une voie toujours épuisée au moment du réessai attrapait
+donc sa propre `LaneExhaustedException`, écrivait une NOUVELLE ligne avec
+`attempts` à zéro et une échéance fraîche, et rendait la main sans
+exception — la passe supprimait l'originale et comptait un envoi qui
+n'avait pas eu lieu. Le palier de réessai, l'échéance fixe et l'état
+« abandonné » devenaient tous inatteignables. `withoutDeferral()` rend un
+clone sans file : la passe EST la file, elle ne peut pas différer.
+
+**Une pièce jointe réelle n'est pas de l'UTF-8 valide.** `json_encode()`
+refuse ce qui ne l'est pas et rend `false` ; casté en chaîne, cela donnait
+`''`, chiffré et stocké sans un mot — une ligne qui affirmait qu'un
+message attendait, et dont le contenu avait disparu, alors que
+l'expéditeur avait vu « envoyé ». Le test qui prétendait couvrir le cas
+utilisait `"%PDF-1.4\x00binary"`, qui est de l'UTF-8 valide par accident.
+Les octets passent désormais en base64, `JSON_THROW_ON_ERROR` rend le
+reste bruyant, et le test utilise de vrais octets de JPEG.
+
+Reste, du même lot : `554 5.7.1` n'est plus classé comme un refus de
+destinataire (RFC 3463 en fait un refus de politique, et « Relay access
+denied » porte le même code) ; `mail_provider_circuit_opened` n'est plus
+écrit à chaque échec d'un circuit déjà ouvert ; `settleFailure()` garde la
+raison réelle au lieu de « nouvel échec » ; le palier de réessai lit le
+compte d'après l'échec et non d'avant ; la fenêtre de relance par défaut
+est bien la plus courte ; la route de relance rejoint le fournisseur RBAC ;
+`LIMIT` est lié plutôt que concaténé ; les deux réglages passent en
+`number` avec une expression régulière, `SettingService` n'ayant pas de
+cas `integer` ; et une pièce jointe illisible fait échouer le report au
+lieu de mettre en file un message amputé.
+
 ### Reporté
 
 Rien de fonctionnel. La cadence « collante » après bascule, refusée en

@@ -130,10 +130,18 @@ final class DeferredMailQueue
      * The next attempt for a message that has just failed again — or null
      * when it has run out of time and must be abandoned (D9, D16).
      */
-    public function nextAttemptFor(DeferredMessage $message, ?string $now = null): ?string
+    /**
+     * @param int|null $attempts How many attempts have failed, INCLUDING the
+     *        one that just did. Null reads it off the message, which is the
+     *        count as it was BEFORE this failure — right for a caller asking
+     *        « when would this be tried next », wrong for one settling a
+     *        failure it has just seen, and the drain passes it explicitly
+     *        for exactly that reason.
+     */
+    public function nextAttemptFor(DeferredMessage $message, ?int $attempts = null, ?string $now = null): ?string
     {
         $now ??= date('Y-m-d H:i:s');
-        $index = min($message->attempts, count(self::BACKOFF_MINUTES) - 1);
+        $index = min($attempts ?? $message->attempts, count(self::BACKOFF_MINUTES) - 1);
         $next = strtotime($now) + self::BACKOFF_MINUTES[$index] * 60;
 
         if ($next >= strtotime($message->expiresAt)) {
@@ -165,7 +173,16 @@ final class DeferredMailQueue
         'week' => 24 * 7,
     ];
 
-    public const DEFAULT_WINDOW = 'day';
+    /**
+     * Six hours: the shortest window there is, and the safe one.
+     *
+     * Not « the last day », which sounds modest and is not: a relay that
+     * came back at nine o'clock would, on one click, re-send everything
+     * that failed since nine the previous evening — including the
+     * messages whose recipients have since been told by other means. The
+     * other windows are one selection away for somebody who means them.
+     */
+    public const DEFAULT_WINDOW = 'recent';
 
     /**
      * Put abandoned messages back in the queue (D17).

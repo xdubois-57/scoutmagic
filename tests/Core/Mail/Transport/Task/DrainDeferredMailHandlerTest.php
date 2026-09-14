@@ -62,16 +62,20 @@ class DrainDeferredMailHandlerTest extends TestCase
         $this->settings->register(
             DeferredMailQueue::SETTING_LIFETIME_HOURS,
             (string) DeferredMailQueue::DEFAULT_LIFETIME_HOURS,
-            'integer',
+            'number',
             'Durée de vie',
-            'Test'
+            'Test',
+            null,
+            '^[1-9][0-9]*$'
         );
         $this->settings->register(
             DeferredMailQueue::SETTING_ABANDONED_RETENTION_DAYS,
             (string) DeferredMailQueue::DEFAULT_ABANDONED_RETENTION_DAYS,
-            'integer',
+            'number',
             'Rétention',
-            'Test'
+            'Test',
+            null,
+            '^[1-9][0-9]*$'
         );
     }
 
@@ -268,6 +272,12 @@ class DrainDeferredMailHandlerTest extends TestCase
     private function recordingMailService(): MailService
     {
         $mock = $this->createMock(MailService::class);
+        // The drain sends through withoutDeferral(); on the real service
+        // that is a queue-less clone, and what this double has to answer
+        // is « the same service ». That the clone really drops the queue
+        // is asserted where it belongs, on the real class
+        // (Tests\Core\Mail\MailServiceDeferralTest).
+        $mock->method('withoutDeferral')->willReturnSelf();
         $mock->method('send')->willReturnCallback(
             function (
                 string $to,

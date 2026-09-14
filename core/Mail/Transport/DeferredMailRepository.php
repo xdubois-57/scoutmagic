@@ -69,7 +69,7 @@ final class DeferredMailRepository
         $statement->execute([
             $lane->value,
             $purpose->value,
-            $this->encryption->encrypt((string) json_encode($payload), self::CONTEXT),
+            $this->encryption->encrypt($this->encode($payload), self::CONTEXT),
             DeferredMessage::STATUS_PENDING,
             mb_substr($reason, 0, 255),
             $nextAttemptAt,
@@ -86,13 +86,21 @@ final class DeferredMailRepository
      */
     public function due(int $limit, ?string $now = null): array
     {
+        // The limit is bound rather than written into the statement.
+        // `int` makes concatenation safe here today, and that is exactly
+        // the argument the rule refuses: every statement is prepared, and
+        // a value in the SQL text is a defect whatever its provenance
+        // (AGENTS.md).
         $statement = $this->pdo->prepare(
             'SELECT * FROM mail_deferred_messages
              WHERE status = ? AND next_attempt_at <= ?
              ORDER BY next_attempt_at, id
-             LIMIT ' . max(1, $limit)
+             LIMIT ?'
         );
-        $statement->execute([DeferredMessage::STATUS_PENDING, $now ?? date('Y-m-d H:i:s')]);
+        $statement->bindValue(1, DeferredMessage::STATUS_PENDING, PDO::PARAM_STR);
+        $statement->bindValue(2, $now ?? date('Y-m-d H:i:s'), PDO::PARAM_STR);
+        $statement->bindValue(3, max(1, $limit), PDO::PARAM_INT);
+        $statement->execute();
 
         return array_map(
             fn(array $row): DeferredMessage => $this->hydrate($row),
@@ -262,6 +270,30 @@ final class DeferredMailRepository
     }
 
     /**
+     * The payload as JSON, with the attachment bytes in base64.
+     *
+     * **`json_encode()` refuses invalid UTF-8**, and an attachment is raw
+     * bytes: a real PDF, a JPEG or a ZIP is almost never valid UTF-8, so
+     * encoding one straight returns `false`. Cast to string that is `''`,
+     * which encrypts and stores perfectly well — leaving a row that says
+     * a message is waiting and whose contents are gone, while the sender
+     * was told it was on its way. Base64 is what makes the bytes
+     * expressible; the guard below is what makes anything else loud.
+     *
+     * @param array{attachments: array<int, array{name: string, content: string}>, ...} $payload
+     */
+    private function encode(array $payload): string
+    {
+        foreach ($payload['attachments'] as $index => $attachment) {
+            $payload['attachments'][$index]['content'] = base64_encode($attachment['content']);
+        }
+
+        $json = json_encode($payload, JSON_THROW_ON_ERROR);
+
+        return $json;
+    }
+
+    /**
      * @param array<string, mixed> $row
      */
     private function hydrate(array $row): DeferredMessage
@@ -280,6 +312,19 @@ final class DeferredMailRepository
          * } $payload
          */
         $payload = is_array($decoded) ? $decoded : [];
+
+        foreach ($payload['attachments'] as $index => $attachment) {
+            $content = base64_decode((string) $attachment['content'], true);
+            if ($content === false) {
+                // Written by a version that stored raw bytes, or damaged.
+                // Left as it is rather than dropped: the drain is what
+                // decides what an unusable message becomes, and it is the
+                // only place that can write that decision down.
+                continue;
+            }
+
+            $payload['attachments'][$index]['content'] = $content;
+        }
 
         return new DeferredMessage(
             (int) $row['id'],

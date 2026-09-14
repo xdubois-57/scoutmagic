@@ -314,12 +314,21 @@ final class MailTransportChain implements MailTransportInterface
         }
 
         try {
+            // Read before writing, so « the circuit opened » can be told
+            // from « it was already open and this is the one attempt the
+            // never-empty-a-lane rule allowed » (D15). Without it every
+            // failure on a shut-out provider writes another « écarté
+            // jusqu'à » line, and a relay down for an afternoon fills the
+            // journal with the same event a hundred times — which is how
+            // an operational journal stops being read. One indexed read
+            // on a path that has just spent seconds failing to connect.
+            $openingsBefore = $this->health->forProvider($provider->id)->openCount;
             $health = $this->health->recordFailure($provider->id, $reason);
         } catch (\Throwable) {
             return;
         }
 
-        if ($health->isOpen() && $health->openedAt !== null) {
+        if ($health->openCount > $openingsBefore) {
             $this->journalCircuit($provider, $lane, 'mail_provider_circuit_opened', sprintf(
                 'Fournisseur d’envoi écarté jusqu’à %s',
                 $health->openedUntil ?? '?'

@@ -1774,12 +1774,17 @@ $settingService->register(
 $settingService->register(
     \Core\Mail\Transport\DeferredMailQueue::SETTING_LIFETIME_HOURS,
     (string) \Core\Mail\Transport\DeferredMailQueue::DEFAULT_LIFETIME_HOURS,
-    'integer',
+    // `number`, and a regex refusing anything but a positive integer.
+    // `SettingService::validateValue()` has no `integer` case and lets an
+    // unknown type through, so « abc » would be stored, cast to 0 and
+    // clamped to 1 — a queue that gives up after an hour because
+    // somebody mistyped a setting.
+    'number',
     'Durée de vie d\'un message différé (heures)',
     'Au-delà, un message qui n\'a pas pu partir est abandonné plutôt qu\'envoyé : '
         . 'un rappel de réunion qui arrive trois jours plus tard fait plus de mal que de bien.',
     null,
-    null,
+    '^[1-9][0-9]*$',
     null,
     true,
     305
@@ -1787,11 +1792,11 @@ $settingService->register(
 $settingService->register(
     \Core\Mail\Transport\DeferredMailQueue::SETTING_ABANDONED_RETENTION_DAYS,
     (string) \Core\Mail\Transport\DeferredMailQueue::DEFAULT_ABANDONED_RETENTION_DAYS,
-    'integer',
+    'number',
     'Conservation des messages abandonnés (jours)',
     'Combien de temps un message abandonné reste proposable à la relance, avant d\'être purgé avec son contenu.',
     null,
-    null,
+    '^[1-9][0-9]*$',
     null,
     true,
     306

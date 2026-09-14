@@ -13,6 +13,7 @@ use Core\Alert\OperationalCheck;
 use Core\Mail\Transport\LaneChainRepository;
 use Core\Mail\Transport\MailLane;
 use Core\Mail\Transport\MailProviderDirectory;
+use Core\Mail\Transport\SendCounterRepository;
 
 /**
  * Whether anything is still able to carry a sign-in link (D9,
@@ -36,7 +37,8 @@ final class AuthenticationLaneCheck implements OperationalCheck
 
     public function __construct(
         private readonly LaneChainRepository $chains,
-        private readonly MailProviderDirectory $directory
+        private readonly MailProviderDirectory $directory,
+        private readonly SendCounterRepository $counters
     ) {
     }
 
@@ -91,12 +93,26 @@ final class AuthenticationLaneCheck implements OperationalCheck
      * even when its circuit is open (D15), so treating an open circuit as
      * a missing provider would raise the alarm about a lane that still
      * works, and would do it during exactly the outage the breaker is
-     * riding out. What is counted out is what the chain really cannot
-     * use: a disabled entry, or one with no host configured.
+     * riding out.
+     *
+     * **A spent quota is the opposite case, and it IS counted out.** The
+     * chain has no last-resort rule for it: `candidates()` removes a
+     * provider over its daily ceiling outright, so a lane whose every
+     * entry has spent its quota throws rather than trying anything. A
+     * check reading only « is it configured » would call that lane
+     * healthy and re-arm the alert on the evening when a mailing has just
+     * eaten the day's allowance — which is the exact night nobody can log
+     * in. The reserve (D14) is what usually prevents it; this is what
+     * says so when it has not.
+     *
+     * The quota is read against the whole day's sends, not against the
+     * lane's: a quota belongs to the provider and every lane spends the
+     * same one.
      */
     private function usableEntries(): int
     {
         $providers = $this->directory->all();
+        $usedToday = $this->counters->totalsForDay();
         $usable = 0;
 
         foreach ($this->chains->forLane(MailLane::Authentication) as $entry) {
@@ -105,9 +121,17 @@ final class AuthenticationLaneCheck implements OperationalCheck
             }
 
             $provider = $providers[$entry->providerId] ?? null;
-            if ($provider !== null && $provider->isUsable()) {
-                $usable++;
+            if ($provider === null || !$provider->isUsable()) {
+                continue;
             }
+
+            if ($provider->dailyQuota !== null
+                && ($usedToday[$provider->id] ?? 0) >= $provider->dailyQuota
+            ) {
+                continue;
+            }
+
+            $usable++;
         }
 
         return $usable;

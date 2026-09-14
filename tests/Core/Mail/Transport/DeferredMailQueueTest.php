@@ -44,16 +44,20 @@ class DeferredMailQueueTest extends TestCase
         $this->settings->register(
             DeferredMailQueue::SETTING_LIFETIME_HOURS,
             (string) DeferredMailQueue::DEFAULT_LIFETIME_HOURS,
-            'integer',
+            'number',
             'Durée de vie',
-            'Test'
+            'Test',
+            null,
+            '^[1-9][0-9]*$'
         );
         $this->settings->register(
             DeferredMailQueue::SETTING_ABANDONED_RETENTION_DAYS,
             (string) DeferredMailQueue::DEFAULT_ABANDONED_RETENTION_DAYS,
-            'integer',
+            'number',
             'Rétention',
-            'Test'
+            'Test',
+            null,
+            '^[1-9][0-9]*$'
         );
     }
 
@@ -135,6 +139,7 @@ class DeferredMailQueueTest extends TestCase
         foreach ([0, 1, 2, 3, 4, 5] as $attempts) {
             $at = $this->queue->nextAttemptFor(
                 $this->withAttempts($message, $attempts, expiresAt: '2099-01-01 00:00:00'),
+                null,
                 '2026-09-13 10:00:00'
             );
             $delays[] = (int) round((strtotime((string) $at) - strtotime('2026-09-13 10:00:00')) / 60);
@@ -155,6 +160,7 @@ class DeferredMailQueueTest extends TestCase
 
         $this->assertNull($this->queue->nextAttemptFor(
             $this->withAttempts($message, 0, expiresAt: '2026-09-13 10:02:00'),
+            null,
             '2026-09-13 10:00:00'
         ));
     }

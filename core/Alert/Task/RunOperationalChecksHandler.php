@@ -31,6 +31,7 @@ use Core\Mail\Transport\LaneChainRepository;
 use Core\Mail\Transport\MailProviderDirectory;
 use Core\Mail\Transport\MailProviderRepository;
 use Core\Mail\Transport\ProviderConnections;
+use Core\Mail\Transport\SendCounterRepository;
 use Core\Security\SecretManager;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
@@ -105,7 +106,8 @@ class RunOperationalChecksHandler implements TaskHandlerInterface
                     new MailProviderRepository($pdo),
                     new ProviderConnections($this->mailSecrets($context)),
                     $context->settings
-                )
+                ),
+                new SendCounterRepository($pdo)
             ),
             new DeferredMailBacklogCheck(new DeferredMailRepository($pdo, $context->encryption)),
             new DevelopmentModeCheck($context->settings),

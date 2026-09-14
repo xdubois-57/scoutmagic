@@ -220,7 +220,7 @@ class MailService
             // person is in front of their screen and needs the truth now.
             $reason = MailErrorRedaction::withoutAddresses($e->reason !== '' ? $e->reason : $e->getMessage());
 
-            if ($this->deferred?->defer($e->lane, $purpose, $this->payloadFor(
+            $payload = $this->payloadFor(
                 $to,
                 $subject,
                 $bodyHtml,
@@ -230,7 +230,9 @@ class MailService
                 $fromAddressOverride,
                 $fromNameOverride,
                 $extraHeaders
-            ), $reason) === true) {
+            );
+
+            if ($payload !== null && $this->deferred?->defer($e->lane, $purpose, $payload, $reason) === true) {
                 $this->journalDeferral($e->lane, $reason);
 
                 return;
@@ -253,6 +255,34 @@ class MailService
             // and it cannot hold in one branch of the same catch.
             throw new MailException(MailErrorRedaction::withoutAddresses($reason));
         }
+    }
+
+    /**
+     * The same service, minus the queue — for the pass that drains it.
+     *
+     * **A drain that could itself defer is a message that never
+     * expires.** `Task\DrainDeferredMailHandler` replays `send()`, and
+     * replaying it through an instance holding a queue means a lane still
+     * down at retry time catches its own `LaneExhaustedException`, writes
+     * a NEW row with `attempts` back to zero and a fresh deadline, and
+     * returns normally — so the drain sees no exception, deletes the
+     * original row, and counts a send that did not happen. The backoff
+     * ladder, the fixed expiry and the abandoned state all become
+     * unreachable, and the message loops at the drain cadence for ever
+     * while the journal reports a success every pass.
+     *
+     * Handing the drain a queue-less clone is what keeps the exception
+     * propagating, so the existing row is rescheduled or abandoned like
+     * any other failure. It is not a second way of sending: the whole
+     * chain, the signature, the counters and the sandbox are the same
+     * object.
+     */
+    public function withoutDeferral(): self
+    {
+        $clone = clone $this;
+        $clone->deferred = null;
+
+        return $clone;
     }
 
     /**
@@ -293,10 +323,18 @@ class MailService
      * vanished. Reading them at the point of deferral is the only moment
      * they are all still guaranteed to exist.
      *
-     * A file that cannot be read is dropped rather than failing the
-     * deferral: an e-mail that arrives without one of its attachments is
-     * worse than one that arrives whole, and better than one that never
-     * arrives at all.
+     * **Null when the message cannot be carried whole**, and the caller's
+     * failure then stands. Two ways that happens, and neither is a
+     * judgement call:
+     *
+     * - A file that cannot be read. Queueing the rest would have `send()`
+     *   report success for a message that will arrive missing the receipt
+     *   somebody asked for, and nothing downstream would ever say so.
+     * - More than the queue will take. The ceiling is checked HERE,
+     *   against the sizes on disk, before anything is read: checking it
+     *   after would mean loading a 400 MB document into memory to find
+     *   out it is too big, which is the failure the ceiling exists to
+     *   prevent (`DeferredMailQueue::MAX_ATTACHMENT_BYTES`).
      *
      * @param array<int, array{path: string, name: string}> $attachments
      * @param array<string, string> $extraHeaders
@@ -305,7 +343,7 @@ class MailService
      *     replyTo: ?string, fromAddressOverride: ?string, fromNameOverride: ?string,
      *     extraHeaders: array<string, string>,
      *     attachments: array<int, array{name: string, content: string}>
-     * }
+     * }|null
      */
     private function payloadFor(
         string $to,
@@ -317,12 +355,25 @@ class MailService
         ?string $fromAddressOverride,
         ?string $fromNameOverride,
         array $extraHeaders
-    ): array {
+    ): ?array {
+        $bytes = 0;
+        foreach ($attachments as $attachment) {
+            $size = @filesize($attachment['path']);
+            if ($size === false) {
+                return null;
+            }
+
+            $bytes += $size;
+            if ($bytes > Transport\DeferredMailQueue::MAX_ATTACHMENT_BYTES) {
+                return null;
+            }
+        }
+
         $carried = [];
         foreach ($attachments as $attachment) {
             $content = @file_get_contents($attachment['path']);
             if ($content === false) {
-                continue;
+                return null;
             }
 
             $carried[] = ['name' => $attachment['name'], 'content' => $content];
