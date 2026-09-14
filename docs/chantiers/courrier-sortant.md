@@ -635,6 +635,16 @@ une ligne abandonnée comme n'importe quelle autre — la correction
 précédente du `?? []` supprimé pour satisfaire PHPStan avait laissé un
 `foreach(null)` à la place.
 
+**Et `ProviderHealthRepository::forget()` n'était appelé nulle part.**
+`TransportService::deleteProvider()` nettoie soigneusement les trois
+autres réserves par fournisseur — secrets, entrées de voies, compteurs —
+mais la table de santé n'a pas de clé étrangère (volontairement : l'envoi
+local est le fournisseur 0 et n'a pas de ligne dans `mail_providers`),
+donc rien ne l'effaçait. La ligne survivait au relais qu'elle décrit,
+gardait sa dernière raison SMTP en base et dans toutes les archives de
+support suivantes, et aurait transmis son `open_count` — voire un verrou
+non expiré — à qui aurait repris cet identifiant.
+
 ### Reporté
 
 Rien de fonctionnel. La cadence « collante » après bascule, refusée en

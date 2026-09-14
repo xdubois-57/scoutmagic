@@ -5115,7 +5115,8 @@ $frontController->registerController(
             $sendCounterRepository,
             $providerConnections,
             $mailProviderDirectory,
-            $journalService
+            $journalService,
+            new \Core\Mail\Transport\ProviderHealthRepository($pdo)
         ),
         $settingService,
         new \Core\Mail\Transport\MailReserve($sendCounterRepository, $laneChainRepository),

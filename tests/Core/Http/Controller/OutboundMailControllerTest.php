@@ -101,7 +101,8 @@ class OutboundMailControllerTest extends TestCase
                 $counters,
                 $connections,
                 $directory,
-                new JournalService(new JournalRepository($this->pdo))
+                new JournalService(new JournalRepository($this->pdo)),
+                new \Core\Mail\Transport\ProviderHealthRepository($this->pdo)
             ),
             $settings,
             new \Core\Mail\Transport\MailReserve($counters, $this->chains),

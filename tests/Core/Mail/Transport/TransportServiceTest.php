@@ -14,6 +14,7 @@ use Core\Mail\Transport\MailProvider;
 use Core\Mail\Transport\MailProviderDirectory;
 use Core\Mail\Transport\MailProviderRepository;
 use Core\Mail\Transport\ProviderConnections;
+use Core\Mail\Transport\ProviderHealthRepository;
 use Core\Mail\Transport\SendCounterRepository;
 use Core\Mail\Transport\TransportException;
 use Core\Mail\Transport\TransportService;
@@ -38,6 +39,7 @@ class TransportServiceTest extends TestCase
     private LaneChainRepository $chains;
     private TransportService $service;
     private JournalRepository $journalRepository;
+    private ProviderHealthRepository $health;
     private string $secretsDirectory = '';
 
     protected function setUp(): void
@@ -61,13 +63,15 @@ class TransportServiceTest extends TestCase
         $connections = new ProviderConnections([], $secretManager);
         $this->journalRepository = new JournalRepository($this->pdo);
 
+        $this->health = new ProviderHealthRepository($this->pdo);
         $this->service = new TransportService(
             $this->providers,
             $this->chains,
             new SendCounterRepository($this->pdo),
             $connections,
             new MailProviderDirectory($this->providers, $connections, $settings),
-            new JournalService($this->journalRepository)
+            new JournalService($this->journalRepository),
+            $this->health
         );
     }
 
@@ -234,6 +238,33 @@ class TransportServiceTest extends TestCase
             $unwritable,
             new MailProviderDirectory($this->providers, $unwritable, new SettingService(new SettingRepository($this->pdo))),
             new JournalService($this->journalRepository)
+        );
+    }
+
+    /**
+     * **Deleting a relay takes the breaker's memory of it with it.**
+     *
+     * `mail_provider_health` has no foreign key — deliberately, since the
+     * local send is provider 0 and has no row in `mail_providers` — so
+     * nothing removes that row on its own. Left behind it would keep the
+     * relay's last SMTP reason in the database and in every later support
+     * archive, for a fournisseur nobody can see any more; and whoever
+     * next took that id would inherit its `open_count`, and with it a
+     * longer first lockout than they had earned.
+     */
+    public function testDeletingAProviderForgetsWhatTheBreakerKnewAboutIt(): void
+    {
+        $id = $this->service->addProvider('Relais', 'smtp.relais.test', 587, 'user', 'secret', null, 50, 10);
+        $this->chains->setEnabled(MailLane::Authentication, MailProvider::LOCAL_ID, true);
+        $this->chains->setEnabled(MailLane::Transactional, MailProvider::LOCAL_ID, true);
+        $this->chains->setEnabled(MailLane::Bulk, MailProvider::LOCAL_ID, true);
+        $this->health->recordFailure($id, 'SMTP connect() failed.');
+
+        $this->service->deleteProvider($id);
+
+        $this->assertSame(
+            '0',
+            (string) $this->pdo->query('SELECT COUNT(*) FROM mail_provider_health')->fetchColumn()
         );
     }
 
