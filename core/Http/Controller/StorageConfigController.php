@@ -374,8 +374,23 @@ class StorageConfigController extends AbstractController
             $locations,
             static function (StorageLocation $location) use ($protections): bool {
                 $protection = $protections[$location->id] ?? null;
+                if ($protection === null || !$protection->enabled) {
+                    return true;
+                }
 
-                return $protection === null || !$protection->enabled;
+                // **A declared relation is not a copy.** What this list
+                // answers is « what would I lose tonight », and a
+                // protection that has never completed a pass holds
+                // nothing yet, while one whose last pass failed has
+                // stopped holding more. Both look identical to an
+                // administrator reading « Ces emplacements n'ont pas de
+                // copie de secours qui tourne » — which is the point of
+                // the line — and counting them as protected because a row
+                // exists is how a copy that has been failing for a week
+                // goes unnoticed. `last_error` is cleared by a completed
+                // pass, so it means « the most recent outcome was a
+                // failure », not « something once went wrong ».
+                return $protection->lastCompletedPassAt === null || $protection->lastError !== null;
             }
         ));
     }

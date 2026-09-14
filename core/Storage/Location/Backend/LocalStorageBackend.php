@@ -120,8 +120,20 @@ class LocalStorageBackend implements RangeReadableBackend, ResumableUploadBacken
         // not.
         clearstatcache(true, $path);
         $size = @filesize($path);
+        if (is_int($size)) {
+            return $size;
+        }
 
-        return is_int($size) ? $size : 0;
+        // **A size that cannot be read is not an offset of zero.** The
+        // file is there — `is_file()` just said so — and answering 0 tells
+        // the copier that nothing is stored, so it appends the whole
+        // object BEHIND the bytes already on disk. The promoted file is
+        // then longer than the source and `verify()` throws it away: a
+        // night of transfer spent to arrive nowhere. The contract of this
+        // method is that 0 means « nothing is stored », so make it true.
+        $this->discardPartial($key);
+
+        return 0;
     }
 
     public function appendToPartial(string $key, string $chunk): void
@@ -248,6 +260,13 @@ class LocalStorageBackend implements RangeReadableBackend, ResumableUploadBacken
      */
     public function delete(string $key): void
     {
+        // **A half-copy of an object goes with the object.** Deleting the
+        // final path and leaving `key.scoutmagic-part` beside it keeps
+        // bytes nothing can ever reach again: the partial is hidden from
+        // `list()` on purpose, so no inventory and no listing meets it,
+        // and it would sit on the disk for the life of the location.
+        $this->discardPartial($key);
+
         $path = $this->fullPath($key);
         if (!is_file($path)) {
             return;

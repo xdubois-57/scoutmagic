@@ -47,8 +47,8 @@ sien par un numéro interne. Un emplacement **recréé** en reçoit un
 nouveau : les albums restaurés désigneraient toujours l'ancien et ne
 trouveraient plus leurs fichiers.
 
-Dans Configuration › Stockage › Emplacements, retrouvez la
-destination, « Modifier », et ne corrigez que ce qui a changé.
+Dans Configuration › Stockage › Emplacements, retrouvez
+l'emplacement, « Modifier », et ne corrigez que ce qui a changé.
 Absente de la liste ? L'étape 2 n'a pas repris la base attendue.
 
 **4. Testez-le.** « Tester » écrit un fichier témoin et le relit. Tant

@@ -344,6 +344,50 @@ final class StorageProtectionServiceTest extends TestCase
         );
     }
 
+    /**
+     * **A new destination has never been copied to, so the cadence must
+     * not remember the old one.**
+     *
+     * `isDue()` gates on `last_completed_pass_at + cadence`. Left in
+     * place, it lets a destination holding nothing at all wait out a full
+     * cadence — a day by default — starting from the moment an
+     * administrator acted to repair the protection.
+     */
+    public function testCorrectingTheDestinationMakesTheRelationDueAtOnce(): void
+    {
+        $source = $this->local('Galerie');
+        $id = $this->service->save($source, $this->local('NAS', 'nas'), 30, 24, true);
+        $this->protections->recordPassCompleted($id);
+        $this->assertNotNull($this->protections->findById($id)?->lastCompletedPassAt);
+
+        $this->service->save($source, $this->local('Second NAS', 'nas2'), 30, 24, true);
+
+        $corrected = $this->protections->findById($id);
+        $this->assertNotNull($corrected);
+        $this->assertNull($corrected->lastCompletedPassAt);
+        $this->assertTrue($corrected->isDue(new \DateTimeImmutable()));
+    }
+
+    /**
+     * But a grace period raised on the SAME destination is not a reason
+     * to re-list a hundred thousand keys tonight rather than tomorrow
+     * night — nothing about what the copy holds has changed.
+     */
+    public function testChangingOnlyTheGracePeriodLeavesTheCadenceAlone(): void
+    {
+        $source = $this->local('Galerie');
+        $destination = $this->local('NAS', 'nas');
+        $id = $this->service->save($source, $destination, 30, 24, true);
+        $this->protections->recordPassCompleted($id);
+
+        $this->service->save($source, $destination, 60, 24, true);
+
+        $updated = $this->protections->findById($id);
+        $this->assertNotNull($updated);
+        $this->assertSame(60, $updated->gracePeriodDays);
+        $this->assertNotNull($updated->lastCompletedPassAt, 'the last pass still happened');
+    }
+
     private function completeBackupAgedInDays(int $days): void
     {
         $backups = new BackupRepository($this->pdo);

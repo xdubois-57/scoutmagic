@@ -104,7 +104,7 @@ class ProtectionPass
         $fingerprint = $inventory->fingerprint();
 
         $result = $protection->passPhase === StorageProtection::PHASE_RECONCILE
-            ? $this->reconcile($protection, $destination, $inventory, $passStartedAt, $now)
+            ? $this->reconcile($protection, $destination, $inventory, $passStartedAt, $now, $hasTimeLeft)
             : $this->inventorySource($protection, $source, $destination, $inventory, $passStartedAt, $hasTimeLeft);
 
         // **Written before the result is acted on**, because everything
@@ -121,7 +121,7 @@ class ProtectionPass
         }
 
         if ($result->finished && $result->phase === StorageProtection::PHASE_INVENTORY) {
-            $sweep = $this->reconcile($protection, $destination, $inventory, $passStartedAt, $now);
+            $sweep = $this->reconcile($protection, $destination, $inventory, $passStartedAt, $now, $hasTimeLeft);
             $this->inventories->save($destination, $inventory, $fingerprint);
 
             return $sweep->withCopyCounts($result);
@@ -192,6 +192,23 @@ class ProtectionPass
                     );
 
                     if ($outcome->isPaused()) {
+                        // **The half-copy is written down as a half-copy**,
+                        // which is what an entry with no copy date is for
+                        // ({@see InventoryEntry::isComplete()}). It is
+                        // never counted as protected, and the next run
+                        // re-copies it — but it is now something the
+                        // inventory knows about, so if the source loses
+                        // this key while the copy is interrupted, the
+                        // sweep meets the entry, runs its grace period,
+                        // and the delete reclaims the partial object.
+                        // Recorded as seen by THIS pass, so a copy
+                        // spanning several nights is never mistaken for a
+                        // file the source has dropped.
+                        $inventory->put($object->key, new InventoryEntry(
+                            sizeBytes: $object->sizeBytes,
+                            lastSeenAt: $passStartedAt
+                        ));
+
                         // **The cursor is deliberately NOT advanced.** The
                         // next run re-lists from the previous key, meets
                         // this one again, and resumes from where the
@@ -275,7 +292,8 @@ class ProtectionPass
         StorageBackendInterface $destination,
         StorageInventory $inventory,
         string $passStartedAt,
-        \DateTimeImmutable $now
+        \DateTimeImmutable $now,
+        callable $hasTimeLeft
     ): ProtectionPassResult {
         // **The stamp comes from the caller, never recomputed here.** It
         // has to be the SAME string phase 1 wrote, and phase 1 falls back
@@ -309,10 +327,28 @@ class ProtectionPass
             }
         }
 
+        // **Marking is free; deleting is not, and only the second half
+        // is budgeted.** The loop above is arithmetic over a document
+        // already in memory. This one makes a request per key — on a
+        // bucket, one round trip each — and a single night on which a
+        // large batch of entries comes out of its grace period together
+        // (an album deleted weeks ago, marked in one pass) would run past
+        // whatever `max_execution_time` this host allows. Killed there,
+        // the run loses the inventory it never got to save and re-does
+        // every one of those deletions tomorrow.
+        //
+        // **No cursor is needed for it**, unlike the listing: the marks
+        // are in the document and they persist. Stopping early leaves the
+        // remaining entries marked and expired, and the next pass deletes
+        // them. The sweep still finished the thing that has to be atomic —
+        // deciding — and only the carrying-out is spread over nights.
         $deleted = 0;
         foreach ($inventory->entries() as $key => $entry) {
             if (!$entry->graceExpired($protection->gracePeriodDays, $now)) {
                 continue;
+            }
+            if (!$hasTimeLeft()) {
+                break;
             }
             // `delete` on a key that is already gone is a success, not an
             // error — otherwise every pass that follows a restore fails on

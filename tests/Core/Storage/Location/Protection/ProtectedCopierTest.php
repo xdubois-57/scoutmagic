@@ -139,10 +139,11 @@ final class ProtectedCopierTest extends TestCase
         );
 
         // The next night: the source is asked only for what is missing.
-        $reads = [];
-        $counting = new class ($this->root . '/source', $reads) extends LocalStorageBackend {
-            /** @param list<array{int, int}> $reads */
-            public function __construct(string $root, public array &$reads)
+        $counting = new class ($this->root . '/source') extends LocalStorageBackend {
+            /** @var list<array{int, int}> */
+            public array $reads = [];
+
+            public function __construct(string $root)
             {
                 parent::__construct($root);
             }
@@ -262,6 +263,44 @@ final class ProtectedCopierTest extends TestCase
     {
         $this->source->put('12/med_88.jpg', 'fake-jpeg-bytes', 'image/jpeg');
 
+        // **Smaller than the real file on purpose.** An expected size
+        // LARGER than the source exits far earlier: the second range read
+        // starts past the end, answers '', and the copy fails on « la
+        // source a cessé de répondre » — which asserts the same three
+        // things while never reaching verify() or disagree() at all. A
+        // regression that left a wrong-sized object under the right key
+        // kept that version of this test green.
+        $outcome = $this->copier->copy(
+            $this->source,
+            $this->destination,
+            '12/med_88.jpg',
+            5,
+            'image/jpeg',
+            $this->always()
+        );
+
+        $this->assertSame(CopyOutcome::FAILED, $outcome->status);
+        $this->assertNotNull($outcome->reason);
+        $this->assertStringContainsString('octets alors que la source en annonce', $outcome->reason);
+        $this->assertFalse(
+            $this->destination->exists('12/med_88.jpg'),
+            'a file that disagrees with its source must not stay under the right key'
+        );
+        $this->assertSame(0, $this->destination->partialSize('12/med_88.jpg'));
+    }
+
+    /**
+     * The other way round: a source that stops answering before the size
+     * it announced.
+     *
+     * Kept as its own test rather than folded into the one above, which
+     * is how the two got confused — one expected size larger than the
+     * file covered this branch under the name of D14's.
+     */
+    public function testASourceThatStopsAnsweringEarlyFailsAndLeavesNoPartial(): void
+    {
+        $this->source->put('12/med_88.jpg', 'fake-jpeg-bytes', 'image/jpeg');
+
         $outcome = $this->copier->copy(
             $this->source,
             $this->destination,
@@ -272,11 +311,14 @@ final class ProtectedCopierTest extends TestCase
         );
 
         $this->assertSame(CopyOutcome::FAILED, $outcome->status);
-        $this->assertFalse(
-            $this->destination->exists('12/med_88.jpg'),
-            'a file that disagrees with its source must not stay under the right key'
+        $this->assertNotNull($outcome->reason);
+        $this->assertStringContainsString('cessé de répondre', $outcome->reason);
+        $this->assertFalse($this->destination->exists('12/med_88.jpg'));
+        $this->assertSame(
+            0,
+            $this->destination->partialSize('12/med_88.jpg'),
+            'a partial object that can never be completed is not a resume offset'
         );
-        $this->assertSame(0, $this->destination->partialSize('12/med_88.jpg'));
     }
 
     /**

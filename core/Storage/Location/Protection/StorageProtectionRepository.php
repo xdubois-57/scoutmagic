@@ -100,11 +100,30 @@ class StorageProtectionRepository
             $existing = $this->findBySourceId($sourceLocationId);
 
             if ($existing !== null) {
+                // **A new destination has never been copied to, so the
+                // cadence must not remember the old one's last pass.**
+                // `isDue()` gates on `last_completed_pass_at + cadence`,
+                // so leaving it would let a destination that holds
+                // nothing at all wait out a full cadence — up to a day by
+                // default — right after an administrator acted to fix the
+                // protection. Cleared only when the destination actually
+                // changes: raising a grace period on the same destination
+                // is not a reason to re-list a hundred thousand keys
+                // tonight rather than tomorrow night.
+                //
+                // Written as two statements rather than one with a CASE
+                // over a bound parameter: the engines do not agree on
+                // whether a bound '1' equals the integer 1 — SQLite says
+                // no, on storage class — and the clause silently never
+                // fired.
+                $clearsCadence = $existing->destinationLocationId !== $destinationLocationId
+                    ? ', last_completed_pass_at = NULL'
+                    : '';
                 $stmt = $this->pdo->prepare(
                     'UPDATE storage_protections
                         SET destination_location_id = ?, enabled = ?, grace_period_days = ?, cadence_hours = ?,
                             pass_phase = NULL, pass_started_at = NULL, pass_cursor = NULL,
-                            pass_seen_count = 0, last_error = NULL
+                            pass_seen_count = 0, last_error = NULL' . $clearsCadence . '
                       WHERE id = ?'
                 );
                 $stmt->execute([

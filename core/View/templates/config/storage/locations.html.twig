@@ -165,8 +165,22 @@
                    invalid is a destination nobody can find out why they
                    cannot choose. #}
                 {% if protection_offered %}
+                    {% set destinations = locations|filter(c => c.id != location.id) %}
                     <details class="mt-3">
                         <summary class="small">Copie de secours</summary>
+                        {# **Nothing to copy TO is a state, not a form.** On a
+                           site with a single location the list below is
+                           empty, and a required picker with no options plus
+                           an « Enregistrer » that cannot succeed is the worst
+                           of both: the administrator is told to choose and
+                           given nothing to choose from. #}
+                        {% if destinations is empty %}
+                            <p class="small text-body-secondary mt-2 mb-0">
+                                Une copie de secours s'écrit dans un autre emplacement, et celui-ci est
+                                le seul déclaré. Ajoutez-en un second — un disque, un NAS, un stockage
+                                objet — puis revenez le désigner ici.
+                            </p>
+                        {% else %}
                         <form method="post"
                               action="/config/stockage/emplacements/{{ location.id }}/protection"
                               class="mt-2">
@@ -179,7 +193,7 @@
                                             id="destination-{{ location.id }}" name="destination_location_id">
                                         {# `|filter`, not the inline `for … if`, which Twig 3
                                            removed. #}
-                                        {% for candidate in locations|filter(c => c.id != location.id) %}
+                                        {% for candidate in destinations %}
                                             <option value="{{ candidate.id }}"
                                                 {{ protection and protection.destinationLocationId == candidate.id
                                                     ? 'selected' : '' }}>{{ candidate.label }}</option>
@@ -231,6 +245,7 @@
                                 Enregistrer la copie de secours
                             </button>
                         </form>
+                        {% endif %}
 
                         {% if protection %}
                             <div class="d-flex flex-wrap gap-3 small mt-2">

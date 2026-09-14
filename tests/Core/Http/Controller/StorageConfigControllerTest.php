@@ -671,14 +671,6 @@ class StorageConfigControllerTest extends TestCase
         $this->assertStringNotContainsString('plage d&#039;octets', $body);
     }
 
-    /**
-     * **Each card says what no archive covers.**
-     *
-     * On the card rather than in a note at the top of the page, because
-     * since D10 it is true of every location and not of some of them —
-     * and a reader who scrolls to the one they came for must not be the
-     * reader who misses it.
-     */
     // ————— La copie de secours (IT-04) —————
 
     /**
@@ -805,6 +797,42 @@ class StorageConfigControllerTest extends TestCase
         $this->assertSame('success', $flash['type']);
     }
 
+    /**
+     * **Nothing to copy to is a state, not a form.**
+     *
+     * On a site with a single location the destination list is empty. A
+     * required picker with no options, under a button that cannot
+     * succeed, tells the administrator to choose and gives them nothing
+     * to choose from.
+     */
+    public function testASiteWithOneLocationIsToldWhyItCannotDeclareACopy(): void
+    {
+        $this->declareLocal('Galerie', 'gallery');
+
+        $body = $this->controller->locations(
+            new Request('GET', '/config/stockage/emplacements', [], [], [], []),
+            []
+        )->getBody();
+
+        $this->assertStringContainsString('celui-ci est', $body);
+        $this->assertStringContainsString('le seul déclaré', $body);
+        $this->assertStringNotContainsString('Enregistrer la copie de secours', $body);
+    }
+
+    public function testTheDestinationPickerAppearsAsSoonAsThereIsSomewhereToCopyTo(): void
+    {
+        $this->declareLocal('Galerie', 'gallery');
+        $this->declareLocal('NAS', 'nas');
+
+        $body = $this->controller->locations(
+            new Request('GET', '/config/stockage/emplacements', [], [], [], []),
+            []
+        )->getBody();
+
+        $this->assertStringContainsString('Enregistrer la copie de secours', $body);
+        $this->assertStringNotContainsString('le seul déclaré', $body);
+    }
+
     public function testSavingAProtectionRequiresCsrf(): void
     {
         $source = $this->declareLocal('Galerie', 'gallery');
@@ -877,6 +905,14 @@ class StorageConfigControllerTest extends TestCase
         $this->assertStringContainsString('pas de copie de secours', $this->flashMessage());
     }
 
+    /**
+     * **Each card says what no archive covers.**
+     *
+     * On the card rather than in a note at the top of the page, because
+     * since D10 it is true of every location and not of some of them —
+     * and a reader who scrolls to the one they came for must not be the
+     * reader who misses it.
+     */
     public function testEachLocationCardSaysItsContentIsInNoArchive(): void
     {
         $this->declareLocal('Disque du serveur', 'gallery');
@@ -927,7 +963,10 @@ class StorageConfigControllerTest extends TestCase
     {
         $source = $this->declareLocal('Galerie', 'gallery');
         $destination = $this->declareLocal('NAS', 'nas');
-        (new StorageProtectionRepository($this->pdo))->save($source, $destination, 30, 24, true);
+        $protections = new StorageProtectionRepository($this->pdo);
+        // A pass that COMPLETED, because a declared relation on its own
+        // has copied nothing yet — see the two tests below.
+        $protections->recordPassCompleted($protections->save($source, $destination, 30, 24, true));
 
         $body = $this->controller->dashboard(
             new Request('GET', '/config/stockage', [], [], [], []),
@@ -936,6 +975,54 @@ class StorageConfigControllerTest extends TestCase
 
         $this->assertStringContainsString('1 emplacement est concerné', $body, 'only the destination is left');
         $this->assertStringNotContainsString('Galerie, NAS', $body);
+    }
+
+    /**
+     * **A relation that has never completed a pass is not a copy.**
+     *
+     * The block answers « what would I lose tonight », and a protection
+     * declared an hour ago holds nothing at all yet. Counting it as
+     * protected because a row exists is how a site that has just been
+     * configured — the moment it is most exposed — reads as safe.
+     */
+    public function testARelationThatHasNeverCompletedAPassStaysInTheUnprotectedList(): void
+    {
+        $source = $this->declareLocal('Galerie', 'gallery');
+        $destination = $this->declareLocal('NAS', 'nas');
+        (new StorageProtectionRepository($this->pdo))->save($source, $destination, 30, 24, true);
+
+        $body = $this->controller->dashboard(
+            new Request('GET', '/config/stockage', [], [], [], []),
+            []
+        )->getBody();
+
+        $this->assertStringContainsString('2 emplacements sont concernés', $body);
+    }
+
+    /**
+     * And one whose last pass FAILED goes back into it.
+     *
+     * A copy that has been failing every night for a week is the case
+     * this line exists to catch, and it is invisible to a rule that reads
+     * only « la relation est active ». `last_error` is cleared by a
+     * completed pass, so it means « the most recent outcome was a
+     * failure ».
+     */
+    public function testARelationWhoseLastPassFailedReturnsToTheUnprotectedList(): void
+    {
+        $source = $this->declareLocal('Galerie', 'gallery');
+        $destination = $this->declareLocal('NAS', 'nas');
+        $protections = new StorageProtectionRepository($this->pdo);
+        $id = $protections->save($source, $destination, 30, 24, true);
+        $protections->recordPassCompleted($id);
+        $protections->recordPassFailed($id, 'La copie de secours n\'a pas pu être poursuivie.');
+
+        $body = $this->controller->dashboard(
+            new Request('GET', '/config/stockage', [], [], [], []),
+            []
+        )->getBody();
+
+        $this->assertStringContainsString('2 emplacements sont concernés', $body);
     }
 
     /**

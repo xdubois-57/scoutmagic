@@ -533,6 +533,142 @@ final class ProtectionPassTest extends TestCase
         $this->assertFalse($this->inventory()->has('12/a.jpg'));
     }
 
+    /**
+     * A copy interrupted for ever does not leave bytes nothing can reach.
+     *
+     * The partial object is hidden from `list()` on purpose — half a JPEG
+     * is a JPEG to every screen — so nothing else in the system ever meets
+     * it. If the source then loses that key while the copy is paused, the
+     * only thing that could still name it is the inventory. So a paused
+     * copy now writes an INCOMPLETE entry: never counted as protected,
+     * met by the sweep like any other, and its deletion takes the partial
+     * with it.
+     */
+    public function testAnInterruptedCopyWhoseSourceVanishesIsNotLeftBehindForEver(): void
+    {
+        $payload = random_bytes(ProtectedCopier::CHUNK_BYTES * 3);
+        $this->source->put('12/film.mp4', $payload, 'video/mp4');
+
+        $slices = 0;
+        $this->pass(new \DateTimeImmutable('2026-01-01 02:00:00'))->run(
+            $this->protection(startedAt: '2026-01-01 02:00:00'),
+            $this->source,
+            $this->destination,
+            'Galerie',
+            // Two: the listing spends one before handing the budget to
+            // the copier, which then gets through exactly one slice.
+            static function () use (&$slices): bool {
+                return $slices++ < 2;
+            }
+        );
+
+        $this->assertSame(
+            ProtectedCopier::CHUNK_BYTES,
+            $this->destination->partialSize('12/film.mp4'),
+            'what arrived must still be there for the next run'
+        );
+        $entry = $this->inventory()->get('12/film.mp4');
+        $this->assertNotNull($entry, 'a paused copy has to be written down to be reachable later');
+        $this->assertFalse($entry->isComplete(), 'and never counted as a file that is protected');
+
+        // The source loses the file while the copy is interrupted.
+        $this->source->delete('12/film.mp4');
+
+        // A pass that completes its listing: the entry is not seen, so
+        // the countdown starts.
+        $this->pass(new \DateTimeImmutable('2026-01-02 02:00:00'))->run(
+            $this->protection(startedAt: '2026-01-02 02:00:00'),
+            $this->source,
+            $this->destination,
+            'Galerie',
+            $this->always()
+        );
+
+        // And after the grace period the sweep reclaims both.
+        $this->pass(new \DateTimeImmutable('2026-03-01 02:00:00'))->run(
+            $this->protection(startedAt: '2026-03-01 02:00:00'),
+            $this->source,
+            $this->destination,
+            'Galerie',
+            $this->always()
+        );
+
+        $this->assertSame(
+            0,
+            $this->destination->partialSize('12/film.mp4'),
+            'the abandoned partial object must not outlive the entry that named it'
+        );
+        $this->assertNull($this->inventory()->get('12/film.mp4'));
+    }
+
+    /**
+     * **Deleting is budgeted; deciding is not.**
+     *
+     * The marking loop is arithmetic over a document already in memory.
+     * The deletion loop makes a request per key — one round trip each on
+     * a bucket — so a night on which a large batch comes out of its grace
+     * period together could run past `max_execution_time`, and a run
+     * killed there loses the inventory it never saved. No cursor is
+     * needed for the pause: the marks are IN the document and persist, so
+     * what is left over is simply deleted by the next pass.
+     */
+    public function testTheSweepStopsDeletingOnItsBudgetAndFinishesOnTheNextPass(): void
+    {
+        foreach (['a', 'b', 'c'] as $name) {
+            $this->source->put('12/' . $name . '.jpg', 'photo-' . $name, 'image/jpeg');
+        }
+        $this->firstPassAt('2026-01-01 02:00:00');
+
+        foreach (['a', 'b', 'c'] as $name) {
+            $this->source->delete('12/' . $name . '.jpg');
+        }
+        $this->pass(new \DateTimeImmutable('2026-01-02 02:00:00'))->run(
+            $this->protection(startedAt: '2026-01-02 02:00:00'),
+            $this->source,
+            $this->destination,
+            'Galerie',
+            $this->always()
+        );
+
+        // Time enough for exactly one deletion. Keyed on what has really
+        // gone, because a call count would also be spent by the listing.
+        $stopAfterOne = function (): bool {
+            $left = 0;
+            foreach (['a', 'b', 'c'] as $name) {
+                if ($this->destination->exists('12/' . $name . '.jpg')) {
+                    $left++;
+                }
+            }
+
+            return $left === 3;
+        };
+
+        $first = $this->pass(new \DateTimeImmutable('2026-03-01 02:00:00'))->run(
+            $this->protection(startedAt: '2026-03-01 02:00:00'),
+            $this->source,
+            $this->destination,
+            'Galerie',
+            $stopAfterOne
+        );
+
+        $this->assertSame(1, $first->deletedCount, 'the sweep must stop when its time is up');
+        $this->assertSame(2, $this->inventory()->count(), 'and leave the rest marked, for the next pass');
+
+        $second = $this->pass(new \DateTimeImmutable('2026-03-02 02:00:00'))->run(
+            $this->protection(startedAt: '2026-03-02 02:00:00'),
+            $this->source,
+            $this->destination,
+            'Galerie',
+            $this->always()
+        );
+
+        $this->assertSame(2, $second->deletedCount);
+        $this->assertSame(0, $this->inventory()->count());
+        foreach (['a', 'b', 'c'] as $name) {
+            $this->assertFalse($this->destination->exists('12/' . $name . '.jpg'));
+        }
+    }
+
     private function removeDirectory(string $dir): void
     {
         if (!is_dir($dir)) {
