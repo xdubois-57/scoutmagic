@@ -722,3 +722,497 @@ IT-01 faute de coupe-circuit, est désormais possible : `ProviderHealth`
 existe. Elle n'est pas faite ici parce qu'elle appartient à `BulkCadence`
 et qu'aucune décision de ce document ne la demande — elle sera proposée
 quand une itération touchera la cadence.
+
+---
+
+## IT-03 — Adresses, DNS, tableau de bord
+
+**Livré.**
+
+- `Core\Mail\MailIdentity` : l'autorité unique sur quelle adresse joue
+  quel rôle, et sur le domaine que le SPF regarde.
+- Un réglage de plus, `mail_reply_address` (facultatif), porté jusqu'à
+  `MailService` : un message qui ne nomme pas sa propre adresse de
+  réponse prend celle du site.
+- La sous-page **Authentification** (`/config/courrier-sortant/
+  authentification`) : les quatre adresses éditables, le tableau des
+  quatre rôles, la vérification DNS et l'aller-retour.
+- Le **tableau de bord** à la racine de la section ; les fournisseurs
+  passent sous `/fournisseurs`. Trois lignes essentielles, les options
+  avancées listées dessous avec leur état, et la phrase sur les
+  indésirables en bloc à part.
+- `DnsVerifier::checkSpfForHosts()` : le SPF doit autoriser *tous* les
+  relais actifs, pas seulement le premier.
+- `Core\Mail\Feedback` — `ReturnPathVerifier`, `ReturnProbe`,
+  `ReturnProbeRepository`, `ReturnState`, `ReturnPathConsumer` — et la
+  table `mail_return_probes` : l'aller-retour réel, avec ses trois états
+  et sa dépendance nullable au module « Courrier entrant » (D2).
+- L'assistant d'installation cesse d'éditer l'identité de courrier après
+  la première passe et pointe vers la sous-page ; le panneau DNS n'y est
+  plus rendu.
+- Un sujet d'aide de plus, `courrier-sortant-authentification`.
+
+### Décisions prises seul
+
+**La vérification DNS est un POST suivi d'une redirection, pas un
+chargement de page.** L'assistant la faisait en AJAX ; ici elle est une
+action explicite, sur le même patron que `/config/maintenance/update/
+check-now` — elle sort sur le réseau *et* écrit ce qui revient, ce qui
+n'a sa place ni l'un ni l'autre sur un GET. Et elle n'est pas lancée à
+l'ouverture : un `dns_get_record()` sur un résolveur qui ne répond pas
+prend le temps qu'il prend, et cette page est précisément celle qu'on
+ouvre quand le courrier ne part déjà plus.
+
+Un premier jet l'avait faite en `GET ?dns=1`, en se disant qu'un GET qui
+ne fait que mettre en cache une lecture est inoffensif. Il l'est ; mais le
+dépôt avait déjà tranché la question ailleurs, et une deuxième réponse à
+la même question est une divergence, pas une nuance.
+
+**Ce que la vérification a vu est retenu en entier**, valeurs suggérées
+comprises, et pas seulement en trois booléens. Deux raisons, dont la
+seconde n'est apparue qu'en écrivant la redirection. La première : sans
+mémoire, le tableau de bord n'a que deux options, mentir (« tout va
+bien ») ou interroger le DNS à chaque affichage ; l'état **daté** est la
+seule forme honnête, « au 12/09, le SPF ne figurait pas » se vérifiant là
+où « le SPF ne figure pas » ne se vérifie pas. La seconde : les
+enregistrements proposés sont ce que la personne est *en train de
+recopier* chez son registraire, et les perdre au rechargement suivant
+serait les perdre au milieu de la copie.
+
+**Le SPF est vérifié contre toute la chaîne.** Le roadmap ne le demande
+pas, mais déménager la vérification à côté des fournisseurs sans le faire
+aurait produit un écran faux dès le premier jour : `DnsVerifier` ne
+connaissait que le `smtp_host` historique, et IT-01 a donné au site une
+liste ordonnée de relais. Un SPF qui ne nomme que le premier fait échouer
+exactement les messages que le repli devait sauver.
+
+**L'aller-retour porte sur l'expédition et la réponse, pas sur les
+rapports DMARC.** Personne n'écrit jamais à l'adresse des rapports : ce
+qui y arrive est un rapport machine, et IT-06 répondra « les rapports
+arrivent-ils » en regardant les rapports eux-mêmes plutôt qu'en écrivant
+à la boîte.
+
+**Le consommateur du cœur ne revendique rien.** Un message qu'il
+reconnaît est consigné puis rendu avec `AnalysisResult::nothing()` :
+aucune liste de tri ne gagne une ligne pour un message que le site s'est
+envoyé à lui-même, et la rétention ordinaire du courrier non rattaché
+l'emporte. L'autre voie — le rattacher pour que
+`Api\MessageRetentionPreference` puisse en jeter le corps — n'achetait
+rien : ce corps est une phrase française que ce site a écrite, sans
+aucune donnée personnelle à protéger.
+
+**Le sélecteur DKIM suit les adresses ; la clé DKIM reste dans
+l'assistant.** La sous-page affiche la clé publique et ne la régénère
+pas : une seule page reste capable de le faire, et c'est la règle qu'on
+voulait.
+
+### Écarts entre le document et le dépôt
+
+**Le piège SPF était déjà évité, et par accident.** Le roadmap demande de
+vérifier que `checkSpf()` regarde le bon domaine. Il le regarde :
+l'assistant dérive le domaine de `mail_from_address`, et `MailService`
+force `$mail->Sender = $this->fromAddress` — donc l'enveloppe et le
+`From:` portent toujours le même domaine. Mais **rien ne le disait et
+rien ne le testait**, et la sous-page ajoutait justement deux adresses
+(réponse, rapports DMARC) qu'il aurait été naturel de prendre pour le
+domaine SPF. `MailIdentity::spfDomain()` nomme la règle et
+`MailIdentityTest` l'épingle contre le vrai `MailService`, override de
+`From` compris.
+
+**Un vrai défaut voisin, trouvé en chemin, et non traité ici.** Avec un
+`fromAddressOverride` sur un autre domaine — ce que le sectionnement
+d'expéditeur du publipostage permet — le `From:` et l'enveloppe divergent,
+et la signature DKIM porte toujours le domaine du site : DMARC échoue
+alors des deux côtés, alignement SPF comme alignement DKIM. Ce n'est pas
+le piège que ce document nomme, et le corriger suppose de décider ce
+qu'un envoi « au nom de » doit faire — ce qui appartient à l'itération qui
+touchera le publipostage. Noté ici pour ne pas être redécouvert.
+
+**`mode=smtp` avec un hôte vide donnait un feu vert.** L'ancien
+`checkSpf()` cherchait la chaîne `a:` dans l'enregistrement dès que
+`$smtpHost` n'était pas `null` — or `SetupController` lui passe `''`
+quand le champ est vide, jamais `null`. N'importe quel enregistrement
+portant un seul mécanisme `a:` satisfaisait donc la recherche, sur un
+hôte que personne n'avait nommé. Corrigé par la même passe qui introduit
+la liste.
+
+### La relecture, et ce qu'elle a coûté
+
+**Un paramètre inséré au milieu d'un constructeur n'est pas un ajout.**
+`replyAddress` se lit le mieux à côté des autres adresses de
+`MailService` ; il y a été mis, et plusieurs appelants positionnels ont
+aussitôt donné un entier à `$smtpHost`. Il est maintenant le dernier
+paramètre, et le docblock dit pourquoi cette place-là — sinon la
+prochaine relecture le déplacera pour la même raison de lisibilité.
+
+**Un réglage que la page enregistre doit être déclaré au démarrage.**
+`SettingService::set()` refuse une clé que rien n'a enregistrée, et le
+test de la page construit ses propres enregistrements — il ne pouvait
+donc pas voir l'oubli. `testEveryAddressThePageSavesIsDeclaredAtBoot()`
+lit `public/index.php` plutôt que sa propre liste. C'est la même leçon
+qu'en IT-02 sous un autre angle : **ce qu'un test construit lui-même, il
+ne le vérifie pas**.
+
+**Le consommateur du cœur devait être inscrit dans deux registres, pas
+un.** Celui du planificateur est celui qui appelle `analyze()` ; celui de
+`public/index.php` est celui que l'écran de configuration des boîtes lit
+pour savoir à qui une boîte peut être ouverte. Inscrit dans le seul
+premier, la vérification aurait été impossible à activer — et l'écran
+n'aurait proposé aucune case à cocher pour dire pourquoi.
+
+**L'ordre de construction a déplacé l'enregistrement du contrôleur.**
+`ReturnPathVerifier` a besoin de la passerelle `inbound_mail`, qui
+n'existe qu'après le bloc du module ; `OutboundMailController` était
+construit bien avant. Il est maintenant enregistré après ce bloc, avec le
+commentaire qui dit que c'est un fait d'ordonnancement et non une
+dépendance du cœur au module — l'autre solution, une fermeture paresseuse,
+aurait caché ce fait derrière de l'indirection.
+
+**Une date lue avec le constructeur nu répond *maintenant*.** Le cliquet
+`StoredDateReadingRatchetTest` a attrapé quatre lectures, dont celle de
+la mémoire DNS : une valeur tronquée aurait daté d'un coup une
+vérification qui n'a jamais eu lieu.
+
+**Une sonde ne passe jamais par la file de report.** `MailService` sait
+différer un message quand toute une voie est épuisée (D9) — et une sonde
+différée n'a rien dit à personne : elle lirait « en attente », puis
+« jamais arrivé » quelques heures plus tard, et enverrait le lecteur
+chercher du côté du chemin de retour quand le problème était le transport.
+Elle part par le clone sans file qu'IT-02 avait introduit pour la vidange
+(`withoutDeferral()`). Refusé maintenant est une réponse utilisable ; mis
+en file maintenant n'en est pas une.
+
+### Les deux exigences transverses
+
+**Le paquet de support** gagne deux sections : « Authentification du
+domaine » — les deux domaines, leur alignement, le sélecteur, et les
+verdicts DNS **retenus avec leur date** — et « Vérification des retours »,
+par rôle. Rien n'y porte d'adresse : un nom de domaine est un serveur, une
+adresse est une personne, et ce fichier part chez un tiers. Le collecteur
+reçoit le *dépôt* des sondes et non le vérificateur, délibérément : un
+paquet de support ne doit jamais pouvoir *envoyer* une sonde pendant qu'on
+l'assemble, et un collecteur qui ne peut pas atteindre `launch()` ne se
+laissera pas convaincre de le faire par une modification ultérieure.
+
+**Le journal** gagne `mail_identity_changed`, en `security` : changer d'où
+part le courrier du site est une décision de sécurité même prise de bonne
+foi — une adresse d'expédition qui pointe ailleurs, ce sont tous les liens
+de connexion qui pointent ailleurs. L'entrée nomme **les rôles modifiés,
+jamais la valeur**, comme `member_email_added` ne porte que `member_id` ;
+et une page enregistrée deux fois n'écrit rien la seconde fois, parce
+qu'une décision n'a eu lieu qu'une fois. `mail_return_probe_sent` et
+`mail_return_probe_received` complètent la ligne « Vérification des
+retours : résultat » du tableau.
+
+**Et la leçon d'IT-02 a été appliquée avant de se répéter.** Trois
+dépendances de cette itération ont exactement la forme qui avait produit
+deux mécanismes morts en production : une passerelle nullable, une clé de
+réglage fusionnée à la main dans `$secrets` à chaque point d'entrée, deux
+arguments de collecteur. Toutes les trois échouent en silence — la plus
+discrète étant la passerelle : avec `null`, chaque état lit « vérification
+impossible », **ce qui est aussi la réponse honnête** sur une installation
+sans le module, donc l'écran aurait eu l'air juste partout et aurait été
+faux là où le module est actif. `OutboundMailWiringTest` lit les racines
+de composition et épingle les trois ; sa première assertion a été vérifiée
+en cassant délibérément le câblage, parce qu'un test de câblage qui ne
+tombe pas est un test qui ne sert à rien.
+
+Un troisième nettoyage est venu de là : la mémoire DNS était analysée dans
+le contrôleur **et** dans le collecteur, deux fois le même `json_decode`
+et les mêmes trois booléens à trois états. `Core\Mail\DnsCheckMemory` la
+porte maintenant seule — et au passage le collecteur cesse d'aller
+chercher une constante sur un contrôleur pour lire un réglage, ce qui
+était deux couches de travers pour un seul blob JSON.
+
+### Ce que la relecture Claude a trouvé, et que rien d'autre n'aurait vu
+
+**La vérification s'autorisait des boîtes qui ne lui étaient pas
+ouvertes.** `isPossible()` comptait les boîtes *activées*
+(`listMailboxSummaries()`), là où ce qui compte est les boîtes ouvertes à
+*ce consommateur* (`probeAddressesFor()`). Une portée est `inert` tant que
+le super-admin n'a rien ouvert : sur une installation neuve avec le module
+actif, la sonde partait, n'était jamais proposée à `ReturnPathConsumer`,
+et lisait « jamais arrivé » six heures plus tard — **la fausse alerte
+exacte que l'aller-retour existe pour éviter, produite par
+l'aller-retour**. Le docblock de `probeAddressesFor()` donne d'ailleurs
+cette raison mot pour mot ; je ne l'avais pas lue.
+
+Et la branche qui aurait dit quoi faire, `isCollectingWithoutScope()`,
+était **démontrablement inatteignable** : elle posait la même question que
+`isCollecting()`. La seule phrase actionnable de l'écran ne s'affichait
+jamais.
+
+**Mes doubles de test cachaient le défaut, et pas par hasard.** Ils
+répondaient « je relève, et je n'ai aucune boîte » — une combinaison que
+le vrai service ne peut pas produire, `isCollecting()` comptant
+précisément les boîtes que les résumés listent. Leçon du jour, à ranger à
+côté des deux autres : **un double qui ne peut pas exister en production
+est un double qui cache le défaut qu'il était censé couvrir.**
+
+**L'adresse de réponse détournait le courrier des sections.** Le
+publipostage envoie avec `replyTo = null` et un `fromAddressOverride` —
+l'adresse de la section. Avant, pas de `Reply-To`, donc « Répondre »
+arrivait à la section. Le jour où quelqu'un remplit le nouveau champ sur
+une page qui ne parle pas du publipostage, toutes les réponses des
+sections partaient vers l'adresse du site. Une régression dans un module
+que cette PR ne touche pas, déclenchée par un réglage d'ailleurs. La
+réponse du site répond pour le `From` du site, et pour lui seul.
+
+**Et cacher les champs a cassé deux boutons de l'assistant.** « Envoyer un
+test » lisait `.value` sur des `<input>` que je venais de retirer : un
+`TypeError` avant `fetch()`, le spinner qui tourne indéfiniment. La
+génération de clé DKIM avait le même défaut, avalé par son propre
+`.catch()` et affiché en « Erreur réseau » sur une requête qui avait
+pourtant réussi. `npm run typecheck` ne peut rien y voir —
+`strictNullChecks` est désactivé et le `@type` en JSDoc affirme que
+l'élément existe. Trois specs Vitest le couvrent, vérifiées en cassant le
+correctif.
+
+Une subtilité au passage : un champ **absent** et un champ **vide** sont
+deux réponses différentes côté serveur. `mailSecretsUnderTest()` reprend
+la valeur stockée pour une clé que la requête ne porte pas, et prend un
+`''` au pied de la lettre. Envoyer une chaîne vide aurait testé l'envoi
+sans adresse d'expédition — ce que PHPMailer refuse net.
+
+**Et un rapport *sur* la sonde comptait comme la sonde.** `claim()`
+reconnaissait un retour à la seule présence de la clé dans le sujet. Or
+une notification de non-remise cite le sujet du message qu'elle n'a pas pu
+livrer — « Undeliverable: Vérification des retours RET-… » — et elle part
+vers l'expéditeur d'enveloppe, qui sur ce site est toujours l'adresse
+d'expédition, donc très souvent une boîte relevée. Adresse de réponse
+inexistante ⇒ le rebond revient dans la boîte surveillée ⇒ l'adresse morte
+était marquée **« vérifié »**. Le cas d'échec que tout l'aller-retour
+existe pour détecter, annoncé comme un succès.
+
+Deux gardes. Le message doit **nommer l'adresse sondée parmi ses
+destinataires** — un alias réécrit le destinataire d'enveloppe, jamais
+l'en-tête `To:`, donc une sonde délivrée dans une boîte portant un autre
+nom porte toujours l'adresse à laquelle elle a été envoyée, ce qui est
+précisément le cas que l'aller-retour sert. Et un message venant de
+`mailer-daemon` ou `postmaster` est refusé, pour le relais qui met le
+destinataire en échec dans le `To:` de sa propre notification.
+
+Volontairement étroit : reconnaître un rebond pour de bon suppose de lire
+un `multipart/report` et ses codes d'état, ce qui est le sujet d'IT-05. Ce
+qu'il faut ici est seulement « ceci n'est pas mon message qui revient ».
+
+**Une deuxième relecture, et deux fois le même genre de défaut : un état
+manquant traité comme un état sain.**
+
+Le tableau de bord appelait « Authentification du domaine » verte sans
+aucune clé DKIM. La ligne ne retenait que les lectures explicitement
+fausses (`array_filter(..., fn ($v) => $v === false)`), or
+`DnsCheckMemory::state()` répond `null` — et non `false` — pour « aucune
+clé n'a été générée », parce que ne rien publier n'est pas publier quelque
+chose de faux. SPF publié plus aucune clé tombait donc dans le cas « ok »,
+avec « 1 enregistrement en place », pendant que la sous-page
+Authentification affichait « Clé DKIM requise » **pour la même lecture
+stockée**. Deux écrans, une source, deux verdicts opposés : celui qu'on
+lit en premier est celui qui rassure. Sans clé, le site ne signe rien du
+tout et une bonne part des destinataires classera ses messages en
+indésirables — la ligne dit maintenant `missing`.
+
+Et un envoi qui échoue effaçait ce qu'on savait déjà.
+`ReturnProbeRepository::issue()` supprime la ligne existante avant
+d'insérer la nouvelle — une ligne par adresse, c'est voulu. Elle était
+appelée avant `send()` : un relais qui hoquette, et une adresse
+« vérifiée » il y a une heure repartait à zéro, sans rien pour la
+restaurer. L'ordre est désormais l'inverse, et il est porteur **dans les
+deux sens** : écrire après l'envoi ouvre en théorie la course inverse (un
+retour réclamé avant que sa ligne existe), mais cette course-là passe par
+une remise SMTP et un relevé de boîte, quand la fenêtre ouverte ici se
+compte en microsecondes entre le retour de `send()` et l'instruction
+suivante. Une perte certaine échangée contre une perte impossible.
+
+Les deux correctifs sont épinglés par un test vérifié en le cassant.
+
+**Et une troisième passe, qui a trouvé le défaut le plus coûteux des
+trois : un relevé DNS qui survit à ce qu'il décrit.**
+
+Un relevé porte sur **un domaine et un sélecteur**, pas sur « le site ».
+Vérifiez `ancien.be`, obtenez un vert, changez l'adresse d'expédition pour
+`nouveau.be` — et le tableau de bord continuait d'afficher la coche verte
+et ses « N enregistrements en place » pour une zone que personne n'a
+jamais interrogée. La sous-page proposait en prime les enregistrements de
+l'ancien domaine, ceux-là mêmes qu'on recopie dans le formulaire d'un
+registrar.
+
+Le correctif ne vide pas la mémoire au moment d'enregistrer, alors que
+c'était la forme la plus courte. Un relevé jeté à l'enregistrement est un
+relevé perdu pour de bon — y compris les valeurs que quelqu'un était en
+train de recopier — et l'adresse peut bouger sans passer par ce
+formulaire, l'assistant d'installation l'écrit aussi. `DnsCheckMemory`
+sait désormais dire s'il **décrit encore** l'identité configurée
+(`describes()`), et les trois lecteurs — tableau de bord, sous-page
+Authentification, paquet de support — passent par là. Une règle de
+péremption qui vit dans un seul appelant est une règle que les deux autres
+n'ont pas.
+
+Le tableau de bord distingue « jamais vérifié » de « ce relevé ne dit plus
+rien » : ce sont deux consignes différentes pour celui qui lit.
+
+**Le SPF comparait des octets là où la RFC compare des mécanismes.** Les
+noms de mécanismes et les domain-specs sont insensibles à la casse
+(RFC 7208 §4.6.1), et `+a:hôte` **est** `a:hôte` — le `+` est le
+qualificateur par défaut, et c'est la forme qu'écrivent les générateurs
+cPanel/WHM, précisément l'hébergement mutualisé que visent les fixtures de
+ce fichier. Un domaine correctement configuré était donc annoncé
+« Manquant ou incomplet », et la valeur proposée ajoutait un `a:` en
+double — un enregistrement qui marchait poussé d'une résolution DNS vers
+la limite de dix de la §4.6.4. Les trois autres qualificateurs restent
+distincts : `-a:hôte` dit le contraire de `a:hôte`, et les confondre
+annoncerait comme autorisé un relais explicitement refusé.
+
+**Du français dans une charge utile stockée.** `journalAddressChange()`
+écrivait `'expédition'`, `'réponse'`, `'rapports DMARC'` dans le `context`
+du journal. Le `context` est imprimé tel quel dans un bloc JSON : c'est de
+la donnée, pas de l'interface, et AGENTS.md la veut en anglais pour la
+même raison qu'il veut les noms de colonnes en anglais. `MailIdentity`
+nommait déjà les quatre rôles ; un second vocabulaire, français, pour
+trois d'entre eux était une seconde chose à tenir en phase.
+
+**Et le DELETE + INSERT de `issue()` n'était pas une transaction**, sur une
+colonne `UNIQUE`. Rien n'empêche de cliquer deux fois sur « Lancer la
+vérification », et `public/index.php` relâche le verrou de session avant
+le dispatch justement pour que deux requêtes d'un même navigateur ne se
+mettent pas en file. Entrelacées : DELETE, DELETE, INSERT, INSERT, et le
+second insert heurte la clé. Prises ensemble, elles ne peuvent plus
+s'entrelacer. `verifyReturns()` attrape désormais ce qui remonte, comme
+les autres écritures de ce contrôleur — une page de diagnostic qui répond
+par l'écran d'erreur générique est une page de diagnostic qui a cessé de
+diagnostiquer.
+
+Un test par correctif, chacun vérifié en cassant le correctif. Au passage,
+la fixture du collecteur n'enregistrait pas `dkim_selector` : elle
+décrivait une installation qui ne peut pas exister — la leçon du double
+impossible, une troisième fois.
+
+**Une alarme qui ne pouvait pas sonner.** `isAligned()` promettait de dire
+si le domaine du SPF et celui de la signature DKIM divergeaient. Or
+`spfDomain()` vaut `domainOf(envelopeSender())`, `envelopeSender()` vaut
+`fromAddress`, et `dkimDomain()` vaut `domainOf(fromAddress)` : la même
+expression écrite deux fois. La méthode répondait donc « une adresse est
+configurée » sous un nom qui promettait autre chose, l'avertissement
+« Ces deux domaines diffèrent : DMARC échouera » de la sous-page ne
+pouvait jamais s'afficher, et le paquet de support annonçait
+`alignés : oui` sur toute installation ayant jamais existé.
+
+Les trois disparaissent. Une alarme qui ne peut pas sonner est pire que
+pas d'alarme : elle se lit comme une vérification que quelqu'un fait. Ce
+que l'invariant dit vraiment est écrit là où il est vrai — le docblock de
+`dkimDomain()` — et épinglé par un test qui compare les deux domaines sur
+quatre identités, adresse de réponse et adresse DMARC chez d'autres
+opérateurs comprises. Le seul cas qui les ferait diverger pour de bon est
+l'envoi « au nom de » d'une section, déjà porté en « Reporté » : c'est
+l'itération du publipostage qui donnera à ce contrôle quelque chose à
+comparer.
+
+**Et deux messages de commit rédigés en anglais**, alors qu'AGENTS.md
+§ Langue est explicite : tout ce qui est écrit *à propos* d'un changement
+est en français, y compris ce qui accompagne chaque enregistrement, sans
+autre exception que la réponse sur un fil de relecture. Tout le reste de
+cette PR est en français ; ces deux-là étaient les seuls écarts. La règle
+est facile à énoncer et facile à rater dans le même fichier — le code et
+ses commentaires en anglais, ce qui raconte le changement en français — et
+la rater deux fois de suite après l'avoir tenue cinq fois est le genre de
+dérive qu'aucun test ne rattrape.
+
+**Et la même faute une fois de plus, à l'endroit le plus visible : « je
+ne peux pas répondre » compté comme « tout va bien ».**
+
+`checkSpfForHosts()` annonçait un SPF « en place » pour **n'importe quel**
+`v=spf1` dès que la liste des relais était vide : la boucle qui aurait pu
+l'infirmer ne tourne pas. Or la liste est vide sur toute installation sans
+relais configuré — l'envoi local, qui est le réglage par défaut. Une unité
+dont les boîtes sont chez un hébergeur et le site chez un autre publie
+typiquement `v=spf1 include:spf.protection.outlook.com -all`, qui **fait
+échouer durement** les messages partis du serveur web ; le tableau de bord
+affichait une coche verte et « N enregistrements en place ».
+
+Le dire pour de bon supposerait d'évaluer l'adresse du serveur contre
+l'enregistrement entier, récursion des `include:` comprise — un évaluateur
+SPF, pas cette classe. La réponse est donc `unverifiable`, troisième
+manière de ne pas savoir, qui rejoint `key_missing` et `not_requested`
+dans le `null` de `state()`. Sans aucun enregistrement, en revanche, la
+réponse reste « absent » : rien n'autorise rien, et l'établir ne demande
+aucune liste de relais.
+
+Le corollaire était plus grave que le cas nominal. `sendingHosts()`
+rattrape ses propres échecs et rendait `[]` — donc une table des
+fournisseurs illisible produisait exactement la liste vide ci-dessus, et
+la ligne SPF passait au vert **sur la foi d'une requête qui avait
+échoué**. Un échec qui se lit comme un succès est pire qu'un échec. La
+méthode rend maintenant `null` dans ce cas, et l'écran distingue les deux
+phrases : « aucun relais n'est actif » et « la liste des relais n'a pas pu
+être lue » n'envoient pas au même endroit.
+
+Deux tests portaient le défaut dans leur nom — « an existing record is
+enough » — et c'est le signe qui aurait dû alerter : un test qui affirme
+qu'une absence de question vaut une réponse. Ils disent maintenant
+l'inverse, avec la raison.
+
+Au passage, le `tearDown()` du test du contrôleur ne nettoyait pas
+récursivement : le premier test à générer une clé DKIM laissait son
+répertoire temporaire derrière lui, et ne le disait que par un
+avertissement PHP que personne ne lit.
+
+**Et deux trous dans `describes()` lui-même** — la relecture est allée
+regarder le correctif de la veille, ce qui était la bonne idée.
+
+Un relevé porte aussi sur **l'adresse de rapport DMARC** : le verdict de
+`checkDmarc()` est une fonction directe d'elle, puisqu'il cherche
+littéralement `rua=mailto:{cette adresse}`. Changer l'adresse de A vers B
+laissait donc « publié » affiché pour un enregistrement qui nomme A. Le
+relevé garde maintenant une **empreinte** de l'adresse — la comparaison ne
+demande que « pareil ou pas », et le blob porte déjà l'adresse une fois,
+dans la valeur `expected` que l'opérateur recopie chez son registraire ;
+en stocker une seconde copie aurait fait un deuxième endroit à tenir à
+jour.
+
+Et il porte sur **la clé DKIM**, que `describes()` ne peut pas voir :
+le relevé contient la clé contre laquelle il a été pris, et rien en lui ne
+peut nommer celle en service aujourd'hui. Seul le code qui change la clé
+sait qu'elle a changé. Après une régénération, le `p=` publié contient
+l'ancienne clé, donc **toutes** les signatures échouent — pendant que le
+relevé annonçait encore `dkim.exists: true`, sur les trois écrans à la
+fois puisqu'ils passent tous par la même porte.
+
+C'est exactement la forme contre laquelle ce chantier s'était prémuni dans
+`ReturnProbeRepository` : « une remise à zéro écrite comme une méthode est
+une remise à zéro qu'on oublie d'appeler depuis le deuxième endroit ». Là
+c'était évitable en indexant l'état sur l'adresse. Ici ça ne l'est pas — il
+faut donc l'appeler, aux quatre endroits qui touchent la paire de clés, et
+`DkimKeyChangeForgetsDnsTest` échoue si un cinquième apparaît sans
+l'appel. La règle est **absolue**, sans liste d'exemptions à tenir en
+phase : `forgetDnsReading()` avale son propre échec, donc les deux chemins
+qui tournent pendant qu'on installe ou qu'on démonte peuvent l'appeler
+aussi sûrement que les deux qui tournent sur un site vivant. Un `forget()`
+et non un drapeau de péremption, parce qu'après un changement de clé
+l'enregistrement publié n'est pas seulement invérifié, il est **faux**, et
+la valeur à recopier est la nouvelle.
+
+Un test à moi a d'ailleurs pris en défaut un commentaire à moi : j'avais
+justifié l'empreinte par « le blob ne doit pas porter d'adresse », ce qui
+est faux — il en porte une, nécessairement, dans `expected`. Le
+commentaire dit maintenant la vraie raison.
+
+**À l'œil du mainteneur, et volontairement pas ouvert en ticket public.**
+`ConfigurationParametersCollector` verse dans le paquet de support la
+valeur courante de **tous** les réglages, ne masquant que ceux de type
+`secret` — dont il note lui-même qu'aucun n'existe encore. Les adresses de
+configuration du site (`mail_from_address`, `dmarc_report_email`, et
+désormais le relevé DNS qui reprend la seconde dans `expected`) y
+figurent donc en clair, alors que `OutboundMailCollector` se donne
+justement pour règle de n'en porter aucune. Ce n'est pas une régression de
+cette itération — les deux réglages y étaient déjà — et ce sont des
+adresses de service, pas de membres ; mais les deux collecteurs appliquent
+deux règles opposées au même fichier, et cela mérite un arbitrage.
+
+### Reporté
+
+- L'alignement DMARC d'un envoi « au nom de » (ci-dessus), à l'itération
+  qui touchera le publipostage.
+- La régénération de la clé DKIM depuis la sous-page. Elle reste dans
+  l'assistant : tant qu'un seul endroit peut le faire, la règle « pas de
+  champ éditable aux deux endroits » tient, et rien dans ce document ne
+  demande de la déplacer.

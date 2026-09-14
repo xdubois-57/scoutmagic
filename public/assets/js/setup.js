@@ -5,6 +5,44 @@
 
 (function() {
     var form = /** @type {HTMLFormElement} */ (document.getElementById('setup-form'));
+    /**
+     * A form field's value, or '' when the field is not on this page.
+     *
+     * Several of this form's inputs are rendered on the first run only —
+     * the mail identity moved to « Courrier sortant \u203a Authentification »
+     * once the site is installed. Reading `.value` off the missing input
+     * throws before anything else runs, which is how a button ends up
+     * spinning for ever.
+     *
+     * @param {string} id
+     * @returns {string}
+     */
+    function fieldValue(id) {
+        var field = /** @type {HTMLInputElement|null} */ (document.getElementById(id));
+
+        return field ? field.value : '';
+    }
+
+    /**
+     * Append a field only when the page actually has it.
+     *
+     * An ABSENT field and an EMPTY one are different answers on the
+     * server: SetupController::mailSecretsUnderTest() falls back to the
+     * stored value for a key the request does not carry, and takes an
+     * empty string at face value. Sending '' for an address the installed
+     * site keeps in its settings would test the send with no From at all,
+     * which PHPMailer refuses outright.
+     *
+     * @param {FormData} data
+     * @param {string} id
+     */
+    function appendIfPresent(data, id) {
+        var field = /** @type {HTMLInputElement|null} */ (document.getElementById(id));
+        if (field) {
+            data.append(id, field.value);
+        }
+    }
+
     var mailMode = /** @type {HTMLSelectElement} */ (document.getElementById('mail_mode'));
     var smtpFields = document.getElementById('smtp-fields');
     var btnTestDb = document.getElementById('btn-test-db');
@@ -411,14 +449,18 @@
             // of persisted secrets (harmless extra fields once
             // initialized \u2014 that path reads from secrets.enc instead).
             data.append('mail_mode', mailMode.value);
-            data.append('smtp_host', /** @type {HTMLInputElement} */ (document.getElementById('smtp_host')).value);
-            data.append('smtp_port', /** @type {HTMLInputElement} */ (document.getElementById('smtp_port')).value);
-            data.append('smtp_user', /** @type {HTMLInputElement} */ (document.getElementById('smtp_user')).value);
-            data.append('smtp_password', /** @type {HTMLInputElement} */ (document.getElementById('smtp_password')).value);
-            data.append('mail_from_address', /** @type {HTMLInputElement} */ (document.getElementById('mail_from_address')).value);
-            data.append('mail_from_name', /** @type {HTMLInputElement} */ (document.getElementById('mail_from_name')).value);
-            data.append('short_name', /** @type {HTMLInputElement} */ (document.getElementById('short_name')).value);
-            data.append('dkim_selector', /** @type {HTMLInputElement} */ (document.getElementById('dkim_selector')).value);
+            appendIfPresent(data, 'smtp_host');
+            appendIfPresent(data, 'smtp_port');
+            appendIfPresent(data, 'smtp_user');
+            appendIfPresent(data, 'smtp_password');
+            // Absent once the site is installed: the mail identity moved
+            // to « Courrier sortant \u203a Authentification ». Reading `.value`
+            // off the missing input threw a TypeError before fetch() ran,
+            // so the spinner started and the button hung for ever.
+            appendIfPresent(data, 'mail_from_address');
+            appendIfPresent(data, 'mail_from_name');
+            appendIfPresent(data, 'short_name');
+            appendIfPresent(data, 'dkim_selector');
 
             fetch('/setup/test-email', { method: 'POST', body: data })
                 .then(function(r) { return r.json(); })
@@ -461,7 +503,11 @@
                     // Rebuilt in place (no location.reload()) so the rest
                     // of the \u2014 possibly already partly filled \u2014 form isn't
                     // lost just because the DKIM key got generated early.
-                    var selector = /** @type {HTMLInputElement} */ (document.getElementById('dkim_selector')).value
+                    // Same absence as above, on an installed site with no
+                    // key yet: the null dereference was swallowed by the
+                    // .catch() below and surfaced as a misleading
+                    // « Erreur r\u00e9seau » over a request that had succeeded.
+                    var selector = fieldValue('dkim_selector')
                         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
                     var html = '<p class="mb-2 small">Cl\u00e9 DKIM g\u00e9n\u00e9r\u00e9e. S\u00e9lecteur : <strong>' + selector + '</strong>.</p>';
                     html += '<div class="mb-2">';
@@ -480,94 +526,102 @@
         });
     }
 
-    // Check DNS
-    btnCheckDns.addEventListener('click', function() {
-        dnsSpinner.classList.remove('d-none');
+    // Check DNS — first run only. Once the site is installed the panel is
+    // not rendered at all: the live check moved to « Courrier sortant ›
+    // Authentification » (roadmap IT-03), so there is no button to bind.
+    //
+    // An `if` and not an early `return`: everything below — the portable
+    // restore — has to keep running on an installed site, which is
+    // exactly where this button is absent.
+    if (btnCheckDns && dnsSpinner && dnsRecords) {
+        btnCheckDns.addEventListener('click', function() {
+            dnsSpinner.classList.remove('d-none');
 
-        var fromAddress = /** @type {HTMLInputElement} */ (document.getElementById('mail_from_address')).value;
-        var domain = fromAddress.indexOf('@') !== -1 ? fromAddress.split('@')[1] : '';
-        var selector = /** @type {HTMLInputElement} */ (document.getElementById('dkim_selector')).value;
-        var mode = mailMode.value;
-        var smtpHost = /** @type {HTMLInputElement} */ (document.getElementById('smtp_host')).value;
-        var dmarcFieldValue = /** @type {HTMLInputElement} */ (document.getElementById('dmarc_report_email')).value.trim();
-        var dmarcEmail = dmarcFieldValue || fromAddress;
+            var fromAddress = /** @type {HTMLInputElement} */ (document.getElementById('mail_from_address')).value;
+            var domain = fromAddress.indexOf('@') !== -1 ? fromAddress.split('@')[1] : '';
+            var selector = /** @type {HTMLInputElement} */ (document.getElementById('dkim_selector')).value;
+            var mode = mailMode.value;
+            var smtpHost = /** @type {HTMLInputElement} */ (document.getElementById('smtp_host')).value;
+            var dmarcFieldValue = /** @type {HTMLInputElement} */ (document.getElementById('dmarc_report_email')).value.trim();
+            var dmarcEmail = dmarcFieldValue || fromAddress;
 
-        if (!domain || !selector) {
-            dnsSpinner.classList.add('d-none');
-            dnsRecords.innerHTML = '<p class="text-warning small">Veuillez remplir l\'adresse d\'exp\u00e9dition et le s\u00e9lecteur DKIM.</p>';
-            return;
-        }
-
-        var params = new URLSearchParams({ domain: domain, selector: selector, mode: mode, smtp_host: smtpHost, dmarc_email: dmarcEmail });
-        fetch('/setup/dns?' + params.toString())
-            .then(function(r) { return r.json(); })
-            .then(function(json) {
+            if (!domain || !selector) {
                 dnsSpinner.classList.add('d-none');
-                // "name" is the record name relative to the zone root, as
-                // most DNS provider UIs expect it (they already scope
-                // everything to the domain you're editing) \u2014 "host" is
-                // the full name, kept as a fallback for providers that want
-                // it spelled out completely instead.
-                var records = [
-                    { key: 'spf', label: 'SPF', name: '@', host: domain, type: 'TXT' },
-                    { key: 'dkim', label: 'DKIM', name: selector + '._domainkey', host: selector + '._domainkey.' + domain, type: 'TXT' },
-                    { key: 'dmarc', label: 'DMARC', name: '_dmarc', host: '_dmarc.' + domain, type: 'TXT' }
-                ];
-                var html = '<p class="text-body-secondary small mb-2">Chez la plupart des h\u00e9bergeurs, la zone DNS demande un <strong>Type</strong>, un <strong>Nom</strong> (parfois appel\u00e9 \u00ab\u00a0Enregistrement\u00a0\u00bb ou \u00ab\u00a0H\u00f4te\u00a0\u00bb) et une <strong>Valeur</strong>. Utilisez le nom court ci-dessous (\u00ab\u00a0@\u00a0\u00bb d\u00e9signe la racine du domaine)\u00a0; si l\'interface de votre h\u00e9bergeur demande le nom complet plut\u00f4t que le nom court, utilisez celui indiqu\u00e9 en bas de chaque bloc.</p>';
-                records.forEach(function(rec) {
-                    var data = json[rec.key];
-                    html += '<div class="mb-3 small border-bottom pb-2">';
+                dnsRecords.innerHTML = '<p class="text-warning small">Veuillez remplir l\'adresse d\'exp\u00e9dition et le s\u00e9lecteur DKIM.</p>';
+                return;
+            }
 
-                    if (data.key_missing) {
-                        html += '<strong>' + rec.label + '</strong> <span class="badge text-bg-warning">Cl\u00e9 DKIM requise</span><br>';
-                        html += '<span class="text-warning">G\u00e9n\u00e9rez d\'abord la cl\u00e9 DKIM (section \u00ab\u00a0Cl\u00e9 DKIM\u00a0\u00bb ci-dessus), puis relancez cette v\u00e9rification.</span>';
-                        html += '</div>';
-                        return;
-                    }
+            var params = new URLSearchParams({ domain: domain, selector: selector, mode: mode, smtp_host: smtpHost, dmarc_email: dmarcEmail });
+            fetch('/setup/dns?' + params.toString())
+                .then(function(r) { return r.json(); })
+                .then(function(json) {
+                    dnsSpinner.classList.add('d-none');
+                    // "name" is the record name relative to the zone root, as
+                    // most DNS provider UIs expect it (they already scope
+                    // everything to the domain you're editing) \u2014 "host" is
+                    // the full name, kept as a fallback for providers that want
+                    // it spelled out completely instead.
+                    var records = [
+                        { key: 'spf', label: 'SPF', name: '@', host: domain, type: 'TXT' },
+                        { key: 'dkim', label: 'DKIM', name: selector + '._domainkey', host: selector + '._domainkey.' + domain, type: 'TXT' },
+                        { key: 'dmarc', label: 'DMARC', name: '_dmarc', host: '_dmarc.' + domain, type: 'TXT' }
+                    ];
+                    var html = '<p class="text-body-secondary small mb-2">Chez la plupart des h\u00e9bergeurs, la zone DNS demande un <strong>Type</strong>, un <strong>Nom</strong> (parfois appel\u00e9 \u00ab\u00a0Enregistrement\u00a0\u00bb ou \u00ab\u00a0H\u00f4te\u00a0\u00bb) et une <strong>Valeur</strong>. Utilisez le nom court ci-dessous (\u00ab\u00a0@\u00a0\u00bb d\u00e9signe la racine du domaine)\u00a0; si l\'interface de votre h\u00e9bergeur demande le nom complet plut\u00f4t que le nom court, utilisez celui indiqu\u00e9 en bas de chaque bloc.</p>';
+                    records.forEach(function(rec) {
+                        var data = json[rec.key];
+                        html += '<div class="mb-3 small border-bottom pb-2">';
 
-                    if (rec.key === 'dmarc' && !dmarcFieldValue) {
-                        // No report address was provided: this app doesn't
-                        // require an rua= tag for anything to work, so
-                        // there's nothing to suggest changing \u2014 don't push
-                        // an edit the operator didn't ask for.
-                        html += '<strong>' + rec.label + '</strong> <span class="badge bg-secondary">Optionnel</span><br>';
-                        html += '<span class="text-body-secondary">Aucune adresse de rapport DMARC renseign\u00e9e \u2014 aucune modification de votre DNS n\'est n\u00e9cessaire pour cela. Renseignez une adresse dans le champ \u00ab\u00a0Email rapports DMARC\u00a0\u00bb ci-dessus si vous souhaitez recevoir des rapports.</span>';
-                        if (data.actual) {
-                            html += '<br><span class="text-body-secondary">Enregistrement DMARC actuel :</span> <code class="text-break">' + escapeHtml(data.actual) + '</code>';
+                        if (data.key_missing) {
+                            html += '<strong>' + rec.label + '</strong> <span class="badge text-bg-warning">Cl\u00e9 DKIM requise</span><br>';
+                            html += '<span class="text-warning">G\u00e9n\u00e9rez d\'abord la cl\u00e9 DKIM (section \u00ab\u00a0Cl\u00e9 DKIM\u00a0\u00bb ci-dessus), puis relancez cette v\u00e9rification.</span>';
+                            html += '</div>';
+                            return;
                         }
-                        html += '</div>';
-                        return;
-                    }
 
-                    var badge = data.exists
-                        ? '<span class="badge bg-success">OK</span>'
-                        : '<span class="badge text-bg-warning">Manquant</span>';
-                    var expectedLabel = data.actual ? 'Valeur sugg\u00e9r\u00e9e (remplace l\'actuelle)' : 'Valeur attendue';
-                    html += '<strong>' + rec.label + '</strong> ' + badge + '<br>';
-                    html += '<span class="text-body-secondary">Type :</span> <code>' + rec.type + '</code><br>';
-                    html += '<span class="text-body-secondary">Nom :</span> ';
-                    html += '<div class="input-group input-group-sm mt-1 mb-1">';
-                    html += '<input type="text" class="form-control form-control-sm font-monospace" value="' + escapeAttr(rec.name) + '" readonly>';
-                    html += '<button type="button" class="btn btn-outline-secondary btn-sm btn-copy-value">Copier</button>';
-                    html += '</div>';
-                    html += '<span class="text-body-secondary">' + expectedLabel + ' :</span> ';
-                    html += '<div class="input-group input-group-sm mt-1 mb-1">';
-                    html += '<input type="text" class="form-control form-control-sm font-monospace" value="' + escapeAttr(data.expected) + '" readonly>';
-                    html += '<button type="button" class="btn btn-outline-secondary btn-sm btn-copy-value">Copier</button>';
-                    html += '</div>';
-                    if (data.actual) {
-                        html += '<span class="text-body-secondary">Valeur actuelle :</span> <code class="text-break">' + escapeHtml(data.actual) + '</code><br>';
-                    }
-                    html += '<span class="text-body-secondary">Nom complet (si votre h\u00e9bergeur le demande \u00e0 la place du nom court) :</span> <code class="text-break">' + escapeHtml(rec.host) + '</code>';
-                    html += '</div>';
+                        if (rec.key === 'dmarc' && !dmarcFieldValue) {
+                            // No report address was provided: this app doesn't
+                            // require an rua= tag for anything to work, so
+                            // there's nothing to suggest changing \u2014 don't push
+                            // an edit the operator didn't ask for.
+                            html += '<strong>' + rec.label + '</strong> <span class="badge bg-secondary">Optionnel</span><br>';
+                            html += '<span class="text-body-secondary">Aucune adresse de rapport DMARC renseign\u00e9e \u2014 aucune modification de votre DNS n\'est n\u00e9cessaire pour cela. Renseignez une adresse dans le champ \u00ab\u00a0Email rapports DMARC\u00a0\u00bb ci-dessus si vous souhaitez recevoir des rapports.</span>';
+                            if (data.actual) {
+                                html += '<br><span class="text-body-secondary">Enregistrement DMARC actuel :</span> <code class="text-break">' + escapeHtml(data.actual) + '</code>';
+                            }
+                            html += '</div>';
+                            return;
+                        }
+
+                        var badge = data.exists
+                            ? '<span class="badge bg-success">OK</span>'
+                            : '<span class="badge text-bg-warning">Manquant</span>';
+                        var expectedLabel = data.actual ? 'Valeur sugg\u00e9r\u00e9e (remplace l\'actuelle)' : 'Valeur attendue';
+                        html += '<strong>' + rec.label + '</strong> ' + badge + '<br>';
+                        html += '<span class="text-body-secondary">Type :</span> <code>' + rec.type + '</code><br>';
+                        html += '<span class="text-body-secondary">Nom :</span> ';
+                        html += '<div class="input-group input-group-sm mt-1 mb-1">';
+                        html += '<input type="text" class="form-control form-control-sm font-monospace" value="' + escapeAttr(rec.name) + '" readonly>';
+                        html += '<button type="button" class="btn btn-outline-secondary btn-sm btn-copy-value">Copier</button>';
+                        html += '</div>';
+                        html += '<span class="text-body-secondary">' + expectedLabel + ' :</span> ';
+                        html += '<div class="input-group input-group-sm mt-1 mb-1">';
+                        html += '<input type="text" class="form-control form-control-sm font-monospace" value="' + escapeAttr(data.expected) + '" readonly>';
+                        html += '<button type="button" class="btn btn-outline-secondary btn-sm btn-copy-value">Copier</button>';
+                        html += '</div>';
+                        if (data.actual) {
+                            html += '<span class="text-body-secondary">Valeur actuelle :</span> <code class="text-break">' + escapeHtml(data.actual) + '</code><br>';
+                        }
+                        html += '<span class="text-body-secondary">Nom complet (si votre h\u00e9bergeur le demande \u00e0 la place du nom court) :</span> <code class="text-break">' + escapeHtml(rec.host) + '</code>';
+                        html += '</div>';
+                    });
+                    dnsRecords.innerHTML = html;
+                })
+                .catch(function() {
+                    dnsSpinner.classList.add('d-none');
+                    dnsRecords.innerHTML = '<p class="text-danger small">Erreur lors de la v\u00e9rification DNS.</p>';
                 });
-                dnsRecords.innerHTML = html;
-            })
-            .catch(function() {
-                dnsSpinner.classList.add('d-none');
-                dnsRecords.innerHTML = '<p class="text-danger small">Erreur lors de la v\u00e9rification DNS.</p>';
-            });
-    });
+        });
+    }
 
     // ------------------------------------------------------------------
     // Restoring from a portable backup.

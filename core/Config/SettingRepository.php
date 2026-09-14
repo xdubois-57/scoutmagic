@@ -289,6 +289,34 @@ class SettingRepository
         return $stmt->rowCount() === 1;
     }
 
+    /**
+     * Run a set of writes as one, so a failure half-way leaves nothing.
+     *
+     * Nested-transaction aware: a caller that already opened one keeps
+     * ownership of it, because committing somebody else's transaction
+     * early is a subtler bug than the one this method exists to prevent.
+     *
+     * @param callable(): void $writes
+     */
+    public function transactionally(callable $writes): void
+    {
+        if ($this->pdo->inTransaction()) {
+            $writes();
+
+            return;
+        }
+
+        $this->pdo->beginTransaction();
+        try {
+            $writes();
+            $this->pdo->commit();
+        } catch (\Throwable $e) {
+            $this->pdo->rollBack();
+
+            throw $e;
+        }
+    }
+
     public function updateValue(?string $moduleId, string $key, string $value): void
     {
         if ($moduleId === null) {

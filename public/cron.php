@@ -216,13 +216,15 @@ $roleResolver = new RoleResolver(
     new MemberEmailRepository($pdo, $encryptionService)
 );
 $dkimManager = new DkimManager(__DIR__ . '/../storage/keys');
-// short_name, mail_from_address, mail_from_name and dkim_selector all live
-// in the settings table (migrated out of secrets.enc by public/index.php's
-// one-time migration) — merge them back in, same fix as public/index.php's
-// own MailService construction (see its comment for why an empty
-// mail_from_address is worse than the missing "[XX]" subject prefix: it
-// makes PHPMailer reject every send outright with "Invalid address: (From): ").
-foreach (['short_name', 'mail_from_address', 'mail_from_name', 'dkim_selector'] as $mailSecretKey) {
+// short_name, mail_from_address, mail_from_name, dkim_selector and
+// mail_reply_address all live in the settings table (migrated out of
+// secrets.enc by public/index.php's one-time migration) — merge them back
+// in, same fix as public/index.php's own MailService construction (see its
+// comment for why an empty mail_from_address is worse than the missing
+// "[XX]" subject prefix: it makes PHPMailer reject every send outright
+// with "Invalid address: (From): ").
+$mailSettingKeys = ['short_name', 'mail_from_address', 'mail_from_name', 'dkim_selector', 'mail_reply_address'];
+foreach ($mailSettingKeys as $mailSecretKey) {
     $secrets[$mailSecretKey] = (string) ($settingService->get($mailSecretKey) ?: ($secrets[$mailSecretKey] ?? ''));
 }
 // **Le bac à sable e-mail vaut ici AUSSI** (ARCHITECTURE.md §8.63).

@@ -1652,6 +1652,51 @@ CREATE TABLE IF NOT EXISTS mail_deferred_messages (
     INDEX idx_mail_deferred_settled (status, settled_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- mail_return_probes: whether mail addressed to one of this site's own
+-- addresses actually comes back to a mailbox somebody reads (roadmap
+-- IT-03).
+--
+-- **A real round trip, never a string comparison.** The configured return
+-- address is very often an alias delivering into a box named something
+-- else entirely, so comparing the configured address with the mailbox
+-- addresses `inbound_mail` synchronises would raise a false alarm on a
+-- perfectly healthy installation. The site therefore writes to the
+-- address and waits to see the message arrive, which is the only question
+-- that matters: does what comes back reach a human.
+--
+-- **One row per address, replaced on each run.** The state being answered
+-- is « does THIS address work today », not « how many times have we
+-- asked » — a history nobody would read, holding one of the site's own
+-- addresses, for a question whose answer is only ever the latest one.
+--
+-- The address is organisational rather than personal (design.md §2.6) and
+-- is stored encrypted anyway, for the same reason
+-- `support_mail_probes.mailbox_address_encrypted` is: a database copy has
+-- no reason to be the plainest form of it anywhere. The blind index is
+-- what makes « the operator changed the address » reset the state without
+-- any reset code to forget to call — a different address simply has no
+-- row.
+--
+-- The box the message landed in is kept as an id, not a name: a box
+-- renamed in the inbound-mail configuration must not leave this screen
+-- quoting the old name back.
+CREATE TABLE IF NOT EXISTS mail_return_probes (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    address_blind_index VARCHAR(64) NOT NULL,
+    address_encrypted BLOB NOT NULL,
+    -- Chosen by this site, which is the side that has to recognise the
+    -- message when it comes back.
+    correlation_key VARCHAR(32) NOT NULL,
+    sent_at DATETIME NOT NULL,
+    -- Past this instant the consumer stops recognising the key and the
+    -- state reads « jamais arrivé » rather than « en attente » for ever.
+    expires_at DATETIME NOT NULL,
+    received_at DATETIME NULL,
+    mailbox_id INT UNSIGNED NULL,
+    UNIQUE KEY uq_mail_return_probes_address (address_blind_index),
+    INDEX idx_mail_return_probes_key (correlation_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- storage_locations: one row per declared destination for bytes — a
 -- directory on this server, an S3-compatible bucket, and the kinds the
 -- following iterations add. In the core and not in a module, for the same
