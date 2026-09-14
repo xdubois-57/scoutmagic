@@ -924,6 +924,56 @@ porte maintenant seule — et au passage le collecteur cesse d'aller
 chercher une constante sur un contrôleur pour lire un réglage, ce qui
 était deux couches de travers pour un seul blob JSON.
 
+### Ce que la relecture Claude a trouvé, et que rien d'autre n'aurait vu
+
+**La vérification s'autorisait des boîtes qui ne lui étaient pas
+ouvertes.** `isPossible()` comptait les boîtes *activées*
+(`listMailboxSummaries()`), là où ce qui compte est les boîtes ouvertes à
+*ce consommateur* (`probeAddressesFor()`). Une portée est `inert` tant que
+le super-admin n'a rien ouvert : sur une installation neuve avec le module
+actif, la sonde partait, n'était jamais proposée à `ReturnPathConsumer`,
+et lisait « jamais arrivé » six heures plus tard — **la fausse alerte
+exacte que l'aller-retour existe pour éviter, produite par
+l'aller-retour**. Le docblock de `probeAddressesFor()` donne d'ailleurs
+cette raison mot pour mot ; je ne l'avais pas lue.
+
+Et la branche qui aurait dit quoi faire, `isCollectingWithoutScope()`,
+était **démontrablement inatteignable** : elle posait la même question que
+`isCollecting()`. La seule phrase actionnable de l'écran ne s'affichait
+jamais.
+
+**Mes doubles de test cachaient le défaut, et pas par hasard.** Ils
+répondaient « je relève, et je n'ai aucune boîte » — une combinaison que
+le vrai service ne peut pas produire, `isCollecting()` comptant
+précisément les boîtes que les résumés listent. Leçon du jour, à ranger à
+côté des deux autres : **un double qui ne peut pas exister en production
+est un double qui cache le défaut qu'il était censé couvrir.**
+
+**L'adresse de réponse détournait le courrier des sections.** Le
+publipostage envoie avec `replyTo = null` et un `fromAddressOverride` —
+l'adresse de la section. Avant, pas de `Reply-To`, donc « Répondre »
+arrivait à la section. Le jour où quelqu'un remplit le nouveau champ sur
+une page qui ne parle pas du publipostage, toutes les réponses des
+sections partaient vers l'adresse du site. Une régression dans un module
+que cette PR ne touche pas, déclenchée par un réglage d'ailleurs. La
+réponse du site répond pour le `From` du site, et pour lui seul.
+
+**Et cacher les champs a cassé deux boutons de l'assistant.** « Envoyer un
+test » lisait `.value` sur des `<input>` que je venais de retirer : un
+`TypeError` avant `fetch()`, le spinner qui tourne indéfiniment. La
+génération de clé DKIM avait le même défaut, avalé par son propre
+`.catch()` et affiché en « Erreur réseau » sur une requête qui avait
+pourtant réussi. `npm run typecheck` ne peut rien y voir —
+`strictNullChecks` est désactivé et le `@type` en JSDoc affirme que
+l'élément existe. Trois specs Vitest le couvrent, vérifiées en cassant le
+correctif.
+
+Une subtilité au passage : un champ **absent** et un champ **vide** sont
+deux réponses différentes côté serveur. `mailSecretsUnderTest()` reprend
+la valeur stockée pour une clé que la requête ne porte pas, et prend un
+`''` au pied de la lettre. Envoyer une chaîne vide aurait testé l'envoi
+sans adresse d'expédition — ce que PHPMailer refuse net.
+
 ### Reporté
 
 - L'alignement DMARC d'un envoi « au nom de » (ci-dessus), à l'itération

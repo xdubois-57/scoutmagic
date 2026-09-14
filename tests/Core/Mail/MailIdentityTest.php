@@ -151,6 +151,58 @@ class MailIdentityTest extends TestCase
         );
     }
 
+    /**
+     * A mailing sent « au nom de » a section carries that section's
+     * address as its From and, before this setting existed, no
+     * `Reply-To:` — so « Répondre » reached the section. The site-wide
+     * reply address answers for the site's own From and must not divert
+     * a section's replies to it, which nothing in `mass_mail` would have
+     * said out loud.
+     */
+    public function testTheSiteReplyAddressNeverOverridesAFromSentOnSomebodyElsesBehalf(): void
+    {
+        $transport = $this->recordingTransport();
+
+        $this->serviceWith($transport, 'secretariat@unite.be')->send(
+            to: 'parent@exemple.be',
+            subject: 'La newsletter',
+            bodyHtml: '<p>Bonjour</p>',
+            bodyText: 'Bonjour',
+            fromAddressOverride: 'louveteaux@unite.be',
+            fromNameOverride: 'Les Louveteaux'
+        );
+
+        $mail = $transport->received;
+        $this->assertInstanceOf(PHPMailer::class, $mail);
+        $this->assertSame('louveteaux@unite.be', $mail->From);
+        $this->assertSame([], $mail->getReplyToAddresses(), 'A reply must go back to the section that wrote.');
+    }
+
+    /**
+     * And a caller that names its own reply address keeps it, override or
+     * not — that is `inbound_mail` routing a reply onto a booking.
+     */
+    public function testAnExplicitReplyAddressSurvivesAFromOverride(): void
+    {
+        $transport = $this->recordingTransport();
+
+        $this->serviceWith($transport, 'secretariat@unite.be')->send(
+            to: 'parent@exemple.be',
+            subject: 'La newsletter',
+            bodyHtml: '<p>Bonjour</p>',
+            bodyText: 'Bonjour',
+            replyTo: 'loc-2027-0001@unite.be',
+            fromAddressOverride: 'louveteaux@unite.be'
+        );
+
+        $mail = $transport->received;
+        $this->assertInstanceOf(PHPMailer::class, $mail);
+        $this->assertSame(
+            [['loc-2027-0001@unite.be', '']],
+            array_values($mail->getReplyToAddresses())
+        );
+    }
+
     public function testWithoutAConfiguredReplyAddressNoReplyToHeaderIsAdded(): void
     {
         $transport = $this->recordingTransport();

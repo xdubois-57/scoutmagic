@@ -83,17 +83,62 @@ final class ReturnPathVerifier
      */
     public static function possibleWith(?InboundMailInterface $inboundMail): bool
     {
-        return $inboundMail !== null
-            && $inboundMail->isCollecting()
-            && self::enabledMailboxesOf($inboundMail) !== [];
+        return self::scopedMailboxCountOf($inboundMail) > 0;
     }
 
-    /** True when the module is there but no box is open to this check. */
+    /**
+     * How many boxes are open to THIS consumer — the only count that
+     * decides whether a round trip can work.
+     *
+     * **Not « how many boxes are enabled ».** That was the bug: a scope
+     * is `inert` until the superadmin opens a box to a consumer, so an
+     * installation with `inbound_mail` on and no box opened to
+     * « Courrier sortant » has plenty of enabled boxes and asks this
+     * consumer about none of them. The probe then goes out, is never
+     * offered to {@see ReturnPathConsumer::analyze()}, and reads « jamais
+     * arrivé » six hours later — the exact false alarm the round trip
+     * exists to avoid, raised by the round trip itself.
+     *
+     * `probeAddressesFor()` is the module's own scope-aware answer, and
+     * its docblock gives this very reason: « probing a box it never reads
+     * would produce a message nobody claims and a "jamais reçu" that
+     * means nothing ». Counted rather than kept: what comes back are
+     * mailbox addresses, and nothing here has any business holding one.
+     */
+    public static function scopedMailboxCountOf(?InboundMailInterface $inboundMail): int
+    {
+        if ($inboundMail === null) {
+            return 0;
+        }
+
+        try {
+            return count($inboundMail->probeAddressesFor(self::CONSUMER_ID));
+        } catch (\Throwable) {
+            return 0;
+        }
+    }
+
+    /** How many boxes this verification can be seen to arrive in. */
+    public function scopedMailboxCount(): int
+    {
+        return self::scopedMailboxCountOf($this->inboundMail);
+    }
+
+    /**
+     * True when the module is there, collecting, and no box is open to
+     * this check — the one form of « impossible » somebody can fix, and
+     * the screen says which one it is.
+     *
+     * It was unreachable before: it asked whether any ENABLED box existed,
+     * which is the same question `isCollecting()` answers, so the two
+     * could never disagree. Asking about the boxes open to THIS consumer
+     * is what makes it mean anything.
+     */
     public function isCollectingWithoutScope(): bool
     {
         return $this->inboundMail !== null
             && $this->inboundMail->isCollecting()
-            && $this->watchedMailboxes() === [];
+            && $this->scopedMailboxCount() === 0;
     }
 
     /**
@@ -246,8 +291,15 @@ final class ReturnPathVerifier
     }
 
     /**
-     * The boxes a returning message could land in — what the screen names
-     * when it explains what « vérifié » would be measuring.
+     * Every enabled box, by id and name — used ONLY to name the box a
+     * message actually landed in ({@see self::mailboxName()}).
+     *
+     * Deliberately not the list the screen shows as « les boîtes
+     * relevées », and not what decides whether the check can run: this
+     * answers « what is this box called », where those two questions are
+     * about scope and are answered by {@see self::scopedMailboxCountOf()}.
+     * A box that has since been closed to this consumer still has a name,
+     * and a message that arrived in it still arrived there.
      *
      * @return array<int, string> mailbox id => name
      */

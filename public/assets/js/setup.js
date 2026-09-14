@@ -5,6 +5,44 @@
 
 (function() {
     var form = /** @type {HTMLFormElement} */ (document.getElementById('setup-form'));
+    /**
+     * A form field's value, or '' when the field is not on this page.
+     *
+     * Several of this form's inputs are rendered on the first run only —
+     * the mail identity moved to « Courrier sortant \u203a Authentification »
+     * once the site is installed. Reading `.value` off the missing input
+     * throws before anything else runs, which is how a button ends up
+     * spinning for ever.
+     *
+     * @param {string} id
+     * @returns {string}
+     */
+    function fieldValue(id) {
+        var field = /** @type {HTMLInputElement|null} */ (document.getElementById(id));
+
+        return field ? field.value : '';
+    }
+
+    /**
+     * Append a field only when the page actually has it.
+     *
+     * An ABSENT field and an EMPTY one are different answers on the
+     * server: SetupController::mailSecretsUnderTest() falls back to the
+     * stored value for a key the request does not carry, and takes an
+     * empty string at face value. Sending '' for an address the installed
+     * site keeps in its settings would test the send with no From at all,
+     * which PHPMailer refuses outright.
+     *
+     * @param {FormData} data
+     * @param {string} id
+     */
+    function appendIfPresent(data, id) {
+        var field = /** @type {HTMLInputElement|null} */ (document.getElementById(id));
+        if (field) {
+            data.append(id, field.value);
+        }
+    }
+
     var mailMode = /** @type {HTMLSelectElement} */ (document.getElementById('mail_mode'));
     var smtpFields = document.getElementById('smtp-fields');
     var btnTestDb = document.getElementById('btn-test-db');
@@ -411,14 +449,18 @@
             // of persisted secrets (harmless extra fields once
             // initialized \u2014 that path reads from secrets.enc instead).
             data.append('mail_mode', mailMode.value);
-            data.append('smtp_host', /** @type {HTMLInputElement} */ (document.getElementById('smtp_host')).value);
-            data.append('smtp_port', /** @type {HTMLInputElement} */ (document.getElementById('smtp_port')).value);
-            data.append('smtp_user', /** @type {HTMLInputElement} */ (document.getElementById('smtp_user')).value);
-            data.append('smtp_password', /** @type {HTMLInputElement} */ (document.getElementById('smtp_password')).value);
-            data.append('mail_from_address', /** @type {HTMLInputElement} */ (document.getElementById('mail_from_address')).value);
-            data.append('mail_from_name', /** @type {HTMLInputElement} */ (document.getElementById('mail_from_name')).value);
-            data.append('short_name', /** @type {HTMLInputElement} */ (document.getElementById('short_name')).value);
-            data.append('dkim_selector', /** @type {HTMLInputElement} */ (document.getElementById('dkim_selector')).value);
+            appendIfPresent(data, 'smtp_host');
+            appendIfPresent(data, 'smtp_port');
+            appendIfPresent(data, 'smtp_user');
+            appendIfPresent(data, 'smtp_password');
+            // Absent once the site is installed: the mail identity moved
+            // to « Courrier sortant \u203a Authentification ». Reading `.value`
+            // off the missing input threw a TypeError before fetch() ran,
+            // so the spinner started and the button hung for ever.
+            appendIfPresent(data, 'mail_from_address');
+            appendIfPresent(data, 'mail_from_name');
+            appendIfPresent(data, 'short_name');
+            appendIfPresent(data, 'dkim_selector');
 
             fetch('/setup/test-email', { method: 'POST', body: data })
                 .then(function(r) { return r.json(); })
@@ -461,7 +503,11 @@
                     // Rebuilt in place (no location.reload()) so the rest
                     // of the \u2014 possibly already partly filled \u2014 form isn't
                     // lost just because the DKIM key got generated early.
-                    var selector = /** @type {HTMLInputElement} */ (document.getElementById('dkim_selector')).value
+                    // Same absence as above, on an installed site with no
+                    // key yet: the null dereference was swallowed by the
+                    // .catch() below and surfaced as a misleading
+                    // « Erreur r\u00e9seau » over a request that had succeeded.
+                    var selector = fieldValue('dkim_selector')
                         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
                     var html = '<p class="mb-2 small">Cl\u00e9 DKIM g\u00e9n\u00e9r\u00e9e. S\u00e9lecteur : <strong>' + selector + '</strong>.</p>';
                     html += '<div class="mb-2">';

@@ -144,14 +144,15 @@
 
         {% if returns_possible %}
             <p class="text-body-secondary small">
-                Boîtes relevées&nbsp;:
-                {% for mailbox in watched_mailboxes %}<strong>{{ mailbox }}</strong>{% if not loop.last %}, {% endif %}{% endfor %}.
+                {{ watched_mailboxes }} boîte{{ watched_mailboxes > 1 ? 's' : '' }} du courrier entrant
+                {{ watched_mailboxes > 1 ? 'sont ouvertes' : 'est ouverte' }} à cette vérification : le message
+                sera reconnu s'il arrive dans l'une d'elles.
             </p>
         {% elseif returns_need_scope %}
             <p class="text-warning small">
-                Aucune boîte n'est ouverte à « Courrier sortant ». Ouvrez-lui une boîte depuis
-                <a href="/config/courrier-entrant">Courrier entrant</a> pour que la vérification puisse voir le
-                message revenir.
+                Des boîtes sont relevées, mais <strong>aucune n'est ouverte à « Courrier sortant »</strong> — le
+                message partirait sans que rien ne puisse le voir revenir. Ouvrez-lui une boîte depuis
+                <a href="/config/courrier-entrant">Courrier entrant</a>.
             </p>
         {% else %}
             <p class="text-body-secondary small">

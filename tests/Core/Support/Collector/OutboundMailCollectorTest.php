@@ -324,12 +324,15 @@ class OutboundMailCollectorTest extends TestCase
         $this->assertStringNotContainsString('Jamais vérifié', $report);
     }
 
-    public function testAModuleCollectingWithNoBoxOpenToTheCheckIsTheSameAnswer(): void
+    public function testAnEnabledBoxOpenToNobodyIsReportedImpossibleToo(): void
     {
         $this->registerIdentity('info@unite.be', '');
         $gateway = $this->createStub(InboundMailInterface::class);
         $gateway->method('isCollecting')->willReturn(true);
-        $gateway->method('listMailboxSummaries')->willReturn([]);
+        $gateway->method('listMailboxSummaries')->willReturn([
+            7 => ['name' => 'Boîte de l’unité', 'state' => 'ok', 'is_enabled' => true],
+        ]);
+        $gateway->method('probeAddressesFor')->willReturn([]);
         $this->inboundMail = $gateway;
 
         $this->assertStringContainsString('Vérification impossible', $this->collect());
@@ -342,6 +345,10 @@ class OutboundMailCollectorTest extends TestCase
         $gateway->method('listMailboxSummaries')->willReturn([
             7 => ['name' => 'Boîte de l’unité', 'state' => 'ok', 'is_enabled' => true],
         ]);
+        // The scope-aware answer, which is what decides whether the round
+        // trip can work at all — an enabled box open to nobody offers this
+        // consumer nothing.
+        $gateway->method('probeAddressesFor')->willReturn(['boite@unite.be']);
 
         return $gateway;
     }

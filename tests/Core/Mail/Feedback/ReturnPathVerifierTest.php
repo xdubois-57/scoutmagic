@@ -174,17 +174,37 @@ class ReturnPathVerifierTest extends TestCase
         $this->assertNull($this->probes->findByAddress('info@unite.be'));
     }
 
-    public function testAModuleCollectingNothingIsTheSameAnswerAndSaysWhy(): void
+    public function testAnEnabledBoxOpenToNobodyIsNotAWorkingRoundTrip(): void
     {
-        $gateway = $this->createStub(InboundMailInterface::class);
-        $gateway->method('isCollecting')->willReturn(true);
-        $gateway->method('listMailboxSummaries')->willReturn([]);
-
-        $verifier = $this->verifierWith($gateway);
+        $verifier = $this->verifierWith($this->collectingGatewayWithNoScope());
 
         $this->assertFalse($verifier->isPossible());
-        // Not the same sentence on screen: this one somebody can fix.
+        // Not the same sentence on screen: this one somebody can fix, and
+        // the screen has to say so rather than blaming the module.
         $this->assertTrue($verifier->isCollectingWithoutScope());
+        $this->assertSame(ReturnState::IMPOSSIBLE, $verifier->stateFor('info@unite.be')['state']);
+    }
+
+    public function testNoProbeIsEverSentIntoABoxThatWouldNotOfferItBack(): void
+    {
+        $sent = [];
+        $verifier = $this->verifierWith(
+            $this->collectingGatewayWithNoScope(),
+            $this->mailServiceRecording($sent)
+        );
+
+        $result = $verifier->launch(['info@unite.be']);
+
+        $this->assertTrue($result['impossible']);
+        $this->assertSame([], $sent, 'A probe nobody can claim would read « jamais arrivé » six hours later.');
+    }
+
+    public function testTheCountTheScreenShowsIsTheBoxesOpenToThisCheckAndNotEveryEnabledBox(): void
+    {
+        // Two enabled boxes, one open to this consumer: « 1 », never « 2 ».
+        $this->assertSame(1, $this->verifierWith($this->collectingGateway())->scopedMailboxCount());
+        $this->assertSame(0, $this->verifierWith($this->collectingGatewayWithNoScope())->scopedMailboxCount());
+        $this->assertSame(0, $this->verifierWith(null)->scopedMailboxCount());
     }
 
     // ── a send that never leaves ──────────────────────────────────────
@@ -288,6 +308,18 @@ class ReturnPathVerifierTest extends TestCase
         );
     }
 
+    /**
+     * A box that is enabled AND open to this consumer — the only shape
+     * the real service produces when a round trip can work.
+     *
+     * `probeAddressesFor()` is stubbed alongside the summaries because
+     * the two answer different questions, and the earlier double answered
+     * only one of them: it returned « collecting, no summaries », which
+     * `Modules\InboundMail\Service\InboundMailService` can never return
+     * (`isCollecting()` counts the very boxes the summaries list). A
+     * double that cannot exist in production is a double that hides the
+     * bug it was written to cover.
+     */
     private function collectingGateway(): InboundMailInterface
     {
         $gateway = $this->createStub(InboundMailInterface::class);
@@ -296,6 +328,29 @@ class ReturnPathVerifierTest extends TestCase
             7 => ['name' => 'Boîte de l’unité', 'state' => 'ok', 'is_enabled' => true],
             9 => ['name' => 'Ancienne boîte', 'state' => 'ok', 'is_enabled' => false],
         ]);
+        $gateway->method('probeAddressesFor')->willReturn(['boite@unite.be']);
+
+        return $gateway;
+    }
+
+    /**
+     * The box exists, is enabled, is being collected — and is open to
+     * nobody. A scope is `inert` until a superadmin opens a box to a
+     * consumer, so this is the ordinary state of a fresh installation.
+     *
+     * Left unchecked, the site sent a probe into a box that never offers
+     * it to this consumer, and reported « jamais arrivé » six hours
+     * later: the exact false alarm the round trip exists to avoid, raised
+     * by the round trip itself.
+     */
+    private function collectingGatewayWithNoScope(): InboundMailInterface
+    {
+        $gateway = $this->createStub(InboundMailInterface::class);
+        $gateway->method('isCollecting')->willReturn(true);
+        $gateway->method('listMailboxSummaries')->willReturn([
+            7 => ['name' => 'Boîte de l’unité', 'state' => 'ok', 'is_enabled' => true],
+        ]);
+        $gateway->method('probeAddressesFor')->willReturn([]);
 
         return $gateway;
     }

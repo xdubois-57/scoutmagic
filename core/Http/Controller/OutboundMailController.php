@@ -1247,7 +1247,10 @@ class OutboundMailController extends AbstractController
         return $this->render('config/outbound_mail/authentication.html.twig', [
             'returns' => $this->returnStates($identity),
             'return_check_url' => self::RETURN_CHECK_URL,
-            'watched_mailboxes' => array_values($this->returns->watchedMailboxes()),
+            // A COUNT, never the list: what would come back from the
+            // module's scope-aware query are mailbox addresses, and this
+            // screen has no business printing one.
+            'watched_mailboxes' => $this->returns->scopedMailboxCount(),
             'returns_possible' => $this->returns->isPossible(),
             'returns_need_scope' => $this->returns->isCollectingWithoutScope(),
             'identity' => [

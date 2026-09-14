@@ -58,11 +58,12 @@ function buildDom(options = {}) {
                 <input id="smtp_user" value="mailer">
                 <input id="smtp_password" value="mailpass">
             </div>
+            ${options.installed ? '' : `
             <input id="mail_from_address" value="unite@exemple.be">
             <input id="mail_from_name" value="Unité">
-            <input id="short_name" value="unite">
             <input id="dkim_selector" value="scoutmagic">
-            <input id="dmarc_report_email" value="">
+            <input id="dmarc_report_email" value="">`}
+            <input id="short_name" value="unite">
             <button type="button" id="btn-test-db"${options.installAction ? ` data-action="${options.installAction}"` : ''}>Tester</button>
             <span id="db-spinner" class="d-none"></span>
             <div id="db-test-result"></div>
@@ -82,9 +83,10 @@ function buildDom(options = {}) {
             <button type="button" id="btn-test-email">Tester l'email</button>
             <span id="email-spinner" class="d-none"></span>
             <div id="email-test-result"></div>
+            ${options.installed ? '' : `
             <button type="button" id="btn-check-dns">Vérifier DNS</button>
             <span id="dns-spinner" class="d-none"></span>
-            <div id="dns-records"></div>
+            <div id="dns-records"></div>`}
             <span id="cron-status-chip" class="badge text-bg-secondary" data-initial-state="${options.cronState || 'active'}">Vérification…</span>
             <button type="button" id="btn-save" disabled>Enregistrer</button>
             <div id="save-hint">Testez d'abord la connexion.</div>
@@ -396,6 +398,49 @@ describe('setup.js: test email', () => {
         expect(body.get('dkim_selector')).toBe('scoutmagic');
         expect(document.getElementById('email-test-result').textContent).toContain('Email envoyé.');
     });
+
+    /**
+     * Once the site is installed, the mail identity lives on « Courrier
+     * sortant › Authentification » and those inputs are not rendered here
+     * at all. Reading `.value` off a missing one threw before `fetch()`
+     * ran, so the spinner started and the button hung for ever — and
+     * `npm run typecheck` cannot see it, because `strictNullChecks` is
+     * off and the JSDoc cast asserts the element exists.
+     */
+    it('still sends the test on an installed site, where the mail identity fields are gone', async () => {
+        fetch.mockReturnValue(jsonResponse({ success: true, message: 'Email envoyé.' }));
+        await boot({ installed: true });
+
+        /** @type {HTMLInputElement} */ (document.getElementById('test_email_recipient')).value = 'moi@exemple.be';
+        document.getElementById('btn-test-email').click();
+        await settle();
+
+        expect(fetch).toHaveBeenCalled();
+        expect(document.getElementById('email-test-result').textContent).toContain('Email envoyé.');
+    });
+
+    /**
+     * An ABSENT field and an EMPTY one are different answers on the
+     * server: `mailSecretsUnderTest()` falls back to the stored value for
+     * a key the request does not carry, and takes '' at face value. So
+     * the missing inputs must be left out, never sent empty — an empty
+     * From makes PHPMailer refuse the send outright.
+     */
+    it('omits the absent fields rather than sending them empty', async () => {
+        fetch.mockReturnValue(jsonResponse({ success: true, message: 'Email envoyé.' }));
+        await boot({ installed: true });
+
+        /** @type {HTMLInputElement} */ (document.getElementById('test_email_recipient')).value = 'moi@exemple.be';
+        document.getElementById('btn-test-email').click();
+        await settle();
+
+        const body = /** @type {FormData} */ (fetch.mock.calls[0][1].body);
+        expect(body.has('mail_from_address')).toBe(false);
+        expect(body.has('dkim_selector')).toBe(false);
+        // The fields this page still owns keep travelling.
+        expect(body.get('smtp_host')).toBe('smtp.example.be');
+        expect(body.get('short_name')).toBe('unite');
+    });
 });
 
 describe('setup.js: DKIM generation', () => {
@@ -410,6 +455,30 @@ describe('setup.js: DKIM generation', () => {
         expect(display.value).toBe('v=DKIM1; p=MIIB');
         expect(document.querySelector('#dkim-key-section .btn-copy-value')).not.toBeNull();
         expect(document.getElementById('dkim-key-section').textContent).toContain('scoutmagic');
+    });
+
+    /**
+     * Reachable on any installed site that has no key yet: the selector
+     * input is no longer on this page, and the null dereference was
+     * swallowed by the handler's own `.catch()` — surfacing as « Erreur
+     * réseau » over a request that had in fact succeeded.
+     */
+    it('still rebuilds the key section on an installed site, where the selector field is gone', async () => {
+        fetch.mockReturnValue(jsonResponse({ success: true, public_key: 'v=DKIM1; p=MIIB' }));
+        await boot({ installed: true });
+
+        document.getElementById('btn-generate-dkim').click();
+        await settle();
+
+        const display = /** @type {HTMLInputElement} */ (document.getElementById('dkim-pubkey-display'));
+        // The rebuilt section is the proof the handler ran to the end:
+        // the selector read used to throw before it got here, leaving the
+        // key nowhere on the page. (`#dkim-gen-result` is inside the
+        // section the handler replaces, so it is gone by now — that part
+        // is by design and predates this change.)
+        expect(display).not.toBeNull();
+        expect(display.value).toBe('v=DKIM1; p=MIIB');
+        expect(document.getElementById('dkim-key-section').textContent).toContain('Clé DKIM générée');
     });
 });
 

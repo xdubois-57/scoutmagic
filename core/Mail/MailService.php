@@ -197,7 +197,18 @@ class MailService
             // routing replies onto a booking), otherwise the site's
             // configured reply address, otherwise nothing at all and the
             // reply goes to the visible From.
-            $effectiveReplyTo = $replyTo ?? ($this->replyAddress !== '' ? $this->replyAddress : null);
+            //
+            // **Never over a From override.** A mailing sent « au nom de »
+            // a section carries that section's address as its visible
+            // From and no Reply-To, so « Répondre » reaches the section.
+            // Applying the site-wide reply address there would silently
+            // divert every section's replies to the site — a regression in
+            // a module this change does not otherwise touch, on the day an
+            // operator fills in a field on another page entirely. The
+            // site's reply address answers for the site's own From.
+            $effectiveReplyTo = $replyTo ?? (
+                $fromAddressOverride === null && $this->replyAddress !== '' ? $this->replyAddress : null
+            );
             if ($effectiveReplyTo !== null) {
                 $mail->addReplyTo($effectiveReplyTo);
             }
