@@ -220,6 +220,23 @@ class MailService
             // person is in front of their screen and needs the truth now.
             $reason = MailErrorRedaction::withoutAddresses($e->reason !== '' ? $e->reason : $e->getMessage());
 
+            // **Unless somebody DID say no to this message.** A lane runs
+            // out when its last candidate fails, and on the ordinary
+            // installation — one enabled provider per lane, which is what
+            // the seeder lays down — that last candidate is also the
+            // first. So a single « 550 unknown recipient » empties the
+            // lane exactly like an outage does, and deferring it would
+            // retry a mistyped address against a relay that will answer
+            // 550 every time, for a day, before abandoning it. The
+            // distinction the breaker already draws (MailFailure) is the
+            // same one the queue needs: the road being shut is worth
+            // waiting for, an address that does not exist is not.
+            if (Transport\MailFailure::classify($reason) === Transport\MailFailure::Recipient) {
+                $this->journalFailure($reason);
+
+                throw new MailException($reason);
+            }
+
             $payload = $this->payloadFor(
                 $to,
                 $subject,

@@ -200,7 +200,15 @@ class DeferredMailQueueTest extends TestCase
         $this->assertSame([], $this->repository->pendingCountByLane());
     }
 
-    /** The Relance dialog buckets rather than counts (D17). */
+    /**
+     * The Relance dialog buckets rather than counts (D17), **and the age
+     * it buckets on is the age of the failure**, not of the message. A
+     * message is only given up on some twenty hours after it was queued,
+     * so reading `created_at` would drop every abandoned message straight
+     * into « more than a day » and leave the two recent buckets
+     * permanently empty — including the six-hour window the dialog
+     * offers by default.
+     */
     public function testAbandonedMessagesAreBucketedByAge(): void
     {
         $this->abandonAged('2026-09-13 09:00:00');
@@ -217,10 +225,45 @@ class DeferredMailQueueTest extends TestCase
         $this->assertSame(4, $buckets['total']);
     }
 
+    /**
+     * **The window the dialog offers by default has to be able to match
+     * something.** It is measured from the moment the site gave up, and
+     * that is twenty hours after the message was queued at the earliest —
+     * so a window read against `created_at` would relaunch nothing at
+     * all, every time, and the button would be quietly useless.
+     */
+    public function testTheShortestWindowRelaunchesThisMorningsFailures(): void
+    {
+        $justAbandoned = $this->abandonAged('2026-09-13 09:00:00');
+        $yesterday = $this->abandonAged('2026-09-12 09:00:00');
+
+        $revived = $this->queue->relaunch(
+            [MailLane::Bulk],
+            DeferredMailQueue::DEFAULT_WINDOW,
+            '2026-09-13 12:00:00'
+        );
+
+        $this->assertSame(1, $revived);
+        $this->assertSame([$yesterday], $this->repository->abandonedIds());
+        $this->assertSame([$justAbandoned], array_map(
+            static fn($message): int => $message->id,
+            $this->repository->due(10, '2099-01-01 00:00:00')
+        ));
+    }
+
+    /** And the default really is the shortest one the dialog offers. */
+    public function testTheDefaultWindowIsTheShortestOne(): void
+    {
+        $this->assertSame(
+            min(DeferredMailQueue::WINDOWS),
+            DeferredMailQueue::WINDOWS[DeferredMailQueue::DEFAULT_WINDOW]
+        );
+    }
+
     /** Purging an abandoned message takes its body with it (D18). */
     public function testPurgingAnAbandonedMessageTakesItsBody(): void
     {
-        $this->abandonAged('2026-08-01 10:00:00', settledAt: '2026-08-01 10:00:00');
+        $this->abandonAged('2026-08-01 10:00:00');
 
         $purged = $this->repository->purgeAbandonedBefore('2026-09-01 00:00:00');
 
@@ -297,19 +340,31 @@ class DeferredMailQueueTest extends TestCase
         );
     }
 
-    private function abandonAged(string $createdAt, ?string $settledAt = null): void
+    /**
+     * One abandoned message, given up on at `$settledAt`.
+     *
+     * `created_at` is set a day EARLIER on purpose, which is what a real
+     * row looks like: nothing is abandoned until its deadline has passed.
+     * A helper that made the two timestamps equal — as this one used to —
+     * would let a bucket or a window read the wrong column and still pass.
+     */
+    private function abandonAged(string $settledAt): int
     {
+        $queuedAt = date('Y-m-d H:i:s', strtotime($settledAt) - 86400);
+
         $id = $this->repository->add(
             MailLane::Bulk,
             MailPurpose::Bulk,
             $this->payload(),
             'raison',
-            $createdAt,
-            $createdAt
+            $queuedAt,
+            $settledAt
         );
-        $this->repository->abandon($id, 3, 'expiré', $settledAt ?? $createdAt);
+        $this->repository->abandon($id, 3, 'expiré', $settledAt);
         $this->pdo->prepare('UPDATE mail_deferred_messages SET created_at = ? WHERE id = ?')
-            ->execute([$createdAt, $id]);
+            ->execute([$queuedAt, $id]);
+
+        return $id;
     }
 
     /**

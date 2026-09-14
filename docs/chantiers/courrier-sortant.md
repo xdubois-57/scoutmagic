@@ -604,6 +604,37 @@ Enfin, une ligne indéchiffrable ne bloque plus la file : `due()` l'abandonne
 au lieu de la laisser en tête de tri à chaque passe, ce qui aurait arrêté
 la vidange et la purge pour de bon.
 
+**Le deuxième tour a trouvé une fenêtre qui ne pouvait rien attraper.** La
+relance filtrait sur `created_at`, la date de mise en file. Or un message
+n'est abandonné qu'une fois son échéance passée : avec la durée de vie par
+défaut, vingt heures après sa mise en file au plus tôt. La fenêtre de six
+heures — celle que la boîte propose par défaut — ne pouvait donc
+structurellement rien contenir, et le bouton aurait relancé zéro message à
+chaque fois. Les deux tranches d'âge récentes auraient été vides en
+permanence pour la même raison. Tout passe sur `settled_at` : l'âge qui
+veut dire quelque chose est celui de l'échec, pas celui du message.
+
+Mon test le cachait — il réécrivait `created_at` après coup, ce que la
+production ne fait jamais. Le fabricant de messages abandonnés place
+désormais les deux horodatages à un jour d'écart, comme une vraie ligne :
+une tranche ou une fenêtre qui lirait la mauvaise colonne échoue.
+
+**Un « 550 » n'est pas une route coupée.** Une voie s'épuise quand sa
+dernière entrée échoue, et sur l'installation ordinaire — un fournisseur
+actif par voie, ce que pose le seeder — cette dernière entrée est aussi la
+première. Un seul refus de destinataire vidait donc la voie exactement
+comme une panne, et le message partait pour vingt-quatre heures de
+réessais contre un relais qui répondra 550 à chaque fois, pendant que
+l'expéditeur, qui aurait pu corriger l'adresse, avait vu « envoyé ». La
+distinction que le coupe-circuit tirait déjà (`MailFailure`) sert
+maintenant aussi à la file.
+
+Et `hydrate()` ne fabrique plus un message vide quand la charge utile
+déchiffrée n'est pas un appel rejouable : elle lève, et `due()` en fait
+une ligne abandonnée comme n'importe quelle autre — la correction
+précédente du `?? []` supprimé pour satisfaire PHPStan avait laissé un
+`foreach(null)` à la place.
+
 ### Reporté
 
 Rien de fonctionnel. La cadence « collante » après bascule, refusée en

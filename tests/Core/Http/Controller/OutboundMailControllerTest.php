@@ -576,20 +576,21 @@ class OutboundMailControllerTest extends TestCase
     }
 
     /**
-     * **The window is what makes this button safe (D17).** The default
-     * carries this morning's failures and leaves last week's where they
-     * are: a relaunch that quietly re-sent a fortnight of messages would
-     * be used once and never again.
+     * **The window is what makes this button safe (D17).** The form's own
+     * default carries this morning's failures and leaves last week's
+     * where they are: a relaunch that quietly re-sent a fortnight of
+     * messages would be used once and never again.
+     *
+     * No window is named in the request, on purpose — that is what a
+     * volunteer who submits the form without touching the selector
+     * sends, and the only way to exercise the default the screen shows.
      */
     public function testTheDefaultWindowLeavesTheOldFailuresAlone(): void
     {
         $recent = $this->abandonOne(MailLane::Transactional, date('Y-m-d H:i:s', time() - 3600));
         $old = $this->abandonOne(MailLane::Transactional, date('Y-m-d H:i:s', time() - 8 * 86400));
 
-        $this->controller->relaunch(
-            $this->formRequest(['lanes' => ['transactional'], 'window' => 'day']),
-            []
-        );
+        $this->controller->relaunch($this->formRequest(['lanes' => ['transactional']]), []);
 
         $this->assertSame([$recent], $this->pendingIds());
         $this->assertSame([$old], $this->deferred->abandonedIds());
@@ -687,12 +688,20 @@ class OutboundMailControllerTest extends TestCase
         );
     }
 
-    private function abandonOne(MailLane $lane, string $createdAt): int
+    /**
+     * One abandoned message, given up on at `$settledAt`.
+     *
+     * `created_at` a day earlier, because that is what a real row looks
+     * like — nothing is abandoned before its deadline has passed — and
+     * because the relaunch window is measured from the moment the site
+     * gave up, not from the moment the message was written.
+     */
+    private function abandonOne(MailLane $lane, string $settledAt): int
     {
         $id = $this->queueOne($lane);
-        $this->deferred->abandon($id, 3, 'délai de vie dépassé');
+        $this->deferred->abandon($id, 3, 'délai de vie dépassé', $settledAt);
         $this->pdo->prepare('UPDATE mail_deferred_messages SET created_at = ? WHERE id = ?')
-            ->execute([$createdAt, $id]);
+            ->execute([date('Y-m-d H:i:s', strtotime($settledAt) - 86400), $id]);
 
         return $id;
     }

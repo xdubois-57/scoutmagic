@@ -267,10 +267,12 @@ final class DeferredMailQueue
 
         $moment = strtotime($now ?? date('Y-m-d H:i:s'));
 
-        foreach ($this->repository->abandonedCreatedAt($lane) as $createdAt) {
+        foreach ($this->repository->abandonedSettledAt($lane) as $settledAt) {
             // Read from the timestamps alone: counting how old something
-            // is never needs its body decrypted (D18).
-            $hours = max(0.0, ($moment - strtotime($createdAt)) / 3600);
+            // is never needs its body decrypted (D18). And the age that
+            // means something is the age of the FAILURE — see
+            // DeferredMailRepository::abandonedSettledAt().
+            $hours = max(0.0, ($moment - strtotime($settledAt)) / 3600);
             $buckets['total']++;
 
             if ($hours < 24) {

@@ -137,7 +137,18 @@ final class DeferredMailRepository
      * Relance path ever reads an abandoned message's contents, which is
      * why there is no method that would.
      *
-     * @param string|null $since Queued at or after this moment — the
+     * **The window is measured from `settled_at`, not `created_at`**, and
+     * the difference is the whole usefulness of the dialog. A message is
+     * only abandoned once its next backoff step would land past its
+     * deadline — with the default lifetime that is twenty hours after it
+     * was queued at the earliest. Filtering on `created_at` would make
+     * the six-hour window structurally unable to match anything, so the
+     * button a volunteer is offered by default would always relaunch
+     * zero messages. What they mean by « the last six hours » is « since
+     * the outage », and the outage is when the site gave up, not when the
+     * message was first written.
+     *
+     * @param string|null $since Given up on at or after this moment — the
      *        Relance dialog's window (D17).
      * @return array<int, int>
      */
@@ -152,11 +163,11 @@ final class DeferredMailRepository
         }
 
         if ($since !== null) {
-            $sql .= ' AND created_at >= ?';
+            $sql .= ' AND settled_at >= ?';
             $parameters[] = $since;
         }
 
-        $statement = $this->pdo->prepare($sql . ' ORDER BY created_at DESC, id DESC');
+        $statement = $this->pdo->prepare($sql . ' ORDER BY settled_at DESC, id DESC');
         $statement->execute($parameters);
 
         return array_map(
@@ -166,18 +177,23 @@ final class DeferredMailRepository
     }
 
     /**
-     * When each abandoned message was queued, and nothing else.
+     * When each abandoned message was GIVEN UP ON, and nothing else.
      *
-     * Separate from {@see abandoned()} because counting by age is the
-     * common case and hydrating a message decrypts its body — personal
-     * data brought into memory for no reason other than to look at a
-     * timestamp sitting in plain text one column over (D18).
+     * `settled_at` for the same reason {@see abandonedIds()} filters on
+     * it: the age that means something to a reader is the age of the
+     * failure, not of the message. Reading `created_at` would put every
+     * abandoned message in the « more than a day » bucket on arrival and
+     * leave the two recent ones permanently empty.
      *
-     * @return array<int, string> `created_at`, newest first
+     * Decryption never enters into it: counting by age reads a timestamp
+     * sitting in plain text one column over from a body it has no reason
+     * to look at (D18).
+     *
+     * @return array<int, string> `settled_at`, newest first
      */
-    public function abandonedCreatedAt(?MailLane $lane = null): array
+    public function abandonedSettledAt(?MailLane $lane = null): array
     {
-        $sql = 'SELECT created_at FROM mail_deferred_messages WHERE status = ?';
+        $sql = 'SELECT settled_at FROM mail_deferred_messages WHERE status = ?';
         $parameters = [DeferredMessage::STATUS_ABANDONED];
 
         if ($lane !== null) {
@@ -185,11 +201,11 @@ final class DeferredMailRepository
             $parameters[] = $lane->value;
         }
 
-        $statement = $this->pdo->prepare($sql . ' ORDER BY created_at DESC, id DESC');
+        $statement = $this->pdo->prepare($sql . ' ORDER BY settled_at DESC, id DESC');
         $statement->execute($parameters);
 
         return array_map(
-            static fn(array $row): string => (string) $row['created_at'],
+            static fn(array $row): string => (string) $row['settled_at'],
             $statement->fetchAll(PDO::FETCH_ASSOC)
         );
     }
@@ -322,6 +338,16 @@ final class DeferredMailRepository
             true
         );
 
+        if (!is_array($decoded) || !isset($decoded['to'], $decoded['attachments'])) {
+            // Decrypted, but not a call this class can replay — a payload
+            // from a version that shaped it differently, or one damaged
+            // in a way the cipher's own seal did not catch. Thrown rather
+            // than patched up with defaults, because `due()` is what turns
+            // an unreadable row into an abandoned one, and a message
+            // fabricated here would be sent to nobody with no subject.
+            throw new \RuntimeException('Deferred payload is not a replayable call.');
+        }
+
         /**
          * @var array{
          *     to: string, subject: string, bodyHtml: string, bodyText: string,
@@ -330,7 +356,7 @@ final class DeferredMailRepository
          *     attachments: array<int, array{name: string, content: string}>
          * } $payload
          */
-        $payload = is_array($decoded) ? $decoded : [];
+        $payload = $decoded;
 
         foreach ($payload['attachments'] as $index => $attachment) {
             $content = base64_decode((string) $attachment['content'], true);

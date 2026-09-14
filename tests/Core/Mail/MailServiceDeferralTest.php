@@ -235,6 +235,55 @@ class MailServiceDeferralTest extends TestCase
     }
 
     /**
+     * **A refused address is not a shut road.** A lane runs out when its
+     * last candidate fails, and on the ordinary installation — one
+     * enabled provider per lane — that last candidate is also the first.
+     * So one « 550 unknown recipient » empties the lane exactly like an
+     * outage does. Deferring it would retry a mistyped address against a
+     * relay that will answer 550 every time, for a day, before giving up;
+     * the caller who could have corrected it would have been told the
+     * message was on its way.
+     */
+    public function testARefusedRecipientFailsNowRatherThanWaitingADay(): void
+    {
+        $service = $this->service(
+            $this->exhaustedTransport(MailLane::Transactional, '550 5.1.1 recipient address rejected'),
+            $this->queue
+        );
+
+        $this->expectException(MailException::class);
+
+        try {
+            $service->send(
+                to: 'faute-de-frappe@exemple.test',
+                subject: 'Reçu de paiement',
+                bodyHtml: '<p>Bonjour</p>',
+                bodyText: 'Bonjour'
+            );
+        } finally {
+            $this->assertSame([], $this->repository->pendingCountByLane());
+        }
+    }
+
+    /** A provider failure on the same lane still waits, as it should. */
+    public function testAProviderFailureOnTheSameLaneStillDefers(): void
+    {
+        $service = $this->service(
+            $this->exhaustedTransport(MailLane::Transactional, 'SMTP connect() failed.'),
+            $this->queue
+        );
+
+        $service->send(
+            to: 'parent@exemple.test',
+            subject: 'Reçu de paiement',
+            bodyHtml: '<p>Bonjour</p>',
+            bodyText: 'Bonjour'
+        );
+
+        $this->assertSame(['transactional' => 1], $this->repository->pendingCountByLane());
+    }
+
+    /**
      * A message the queue refuses — too heavy to carry — fails as it
      * would have before. Refusing loudly beats queueing something that
      * would drain tomorrow without its attachment.
@@ -298,16 +347,18 @@ class MailServiceDeferralTest extends TestCase
     }
 
     /** A transport standing in for a chain whose lane has nothing left. */
-    private function exhaustedTransport(MailLane $lane): MailTransportInterface
-    {
-        return new class ($lane) implements MailTransportInterface {
-            public function __construct(private MailLane $lane)
+    private function exhaustedTransport(
+        MailLane $lane,
+        string $reason = 'aucun fournisseur disponible'
+    ): MailTransportInterface {
+        return new class ($lane, $reason) implements MailTransportInterface {
+            public function __construct(private MailLane $lane, private string $reason)
             {
             }
 
             public function deliver(PHPMailer $mail, MailPurpose $purpose = MailPurpose::Ordinary): void
             {
-                throw new LaneExhaustedException($this->lane, 'aucun fournisseur disponible');
+                throw new LaneExhaustedException($this->lane, $this->reason);
             }
         };
     }
