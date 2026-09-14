@@ -207,6 +207,40 @@ came for. The two refusals the page can make — emptying a lane, deleting
 the local send — are explained in a sentence naming the lane, never a
 disabled control with no reason attached.
 
+**What IT-02 adds to those two pages, and where.** The reserve appears
+twice, deliberately and differently. On **Acheminement**, under the
+Authentification lane — the lane whose failure is the one nobody
+recovers from, though the capacity it holds back serves every non-mailing
+lane — it appears with its provenance — « 74 messages,
+votre pointe hors publipostage des 30 derniers jours (54), plus une marge
+de 20 » — because that is the lane it exists FOR and the question it
+answers (« will people still be able to log in during the newsletter »)
+is asked there. On **Fournisseurs** it is one small line on the card,
+answering the narrower question the quota figures just above it raise:
+why a mailing stopped at 930 out of 1000. A number without its provenance
+is unfalsifiable, so the short form links to the long one rather than
+restating it.
+
+The breaker shows on the card only when it has something to say: an
+alert while a provider is held out, naming the hour it will be tried
+again, and otherwise a quiet line counting how often it has been held out
+before — a provider closed right now that has been held out eleven times
+in its life is the thing no screenshot between two outages shows. The
+count is a lifetime total and never resets: that is what makes each
+lockout longer than the last, and it is the honest reading of « how often
+has this relay come back broken ». A card that
+said « actif, configuré » while nothing goes through it is a card that
+makes somebody start changing a correct configuration.
+
+The **deferral queue** gets its own card under the providers: a depth per
+lane, the authentication lane included with a permanent zero and the
+sentence saying why it can never be anything else. The Relance form lives
+in that card rather than in a modal, because what it needs — the age
+distribution and the two choices — is three lines, and a dialog that has
+to be opened to find out whether it is worth opening is a dialog nobody
+opens. **Its window defaults to the shortest**, which is the whole safety
+of the feature.
+
 **The one sentence the screen must keep**, on every sub-page that shows a
 figure: a message classed as junk appears nowhere here, because it was
 accepted. Three green numbers otherwise read as « tout va bien » while a

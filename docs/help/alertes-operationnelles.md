@@ -25,9 +25,11 @@ ne va visiter le site pour voir une pastille. L'alerte doit sortir du
 site pour servir à quelque chose. C'est le seul type de notification du
 site dont l'e-mail est activé par défaut.
 
-Une exception : l'alerte « les envois d'e-mail échouent » ne part pas par
-e-mail, pour une raison qui se passe d'explication. Vous la trouverez
-dans la cloche et dans les points d'attention.
+Trois exceptions : les alertes qui parlent du courrier lui-même — les
+envois qui échouent, la voie d'authentification vide, la file des
+messages différés qui ne se vide plus — ne partent pas par e-mail, pour
+une raison qui se passe d'explication. Vous les trouverez dans la cloche
+et dans les points d'attention.
 
 ## Vous ne recevrez le message qu'une fois
 
@@ -60,6 +62,11 @@ si vous avez manqué un message, ou si vous venez d'arriver dans l'unité.
   ancienne, ou qu'il n'y en a jamais eu.
 - **Tâche planifiée** — le moteur du site. Sans elle, plus rien ne part.
 - **Envoi d'e-mails** — quand les envois échouent à répétition.
+- **Voie d'authentification** — quand plus aucun fournisseur ne peut porter
+  un lien de connexion. C'est la plus grave : personne ne peut plus entrer
+  sur le site, vous compris.
+- **Messages différés** — quand la file des messages mis de côté cesse de
+  se vider. Leurs expéditeurs, eux, ont vu un envoi réussi.
 - **Mode développement** — s'il a été laissé activé, le site se réinstalle
   à chaque nouveau commit, ce qui n'est pas fait pour le site d'une unité.
 - **Connexion sécurisée** — si le site est servi en HTTP, sans chiffrement.

@@ -48,6 +48,8 @@ class OutboundMailControllerTest extends TestCase
     private OutboundMailController $controller;
     private string $secretsDirectory = '';
     private SettingService $settings;
+    private \Core\Mail\Transport\DeferredMailRepository $deferred;
+    private \Core\Mail\Transport\DeferredMailQueue $queue;
 
     protected function setUp(): void
     {
@@ -81,6 +83,12 @@ class OutboundMailControllerTest extends TestCase
         $counters = new SendCounterRepository($this->pdo);
         $directory = new MailProviderDirectory($this->providers, $connections, $settings);
 
+        $this->deferred = new \Core\Mail\Transport\DeferredMailRepository(
+            $this->pdo,
+            new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
+        $this->queue = new \Core\Mail\Transport\DeferredMailQueue($this->deferred, $settings);
+
         $this->settings = $settings;
         $this->controller = new OutboundMailController(
             $twig,
@@ -93,9 +101,14 @@ class OutboundMailControllerTest extends TestCase
                 $counters,
                 $connections,
                 $directory,
-                new JournalService(new JournalRepository($this->pdo))
+                new JournalService(new JournalRepository($this->pdo)),
+                new \Core\Mail\Transport\ProviderHealthRepository($this->pdo)
             ),
-            $settings
+            $settings,
+            new \Core\Mail\Transport\MailReserve($counters, $this->chains),
+            new \Core\Mail\Transport\ProviderHealthRepository($this->pdo),
+            $this->deferred,
+            $this->queue
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -137,6 +150,7 @@ class OutboundMailControllerTest extends TestCase
             'one provider' => ['GET', '/config/courrier-sortant/fournisseurs/{id}'],
             'saving a provider' => ['POST', '/config/courrier-sortant/fournisseurs/{id}'],
             'deleting a provider' => ['POST', '/config/courrier-sortant/fournisseurs/{id}/suppression'],
+            'relaunching abandoned mail' => ['POST', '/config/courrier-sortant/relance'],
         ];
     }
 
@@ -531,6 +545,166 @@ class OutboundMailControllerTest extends TestCase
             'Envoi local — minutes entre deux lots',
             'Test'
         );
+    }
+
+    // ── la file et sa relance (D9, D17) ───────────────────────────────
+
+    /** « Un report n'est pas un silence » : la page le dit. */
+    public function testThePageShowsWhatIsWaiting(): void
+    {
+        $this->queueOne(MailLane::Transactional);
+        $this->queueOne(MailLane::Bulk);
+
+        $body = (string) $this->controller->providers($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('Messages différés', $body);
+        $this->assertStringContainsString('1 en attente', $body);
+        $this->assertStringContainsString('jamais différée', $body, 'The authentication lane says why it is at zero.');
+    }
+
+    /**
+     * The queue holds a recipient and a subject; the page is a screen a
+     * superadmin looks at, and neither belongs on it (SECURITY.md §11).
+     */
+    public function testThePageNamesNoRecipient(): void
+    {
+        $this->queueOne(MailLane::Transactional);
+
+        $body = (string) $this->controller->providers($this->getRequest(), [])->getBody();
+
+        $this->assertStringNotContainsString('parent@exemple.test', $body);
+        $this->assertStringNotContainsString('Reçu de paiement', $body);
+    }
+
+    /**
+     * **The window is what makes this button safe (D17).** The form's own
+     * default carries this morning's failures and leaves last week's
+     * where they are: a relaunch that quietly re-sent a fortnight of
+     * messages would be used once and never again.
+     *
+     * No window is named in the request, on purpose — that is what a
+     * volunteer who submits the form without touching the selector
+     * sends, and the only way to exercise the default the screen shows.
+     */
+    public function testTheDefaultWindowLeavesTheOldFailuresAlone(): void
+    {
+        $recent = $this->abandonOne(MailLane::Transactional, date('Y-m-d H:i:s', time() - 3600));
+        $old = $this->abandonOne(MailLane::Transactional, date('Y-m-d H:i:s', time() - 8 * 86400));
+
+        $this->controller->relaunch($this->formRequest(['lanes' => ['transactional']]), []);
+
+        $this->assertSame([$recent], $this->pendingIds());
+        $this->assertSame([$old], $this->deferred->abandonedIds());
+    }
+
+    /** Relaunching the newsletters and the receipts are different decisions. */
+    public function testTheLaneChoiceIsRespected(): void
+    {
+        $transactional = $this->abandonOne(MailLane::Transactional, date('Y-m-d H:i:s', time() - 3600));
+        $bulk = $this->abandonOne(MailLane::Bulk, date('Y-m-d H:i:s', time() - 3600));
+
+        $this->controller->relaunch(
+            $this->formRequest(['lanes' => ['transactional'], 'window' => 'day']),
+            []
+        );
+
+        $this->assertSame([$transactional], $this->pendingIds());
+        $this->assertSame([$bulk], $this->deferred->abandonedIds());
+    }
+
+    /**
+     * A form naming the authentication lane relaunches nothing, because
+     * that lane never queued anything (D9) — and the screen offers no
+     * such box, so a request carrying one did not come from the screen.
+     */
+    public function testTheAuthenticationLaneCannotBeRelaunched(): void
+    {
+        $response = $this->controller->relaunch(
+            $this->formRequest(['lanes' => ['authentication'], 'window' => 'day']),
+            []
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame([], $this->pendingIds());
+    }
+
+    public function testRelaunchingWithNoLaneChosenDoesNothing(): void
+    {
+        $this->abandonOne(MailLane::Bulk, date('Y-m-d H:i:s', time() - 3600));
+
+        $this->controller->relaunch($this->formRequest(['window' => 'day']), []);
+
+        $this->assertSame([], $this->pendingIds());
+    }
+
+    /**
+     * The reserve is the one figure on these screens that looks
+     * arbitrary, so Acheminement prints where it came from — under the
+     * lane it exists FOR, not the one it is subtracted from.
+     */
+    public function testTheReserveIsShownUnderTheAuthenticationLaneWithItsProvenance(): void
+    {
+        $relay = $this->providers->create('Relais', 1000, 50, 10);
+        $this->chains->append(MailLane::Authentication, $relay, true);
+        $this->chains->append(MailLane::Bulk, $relay, true);
+
+        $body = (string) $this->controller->routing($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('Relais', $body);
+        $this->assertStringContainsString('le minimum retenu tant que ce site', $body);
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    private function pendingIds(): array
+    {
+        $ids = [];
+        foreach ($this->deferred->due(100, '2099-01-01 00:00:00') as $message) {
+            $ids[] = $message->id;
+        }
+
+        return $ids;
+    }
+
+    private function queueOne(MailLane $lane): int
+    {
+        return $this->deferred->add(
+            $lane,
+            \Core\Mail\MailPurpose::Ordinary,
+            [
+                'to' => 'parent@exemple.test',
+                'subject' => 'Reçu de paiement',
+                'bodyHtml' => '<p>Bonjour</p>',
+                'bodyText' => 'Bonjour',
+                'replyTo' => null,
+                'fromAddressOverride' => null,
+                'fromNameOverride' => null,
+                'extraHeaders' => [],
+                'attachments' => [],
+            ],
+            'quota épuisé',
+            date('Y-m-d H:i:s'),
+            date('Y-m-d H:i:s', time() + 3600)
+        );
+    }
+
+    /**
+     * One abandoned message, given up on at `$settledAt`.
+     *
+     * `created_at` a day earlier, because that is what a real row looks
+     * like — nothing is abandoned before its deadline has passed — and
+     * because the relaunch window is measured from the moment the site
+     * gave up, not from the moment the message was written.
+     */
+    private function abandonOne(MailLane $lane, string $settledAt): int
+    {
+        $id = $this->queueOne($lane);
+        $this->deferred->abandon($id, 3, 'délai de vie dépassé', $settledAt);
+        $this->pdo->prepare('UPDATE mail_deferred_messages SET created_at = ? WHERE id = ?')
+            ->execute([date('Y-m-d H:i:s', strtotime($settledAt) - 86400), $id]);
+
+        return $id;
     }
 
     /**

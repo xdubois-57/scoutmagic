@@ -12,10 +12,14 @@ use Core\Config\SettingService;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Mail\Transport\DeferredMailQueue;
+use Core\Mail\Transport\DeferredMailRepository;
 use Core\Mail\Transport\LaneChainRepository;
+use Core\Mail\Transport\MailReserve;
 use Core\Mail\Transport\MailLane;
 use Core\Mail\Transport\MailProvider;
 use Core\Mail\Transport\MailProviderDirectory;
+use Core\Mail\Transport\ProviderHealthRepository;
 use Core\Mail\Transport\SendCounterRepository;
 use Core\Mail\Transport\TransportException;
 use Core\Mail\Transport\TransportService;
@@ -41,6 +45,7 @@ class OutboundMailController extends AbstractController
 {
     public const PAGE_URL = '/config/courrier-sortant';
     public const ROUTING_URL = '/config/courrier-sortant/acheminement';
+    public const RELAUNCH_URL = '/config/courrier-sortant/relance';
 
     public function __construct(
         protected Environment $twig,
@@ -48,7 +53,11 @@ class OutboundMailController extends AbstractController
         private LaneChainRepository $chains,
         private SendCounterRepository $counters,
         private TransportService $transport,
-        private SettingService $settings
+        private SettingService $settings,
+        private MailReserve $reserve,
+        private ProviderHealthRepository $health,
+        private DeferredMailRepository $deferred,
+        private DeferredMailQueue $queue
     ) {
     }
 
@@ -75,13 +84,21 @@ class OutboundMailController extends AbstractController
                 'batch_interval_minutes' => $provider->batchIntervalMinutes,
                 'lanes' => $this->enabledLaneLabels($chains, $provider->id),
                 'configured' => $provider->isUsable(),
+                // In small on the card, because the reserve is subtracted
+                // from THIS provider's quota and the person reading the
+                // « 412 / 1000 aujourd'hui » two lines above needs to know
+                // that the mailing lane stopped at 930 on purpose (D14).
+                'reserve' => $this->reserveOf($provider),
+                'circuit' => $this->circuitOf($provider),
             ];
         }
 
         return $this->render('config/outbound_mail/providers.html.twig', [
             'providers' => $cards,
+            'queue' => $this->queueSummary(),
             'page_url' => self::PAGE_URL,
             'routing_url' => self::ROUTING_URL,
+            'relaunch_url' => self::RELAUNCH_URL,
         ]);
     }
 
@@ -234,6 +251,59 @@ class OutboundMailController extends AbstractController
     }
 
     /**
+     * POST /config/courrier-sortant/relance — put abandoned messages back
+     * in the queue (D17).
+     *
+     * The window and the lanes both come from the form because they are
+     * both decisions: « the ones from this morning, and only the
+     * receipts » is a sentence a volunteer can mean, and one button that
+     * relaunched everything would be used by nobody twice.
+     *
+     * @param array<string, string> $params
+     */
+    public function relaunch(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, self::PAGE_URL)) !== null) {
+            return $guard;
+        }
+
+        $lanes = [];
+        foreach ((array) $request->getBody('lanes', []) as $value) {
+            $lane = is_scalar($value) ? MailLane::tryFrom((string) $value) : null;
+            if ($lane !== null) {
+                $lanes[] = $lane;
+            }
+        }
+
+        if ($lanes === []) {
+            FlashMessage::set('error', 'Choisissez au moins une voie à relancer.');
+
+            return $this->redirect(self::PAGE_URL);
+        }
+
+        try {
+            $revived = $this->queue->relaunch($lanes, (string) $request->getBody('window', DeferredMailQueue::DEFAULT_WINDOW));
+        } catch (\Throwable) {
+            FlashMessage::set('error', 'La relance n’a pas pu être effectuée.');
+
+            return $this->redirect(self::PAGE_URL);
+        }
+
+        FlashMessage::set(
+            $revived > 0 ? 'success' : 'info',
+            $revived > 0
+                ? sprintf(
+                    '%d message%s remis en file. Ils repartiront à la prochaine passe, dans quelques minutes.',
+                    $revived,
+                    $revived > 1 ? 's ont été' : ' a été'
+                )
+                : 'Aucun message abandonné dans cette fenêtre.'
+        );
+
+        return $this->redirect(self::PAGE_URL);
+    }
+
+    /**
      * GET /config/courrier-sortant/acheminement — the three chains.
      *
      * @param array<string, string> $params
@@ -280,6 +350,12 @@ class OutboundMailController extends AbstractController
                 'detail' => $lane->detail(),
                 'items' => $items,
                 'honours_cadence' => $lane->honoursCadence(),
+                // Under the authentication lane and nowhere else: the
+                // reserve is subtracted from the MAILING lane's ceiling,
+                // but it exists FOR this one, and it is here that a
+                // volunteer asking « will people still be able to log in
+                // during the newsletter » is looking (D14).
+                'reserves' => $lane === MailLane::Authentication ? $this->reservesForLane($items) : [],
             ];
         }
 
@@ -421,6 +497,154 @@ class OutboundMailController extends AbstractController
         FlashMessage::set('success', 'Cadence de l’envoi local enregistrée.');
 
         return $this->redirect(self::PAGE_URL);
+    }
+
+    /**
+     * The reserve each entry of a lane carries, with its provenance.
+     *
+     * Printed as sentences rather than a number, because the number is
+     * the part nobody can check: « 74 » is arbitrary until it says « votre
+     * pointe hors publipostage des 30 derniers jours (54), plus une marge
+     * de 20 », and then it is arithmetic somebody can disagree with.
+     *
+     * @param array<int, array{id: int, name: string}> $items
+     * @return array<int, array{name: string, messages: int, provenance: string}>
+     */
+    private function reservesForLane(array $items): array
+    {
+        $providers = $this->directory->all();
+
+        $reserves = [];
+        foreach ($items as $item) {
+            $provider = $providers[$item['id']] ?? null;
+            if ($provider === null) {
+                continue;
+            }
+
+            $reserve = $this->reserveOf($provider);
+            if ($reserve !== null) {
+                $reserves[] = [
+                    'name' => $provider->name,
+                    'messages' => $reserve['messages'],
+                    'provenance' => $reserve['provenance'],
+                ];
+            }
+        }
+
+        return $reserves;
+    }
+
+    /**
+     * What this provider is holding back for the sign-in links, in one
+     * sentence (D14).
+     *
+     * Null when the reserve does not apply — a provider that is not
+     * shared between the mailing lane and another one has nothing to
+     * protect anybody from, and a card saying « réserve : aucune » would
+     * be three lines explaining a number that is not there.
+     *
+     * @return array{messages: int, provenance: string}|null
+     */
+    private function reserveOf(MailProvider $provider): ?array
+    {
+        try {
+            $reserve = $this->reserve->forProvider($provider);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $reserve->applies()
+            ? ['messages' => $reserve->messages, 'provenance' => $reserve->provenance()]
+            : null;
+    }
+
+    /**
+     * Whether the breaker is currently holding this provider out (D15).
+     *
+     * Shown because the alternative is a screen that says a provider is
+     * active and configured while nothing goes through it — and the
+     * person looking at that screen concludes their configuration is
+     * wrong and starts changing it.
+     *
+     * @return array{open: bool, until: ?string, failures: int, openings: int}|null
+     */
+    private function circuitOf(MailProvider $provider): ?array
+    {
+        try {
+            $health = $this->health->forProvider($provider->id);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if (
+            $health->consecutiveFailures === 0
+            && $health->openedUntil === null
+            && $health->openCount === 0
+        ) {
+            // Nothing has ever gone wrong with this provider. `openCount`
+            // has to be in the test: a provider that recovered has its
+            // consecutive count cleared and its lockout lifted, and
+            // returning null there would hide the one figure worth
+            // showing — how often it has come back broken.
+            return null;
+        }
+
+        return [
+            'open' => $health->isOpen(),
+            'until' => $health->openedUntil,
+            'failures' => $health->consecutiveFailures,
+            'openings' => $health->openCount,
+        ];
+    }
+
+    /**
+     * The queue, as the page shows it — « un report n'est pas un
+     * silence » (D9).
+     *
+     * The authentication lane is in the list with a permanent zero rather
+     * than left out, because its absence would read as « nothing is
+     * waiting there » when the truth is « nothing can ever wait there »,
+     * and those are the two halves of the decision this page exists to
+     * make legible.
+     *
+     * @return array{lanes: array<int, array{key: string, label: string, waiting: int, defers: bool}>,
+     *     waiting: int, abandoned: array{recent: int, day: int, week: int, older: int, total: int},
+     *     lifetime_hours: int, retention_days: int, windows: array<int, array{key: string, label: string}>,
+     *     default_window: string}
+     */
+    private function queueSummary(): array
+    {
+        try {
+            $pending = $this->deferred->pendingCountByLane();
+            $abandoned = $this->queue->abandonedByAge();
+        } catch (\Throwable) {
+            $pending = [];
+            $abandoned = ['recent' => 0, 'day' => 0, 'week' => 0, 'older' => 0, 'total' => 0];
+        }
+
+        $lanes = [];
+        foreach (MailLane::ordered() as $lane) {
+            $lanes[] = [
+                'key' => $lane->value,
+                'label' => $lane->label(),
+                'waiting' => $pending[$lane->value] ?? 0,
+                'defers' => $this->queue->defers($lane),
+            ];
+        }
+
+        return [
+            'lanes' => $lanes,
+            'waiting' => array_sum($pending),
+            'abandoned' => $abandoned,
+            'lifetime_hours' => $this->queue->lifetimeHours(),
+            'retention_days' => $this->queue->abandonedRetentionDays(),
+            'windows' => [
+                ['key' => 'recent', 'label' => 'Les 6 dernières heures'],
+                ['key' => 'day', 'label' => 'Les 24 dernières heures'],
+                ['key' => 'week', 'label' => 'La semaine écoulée'],
+            ],
+            'default_window' => DeferredMailQueue::DEFAULT_WINDOW,
+        ];
     }
 
     /**

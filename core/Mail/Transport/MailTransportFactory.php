@@ -67,15 +67,27 @@ final class MailTransportFactory
     ): array {
         $connections = new ProviderConnections($secrets, $secretManager);
         $directory = new MailProviderDirectory(new MailProviderRepository($pdo), $connections, $settings);
+        $chains = new LaneChainRepository($pdo);
+        $counters = new SendCounterRepository($pdo);
 
         return [
             'chain' => new MailTransportChain(
                 $directory,
-                new LaneChainRepository($pdo),
-                new SendCounterRepository($pdo),
+                $chains,
+                $counters,
                 new TransportConfigurator($connections),
                 $delivery ?? new PhpMailerTransport(),
-                $journal
+                $journal,
+                // Both are built HERE and not left to the callers, which is
+                // the whole point of this factory: they are optional on the
+                // constructor so a test can leave them out, and a
+                // composition root that forgot them would give an
+                // installation a circuit breaker that never records a
+                // failure and a reserve the screen displays but nothing
+                // enforces. Tests\Core\Mail\Transport\MailTransportFactoryTest
+                // pins that they arrive.
+                new ProviderHealthRepository($pdo),
+                new MailReserve($counters, $chains)
             ),
             'directory' => $directory,
             'connections' => $connections,

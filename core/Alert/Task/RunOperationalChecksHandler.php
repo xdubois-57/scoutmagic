@@ -12,6 +12,8 @@ use Core\Alert\Check\BackupAgeCheck;
 use Core\Alert\Check\BackupIntegrityCheck;
 use Core\Alert\Check\DevelopmentModeCheck;
 use Core\Alert\Check\DiskUsageCheck;
+use Core\Alert\Check\AuthenticationLaneCheck;
+use Core\Alert\Check\DeferredMailBacklogCheck;
 use Core\Alert\Check\MailDeliveryCheck;
 use Core\Alert\Check\PortableBackupLingerCheck;
 use Core\Alert\Check\RemoteBackupAgeCheck;
@@ -24,6 +26,12 @@ use Core\Maintenance\Remote\GoogleDriveClient;
 use Core\Maintenance\Remote\GoogleDriveTarget;
 use Core\Maintenance\Remote\RemoteBackupConnection;
 use Core\Maintenance\Remote\RemoteBackupTarget;
+use Core\Mail\Transport\DeferredMailRepository;
+use Core\Mail\Transport\LaneChainRepository;
+use Core\Mail\Transport\MailProviderDirectory;
+use Core\Mail\Transport\MailProviderRepository;
+use Core\Mail\Transport\ProviderConnections;
+use Core\Mail\Transport\SendCounterRepository;
 use Core\Security\SecretManager;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
@@ -88,6 +96,20 @@ class RunOperationalChecksHandler implements TaskHandlerInterface
             new RemoteBackupAgeCheck($context->settings, $this->secrets($context)),
             new RemoteQuotaCheck($this->remoteTarget($context)),
             new MailDeliveryCheck(new JournalRepository($pdo)),
+            // The two the outbound chantier adds (D9, ARCHITECTURE.md
+            // §8.106). Both are built here rather than inside the check,
+            // the same reason RemoteQuotaCheck's target is: a check has to
+            // stay something a test can hand a double to.
+            new AuthenticationLaneCheck(
+                new LaneChainRepository($pdo),
+                new MailProviderDirectory(
+                    new MailProviderRepository($pdo),
+                    new ProviderConnections($this->mailSecrets($context)),
+                    $context->settings
+                ),
+                new SendCounterRepository($pdo)
+            ),
+            new DeferredMailBacklogCheck(new DeferredMailRepository($pdo, $context->encryption)),
             new DevelopmentModeCheck($context->settings),
         ]);
 
@@ -118,6 +140,26 @@ class RunOperationalChecksHandler implements TaskHandlerInterface
         return $connection->state() === RemoteBackupConnection::STATE_DISCONNECTED
             ? null
             : new GoogleDriveTarget($connection, new GoogleDriveClient());
+    }
+
+    /**
+     * The connection values the relays live in, or none.
+     *
+     * Read defensively because this pass must survive an installation
+     * that has no `secrets.enc` yet — a fresh checkout, or a restore in
+     * progress. Without secrets every relay resolves to an empty host and
+     * so counts as unusable, which is the honest reading: nothing can be
+     * reached through a relay whose address nobody can read.
+     *
+     * @return array<string, mixed>
+     */
+    private function mailSecrets(TaskContext $context): array
+    {
+        try {
+            return $this->secrets($context)->readSecrets();
+        } catch (\Throwable) {
+            return [];
+        }
     }
 
     private function secrets(TaskContext $context): SecretManager

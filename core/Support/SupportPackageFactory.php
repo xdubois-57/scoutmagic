@@ -193,13 +193,23 @@ final class SupportPackageFactory
             }
         }
 
+        $chains = new \Core\Mail\Transport\LaneChainRepository($pdo);
+        $deferred = new \Core\Mail\Transport\DeferredMailRepository($pdo, $context->encryption);
+
         return new OutboundMailCollector(
             new \Core\Mail\Transport\MailProviderDirectory(
                 new \Core\Mail\Transport\MailProviderRepository($pdo),
                 new \Core\Mail\Transport\ProviderConnections($secrets),
                 $context->settings
             ),
-            new \Core\Mail\Transport\LaneChainRepository($pdo)
+            $chains,
+            new \Core\Mail\Transport\ProviderHealthRepository($pdo),
+            new \Core\Mail\Transport\MailReserve(
+                new \Core\Mail\Transport\SendCounterRepository($pdo),
+                $chains
+            ),
+            $deferred,
+            new \Core\Mail\Transport\DeferredMailQueue($deferred, $context->settings)
         );
     }
 
