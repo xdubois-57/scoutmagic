@@ -353,7 +353,9 @@ Structure OBLIGATOIRE (respecter scrupuleusement) :
    fédération sans consentement)
    - 2.4 Fonctionnalités optionnelles (modules actifs uniquement)
    - 2.5 Sécurité et traçabilité
-   - 2.6 Consultation hors ligne (uniquement avec consentement fonctionnel)
+   - 2.6 Messages en attente d'envoi (file chiffrée, deux durées réglées par l'unité)
+   - 2.7 Consultation hors ligne (uniquement avec consentement fonctionnel)
+   - 2.8 Assistant d'aide (uniquement si un fournisseur d'IA est configuré)
 3. Combien de temps conservons-nous vos données (conservation active, archivage 5 ans après départ, journaux,
 suppression sur demande)
 4. Avec qui partageons-nous vos données (sous-traitants essentiels sans mention localisation précise, modules,
@@ -405,7 +407,7 @@ chiffré au repos, jamais visible dans le journal d'audit, et propre à l'année
 d'une année à l'autre) ; (f) qu'un index aveugle est calculé sur une forme normalisée non lisible de l'adresse
 postale, utilisé uniquement pour suggérer une catégorie de cotisation selon le nombre de personnes au même foyer —
 jamais pour afficher ou reconstituer l'adresse elle-même
-4ter. **Consultation hors ligne (page membre et Mon compte incluses)** : Section 2.6 doit conserver explicitement :
+4ter. **Consultation hors ligne (page membre et Mon compte incluses)** : Section 2.7 doit conserver explicitement :
 (a) que la copie locale hors ligne, réservée à l'application installée avec consentement fonctionnel, couvre désormais
 aussi votre propre page personnelle et « Mon compte » — pas uniquement les pages publiques et le
 calendrier/trombinoscope ; (b) que la page personnelle peut inclure, dans cette copie locale, le nom complet et
@@ -458,7 +460,7 @@ c'est un document destiné à être imprimé ; qu'il est rangé hors de la zone 
 servi autrement que par la page qui l'a demandé ; et qu'il est **supprimé automatiquement au plus tard après sept
 jours**, ainsi que dès qu'une nouvelle version le remplace. Ne présente jamais cette copie comme un archivage : c'est
 un cache, sa durée est courte et son effacement n'attend aucune demande.
-4octies. **Messages en attente d'envoi (fonctionnalité core, PAS un module)** : Sections 2.2 et 3.1 doivent conserver
+4octies. **Messages en attente d'envoi (fonctionnalité core, PAS un module)** : Sections 2.6 et 3.1 doivent conserver
 que lorsque aucun serveur d'envoi n'est disponible, un e-mail que le site voulait expédier est **mis de côté et
 réessayé** plutôt que perdu ; que ce qui est gardé est le message entier — l'adresse du destinataire, l'objet, le
 contenu et les pièces jointes —, **chiffré au repos** et déchiffré uniquement au moment de la nouvelle tentative ;
@@ -1004,10 +1006,10 @@ e-mails déjà partis ; (h) que le journal ne contient que des compteurs et des 
 n'introduit **aucun sous-traitant** et ne fait **aucun appel à une IA** : ne l'ajoute ni en section 4 ni en section
 5.2.
 
-34. **Assistant d'aide (fonctionnalité du cœur du site, section 2.7)** : Cette section ne dépend d'aucun module — elle
+34. **Assistant d'aide (fonctionnalité du cœur du site, section 2.8)** : Cette section ne dépend d'aucun module — elle
 dépend uniquement de la présence d'un connecteur IA actif. Si "llm_connector" ne figure PAS dans la liste des modules
 actifs ({$modulesText}), ou si {$providerInfo} n'indique aucun fournisseur actif, retire entièrement la sous-section «
-2.7. Assistant d'aide » : sans fournisseur, l'assistant n'est pas proposé et aucune question ne sort jamais du site.
+2.8. Assistant d'aide » : sans fournisseur, l'assistant n'est pas proposé et aucune question ne sort jamais du site.
 Si un connecteur IA est actif, conserve-la intégralement et sans l'édulcorer, et **traite le fournisseur d'IA comme un
 sous-traitant à part entière pour ce traitement** — il reçoit du texte écrit librement par un utilisateur, ce qui
 suffit à en faire un sous-traitant : il doit donc apparaître en section 4 et, s'il traite hors UE/EEE, en section 5.2,

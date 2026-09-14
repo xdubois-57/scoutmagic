@@ -594,11 +594,19 @@ tronquée, son sceau d'authentification n'aurait plus jamais vérifié, et la
 vidange aurait buté dessus. `MEDIUMBLOB`. Le harnais SQLite déclare cette
 colonne en `TEXT`, donc aucune exécution locale ne pouvait le montrer.
 
-Et `RgpdContentService` n'avait pas été mis à jour, ce qu'`AGENTS.md`
+Et la documentation RGPD n'avait pas été mise à jour, ce qu'`AGENTS.md`
 qualifie de PR incomplète : la file garde une adresse, un objet, un corps
 et des pièces jointes, avec deux durées de conservation réglables. Un
 paragraphe 4octies le dit, en insistant sur ce que cette file n'est pas —
 un archivage des e-mails envoyés.
+
+**Le premier correctif ne touchait que la moitié du sujet**, et la
+relecture suivante l'a vu. `RgpdContentService.php` contient deux choses :
+les règles données au générateur d'IA, et `getDefaultContent()`, qui lit
+`core/View/rgpd_default.html` — la page réellement servie. Avoir instruit
+le générateur ne disait rien aux lecteurs de la page par défaut. Une
+section 2.6 et une ligne de conservation y sont ajoutées, et les sections
+suivantes renumérotées de part et d'autre.
 
 Enfin, une ligne indéchiffrable ne bloque plus la file : `due()` l'abandonne
 au lieu de la laisser en tête de tri à chaque passe, ce qui aurait arrêté
