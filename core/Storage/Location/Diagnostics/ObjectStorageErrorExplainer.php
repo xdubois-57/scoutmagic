@@ -6,9 +6,9 @@
 
 declare(strict_types=1);
 
-namespace Modules\Gallery\Service;
+namespace Core\Storage\Location\Diagnostics;
 
-use Modules\Gallery\Api\GalleryException;
+use Core\Storage\Location\StorageLocationException;
 use Modules\LlmConnector\Api\LlmConnectorInterface;
 use Modules\LlmConnector\Api\LlmException;
 use Modules\LlmConnector\Api\LlmRequest;
@@ -16,13 +16,14 @@ use Modules\LlmConnector\Api\LlmTier;
 
 /**
  * Optional dependency on the llm_connector module (ARCHITECTURE.md §7.5)
- * — the "Expliquer avec l'IA" button (Controller\GalleryConfigController)
+ * — the « Expliquer avec l'IA » button
+ * (`Core\Http\Controller\StorageConfigController`)
  * is hidden whenever isAvailable() is false. Never sends the secret key
  * itself to the model, only its length, so a diagnosis can still reason
  * about credential-shaped mistakes (e.g. a truncated or swapped key)
  * without ever exposing the actual secret to a third-party API.
  */
-class ObjectStorageErrorExplainerService
+class ObjectStorageErrorExplainer
 {
     public function __construct(private ?LlmConnectorInterface $llmConnector = null)
     {
@@ -34,7 +35,7 @@ class ObjectStorageErrorExplainerService
     }
 
     /**
-     * @throws GalleryException when unavailable or the AI call fails
+     * @throws StorageLocationException when unavailable or the AI call fails
      */
     public function explain(
         string $provider,
@@ -47,7 +48,7 @@ class ObjectStorageErrorExplainerService
         ?string $technicalError = null
     ): string {
         if ($this->llmConnector === null || !$this->llmConnector->isAvailable()) {
-            throw new GalleryException('Service IA non disponible.');
+            throw new StorageLocationException('Service IA non disponible.');
         }
 
         // The SDK's own line is the diagnostic material — « The request
@@ -88,7 +89,7 @@ class ObjectStorageErrorExplainerService
             // Appending the connector's message used to quote the AI
             // provider's own HTTP body onto the configuration page — one
             // third party's error text explaining another's.
-            throw new GalleryException(
+            throw new StorageLocationException(
                 "L'explication n'a pas pu être générée par l'IA — réessayez dans quelques instants.",
                 0,
                 $e

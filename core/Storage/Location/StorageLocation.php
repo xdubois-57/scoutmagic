@@ -76,4 +76,16 @@ final class StorageLocation
     {
         return $this->config->describe();
     }
+
+    /**
+     * What this location means for the four things an administrator
+     * actually chooses a storage for — derived from the declared
+     * capabilities, never written beside them.
+     *
+     * @return list<StorageConsequence>
+     */
+    public function consequences(): array
+    {
+        return StorageConsequence::forType($this->type);
+    }
 }

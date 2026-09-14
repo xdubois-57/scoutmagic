@@ -185,15 +185,16 @@ class DecorativeLabelMisuseTest extends TestCase
         $this->assertTextIsNotInsideALabel($htmlLocalAlbum, 'Emplacement de stockage');
     }
 
-    public function testGalleryLocationFormGroupHeadingIsNotALabelElement(): void
+    /** The form moved into the core with the locations themselves (IT-02). */
+    public function testStorageLocationFormGroupHeadingIsNotALabelElement(): void
     {
-        $twig = $this->createTwig(['gallery' => dirname(__DIR__, 3) . '/modules/gallery/views']);
-        $html = $twig->render('@gallery/location_form.html.twig', [
+        $html = $this->createTwig()->render('config/storage/location_form.html.twig', [
             'location' => null,
-            'referenced_count' => 0,
+            'usages' => [],
             'csrf_token' => 'test',
             'site_name' => 'Test Unité',
-            'gallery_s3_ai_available' => false,
+            's3_ai_available' => false,
+            'default_local_path' => 'gallery',
         ]);
 
         $this->assertTextIsNotInsideALabel($html, 'Type de stockage');

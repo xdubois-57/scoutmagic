@@ -3,12 +3,16 @@
  * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
  */
 
-// Gallery module superadmin storage-location pages: the locations table on
-// config.html.twig (test/delete buttons), the album storage-migration table
-// on the same page, and the add/edit location form (location_form.html.twig:
-// type toggle, S3 provider help panels, "Tester la connexion" AJAX check —
-// same pattern the single-location config page used to own before
-// multi-location support).
+// The « Stockage » screens (core, superadmin): the location cards on
+// config/storage/locations.html.twig — test, set-default, delete — and the
+// add/edit form on config/storage/location_form.html.twig: the type toggle,
+// the S3 provider help panels, the « Tester la connexion » check, and the
+// warning that appears the moment a path leaves storage/.
+//
+// Split out of gallery-storage-location.js in IT-02, when the locations
+// left the gallery's configuration page for one of their own. What stayed
+// behind is the album migration, which is gallery work and always was
+// (D5).
 (function () {
     // Attribute-safe (quotes included) — several call sites below
     // interpolate into a title="..." attribute. The shared helper covers
@@ -39,22 +43,22 @@
     }
 
     // ------------------------------------------------------------------
-    // Locations table (config.html.twig)
+    // Location cards (config/storage/locations.html.twig)
     // ------------------------------------------------------------------
-    document.querySelectorAll('.gallery-location-test').forEach(function (btn) {
+    document.querySelectorAll('.storage-location-test').forEach(function (btn) {
         var button = /** @type {HTMLButtonElement} */ (btn);
         button.addEventListener('click', function () {
-            var cell = document.querySelector('.gallery-location-status[data-location-id="' + button.dataset.id + '"]');
+            var cell = document.querySelector('.storage-location-status[data-location-id="' + button.dataset.id + '"]');
             button.disabled = true;
-            window.ScoutMagicApi.postJson('/config/gallery/locations/' + button.dataset.id + '/test', {}).then(function (res) {
+            window.ScoutMagicApi.postJson('/config/stockage/emplacements/' + button.dataset.id + '/test', {}).then(function (res) {
                 button.disabled = false;
                 if (isNetworkFailure(res)) return;
                 var data = envelopeData(res);
                 if (!cell) return;
                 if (data.success && data.ok) {
-                    cell.innerHTML = '<span class="badge text-bg-success">Disponible</span>';
+                    cell.innerHTML = '<span class="badge text-bg-success">Joignable</span>';
                 } else if (data.success) {
-                    cell.innerHTML = '<span class="badge text-bg-danger" title="' + escapeHtml(data.error || '') + '">Indisponible</span>';
+                    cell.innerHTML = '<span class="badge text-bg-danger" title="' + escapeHtml(data.error || '') + '">En erreur</span>';
                 } else {
                     cell.innerHTML = '<span class="badge text-bg-danger">' + escapeHtml(data.error || 'Erreur') + '</span>';
                 }
@@ -62,11 +66,11 @@
         });
     });
 
-    document.querySelectorAll('.gallery-location-set-default').forEach(function (btn) {
+    document.querySelectorAll('.storage-location-set-default').forEach(function (btn) {
         var button = /** @type {HTMLButtonElement} */ (btn);
         button.addEventListener('click', function () {
             button.disabled = true;
-            window.ScoutMagicApi.postJson('/config/gallery/locations/' + button.dataset.id + '/default', {}).then(function (res) {
+            window.ScoutMagicApi.postJson('/config/stockage/emplacements/' + button.dataset.id + '/defaut', {}).then(function (res) {
                 if (isNetworkFailure(res)) {
                     button.disabled = false;
                     return;
@@ -82,50 +86,17 @@
         });
     });
 
-    // ------------------------------------------------------------------
-    // Album storage migration (config.html.twig)
-    // ------------------------------------------------------------------
-    document.querySelectorAll('.gallery-migrate-start').forEach(function (btn) {
-        var button = /** @type {HTMLButtonElement} */ (btn);
-        button.addEventListener('click', async function () {
-            var select = /** @type {HTMLSelectElement} */ (document.querySelector('.gallery-migrate-target[data-album-id="' + button.dataset.albumId + '"]'));
-            if (!select) return;
-            // Not destructive: the album is copied to the other location,
-            // only unavailable while it moves — 'primary', not 'danger'.
-            var confirmed = await window.ScoutMagicConfirm.ask({
-                message: 'Démarrer la migration de cet album vers cet autre emplacement ? L\'album sera indisponible pour les membres pendant l\'opération.',
-                confirmLabel: 'Migrer',
-                variant: 'primary'
-            });
-            if (!confirmed) return;
-            button.disabled = true;
-            window.ScoutMagicApi.postJson(button.dataset.url, { target_location_id: Number.parseInt(select.value, 10) }).then(function (res) {
-                if (isNetworkFailure(res)) {
-                    button.disabled = false;
-                    return;
-                }
-                var data = envelopeData(res);
-                if (data.success) {
-                    window.location.reload();
-                } else {
-                    button.disabled = false;
-                    window.ScoutMagicToast.show(data.error || 'Erreur lors du démarrage de la migration.', { variant: 'error' });
-                }
-            });
-        });
-    });
-
-    document.querySelectorAll('.gallery-location-delete').forEach(function (btn) {
+    document.querySelectorAll('.storage-location-delete').forEach(function (btn) {
         var button = /** @type {HTMLButtonElement} */ (btn);
         button.addEventListener('click', async function () {
             if (button.disabled) return;
             var confirmed = await window.ScoutMagicConfirm.ask({
-                message: 'Supprimer cet emplacement de stockage ?',
+                message: 'Supprimer « ' + (button.dataset.label || 'cet emplacement') + ' » ? Les fichiers qui s\'y trouvent ne sont pas supprimés : seule la déclaration disparaît.',
                 confirmLabel: 'Supprimer'
             });
             if (!confirmed) return;
             button.disabled = true;
-            window.ScoutMagicApi.postJson('/config/gallery/locations/' + button.dataset.id + '/delete', {}).then(function (res) {
+            window.ScoutMagicApi.postJson('/config/stockage/emplacements/' + button.dataset.id + '/suppression', {}).then(function (res) {
                 if (isNetworkFailure(res)) {
                     button.disabled = false;
                     return;
@@ -142,10 +113,10 @@
     });
 
     // ------------------------------------------------------------------
-    // Add/edit location form (location_form.html.twig)
+    // Add/edit location form (config/storage/location_form.html.twig)
     // ------------------------------------------------------------------
-    var localFields = document.querySelector('.gallery-storage-local');
-    var s3Fields = document.querySelector('.gallery-storage-s3');
+    var localFields = document.querySelector('.storage-location-local');
+    var s3Fields = document.querySelector('.storage-location-s3');
     var typeRadios = document.querySelectorAll('input[name="type"]');
 
     function syncType() {
@@ -189,7 +160,7 @@
             // deliberately left blank ("laisser vide pour conserver la clé
             // actuelle"), so testing an existing location otherwise sent an
             // empty secret and could only ever fail on authentication.
-            window.ScoutMagicApi.postJson('/config/gallery/test-connection', {
+            window.ScoutMagicApi.postJson('/config/stockage/test-connexion', {
                 location_id: Number.parseInt(testBtn.dataset.locationId || '0', 10) || 0,
                 endpoint: /** @type {HTMLInputElement} */ (document.getElementById('s3-endpoint')).value,
                 region: /** @type {HTMLInputElement} */ (document.getElementById('s3-region')).value,
@@ -220,7 +191,7 @@
 
             var secretKey = /** @type {HTMLInputElement} */ (document.getElementById('s3-secret-key')).value;
 
-            window.ScoutMagicApi.postJson('/config/gallery/explain-s3-error', {
+            window.ScoutMagicApi.postJson('/config/stockage/expliquer-erreur-s3', {
                 provider: /** @type {HTMLSelectElement} */ (document.getElementById('s3-provider')).value,
                 endpoint: /** @type {HTMLInputElement} */ (document.getElementById('s3-endpoint')).value,
                 region: /** @type {HTMLInputElement} */ (document.getElementById('s3-region')).value,
@@ -231,7 +202,7 @@
                 // only ever had the French summary, which says « vérifiez
                 // vos identifiants » for half a dozen distinct mistakes;
                 // the provider's own words are what diagnose it, and they
-                // stay server-side (Service\ObjectStorageTestFailure)
+                // stay server-side (Core\Storage\Location\Diagnostics\ObjectStorageTestFailure)
                 // rather than being handed to the page and handed back.
             }).then(function (res) {
                 explainBtn.disabled = false;
@@ -248,4 +219,25 @@
             });
         });
     }
+
+    // ------------------------------------------------------------------
+    // « Ce dossier est hors de storage/ » (config/storage/location_form)
+    // ------------------------------------------------------------------
+    // Shown from the first character of an absolute path rather than after
+    // saving: a directory outside storage/ survives a full reset of the
+    // site and is in no backup archive, and both of those are things to
+    // know while deciding, not afterwards.
+    var pathInput = /** @type {HTMLInputElement} */ (document.getElementById('storage-local-subdir'));
+    var outsideWarning = document.getElementById('storage-local-outside-warning');
+    function syncOutsideWarning() {
+        if (!pathInput || !outsideWarning) return;
+        var value = pathInput.value.trim();
+        var isAbsolute = value.startsWith('/') || /^[A-Za-z]:[\\/]/.test(value);
+        outsideWarning.classList.toggle('d-none', !isAbsolute);
+    }
+    if (pathInput && outsideWarning) {
+        pathInput.addEventListener('input', syncOutsideWarning);
+        syncOutsideWarning();
+    }
+
 })();

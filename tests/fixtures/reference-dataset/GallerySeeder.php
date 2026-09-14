@@ -93,7 +93,6 @@ final class GallerySeeder
                 $storageLocationService,
                 $albumRepository,
                 $settingService,
-                $storagePath,
             ),
             $scoutYearService,
             $settingService,

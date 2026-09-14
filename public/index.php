@@ -2384,6 +2384,15 @@ $storageLocationService = new \Core\Storage\Location\StorageLocationService(
     $storageBackendFactory,
     $storageLocationConsumers
 );
+// Quels systèmes de fichiers ce site écrit vraiment, et lequel porte
+// quelle écriture. Regroupe les dossiers déclarés par leur périphérique :
+// trois dossiers d'un même disque sont un volume, pas trois.
+$volumeInventory = new \Core\Storage\Volume\VolumeInventory(
+    $storagePath,
+    $settingService,
+    $storageLocationService,
+    $storageBackendFactory
+);
 $operationalRequestChecks = new \Core\Alert\RequestBoundChecks($storagePath);
 $uploadHandler = new UploadHandler($fileRepository, $storagePath, $diskBudget);
 $encryptedFileStorageService = new \Core\File\EncryptedFileStorageService(
@@ -3109,6 +3118,23 @@ $menuBuilder->addPage(
     null,
     'exploitation'
 );
+// « Stockage » — juste avant Support dans « Exploitation » : c'est une
+// page d'exploitation comme les deux courriers, et la question qu'elle
+// répond (« où partent les fichiers de l'unité ») se pose au même moment
+// que les leurs.
+$menuBuilder->addPage(
+    MenuBuilder::MENU_CONFIGURATION,
+    'Stockage',
+    '/config/stockage',
+    'superadmin',
+    47,
+    false,
+    null,
+    MenuBuilder::SORT_GROUP_CORE,
+    'bi-hdd-stack',
+    null,
+    'exploitation'
+);
 // order 10, not a leftover "after the separator" number — SORT_GROUP_CORE
 // (addPage()'s default) already sorts this after the dynamic member
 // entries/empty-state placeholder above regardless of the numeric order,
@@ -3711,6 +3737,104 @@ $router->addRoute(
     '/config/courrier-sortant/fournisseurs/{id}/suppression',
     \Core\Http\Controller\OutboundMailController::class,
     'delete',
+    'superadmin',
+);
+
+// « Stockage » — les emplacements où ce site écrit ses fichiers.
+//
+// Dans le cœur et superadmin pour la raison qui met le modèle dans le
+// cœur (D1) : les sauvegardes sont du cœur et ne peuvent pas dépendre
+// d'un module. Ces routes viennent de `/config/gallery/locations/*` ;
+// une installation sans galerie n'avait jusqu'ici aucun moyen de
+// déclarer une destination.
+//
+// `/emplacements/nouveau` est déclaré AVANT `/emplacements/{id}/…` : la
+// littérale avant la joker est le sens sûr (§7.1), et un `{id}` ne
+// capture que des chiffres de toute façon (SECURITY.md §35).
+$router->addRoute(
+    'GET',
+    '/config/stockage',
+    \Core\Http\Controller\StorageConfigController::class,
+    'dashboard',
+    'superadmin',
+    ['label' => 'Stockage', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
+);
+$router->addRoute(
+    'GET',
+    '/config/stockage/emplacements',
+    \Core\Http\Controller\StorageConfigController::class,
+    'locations',
+    'superadmin',
+    ['label' => 'Emplacements', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Stockage', 'path' => '/config/stockage']]],
+);
+$router->addRoute(
+    'GET',
+    '/config/stockage/emplacements/nouveau',
+    \Core\Http\Controller\StorageConfigController::class,
+    'create',
+    'superadmin',
+    ['label' => 'Nouvel emplacement', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Stockage', 'path' => '/config/stockage'],
+            ['label' => 'Emplacements', 'path' => '/config/stockage/emplacements']]],
+);
+$router->addRoute(
+    'POST',
+    '/config/stockage/emplacements',
+    \Core\Http\Controller\StorageConfigController::class,
+    'store',
+    'superadmin',
+);
+$router->addRoute(
+    'GET',
+    '/config/stockage/emplacements/{id}/modification',
+    \Core\Http\Controller\StorageConfigController::class,
+    'edit',
+    'superadmin',
+    ['label' => "Modifier l'emplacement", 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Stockage', 'path' => '/config/stockage'],
+            ['label' => 'Emplacements', 'path' => '/config/stockage/emplacements']]],
+);
+$router->addRoute(
+    'POST',
+    '/config/stockage/emplacements/{id}',
+    \Core\Http\Controller\StorageConfigController::class,
+    'update',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/stockage/emplacements/{id}/suppression',
+    \Core\Http\Controller\StorageConfigController::class,
+    'delete',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/stockage/emplacements/{id}/defaut',
+    \Core\Http\Controller\StorageConfigController::class,
+    'setDefault',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/stockage/emplacements/{id}/test',
+    \Core\Http\Controller\StorageConfigController::class,
+    'test',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/stockage/test-connexion',
+    \Core\Http\Controller\StorageConfigController::class,
+    'testConnection',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/stockage/expliquer-erreur-s3',
+    \Core\Http\Controller\StorageConfigController::class,
+    'explainS3Error',
     'superadmin',
 );
 
@@ -5044,6 +5168,32 @@ $frontController->registerController(
             $journalService
         ),
         $settingService
+    )
+);
+
+// Configuration > Stockage — où ce site écrit ses fichiers.
+//
+// Dans le cœur pour la raison de D1, la même que pour le courrier
+// sortant ci-dessus : les sauvegardes en dépendent et ne peuvent pas
+// dépendre d'un module. Le registre des consommateurs est passé tel
+// quel plutôt que lu : il est encore vide ici et les modules le
+// remplissent plus bas (ARCHITECTURE.md §7.6), ce qui est exactement
+// la forme qu'il a pour ça.
+//
+// `$publicPath` sert à un seul refus, et il vaut la peine : un
+// emplacement local pointant dans la racine web rendrait chaque
+// photographie téléchargeable sans le moindre contrôle d'accès.
+$frontController->registerController(
+    \Core\Http\Controller\StorageConfigController::class,
+    new \Core\Http\Controller\StorageConfigController(
+        $twig,
+        $storageLocationRepository,
+        $storageLocationService,
+        $storageLocationConsumers,
+        $volumeInventory,
+        $journalService,
+        new \Core\Storage\Location\Diagnostics\ObjectStorageErrorExplainer($llmConnectorForOthers),
+        __DIR__
     )
 );
 
@@ -7284,12 +7434,6 @@ if ($isEnabled('gallery')) {
         $galleryLinkPreviewCacheRepo
     );
     $galleryFfmpegAvailability = new \Modules\Gallery\Service\FfmpegAvailability();
-    // Optional dependency on the llm_connector module (ARCHITECTURE.md
-    // §7.5), same reused instance as RGPD content generation above — the
-    // "Expliquer avec l'IA" button is simply hidden when it's unavailable.
-    $galleryS3ErrorExplainerService = new \Modules\Gallery\Service\ObjectStorageErrorExplainerService(
-        $llmConnectorForOthers
-    );
     // Reclaims the `files` row + bytes behind a media's staging original and
     // an external album's cached og:image once nothing references them.
     $galleryStoredFileCleaner = new \Modules\Gallery\Service\StoredFileCleaner($fileRepository, $storagePath);
@@ -7298,8 +7442,7 @@ if ($isEnabled('gallery')) {
     $galleryLocationService = new \Modules\Gallery\Service\GalleryLocationService(
         $storageLocationService,
         $galleryAlbumRepo,
-        $settingService,
-        $storagePath
+        $settingService
     );
 
     $galleryAlbumService = new \Modules\Gallery\Service\AlbumService(
@@ -7372,17 +7515,6 @@ if ($isEnabled('gallery')) {
     // at the end of this file. It needs the describer registry, and every
     // module that contributes to it runs below this point, exactly like
     // GalleryController and its access registry.
-    $frontController->registerController(
-        \Modules\Gallery\Controller\GalleryStorageLocationController::class,
-        new \Modules\Gallery\Controller\GalleryStorageLocationController(
-            $twig,
-            $storageLocationRepository,
-            $storageLocationService,
-            $journalService,
-            $galleryS3ErrorExplainerService,
-            $galleryAlbumRepo
-        )
-    );
 }
 
 if ($isEnabled('groups')) {
@@ -10010,8 +10142,7 @@ if (isset(
     $galleryMediaService,
     $galleryMediaRepo,
     $galleryLocationService,
-    $galleryFfmpegAvailability,
-    $galleryS3ErrorExplainerService
+    $galleryFfmpegAvailability
 )) {
     $galleryDelegatedAlbumAccessRegistry = new \Modules\Gallery\Service\DelegatedAlbumAccessRegistry(
         $galleryDelegatedAlbumAccessCheckers
@@ -10029,7 +10160,6 @@ if (isset(
             $settingService,
             $galleryFfmpegAvailability,
             $journalService,
-            $galleryS3ErrorExplainerService,
             $storageLocationService,
             $galleryLocationService,
             $storageLocationRepository,

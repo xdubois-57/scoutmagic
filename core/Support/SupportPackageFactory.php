@@ -27,7 +27,13 @@ use Core\Support\Collector\PhpInfoCollector;
 use Core\Support\Collector\RequestTimelinesCollector;
 use Core\Support\Collector\ScheduledTasksCollector;
 use Core\Support\Collector\StatisticsCollector;
+use Core\Storage\Location\Backend\StorageBackendFactory;
+use Core\Storage\Location\StorageLocationConsumerRegistry;
+use Core\Storage\Location\StorageLocationRepository;
+use Core\Storage\Location\StorageLocationService;
+use Core\Storage\Volume\VolumeInventory;
 use Core\Support\Collector\OutboundMailCollector;
+use Core\Support\Collector\StorageLocationsCollector;
 use Core\Support\Collector\UpdateHistoryCollector;
 use Core\Support\Collector\WebServerCollector;
 
@@ -81,6 +87,7 @@ final class SupportPackageFactory
             new BackgroundExecutionCollector(),
             new CronCadenceCollector(),
             self::outboundMailCollector($context),
+            self::storageLocationsCollector($context),
             new WebServerCollector(),
             new LogsCollector(),
         ];
@@ -116,9 +123,41 @@ final class SupportPackageFactory
             'background_execution',
             'cron_cadence',
             'outbound_mail',
+            'storage_locations',
             'webserver',
             'logs',
         ];
+    }
+
+    /**
+     * Where this installation writes, and onto which filesystems.
+     *
+     * The consumer registry is built EMPTY here, and that is not an
+     * oversight. This runs in a scheduled task rather than in the request
+     * that serves a page, so no module has registered anything — and the
+     * honest consequence is « Sert à : rien » on every location rather
+     * than a wrong answer. The screen is where that question is answered
+     * completely; what this file is for is the health results, the
+     * capability consequences and the volume grouping, none of which
+     * depends on a consumer.
+     */
+    private static function storageLocationsCollector(TaskContext $context): StorageLocationsCollector
+    {
+        $pdo = $context->connection->getPdo();
+        $repository = new StorageLocationRepository($pdo, $context->encryption);
+        $consumers = new StorageLocationConsumerRegistry();
+        $backends = new StorageBackendFactory($repository, $context->storagePath);
+
+        return new StorageLocationsCollector(
+            $repository,
+            $consumers,
+            new VolumeInventory(
+                $context->storagePath,
+                $context->settings,
+                new StorageLocationService($repository, $backends, $consumers),
+                $backends
+            )
+        );
     }
 
     /**

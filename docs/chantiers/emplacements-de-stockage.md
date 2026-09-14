@@ -579,3 +579,178 @@ dans les fichiers :
 
 Là où une maquette et une décision verrouillée se contredisent, c'est la
 décision qui l'emporte, et l'écart est noté ici.
+
+---
+
+# IT-02 — La page Stockage, la mesure par volume, et la galerie réorganisée
+
+## Le défaut latent était pire que « la mesure est imprécise »
+
+`DiskBudget` est construit avec **un seul** `$storagePath`. Toutes ses
+approbations décrivaient donc le disque système, et la roadmap appelait
+ça un défaut latent — le mot est juste, mais il sous-estime : ce n'est
+pas une mesure approximative, c'est une mesure **du mauvais disque**.
+
+Dès qu'un emplacement local pointe ailleurs, l'écriture qu'`ensureRoom()`
+autorise atterrit sur un volume que personne n'a regardé. Une sauvegarde
+sur un NAS approuvée parce que le disque système est vide ; ou refusée
+parce qu'il est plein alors que le montage a des téraoctets. La première
+tronque une archive, et **rien ne révèle une archive tronquée avant le
+jour où on la restaure** — c'est exactement la panne que `DiskBudget`
+existe pour empêcher, retournée contre elle-même.
+
+## Le regroupement se fait par périphérique, et c'est ce qui compte
+
+`stat()` rend un numéro de périphérique ; deux chemins de même `dev` sont
+le même système de fichiers. Le préfixe du chemin, lui, ment précisément
+là où ça coûte : un lien symbolique, un montage lié, ou un
+`/mnt/nas/photos` qui est en réalité un dossier du disque système se
+lisent comme ailleurs par le nom et sont le même disque en dessous.
+
+Sans ce regroupement, trois dossiers d'un même disque annoncent chacun la
+même place libre. Le lecteur additionne. Ce n'est pas une erreur
+d'arrondi, c'est une erreur qui change une décision : « je peux déplacer
+les galeries ici » contre « je ne peux pas ».
+
+**Deux lectures qui ressemblent à des détails et n'en sont pas.**
+
+Un chemin que le système refuse de situer rend `null`, et **deux `null`
+ne sont jamais fusionnés**. « Impossible de prouver que c'est le même
+disque » est la lecture honnête ; traiter deux inconnus comme un seul
+volume additionnerait leurs occupations sur une seule place libre, donc
+sous-estimerait la place restante — le seul sens dans lequel se tromper
+tronque une écriture.
+
+Un dossier imbriqué dans un autre déjà compté n'ajoute rien à
+l'occupation du volume. L'emplacement local par défaut est
+`storage/gallery`, à l'intérieur de `storage/`, les deux sont déclarés,
+et les additionner compterait la galerie deux fois sur son propre volume.
+C'est le même double comptage, un étage plus bas.
+
+## Le quota déclaré ne suit pas l'écriture
+
+Il vient d'un contrat d'hébergement, qui ne dit rien d'un NAS monté
+dessus : l'appliquer là rapporterait 900 Go de stockage réseau comme 4 Go.
+Il reste donc attaché au seul volume principal, et chaque volume dit
+**laquelle des deux mesures** il utilise — parce que « 62 % » d'un quota
+déclaré et « 62 % » du volume d'un hébergeur mutualisé ne sont pas le
+même fait, et que le second ne concerne pas celui qui le lit.
+
+## `DeviceResolver` est une interface, et ce n'est pas de la cérémonie
+
+La règle à tester est « deux dossiers sur un disque sont un volume ». La
+tester demande deux disques ; un exécuteur d'intégration continue ne
+laisse pas un test en monter un. L'alternative était d'écrire le test
+contre le second système de fichiers que la machine a par hasard —
+`/dev/shm`, en général — et de le regarder ne plus rien prouver sur la
+machine qui n'en a qu'un. Donner la réponse à l'inventaire rend la règle
+déterministe partout, et laisse au noyau une part beaucoup plus petite,
+vérifiée séparément contre de vrais chemins.
+
+## Ce que le budget de temps n'achète pas, écrit plutôt que sous-entendu
+
+« Le dossier existe » a cessé d'être une vérification le jour où un
+emplacement peut nommer un montage réseau, parce qu'un montage a un
+troisième état entre marcher et échouer : il peut devenir **lent**.
+Secondes par `stat()`, minutes pour un listage. Sans budget, cet état-là
+rend une page de configuration qui ne finit jamais — et le seul écran qui
+permettrait de réparer le montage est le seul qu'on ne peut pas ouvrir.
+
+Mais un NFS `hard` dont le serveur a disparu bloque l'appel système
+lui-même, dans le noyau, de façon ininterruptible. Aucun délai PHP ne
+peut y mettre fin. Le remède est sur le montage (`soft`, `timeo=`), et
+c'est écrit dans le code plutôt que laissé à découvrir : promettre un
+délai maximal qu'on ne peut pas tenir est pire que de ne rien promettre.
+
+**La vérification finale a été retirée après coup.** Elle avait été
+écrite, avec le commentaire expliquant qu'un aller-retour lent mais
+complet est un emplacement qui marche — et le code faisait exactement
+l'inverse, puisqu'à ce point toutes les opérations avaient réussi. Le
+commentaire disait la bonne chose et le code disait l'autre ; c'est le
+code qui a changé. Le budget refuse d'attendre l'opération suivante, il
+ne retire pas un succès déjà obtenu.
+
+## Le veto d'un consommateur, ou D4 vu depuis l'autre bout
+
+D4 met l'affectation chez le consommateur. La conséquence qu'IT-01
+n'avait pas tirée : le consommateur est aussi la **seule** chose qui sait
+ce qu'une destination donnée ferait à ce qu'il porte. L'écran Stockage
+n'a aucune idée de ce qu'est un album délégué, et il n'en aura jamais.
+
+La brisure est réelle et a été trouvée en IT-01 : un album délégué ne
+peut pas vivre derrière une URL publique permanente, la galerie refuse un
+tel emplacement à la création et refuse encore au moment de servir les
+octets — mais rien ne couvrait le troisième moment, celui où c'est
+l'**emplacement** qui est modifié sous l'album. Rien n'est exposé, le
+garde-fou de service tient ; simplement chaque média de chaque album
+délégué devient un 404 permanent que rien n'explique nulle part.
+
+`objectionTo()` est sur l'interface principale et non dans une interface
+optionnelle, pour la raison qui met `servesPubliclyWithoutExpiry()` sur
+la sienne : un consommateur qui pourrait être brisé et oublie de le dire
+est une casse silencieuse, et poser la question à chaque futur
+consommateur coûte une ligne à chacun. Un consommateur qu'on ne peut pas
+interroger est un refus, exactement comme pour une suppression.
+
+## Les chemins absolus, et le seul refus qui est une question de sécurité
+
+Le formulaire refusait un chemin absolu ; le modèle, lui, les résolvait
+depuis IT-01. Autrement dit les seules destinations déclarables étaient
+des dossiers de `storage/` — ce qui est précisément le cas dont la mesure
+par volume n'a pas besoin. IT-02 ouvre le formulaire.
+
+Ce qui remplace le refus général est plus étroit et plus utile : un
+dossier **dans la racine web** est refusé, parce que tout ce qui y serait
+déposé deviendrait téléchargeable sans le moindre contrôle d'accès —
+`ARCHITECTURE.md` §8.3 et `SECURITY.md` disent tous les deux la même
+chose. La comparaison résout les deux côtés, sinon un lien symbolique
+contourne un test fait sur le texte du chemin.
+
+Un NUL est refusé sur les deux branches. Il tronque un chemin dans toutes
+les bibliothèques C sous PHP, donc `/mnt/nas\0/../../public` est une
+chaîne pour les vérifications de cette application et une autre, plus
+courte, pour le système de fichiers. C'est toute la forme du bug, et
+elle coûte un `preg_match`.
+
+## Les quatre onglets, et pourquoi chacun écrit ses propres clés
+
+Une case décochée **n'envoie rien**. Une page qui écrirait tous les
+booléens qu'elle connaît à chaque enregistrement éteindrait donc
+« autoriser les vidéos » chaque fois que quelqu'un modifie les limites
+photo sur un autre onglet — silencieusement, et sans qu'on puisse
+distinguer ça d'un changement voulu. Découper les clés par onglet rend
+cette panne impossible plutôt que soigneusement évitée.
+
+« Emplacement des nouveaux albums » : le libellé est la totalité du
+réglage. Un administrateur qui le lit comme « où vit la galerie »
+attendra que les albums d'hier suivent, et rien ne bougera. C'est dit
+dans le libellé, puis redit sous le champ.
+
+## Ce que cette itération a cassé à côté, et qu'il valait mieux casser
+
+`DelegatedAlbumServiceTest` construisait `new LocalStorageBackend($path,
+'gallery')`. Le second argument était **silencieusement ignoré** — PHP
+accepte les arguments surnuméraires — et le backend avait donc toujours
+été enraciné sur `$path`. Il a cessé d'être ignoré le jour où le
+constructeur a reçu un budget de santé, et une chaîne est arrivée là où
+un `float` était attendu. Le test a été corrigé dans le sens de ce qu'il
+faisait réellement, pas dans le sens de ce qu'il avait l'air de dire.
+
+`GalleryLocationSpaceTest` disparaît avec `diskSpaceFor()`, que la
+roadmap avait explicitement gardé une itération de plus en disant que sa
+forme était fausse. Son sujet — la place libre — est maintenant celui de
+`Core\Storage\Volume`, mesuré au bon endroit.
+
+## Ce que le paquet de support ne porte pas
+
+Aucun identifiant, aucune clé, aucun jeton : `StorageLocation` n'a pas de
+propriété pour en porter un, donc le collecteur ne peut pas en imprimer
+par accident. Ce qu'il dit, c'est **si** un secret est configuré — ce qui
+distingue « jamais renseigné » de « renseigné et refusé ».
+
+Les chemins passent par `redact()`. Un chemin de stockage est un dossier
+de serveur et `/mnt/nas/photos` ne dit rien de personne — mais
+`/home/marie.dupont/...` si, et un site a parfaitement le droit d'en
+avoir un. Et l'endpoint d'un bucket est absent : le **nom** du
+fournisseur répond à toutes les questions de diagnostic auxquelles
+l'endpoint répondrait, en un mot, sans être la moitié d'une cible.

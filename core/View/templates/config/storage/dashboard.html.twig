@@ -1,0 +1,181 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  « Stockage » — tableau de bord.
+
+  The order is an order of URGENCY, not of category, and it is the
+  mockup's: what is broken, then who uses what, then how full each volume
+  is, then the destinations that are not on this server.
+
+  A location in error is stated with its CONSEQUENCE rather than as a red
+  badge: « en erreur » tells an administrator that something is wrong,
+  « les sauvegardes distantes ne partent plus » tells them what it is
+  costing, and only the second sentence gets acted on this week.
+#}
+{% extends 'base.html.twig' %}
+
+{% block title %}Stockage — {{ site_name }}{% endblock %}
+
+{% block content %}
+    {% include 'partials/page_header.html.twig' with {
+        title: 'Stockage',
+        subtitle: "Où ce site écrit ses fichiers, et ce qu'il y a dessus.",
+    } only %}
+
+    {% include 'config/storage/_nav.html.twig' %}
+
+    <div class="card mb-4">
+        <div class="card-header py-2"><span class="fw-semibold small">État</span></div>
+
+        {% for location in failing %}
+            <div class="card-body border-bottom">
+                <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                    <span>{{ location.label }}</span>
+                    <span class="badge text-bg-danger">En erreur</span>
+                </div>
+                <p class="small text-body-secondary mt-1 mb-1">
+                    {{ location.lastCheckError }}
+                    {# The consequence, derived from who actually stands on it rather
+                       than guessed: « Sauvegardes distantes » is the consumer's own
+                       French name for itself. #}
+                    {% set served = [] %}
+                    {% for row in usages %}
+                        {% if location.label in row.locations %}
+                            {% set served = served|merge([row.usage]) %}
+                        {% endif %}
+                    {% endfor %}
+                    {% if served is not empty %}
+                        <span class="d-block">{{ served|join(', ') }} : plus rien ne peut être écrit ici.</span>
+                    {% endif %}
+                </p>
+                <a href="/config/stockage/emplacements" class="small">Corriger</a>
+            </div>
+        {% else %}
+            <div class="card-body border-bottom">
+                <p class="small text-body-secondary mb-0">
+                    <i class="bi bi-check-circle text-success" aria-hidden="true"></i>
+                    Tous les emplacements déclarés répondent.
+                </p>
+            </div>
+        {% endfor %}
+
+        <div class="card-body">
+            <div class="text-uppercase small fw-semibold text-body-secondary mb-2">Usages</div>
+            {% for row in usages %}
+                <div class="d-flex justify-content-between border-bottom py-1 small">
+                    <span>{{ row.usage }}</span>
+                    <span class="text-body-secondary">
+                        {{ row.locations is not empty ? row.locations|join(', ') : 'aucun emplacement' }}
+                    </span>
+                </div>
+            {% else %}
+                <p class="small text-body-secondary mb-0">
+                    Rien n'utilise encore d'emplacement de stockage sur ce site.
+                </p>
+            {% endfor %}
+        </div>
+    </div>
+
+    <p class="small text-body-secondary px-1">
+        L'espace se mesure <strong>par volume</strong>, pas par emplacement : deux dossiers sur le même
+        disque partagent la même place libre, et les afficher séparément laisserait croire qu'on en a
+        deux fois plus.
+    </p>
+
+    {% for volume in volumes %}
+        <div class="card mb-4">
+            <div class="card-header py-2"><span class="fw-semibold small">{{ volume.label }}</span></div>
+            <div class="card-body">
+                <div class="small text-body-secondary mb-1">
+                    {% for directory in volume.directories %}
+                        <code>{{ directory.path }}</code>{% if not loop.last %} · {% endif %}
+                    {% endfor %}
+                    · {{ volume.basis == 'quota' ? 'quota déclaré' : 'mesure système' }}
+                </div>
+
+                {% if volume.usedPercent is not null %}
+                    {# Decorative: the percentage is spelled out in words
+                       immediately below, and a bar repeating it only makes it
+                       read twice — the same choice the Maintenance page made
+                       for the panel this one replaces. #}
+                    <div aria-hidden="true" class="progress mb-2" style="height: 6px;">
+                        <div class="progress-bar" style="width: {{ volume.usedPercent }}%"></div>
+                    </div>
+                    <p class="small text-body-secondary mb-0">
+                        <strong>{{ volume.basisUsedLabel }}</strong> sur {{ volume.basisTotalLabel }} —
+                        {{ volume.usedPercent }} %.
+                    </p>
+                {% elseif volume.occupiedLabel %}
+                    <p class="small text-body-secondary mb-0">
+                        <strong>{{ volume.occupiedLabel }}</strong> occupés. Aucune taille totale connue pour
+                        ce volume.
+                    </p>
+                {% else %}
+                    <p class="small text-body-secondary mb-0">Occupation inconnue pour ce volume.</p>
+                {% endif %}
+
+                {% if volume.directories|length > 1 %}
+                    <div class="mt-2 small text-body-secondary">
+                        {% for directory in volume.directories %}
+                            <div class="d-flex justify-content-between border-bottom py-1">
+                                <span>{{ directory.label }}</span>
+                                <span class="text-body-secondary">
+                                    {% if not directory.exists %}
+                                        dossier absent
+                                    {% elseif directory.sizeBytes is null %}
+                                        taille inconnue
+                                    {% else %}
+                                        {{ directory.sizeLabel }}
+                                    {% endif %}
+                                </span>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+
+                <p class="small text-body-secondary mt-2 mb-0">{{ volume.basisSentence }}</p>
+
+                {% if volume.hasDirectoryOutsideStorage %}
+                    <div class="alert alert-warning small mt-2 mb-0">
+                        <strong>Ce volume porte un dossier hors de <code>storage/</code>.</strong>
+                        Il n'est donc pas effacé par une réinitialisation complète du site — et il n'est
+                        pas repris non plus dans les archives de sauvegarde.
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    {% endfor %}
+
+    {% if remote_locations is not empty %}
+        <div class="card mb-4">
+            <div class="card-header py-2"><span class="fw-semibold small">Emplacements distants</span></div>
+            {% for location in remote_locations %}
+                <div class="card-body border-bottom">
+                    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                        <span>{{ location.label }}</span>
+                        <span class="small text-body-secondary">occupation inconnue</span>
+                    </div>
+                    {#
+                      Nothing rather than a bar that would be wrong. S3 cannot say
+                      what a bucket occupies without walking it entirely, and a
+                      progress bar drawn on a guess is read as a measurement.
+                      IT-07 gives the types that CAN answer (WebDAV, Drive) a real
+                      figure here.
+                    #}
+                    <p class="small text-body-secondary mb-0">
+                        Ce type de stockage ne sait pas dire ce qu'il contient sans le parcourir entièrement.
+                        Mieux vaut ne rien afficher qu'une barre fausse.
+                    </p>
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    <p class="small text-body-secondary px-1">
+        L'état de chaque emplacement est vérifié par écriture d'un fichier témoin, au plus toutes les
+        {{ health_ttl_minutes }} minutes. Un dossier réseau peut disparaître, passer en lecture seule ou
+        figer sans répondre : le test écrit réellement, avec un délai maximal.
+    </p>
+{% endblock %}

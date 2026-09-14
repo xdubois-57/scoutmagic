@@ -212,6 +212,46 @@ figure: a message classed as junk appears nowhere here, because it was
 accepted. Three green numbers otherwise read as « tout va bien » while a
 provider silently bins everything.
 
+### 4.5 Stockage: the screen
+
+One page, `/config/stockage`, on the same sub-page rail (§7.6). Two
+sub-pages — **Tableau de bord** and **Emplacements** — and deliberately
+not three: « qui utilise quoi » is read at the top of the dashboard and
+again on each location's « Sert : … » line, each at the moment it is the
+question being asked. A page of its own for it would be a third copy to
+keep in agreement with the other two.
+
+**Tableau de bord is ordered by urgency, not by category.** What is
+broken, then who uses what, then how full each volume is, then the
+destinations that are not on this server. A location in error is stated
+with its **consequence** — « Galeries photo : plus rien ne peut être
+écrit ici » — rather than as a red badge somebody has to interpret:
+« en erreur » says something is wrong, and only the second sentence gets
+acted on this week.
+
+**Space is shown per volume and each volume says which measurement it
+used.** Two folders on one disk share one free-space figure, and printing
+it twice would let a reader believe in twice the room. « 62 % » of a
+declared quota and « 62 % » of a host's volume are different facts, so
+the sentence naming which one produced the figure is part of the card
+rather than a footnote under the page. A volume carrying a directory
+outside `storage/` says so, because a full reset does not reach it and no
+archive carries it.
+
+**Emplacements is one card per destination, and the card shows
+consequences.** Photos, Vidéos, Sauvegardes, Place restante — produced
+from the declared capabilities and never printed as capabilities:
+« lecture par plage d'octets » is the right vocabulary for code and the
+wrong one for somebody choosing where their camp photographs go. An
+occupation nobody can measure shows nothing at all rather than an empty
+bar: a bar drawn on a guess is read as a measurement.
+
+**A warning belongs where the decision is made.** The note saying a
+folder outside `storage/` survives a full reset and is in no archive
+appears on the location form, from the first character of an absolute
+path — not afterwards on the dashboard, where it would be a fact about a
+choice already made.
+
 ## 5. Scheduler design
 
 Poor man's cron: check every page visit (>1 min since last), process after response. Atomic claim via UPDATE. No auto-retry. Failures journaled and visible in config page.

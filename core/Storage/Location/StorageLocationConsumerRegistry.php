@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Storage\Location;
 
+use Core\Storage\Location\Config\LocationConfig;
+
 /**
  * Every {@see StorageLocationConsumer} this installation has.
  *
@@ -92,6 +94,37 @@ class StorageLocationConsumerRegistry
         }
 
         return $labels;
+    }
+
+    /**
+     * The first consumer's objection to $location becoming
+     * $proposedConfig, or null when nobody objects.
+     *
+     * **Fails closed, like {@see usagesOf()} and for the same reason.** A
+     * consumer that cannot be asked has not said « no objection » — it has
+     * said nothing, and the caller is about to write a configuration that
+     * may strand what that consumer holds. So the exception travels, and
+     * the screen turns it into a refusal rather than into a save.
+     *
+     * First rather than all of them: the administrator has to fix one
+     * thing before the save can go through in any case, and a list of
+     * sentences is not more actionable than the sentence at the top of it.
+     *
+     * @throws \Throwable whatever a consumer raised
+     */
+    public function objectionTo(
+        StorageLocation $location,
+        LocationConfig $proposedConfig,
+        bool $wouldBeDefault
+    ): ?string {
+        foreach ($this->consumers as $consumer) {
+            $objection = $consumer->objectionTo($location, $proposedConfig, $wouldBeDefault);
+            if ($objection !== null) {
+                return $objection;
+            }
+        }
+
+        return null;
     }
 
     /**

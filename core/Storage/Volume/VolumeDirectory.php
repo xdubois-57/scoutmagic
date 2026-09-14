@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Storage\Volume;
 
+use Core\Storage\ByteFormatter;
+
 /**
  * One directory the site declared, and what was learned about it while
  * grouping it onto a volume.
@@ -40,5 +42,21 @@ final class VolumeDirectory
         public readonly bool $isUnderStoragePath,
         public readonly bool $exists
     ) {
+    }
+
+    /**
+     * What this directory occupies, as a person reads it — or an empty
+     * string when nobody could measure it, which is not « 0 o ».
+     *
+     * Formatted here rather than by a Twig filter, and that is the same
+     * decision {@see \Core\Storage\StorageUsage} records for itself: the
+     * site already has a `filesize` filter with its own rounding, and two
+     * spellings of « 1,5 Go » on two screens describing one disk is how a
+     * reader stops trusting either. {@see \Core\Storage\ByteFormatter} is
+     * the one spelling, and every storage screen goes through it.
+     */
+    public function sizeLabel(): string
+    {
+        return $this->sizeBytes !== null ? ByteFormatter::format($this->sizeBytes) : '';
     }
 }

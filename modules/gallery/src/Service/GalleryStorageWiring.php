@@ -90,7 +90,7 @@ final class GalleryStorageWiring
             $locations,
             $backends,
             $locationService,
-            new GalleryLocationService($locationService, $albumRepository, $settings, $storagePath)
+            new GalleryLocationService($locationService, $albumRepository, $settings)
         );
     }
 }

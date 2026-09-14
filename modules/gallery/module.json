@@ -2,7 +2,7 @@
   "id": "gallery",
   "name": "Galerie photos et vidéos",
   "description": "Albums photo/vidéo (envoi local avec redimensionnement/transcodage automatique, ou lien vers un album externe) visibles par les membres identifiés.",
-  "version": "1.11.0",
+  "version": "1.12.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -241,111 +241,6 @@
       "label": ""
     },
     {
-      "path": "/config/gallery/test-connection",
-      "method": "POST",
-      "controller": "Modules\\Gallery\\Controller\\GalleryConfigController",
-      "action": "testConnection",
-      "menu": "configuration",
-      "role_min": "superadmin",
-      "label": ""
-    },
-    {
-      "path": "/config/gallery/explain-s3-error",
-      "method": "POST",
-      "controller": "Modules\\Gallery\\Controller\\GalleryConfigController",
-      "action": "explainS3Error",
-      "menu": "configuration",
-      "role_min": "superadmin",
-      "label": ""
-    },
-    {
-      "path": "/config/gallery/locations/new",
-      "method": "GET",
-      "controller": "Modules\\Gallery\\Controller\\GalleryStorageLocationController",
-      "action": "create",
-      "menu": "configuration",
-      "role_min": "superadmin",
-      "label": "",
-      "breadcrumb": {
-        "label": "Nouvel emplacement",
-        "parents": [
-          "Configuration"
-        ],
-        "ancestors": [
-          {
-            "label": "Galerie",
-            "path": "/config/gallery"
-          }
-        ]
-      }
-    },
-    {
-      "path": "/config/gallery/locations",
-      "method": "POST",
-      "controller": "Modules\\Gallery\\Controller\\GalleryStorageLocationController",
-      "action": "store",
-      "menu": "configuration",
-      "role_min": "superadmin",
-      "label": ""
-    },
-    {
-      "path": "/config/gallery/locations/{id}/edit",
-      "method": "GET",
-      "controller": "Modules\\Gallery\\Controller\\GalleryStorageLocationController",
-      "action": "edit",
-      "menu": "configuration",
-      "role_min": "superadmin",
-      "label": "",
-      "breadcrumb": {
-        "label": "Modifier l'emplacement",
-        "parents": [
-          "Configuration"
-        ],
-        "ancestors": [
-          {
-            "label": "Galerie",
-            "path": "/config/gallery"
-          }
-        ]
-      }
-    },
-    {
-      "path": "/config/gallery/locations/{id}",
-      "method": "POST",
-      "controller": "Modules\\Gallery\\Controller\\GalleryStorageLocationController",
-      "action": "update",
-      "menu": "configuration",
-      "role_min": "superadmin",
-      "label": ""
-    },
-    {
-      "path": "/config/gallery/locations/{id}/delete",
-      "method": "POST",
-      "controller": "Modules\\Gallery\\Controller\\GalleryStorageLocationController",
-      "action": "delete",
-      "menu": "configuration",
-      "role_min": "superadmin",
-      "label": ""
-    },
-    {
-      "path": "/config/gallery/locations/{id}/test",
-      "method": "POST",
-      "controller": "Modules\\Gallery\\Controller\\GalleryStorageLocationController",
-      "action": "test",
-      "menu": "configuration",
-      "role_min": "superadmin",
-      "label": ""
-    },
-    {
-      "path": "/config/gallery/locations/{id}/default",
-      "method": "POST",
-      "controller": "Modules\\Gallery\\Controller\\GalleryStorageLocationController",
-      "action": "setDefault",
-      "menu": "configuration",
-      "role_min": "superadmin",
-      "label": ""
-    },
-    {
       "path": "/config/gallery/albums/{id}/migrate",
       "method": "POST",
       "controller": "Modules\\Gallery\\Controller\\GalleryConfigController",
@@ -411,6 +306,13 @@
       "type": "boolean",
       "label": "Conserver la vidéo originale",
       "description": "Garde le fichier vidéo original téléchargeable en plus des versions transcodées."
+    },
+    {
+      "key": "gallery_new_album_location_id",
+      "default_value": "0",
+      "type": "number",
+      "label": "Emplacement des nouveaux albums",
+      "description": "Emplacement de stockage sur lequel les albums créés à partir de maintenant écrivent leurs médias. Les albums existants ne bougent pas. 0 signifie « l'emplacement par défaut du site ». Les emplacements se déclarent dans Configuration > Stockage."
     }
   ],
   "cookies": [],

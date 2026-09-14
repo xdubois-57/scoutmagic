@@ -6,6 +6,7 @@ namespace Tests\Modules\Gallery\Service;
 
 use Core\Security\EncryptionService;
 use Core\Storage\Location\Config\LocalLocationConfig;
+use Core\Storage\Location\Config\ObjectStorageLocationConfig;
 use Core\Storage\Location\StorageLocationRepository;
 use Core\Storage\Location\StorageLocationType;
 use Modules\Gallery\Repository\Album;
@@ -137,6 +138,140 @@ class GalleryStorageConsumerTest extends TestCase
         // Read at call time, never cached: the answer follows the default,
         // because that is what the album will actually resolve onto.
         $this->assertSame([$secondId], $this->consumer->locationIdsInUse());
+    }
+
+    // ————— L'objection : «Ce changement casserait ce que je porte » —————
+
+    /**
+     * The stranding this guard exists for, and the reason it moved onto the
+     * consumer interface in IT-02: only the gallery knows that a delegated
+     * album cannot live behind a permanent public URL, and the storage
+     * screen has no business knowing what a delegated album is.
+     *
+     * The refusal is not new — `DelegatedAlbumService` refuses such a
+     * location at creation, and `GalleryController::serveDelegatedMedia()`
+     * refuses again when the bytes are handed out. The moment nothing
+     * covered is the third one: the album is created on a private location
+     * and the LOCATION is later edited to carry a public URL. Nothing is
+     * exposed, because the serve-time guard holds — but every media of
+     * every delegated album there becomes a permanent 404 with nothing
+     * anywhere explaining it.
+     */
+    public function testItObjectsToAPublicUrlWhileADelegatedAlbumLivesOnTheLocation(): void
+    {
+        $id = $this->locations->create(StorageLocationType::Local, 'Disque', new LocalLocationConfig('a'), null);
+        $this->createDelegatedAlbum($id);
+        $location = $this->locations->findById($id);
+        $this->assertNotNull($location);
+
+        $objection = $this->consumer->objectionTo($location, $this->publiclyServingConfig(), false);
+
+        $this->assertNotNull($objection);
+        $this->assertStringContainsString('albums délégués', $objection);
+    }
+
+    /**
+     * While a move is in flight the files are ALREADY being written to the
+     * destination, and `location_id` still names the source — so the
+     * question « is anybody heading for this location? » has to read
+     * `migration_target_id` too.
+     */
+    public function testItObjectsWhileADelegatedAlbumIsBeingMigratedOntoTheLocation(): void
+    {
+        $source = $this->locations->create(StorageLocationType::Local, 'Source', new LocalLocationConfig('a'), null);
+        $target = $this->locations->create(StorageLocationType::Local, 'Cible', new LocalLocationConfig('b'), null);
+        $albumId = $this->createDelegatedAlbum($source);
+        $this->pdo->prepare('UPDATE gallery_albums SET migration_target_id = ? WHERE id = ?')
+            ->execute([$target, $albumId]);
+        $location = $this->locations->findById($target);
+        $this->assertNotNull($location);
+
+        $this->assertNotNull($this->consumer->objectionTo($location, $this->publiclyServingConfig(), false));
+    }
+
+    /**
+     * The second door into the same breakage. A delegated album that pins
+     * nothing is not on « no » location — it is on the DEFAULT, and it is
+     * pinned there the next time anything touches it. So promoting a
+     * publicly-serving location has to be asked about the location that is
+     * ABOUT to be the default.
+     */
+    public function testItObjectsToAPromotionThatWouldLandDelegatedAlbumsOnAPublicLocation(): void
+    {
+        $id = $this->locations->create(StorageLocationType::Local, 'Disque', new LocalLocationConfig('a'), null);
+        $albumId = $this->createDelegatedAlbum($id);
+        $this->pdo->prepare('UPDATE gallery_albums SET location_id = NULL WHERE id = ?')->execute([$albumId]);
+        $other = $this->locations->create(StorageLocationType::Local, 'Autre', new LocalLocationConfig('b'), null);
+        $location = $this->locations->findById($other);
+        $this->assertNotNull($location);
+
+        $this->assertNotNull(
+            $this->consumer->objectionTo($location, $this->publiclyServingConfig(), true),
+            'An unpinned delegated album lands on whichever location becomes the default.'
+        );
+        $this->assertNull(
+            $this->consumer->objectionTo($location, $this->publiclyServingConfig(), false),
+            'The same location, NOT becoming the default, carries no such album.'
+        );
+    }
+
+    public function testItDoesNotObjectWhenNoDelegatedAlbumStandsOnTheLocation(): void
+    {
+        $id = $this->locations->create(StorageLocationType::Local, 'Disque', new LocalLocationConfig('a'), null);
+        // An ordinary album, not a delegated one: it is the gallery's own,
+        // it has no second access-control layer to contradict, and a public
+        // URL on its location is a legitimate configuration.
+        $this->createAlbum($id);
+        $location = $this->locations->findById($id);
+        $this->assertNotNull($location);
+
+        $this->assertNull($this->consumer->objectionTo($location, $this->publiclyServingConfig(), false));
+    }
+
+    /**
+     * A configuration that does NOT serve publicly is never objected to,
+     * whatever stands on the location — the objection is about one
+     * property, and a consumer that refuses more than its reason would
+     * block ordinary edits.
+     */
+    public function testItDoesNotObjectToAConfigurationThatDoesNotServePublicly(): void
+    {
+        $id = $this->locations->create(StorageLocationType::Local, 'Disque', new LocalLocationConfig('a'), null);
+        $this->createDelegatedAlbum($id);
+        $location = $this->locations->findById($id);
+        $this->assertNotNull($location);
+
+        $this->assertNull($this->consumer->objectionTo($location, new LocalLocationConfig('autre-dossier'), true));
+    }
+
+    /** An S3 location with a permanent public URL — the shape that strands a delegated album. */
+    private function publiclyServingConfig(): ObjectStorageLocationConfig
+    {
+        return new ObjectStorageLocationConfig(
+            'https://example.com',
+            'fr-par',
+            'photos',
+            'AK',
+            'custom',
+            'https://cdn.example.org'
+        );
+    }
+
+    private function createDelegatedAlbum(int $locationId): int
+    {
+        return $this->albumRepository->create(
+            Album::TYPE_LOCAL,
+            'Photos du groupe',
+            null,
+            '2026-01-01',
+            null,
+            $this->scoutYearId,
+            null,
+            $locationId,
+            $this->authorId,
+            'discussion_group',
+            7
+        );
     }
 
     public function testAnExternalAlbumHoldsNothingAtAll(): void

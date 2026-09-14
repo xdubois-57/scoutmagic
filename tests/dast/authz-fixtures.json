@@ -123,9 +123,6 @@
     "/config/gallery/albums/{id}": {
       "id": "1"
     },
-    "/config/gallery/locations/{id}": {
-      "id": "1"
-    },
     "/config/inscriptions/demandes/{id}": {
       "id": "1"
     },
@@ -133,6 +130,9 @@
       "id": "1"
     },
     "/config/maintenance/backup/{id}/delete": {
+      "id": "1"
+    },
+    "/config/stockage/emplacements/{id}": {
       "id": "1"
     },
     "/courrier/{id}": {
