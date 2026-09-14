@@ -8,8 +8,8 @@ question: Pourquoi les e-mails du site ne partent-ils plus ?
 question: Comment ajouter un deuxième fournisseur d'envoi ?
 question: Pourquoi un publipostage empêche-t-il les liens de connexion de partir ?
 question: À quoi sert la cadence d'un fournisseur ?
-paths: /config/courrier-sortant, /config/courrier-sortant/acheminement, /config/courrier-sortant/fournisseurs/nouveau, /config/courrier-sortant/fournisseurs/*
-related: courrier-sortant-pannes, installation-serveur, config-emails, adresses-email
+paths: /config/courrier-sortant, /config/courrier-sortant/acheminement, /config/courrier-sortant/fournisseurs, /config/courrier-sortant/fournisseurs/nouveau, /config/courrier-sortant/fournisseurs/*
+related: courrier-sortant-pannes, courrier-sortant-authentification, installation-serveur, config-emails, adresses-email
 ---
 
 Le site envoie du courrier pour trois raisons très différentes : vous

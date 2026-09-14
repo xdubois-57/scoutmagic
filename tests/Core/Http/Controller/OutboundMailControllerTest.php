@@ -50,6 +50,7 @@ class OutboundMailControllerTest extends TestCase
     private SettingService $settings;
     private \Core\Mail\Transport\DeferredMailRepository $deferred;
     private \Core\Mail\Transport\DeferredMailQueue $queue;
+    private \Core\Mail\Feedback\ReturnPathVerifier $returns;
 
     protected function setUp(): void
     {
@@ -83,13 +84,12 @@ class OutboundMailControllerTest extends TestCase
         $counters = new SendCounterRepository($this->pdo);
         $directory = new MailProviderDirectory($this->providers, $connections, $settings);
 
-        $this->deferred = new \Core\Mail\Transport\DeferredMailRepository(
-            $this->pdo,
-            new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
-        );
+        $encryption = new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $this->deferred = new \Core\Mail\Transport\DeferredMailRepository($this->pdo, $encryption);
         $this->queue = new \Core\Mail\Transport\DeferredMailQueue($this->deferred, $settings);
 
         $this->settings = $settings;
+        self::registerMailIdentitySettings($settings);
         $this->controller = new OutboundMailController(
             $twig,
             $directory,
@@ -108,7 +108,19 @@ class OutboundMailControllerTest extends TestCase
             new \Core\Mail\Transport\MailReserve($counters, $this->chains),
             new \Core\Mail\Transport\ProviderHealthRepository($this->pdo),
             $this->deferred,
-            $this->queue
+            $this->queue,
+            new \Core\Mail\DkimManager($this->secretsDirectory),
+            new \Core\Mail\DnsVerifier(),
+            $this->returns = new \Core\Mail\Feedback\ReturnPathVerifier(
+                new \Core\Mail\Feedback\ReturnProbeRepository($this->pdo, $encryption),
+                $this->createMock(\Core\Mail\MailService::class),
+                new JournalService(new JournalRepository($this->pdo)),
+                // No `inbound_mail` here: the default installation this
+                // test builds has no module at all, so the verification
+                // answers « impossible » — which is the state the page
+                // has to render without erroring (D2).
+                null
+            )
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -141,7 +153,7 @@ class OutboundMailControllerTest extends TestCase
     public static function outboundRoutes(): array
     {
         return [
-            'the providers' => ['GET', '/config/courrier-sortant'],
+            'the dashboard' => ['GET', '/config/courrier-sortant'],
             'the chains' => ['GET', '/config/courrier-sortant/acheminement'],
             'reordering a chain' => ['POST', '/config/courrier-sortant/acheminement/{lane}/ordre'],
             'enabling an entry' => ['POST', '/config/courrier-sortant/acheminement/{lane}/activation'],
@@ -151,6 +163,10 @@ class OutboundMailControllerTest extends TestCase
             'saving a provider' => ['POST', '/config/courrier-sortant/fournisseurs/{id}'],
             'deleting a provider' => ['POST', '/config/courrier-sortant/fournisseurs/{id}/suppression'],
             'relaunching abandoned mail' => ['POST', '/config/courrier-sortant/relance'],
+            'the providers' => ['GET', '/config/courrier-sortant/fournisseurs'],
+            'authentication' => ['GET', '/config/courrier-sortant/authentification'],
+            'saving the addresses' => ['POST', '/config/courrier-sortant/authentification'],
+            'checking the returns' => ['POST', '/config/courrier-sortant/authentification/verification'],
         ];
     }
 
@@ -209,6 +225,175 @@ class OutboundMailControllerTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString(MailProvider::LOCAL_NAME, (string) $response->getBody());
+    }
+
+    // ── the dashboard and the authentication page (roadmap IT-03) ─────
+
+    public function testTheDashboardShowsTheThreeEssentialsAndSaysWhatItCannotSee(): void
+    {
+        $body = (string) $this->controller->dashboard($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('Authentification du domaine', $body);
+        $this->assertStringContainsString('Un fournisseur d’envoi', $body);
+        $this->assertStringContainsString('Retours relevés', $body);
+        // Without it, three green lines let somebody conclude everything
+        // is fine while a provider is quietly filing the lot as spam.
+        $this->assertStringContainsString(
+            'Un message classé en indésirables n\'apparaît nulle part ici',
+            $body
+        );
+    }
+
+    public function testTheDashboardListsTheAdvancedOptionsRatherThanHidingThem(): void
+    {
+        $body = (string) $this->controller->dashboard($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('Adresse de réponse distincte', $body);
+        $this->assertStringContainsString('Rapports DMARC', $body);
+        $this->assertStringContainsString('Chaîne de repli', $body);
+    }
+
+    public function testADomainWithNoAddressAtAllIsTheFirstThingTheDashboardSays(): void
+    {
+        $body = (string) $this->controller->dashboard($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('Aucune adresse d’expédition', $body);
+    }
+
+    public function testWithoutTheInboundModuleTheReturnLineExplainsItselfInsteadOfAlarming(): void
+    {
+        $body = (string) $this->controller->dashboard($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('Rien ne relève le courrier qui revient', $body);
+        $this->assertStringContainsString('Envoyer fonctionne sans cela.', $body);
+    }
+
+    public function testTheAuthenticationPageNamesTheFourRolesAndTheSpfTrap(): void
+    {
+        $this->settings->set('mail_from_address', 'info@unite.be');
+        $this->settings->set('mail_from_name', 'Unité Test');
+
+        $body = (string) $this->controller->authentication($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('Expéditeur affiché', $body);
+        $this->assertStringContainsString('Réponses', $body);
+        $this->assertStringContainsString('Retour des rebonds', $body);
+        $this->assertStringContainsString('Rapports DMARC', $body);
+        // The one line the table exists for.
+        $this->assertStringContainsString('domaine sur lequel le SPF est vérifié', $body);
+    }
+
+    public function testTheAuthenticationPageRunsNoDnsLookupUntilSomebodyAsks(): void
+    {
+        $this->settings->set('mail_from_address', 'info@unite.be');
+
+        $body = (string) $this->controller->authentication($this->getRequest(), [])->getBody();
+
+        $this->assertStringNotContainsString('Nom complet', $body);
+        $this->assertStringContainsString('Vérifier les enregistrements', $body);
+    }
+
+    public function testSavingTheAddressesKeepsThemAndTheReplyAddressStaysOptional(): void
+    {
+        $response = $this->controller->saveAuthentication($this->formRequest([
+            'mail_from_address' => 'info@unite.be',
+            'mail_from_name' => 'Unité Test',
+            'mail_reply_address' => '',
+            'dmarc_report_email' => 'dmarc@unite.be',
+            'dkim_selector' => 's2026',
+        ]), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('info@unite.be', $this->settings->get('mail_from_address'));
+        $this->assertSame('', $this->settings->get('mail_reply_address'));
+        $this->assertSame('dmarc@unite.be', $this->settings->get('dmarc_report_email'));
+    }
+
+    /**
+     * The one field that cannot be cleared: PHPMailer refuses a send
+     * outright without a From, so an empty one is not « pas d'adresse »,
+     * it is « plus aucun e-mail, liens de connexion compris ».
+     */
+    public function testTheExpeditionAddressCannotBeEmptied(): void
+    {
+        $this->settings->set('mail_from_address', 'info@unite.be');
+
+        $this->controller->saveAuthentication($this->formRequest([
+            'mail_from_address' => '',
+            'mail_from_name' => 'Unité Test',
+            'dkim_selector' => 's2026',
+        ]), []);
+
+        $this->assertSame('info@unite.be', $this->settings->get('mail_from_address'));
+    }
+
+    public function testAMalformedReplyAddressIsRefusedWithoutTouchingAnythingElse(): void
+    {
+        $this->settings->set('mail_from_name', 'Avant');
+
+        $this->controller->saveAuthentication($this->formRequest([
+            'mail_from_address' => 'info@unite.be',
+            'mail_from_name' => 'Après',
+            'mail_reply_address' => 'pas-une-adresse',
+            'dkim_selector' => 's2026',
+        ]), []);
+
+        $this->assertSame('Avant', $this->settings->get('mail_from_name'));
+    }
+
+    public function testASelectorWithACapitalIsRefused(): void
+    {
+        $this->settings->set('dkim_selector', 's2026');
+
+        $this->controller->saveAuthentication($this->formRequest([
+            'mail_from_address' => 'info@unite.be',
+            'mail_from_name' => 'Unité Test',
+            'dkim_selector' => 'S2027',
+        ]), []);
+
+        $this->assertSame('s2026', $this->settings->get('dkim_selector'));
+    }
+
+    /**
+     * The lookup writes down what it saw so the dashboard can report a
+     * state with a date, rather than putting a resolver on the critical
+     * path of the page somebody opens when mail is already broken.
+     */
+    public function testAskingForTheLookupRemembersWhatItSaw(): void
+    {
+        $this->settings->set('mail_from_address', 'info@unite.be');
+        $this->settings->set('dkim_selector', 's2026');
+
+        $this->controller->authentication(
+            new Request('GET', '/config/courrier-sortant/authentification', ['dns' => '1'], [], [], []),
+            []
+        );
+
+        $stored = (string) $this->settings->get(OutboundMailController::SETTING_DNS_LAST_CHECK);
+        $this->assertNotSame('', $stored);
+        $decoded = json_decode($stored, true);
+        $this->assertIsArray($decoded);
+        $this->assertSame('unite.be', $decoded['domain']);
+        $this->assertArrayHasKey('at', $decoded);
+    }
+
+    public function testALookupNobodyCouldTakeRemembersNothingRatherThanAFalseNegative(): void
+    {
+        // setInternal, not set: the memory is written by this page and
+        // never by hand, so it is registered `editable: false`.
+        $this->settings->setInternal(
+            OutboundMailController::SETTING_DNS_LAST_CHECK,
+            '{"at":"2026-09-01 08:00:00","domain":"unite.be","spf":true,"dkim":true,"dmarc":null}'
+        );
+        // No address: there is no domain to interrogate at all.
+        $this->settings->set('mail_from_address', '');
+
+        $this->controller->authentication(
+            new Request('GET', '/config/courrier-sortant/authentification', ['dns' => '1'], [], [], []),
+            []
+        );
+
+        $this->assertSame('', $this->settings->get(OutboundMailController::SETTING_DNS_LAST_CHECK));
     }
 
     public function testTheChainsPageRendersTheThreeLanes(): void
@@ -301,6 +486,61 @@ class OutboundMailControllerTest extends TestCase
 
         $this->assertStringContainsString('batch_interval_minutes', $body);
         $this->assertStringNotContainsString('name="daily_quota"', $body);
+    }
+
+    /**
+     * The mail identity settings, declared here exactly as
+     * `public/index.php` declares them — `SettingService::set()` refuses
+     * a key nothing registered, so a page that saves one is a page whose
+     * test has to have it. {@see self::testEveryAddressThePageSavesIsDeclaredAtBoot()}
+     * is what keeps the two lists from drifting.
+     */
+    private static function registerMailIdentitySettings(SettingService $settings): void
+    {
+        $settings->register('mail_from_address', '', 'email', 'Email d\'expédition', '', null, null, null, true, 40);
+        $settings->register('mail_from_name', '', 'text', 'Nom d\'expédition', '', null, null, null, true, 50);
+        $settings->register('mail_reply_address', '', 'email', 'Adresse de réponse', '', null, null, null, true, 55);
+        $settings->register(
+            OutboundMailController::SETTING_DNS_LAST_CHECK,
+            '',
+            'text',
+            'Dernière vérification DNS',
+            '',
+            null,
+            null,
+            null,
+            false,
+            56
+        );
+        $settings->register('dkim_selector', 's2026', 'text', 'Sélecteur DKIM', '', null, '^[a-z0-9]+$', null, true, 60);
+        $settings->register('dmarc_report_email', '', 'email', 'Email rapports DMARC', '', null, null, null, true, 70);
+    }
+
+    /**
+     * A setting the page writes and the boot never declares is a page
+     * that throws the first time somebody presses Enregistrer — and
+     * nothing else would say so, because this test builds its own
+     * registrations.
+     */
+    public function testEveryAddressThePageSavesIsDeclaredAtBoot(): void
+    {
+        $contents = file_get_contents(dirname(__DIR__, 4) . '/public/index.php');
+        $this->assertNotFalse($contents);
+
+        foreach ([
+            \Core\Mail\MailIdentity::SETTING_FROM_ADDRESS,
+            \Core\Mail\MailIdentity::SETTING_FROM_NAME,
+            \Core\Mail\MailIdentity::SETTING_REPLY_ADDRESS,
+            \Core\Mail\MailIdentity::SETTING_DMARC_REPORT,
+            OutboundMailController::SETTING_DNS_LAST_CHECK,
+            'dkim_selector',
+        ] as $key) {
+            $this->assertStringContainsString(
+                "\$settingService->register(\n    '{$key}',",
+                $contents,
+                "public/index.php never registers « {$key} », so saving it would throw."
+            );
+        }
     }
 
     private function getRequest(): Request

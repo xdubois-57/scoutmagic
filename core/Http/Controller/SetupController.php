@@ -1484,8 +1484,14 @@ class SetupController extends AbstractController
 
             // Write non-secret settings to settings table
             if ($this->settingService !== null) {
-                $nonSecretKeys = ['site_name', 'short_name', 'base_url', 'mail_from_address', 'mail_from_name',
-                    'dkim_selector', 'dmarc_report_email'];
+                // The mail identity is deliberately absent: this path
+                // only ever runs on an installed site, where those four
+                // keys belong to « Courrier sortant › Authentification »
+                // (roadmap IT-03). The form no longer offers them, and
+                // refusing them HERE rather than trusting that is what
+                // makes a crafted POST unable to edit them behind the
+                // configuration page's back.
+                $nonSecretKeys = ['site_name', 'short_name', 'base_url'];
                 foreach ($nonSecretKeys as $nsKey) {
                     if (isset($data[$nsKey])) {
                         try {
@@ -1651,24 +1657,34 @@ class SetupController extends AbstractController
                 $errors['smtp_password'] = 'Le mot de passe SMTP est requis en mode SMTP.';
             }
         }
-        if ($data['mail_from_address'] === '') {
-            $errors['mail_from_address'] = 'L\'adresse d\'expédition est requise.';
-        } elseif (!filter_var($data['mail_from_address'], FILTER_VALIDATE_EMAIL)) {
-            $errors['mail_from_address'] = 'L\'adresse d\'expédition n\'est pas valide.';
-        }
-        if ($data['mail_from_name'] === '') {
-            $errors['mail_from_name'] = 'Le nom d\'expédition est requis.';
-        }
-        if ($data['dkim_selector'] === '') {
-            $errors['dkim_selector'] = 'Le sélecteur DKIM est requis.';
-        } elseif (!preg_match('/^[a-z0-9]+$/', $data['dkim_selector'])) {
-            $errors['dkim_selector'] = 'Le sélecteur DKIM ne doit contenir que des lettres minuscules et des chiffres.';
-        }
-        // Optional: left empty, DNS guidance and any future real use fall
-        // back to mail_from_address (see setup.js) — no need to force a
-        // choice this early, and it stays editable later.
-        if ($data['dmarc_report_email'] !== '' && !filter_var($data['dmarc_report_email'], FILTER_VALIDATE_EMAIL)) {
-            $errors['dmarc_report_email'] = 'L\'email pour les rapports DMARC n\'est pas valide.';
+        // The mail identity — expédition, nom, sélecteur DKIM, rapports
+        // DMARC — is asked here ONCE, on the first run, because a site has
+        // to be able to send before anybody can open a configuration page.
+        // Afterwards it belongs to « Courrier sortant › Authentification »
+        // and to nothing else (roadmap IT-03): a field editable in two
+        // places is a field whose two values will disagree, and the one
+        // that loses is whichever page the operator did not open.
+        if ($isFirstTime) {
+            if ($data['mail_from_address'] === '') {
+                $errors['mail_from_address'] = 'L\'adresse d\'expédition est requise.';
+            } elseif (!filter_var($data['mail_from_address'], FILTER_VALIDATE_EMAIL)) {
+                $errors['mail_from_address'] = 'L\'adresse d\'expédition n\'est pas valide.';
+            }
+            if ($data['mail_from_name'] === '') {
+                $errors['mail_from_name'] = 'Le nom d\'expédition est requis.';
+            }
+            if ($data['dkim_selector'] === '') {
+                $errors['dkim_selector'] = 'Le sélecteur DKIM est requis.';
+            } elseif (!preg_match('/^[a-z0-9]+$/', $data['dkim_selector'])) {
+                $errors['dkim_selector'] = 'Le sélecteur DKIM ne doit contenir que des lettres minuscules et des '
+                    . 'chiffres.';
+            }
+            // Optional: left empty, the DNS guidance falls back to
+            // mail_from_address — no need to force a choice this early,
+            // and it stays editable on the Authentification sub-page.
+            if ($data['dmarc_report_email'] !== '' && !filter_var($data['dmarc_report_email'], FILTER_VALIDATE_EMAIL)) {
+                $errors['dmarc_report_email'] = 'L\'email pour les rapports DMARC n\'est pas valide.';
+            }
         }
 
         // Admin email and password

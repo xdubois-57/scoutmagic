@@ -11,11 +11,47 @@ namespace Core\Mail;
 class DnsVerifier
 {
     /**
-     * Check SPF DNS record.
+     * Check the SPF record of ONE domain — and it has to be the domain of
+     * the **envelope sender**, never the one in the `From:` header.
+     *
+     * SPF authorises a sending host for the domain of the `MAIL FROM` of
+     * the SMTP conversation (RFC 7208 §2.4). The two are the same address
+     * on this site, but only because `Core\Mail\MailService` forces it;
+     * callers get the domain from `Core\Mail\MailIdentity::spfDomain()`,
+     * which is the one place that says so and the one place a test pins.
      *
      * @return array{exists: bool, expected: string, actual: ?string}
      */
     public function checkSpf(string $domain, string $mode, ?string $smtpHost = null): array
+    {
+        return $this->checkSpfForHosts(
+            $domain,
+            $mode === 'smtp' && $smtpHost !== null && $smtpHost !== '' ? [$smtpHost] : []
+        );
+    }
+
+    /**
+     * The same check, for a site that hands its mail to **several** relays
+     * in turn (D4).
+     *
+     * A chain is only as authorised as its least authorised entry: the
+     * day the first provider is down, the message leaves through the
+     * second, and an SPF record naming only the first fails on exactly
+     * the messages the fallback exists to save. So every host in the
+     * chain has to be in the record, and a record missing any one of them
+     * is « manquant » rather than « partiel » — there is no useful middle
+     * state to report, since the operator's next action is the same
+     * either way.
+     *
+     * An empty list is the local send on its own: nothing specific to
+     * authorise beyond the domain's own hosts, so the suggestion falls
+     * back to `a mx`.
+     *
+     * @param list<string> $sendingHosts every relay the site may hand a
+     *   message to, deduplicated by the caller or not — this does it.
+     * @return array{exists: bool, expected: string, actual: ?string}
+     */
+    public function checkSpfForHosts(string $domain, array $sendingHosts): array
     {
         $records = $this->getTxtRecords($domain);
         $actual = null;
@@ -27,18 +63,47 @@ class DnsVerifier
             }
         }
 
+        $mechanisms = self::mechanismsFor($sendingHosts);
+
         $exists = false;
         if ($actual !== null) {
-            if ($mode === 'smtp' && $smtpHost !== null) {
-                $exists = str_contains($actual, "a:{$smtpHost}");
-            } else {
-                $exists = str_contains($actual, 'v=spf1');
+            $exists = true;
+            foreach ($mechanisms as $mechanism) {
+                if (!str_contains($actual, $mechanism)) {
+                    $exists = false;
+                    break;
+                }
             }
         }
 
-        $expected = $this->buildSpfExpected($actual, $mode, $smtpHost);
+        return [
+            'exists' => $exists,
+            'expected' => $this->buildSpfExpected($actual, $mechanisms),
+            'actual' => $actual,
+        ];
+    }
 
-        return ['exists' => $exists, 'expected' => $expected, 'actual' => $actual];
+    /**
+     * `a:{host}` per relay, in the caller's order, without duplicates.
+     *
+     * @param list<string> $sendingHosts
+     * @return list<string>
+     */
+    private static function mechanismsFor(array $sendingHosts): array
+    {
+        $mechanisms = [];
+        foreach ($sendingHosts as $host) {
+            $host = trim($host);
+            if ($host === '') {
+                continue;
+            }
+            $mechanism = 'a:' . $host;
+            if (!in_array($mechanism, $mechanisms, true)) {
+                $mechanisms[] = $mechanism;
+            }
+        }
+
+        return $mechanisms;
     }
 
     /**
@@ -62,22 +127,30 @@ class DnsVerifier
      * operator is actively connecting to for SMTP submission, so it
      * necessarily resolves to something.
      */
-    private function buildSpfExpected(?string $actual, string $mode, ?string $smtpHost): string
+    /**
+     * @param list<string> $mechanisms every `a:{host}` the record must carry
+     */
+    private function buildSpfExpected(?string $actual, array $mechanisms): string
     {
-        $mechanism = ($mode === 'smtp' && $smtpHost !== null) ? "a:{$smtpHost}" : null;
-
         if ($actual === null) {
-            return $mechanism !== null ? "v=spf1 {$mechanism} ~all" : 'v=spf1 a mx ~all';
+            return $mechanisms !== []
+                ? 'v=spf1 ' . implode(' ', $mechanisms) . ' ~all'
+                : 'v=spf1 a mx ~all';
         }
 
-        if ($mechanism === null) {
-            // Local mode: the existing record is already a valid SPF
+        if ($mechanisms === []) {
+            // Local send only: the existing record is already a valid SPF
             // record (a/mx mechanisms aren't specifically required), so
             // there's nothing to merge in.
             return $actual;
         }
 
-        if (str_contains($actual, $mechanism)) {
+        $missing = array_values(array_filter(
+            $mechanisms,
+            static fn(string $mechanism) => !str_contains($actual, $mechanism)
+        ));
+
+        if ($missing === []) {
             return $actual;
         }
 
@@ -86,10 +159,9 @@ class DnsVerifier
 
         if ($last !== false && preg_match('/^[+\-~?]?all$/i', $last)) {
             array_pop($tokens);
-            $tokens[] = $mechanism;
-            $tokens[] = $last;
+            $tokens = array_merge($tokens, $missing, [$last]);
         } else {
-            $tokens[] = $mechanism;
+            $tokens = array_merge($tokens, $missing);
         }
 
         return implode(' ', $tokens);

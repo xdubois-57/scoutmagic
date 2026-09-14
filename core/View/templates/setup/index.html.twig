@@ -250,6 +250,13 @@
                 </div>
             </div>
 
+            {# The mail identity is asked HERE only once, on the very
+               first run: a site has to be able to send before anybody can
+               open a configuration page. Afterwards it belongs to
+               « Courrier sortant › Authentification » and to nothing else
+               (roadmap IT-03) — the same field editable in two places is
+               what guarantees the two will end up disagreeing. #}
+            {% if not is_initialized %}
             <div class="mb-3">
                 <label for="mail_from_address" class="form-label">Adresse d'expédition</label>
                 <input type="email" class="form-control{% if errors.mail_from_address is defined %} is-invalid{% endif %}" id="mail_from_address" name="mail_from_address" value="{{ values.mail_from_address ?? '' }}" required>
@@ -277,6 +284,27 @@
                 <div class="form-text">Adresse à laquelle les fournisseurs de messagerie envoient un résumé périodique des emails reçus au nom du domaine. Certains services externes traitent automatiquement ces résumés. Laissez vide pour utiliser l'adresse d'expédition ci-dessus — modifiable à tout moment par la suite.</div>
                 {% if errors.dmarc_report_email is defined %}<div class="invalid-feedback">{{ errors.dmarc_report_email }}</div>{% endif %}
             </div>
+            {% else %}
+            <div class="card bg-body-tertiary mb-3">
+                <div class="card-body">
+                    <h3 class="h6 mb-2">Adresses et enregistrements DNS</h3>
+                    <p class="small mb-2">
+                        Le site écrit actuellement depuis
+                        <code>{{ values.mail_from_address ?? '—' }}</code>, sous le nom
+                        « {{ values.mail_from_name ?? '—' }} », avec le sélecteur DKIM
+                        <code>{{ values.dkim_selector ?? '—' }}</code>.
+                    </p>
+                    <p class="small text-body-secondary mb-2">
+                        Ces adresses, l'adresse de réponse et la vérification des enregistrements SPF, DKIM et
+                        DMARC se modifient depuis « Courrier sortant › Authentification ». Elles ne sont plus
+                        modifiables ici : un même champ à deux endroits finit par avoir deux valeurs.
+                    </p>
+                    <a href="/config/courrier-sortant/authentification" class="btn btn-outline-secondary btn-sm">
+                        Ouvrir Authentification
+                    </a>
+                </div>
+            </div>
+            {% endif %}
 
             {# DKIM key — generation can happen ahead of the rest of setup
                via the button below, so the public key is available for
@@ -327,7 +355,12 @@
                 <span id="email-test-result" class="small"></span>
             </div>
 
-            {# DNS records panel #}
+            {# DNS records panel — first run only, for the same reason as
+               the addresses above: afterwards the live check lives on
+               « Courrier sortant › Authentification », where it can also
+               see the whole provider chain rather than the single legacy
+               smtp_host this panel knows about (roadmap IT-03). #}
+            {% if not is_initialized %}
             <div class="card bg-body-tertiary mt-3">
                 <div class="card-body">
                     <h3 class="h6 mb-2">Configuration DNS requise</h3>
@@ -342,6 +375,7 @@
                     </button>
                 </div>
             </div>
+            {% endif %}
         </div>
     </div>
 

@@ -12,6 +12,11 @@ use Core\Config\SettingService;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Mail\DkimManager;
+use Core\Mail\Feedback\ReturnPathVerifier;
+use Core\Mail\Feedback\ReturnState;
+use Core\Mail\DnsVerifier;
+use Core\Mail\MailIdentity;
 use Core\Mail\Transport\DeferredMailQueue;
 use Core\Mail\Transport\DeferredMailRepository;
 use Core\Mail\Transport\LaneChainRepository;
@@ -46,6 +51,13 @@ class OutboundMailController extends AbstractController
     public const PAGE_URL = '/config/courrier-sortant';
     public const ROUTING_URL = '/config/courrier-sortant/acheminement';
     public const RELAUNCH_URL = '/config/courrier-sortant/relance';
+    public const AUTHENTICATION_URL = '/config/courrier-sortant/authentification';
+    public const PROVIDERS_URL = '/config/courrier-sortant/fournisseurs';
+
+    public const RETURN_CHECK_URL = '/config/courrier-sortant/authentification/verification';
+
+    /** Where {@see self::rememberDnsReadings()} writes what it saw. */
+    public const SETTING_DNS_LAST_CHECK = 'mail_dns_last_check';
 
     public function __construct(
         protected Environment $twig,
@@ -57,8 +69,303 @@ class OutboundMailController extends AbstractController
         private MailReserve $reserve,
         private ProviderHealthRepository $health,
         private DeferredMailRepository $deferred,
-        private DeferredMailQueue $queue
+        private DeferredMailQueue $queue,
+        private DkimManager $dkim,
+        private DnsVerifier $dns,
+        private ReturnPathVerifier $returns
     ) {
+    }
+
+
+    /**
+     * GET /config/courrier-sortant — the dashboard (roadmap IT-03).
+     *
+     * **Three lines, and a sentence saying the rest is optional.** That
+     * separation is the point of the screen: a volunteer opening it needs
+     * to know whether mail works, and a page that lists twelve equally
+     * weighted settings answers that question for nobody. The advanced
+     * options are listed underneath with their state and are never
+     * hidden — hiding them would make them unfindable, and levelling them
+     * with the three would drown the message.
+     *
+     * @param array<string, string> $params
+     */
+    public function dashboard(Request $request, array $params): Response
+    {
+        return $this->render('config/outbound_mail/dashboard.html.twig', [
+            'essentials' => [$this->domainLine(), $this->providerLine(), $this->returnLine()],
+            'advanced' => $this->advancedLines(),
+            'page_url' => self::PROVIDERS_URL,
+            'authentication_url' => self::AUTHENTICATION_URL,
+            'providers_url' => self::PROVIDERS_URL,
+            'routing_url' => self::ROUTING_URL,
+        ]);
+    }
+
+    /**
+     * « Authentification du domaine » — SPF, DKIM and DMARC as of the
+     * last live lookup.
+     *
+     * It reports a remembered reading rather than taking a fresh one, and
+     * says when it was taken. A `dns_get_record()` on every load of this
+     * page would put a resolver on the critical path of the one page
+     * somebody opens when mail is already broken.
+     *
+     * @return array{key: string, label: string, state: string, detail: string,
+     *     action_label: string, action_url: string}
+     */
+    private function domainLine(): array
+    {
+        $identity = MailIdentity::fromSettings($this->settings);
+        $line = [
+            'key' => 'domain',
+            'label' => 'Authentification du domaine',
+            'action_label' => 'Ouvrir Authentification',
+            'action_url' => self::AUTHENTICATION_URL,
+        ];
+
+        if ($identity->fromAddress === '') {
+            return $line + [
+                'state' => 'missing',
+                'detail' => 'Aucune adresse d’expédition : le site ne peut envoyer aucun message.',
+            ];
+        }
+
+        $last = $this->lastDnsCheck();
+        if ($last === null) {
+            return $line + [
+                'state' => 'unknown',
+                'detail' => 'Les enregistrements DNS n’ont jamais été vérifiés depuis cette page.',
+            ];
+        }
+
+        $published = array_filter([$last['spf'], $last['dkim'], $last['dmarc']], static fn(?bool $v) => $v === true);
+        $missing = array_filter([$last['spf'], $last['dkim']], static fn(?bool $v) => $v === false);
+        $when = $this->readableDate($last['at']);
+
+        if ($missing !== []) {
+            return $line + [
+                'state' => 'missing',
+                'detail' => sprintf(
+                    'Au %s, %s manquait dans la zone DNS de %s. Les messages partent quand même, et beaucoup '
+                        . 'de destinataires les classeront en indésirables.',
+                    $when,
+                    $last['spf'] === false && $last['dkim'] === false ? 'ni le SPF ni le DKIM ne figurait'
+                        : ($last['spf'] === false ? 'le SPF ne figurait pas' : 'le DKIM ne figurait pas'),
+                    $last['domain'] === '' ? 'votre domaine' : $last['domain']
+                ),
+            ];
+        }
+
+        return $line + [
+            'state' => 'ok',
+            'detail' => sprintf(
+                '%d enregistrement%s en place au %s, sur %s.',
+                count($published),
+                count($published) > 1 ? 's' : '',
+                $when,
+                $last['domain'] === '' ? 'votre domaine' : $last['domain']
+            ),
+        ];
+    }
+
+    /**
+     * « Un fournisseur » — is there a relay, and does it serve the three
+     * lanes.
+     *
+     * The local send is always there and is never the answer to this
+     * line: a site that hands everything to its own `mail()` is the site
+     * whose sign-in links end up in a spam folder, which is the whole
+     * reason the chain exists (D5).
+     *
+     * @return array{key: string, label: string, state: string, detail: string,
+     *     action_label: string, action_url: string}
+     */
+    private function providerLine(): array
+    {
+        $line = [
+            'key' => 'provider',
+            'label' => 'Un fournisseur d’envoi',
+            'action_label' => 'Ouvrir Fournisseurs',
+            'action_url' => self::PROVIDERS_URL,
+        ];
+
+        try {
+            $chains = $this->chains->all();
+            $providers = $this->directory->all();
+        } catch (\Throwable) {
+            return $line + ['state' => 'unknown', 'detail' => 'La configuration des fournisseurs est illisible.'];
+        }
+
+        $relays = [];
+        foreach ($providers as $provider) {
+            if (!$provider->isLocal() && $provider->isUsable()) {
+                $relays[] = $provider;
+            }
+        }
+
+        if ($relays === []) {
+            return $line + [
+                'state' => 'missing',
+                'detail' => 'Aucun relais : tout part du serveur lui-même, ce que beaucoup de destinataires '
+                    . 'classent en indésirables.',
+            ];
+        }
+
+        $uncovered = [];
+        foreach (MailLane::ordered() as $lane) {
+            $covered = false;
+            foreach ($chains[$lane->value] ?? [] as $entry) {
+                $provider = $providers[$entry->providerId] ?? null;
+                if ($entry->enabled && $provider !== null && !$provider->isLocal() && $provider->isUsable()) {
+                    $covered = true;
+                    break;
+                }
+            }
+            if (!$covered) {
+                $uncovered[] = $lane->label();
+            }
+        }
+
+        if ($uncovered !== []) {
+            return $line + [
+                'state' => 'warning',
+                'detail' => sprintf(
+                    '%d relais configuré%s, mais %s part encore du serveur lui-même.',
+                    count($relays),
+                    count($relays) > 1 ? 's' : '',
+                    implode(' et ', array_map(static fn(string $l) => mb_strtolower($l), $uncovered))
+                ),
+            ];
+        }
+
+        return $line + [
+            'state' => 'ok',
+            'detail' => sprintf(
+                '%d relais actif%s, sur les trois voies.',
+                count($relays),
+                count($relays) > 1 ? 's' : ''
+            ),
+        ];
+    }
+
+    /**
+     * « Retours relevés » — does what comes back reach anybody.
+     *
+     * @return array{key: string, label: string, state: string, detail: string,
+     *     action_label: string, action_url: string}
+     */
+    private function returnLine(): array
+    {
+        $line = [
+            'key' => 'returns',
+            'label' => 'Retours relevés',
+            'action_label' => 'Ouvrir Authentification',
+            'action_url' => self::AUTHENTICATION_URL,
+        ];
+
+        return $line + match ($this->worstReturnState()) {
+            ReturnState::VERIFIED => [
+                'state' => 'ok',
+                'detail' => 'Un message envoyé à vos adresses de retour est bien revenu dans une boîte relevée.',
+            ],
+            ReturnState::WAITING => [
+                'state' => 'unknown',
+                'detail' => 'Une vérification est en cours : le message est parti, son retour n’a pas encore '
+                    . 'été relevé.',
+            ],
+            ReturnState::NEVER_ARRIVED => [
+                'state' => 'missing',
+                'detail' => 'Un message envoyé à vos adresses de retour n’est jamais revenu. Les réponses et '
+                    . 'les rebonds se perdent.',
+            ],
+            ReturnState::IMPOSSIBLE => [
+                'state' => 'unknown',
+                'detail' => 'Rien ne relève le courrier qui revient : le module « Courrier entrant » est '
+                    . 'désactivé, ou aucune boîte ne lui est ouverte. Envoyer fonctionne sans cela.',
+            ],
+            ReturnState::NEVER_VERIFIED => [
+                'state' => 'unknown',
+                'detail' => 'Les retours n’ont jamais été vérifiés.',
+            ],
+        };
+    }
+
+    /**
+     * Everything else, with its state — listed, never hidden.
+     *
+     * @return list<array{label: string, state_label: string, url: string, detail: string}>
+     */
+    private function advancedLines(): array
+    {
+        $identity = MailIdentity::fromSettings($this->settings);
+        $queue = $this->queueSummary();
+
+        try {
+            $chains = $this->chains->all();
+            $providers = $this->directory->all();
+            $fallbacks = 0;
+            foreach (MailLane::ordered() as $lane) {
+                $active = 0;
+                foreach ($chains[$lane->value] ?? [] as $entry) {
+                    if ($entry->enabled && isset($providers[$entry->providerId])) {
+                        $active++;
+                    }
+                }
+                $fallbacks = max($fallbacks, $active - 1);
+            }
+        } catch (\Throwable) {
+            $fallbacks = 0;
+        }
+
+        return [
+            [
+                'label' => 'Adresse de réponse distincte',
+                'state_label' => $identity->configuredReplyAddress() === ''
+                    ? 'Non — les réponses reviennent à l’adresse d’expédition'
+                    : 'Oui',
+                'url' => self::AUTHENTICATION_URL,
+                'detail' => 'Utile quand personne ne relève l’adresse d’expédition.',
+            ],
+            [
+                'label' => 'Rapports DMARC',
+                'state_label' => $identity->configuredDmarcReportAddress() === ''
+                    ? 'Aucune adresse renseignée'
+                    : 'Demandés',
+                'url' => self::AUTHENTICATION_URL,
+                'detail' => 'Le résumé périodique que les autres opérateurs envoient sur ce que votre domaine '
+                    . 'expédie.',
+            ],
+            [
+                'label' => 'Chaîne de repli',
+                'state_label' => $fallbacks > 0
+                    ? sprintf('Oui — jusqu’à %d fournisseur%s de secours', $fallbacks, $fallbacks > 1 ? 's' : '')
+                    : 'Aucun repli : une seule entrée active par voie',
+                'url' => self::ROUTING_URL,
+                'detail' => 'Ce qui évite que tout s’arrête quand un relais tombe ou atteint son quota.',
+            ],
+            [
+                'label' => 'Messages en attente d’envoi',
+                'state_label' => $queue['waiting'] > 0
+                    ? sprintf('%d en file', $queue['waiting'])
+                    : 'File vide',
+                'url' => self::PROVIDERS_URL,
+                'detail' => 'Les messages différés parce qu’une voie était épuisée ou en panne.',
+            ],
+        ];
+    }
+
+    /**
+     * « 12/09/2026 à 14:05 », from a stored `Y-m-d H:i:s`.
+     *
+     * Through `DateInput` rather than the bare constructor: a value this
+     * page wrote itself could still come back empty from a truncated
+     * setting, and `new DateTimeImmutable('')` answers *now* — which
+     * would date a check that never happened to this very second.
+     */
+    private function readableDate(string $stored): string
+    {
+        return \Core\Service\DateInput::fromStorage($stored)?->format('d/m/Y à H:i') ?? 'une date inconnue';
     }
 
     /**
@@ -96,7 +403,7 @@ class OutboundMailController extends AbstractController
         return $this->render('config/outbound_mail/providers.html.twig', [
             'providers' => $cards,
             'queue' => $this->queueSummary(),
-            'page_url' => self::PAGE_URL,
+            'page_url' => self::PROVIDERS_URL,
             'routing_url' => self::ROUTING_URL,
             'relaunch_url' => self::RELAUNCH_URL,
         ]);
@@ -111,7 +418,7 @@ class OutboundMailController extends AbstractController
     {
         return $this->render('config/outbound_mail/provider_form.html.twig', [
             'provider' => null,
-            'page_url' => self::PAGE_URL,
+            'page_url' => self::PROVIDERS_URL,
         ]);
     }
 
@@ -139,7 +446,7 @@ class OutboundMailController extends AbstractController
                 'batch_interval_minutes' => $provider->batchIntervalMinutes,
                 'is_local' => $provider->isLocal(),
             ],
-            'page_url' => self::PAGE_URL,
+            'page_url' => self::PROVIDERS_URL,
         ]);
     }
 
@@ -150,7 +457,7 @@ class OutboundMailController extends AbstractController
      */
     public function create(Request $request, array $params): Response
     {
-        if (($guard = $this->guardCsrf($request, self::PAGE_URL . '/fournisseurs/nouveau')) !== null) {
+        if (($guard = $this->guardCsrf($request, self::PROVIDERS_URL . '/nouveau')) !== null) {
             return $guard;
         }
 
@@ -169,7 +476,7 @@ class OutboundMailController extends AbstractController
         } catch (TransportException $e) {
             FlashMessage::set('error', $e->getMessage());
 
-            return $this->redirect(self::PAGE_URL . '/fournisseurs/nouveau');
+            return $this->redirect(self::PROVIDERS_URL . '/nouveau');
         }
 
         FlashMessage::set(
@@ -189,7 +496,7 @@ class OutboundMailController extends AbstractController
     public function update(Request $request, array $params): Response
     {
         $id = (int) ($params['id'] ?? -1);
-        $back = self::PAGE_URL . '/fournisseurs/' . $id;
+        $back = self::PROVIDERS_URL . '/' . $id;
 
         if (($guard = $this->guardCsrf($request, $back)) !== null) {
             return $guard;
@@ -223,7 +530,7 @@ class OutboundMailController extends AbstractController
 
         FlashMessage::set('success', 'Fournisseur enregistré.');
 
-        return $this->redirect(self::PAGE_URL);
+        return $this->redirect(self::PROVIDERS_URL);
     }
 
     /**
@@ -233,7 +540,7 @@ class OutboundMailController extends AbstractController
      */
     public function delete(Request $request, array $params): Response
     {
-        if (($guard = $this->guardCsrf($request, self::PAGE_URL)) !== null) {
+        if (($guard = $this->guardCsrf($request, self::PROVIDERS_URL)) !== null) {
             return $guard;
         }
 
@@ -242,12 +549,12 @@ class OutboundMailController extends AbstractController
         } catch (TransportException $e) {
             FlashMessage::set('error', $e->getMessage());
 
-            return $this->redirect(self::PAGE_URL);
+            return $this->redirect(self::PROVIDERS_URL);
         }
 
         FlashMessage::set('success', 'Fournisseur supprimé.');
 
-        return $this->redirect(self::PAGE_URL);
+        return $this->redirect(self::PROVIDERS_URL);
     }
 
     /**
@@ -263,7 +570,7 @@ class OutboundMailController extends AbstractController
      */
     public function relaunch(Request $request, array $params): Response
     {
-        if (($guard = $this->guardCsrf($request, self::PAGE_URL)) !== null) {
+        if (($guard = $this->guardCsrf($request, self::PROVIDERS_URL)) !== null) {
             return $guard;
         }
 
@@ -278,7 +585,7 @@ class OutboundMailController extends AbstractController
         if ($lanes === []) {
             FlashMessage::set('error', 'Choisissez au moins une voie à relancer.');
 
-            return $this->redirect(self::PAGE_URL);
+            return $this->redirect(self::PROVIDERS_URL);
         }
 
         try {
@@ -286,7 +593,7 @@ class OutboundMailController extends AbstractController
         } catch (\Throwable) {
             FlashMessage::set('error', 'La relance n’a pas pu être effectuée.');
 
-            return $this->redirect(self::PAGE_URL);
+            return $this->redirect(self::PROVIDERS_URL);
         }
 
         FlashMessage::set(
@@ -300,7 +607,7 @@ class OutboundMailController extends AbstractController
                 : 'Aucun message abandonné dans cette fenêtre.'
         );
 
-        return $this->redirect(self::PAGE_URL);
+        return $this->redirect(self::PROVIDERS_URL);
     }
 
     /**
@@ -489,14 +796,14 @@ class OutboundMailController extends AbstractController
             // the form is something the person can act on by reloading.
             FlashMessage::set('error', $e->getMessage());
 
-            return $this->redirect(self::PAGE_URL . '/fournisseurs/' . MailProvider::LOCAL_ID);
+            return $this->redirect(self::PROVIDERS_URL . '/' . MailProvider::LOCAL_ID);
         }
 
         $this->directory->refresh();
 
         FlashMessage::set('success', 'Cadence de l’envoi local enregistrée.');
 
-        return $this->redirect(self::PAGE_URL);
+        return $this->redirect(self::PROVIDERS_URL);
     }
 
     /**
@@ -645,6 +952,456 @@ class OutboundMailController extends AbstractController
             ],
             'default_window' => DeferredMailQueue::DEFAULT_WINDOW,
         ];
+    }
+
+
+    /**
+     * GET /config/courrier-sortant/authentification — the addresses, the
+     * four roles they play, and the three DNS records that let other
+     * operators believe them (roadmap IT-03).
+     *
+     * **The DNS check lives here now, and nowhere else.** It used to be a
+     * panel of the installation wizard, which is the one place it could
+     * be before this page existed: a site has to be able to send before
+     * anybody opens a configuration screen. The wizard keeps that initial
+     * entry and now points here for everything after it — the same field
+     * editable in two places is what guarantees the two will disagree.
+     *
+     * **The lookup is behind an explicit button**, not on page load: a
+     * `dns_get_record()` on a resolver that is not answering takes as
+     * long as it takes, and a configuration page that sometimes hangs for
+     * ten seconds is a page people stop opening. `?dns=1` is what asks
+     * for it.
+     *
+     * @param array<string, string> $params
+     */
+    public function authentication(Request $request, array $params): Response
+    {
+        $readings = $request->getQuery('dns') === '1' ? $this->dnsReadings() : null;
+        if ($readings !== null) {
+            $this->rememberDnsReadings($readings);
+        }
+
+        return $this->renderAuthentication($readings);
+    }
+
+    /**
+     * POST /config/courrier-sortant/authentification — save the addresses.
+     *
+     * @param array<string, string> $params
+     */
+    public function saveAuthentication(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, self::AUTHENTICATION_URL)) !== null) {
+            return $guard;
+        }
+
+        $fromAddress = trim((string) $request->getBody('mail_from_address', ''));
+        $fromName = trim((string) $request->getBody('mail_from_name', ''));
+        $replyAddress = trim((string) $request->getBody('mail_reply_address', ''));
+        $dmarcAddress = trim((string) $request->getBody('dmarc_report_email', ''));
+        $selector = trim((string) $request->getBody('dkim_selector', ''));
+
+        $error = $this->addressError($fromAddress, $fromName, $replyAddress, $dmarcAddress, $selector);
+        if ($error !== null) {
+            FlashMessage::set('error', $error);
+
+            return $this->redirect(self::AUTHENTICATION_URL);
+        }
+
+        try {
+            $this->settings->set(MailIdentity::SETTING_FROM_ADDRESS, $fromAddress);
+            $this->settings->set(MailIdentity::SETTING_FROM_NAME, $fromName);
+            $this->settings->set(MailIdentity::SETTING_REPLY_ADDRESS, $replyAddress);
+            $this->settings->set(MailIdentity::SETTING_DMARC_REPORT, $dmarcAddress);
+            $this->settings->set('dkim_selector', $selector);
+        } catch (\Throwable) {
+            FlashMessage::set('error', 'Les adresses n’ont pas pu être enregistrées.');
+
+            return $this->redirect(self::AUTHENTICATION_URL);
+        }
+
+        // An address that is no longer in use takes its verification with
+        // it — « modifier une adresse remet l'état à jamais vérifié ». The
+        // state is looked up BY the address, so a new one already has no
+        // answer; this is the other half, which stops the site keeping a
+        // copy of an address it no longer sends from.
+        $this->returns->forgetAllExcept($this->verifiableAddresses());
+
+        FlashMessage::set(
+            'success',
+            'Adresses enregistrées. Les messages déjà en file partiront avec les nouvelles.'
+        );
+
+        return $this->redirect(self::AUTHENTICATION_URL);
+    }
+
+    /**
+     * POST /config/courrier-sortant/authentification/verification — send
+     * the site a message at each of its own return addresses (IT-03).
+     *
+     * @param array<string, string> $params
+     */
+    public function verifyReturns(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, self::AUTHENTICATION_URL)) !== null) {
+            return $guard;
+        }
+
+        $result = $this->returns->launch($this->verifiableAddresses());
+
+        if ($result['impossible']) {
+            FlashMessage::set(
+                'warning',
+                'La vérification est impossible pour le moment : elle a besoin du module « Courrier entrant » '
+                    . 'et d’au moins une boîte ouverte à « Courrier sortant ».'
+            );
+        } elseif ($result['sent'] === 0) {
+            FlashMessage::set('error', 'Aucun message de vérification n’a pu partir. Regardez la page « Fournisseurs ».');
+        } else {
+            FlashMessage::set(
+                'success',
+                sprintf(
+                    '%d message%s de vérification envoyé%s. L’état passera à « vérifié » dès que le relevé des '
+                        . 'boîtes l’aura vu revenir — cela peut prendre quelques minutes.',
+                    $result['sent'],
+                    $result['sent'] > 1 ? 's' : '',
+                    $result['sent'] > 1 ? 's' : ''
+                )
+            );
+        }
+
+        return $this->redirect(self::AUTHENTICATION_URL);
+    }
+
+    /**
+     * The addresses worth a round trip: the one bounces come back to, and
+     * the one replies come back to.
+     *
+     * Not the DMARC report address: nothing a human ever writes goes
+     * there, what lands in it is a machine report, and IT-06 answers
+     * « are the reports arriving » by looking at the reports themselves
+     * rather than by writing to the box.
+     *
+     * @return list<string>
+     */
+    private function verifiableAddresses(): array
+    {
+        $identity = MailIdentity::fromSettings($this->settings);
+
+        return array_values(array_filter(
+            [$identity->bounceAddress(), $identity->replyAddress()],
+            static fn(string $address) => $address !== ''
+        ));
+    }
+
+    /**
+     * The one sentence that comes back when a field is refused — the
+     * first problem only, because a volunteer fixing one field at a time
+     * is what actually happens.
+     */
+    private function addressError(
+        string $fromAddress,
+        string $fromName,
+        string $replyAddress,
+        string $dmarcAddress,
+        string $selector
+    ): ?string {
+        if ($fromAddress === '') {
+            return 'L’adresse d’expédition est obligatoire : sans elle, le site ne peut plus envoyer un seul '
+                . 'message, liens de connexion compris.';
+        }
+        if (filter_var($fromAddress, FILTER_VALIDATE_EMAIL) === false) {
+            return 'L’adresse d’expédition n’est pas une adresse valide.';
+        }
+        if ($fromName === '') {
+            return 'Le nom d’expédition est obligatoire — c’est ce que la personne lit avant l’adresse.';
+        }
+        if ($replyAddress !== '' && filter_var($replyAddress, FILTER_VALIDATE_EMAIL) === false) {
+            return 'L’adresse de réponse n’est pas une adresse valide. Laissez le champ vide pour que les '
+                . 'réponses reviennent à l’adresse d’expédition.';
+        }
+        if ($dmarcAddress !== '' && filter_var($dmarcAddress, FILTER_VALIDATE_EMAIL) === false) {
+            return 'L’adresse des rapports DMARC n’est pas une adresse valide.';
+        }
+        if ($selector === '' || preg_match('/^[a-z0-9]+$/', $selector) !== 1) {
+            return 'Le sélecteur DKIM ne peut contenir que des lettres minuscules et des chiffres.';
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed>|null $dns null when nobody asked for a lookup
+     */
+    private function renderAuthentication(?array $dns): Response
+    {
+        $identity = MailIdentity::fromSettings($this->settings);
+        $hosts = $this->sendingHosts();
+
+        return $this->render('config/outbound_mail/authentication.html.twig', [
+            'returns' => $this->returnStates($identity),
+            'return_check_url' => self::RETURN_CHECK_URL,
+            'watched_mailboxes' => array_values($this->returns->watchedMailboxes()),
+            'returns_possible' => $this->returns->isPossible(),
+            'returns_need_scope' => $this->returns->isCollectingWithoutScope(),
+            'identity' => [
+                'from_address' => $identity->fromAddress,
+                'from_name' => $identity->fromName,
+                'reply_address' => $identity->configuredReplyAddress(),
+                'dmarc_report_email' => $identity->configuredDmarcReportAddress(),
+                'dkim_selector' => (string) ($this->settings->get('dkim_selector') ?? ''),
+            ],
+            'roles' => $identity->roles(),
+            'spf_domain' => $identity->spfDomain(),
+            'dkim_domain' => $identity->dkimDomain(),
+            'aligned' => $identity->isAligned(),
+            'sending_hosts' => $hosts,
+            'has_dkim_key' => $this->dkim->hasKey(),
+            'dkim_public_key' => $this->dkim->hasKey() ? $this->dkim->getPublicKey() : '',
+            'dns' => $dns,
+            'authentication_url' => self::AUTHENTICATION_URL,
+        ]);
+    }
+
+    /**
+     * What the round trip says about each address worth one — keyed by
+     * the address, because one address answering several roles is the
+     * ordinary case and must produce one row, not three.
+     *
+     * @return array<string, array{label: string, badge: string, address: string,
+     *     sent_at: ?string, received_at: ?string, mailbox: ?string}>
+     */
+    private function returnStates(MailIdentity $identity): array
+    {
+        $format = static fn(?\DateTimeImmutable $at): ?string => $at?->format('d/m/Y à H:i');
+
+        $states = [];
+        foreach ($this->verifiableAddresses() as $address) {
+            if (isset($states[$address])) {
+                continue;
+            }
+
+            $state = $this->returns->stateFor($address);
+            $states[$address] = [
+                'label' => $state['state']->label(),
+                'badge' => $state['state']->badge(),
+                'address' => $address,
+                'sent_at' => $format($state['sent_at']),
+                'received_at' => $format($state['received_at']),
+                'mailbox' => $state['mailbox'],
+            ];
+        }
+
+        return $states;
+    }
+
+    /**
+     * The single worst state among the addresses — what the dashboard's
+     * « retours relevés » line reads.
+     *
+     * Worst rather than best, and rather than a count: one address that
+     * never comes back is a broken return path, and a green line next to
+     * it would be the dashboard lying about exactly what it exists to
+     * report.
+     */
+    private function worstReturnState(): ReturnState
+    {
+        // Asked before the addresses, and not after: a site with no
+        // address at all would otherwise read « jamais vérifié » here,
+        // which invites somebody to press a button that cannot work. The
+        // dashboard's first line already says the address is missing;
+        // this one says the other half of the truth.
+        if (!$this->returns->isPossible()) {
+            return ReturnState::IMPOSSIBLE;
+        }
+
+        $order = [
+            ReturnState::IMPOSSIBLE,
+            ReturnState::NEVER_ARRIVED,
+            ReturnState::NEVER_VERIFIED,
+            ReturnState::WAITING,
+            ReturnState::VERIFIED,
+        ];
+
+        $worst = null;
+        foreach ($this->verifiableAddresses() as $address) {
+            $state = $this->returns->stateFor($address)['state'];
+            if ($worst === null
+                || array_search($state, $order, true) < array_search($worst, $order, true)
+            ) {
+                $worst = $state;
+            }
+        }
+
+        return $worst ?? ReturnState::NEVER_VERIFIED;
+    }
+
+    /**
+     * The three readings, for the domain the envelope sender names.
+     *
+     * @return array<string, mixed>
+     */
+    private function dnsReadings(): array
+    {
+        $identity = MailIdentity::fromSettings($this->settings);
+        $spfDomain = $identity->spfDomain();
+        $dkimDomain = $identity->dkimDomain();
+        $selector = (string) ($this->settings->get('dkim_selector') ?? '');
+
+        if ($spfDomain === '' || $selector === '') {
+            return ['unavailable' => true];
+        }
+
+        $hasKey = $this->dkim->hasKey();
+
+        return [
+            'unavailable' => false,
+            'spf_domain' => $spfDomain,
+            'dkim_domain' => $dkimDomain,
+            'selector' => $selector,
+            'spf' => $this->dns->checkSpfForHosts($spfDomain, $this->sendingHosts()),
+            // Nothing can be proposed before a key pair exists: there is
+            // no value to publish, not even a placeholder.
+            'dkim' => $hasKey
+                ? $this->dns->checkDkim($dkimDomain, $selector, $this->dkim->getPublicKey())
+                : ['exists' => false, 'expected' => null, 'actual' => null, 'key_missing' => true],
+            // Only when an address was actually asked for: a site that
+            // wants no reports needs no record, and proposing one would
+            // be pushing an edit nobody asked for (D12 — `rua` only,
+            // never `ruf`).
+            'dmarc' => $identity->configuredDmarcReportAddress() === ''
+                ? ['exists' => false, 'expected' => null, 'actual' => null, 'not_requested' => true]
+                : $this->dns->checkDmarc($dkimDomain, $identity->dmarcReportAddress()),
+        ];
+    }
+
+    /**
+     * Keep what the lookup said, so the dashboard can show a state with a
+     * date on it.
+     *
+     * **A remembered reading is not a live one, and the dashboard says
+     * so.** The alternative was a `dns_get_record()` on every load of the
+     * first page of the section, which is the one page somebody opens
+     * when mail is already not working — exactly when a resolver is most
+     * likely to be the thing that is broken.
+     *
+     * A reading nobody could take (no address, no selector) clears the
+     * memory rather than overwriting it with a false negative.
+     *
+     * @param array<string, mixed> $dns
+     */
+    private function rememberDnsReadings(array $dns): void
+    {
+        if (($dns['unavailable'] ?? false) === true) {
+            $this->storeDnsMemory('');
+
+            return;
+        }
+
+        $state = static function (mixed $reading): ?bool {
+            if (!is_array($reading)) {
+                return null;
+            }
+            if (($reading['key_missing'] ?? false) === true || ($reading['not_requested'] ?? false) === true) {
+                return null;
+            }
+
+            return ($reading['exists'] ?? false) === true;
+        };
+
+        $memory = json_encode([
+            'at' => (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+            'domain' => (string) ($dns['spf_domain'] ?? ''),
+            'spf' => $state($dns['spf'] ?? null),
+            'dkim' => $state($dns['dkim'] ?? null),
+            'dmarc' => $state($dns['dmarc'] ?? null),
+        ]);
+
+        $this->storeDnsMemory($memory === false ? '' : $memory);
+    }
+
+    private function storeDnsMemory(string $value): void
+    {
+        try {
+            $this->settings->setInternal(self::SETTING_DNS_LAST_CHECK, $value);
+        } catch (\Throwable) {
+            // A dashboard line that reads « jamais vérifié » is a far
+            // smaller problem than a DNS check that ends on an error
+            // page, so this failure is deliberately swallowed.
+        }
+    }
+
+    /**
+     * What the last lookup said, or null when there has never been one.
+     *
+     * @return array{at: string, domain: string, spf: ?bool, dkim: ?bool, dmarc: ?bool}|null
+     */
+    private function lastDnsCheck(): ?array
+    {
+        $raw = (string) ($this->settings->get(self::SETTING_DNS_LAST_CHECK) ?? '');
+        if ($raw === '') {
+            return null;
+        }
+
+        try {
+            $decoded = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return null;
+        }
+
+        if (!is_array($decoded) || !isset($decoded['at'])) {
+            return null;
+        }
+
+        $tri = static fn(string $key): ?bool => isset($decoded[$key]) && is_bool($decoded[$key])
+            ? $decoded[$key]
+            : null;
+
+        return [
+            'at' => (string) $decoded['at'],
+            'domain' => (string) ($decoded['domain'] ?? ''),
+            'spf' => $tri('spf'),
+            'dkim' => $tri('dkim'),
+            'dmarc' => $tri('dmarc'),
+        ];
+    }
+
+    /**
+     * Every relay a message may actually leave through — what the SPF
+     * record has to authorise.
+     *
+     * Enabled in at least one lane, because a provider nobody routes
+     * anything to sends nothing and putting its host in the record would
+     * be authorising a host for no reason. The local send contributes
+     * nothing: it leaves from the web server itself, which the domain's
+     * own `a`/`mx` mechanisms already cover.
+     *
+     * @return list<string>
+     */
+    private function sendingHosts(): array
+    {
+        try {
+            $chains = $this->chains->all();
+            $providers = $this->directory->all();
+        } catch (\Throwable) {
+            return [];
+        }
+
+        $hosts = [];
+        foreach ($providers as $provider) {
+            if ($provider->isLocal() || $provider->host === '') {
+                continue;
+            }
+            if ($this->enabledLaneLabels($chains, $provider->id) === []) {
+                continue;
+            }
+            if (!in_array($provider->host, $hosts, true)) {
+                $hosts[] = $provider->host;
+            }
+        }
+
+        return $hosts;
     }
 
     /**

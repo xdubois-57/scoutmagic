@@ -53,7 +53,24 @@ class MailService
          * a narrow test double), and then a lane that cannot take a
          * message fails exactly as it did before any of this existed.
          */
-        private ?Transport\DeferredMailQueue $deferred = null
+        private ?Transport\DeferredMailQueue $deferred = null,
+        /**
+         * Where « Répondre » goes, for every message that does not name
+         * its own (roadmap IT-03).
+         *
+         * Empty is the ordinary case and means « the From address », which
+         * is what a message carrying no `Reply-To:` at all already does.
+         * It is deliberately NOT stored as a copy of the From address:
+         * the day somebody changes the expéditeur, a copy would go on
+         * pointing at the old one and nothing would say so.
+         *
+         * **Last, and that position is the point.** Several call sites
+         * build this service positionally, so a parameter inserted in the
+         * middle silently hands `$smtpHost` an integer — which is what
+         * happened, loudly, the first time this one went in next to the
+         * other addresses where it reads better.
+         */
+        private string $replyAddress = ''
     ) {
     }
 
@@ -176,9 +193,13 @@ class MailService
             // Recipient
             $mail->addAddress($to);
 
-            // Reply-To
-            if ($replyTo !== null) {
-                $mail->addReplyTo($replyTo);
+            // Reply-To — the caller's own when it has one (a module
+            // routing replies onto a booking), otherwise the site's
+            // configured reply address, otherwise nothing at all and the
+            // reply goes to the visible From.
+            $effectiveReplyTo = $replyTo ?? ($this->replyAddress !== '' ? $this->replyAddress : null);
+            if ($effectiveReplyTo !== null) {
+                $mail->addReplyTo($effectiveReplyTo);
             }
 
             // Attachments

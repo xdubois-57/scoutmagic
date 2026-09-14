@@ -703,6 +703,21 @@ class DatabaseTestHelper
             settled_at TEXT
         )');
 
+        // The return round trip (roadmap IT-03). UNIQUE on the blind
+        // index here as in MySQL: one row per address is what makes
+        // « the operator changed the address » reset the state with no
+        // reset code to forget to call.
+        $pdo->exec('CREATE TABLE mail_return_probes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            address_blind_index TEXT NOT NULL UNIQUE,
+            address_encrypted TEXT NOT NULL,
+            correlation_key TEXT NOT NULL,
+            sent_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            received_at TEXT,
+            mailbox_id INTEGER
+        )');
+
         $pdo->exec('CREATE TABLE human_check_rate_limits (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             ip_hash TEXT NOT NULL,

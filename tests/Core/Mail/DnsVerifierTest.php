@@ -142,6 +142,76 @@ class DnsVerifierTest extends TestCase
         $this->assertSame('v=DMARC1; p=reject; rua=mailto:other@thirdparty.com', $result['expected']);
         $this->assertFalse($result['exists']);
     }
+
+    // ── a chain of relays, not one (roadmap IT-03) ────────────────────
+
+    /**
+     * A chain is only as authorised as its least authorised entry: the
+     * day the first relay is down, the message leaves through the second,
+     * and an SPF record naming only the first fails on exactly the
+     * messages the fallback exists to save.
+     */
+    public function testEveryRelayOfTheChainHasToBeInTheRecord(): void
+    {
+        $verifier = new FakeDnsVerifier([
+            'unite.be' => ['v=spf1 a:relais-un.example ~all'],
+        ]);
+
+        $result = $verifier->checkSpfForHosts('unite.be', ['relais-un.example', 'relais-deux.example']);
+
+        $this->assertFalse($result['exists']);
+        $this->assertSame('v=spf1 a:relais-un.example a:relais-deux.example ~all', $result['expected']);
+    }
+
+    public function testARecordAlreadyNamingEveryRelayIsLeftExactlyAsItIs(): void
+    {
+        $published = 'v=spf1 a:relais-un.example a:relais-deux.example -all';
+        $verifier = new FakeDnsVerifier(['unite.be' => [$published]]);
+
+        $result = $verifier->checkSpfForHosts('unite.be', ['relais-deux.example', 'relais-un.example']);
+
+        $this->assertTrue($result['exists']);
+        $this->assertSame($published, $result['expected']);
+    }
+
+    public function testTheSameRelayNamedTwiceIsProposedOnce(): void
+    {
+        $result = (new FakeDnsVerifier([]))->checkSpfForHosts(
+            'unite.be',
+            ['relais.example', 'relais.example']
+        );
+
+        $this->assertSame('v=spf1 a:relais.example ~all', $result['expected']);
+    }
+
+    /**
+     * No relay at all is the local send on its own: nothing specific to
+     * authorise beyond what the domain's own hosts already cover.
+     */
+    public function testWithoutAnyRelayAnExistingRecordIsEnoughAndNothingIsProposed(): void
+    {
+        $published = 'v=spf1 a mx -all';
+        $verifier = new FakeDnsVerifier(['unite.be' => [$published]]);
+
+        $result = $verifier->checkSpfForHosts('unite.be', []);
+
+        $this->assertTrue($result['exists']);
+        $this->assertSame($published, $result['expected']);
+    }
+
+    public function testAnEmptyHostNameNeverBecomesABareMechanism(): void
+    {
+        // `mode=smtp` with an empty smtp_host used to make the reading
+        // search the record for the string « a: », which any record with
+        // a single `a:` mechanism satisfies — a green light on a host
+        // nobody had named.
+        $verifier = new FakeDnsVerifier(['unite.be' => ['v=spf1 a:autre.example ~all']]);
+
+        $result = $verifier->checkSpf('unite.be', 'smtp', '');
+
+        $this->assertTrue($result['exists']);
+        $this->assertSame('v=spf1 a:autre.example ~all', $result['expected']);
+    }
 }
 
 /**
