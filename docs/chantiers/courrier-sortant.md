@@ -419,3 +419,306 @@ C'est la troisième fois sur cette PR qu'un correctif ouvre la porte
 suivante, et les trois fois la relecture complète l'a trouvée. Vaut d'être
 noté pour la suite du chantier : les corrections d'ordonnancement se
 propagent aux appelants, et il faut les relire ensemble.
+
+---
+
+## IT-02 — La réserve, le report et les alertes
+
+**Livré.**
+
+- `Core\Mail\Transport\MailReserve` et `Reserve` (D14) : pointe
+  quotidienne hors publipostage sur trente jours, marge de vingt,
+  plancher de trente, plafond à la moitié du quota, et application au
+  seul fournisseur partagé entre la voie « Masse » et une autre.
+  `Reserve::provenance()` rend la phrase que l'écran imprime.
+- `MailFailure`, `ProviderHealth`, `ProviderHealthRepository` et la table
+  `mail_provider_health` (D15) : classification de l'erreur, trois échecs
+  consécutifs, verrou de cinq minutes doublant jusqu'à quatre heures,
+  refermeture au premier succès. `MailTransportChain::withoutOpenCircuits()`
+  garantit qu'une voie n'est jamais vidée.
+- `DeferredMessage`, `DeferredMailRepository`, `DeferredMailQueue`,
+  `LaneExhaustedException`, la table `mail_deferred_messages` et
+  `Task\DrainDeferredMailHandler` (D9, D16, D17, D18).
+- `Core\Alert\Check\AuthenticationLaneCheck` et
+  `DeferredMailBacklogCheck`, tous deux dans
+  `OperationalAlertService::MAIL_KEYS`.
+- Deux réglages scalaires dans la page Paramètres générique : durée de
+  vie d'un message en file, rétention des abandonnés.
+- L'écran : la réserve avec sa provenance sous la voie
+  « Authentification », son rappel sur la fiche du fournisseur, l'état du
+  coupe-circuit, le compteur de la file et le formulaire de relance.
+- `OutboundMailCollector` gagne trois sections ; `mail_lane_exhausted`
+  rejoint le journal, en `security` sur l'authentification.
+
+### Décisions prises seul
+
+**Le coupe-circuit n'est pas consulté par l'alerte de la voie
+d'authentification.** La règle impérative de D15 — la chaîne essaie sa
+dernière entrée même circuit ouvert — rend les deux lectures
+incompatibles : compter un circuit ouvert comme un fournisseur manquant
+donnerait l'alarme sur une voie qui fonctionne encore, et le ferait
+pendant exactement la panne que le coupe-circuit traverse. PHPStan a
+d'ailleurs signalé la dépendance comme jamais lue, ce qui était la même
+observation par un autre chemin.
+
+**`open_count` n'est jamais remis à zéro.** D15 demande la remise à zéro
+« au premier succès » ; c'est le compteur d'échecs consécutifs qui l'est.
+Le nombre d'ouvertures, lui, est la mémoire de la fréquence des rechutes,
+et c'est lui qui allonge le verrou suivant : le remettre à zéro donnerait
+à un relais qui tombe toutes les dix minutes le même verrou de cinq
+minutes pour toujours.
+
+**Une erreur inconnue est celle du fournisseur.** Le sens de ce défaut a
+été choisi par le coût de l'erreur : une panne réelle prise pour un refus
+de destinataire laisse un relais mort réessayé quatre cents fois par un
+publipostage ; l'inverse coûte à un fournisseur quelques minutes hors
+d'une chaîne qui, par construction, ne se vide jamais.
+
+**Le compte par âge ne déchiffre plus rien.** `abandonedByAge()` lisait
+les messages entiers pour regarder une date. La date de mise en file est
+en clair une colonne à côté : `abandonedCreatedAt()` et `abandonedIds()`
+la lisent seules, et le corps ne quitte plus la base pour compter ou
+relancer (D18). La relance est un `UPDATE` sur une clé primaire ; rien
+n'obligeait des centaines d'e-mails à passer par la mémoire pour cela.
+
+**Le formulaire de relance est une carte, pas une boîte de dialogue.** Le
+document dit « boîte de dialogue » ; ce qu'elle devait contenir tient en
+trois lignes — la répartition par âge et deux choix — et un dialogue
+qu'il faut ouvrir pour savoir s'il valait la peine d'être ouvert n'est
+ouvert par personne. La fenêtre par défaut la plus courte, elle, est
+respectée à la lettre : c'est la sûreté du bouton.
+
+**La voie d'authentification est refusée côté serveur à la relance**,
+bien que l'écran n'en propose pas la case : elle n'a jamais rien mis en
+file, donc un formulaire qui la nomme ne vient pas de l'écran.
+
+### Écarts entre le document et le dépôt
+
+**`MailService` ne recevait la file de personne.** La file, sa tâche de
+purge et ses réglages étaient en place et testés, mais
+`MailServiceFactory::create()` ne prenait pas de file : en production
+`MailService::$deferred` restait nul et rien n'aurait jamais été différé.
+Corrigé dans les deux racines de composition — `public/index.php` et
+`public/cron.php` — parce qu'un message différé d'un côté et perdu de
+l'autre serait pire que pas de file du tout. À retenir pour la suite du
+chantier : une fonctionnalité entièrement testée peut n'être branchée
+nulle part, et aucun test unitaire ne le dit.
+
+**`{% for x in y if z %}` n'existe plus en Twig 3.** Remplacé par
+`|filter`. Trouvé par les tests de contrôleur, pas par PHPStan.
+
+**Le nom de la table du journal est `event_log`**, pas
+`journal_entries` — le service s'appelle `JournalService`, la table non.
+
+**Le sujet d'aide a dû être coupé en deux.** Les ajouts d'IT-02 portaient
+`courrier-sortant.md` à 962 mots et sept questions ; la charte en autorise
+400 et quatre, et `HelpInvariantsTest` les compte. « Quand le courrier ne
+part plus » (`courrier-sortant-pannes`) prend la réserve, le
+coupe-circuit, les messages différés et leur relance ; l'original garde
+les fournisseurs, les voies et la cadence. La coupure suit la charte, mais
+elle suit aussi l'usage : on vient sur l'une pour configurer, sur l'autre
+parce que quelque chose ne marche pas.
+
+**Sonar a trouvé le trou que la suite verte cachait.** 79,5 % de
+couverture sur le code neuf pour 80 % exigés, et les deux manques étaient
+les deux endroits qui comptent le plus : `Task\DrainDeferredMailHandler`
+n'avait aucun test — la passe qui envoie réellement ce qui a été mis de
+côté — et le `catch (LaneExhaustedException)` de `MailService`, l'entrée
+même de la fonctionnalité, non plus. Seize tests ajoutés, dont ceux qui
+vérifient qu'une pièce jointe remise sur le disque n'y reste pas, échec
+compris.
+
+En les écrivant, deux méthodes se sont révélées mortes :
+`DeferredMessage::ageHours()` et `DeferredMailRepository::abandoned()`,
+toutes deux remplacées par les lectures qui ne déchiffrent rien. La
+seconde méritait de partir pour elle-même : rien sur le chemin de la
+relance ne lit le contenu d'un message abandonné, et laisser une méthode
+qui le ferait est une invitation.
+
+### La relecture, et la leçon qui revient
+
+**Les deux relecteurs ont trouvé indépendamment la même chose, et c'était
+la bonne.** `MailTransportFactory::build()` — le seul endroit où la chaîne
+est construite en production — n'avait pas été mis à jour : `$health` et
+`$reserve` sont optionnels sur le constructeur pour qu'un test puisse s'en
+passer, et c'est exactement par là qu'ils étaient absents partout où cela
+comptait. L'écran affichait une réserve que rien ne retranchait et un état
+de coupe-circuit que rien n'écrivait ; `MailTransportChainTest` restait
+vert parce qu'il construit la chaîne lui-même.
+
+**C'est la troisième fois dans cette itération.** La file non branchée
+dans `MailServiceFactory`, puis celle-ci. La leçon est la même et mérite
+d'être écrite une fois pour toutes : *une dépendance optionnelle ajoutée à
+une classe est une dépendance absente de la racine de composition tant
+qu'un test ne dit pas le contraire*. `MailTransportFactoryTest` affirme
+désormais les deux propriétés — sur le câblage, pas sur le comportement,
+parce que c'est le câblage qui a cassé.
+
+**Le rejeu pouvait rendre un message immortel.** `DrainDeferredMailHandler`
+appelait `MailService::send()` sur l'instance du `TaskContext`, laquelle
+porte une file. Une voie toujours épuisée au moment du réessai attrapait
+donc sa propre `LaneExhaustedException`, écrivait une NOUVELLE ligne avec
+`attempts` à zéro et une échéance fraîche, et rendait la main sans
+exception — la passe supprimait l'originale et comptait un envoi qui
+n'avait pas eu lieu. Le palier de réessai, l'échéance fixe et l'état
+« abandonné » devenaient tous inatteignables. `withoutDeferral()` rend un
+clone sans file : la passe EST la file, elle ne peut pas différer.
+
+**Une pièce jointe réelle n'est pas de l'UTF-8 valide.** `json_encode()`
+refuse ce qui ne l'est pas et rend `false` ; casté en chaîne, cela donnait
+`''`, chiffré et stocké sans un mot — une ligne qui affirmait qu'un
+message attendait, et dont le contenu avait disparu, alors que
+l'expéditeur avait vu « envoyé ». Le test qui prétendait couvrir le cas
+utilisait `"%PDF-1.4\x00binary"`, qui est de l'UTF-8 valide par accident.
+Les octets passent désormais en base64, `JSON_THROW_ON_ERROR` rend le
+reste bruyant, et le test utilise de vrais octets de JPEG.
+
+Reste, du même lot : `554 5.7.1` n'est plus classé comme un refus de
+destinataire (RFC 3463 en fait un refus de politique, et « Relay access
+denied » porte le même code) ; `mail_provider_circuit_opened` n'est plus
+écrit à chaque échec d'un circuit déjà ouvert ; `settleFailure()` garde la
+raison réelle au lieu de « nouvel échec » ; le palier de réessai lit le
+compte d'après l'échec et non d'avant ; la fenêtre de relance par défaut
+est bien la plus courte ; la route de relance rejoint le fournisseur RBAC ;
+`LIMIT` est lié plutôt que concaténé ; les deux réglages passent en
+`number` avec une expression régulière, `SettingService` n'ayant pas de
+cas `integer` ; et une pièce jointe illisible fait échouer le report au
+lieu de mettre en file un message amputé.
+
+**Deux trouvailles que seule une relecture du schéma pouvait donner.** La
+colonne était un `BLOB` — 65 535 octets — alors que la file accepte 2 Mio
+de pièces jointes, que le base64 porte à environ 2,7 Mio. En mode SQL
+strict l'insertion aurait échoué et le message aurait été perdu par le
+mécanisme censé le garder ; en mode permissif la ligne aurait été
+tronquée, son sceau d'authentification n'aurait plus jamais vérifié, et la
+vidange aurait buté dessus. `MEDIUMBLOB`. Le harnais SQLite déclare cette
+colonne en `TEXT`, donc aucune exécution locale ne pouvait le montrer.
+
+Et la documentation RGPD n'avait pas été mise à jour, ce qu'`AGENTS.md`
+qualifie de PR incomplète : la file garde une adresse, un objet, un corps
+et des pièces jointes, avec deux durées de conservation réglables. Un
+paragraphe 4octies le dit, en insistant sur ce que cette file n'est pas —
+un archivage des e-mails envoyés.
+
+**Le premier correctif ne touchait que la moitié du sujet**, et la
+relecture suivante l'a vu. `RgpdContentService.php` contient deux choses :
+les règles données au générateur d'IA, et `getDefaultContent()`, qui lit
+`core/View/rgpd_default.html` — la page réellement servie. Avoir instruit
+le générateur ne disait rien aux lecteurs de la page par défaut. Une
+section 2.6 et une ligne de conservation y sont ajoutées, et les sections
+suivantes renumérotées de part et d'autre.
+
+Enfin, une ligne indéchiffrable ne bloque plus la file : `due()` l'abandonne
+au lieu de la laisser en tête de tri à chaque passe, ce qui aurait arrêté
+la vidange et la purge pour de bon.
+
+**Le deuxième tour a trouvé une fenêtre qui ne pouvait rien attraper.** La
+relance filtrait sur `created_at`, la date de mise en file. Or un message
+n'est abandonné qu'une fois son échéance passée : avec la durée de vie par
+défaut, vingt heures après sa mise en file au plus tôt. La fenêtre de six
+heures — celle que la boîte propose par défaut — ne pouvait donc
+structurellement rien contenir, et le bouton aurait relancé zéro message à
+chaque fois. Les deux tranches d'âge récentes auraient été vides en
+permanence pour la même raison. Tout passe sur `settled_at` : l'âge qui
+veut dire quelque chose est celui de l'échec, pas celui du message.
+
+Mon test le cachait — il réécrivait `created_at` après coup, ce que la
+production ne fait jamais. Le fabricant de messages abandonnés place
+désormais les deux horodatages à un jour d'écart, comme une vraie ligne :
+une tranche ou une fenêtre qui lirait la mauvaise colonne échoue.
+
+**Un « 550 » n'est pas une route coupée.** Une voie s'épuise quand sa
+dernière entrée échoue, et sur l'installation ordinaire — un fournisseur
+actif par voie, ce que pose le seeder — cette dernière entrée est aussi la
+première. Un seul refus de destinataire vidait donc la voie exactement
+comme une panne, et le message partait pour vingt-quatre heures de
+réessais contre un relais qui répondra 550 à chaque fois, pendant que
+l'expéditeur, qui aurait pu corriger l'adresse, avait vu « envoyé ». La
+distinction que le coupe-circuit tirait déjà (`MailFailure`) sert
+maintenant aussi à la file.
+
+Et `hydrate()` ne fabrique plus un message vide quand la charge utile
+déchiffrée n'est pas un appel rejouable : elle lève, et `due()` en fait
+une ligne abandonnée comme n'importe quelle autre — la correction
+précédente du `?? []` supprimé pour satisfaire PHPStan avait laissé un
+`foreach(null)` à la place.
+
+**Et `ProviderHealthRepository::forget()` n'était appelé nulle part.**
+`TransportService::deleteProvider()` nettoie soigneusement les trois
+autres réserves par fournisseur — secrets, entrées de voies, compteurs —
+mais la table de santé n'a pas de clé étrangère (volontairement : l'envoi
+local est le fournisseur 0 et n'a pas de ligne dans `mail_providers`),
+donc rien ne l'effaçait. La ligne survivait au relais qu'elle décrit,
+gardait sa dernière raison SMTP en base et dans toutes les archives de
+support suivantes, et aurait transmis son `open_count` — voire un verrou
+non expiré — à qui aurait repris cet identifiant.
+
+**Un commentaire qui affirmait ce que le code ne faisait pas.** Le
+docblock de `MailFailure::classify()` expliquait longuement pourquoi
+`5.7.1` était tenu hors de la liste des refus de destinataire — c'est un
+refus de politique, et « Relay access denied » porte le même code. Sauf
+que `'550'` était dans la liste et que la recherche est un `str_contains`
+dans l'ordre de déclaration : « 550 5.7.1 Relay access denied » trouvait
+`550` au premier tour et repartait en `Recipient`. L'exclusion réfléchie
+n'avait jamais eu l'occasion de s'appliquer, et depuis que
+`MailService` refuse de différer un refus de destinataire, un relais
+répondant cela à tout aurait vu ses messages jetés au lieu d'être mis en
+file, sans que son circuit ne s'ouvre jamais. Les codes de politique sont
+maintenant lus en premier.
+
+À retenir : un commentaire qui explique une décision n'est pas une preuve
+qu'elle est appliquée — ici les deux se contredisaient depuis le début, et
+seule une relecture ligne à ligne pouvait le voir.
+
+**Et les tranches d'âge étaient disjointes sous un libellé cumulatif.**
+`abandonedByAge()` compte « moins de 6 h », « de 6 à 24 h », etc., mais
+l'écran écrivait « de moins de 24 h » pour la deuxième. Trente messages
+abandonnés il y a deux heures donnaient donc « 30 de moins de 6 h, 0 de
+moins de 24 h » — à côté d'une fenêtre de relance « Les 24 dernières
+heures » qui, elle, les prend bien tous. Les libellés nomment désormais
+les bandes.
+
+**La même distinction manquait au rejeu.** Le garde-fou qui refuse de
+différer un refus de destinataire s'exécute à la mise en file ; or les
+deux échecs ne sont pas nécessairement le même. Un message mis de côté
+pendant une panne est rejoué quand le relais revient — et si l'adresse
+était fausse aussi, c'est là que le 550 se fait entendre pour la première
+fois. `settleFailure()` reprenait alors l'échelle depuis le début et
+dépensait huit tentatives de plus, sur une journée, à réapprendre ce que
+le relais avait déjà dit clairement. Il classe désormais la raison lui
+aussi.
+
+**Et la même règle manquait à la remise sur disque.** `materialise()`
+passait silencieusement une pièce jointe qu'il ne pouvait pas écrire :
+le message partait sans elle, était compté comme envoyé, et la ligne —
+seule copie restante du reçu — était supprimée. C'est exactement ce que
+`payloadFor()` refuse à la mise en file, réintroduit à la sortie. Un
+disque plein est une raison de réessayer plus tard, pas de livrer un
+message amputé : la méthode lève désormais.
+
+Cette branche n'a pas de test, et pas de faux test non plus :
+`sys_get_temp_dir()` est résolu une fois par processus, donc aucun test ne
+peut le pointer vers un endroit non inscriptible après qu'un autre y a
+touché. La lacune est écrite à côté du test voisin plutôt que masquée par
+une simulation qui n'en serait pas une.
+
+**Le même défaut, une couche plus bas, et cette fois le commentaire se
+défaussait.** `hydrate()` passait une pièce jointe dont le base64 ne se
+décode pas, en écrivant que « la vidange décidera ». Or la vidange
+n'inspecte rien : elle écrit sur disque ce qu'on lui donne. L'entrée
+gardait donc son texte base64, livré au destinataire sous le nom d'origine
+— un « recu.pdf » plein d'ASCII —, et la ligne était supprimée comme un
+succès propre. Elle lève désormais, et `due()` l'abandonne.
+
+À retenir, deuxième fois aujourd'hui : **un commentaire qui délègue une
+décision à un autre code doit être vérifié contre ce code**. Ici comme
+pour `5.7.1`, les deux se contredisaient et seule une relecture ligne à
+ligne pouvait le voir.
+
+### Reporté
+
+Rien de fonctionnel. La cadence « collante » après bascule, refusée en
+IT-01 faute de coupe-circuit, est désormais possible : `ProviderHealth`
+existe. Elle n'est pas faite ici parce qu'elle appartient à `BulkCadence`
+et qu'aucune décision de ce document ne la demande — elle sera proposée
+quand une itération touchera la cadence.

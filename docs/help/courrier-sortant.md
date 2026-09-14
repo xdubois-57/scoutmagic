@@ -9,7 +9,7 @@ question: Comment ajouter un deuxième fournisseur d'envoi ?
 question: Pourquoi un publipostage empêche-t-il les liens de connexion de partir ?
 question: À quoi sert la cadence d'un fournisseur ?
 paths: /config/courrier-sortant, /config/courrier-sortant/acheminement, /config/courrier-sortant/fournisseurs/nouveau, /config/courrier-sortant/fournisseurs/*
-related: installation-serveur, config-emails, adresses-email
+related: courrier-sortant-pannes, installation-serveur, config-emails, adresses-email
 ---
 
 Le site envoie du courrier pour trois raisons très différentes : vous
@@ -65,6 +65,10 @@ vivre.
 
 Quand une voie bascule sur le fournisseur suivant, elle adopte **sa**
 cadence et **son** quota, jamais ceux du précédent.
+
+
+Ce qui se passe quand un fournisseur tombe, quand un message ne peut pas
+partir et comment le relancer : voir « Quand le courrier ne part plus ».
 
 > Un message classé en indésirables n'apparaît nulle part sur cette page :
 > il a été accepté. Les compteurs disent ce qui est parti, pas ce qui a

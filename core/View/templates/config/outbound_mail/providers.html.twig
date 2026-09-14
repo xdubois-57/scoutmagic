@@ -76,6 +76,35 @@
                 </p>
             {% endif %}
 
+            {% if provider.reserve %}
+                {# A reminder, not the explanation: the full sentence lives under the
+                   Authentification lane on Acheminement, where somebody wondering
+                   about sign-in links during a mailing goes looking. Here it answers
+                   the narrower question raised by the figures just above — why the
+                   mailing stopped short of the quota. #}
+                <p class="small text-body-secondary mt-2 mb-0">
+                    <i class="bi bi-shield-lock" aria-hidden="true"></i>
+                    {{ provider.reserve.messages }} message{{ provider.reserve.messages > 1 ? 's' : '' }}
+                    de ce quota sont gardés pour les liens de connexion —
+                    <a href="{{ routing_url }}">voir d'où vient ce nombre</a>.
+                </p>
+            {% endif %}
+
+            {% if provider.circuit and provider.circuit.open %}
+                <div class="alert alert-warning small mt-3 mb-0">
+                    Mis à l'écart jusqu'à {{ provider.circuit.until }} après
+                    {{ provider.circuit.failures }} échec{{ provider.circuit.failures > 1 ? 's' : '' }}
+                    d'affilée. Les voies qui ont un autre fournisseur actif passent au suivant en
+                    attendant, et le réessaieront d'elles-mêmes. Celles où il est seul le tentent
+                    quand même : mieux vaut un essai inutile qu'une voie vide.
+                </div>
+            {% elseif provider.circuit and provider.circuit.openings > 0 %}
+                <p class="small text-body-secondary mt-2 mb-0">
+                    Ce fournisseur a été mis à l'écart {{ provider.circuit.openings }}
+                    fois depuis son ajout.
+                </p>
+            {% endif %}
+
             {% if not provider.configured %}
                 <div class="alert alert-warning small mt-3 mb-0">
                     Ce fournisseur n'a pas de serveur SMTP renseigné : les voies où il est actif l'ignorent
@@ -93,6 +122,81 @@
         </div>
     </div>
 {% endfor %}
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h5">Messages différés</h2>
+        <p class="small text-body-secondary">
+            Quand aucun fournisseur d'une voie ne peut prendre un message, il est mis de côté et
+            réessayé plutôt que perdu — pendant {{ queue.lifetime_hours }} heures. Un report n'est
+            pas un silence : l'expéditeur, lui, a vu un envoi réussi.
+        </p>
+
+        <ul class="list-unstyled mb-3">
+            {% for lane in queue.lanes %}
+                <li class="d-flex justify-content-between border-bottom py-1">
+                    <span>{{ lane.label }}</span>
+                    <span class="text-body-secondary">
+                        {% if lane.defers %}
+                            {{ lane.waiting }} en attente
+                        {% else %}
+                            jamais différée — un lien de connexion livré demain n'en est plus un
+                        {% endif %}
+                    </span>
+                </li>
+            {% endfor %}
+        </ul>
+
+        {% if queue.abandoned.total > 0 %}
+            <p class="small mb-2">
+                <strong>{{ queue.abandoned.total }}</strong>
+                message{{ queue.abandoned.total > 1 ? 's ont' : ' a' }} fini par être abandonné{{ queue.abandoned.total > 1 ? 's' : '' }} :
+                {# Disjoint bands, and the words say so. « de moins de 24 h » for a
+                   count that excludes the last six hours would read as « rien depuis
+                   ce matin » next to a relaunch window that does include them. #}
+                {{ queue.abandoned.recent }} de moins de 6 h,
+                {{ queue.abandoned.day }} de 6 à 24 h,
+                {{ queue.abandoned.week }} de 1 à 7 jours,
+                {{ queue.abandoned.older }} au-delà.
+                Ils sont conservés {{ queue.retention_days }} jours, puis effacés, corps compris.
+            </p>
+
+            <form method="post" action="{{ relaunch_url }}"
+                  data-confirm="Remettre ces messages en file ? Ils repartiront dès la prochaine passe.">
+                {{ csrf_field()|raw }}
+                <fieldset class="mb-2">
+                    <legend class="h6">Relancer les échecs</legend>
+                    <label class="form-label small mb-1" for="relaunch-window">Depuis quand</label>
+                    <select class="form-select form-select-sm mb-2" id="relaunch-window" name="window">
+                        {# The shortest window is the default on purpose: the failures somebody
+                           means to relaunch are this morning's, and a dialog opening on « tout »
+                           would re-send a fortnight of messages on the first click. #}
+                        {% for window in queue.windows %}
+                            <option value="{{ window.key }}"{{ window.key == queue.default_window ? ' selected' : '' }}>
+                                {{ window.label }}
+                            </option>
+                        {% endfor %}
+                    </select>
+
+                    <div class="mb-2">
+                        {% for lane in queue.lanes|filter(lane => lane.defers) %}
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="lanes[]"
+                                       value="{{ lane.key }}" id="relaunch-lane-{{ lane.key }}" checked>
+                                <label class="form-check-label small" for="relaunch-lane-{{ lane.key }}">
+                                    {{ lane.label }}
+                                </label>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </fieldset>
+                <button type="submit" class="btn btn-sm btn-outline-primary">Relancer</button>
+            </form>
+        {% else %}
+            <p class="small text-body-secondary mb-0">Aucun message abandonné.</p>
+        {% endif %}
+    </div>
+</div>
 
 <p class="text-body-secondary small">
     Un fournisseur ajouté arrive en bas des trois listes, désactivé partout : il n'est utilisé nulle part

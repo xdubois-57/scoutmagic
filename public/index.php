@@ -1765,6 +1765,42 @@ $settingService->register(
     false,
     304
 );
+// The deferral queue's two numbers, and unlike the quota and the cadence
+// these ARE ordinary settings: scalars that need no context to be read,
+// so they belong on Configuration > Réglages with everything else and are
+// deliberately NOT added to SettingsController's exclusion list. A quota
+// means nothing without the fournisseur it belongs to; « combien de temps
+// un message attend avant qu'on renonce » means exactly what it says.
+$settingService->register(
+    \Core\Mail\Transport\DeferredMailQueue::SETTING_LIFETIME_HOURS,
+    (string) \Core\Mail\Transport\DeferredMailQueue::DEFAULT_LIFETIME_HOURS,
+    // `number`, and a regex refusing anything but a positive integer.
+    // `SettingService::validateValue()` has no `integer` case and lets an
+    // unknown type through, so « abc » would be stored, cast to 0 and
+    // clamped to 1 — a queue that gives up after an hour because
+    // somebody mistyped a setting.
+    'number',
+    'Durée de vie d\'un message différé (heures)',
+    'Au-delà, un message qui n\'a pas pu partir est abandonné plutôt qu\'envoyé : '
+        . 'un rappel de réunion qui arrive trois jours plus tard fait plus de mal que de bien.',
+    null,
+    '^[1-9][0-9]*$',
+    null,
+    true,
+    305
+);
+$settingService->register(
+    \Core\Mail\Transport\DeferredMailQueue::SETTING_ABANDONED_RETENTION_DAYS,
+    (string) \Core\Mail\Transport\DeferredMailQueue::DEFAULT_ABANDONED_RETENTION_DAYS,
+    'number',
+    'Conservation des messages abandonnés (jours)',
+    'Combien de temps un message abandonné reste proposable à la relance, avant d\'être purgé avec son contenu.',
+    null,
+    '^[1-9][0-9]*$',
+    null,
+    true,
+    306
+);
 
 // `installed_at` declares itself (Core\Statistics\InstallationDateService::
 // register()) because SetupController writes it before this file has ever
@@ -2032,7 +2068,26 @@ $mailTransportChain = $mailTransport['chain'];
 $mailProviderDirectory = $mailTransport['directory'];
 $providerConnections = $mailTransport['connections'];
 
-$mailService = MailServiceFactory::create($secrets, $dkimManager, $mailTransportChain, $journalService);
+// The queue a message falls into when its whole lane has run out (D9).
+// Built here rather than inside MailServiceFactory because it needs the
+// encryption service — the payload is a recipient and a body, so it is
+// ciphertext at rest (D18) — and the factory is also what the setup
+// wizard calls, on an installation that has neither keys nor a cron to
+// drain anything.
+$deferredMailRepository = new \Core\Mail\Transport\DeferredMailRepository($pdo, $encryptionService);
+$deferredMailQueue = new \Core\Mail\Transport\DeferredMailQueue(
+    $deferredMailRepository,
+    $settingService,
+    $journalService
+);
+
+$mailService = MailServiceFactory::create(
+    $secrets,
+    $dkimManager,
+    $mailTransportChain,
+    $journalService,
+    $deferredMailQueue
+);
 
 // Automatic e-mails (Core\Mail\Template, ARCHITECTURE.md §8.7bis).
 //
@@ -3316,6 +3371,18 @@ $schedulerService->seed(
     new DateTimeImmutable()
 );
 
+// The deferral queue's own pass (Core\Mail\Transport\Task\
+// DrainDeferredMailHandler): the messages whose next attempt is due, and
+// the purge of the ones nobody will send any more. Runs every five
+// minutes rather than daily — the first retry is five minutes out, and a
+// queue drained once a day would make that number a fiction.
+$schedulerService->seed(
+    'core',
+    \Core\Mail\Transport\Task\DrainDeferredMailHandler::TASK_KEY,
+    \Core\Mail\Transport\Task\DrainDeferredMailHandler::REFERENCE,
+    new DateTimeImmutable()
+);
+
 // Same bootstrap for the help assistant's own purge (Core\Help\Assistant\
 // Task\PurgeHelpAssistantHandler): rate-limit rows past the quota window
 // and cached answers no running version can still reach.
@@ -3672,6 +3739,13 @@ $router->addRoute(
     '/config/courrier-sortant/acheminement/{lane}/activation',
     \Core\Http\Controller\OutboundMailController::class,
     'toggle',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/courrier-sortant/relance',
+    \Core\Http\Controller\OutboundMailController::class,
+    'relaunch',
     'superadmin',
 );
 $router->addRoute(
@@ -5041,9 +5115,14 @@ $frontController->registerController(
             $sendCounterRepository,
             $providerConnections,
             $mailProviderDirectory,
-            $journalService
+            $journalService,
+            new \Core\Mail\Transport\ProviderHealthRepository($pdo)
         ),
-        $settingService
+        $settingService,
+        new \Core\Mail\Transport\MailReserve($sendCounterRepository, $laneChainRepository),
+        new \Core\Mail\Transport\ProviderHealthRepository($pdo),
+        $deferredMailRepository,
+        $deferredMailQueue
     )
 );
 

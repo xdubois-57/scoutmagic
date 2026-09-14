@@ -38,7 +38,15 @@ final class TransportService
         private SendCounterRepository $counters,
         private ProviderConnections $connections,
         private MailProviderDirectory $directory,
-        private JournalService $journal
+        private JournalService $journal,
+        /**
+         * Nullable only so a test that does not care about the breaker
+         * can leave it out. **Every composition root passes it**: without
+         * it a deleted relay leaves its health row behind for ever — and
+         * that row carries its last failure reason, which the support
+         * archive then prints for a provider nobody can see any more.
+         */
+        private ?ProviderHealthRepository $health = null
     ) {
     }
 
@@ -213,6 +221,7 @@ final class TransportService
 
         try {
             $this->chains->removeProvider($id);
+            $this->health?->forget($id);
             $this->providers->delete($id);
         } catch (\Throwable) {
             // Same.
@@ -282,6 +291,14 @@ final class TransportService
 
         $this->chains->removeProvider($id);
         $this->counters->forgetProvider($id);
+        // The breaker's memory goes with everything else. There is no
+        // foreign key to do it — `mail_provider_health` deliberately has
+        // none, since provider 0 has no row in `mail_providers` — so the
+        // row would otherwise outlive the relay it describes, keep its
+        // last SMTP reason in the database and in every later support
+        // archive, and hand its `open_count` (and possibly an unexpired
+        // lockout) to whoever next takes that id.
+        $this->health?->forget($id);
         $this->providers->delete($id);
         $this->directory->refresh();
 

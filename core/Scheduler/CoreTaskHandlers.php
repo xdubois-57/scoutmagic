@@ -64,6 +64,8 @@ final class CoreTaskHandlers
                 \Core\Mail\Task\PurgeSentEmailClaimsHandler::class,
             \Core\Mail\Transport\Task\PurgeSendCountersHandler::TASK_KEY =>
                 \Core\Mail\Transport\Task\PurgeSendCountersHandler::class,
+            \Core\Mail\Transport\Task\DrainDeferredMailHandler::TASK_KEY =>
+                \Core\Mail\Transport\Task\DrainDeferredMailHandler::class,
         ];
     }
 

@@ -40,6 +40,13 @@
                     <div class="small text-body-secondary">{{ item.host }}</div>
                 {% endblock %}
             {% endembed %}
+
+            {% for reserve in lane.reserves %}
+                <p class="small text-body-secondary mt-2 mb-0">
+                    <i class="bi bi-shield-lock" aria-hidden="true"></i>
+                    <strong>{{ reserve.name }}</strong> — {{ reserve.provenance }}
+                </p>
+            {% endfor %}
         </div>
     </div>
 {% endfor %}

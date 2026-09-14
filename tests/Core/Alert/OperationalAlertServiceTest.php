@@ -211,6 +211,30 @@ class OperationalAlertServiceTest extends TestCase
         $this->assertSame([OperationalAlertService::TYPE_MAIL], $types);
     }
 
+    /**
+     * The two alerts the outbound chantier adds take the same road, and
+     * the authentication one is the sharpest case of all: it fires
+     * precisely when nothing on the site can carry a message, so an
+     * e-mail about it is the one message guaranteed not to arrive.
+     */
+    public function testTheOutboundAlertsAlsoAvoidEmail(): void
+    {
+        foreach ([
+            \Core\Alert\Check\AuthenticationLaneCheck::KEY,
+            \Core\Alert\Check\DeferredMailBacklogCheck::KEY,
+        ] as $key) {
+            $types = [];
+            $service = new OperationalAlertService($this->repository, $this->notificationsRecording($types));
+
+            $service->evaluate(new StubCheck(
+                new AlertReading(true, false, 'valeur', 'Titre', 'Pourquoi'),
+                $key
+            ));
+
+            $this->assertSame([OperationalAlertService::TYPE_MAIL], $types, $key);
+        }
+    }
+
     public function testEveryOtherAlertUsesTheOrdinaryType(): void
     {
         $types = [];

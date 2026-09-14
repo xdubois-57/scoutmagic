@@ -14,6 +14,10 @@ use Core\Mail\Transport\LaneChainRepository;
 use Core\Mail\Transport\MailLane;
 use Core\Mail\Transport\MailProvider;
 use Core\Mail\Transport\MailProviderDirectory;
+use Core\Mail\Transport\LaneExhaustedException;
+use Core\Mail\Transport\ProviderHealth;
+use Core\Mail\Transport\MailReserve;
+use Core\Mail\Transport\ProviderHealthRepository;
 use Core\Mail\Transport\MailProviderRepository;
 use Core\Mail\Transport\MailTransportChain;
 use Core\Mail\Transport\ProviderConnections;
@@ -273,8 +277,222 @@ class MailTransportChainTest extends TestCase
         }
     }
 
-    private function chain(MailTransportInterface $delivery): MailTransportChain
+    // ── the circuit breaker (D15) ─────────────────────────────────────
+
+    /**
+     * Three failures in a row that are the provider's own, and the lane
+     * stops trying it — which is the point: one publipostage of four
+     * hundred would otherwise retry a dead relay four hundred times.
+     */
+    public function testAProviderThatKeepsFailingIsSteppedOver(): void
     {
+        $first = $this->addRelay('Premier', 'smtp.premier.test');
+        $second = $this->addRelay('Second', 'smtp.second.test');
+        $this->enable(MailLane::Authentication, [$first, $second]);
+        $health = new ProviderHealthRepository($this->pdo);
+
+        $delivery = $this->recordingTransport(refuseHosts: ['smtp.premier.test']);
+        for ($i = 0; $i < ProviderHealth::FAILURES_BEFORE_OPEN; $i++) {
+            $this->chain($delivery, $health)->deliver($this->message(), MailPurpose::MagicLink);
+        }
+
+        $delivery->attemptedHosts = [];
+        $this->chain($delivery, $health)->deliver($this->message(), MailPurpose::MagicLink);
+
+        $this->assertSame(
+            ['smtp.second.test'],
+            $delivery->attemptedHosts,
+            'The shut-out relay is not even attempted.'
+        );
+    }
+
+    /**
+     * A `550` is the relay working correctly, about one address. Counting
+     * it would shut a provider out because somebody mistyped an e-mail —
+     * and on the mailing lane, where dead addresses collect, nearly every
+     * run would do it.
+     */
+    public function testARejectedRecipientNeverOpensTheCircuit(): void
+    {
+        $first = $this->addRelay('Premier', 'smtp.premier.test');
+        $second = $this->addRelay('Second', 'smtp.second.test');
+        $this->enable(MailLane::Authentication, [$first, $second]);
+        $health = new ProviderHealthRepository($this->pdo);
+
+        $delivery = $this->recordingTransport(
+            refuseHosts: ['smtp.premier.test'],
+            refusalReason: 'SMTP Error: 550 5.1.1 Recipient address rejected'
+        );
+        for ($i = 0; $i < ProviderHealth::FAILURES_BEFORE_OPEN + 2; $i++) {
+            $this->chain($delivery, $health)->deliver($this->message(), MailPurpose::MagicLink);
+        }
+
+        $this->assertFalse($health->forProvider($first)->isOpen());
+
+        $delivery->attemptedHosts = [];
+        $this->chain($delivery, $health)->deliver($this->message(), MailPurpose::MagicLink);
+        $this->assertSame(['smtp.premier.test', 'smtp.second.test'], $delivery->attemptedHosts);
+    }
+
+    /**
+     * **The imperative rule of D15.** A breaker still armed after the
+     * outage was repaired, applied without this exception, locks every
+     * member out of the site — including the super-admin who would have
+     * come to fix it. That is the exact failure the chain exists to end.
+     */
+    public function testACircuitOpenOnEveryEntryStillTriesTheLastOne(): void
+    {
+        $first = $this->addRelay('Premier', 'smtp.premier.test');
+        $second = $this->addRelay('Second', 'smtp.second.test');
+        $this->enable(MailLane::Authentication, [$first, $second]);
+        $health = new ProviderHealthRepository($this->pdo);
+
+        // Shut both of them out.
+        $refusing = $this->recordingTransport(refuseHosts: ['smtp.premier.test', 'smtp.second.test']);
+        for ($i = 0; $i < ProviderHealth::FAILURES_BEFORE_OPEN; $i++) {
+            try {
+                $this->chain($refusing, $health)->deliver($this->message(), MailPurpose::MagicLink);
+            } catch (LaneExhaustedException) {
+                // Expected: nothing was taking messages at that point.
+            }
+        }
+        $this->assertTrue($health->forProvider($first)->isOpen());
+        $this->assertTrue($health->forProvider($second)->isOpen());
+
+        // The relays are repaired. The lane must not stay locked.
+        $working = $this->recordingTransport();
+        $this->chain($working, $health)->deliver($this->message(), MailPurpose::MagicLink);
+
+        $this->assertSame(
+            ['smtp.second.test'],
+            $working->attemptedHosts,
+            'The last entry is tried anyway — and the last is where the local send sits in a real chain.'
+        );
+    }
+
+    /** A relay that answers is a relay that works, whatever it did before. */
+    public function testASuccessClosesTheCircuit(): void
+    {
+        $only = $this->addRelay('Premier', 'smtp.premier.test');
+        $this->enable(MailLane::Authentication, [$only]);
+        $health = new ProviderHealthRepository($this->pdo);
+
+        $refusing = $this->recordingTransport(refuseHosts: ['smtp.premier.test']);
+        for ($i = 0; $i < ProviderHealth::FAILURES_BEFORE_OPEN; $i++) {
+            try {
+                $this->chain($refusing, $health)->deliver($this->message(), MailPurpose::MagicLink);
+            } catch (LaneExhaustedException) {
+                // Expected.
+            }
+        }
+
+        $this->chain($this->recordingTransport(), $health)->deliver($this->message(), MailPurpose::MagicLink);
+
+        $reopened = $health->forProvider($only);
+        $this->assertFalse($reopened->isOpen());
+        $this->assertSame(0, $reopened->consecutiveFailures);
+    }
+
+    // ── the reserve on the mailing lane (D8) ──────────────────────────
+
+    /**
+     * The mailing lane may spend the quota MINUS the reserve; the lanes
+     * the reserve protects still see the whole quota.
+     */
+    public function testTheMailingLaneStopsAtTheReserveWhileTheOthersDoNot(): void
+    {
+        $shared = $this->addRelay('Partagé', 'smtp.partage.test', dailyQuota: 100);
+        $fallback = $this->addRelay('Secours', 'smtp.secours.test');
+        $this->enable(MailLane::Bulk, [$shared, $fallback]);
+        $this->enable(MailLane::Authentication, [$shared, $fallback]);
+
+        // 60 already sent, a reserve of 50 (the floor is 30, but this site
+        // has no history, so the floor applies and is under the cap).
+        for ($i = 0; $i < 80; $i++) {
+            $this->counters->increment($shared, MailLane::Bulk);
+        }
+
+        $reserve = new MailReserve($this->counters, $this->chains);
+        $delivery = $this->recordingTransport();
+        $this->chain($delivery, null, $reserve)->deliver($this->message(), MailPurpose::Bulk);
+
+        $this->assertSame(
+            ['smtp.secours.test'],
+            $delivery->attemptedHosts,
+            '80 sent against a ceiling of 100 - 30 reserved: the mailing steps over it.'
+        );
+
+        $delivery->attemptedHosts = [];
+        $this->chain($delivery, null, $reserve)->deliver($this->message(), MailPurpose::MagicLink);
+        $this->assertSame(
+            ['smtp.partage.test'],
+            $delivery->attemptedHosts,
+            'The authentication lane sees the whole quota — the reserve is FOR it.'
+        );
+    }
+
+    /**
+     * A lane running out is a different event from one relay refusing,
+     * and on the authentication lane it is a different KIND of event:
+     * `security`, because nobody can enter the site — including whoever
+     * would come and repair it.
+     */
+    public function testAnExhaustedAuthenticationLaneIsJournaledAsSecurity(): void
+    {
+        $relay = $this->addRelay('Relais', 'smtp.relais.test');
+        $this->enable(MailLane::Authentication, [$relay]);
+
+        try {
+            $this->chain($this->recordingTransport(refuseHosts: ['smtp.relais.test']))
+                ->deliver($this->message(), MailPurpose::MagicLink);
+            $this->fail('The lane had nothing left to try.');
+        } catch (LaneExhaustedException) {
+            // expected
+        }
+
+        $entry = $this->lastJournalEntry('mail_lane_exhausted');
+        $this->assertSame('security', $entry['level']);
+        $this->assertSame('authentication', json_decode((string) $entry['context'], true)['lane']);
+    }
+
+    /** The mailing lane running out is a bad day, not an incident. */
+    public function testAnExhaustedBulkLaneIsJournaledAsInfo(): void
+    {
+        $relay = $this->addRelay('Relais', 'smtp.relais.test');
+        $this->enable(MailLane::Bulk, [$relay]);
+
+        try {
+            $this->chain($this->recordingTransport(refuseHosts: ['smtp.relais.test']))
+                ->deliver($this->message(), MailPurpose::Bulk);
+            $this->fail('The lane had nothing left to try.');
+        } catch (LaneExhaustedException) {
+            // expected
+        }
+
+        $this->assertSame('info', $this->lastJournalEntry('mail_lane_exhausted')['level']);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function lastJournalEntry(string $type): array
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT level, context FROM event_log WHERE event_type = ? ORDER BY id DESC LIMIT 1'
+        );
+        $statement->execute([$type]);
+        $row = $statement->fetch(\PDO::FETCH_ASSOC);
+
+        $this->assertIsArray($row, 'No journal entry of type ' . $type . '.');
+
+        return $row;
+    }
+
+    private function chain(
+        MailTransportInterface $delivery,
+        ?ProviderHealthRepository $health = null,
+        ?MailReserve $reserve = null
+    ): MailTransportChain {
         $connections = new ProviderConnections($this->secrets);
 
         return new MailTransportChain(
@@ -283,7 +501,9 @@ class MailTransportChainTest extends TestCase
             $this->counters,
             new TransportConfigurator($connections),
             $delivery,
-            new JournalService(new JournalRepository($this->pdo))
+            new JournalService(new JournalRepository($this->pdo)),
+            $health,
+            $reserve
         );
     }
 
@@ -303,14 +523,16 @@ class MailTransportChainTest extends TestCase
      *
      * @param array<int, string> $refuseHosts
      */
-    private function recordingTransport(array $refuseHosts = []): MailTransportInterface
-    {
-        return new class ($refuseHosts) implements MailTransportInterface {
+    private function recordingTransport(
+        array $refuseHosts = [],
+        string $refusalReason = 'SMTP connect() failed.'
+    ): MailTransportInterface {
+        return new class ($refuseHosts, $refusalReason) implements MailTransportInterface {
             /** @var array<int, string> */
             public array $attemptedHosts = [];
 
             /** @param array<int, string> $refuseHosts */
-            public function __construct(private array $refuseHosts)
+            public function __construct(private array $refuseHosts, private string $refusalReason)
             {
             }
 
@@ -319,7 +541,7 @@ class MailTransportChainTest extends TestCase
                 $this->attemptedHosts[] = $mail->Host;
 
                 if (in_array($mail->Host, $this->refuseHosts, true)) {
-                    throw new \RuntimeException('SMTP connect() failed.');
+                    throw new \RuntimeException($this->refusalReason);
                 }
             }
         };
