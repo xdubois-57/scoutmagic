@@ -20,7 +20,7 @@ class DnsVerifier
      * callers get the domain from `Core\Mail\MailIdentity::spfDomain()`,
      * which is the one place that says so and the one place a test pins.
      *
-     * @return array{exists: bool, expected: string, actual: ?string}
+     * @return array{exists: bool, expected: string, actual: ?string, unverifiable: bool}
      */
     public function checkSpf(string $domain, string $mode, ?string $smtpHost = null): array
     {
@@ -43,13 +43,25 @@ class DnsVerifier
      * state to report, since the operator's next action is the same
      * either way.
      *
-     * An empty list is the local send on its own: nothing specific to
-     * authorise beyond the domain's own hosts, so the suggestion falls
-     * back to `a mx`.
+     * **An empty list makes a published record UNVERIFIABLE, not valid.**
+     * With no relay to look for, the loop below has nothing to falsify,
+     * and answering « en place » for any `v=spf1` whatsoever is a green
+     * light this method cannot earn: the site then sends from the web
+     * server itself, and a record like
+     * `v=spf1 include:spf.protection.outlook.com -all` — mailboxes at one
+     * host, the site at another, an ordinary arrangement — hard-fails
+     * exactly those messages. Saying so would need the server's own
+     * address evaluated against the whole record, `include:` recursion
+     * and all, which is an SPF evaluator and not this. So the answer is
+     * `unverifiable`, and the screen says which question it could not
+     * answer rather than answering the wrong one.
+     *
+     * With no record at all the answer stays `false`: nothing authorises
+     * anything, and that needs no relay list to establish.
      *
      * @param list<string> $sendingHosts every relay the site may hand a
      *   message to, deduplicated by the caller or not — this does it.
-     * @return array{exists: bool, expected: string, actual: ?string}
+     * @return array{exists: bool, expected: string, actual: ?string, unverifiable: bool}
      */
     public function checkSpfForHosts(string $domain, array $sendingHosts): array
     {
@@ -66,8 +78,10 @@ class DnsVerifier
         $mechanisms = self::mechanismsFor($sendingHosts);
         $published = self::comparableTokens($actual);
 
+        $unverifiable = $actual !== null && $mechanisms === [];
+
         $exists = false;
-        if ($actual !== null) {
+        if ($actual !== null && !$unverifiable) {
             $exists = true;
             foreach ($mechanisms as $mechanism) {
                 if (!in_array(self::comparable($mechanism), $published, true)) {
@@ -81,6 +95,7 @@ class DnsVerifier
             'exists' => $exists,
             'expected' => $this->buildSpfExpected($actual, $mechanisms),
             'actual' => $actual,
+            'unverifiable' => $unverifiable,
         ];
     }
 

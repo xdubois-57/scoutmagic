@@ -1117,6 +1117,45 @@ ses commentaires en anglais, ce qui raconte le changement en français — et
 la rater deux fois de suite après l'avoir tenue cinq fois est le genre de
 dérive qu'aucun test ne rattrape.
 
+**Et la même faute une fois de plus, à l'endroit le plus visible : « je
+ne peux pas répondre » compté comme « tout va bien ».**
+
+`checkSpfForHosts()` annonçait un SPF « en place » pour **n'importe quel**
+`v=spf1` dès que la liste des relais était vide : la boucle qui aurait pu
+l'infirmer ne tourne pas. Or la liste est vide sur toute installation sans
+relais configuré — l'envoi local, qui est le réglage par défaut. Une unité
+dont les boîtes sont chez un hébergeur et le site chez un autre publie
+typiquement `v=spf1 include:spf.protection.outlook.com -all`, qui **fait
+échouer durement** les messages partis du serveur web ; le tableau de bord
+affichait une coche verte et « N enregistrements en place ».
+
+Le dire pour de bon supposerait d'évaluer l'adresse du serveur contre
+l'enregistrement entier, récursion des `include:` comprise — un évaluateur
+SPF, pas cette classe. La réponse est donc `unverifiable`, troisième
+manière de ne pas savoir, qui rejoint `key_missing` et `not_requested`
+dans le `null` de `state()`. Sans aucun enregistrement, en revanche, la
+réponse reste « absent » : rien n'autorise rien, et l'établir ne demande
+aucune liste de relais.
+
+Le corollaire était plus grave que le cas nominal. `sendingHosts()`
+rattrape ses propres échecs et rendait `[]` — donc une table des
+fournisseurs illisible produisait exactement la liste vide ci-dessus, et
+la ligne SPF passait au vert **sur la foi d'une requête qui avait
+échoué**. Un échec qui se lit comme un succès est pire qu'un échec. La
+méthode rend maintenant `null` dans ce cas, et l'écran distingue les deux
+phrases : « aucun relais n'est actif » et « la liste des relais n'a pas pu
+être lue » n'envoient pas au même endroit.
+
+Deux tests portaient le défaut dans leur nom — « an existing record is
+enough » — et c'est le signe qui aurait dû alerter : un test qui affirme
+qu'une absence de question vaut une réponse. Ils disent maintenant
+l'inverse, avec la raison.
+
+Au passage, le `tearDown()` du test du contrôleur ne nettoyait pas
+récursivement : le premier test à générer une clé DKIM laissait son
+répertoire temporaire derrière lui, et ne le disait que par un
+avertissement PHP que personne ne lit.
+
 ### Reporté
 
 - L'alignement DMARC d'un envoi « au nom de » (ci-dessus), à l'itération

@@ -49,7 +49,7 @@ final class DnsCheckMemory
 
     /**
      * @param array<string, array{exists: bool, expected: ?string, actual: ?string,
-     *     key_missing: bool, not_requested: bool}> $records
+     *     key_missing: bool, not_requested: bool, unverifiable: bool}> $records
      */
     private function __construct(
         public readonly \DateTimeImmutable $takenAt,
@@ -177,11 +177,17 @@ final class DnsCheckMemory
      * and « aucun rapport demandé » are not « l'enregistrement manque »,
      * and reporting them as a failure would send somebody to fix a zone
      * that is exactly as it should be.
+     *
+     * `unverifiable` is the third way of not knowing, and it is the one
+     * that used to read as a success: a published SPF record with no
+     * relay to look for in it ({@see DnsVerifier::checkSpfForHosts()}).
+     * « Je ne peux pas répondre » and « tout va bien » are the two
+     * answers a diagnostic screen must never confuse.
      */
     public function state(string $key): ?bool
     {
         $record = $this->records[$key] ?? null;
-        if ($record === null || $record['key_missing'] || $record['not_requested']) {
+        if ($record === null || $record['key_missing'] || $record['not_requested'] || $record['unverifiable']) {
             return null;
         }
 
@@ -189,7 +195,8 @@ final class DnsCheckMemory
     }
 
     /**
-     * @return array{exists: bool, expected: ?string, actual: ?string, key_missing: bool, not_requested: bool}
+     * @return array{exists: bool, expected: ?string, actual: ?string, key_missing: bool,
+     *     not_requested: bool, unverifiable: bool}
      */
     public function record(string $key): array
     {
@@ -208,7 +215,8 @@ final class DnsCheckMemory
 
     /**
      * @param array<string, mixed> $record
-     * @return array{exists: bool, expected: ?string, actual: ?string, key_missing: bool, not_requested: bool}
+     * @return array{exists: bool, expected: ?string, actual: ?string, key_missing: bool,
+     *     not_requested: bool, unverifiable: bool}
      */
     private static function normalise(array $record): array
     {
@@ -222,6 +230,7 @@ final class DnsCheckMemory
             'actual' => $text($record['actual'] ?? null),
             'key_missing' => ($record['key_missing'] ?? false) === true,
             'not_requested' => ($record['not_requested'] ?? false) === true,
+            'unverifiable' => ($record['unverifiable'] ?? false) === true,
         ];
     }
 

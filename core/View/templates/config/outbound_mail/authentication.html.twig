@@ -228,10 +228,17 @@
                 qui ne le nomme pas fait échouer exactement les messages que le repli devait sauver. Relais
                 actuellement actifs : {% for host in sending_hosts %}<code>{{ host }}</code>{% if not loop.last %}, {% endif %}{% endfor %}.
             </p>
+        {% elseif sending_hosts_unreadable %}
+            <p class="text-warning small">
+                La liste des relais n'a pas pu être lue : la vérification SPF ci-dessous ne peut rien
+                affirmer tant que c'est le cas.
+            </p>
         {% else %}
             <p class="text-body-secondary small">
-                Aucun relais actif : les messages partent du serveur lui-même, que les mécanismes
-                <code>a</code> et <code>mx</code> du domaine couvrent déjà.
+                Aucun relais actif : les messages partent du serveur lui-même. Votre enregistrement SPF doit
+                l'autoriser — par <code>a</code>, par <code>mx</code>, ou par l'adresse du serveur — et cette
+                page ne peut pas le vérifier pour vous : le dire supposerait d'évaluer l'adresse du serveur
+                contre l'enregistrement entier.
             </p>
         {% endif %}
 
@@ -281,6 +288,18 @@
                         <div class="text-warning">
                             Générez d'abord la clé DKIM, puis relancez cette vérification.
                         </div>
+                    {% elseif record.unverifiable %}
+                        <span class="badge text-bg-secondary">Non vérifiable</span>
+                        <div class="text-body-secondary">
+                            Un enregistrement est publié, mais sans relais à y chercher cette page ne peut pas
+                            dire s'il autorise ce site. Sa valeur actuelle est reprise ci-dessous.
+                        </div>
+                        {% if record.actual %}
+                            <div class="mt-1">
+                                <span class="text-body-secondary">Valeur actuelle :</span>
+                                <code class="text-break">{{ record.actual }}</code>
+                            </div>
+                        {% endif %}
                     {% elseif record.not_requested %}
                         <span class="badge text-bg-secondary">Non demandé</span>
                         <div class="text-body-secondary">

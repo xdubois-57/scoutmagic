@@ -185,18 +185,46 @@ class DnsVerifierTest extends TestCase
     }
 
     /**
-     * No relay at all is the local send on its own: nothing specific to
-     * authorise beyond what the domain's own hosts already cover.
+     * No relay at all leaves the question unanswerable, and this used to
+     * answer it « oui ».
+     *
+     * The old name of this test — « an existing record is enough » —
+     * spelled the defect out: with nothing to look for, the loop had
+     * nothing to falsify, so ANY `v=spf1` passed. On a site sending from
+     * the web server itself, `v=spf1 include:spf.protection.outlook.com
+     * -all` (mailboxes at one host, the site at another) hard-fails every
+     * message while this reported « en place ». Saying so for real needs
+     * the server's own address evaluated against the whole record,
+     * `include:` recursion and all — an SPF evaluator, not this.
+     *
+     * The record is still left exactly as it is: there is nothing to
+     * propose adding either.
      */
-    public function testWithoutAnyRelayAnExistingRecordIsEnoughAndNothingIsProposed(): void
+    public function testWithoutAnyRelayAPublishedRecordIsUnverifiableRatherThanValid(): void
     {
         $published = 'v=spf1 a mx -all';
         $verifier = new FakeDnsVerifier(['unite.be' => [$published]]);
 
         $result = $verifier->checkSpfForHosts('unite.be', []);
 
-        $this->assertTrue($result['exists']);
+        $this->assertFalse($result['exists']);
+        $this->assertTrue($result['unverifiable']);
         $this->assertSame($published, $result['expected']);
+    }
+
+    /**
+     * And « unverifiable » is reserved for a record that exists. With no
+     * record at all, nothing authorises anything, and establishing that
+     * needs no relay list — so the answer stays a plain « absent », with
+     * `a mx` proposed.
+     */
+    public function testWithoutAnyRelayAndWithoutAnyRecordTheAnswerIsStillAbsent(): void
+    {
+        $result = (new FakeDnsVerifier([]))->checkSpfForHosts('unite.be', []);
+
+        $this->assertFalse($result['exists']);
+        $this->assertFalse($result['unverifiable']);
+        $this->assertSame('v=spf1 a mx ~all', $result['expected']);
     }
 
     /**
@@ -239,7 +267,12 @@ class DnsVerifierTest extends TestCase
 
         $result = $verifier->checkSpf('unite.be', 'smtp', '');
 
-        $this->assertTrue($result['exists']);
+        // Unverifiable rather than « en place »: an empty host leaves no
+        // mechanism to look for, which is the no-relay case above. What
+        // this test guards is that it never becomes a bare « a: » search
+        // either, which the single `a:autre.example` would have satisfied.
+        $this->assertFalse($result['exists']);
+        $this->assertTrue($result['unverifiable']);
         $this->assertSame('v=spf1 a:autre.example ~all', $result['expected']);
     }
 

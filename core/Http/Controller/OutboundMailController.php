@@ -197,6 +197,26 @@ class OutboundMailController extends AbstractController
             ];
         }
 
+        // An SPF record nobody could check against is not a record in
+        // place either — the same shape of mistake as the DKIM one above,
+        // and the one that used to turn this line green on a site with no
+        // relay at all. {@see DnsVerifier::checkSpfForHosts()} explains
+        // why the question is unanswerable rather than merely unasked.
+        if ($last->record(DnsCheckMemory::SPF)['unverifiable']) {
+            return $line + [
+                'state' => 'unknown',
+                'detail' => sprintf(
+                    'La zone DNS de %s publie un SPF, mais %s — impossible donc de dire s’il autorise ce '
+                        . 'site à envoyer. Relevé du %s.',
+                    $domain,
+                    $this->sendingHosts() === null
+                        ? 'la liste des relais n’a pas pu être lue'
+                        : 'aucun relais n’est actif, et les messages partent du serveur lui-même',
+                    $when
+                ),
+            ];
+        }
+
         return $line + [
             'state' => 'ok',
             'detail' => sprintf(
@@ -1054,7 +1074,12 @@ class OutboundMailController extends AbstractController
             $dkimDomain,
             $selector,
             [
-                DnsCheckMemory::SPF => $this->dns->checkSpfForHosts($spfDomain, $this->sendingHosts()),
+                // `?? []` deliberately: a relay list that could not be
+                // read and a site with no relay reach the same verdict,
+                // « je ne peux pas répondre ». Which of the two it was is
+                // a live reading, said on the screen, not a stale one
+                // frozen into the stored record.
+                DnsCheckMemory::SPF => $this->dns->checkSpfForHosts($spfDomain, $this->sendingHosts() ?? []),
                 // Nothing can be proposed before a key pair exists: there
                 // is no value to publish, not even a placeholder.
                 DnsCheckMemory::DKIM => $hasKey
@@ -1319,7 +1344,8 @@ class OutboundMailController extends AbstractController
             'roles' => $identity->roles(),
             'spf_domain' => $identity->spfDomain(),
             'dkim_domain' => $identity->dkimDomain(),
-            'sending_hosts' => $hosts,
+            'sending_hosts' => $hosts ?? [],
+            'sending_hosts_unreadable' => $hosts === null,
             'has_dkim_key' => $this->dkim->hasKey(),
             'dkim_public_key' => $this->dkim->hasKey() ? $this->dkim->getPublicKey() : '',
             'dns' => $this->rememberedDns(),
@@ -1483,19 +1509,26 @@ class OutboundMailController extends AbstractController
      *
      * Enabled in at least one lane, because a provider nobody routes
      * anything to sends nothing and putting its host in the record would
-     * be authorising a host for no reason. The local send contributes
-     * nothing: it leaves from the web server itself, which the domain's
-     * own `a`/`mx` mechanisms already cover.
+     * be authorising a host for no reason. The local send contributes no
+     * host: it leaves from the web server itself, and no `a:` mechanism
+     * names that.
      *
-     * @return list<string>
+     * **Null when the list could not be read, and an empty array when
+     * there is genuinely no relay — never the same answer.** They used to
+     * be, and it was the expensive kind of confusion: an empty list makes
+     * `checkSpfForHosts()` unable to falsify anything, so a provider
+     * table that failed to load turned the dashboard's SPF line green.
+     * A failure that reads as a success is worse than a failure.
+     *
+     * @return list<string>|null
      */
-    private function sendingHosts(): array
+    private function sendingHosts(): ?array
     {
         try {
             $chains = $this->chains->all();
             $providers = $this->directory->all();
         } catch (\Throwable) {
-            return [];
+            return null;
         }
 
         $hosts = [];

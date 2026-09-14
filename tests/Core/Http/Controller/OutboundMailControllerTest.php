@@ -45,6 +45,7 @@ class OutboundMailControllerTest extends TestCase
     private \PDO $pdo;
     private MailProviderRepository $providers;
     private LaneChainRepository $chains;
+    private \Core\Mail\DkimManager $dkim;
     private OutboundMailController $controller;
     private string $secretsDirectory = '';
     private SettingService $settings;
@@ -109,13 +110,13 @@ class OutboundMailControllerTest extends TestCase
             new \Core\Mail\Transport\ProviderHealthRepository($this->pdo),
             $this->deferred,
             $this->queue,
-            new \Core\Mail\DkimManager($this->secretsDirectory),
+            $this->dkim = new \Core\Mail\DkimManager($this->secretsDirectory),
             // A FAKE, never the real verifier: `checkSpfForHosts()` calls
             // `dns_get_record()`, so a test that exercises the lookup
             // would reach out to a real resolver — the suite would then
             // depend on the network, and hang for as long as an
             // unanswering resolver takes.
-            self::fakeDnsVerifier(),
+            self::fakeDnsVerifier($this->dkim),
             $this->returns = new \Core\Mail\Feedback\ReturnPathVerifier(
                 new \Core\Mail\Feedback\ReturnProbeRepository($this->pdo, $encryption),
                 $this->createMock(\Core\Mail\MailService::class),
@@ -145,10 +146,21 @@ class OutboundMailControllerTest extends TestCase
         if ($this->secretsDirectory === '') {
             return;
         }
-        foreach (glob($this->secretsDirectory . '/*') ?: [] as $file) {
-            unlink($file);
+
+        // Recursively, because `DkimManager::generateKey()` writes into a
+        // `dkim/` subdirectory: the flat version left the temporary
+        // directory behind on every test that generates a key, and said
+        // so only as a PHP warning nobody reads.
+        self::removeDirectory($this->secretsDirectory);
+    }
+
+    private static function removeDirectory(string $directory): void
+    {
+        foreach (glob($directory . '/*') ?: [] as $entry) {
+            is_dir($entry) ? self::removeDirectory($entry) : unlink($entry);
         }
-        rmdir($this->secretsDirectory);
+
+        rmdir($directory);
     }
 
     // ── the RBAC floor ────────────────────────────────────────────────
@@ -293,6 +305,61 @@ class OutboundMailControllerTest extends TestCase
         $body = (string) $this->controller->dashboard($this->getRequest(), [])->getBody();
 
         $this->assertStringContainsString('Aucune clé DKIM n’a été générée', $body);
+        $this->assertStringNotContainsString('enregistrement en place', $body);
+    }
+
+    /**
+     * With no relay to look for, a published SPF authorises nothing this
+     * page can name — and answering « en place » was a green light the
+     * check could not earn. A site sending from the web server itself,
+     * under a zone that delegates its mail elsewhere
+     * (`v=spf1 include:… -all`), had every message hard-fail while this
+     * line showed a tick.
+     */
+    public function testTheDashboardNeverCallsAnUnverifiableSpfGreen(): void
+    {
+        $this->settings->set('mail_from_address', 'info@unite.be');
+        $this->settings->set('dkim_selector', 's2026');
+        // A key pair, so the DKIM branch does not answer first and the
+        // SPF reading is what this test is actually looking at.
+        $this->dkim->generateKey();
+        $this->controller->checkDns($this->formRequest([]), []);
+
+        $body = (string) $this->controller->dashboard($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('impossible donc de dire s’il autorise ce site', $body);
+        $this->assertStringContainsString('aucun relais n’est actif', $body);
+        $this->assertStringNotContainsString('enregistrement en place', $body);
+    }
+
+    /**
+     * And a relay list that could not be READ says so, rather than
+     * borrowing the answer of a site that has no relay.
+     *
+     * The two used to be one empty array, which is the expensive kind of
+     * confusion: `sendingHosts()` catches its own failures, so a provider
+     * table that would not load left nothing to look for in the record —
+     * and the dashboard's SPF line went green on the strength of a query
+     * that had failed. A failure that reads as a success is worse than a
+     * failure.
+     */
+    public function testARelayListThatCannotBeReadIsNotARelayListThatIsEmpty(): void
+    {
+        $this->settings->set('mail_from_address', 'info@unite.be');
+        $this->settings->set('dkim_selector', 's2026');
+        $this->dkim->generateKey();
+
+        // The providers table goes away under the controller's feet —
+        // what `sendingHosts()`'s own catch block exists for. Before the
+        // lookup, because `MailProviderDirectory::all()` memoises its
+        // answer: dropping the table after a first successful read would
+        // test the cache, not the failure.
+        $this->pdo->exec('DROP TABLE mail_providers');
+        $this->controller->checkDns($this->formRequest([]), []);
+
+        $body = (string) $this->controller->dashboard($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('la liste des relais n’a pas pu être lue', $body);
         $this->assertStringNotContainsString('enregistrement en place', $body);
     }
 
@@ -767,12 +834,28 @@ class OutboundMailControllerTest extends TestCase
      * Canned TXT records, through the seam `DnsVerifier::getTxtRecords()`
      * documents as « overridable for testing ».
      */
-    private static function fakeDnsVerifier(): \Core\Mail\DnsVerifier
+    private static function fakeDnsVerifier(\Core\Mail\DkimManager $dkim): \Core\Mail\DnsVerifier
     {
-        return new class extends \Core\Mail\DnsVerifier {
+        return new class ($dkim) extends \Core\Mail\DnsVerifier {
+            public function __construct(private \Core\Mail\DkimManager $dkim)
+            {
+            }
+
             protected function getTxtRecords(string $host): array
             {
-                return $host === 'unite.be' ? ['v=spf1 a mx ~all'] : [];
+                if ($host === 'unite.be') {
+                    return ['v=spf1 a mx ~all'];
+                }
+
+                // The zone publishes the key the site actually holds —
+                // otherwise a test that needs a *valid* DKIM reading to
+                // get past it can never have one, and the DKIM branch
+                // answers for every question asked further down.
+                if (str_contains($host, '._domainkey.') && $this->dkim->hasKey()) {
+                    return ['v=DKIM1; k=rsa; p=' . $this->dkim->getPublicKey()];
+                }
+
+                return [];
             }
         };
     }
