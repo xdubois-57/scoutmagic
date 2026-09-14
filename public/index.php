@@ -2470,7 +2470,10 @@ $storageProtectionRepository = new \Core\Storage\Location\Protection\StorageProt
 // of an administrator, which is the exact thing this registry exists to
 // replace with a French refusal naming « Copies de secours ».
 $storageLocationConsumers->register(
-    new \Core\Storage\Location\Protection\StorageProtectionConsumer($storageProtectionRepository)
+    new \Core\Storage\Location\Protection\StorageProtectionConsumer(
+        $storageProtectionRepository,
+        $storageLocationRepository
+    )
 );
 $storageBackendFactory = new \Core\Storage\Location\Backend\StorageBackendFactory(
     $storageLocationRepository,

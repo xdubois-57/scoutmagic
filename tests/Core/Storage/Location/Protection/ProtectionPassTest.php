@@ -769,6 +769,66 @@ final class ProtectionPassTest extends TestCase
     }
 
     /**
+     * A resume key deleted at the source must cost one replayed page, not
+     * the rest of the listing.
+     *
+     * **The failure is silent and ends in deletion.** The skip matches
+     * nothing, the key stays set, it is carried into the next page, and
+     * every remaining page is skipped too — while the walk still reaches
+     * the end and reports « finished ». The sweep then runs on an
+     * inventory in which this pass stamped nothing and reads the entire
+     * copy as gone from the source. Above the mass-disappearance floor
+     * the D15 guard catches it; below twenty entries nothing does, and
+     * the copy is deleted once the grace period elapses — for files that
+     * never moved.
+     */
+    public function testAResumeKeyDeletedAtTheSourceDoesNotSkipTheRestOfTheListing(): void
+    {
+        foreach (['a', 'b', 'c', 'd', 'e', 'f'] as $name) {
+            $this->source->put('12/' . $name . '.jpg', 'photo-' . $name, 'image/jpeg');
+        }
+
+        $paging = new class ($this->root . '/source') extends LocalStorageBackend {
+            public function list(string $prefix, ?string $cursor = null, int $limit = 1000): StorageListing
+            {
+                $all = parent::list($prefix, null, 10_000)->objects;
+                $offset = $cursor === null ? 0 : (int) substr((string) $cursor, 6);
+                $page = array_slice($all, $offset, 2);
+                $next = ($offset + 2) < count($all) ? 'token-' . ($offset + 2) : null;
+
+                return new StorageListing($page, $next);
+            }
+        };
+
+        // The previous run stopped on a key the source has since lost.
+        $result = $this->pass(new \DateTimeImmutable('2026-01-01 02:00:00'))->run(
+            $this->protection(
+                phase: StorageProtection::PHASE_INVENTORY,
+                startedAt: '2026-01-01 02:00:00',
+                cursor: null,
+                pageLastKey: '12/disparu.jpg',
+                seen: 1
+            ),
+            $paging,
+            $this->destination,
+            'Galerie',
+            $this->always()
+        );
+
+        $this->assertTrue($result->finished);
+        foreach (['a', 'b', 'c', 'd', 'e', 'f'] as $name) {
+            $this->assertTrue(
+                $this->destination->exists('12/' . $name . '.jpg'),
+                "12/{$name}.jpg was skipped because a resume key no longer in the source stayed set"
+            );
+        }
+        $this->assertSame(6, $this->inventory()->count());
+        // And nothing was read as disappeared, which is what the skipped
+        // listing would have produced.
+        $this->assertSame(0, $result->markedAbsentCount);
+    }
+
+    /**
      * A sweep that runs out of time pauses IN its own phase.
      *
      * Until it could, `finishedSweep()` was the only way out of phase 2,

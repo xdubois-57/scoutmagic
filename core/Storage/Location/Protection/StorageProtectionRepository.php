@@ -59,6 +59,32 @@ class StorageProtectionRepository
      *
      * @return list<int>
      */
+    /**
+     * The sources whose copy is written into $destinationLocationId.
+     *
+     * **Asked from the destination's side**, which is the direction the
+     * relation is not stored in and the one a reconfiguration needs: the
+     * screen is editing THIS location and has to find out whose files it
+     * is holding before it publishes them.
+     *
+     * @return list<int>
+     */
+    public function sourceLocationIdsFor(int $destinationLocationId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT DISTINCT source_location_id FROM storage_protections WHERE destination_location_id = ?'
+        );
+        $stmt->execute([$destinationLocationId]);
+
+        return array_map(
+            static fn(array $row): int => (int) $row['source_location_id'],
+            $stmt->fetchAll(\PDO::FETCH_ASSOC)
+        );
+    }
+
+    /**
+     * @return list<int>
+     */
     public function destinationLocationIds(): array
     {
         $stmt = $this->pdo->query('SELECT DISTINCT destination_location_id FROM storage_protections');

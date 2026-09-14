@@ -11,6 +11,7 @@ namespace Core\Storage\Location\Protection;
 use Core\Storage\Location\Config\LocationConfig;
 use Core\Storage\Location\StorageLocation;
 use Core\Storage\Location\StorageLocationConsumer;
+use Core\Storage\Location\StorageLocationRepository;
 
 /**
  * A protection stands on its DESTINATION, and says so.
@@ -32,8 +33,10 @@ use Core\Storage\Location\StorageLocationConsumer;
  */
 final class StorageProtectionConsumer implements StorageLocationConsumer
 {
-    public function __construct(private readonly StorageProtectionRepository $protections)
-    {
+    public function __construct(
+        private readonly StorageProtectionRepository $protections,
+        private readonly StorageLocationRepository $locations
+    ) {
     }
 
     public function usageLabel(): string
@@ -50,28 +53,72 @@ final class StorageProtectionConsumer implements StorageLocationConsumer
     }
 
     /**
-     * **Nothing to object to, and the reason is worth stating rather than
-     * returning a bare null.**
+     * **The other half of the refusal that {@see
+     * StorageProtectionService::refuseExposure()} makes at declaration.**
      *
-     * This question asks what a reconfiguration would do to what the
-     * consumer HOLDS. A protection holds bytes it copied and has no
-     * opinion about their shape: it does not read them, serve them, or
-     * hand out URLs for them.
+     * That one asks, when a protection is declared, whether the
+     * destination publishes what the source does not. It answers once and
+     * never again — and the same exposure is reachable one screen later,
+     * from the other end: declare A (private) protected to B while B
+     * publishes nothing, let a pass copy A's files into B, then edit B
+     * and give it a public URL. Nothing about that edit concerns A, no
+     * consumer stands on B, and every file copied out of A becomes
+     * readable by whoever has the address — « published for ever,
+     * silently », which is the outcome the declaration-time refusal
+     * exists to prevent.
      *
-     * The objection that does matter here — a private source copied to a
-     * destination that publishes — is not a reconfiguration of a location
-     * a protection stands on; it is the CHOICE of destination, and it is
-     * refused at that moment by
-     * {@see StorageProtectionService::refuseExposure()}. Putting it here
-     * as well would answer the wrong question: by the time this is asked,
-     * the location being reconfigured is the destination, and what is at
-     * risk is the source's content, which this consumer cannot name.
+     * An earlier version of this method returned null with a docblock
+     * arguing that a protection « holds bytes it has no opinion about »
+     * and cannot name the source at risk. The second half was simply
+     * wrong: the relation is in this subsystem's own table, and asking it
+     * from the destination's side is one query
+     * ({@see StorageProtectionRepository::sourceLocationIdsFor()}).
+     *
+     * **$wouldBeDefault is not consulted, unlike the gallery's.** A
+     * protection pins its destination by identifier and never follows the
+     * site's default, so promoting a location changes nothing about what
+     * copies reach it.
      */
     public function objectionTo(
         StorageLocation $location,
         LocationConfig $proposedConfig,
         bool $wouldBeDefault
     ): ?string {
-        return null;
+        if (!$proposedConfig->servesPubliclyWithoutExpiry()) {
+            return null;
+        }
+
+        $exposed = [];
+        foreach ($this->protections->sourceLocationIdsFor($location->id) as $sourceId) {
+            $source = $this->locations->findById($sourceId);
+            // A source that already publishes loses nothing by being
+            // copied somewhere that publishes too — the same asymmetry
+            // refuseExposure() is built on. A source that cannot be read
+            // at all counts as exposed: « I could not find out » and
+            // « this exposes nothing » are opposite conclusions, and only
+            // one of them may end in a saved configuration.
+            if ($source === null) {
+                $exposed[] = null;
+                continue;
+            }
+            if (!$source->config->servesPubliclyWithoutExpiry()) {
+                $exposed[] = $source->label;
+            }
+        }
+
+        if ($exposed === []) {
+            return null;
+        }
+
+        $named = array_values(array_filter($exposed, static fn(?string $l): bool => $l !== null));
+
+        return sprintf(
+            'Cet emplacement contient la copie de secours de %s, qui ne distribue pas d\'adresses publiques. '
+                . 'Lui en donner une rendrait accessible à quiconque en a l\'adresse tout ce qui y a déjà été '
+                . 'copié. Retirez cette copie de secours avant de publier cet emplacement.',
+            $named === []
+                ? 'un emplacement'
+                : '« ' . implode(' », « ', $named) . ' »'
+        );
     }
 }

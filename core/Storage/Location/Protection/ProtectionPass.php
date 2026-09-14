@@ -164,6 +164,29 @@ class ProtectionPass
 
         while (true) {
             $listing = $source->list('', $cursor);
+
+            // **A resume key that is not in this page at all is not a
+            // resume point, and answering otherwise loses the listing.**
+            // The key can be gone — deleted at the source between two
+            // runs — and the skip below would then match nothing: every
+            // object of this page skipped, the key still set, and because
+            // it is carried into the next page too, EVERY remaining page
+            // skipped as well. The walk would still reach the end of the
+            // listing and report « finished », so the sweep would run on
+            // an inventory in which nothing had been stamped and read the
+            // whole copy as disappeared from the source. Under twenty
+            // entries, where the mass-disappearance floor does not reach,
+            // that is a copy deleted after its grace period for files
+            // that never moved.
+            //
+            // So a key this page does not hold is dropped, and the page
+            // is replayed from its start — which is what the comment
+            // below has always claimed and what the code did not do. A
+            // replay costs comparisons and no I/O: an up-to-date entry is
+            // a size check against a document already in memory.
+            if ($resumeAfterKey !== null && !$this->pageHolds($listing->objects, $resumeAfterKey)) {
+                $resumeAfterKey = null;
+            }
             $pageLastKey = $resumeAfterKey;
 
             foreach ($listing->objects as $object) {
@@ -171,10 +194,7 @@ class ProtectionPass
                 // rather than by position: a page whose contents shifted
                 // between two runs then costs a few keys looked at twice,
                 // which is free, instead of skipping one that was never
-                // handled. A recorded key that is no longer in the page
-                // at all — deleted meanwhile — replays the page, which is
-                // equally harmless: an up-to-date entry is a comparison
-                // and no I/O.
+                // handled.
                 if ($resumeAfterKey !== null) {
                     if ($object->key === $resumeAfterKey) {
                         $resumeAfterKey = null;
@@ -416,6 +436,22 @@ class ProtectionPass
             $deleted,
             $refusedAsTooMany
         );
+    }
+
+    /**
+     * Whether this page still holds the key a previous run stopped on.
+     *
+     * @param list<\Core\Storage\Location\StoredObject> $objects
+     */
+    private function pageHolds(array $objects, string $key): bool
+    {
+        foreach ($objects as $object) {
+            if ($object->key === $key) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function now(): \DateTimeImmutable

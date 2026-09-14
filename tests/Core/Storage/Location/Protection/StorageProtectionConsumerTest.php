@@ -12,6 +12,7 @@ namespace Tests\Core\Storage\Location\Protection;
 use Core\Security\EncryptionService;
 use Core\Storage\Location\Backend\StorageBackendFactory;
 use Core\Storage\Location\Config\LocalLocationConfig;
+use Core\Storage\Location\Config\ObjectStorageLocationConfig;
 use Core\Storage\Location\Protection\StorageProtectionConsumer;
 use Core\Storage\Location\Protection\StorageProtectionRepository;
 use Core\Storage\Location\StorageLocationConsumerRegistry;
@@ -63,7 +64,7 @@ final class StorageProtectionConsumerTest extends TestCase
         $destination = $this->declareLocal('NAS', 'nas');
         $this->protections->save($source, $destination, 30, 24, true);
 
-        $consumer = new StorageProtectionConsumer($this->protections);
+        $consumer = new StorageProtectionConsumer($this->protections, $this->locations);
 
         $this->assertSame([$destination], $consumer->locationIdsInUse());
         // A location is not kept alive by being protected: deleting it
@@ -86,7 +87,7 @@ final class StorageProtectionConsumerTest extends TestCase
         $this->protections->save($source, $destination, 30, 24, true);
 
         $consumers = new StorageLocationConsumerRegistry();
-        $consumers->register(new StorageProtectionConsumer($this->protections));
+        $consumers->register(new StorageProtectionConsumer($this->protections, $this->locations));
         $service = new StorageLocationService(
             $this->locations,
             new StorageBackendFactory($this->locations, sys_get_temp_dir()),
@@ -96,6 +97,100 @@ final class StorageProtectionConsumerTest extends TestCase
         $this->expectException(StorageLocationException::class);
         $this->expectExceptionMessageMatches('/Copies de secours/');
         $service->delete($destination);
+    }
+
+    private function declareBucket(string $label, ?string $publicUrl): int
+    {
+        return $this->locations->create(
+            StorageLocationType::ObjectStorage,
+            $label,
+            new ObjectStorageLocationConfig(
+                endpoint: 'https://s3.example',
+                region: 'eu-west-1',
+                bucket: 'seau',
+                accessKey: 'AKIA',
+                publicUrl: $publicUrl
+            ),
+            null
+        );
+    }
+
+    /**
+     * **Publishing a location that holds somebody's private copy is
+     * refused, and this is the other half of the declaration-time rule.**
+     *
+     * `StorageProtectionService::refuseExposure()` asks the question once,
+     * when the relation is declared. The same exposure is reachable one
+     * screen later from the other end: declare A → B while B publishes
+     * nothing, let a pass copy A's files into B, then give B a public URL.
+     * Nothing about that edit concerns A, no consumer stands on B, and
+     * every file copied out of A becomes readable by whoever has the
+     * address.
+     */
+    public function testPublishingADestinationThatHoldsAPrivateCopyIsRefused(): void
+    {
+        $source = $this->declareLocal('Galerie', 'gallery');
+        $destination = $this->declareBucket('Seau de secours', null);
+        $this->protections->save($source, $destination, 30, 24, true);
+
+        $consumer = new StorageProtectionConsumer($this->protections, $this->locations);
+        $location = $this->locations->findById($destination) ?? $this->fail('missing');
+
+        $objection = $consumer->objectionTo(
+            $location,
+            new ObjectStorageLocationConfig(
+                endpoint: 'https://s3.example',
+                region: 'eu-west-1',
+                bucket: 'seau',
+                accessKey: 'AKIA',
+                publicUrl: 'https://cdn.example'
+            ),
+            false
+        );
+
+        $this->assertNotNull($objection);
+        $this->assertStringContainsString('Galerie', $objection);
+        $this->assertStringContainsString('copie de secours', $objection);
+    }
+
+    /**
+     * A source that already publishes loses nothing by being copied
+     * somewhere that publishes too — the same asymmetry the
+     * declaration-time refusal is built on.
+     */
+    public function testPublishingADestinationWhoseSourceAlreadyPublishesIsAllowed(): void
+    {
+        $source = $this->declareBucket('Galerie publique', 'https://photos.example');
+        $destination = $this->declareBucket('Seau de secours', null);
+        $this->protections->save($source, $destination, 30, 24, true);
+
+        $consumer = new StorageProtectionConsumer($this->protections, $this->locations);
+        $location = $this->locations->findById($destination) ?? $this->fail('missing');
+
+        $this->assertNull($consumer->objectionTo(
+            $location,
+            new ObjectStorageLocationConfig(
+                endpoint: 'https://s3.example',
+                region: 'eu-west-1',
+                bucket: 'seau',
+                accessKey: 'AKIA',
+                publicUrl: 'https://cdn.example'
+            ),
+            false
+        ));
+    }
+
+    /** A change that does not publish is not this rule's business. */
+    public function testAChangeThatDoesNotPublishIsNotObjectedTo(): void
+    {
+        $source = $this->declareLocal('Galerie', 'gallery');
+        $destination = $this->declareBucket('Seau de secours', null);
+        $this->protections->save($source, $destination, 30, 24, true);
+
+        $consumer = new StorageProtectionConsumer($this->protections, $this->locations);
+        $location = $this->locations->findById($destination) ?? $this->fail('missing');
+
+        $this->assertNull($consumer->objectionTo($location, $location->config, false));
     }
 
     /**
