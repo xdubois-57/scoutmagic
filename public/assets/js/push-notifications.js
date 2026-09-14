@@ -47,7 +47,7 @@
         if (notice) notice.classList.remove('d-none');
     }
 
-    if (!push || !push.isSupported(vapidPublicKey)) {
+    if (!push?.isSupported(vapidPublicKey)) {
         toggle.disabled = true;
         if (unsupportedNotice) unsupportedNotice.classList.remove('d-none');
         return;

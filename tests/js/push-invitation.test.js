@@ -22,7 +22,7 @@ function renderDialog() {
         '  <div id="push-invitation-body" data-vapid-public-key="dGVzdA">' +
         '    <output class="d-none" data-push-invitation-denied></output>' +
         '    <p class="d-none" data-push-invitation-error></p>' +
-        '    <p class="d-none" data-push-invitation-success></p>' +
+        '    <output class="d-none" data-push-invitation-success></output>' +
         '  </div>' +
         '  <button type="button" data-push-invitation-enable>Activer les notifications</button>' +
         '  <button type="button" class="d-none" data-push-invitation-done>Terminé</button>' +

@@ -109,9 +109,13 @@
      * @returns {Promise<'enabled' | 'denied' | 'error'>}
      */
     function enable(vapidPublicKey) {
+        // Every branch of this callback resolves a promise rather than
+        // mixing a bare string with one: a chain assimilates both, but a
+        // function whose returns disagree in type is a function somebody
+        // reads twice (SonarCloud javascript:S3800).
         return Notification.requestPermission().then(function (permission) {
             if (permission !== 'granted') {
-                return 'denied';
+                return Promise.resolve('denied');
             }
 
             return registration()
@@ -144,7 +148,10 @@
         return currentSubscription()
             .then(function (subscription) {
                 if (!subscription) {
-                    return 'disabled';
+                    // The cast keeps the literal from widening to `string`
+                    // through Promise.resolve(), which is what this
+                    // function's own @returns promises.
+                    return Promise.resolve(/** @type {'disabled'} */ ('disabled'));
                 }
                 var endpoint = subscription.endpoint;
 

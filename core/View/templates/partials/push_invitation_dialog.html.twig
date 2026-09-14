@@ -51,9 +51,14 @@
             <p class="text-danger small mt-3 mb-0 d-none" data-push-invitation-error role="alert">
                 Une erreur est survenue. Vous pourrez réessayer depuis « Mon compte ».
             </p>
-            <p class="text-success small mt-3 mb-0 d-none" data-push-invitation-success role="status">
+            {# <output> rather than a <p role="status">: the element carries
+               the live region natively, which is what reaches a screen
+               reader on every device (SonarCloud Web:S6819). `d-block`
+               because <output> is inline by default — same pairing as the
+               notice above and as « Mon compte ». #}
+            <output class="text-success small mt-3 d-none d-block" data-push-invitation-success>
                 C'est fait : les notifications arriveront sur cet appareil.
-            </p>
+            </output>
         </div>
     {% endblock %}
 

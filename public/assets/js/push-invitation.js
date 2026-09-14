@@ -40,7 +40,7 @@
     var body = modal.querySelector('#push-invitation-body');
     var vapidPublicKey = (body instanceof HTMLElement ? body.dataset.vapidPublicKey : '') || '';
     var push = window.ScoutMagicPush;
-    if (!push || !push.isSupported(vapidPublicKey)) {
+    if (!push?.isSupported(vapidPublicKey)) {
         return;
     }
 
@@ -103,27 +103,35 @@
         if (doneButton) doneButton.classList.remove('d-none');
     }
 
+    /**
+     * « Activer les notifications » — ask the device, subscribe it, and
+     * record the answer. Declared here rather than inside the click
+     * handler: it closes over nothing the handler owns, so rebuilding it
+     * on every click would be a new function for the same work.
+     *
+     * @returns {Promise<void>}
+     */
+    function answerByEnabling() {
+        return push.enable(vapidPublicKey).then(function (status) {
+            if (status === 'enabled') {
+                return settle('enabled').then(markEnabled);
+            }
+            // Denied is final for this device — the browser will not ask
+            // again — so the dialog stays open on its explanation and the
+            // dismissal that follows records « Plus tard », which is what
+            // it now means.
+            show(status === 'denied' ? deniedNotice : errorNotice);
+            return Promise.resolve();
+        });
+    }
+
     if (enableButton) {
         enableButton.addEventListener('click', function () {
             var api = window.ScoutMagicApi;
-            var run = function () {
-                return push.enable(vapidPublicKey).then(function (status) {
-                    if (status === 'enabled') {
-                        return settle('enabled').then(markEnabled);
-                    }
-                    // Denied is final for this device — the browser will
-                    // not ask again — so the dialog stays open on its
-                    // explanation and the dismissal that follows records
-                    // « Plus tard », which is what it now means.
-                    show(status === 'denied' ? deniedNotice : errorNotice);
-                    return undefined;
-                });
-            };
-
             if (api) {
-                api.withDisabled(enableButton, run);
+                api.withDisabled(enableButton, answerByEnabling);
             } else {
-                run();
+                answerByEnabling();
             }
         });
     }
