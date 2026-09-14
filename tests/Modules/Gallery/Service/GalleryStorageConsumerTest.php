@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Modules\Gallery\Service;
 
+use Core\Config\SettingRepository;
+use Core\Config\SettingService;
 use Core\Security\EncryptionService;
 use Core\Storage\Location\Config\LocalLocationConfig;
 use Core\Storage\Location\Config\ObjectStorageLocationConfig;
@@ -11,6 +13,7 @@ use Core\Storage\Location\StorageLocationRepository;
 use Core\Storage\Location\StorageLocationType;
 use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
+use Modules\Gallery\Service\GalleryLocationService;
 use Modules\Gallery\Service\GalleryStorageConsumer;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -28,6 +31,7 @@ class GalleryStorageConsumerTest extends TestCase
     private \PDO $pdo;
     private AlbumRepository $albumRepository;
     private StorageLocationRepository $locations;
+    private SettingService $settings;
     private GalleryStorageConsumer $consumer;
     private int $scoutYearId;
     private int $authorId;
@@ -41,7 +45,16 @@ class GalleryStorageConsumerTest extends TestCase
             $this->pdo,
             new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
         );
-        $this->consumer = new GalleryStorageConsumer($this->albumRepository, $this->locations);
+        $this->settings = new SettingService(new SettingRepository($this->pdo));
+        $this->settings->register(
+            GalleryLocationService::NEW_ALBUM_LOCATION_SETTING,
+            '0',
+            'number',
+            'Emplacement',
+            'Emplacement',
+            'gallery'
+        );
+        $this->consumer = new GalleryStorageConsumer($this->albumRepository, $this->locations, $this->settings);
 
         [$label, $start, $end] = DatabaseTestHelper::scoutYear();
         $this->pdo->prepare('INSERT INTO scout_years (label, start_date, end_date) VALUES (?, ?, ?)')
@@ -157,6 +170,49 @@ class GalleryStorageConsumerTest extends TestCase
      * every delegated album there becomes a permanent 404 with nothing
      * anywhere explaining it.
      */
+    /**
+     * **A choice is a use, and that is what this covers.** An
+     * administrator who picks « emplacement des nouveaux albums » before
+     * creating a single album there has decided something no album row
+     * records. Reported unused, the storage page renders the delete form,
+     * the deletion succeeds, and the setting is left naming an identifier
+     * that no longer exists — `locationForNewAlbums()` then falls back on
+     * the site default exactly as documented, and the choice is gone with
+     * nothing said.
+     */
+    public function testAChosenLocationForNewAlbumsCountsAsUsedBeforeAnyAlbumExists(): void
+    {
+        $id = $this->locations->create(StorageLocationType::Local, 'NAS', new LocalLocationConfig('nas'), null);
+        $this->settings->set(GalleryLocationService::NEW_ALBUM_LOCATION_SETTING, (string) $id, 'gallery');
+
+        $this->assertContains(
+            $id,
+            $this->consumer->locationIdsInUse(),
+            'Chosen for new albums is a use, even before the first album is created there.'
+        );
+    }
+
+    /** 0 is « the site's default » and names no location of its own. */
+    public function testTheDefaultSentinelNamesNoLocationOfItsOwn(): void
+    {
+        $id = $this->locations->create(StorageLocationType::Local, 'NAS', new LocalLocationConfig('nas'), null);
+        $this->settings->set(GalleryLocationService::NEW_ALBUM_LOCATION_SETTING, '0', 'gallery');
+
+        $this->assertNotContains($id, $this->consumer->locationIdsInUse());
+    }
+
+    /** Chosen AND standing on: one entry, not two. */
+    public function testALocationBothChosenAndUsedIsReportedOnce(): void
+    {
+        $id = $this->locations->create(StorageLocationType::Local, 'NAS', new LocalLocationConfig('nas'), null);
+        $this->createDelegatedAlbum($id);
+        $this->settings->set(GalleryLocationService::NEW_ALBUM_LOCATION_SETTING, (string) $id, 'gallery');
+
+        $ids = $this->consumer->locationIdsInUse();
+
+        $this->assertSame([$id], array_values(array_filter($ids, static fn (int $v): bool => $v === $id)));
+    }
+
     public function testItObjectsToAPublicUrlWhileADelegatedAlbumLivesOnTheLocation(): void
     {
         $id = $this->locations->create(StorageLocationType::Local, 'Disque', new LocalLocationConfig('a'), null);

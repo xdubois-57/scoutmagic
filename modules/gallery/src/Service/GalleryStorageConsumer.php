@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Gallery\Service;
 
+use Core\Config\SettingService;
 use Core\Storage\Location\Config\LocationConfig;
 use Core\Storage\Location\StorageLocation;
 use Core\Storage\Location\StorageLocationConsumer;
@@ -34,12 +35,29 @@ use Modules\Gallery\Repository\AlbumRepository;
  * administrator gets a clean deletion, no constraint violation and no
  * warning; the albums then resolve onto whatever default replaced it, and
  * their files are not there.
+ *
+ * **The chosen location for new albums is the same case**, and it was
+ * missing for the same reason: an administrator who picks « emplacement
+ * des nouveaux albums » before creating a single album there has made a
+ * decision that no album row records yet. Counting only the rows reported
+ * that location unused, so the storage page offered it for deletion — and
+ * the deletion succeeded, leaving the setting pointing at an identifier
+ * that names nothing. {@see GalleryLocationService::locationForNewAlbums()}
+ * then falls back on the site default, exactly as it is documented to,
+ * and the administrator's explicit choice is gone with nothing said.
  */
 class GalleryStorageConsumer implements StorageLocationConsumer
 {
     public function __construct(
         private AlbumRepository $albumRepository,
-        private StorageLocationRepository $locations
+        private StorageLocationRepository $locations,
+        /**
+         * Read for one key only: the location new albums are created on.
+         * It is a CHOICE rather than an occupation, and the two are the
+         * same answer to the one question this interface asks — « would
+         * deleting this destination break something of mine? ».
+         */
+        private SettingService $settings
     ) {
     }
 
@@ -60,6 +78,18 @@ class GalleryStorageConsumer implements StorageLocationConsumer
             if ($default !== null && !in_array($default->id, $ids, true)) {
                 $ids[] = $default->id;
             }
+        }
+
+        // Chosen but not yet written on: see the class docblock. 0 is « the
+        // site's default », which the branch above already covers when it
+        // matters, and names no location of its own.
+        $chosen = (int) $this->settings->get(
+            GalleryLocationService::NEW_ALBUM_LOCATION_SETTING,
+            'gallery',
+            0
+        );
+        if ($chosen > 0 && !in_array($chosen, $ids, true)) {
+            $ids[] = $chosen;
         }
 
         return $ids;

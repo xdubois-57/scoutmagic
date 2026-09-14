@@ -7417,7 +7417,11 @@ if ($isEnabled('gallery')) {
     // with « Galeries photo » rather than a foreign-key error, and what
     // the storage screen reads to say who is served by what.
     $storageLocationConsumers->register(
-        new \Modules\Gallery\Service\GalleryStorageConsumer($galleryAlbumRepo, $storageLocationRepository)
+        new \Modules\Gallery\Service\GalleryStorageConsumer(
+            $galleryAlbumRepo,
+            $storageLocationRepository,
+            $settingService
+        )
     );
     // The object storage the gallery writes to, as declared sub-processors
     // (§7.4) — read from the configured locations, so the RGPD prompt

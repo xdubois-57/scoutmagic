@@ -82,7 +82,7 @@ final class GalleryStorageWiring
         // allowed, so it is filled here too rather than left as a hole
         // somebody widens later.
         $consumers = new StorageLocationConsumerRegistry();
-        $consumers->register(new GalleryStorageConsumer($albumRepository, $locations));
+        $consumers->register(new GalleryStorageConsumer($albumRepository, $locations, $settings));
 
         $locationService = new StorageLocationService($locations, $backends, $consumers);
 

@@ -37,6 +37,14 @@ class GalleryLocationService
      * this back through `Modules\Gallery\Service\GalleryStorageConsumer`
      * to say « Galeries photo → Nextcloud de l'unité », and never writes
      * it: the assignment belongs to whoever made it.
+     *
+     * **That read is also what stops the location being deleted**, and it
+     * had to be added rather than assumed: the consumer counted album rows
+     * and the site default, so a location chosen here before the first
+     * album was created there came back unused, and the screen offered it
+     * for deletion. The setting then named nothing and
+     * {@see locationForNewAlbums()} fell back on the default — the
+     * documented behaviour, reached for a reason nobody chose.
      */
     public const NEW_ALBUM_LOCATION_SETTING = 'gallery_new_album_location_id';
 
