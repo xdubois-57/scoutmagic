@@ -454,6 +454,17 @@ d'abord. Un album ordinaire, lui, n'est pas concerné : c'est le modèle
 d'accès délégué — une autorisation à courte durée — qu'un lien public
 permanent annule.
 
+**La même brisure avait une seconde porte, sur la même page.** Promouvoir
+un emplacement public **par défaut** fait exactement le même dégât que
+modifier un emplacement déjà par défaut : un album délégué dont
+`location_id` est nul n'est pas « nulle part », il est sur le défaut, et
+`resolveLocationForAlbum()` l'y épingle au prochain contact. Comme
+`location_id` est une colonne toute neuve, c'est l'état de **tous** les
+albums délégués d'une installation mise à jour, pas un cas limite.
+`setDefault()` est donc gardé du même prédicat, avec `true` en second
+argument puisque la question porte sur l'emplacement qu'on s'apprête à
+faire devenir le défaut.
+
 **Et un refus de capacité ne nommait pas l'emplacement.** Le seul appel
 réel en production, dans la fusion de deux albums délégués, disait « cet
 album » — or ce qu'un administrateur peut aller re-pointer, c'est un

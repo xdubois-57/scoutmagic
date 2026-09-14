@@ -311,6 +311,63 @@ class GalleryStorageLocationControllerTest extends TestCase
         ], [], []);
     }
 
+    public function testSetDefaultRefusesAPublicLocationWhileADelegatedAlbumWouldLandOnIt(): void
+    {
+        // The same stranding as the edit form, through the other door. A
+        // delegated album whose location_id is still null is not on « no »
+        // location — it is on the default, and resolving pins it there.
+        $this->storageLocationRepository->create(
+            StorageLocationType::Local, 'Disque privé', new LocalLocationConfig('gallery'), null
+        );
+        $publicId = $this->storageLocationRepository->create(
+            StorageLocationType::ObjectStorage,
+            'Bucket public',
+            new ObjectStorageLocationConfig(
+                'https://fsn1.your-objectstorage.com', 'fsn1', 'scoutmagic', 'AK', null, 'https://cdn.example.org'
+            ),
+            'secret'
+        );
+        $this->albumRepository->create(
+            Album::TYPE_LOCAL, 'Album délégué', null, '2026-01-01', null,
+            $this->scoutYearId, null, null, $this->authorId, 'groups', 42
+        );
+
+        $response = $this->controller->setDefault(
+            $this->jsonRequest(['_csrf_token' => $this->csrfToken()]),
+            ['id' => (string) $publicId]
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertFalse($this->storageLocationRepository->findById($publicId)?->isDefault);
+    }
+
+    public function testSetDefaultAllowsAPublicLocationWhenNoDelegatedAlbumIsConcerned(): void
+    {
+        $this->storageLocationRepository->create(
+            StorageLocationType::Local, 'Disque privé', new LocalLocationConfig('gallery'), null
+        );
+        $publicId = $this->storageLocationRepository->create(
+            StorageLocationType::ObjectStorage,
+            'Bucket public',
+            new ObjectStorageLocationConfig(
+                'https://fsn1.your-objectstorage.com', 'fsn1', 'scoutmagic', 'AK', null, 'https://cdn.example.org'
+            ),
+            'secret'
+        );
+        $this->albumRepository->create(
+            Album::TYPE_LOCAL, 'Camp ordinaire', null, '2026-01-01', null,
+            $this->scoutYearId, null, null, $this->authorId
+        );
+
+        $response = $this->controller->setDefault(
+            $this->jsonRequest(['_csrf_token' => $this->csrfToken()]),
+            ['id' => (string) $publicId]
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertTrue($this->storageLocationRepository->findById($publicId)?->isDefault);
+    }
+
     public function testSetDefaultPromotesTheGivenLocation(): void
     {
         $firstId = $this->storageLocationRepository->create(StorageLocationType::Local, 'Premier', new LocalLocationConfig('gallery'), null);

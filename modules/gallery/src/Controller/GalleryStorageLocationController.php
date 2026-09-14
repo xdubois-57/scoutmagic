@@ -237,6 +237,25 @@ class GalleryStorageLocationController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Emplacement introuvable.'], 404);
         }
 
+        // The same stranding, through the other door. A delegated album
+        // whose location_id is still null is not on « no » location: it is
+        // on the DEFAULT, and resolveLocationForAlbum() pins it there the
+        // next time anything touches it. Promoting a publicly-serving
+        // location to default therefore hands those albums to a
+        // destination serveDelegatedMedia() will refuse — for ever, and
+        // silently. `true` for the second argument because the question is
+        // about the location this is ABOUT to make the default.
+        if (
+            $location->servesPubliclyWithoutExpiry()
+            && $this->albumRepository->hasDelegatedAlbumsOn($location->id, true)
+        ) {
+            return $this->json(['success' => false, 'error' =>
+                'Des albums délégués seraient hébergés sur cet emplacement, et une URL publique les rendrait '
+                . 'lisibles par toute personne connaissant le lien — le site refuserait alors de les servir. '
+                . 'Choisissez un emplacement privé par défaut, ou déplacez ces albums d\'abord.',
+            ], 422);
+        }
+
         $this->storageLocationService->setDefault($location->id);
 
         $this->journalService->log(
