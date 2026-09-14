@@ -194,4 +194,74 @@ class OutboundMailWiringTest extends TestCase
             'A support package must never be able to SEND a probe while it is being assembled.'
         );
     }
+
+    // ── the manual probe (roadmap IT-04) ──────────────────────────────
+
+    /**
+     * The controller takes the sender as a NULLABLE dependency, which is
+     * the exact shape this whole file exists for: with null the sub-page
+     * says « la sonde n'est pas disponible », which looks like a
+     * deliberate state rather than a wiring that was never done.
+     */
+    public function testTheControllerActuallyReceivesTheProbeSender(): void
+    {
+        $source = self::source('public/index.php');
+
+        $this->assertStringContainsString(
+            'new \\Core\\Mail\\Probe\\MailProbeSender(',
+            $source,
+            'public/index.php must build the probe sender, or the sub-page is permanently unavailable.'
+        );
+        $this->assertStringContainsString(
+            '$mailProbeRepository',
+            $source,
+            'And hand the page the history to display.'
+        );
+    }
+
+    /**
+     * **The transport underneath, and not one of its own.**
+     *
+     * The probe pins a relay, so it cannot go through the chain — which
+     * means it needs the transport the chain itself delivers with. A
+     * `new PhpMailerTransport()` spelled here instead would put real mail
+     * on the wire from an installation configured to capture it, which is
+     * exactly what `test_tools` exists to prevent. It also hung the
+     * probe's own test against a real SMTP host, which is how this was
+     * found.
+     */
+    public function testTheProbeSendsThroughTheTransportThisInstallationActuallyUses(): void
+    {
+        $source = self::source('public/index.php');
+
+        $this->assertStringContainsString(
+            "\$mailTransport['delivery']",
+            $source,
+            'The probe must deliver through the transport the factory resolved, never through a fresh one.'
+        );
+
+        $this->assertStringNotContainsString(
+            'new \\Core\\Mail\\PhpMailerTransport(',
+            self::source('core/Mail/Probe/MailProbeSender.php'),
+            'MailProbeSender must take its transport, never reach for the real one itself.'
+        );
+    }
+
+    /**
+     * The archive reports what was tested; it must not be able to test.
+     */
+    public function testTheCollectorGetsTheProbeHistoryAndNotTheSender(): void
+    {
+        $source = self::source('core/Support/SupportPackageFactory.php');
+
+        $this->assertStringContainsString(
+            'new \\Core\\Mail\\Probe\\MailProbeRepository($pdo, $context->encryption)',
+            $source
+        );
+        $this->assertStringNotContainsString(
+            'new \\Core\\Mail\\Probe\\MailProbeSender(',
+            $source,
+            'A support package must never be able to send a probe while it is being assembled.'
+        );
+    }
 }

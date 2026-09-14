@@ -14,6 +14,7 @@ use Core\Mail\Feedback\ReturnPathVerifier;
 use Core\Mail\Feedback\ReturnProbeRepository;
 use Core\Mail\Feedback\ReturnState;
 use Core\Mail\MailIdentity;
+use Core\Mail\Probe\MailProbeRepository;
 use Core\Mail\Transport\DeferredMailQueue;
 use Core\Mail\Transport\DeferredMailRepository;
 use Core\Mail\Transport\LaneChainRepository;
@@ -65,6 +66,15 @@ class OutboundMailCollector implements SupportCollectorInterface
      * on an installation whose schema predates one of these tables is
      * still worth having.
      */
+    /**
+     * How many probes the archive carries.
+     *
+     * A handful, because the comparison the history exists for is
+     * between two or three roads — and an archive that pasted forty rows
+     * of it would bury the sections around it.
+     */
+    private const PROBES_IN_ARCHIVE = 10;
+
     public function __construct(
         private MailProviderDirectory $directory,
         private LaneChainRepository $chains,
@@ -81,7 +91,14 @@ class OutboundMailCollector implements SupportCollectorInterface
          * must not be able to put mail on the wire while it is being
          * assembled.
          */
-        private ?InboundMailInterface $inboundMail = null
+        private ?InboundMailInterface $inboundMail = null,
+        /**
+         * The probe history, read-only — like `$returns`, and for the
+         * same reason: a support package must never be able to put mail
+         * on the wire while it is being assembled, so what it gets is the
+         * table and not the sender.
+         */
+        private ?MailProbeRepository $probes = null
     ) {
     }
 
@@ -152,6 +169,10 @@ class OutboundMailCollector implements SupportCollectorInterface
         }
 
         foreach ($this->queueLines() as $line) {
+            $lines[] = $line;
+        }
+
+        foreach ($this->probeLines() as $line) {
             $lines[] = $line;
         }
 
@@ -354,6 +375,64 @@ class OutboundMailCollector implements SupportCollectorInterface
                 ReturnState::forProbe($probe, $now)->label(),
                 $probe !== null ? ', envoyé le ' . $probe->sentAt->format('Y-m-d H:i') : '',
                 $probe?->receivedAt !== null ? ', revenu le ' . $probe->receivedAt->format('Y-m-d H:i') : ''
+            );
+        }
+
+        $lines[] = '';
+
+        return $lines;
+    }
+
+    /**
+     * The manual probes, by road and by verdict — never by destination
+     * (roadmap IT-04).
+     *
+     * **The address stays out, and the screen shows it.** Those are not
+     * in tension: the page is read by the person who typed the address in
+     * one minute ago and needs the comparison « même destinataire, deux
+     * relais, deux verdicts »; this file goes to a third party and is
+     * kept for a long time, and the question it has to answer — « par
+     * quels chemins cette unité a-t-elle testé, et qu'est-ce que ça a
+     * donné » — needs the road and the verdict, not who was written to.
+     *
+     * A total as well as the last few, because « deux sondes en six
+     * mois » and « quarante » say different things about how much the
+     * lines below are worth.
+     *
+     * @return array<int, string>
+     */
+    private function probeLines(): array
+    {
+        if ($this->probes === null) {
+            return [];
+        }
+
+        try {
+            $recent = $this->probes->recent(self::PROBES_IN_ARCHIVE);
+            $total = $this->probes->count();
+        } catch (\Throwable) {
+            return [];
+        }
+
+        $lines = ['── Sondes de délivrabilité ─────────────────────────────────'];
+
+        if ($recent === []) {
+            $lines[] = 'aucune sonde envoyée';
+            $lines[] = '';
+
+            return $lines;
+        }
+
+        $lines[] = sprintf('%d sonde%s au total, les %d dernières :', $total, $total > 1 ? 's' : '', count($recent));
+        $lines[] = sprintf('%-17s  %-24s  %-16s  %s', 'date', 'fournisseur', 'voie', 'verdict');
+
+        foreach ($recent as $probe) {
+            $lines[] = sprintf(
+                '%-17s  %-24s  %-16s  %s',
+                $probe->sentAt->format('Y-m-d H:i'),
+                mb_substr($probe->providerName, 0, 24),
+                $probe->lane->label(),
+                $probe->verdict?->label() ?? 'en attente'
             );
         }
 

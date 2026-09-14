@@ -1697,6 +1697,55 @@ CREATE TABLE IF NOT EXISTS mail_return_probes (
     INDEX idx_mail_return_probes_key (correlation_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- mail_probes: one row per manually sent deliverability probe, and what
+-- the operator found when they went and looked (roadmap IT-04).
+--
+-- **A history, and that is the difference from mail_return_probes.**
+-- That table keeps one row per address because the only useful answer
+-- there is today's. Here the rows ARE the answer: two lines saying « même
+-- destinataire, réception via l'un, indésirables via l'autre » settle a
+-- question no amount of explaining settles, and without them the same
+-- test gets re-run three months later by somebody who no longer
+-- remembers what it gave.
+--
+-- **The provider is kept by name as well as by id**, and the name is a
+-- snapshot taken when the message left. A relay deleted six months later
+-- would otherwise take its own evidence with it, and the line would read
+-- « indésirables via … » with a blank where the answer was. The foreign
+-- key is deliberately absent for the same reason: deleting a provider
+-- must not delete the history of what it did, nor be refused because of
+-- it.
+--
+-- The destination is encrypted and has NO blind index. Nothing looks a
+-- probe up by address — the screen lists the latest runs and the verdict
+-- is recorded by id — and a blind index added « in case » is a
+-- deterministic fingerprint of an address kept for a question nobody
+-- asks.
+--
+-- The verdict is null while nobody has answered. That is a third state
+-- and not a missing value: « envoyée, en attente d'un œil humain » and
+-- « jamais reçu » are different things, and only a person can tell the
+-- inbox from the spam folder of a mailbox this site does not own.
+CREATE TABLE IF NOT EXISTS mail_probes (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    -- Short, upper case, unambiguous: it is typed into a mailbox search
+    -- box, spam folder included, where searching is the only way through.
+    code VARCHAR(16) NOT NULL,
+    destination_encrypted BLOB NOT NULL,
+    -- Null once the relay it named has been deleted; provider_name still
+    -- says which one it was.
+    provider_id INT UNSIGNED NULL,
+    provider_name VARCHAR(100) NOT NULL,
+    lane VARCHAR(20) NOT NULL,
+    sent_at DATETIME NOT NULL,
+    -- 'inbox', 'spam' or 'never' — entered by hand, because no site can
+    -- observe another provider's spam folder.
+    verdict VARCHAR(10) NULL,
+    verdict_at DATETIME NULL,
+    INDEX idx_mail_probes_sent (sent_at),
+    INDEX idx_mail_probes_code (code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- storage_locations: one row per declared destination for bytes — a
 -- directory on this server, an S3-compatible bucket, and the kinds the
 -- following iterations add. In the core and not in a module, for the same
