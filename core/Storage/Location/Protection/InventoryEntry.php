@@ -159,16 +159,30 @@ final class InventoryEntry
     }
 
     /**
-     * Whether a pass that started at $passStartedAt has met this key.
+     * Whether the pass that started at $passStartedAt has met this key.
+     *
+     * **Exact equality, not « at or after ».** The stamp is this pass's
+     * own identifier, and a later one belongs to a DIFFERENT pass: an
+     * entry carrying it was seen by that other run, which says nothing
+     * about whether the source still has the key now. « At or after »
+     * read such an entry as seen and the sweep concluded that nothing had
+     * ever disappeared — silent, and the kind of silence that only shows
+     * up as « the copy never lets go of anything ».
+     *
+     * That is also why the stamp is written in the same `Y-m-d H:i:s`
+     * shape the `pass_started_at` column holds: a resumed run reads that
+     * column back and has to produce the identical string, or every entry
+     * the first run stamped would read as belonging to somebody else.
      *
      * An entry with no stamp at all has never been met by a pass that
      * records them — which is the state every entry written before this
      * field existed is in, and the honest answer for it is « not seen »,
-     * since the sweep that follows only ever MARKS, never deletes.
+     * since what the sweep does with an unseen entry is MARK it, never
+     * delete it.
      */
     public function seenBy(string $passStartedAt): bool
     {
-        return $this->lastSeenAt !== null && $this->lastSeenAt >= $passStartedAt;
+        return $this->lastSeenAt !== null && $this->lastSeenAt === $passStartedAt;
     }
 
     /**
