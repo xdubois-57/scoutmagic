@@ -26,8 +26,42 @@ use Core\Exception\UserFacingException;
  */
 final class WebDavAccessException extends \RuntimeException implements UserFacingException
 {
+    /**
+     * The HTTP status behind this refusal, or 0 when it never got one — a
+     * certificate the server would not prove, a connection that died.
+     *
+     * **Carried because « not there » is not a failure and everything else
+     * is.** A caller asking whether an object exists wants null for a 404
+     * and an exception for a share that is refusing credentials or simply
+     * down: flattening the two answers « non » during an outage, and a
+     * copy that believes it then re-uploads everything, or a repatriation
+     * decides the source lost a file it still holds.
+     */
+    public readonly int $status;
+
+    private function __construct(string $message, int $status, ?\Throwable $previous)
+    {
+        parent::__construct($message, 0, $previous);
+        $this->status = $status;
+    }
+
     public static function of(string $message, ?\Throwable $previous = null): self
     {
         return new self($message, 0, $previous);
+    }
+
+    public static function ofStatus(int $status, string $message, ?\Throwable $previous = null): self
+    {
+        return new self($message, $status, $previous);
+    }
+
+    /**
+     * 404, and 409 with it: a WebDAV server answers 409 « Conflict » for a
+     * path whose parent collection is missing, which is the same fact
+     * about the share — nothing is there — reported one level up.
+     */
+    public function isNotFound(): bool
+    {
+        return $this->status === 404 || $this->status === 409;
     }
 }

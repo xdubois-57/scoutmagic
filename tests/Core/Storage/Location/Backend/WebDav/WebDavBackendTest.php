@@ -272,6 +272,272 @@ final class WebDavBackendTest extends TestCase
         $this->assertFalse($backend->supports(StorageCapability::SignedUrl));
     }
 
+    // ———— What a 206 has to prove beyond its status ————
+
+    /**
+     * **A status is not a slice.** A share, or something between this
+     * server and it, can answer 206 and hand over another part of the
+     * file; those bytes would go straight into the gallery's own 206,
+     * under a `Content-Range` this site computed from the object's size.
+     * The player then gets a header that does not describe its payload.
+     */
+    public function testASliceThatIsNotTheOneAskedForIsRefused(): void
+    {
+        $backend = $this->backend();
+        $backend->put('film.mp4', '0123456789abcdefghij', 'video/mp4');
+        $this->share->contentRangeOverride = 'bytes 0-4/20';
+
+        $this->expectException(WebDavAccessException::class);
+        $this->expectExceptionMessage('ne correspond pas');
+        $backend->getRange('film.mp4', 10, 5);
+    }
+
+    public function testASliceOfTheWrongLengthIsRefused(): void
+    {
+        $backend = $this->backend();
+        $backend->put('film.mp4', '0123456789abcdefghij', 'video/mp4');
+        $this->share->sliceOverride = 'beaucoup trop long pour cinq octets';
+
+        $this->expectException(WebDavAccessException::class);
+        $backend->getRange('film.mp4', 10, 5);
+    }
+
+    /**
+     * A 206 must carry `Content-Range`; one that does not has told us
+     * nothing about what its body is.
+     */
+    public function testA206WithoutAContentRangeIsRefused(): void
+    {
+        $backend = $this->backend();
+        $backend->put('film.mp4', '0123456789abcdefghij', 'video/mp4');
+        $this->share->contentRangeOverride = '';
+
+        $this->expectException(WebDavAccessException::class);
+        $backend->getRange('film.mp4', 10, 5);
+    }
+
+    /**
+     * **And a short answer at the end of a file is not a wrong one.** RFC
+     * 9110 has a server clamp a range running past the object, which is
+     * what reading a file's tail meets on every ordinary share.
+     */
+    public function testASliceClampedToTheEndOfTheFileIsAccepted(): void
+    {
+        $backend = $this->backend();
+        $backend->put('film.mp4', '0123456789', 'video/mp4');
+
+        $this->assertSame('89', $backend->getRange('film.mp4', 8, 100));
+    }
+
+    // ———— A refusal is not an absence ————
+
+    /**
+     * **`exists()` answering « non » for a share that is down is the
+     * dangerous shape.** A repatriation reads it as « the source lost this
+     * file », a safety copy as « re-send everything ». Only a 404 is an
+     * absence; the rest has to arrive as a failure.
+     */
+    public function testAShareThatRefusesTheCredentialsIsNotAnAbsence(): void
+    {
+        $backend = $this->backend();
+        $backend->put('photo.jpg', 'x', 'image/jpeg');
+        $this->share->refuseWith = 401;
+
+        $this->expectException(WebDavAccessException::class);
+        $backend->exists('photo.jpg');
+    }
+
+    public function testAnObjectThatIsGenuinelyNotThereIsAnAbsence(): void
+    {
+        $this->assertFalse($this->backend()->exists('jamais-ecrit.jpg'));
+    }
+
+    /**
+     * Null from `announcedChecksum()` means « this destination says
+     * nothing comparable », and a verification reads that as « skip the
+     * comparison ». A share that is down must not make every file pass.
+     */
+    public function testAnUnreachableShareDoesNotAnnounceAnEmptyChecksum(): void
+    {
+        $backend = $this->backend();
+        $backend->put('photo.jpg', 'x', 'image/jpeg');
+        $this->share->refuseWith = 503;
+
+        $this->expectException(WebDavAccessException::class);
+        $backend->announcedChecksum('photo.jpg');
+    }
+
+    /**
+     * `size()` is the one that still answers null, and on purpose: the
+     * gallery calls it on a `Range:` request and falls through to an
+     * ordinary read when it cannot say, where a throw would turn a share
+     * outage into a 500 on a visitor's page.
+     */
+    public function testSizeStillAnswersUnknownRatherThanThrowingAtAVisitor(): void
+    {
+        $backend = $this->backend();
+        $backend->put('photo.jpg', 'x', 'image/jpeg');
+        $this->share->refuseWith = 503;
+
+        $this->assertNull($backend->size('photo.jpg'));
+    }
+
+    // ———— Listing a share whose files are not at its root ————
+
+    /**
+     * **The bug this replaced would have copied nothing and said it was
+     * done.** `PROPFIND` at `Depth: 1` answers one collection's direct
+     * children, the gallery's keys are `{albumId}/med_{mediaId}.jpg`, and
+     * a single call on the share root therefore sees album FOLDERS and not
+     * one media file.
+     */
+    public function testListingReachesTheFilesInsideTheAlbumFolders(): void
+    {
+        $backend = $this->backend();
+        $backend->put('12/a.jpg', 'aa', 'image/jpeg');
+        $backend->put('13/b.jpg', 'bbbb', 'image/jpeg');
+
+        $this->assertSame(['12/a.jpg', '13/b.jpg'], $this->keysOf($backend->list('')));
+    }
+
+    /**
+     * **A truncated page says so.** `StorageListing::isComplete()` reads a
+     * null cursor as « that was everything », so a copy walking pages
+     * would have stopped at the first one and reported success.
+     */
+    public function testAPageThatIsNotTheWholeCollectionCarriesACursor(): void
+    {
+        $backend = $this->backend();
+        foreach (['a', 'b', 'c'] as $name) {
+            $backend->put('12/' . $name . '.jpg', 'x', 'image/jpeg');
+        }
+
+        $first = $backend->list('', null, 2);
+
+        $this->assertSame(['12/a.jpg', '12/b.jpg'], $this->keysOf($first));
+        $this->assertFalse($first->isComplete());
+        $this->assertSame('12/b.jpg', $first->cursor);
+    }
+
+    /**
+     * And the cursor advances: handing it back asks for what comes after
+     * it, not for the same page again.
+     */
+    public function testTheCursorResumesAfterTheLastKeyHandedOut(): void
+    {
+        $backend = $this->backend();
+        foreach (['a', 'b', 'c'] as $name) {
+            $backend->put('12/' . $name . '.jpg', 'x', 'image/jpeg');
+        }
+
+        $second = $backend->list('', '12/b.jpg', 2);
+
+        $this->assertSame(['12/c.jpg'], $this->keysOf($second));
+        $this->assertTrue($second->isComplete());
+    }
+
+    /**
+     * **An encoded base path used to make every listing empty.** Hrefs
+     * arrive decoded, so a base left as the operator typed it matches none
+     * of them — and a Nextcloud address carries the account name, which is
+     * very often somebody's, spaces and all.
+     */
+    public function testAShareWhoseAddressCarriesAnEncodedSegmentStillLists(): void
+    {
+        $share = new FakeWebDavServer('https://cloud.example.org/dav/marie%20dupont/scoutmagic');
+        $backend = new WebDavBackend(
+            new WebDavClient($share->transport()),
+            new WebDavLocationConfig($share->baseUrl, 'marie dupont'),
+            'le-mot-de-passe'
+        );
+        $backend->put('12/a.jpg', 'aa', 'image/jpeg');
+
+        $this->assertSame(['12/a.jpg'], $this->keysOf($backend->list('')));
+    }
+
+    // ———— One MKCOL per album, not one per file ————
+
+    public function testAFolderIsNotCreatedAgainForEveryFileWrittenIntoIt(): void
+    {
+        $backend = $this->backend();
+        $backend->put('12/a.jpg', 'x', 'image/jpeg');
+        $backend->put('12/b.jpg', 'x', 'image/jpeg');
+        $backend->put('12/c.jpg', 'x', 'image/jpeg');
+
+        $made = array_values(array_filter(
+            $this->share->calls,
+            static fn (array $call): bool => $call['method'] === 'MKCOL'
+        ));
+
+        $this->assertCount(1, $made);
+    }
+
+    /**
+     * And the memory recovers: a collection removed on the share between
+     * two writes costs one retry, not a backend that fails for the rest of
+     * the request.
+     */
+    public function testAFolderThatDisappearsMidRequestIsMadeAgain(): void
+    {
+        $backend = $this->backend();
+        $backend->put('12/a.jpg', 'x', 'image/jpeg');
+
+        // Somebody tidying their cloud, or another site writing into it.
+        $this->share->collections = [];
+        $this->share->files = [];
+        $this->share->refusePutOnce = true;
+
+        $backend->put('12/b.jpg', 'les-octets', 'image/jpeg');
+
+        $this->assertSame('les-octets', $backend->get('12/b.jpg'));
+    }
+
+    // ———— The test that earns « Vidéos : oui » ————
+
+    /**
+     * **`PROPFIND` answering is not the promise this type makes.** Every
+     * WebDAV location declares `RangeRead`, and the Emplacements screen
+     * turns that into « une vidéo se lit, et on peut avancer dedans ». A
+     * server can answer `PROPFIND` perfectly and ignore `Range:`, and the
+     * administrator would find out on the evening a parent tries to skip
+     * to the end of the camp film.
+     */
+    public function testAShareThatIgnoresRangeIsRefusedAtDeclarationTime(): void
+    {
+        $this->share->ignoresRange = true;
+
+        $error = $this->backend()->testConnection();
+
+        $this->assertNotNull($error);
+        $this->assertStringContainsString('vidéos', $error);
+    }
+
+    /** And the witness file is never left behind on somebody's cloud. */
+    public function testTheConnectionTestLeavesNothingOnTheShare(): void
+    {
+        $this->backend()->testConnection();
+
+        $this->assertSame([], $this->share->files);
+    }
+
+    public function testTheConnectionTestCleansUpEvenWhenTheRangeIsRefused(): void
+    {
+        $this->share->ignoresRange = true;
+
+        $this->backend()->testConnection();
+
+        $this->assertSame([], $this->share->files);
+    }
+
+    /**
+     * @param \Core\Storage\Location\StorageListing $listing
+     * @return list<string>
+     */
+    private function keysOf(\Core\Storage\Location\StorageListing $listing): array
+    {
+        return array_map(static fn (\Core\Storage\Location\StoredObject $o): string => $o->key, $listing->objects);
+    }
+
     private function backend(): WebDavBackend
     {
         return new WebDavBackend(

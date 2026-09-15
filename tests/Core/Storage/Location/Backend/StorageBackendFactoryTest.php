@@ -8,6 +8,8 @@ use Core\Security\EncryptionService;
 use Core\Storage\Location\Backend\LocalStorageBackend;
 use Core\Storage\Location\Backend\StorageBackendFactory;
 use Core\Storage\Location\Config\LocalLocationConfig;
+use Core\Storage\Location\Config\WebDavLocationConfig;
+use Core\Storage\Location\Backend\WebDav\WebDavAccessException;
 use Core\Storage\Location\StorageLocation;
 use Core\Storage\Location\StorageLocationException;
 use Core\Storage\Location\StorageLocationRepository;
@@ -67,6 +69,52 @@ class StorageBackendFactoryTest extends TestCase
             lastCheckError: null,
             createdAt: '2026-01-01 00:00:00'
         );
+    }
+
+    private function webDavLocation(string $baseUrl): StorageLocation
+    {
+        return new StorageLocation(
+            id: 9,
+            type: StorageLocationType::WebDav,
+            label: 'Partage',
+            config: new WebDavLocationConfig($baseUrl, 'unite'),
+            isDefault: false,
+            secretConfigured: true,
+            lastCheckedAt: null,
+            lastCheckOk: null,
+            lastCheckError: null,
+            createdAt: '2026-01-01 00:00:00'
+        );
+    }
+
+    /**
+     * **The stored address is checked again here, not only when it was
+     * saved.** A username and a password travel on it in an
+     * `Authorization` header on every single request, and the row it comes
+     * from can have arrived since the form: a restore from another
+     * installation, a hand-edited column. Refused before a single byte of
+     * the credential leaves this server (SECURITY.md §17).
+     *
+     * @return list<array{string}>
+     */
+    public static function addressesNoCredentialMayTravelTo(): array
+    {
+        return [
+            'plain http' => ['http://cloud.example.org/dav'],
+            'the loopback interface' => ['https://127.0.0.1/dav'],
+            'a private range' => ['https://10.0.0.5/dav'],
+            'the cloud metadata address' => ['https://169.254.169.254/dav'],
+            'nothing at all' => [''],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('addressesNoCredentialMayTravelTo')]
+    public function testAStoredWebDavAddressIsRefusedAgainBeforeTheCredentialTravels(string $baseUrl): void
+    {
+        $this->expectException(WebDavAccessException::class);
+        $this->expectExceptionMessage('https publique');
+
+        $this->factory->create($this->webDavLocation($baseUrl));
     }
 
     public function testARelativePathHangsUnderTheSitesStorageFolder(): void

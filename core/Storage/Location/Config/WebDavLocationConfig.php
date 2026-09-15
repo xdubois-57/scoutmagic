@@ -45,9 +45,27 @@ final class WebDavLocationConfig implements LocationConfig
     public static function fromArray(array $raw): self
     {
         return new self(
-            self::normaliseBaseUrl((string) ($raw['base_url'] ?? '')),
-            trim((string) ($raw['username'] ?? ''))
+            self::normaliseBaseUrl(self::text($raw, 'base_url')),
+            trim(self::text($raw, 'username'))
         );
+    }
+
+    /**
+     * One stored field, and only when it is a string.
+     *
+     * A `(string)` cast turns a JSON array into the literal `"Array"` with
+     * a warning beside it, and this record comes out of a column: a row
+     * written by an older version, a hand-edited configuration, a restore
+     * from somewhere else. The empty fallback is already the « not
+     * configured » state every reader here handles.
+     *
+     * @param array<string, mixed> $raw
+     */
+    private static function text(array $raw, string $key): string
+    {
+        $value = $raw[$key] ?? null;
+
+        return is_string($value) ? $value : '';
     }
 
     /** @return array<string, mixed> */

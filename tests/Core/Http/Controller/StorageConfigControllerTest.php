@@ -26,6 +26,9 @@ use Core\Storage\Location\Config\LocalLocationConfig;
 use Core\Storage\Location\Config\LocationConfig;
 use Core\Storage\Location\Config\ObjectStorageLocationConfig;
 use Core\Storage\Location\Config\WebDavLocationConfig;
+use Core\Storage\Location\Backend\WebDavBackend;
+use Core\Storage\Location\Backend\WebDav\WebDavClient;
+use Tests\Core\Storage\Location\Backend\WebDav\FakeWebDavServer;
 use Core\Storage\Location\Diagnostics\ObjectStorageErrorExplainer;
 use Core\Storage\Location\Diagnostics\ObjectStorageTestFailure;
 use Core\Storage\Location\StorageLocation;
@@ -158,9 +161,43 @@ class StorageConfigControllerTest extends TestCase
 
     // ————— WebDAV (IT-06) —————
 
+    /**
+     * **These tests never touch the network, and that is deliberate.**
+     * `store()` and `update()` both run a health check, which builds a
+     * backend and talks to the address that was just saved. With the real
+     * factory that is a cURL call to whatever host the fixture names: a
+     * suite that depends on DNS, and one that waits out a ten-second
+     * connect timeout on a runner with no egress. The share here keeps
+     * what it is given instead, so the check is exercised rather than
+     * skipped.
+     */
+    private FakeWebDavServer $share;
+
+    private function webDavController(): StorageConfigController
+    {
+        $this->share = new FakeWebDavServer('https://example.org/dav/scoutmagic');
+        $factory = $this->createMock(StorageBackendFactory::class);
+        $factory->method('create')->willReturnCallback(
+            fn (StorageLocation $location): WebDavBackend => new WebDavBackend(
+                new WebDavClient($this->share->transport()),
+                $location->config instanceof WebDavLocationConfig
+                    ? $location->config
+                    : new WebDavLocationConfig($this->share->baseUrl, 'unite'),
+                'mot-de-passe-application'
+            )
+        );
+
+        return $this->buildControllerWith(new StorageLocationService(
+            $this->repository,
+            $factory,
+            $this->consumers
+        ));
+    }
+
+
     public function testStoreCreatesAWebDavLocation(): void
     {
-        $response = $this->controller->store($this->formRequest([
+        $response = $this->webDavController()->store($this->formRequest([
             'type' => 'webdav', 'label' => 'Nextcloud de l\'unité',
             'webdav_url' => 'https://example.org/remote.php/dav/files/unite/scoutmagic',
             'webdav_username' => 'unite', 'webdav_password' => 'mot-de-passe-application',
@@ -187,7 +224,7 @@ class StorageConfigControllerTest extends TestCase
      */
     public function testAWebDavAddressIsStoredWithoutItsTrailingSlash(): void
     {
-        $this->controller->store($this->formRequest([
+        $this->webDavController()->store($this->formRequest([
             'type' => 'webdav', 'label' => 'Avec barre finale',
             'webdav_url' => 'https://example.org/dav/scoutmagic/',
             'webdav_username' => 'unite', 'webdav_password' => 'secret',
@@ -222,7 +259,7 @@ class StorageConfigControllerTest extends TestCase
     #[\PHPUnit\Framework\Attributes\DataProvider('refusedWebDavAddresses')]
     public function testStoreRefusesAWebDavAddressThisSiteMustNotSendCredentialsTo(string $url): void
     {
-        $response = $this->controller->store($this->formRequest([
+        $response = $this->webDavController()->store($this->formRequest([
             'type' => 'webdav', 'label' => 'Refusé',
             'webdav_url' => $url, 'webdav_username' => 'unite', 'webdav_password' => 'secret',
         ]), []);
@@ -241,7 +278,7 @@ class StorageConfigControllerTest extends TestCase
     {
         $id = $this->declareWebDav('Nextcloud');
 
-        $response = $this->controller->update($this->formRequest([
+        $response = $this->webDavController()->update($this->formRequest([
             'label' => 'Nextcloud', 'webdav_url' => 'https://example.org/dav/ailleurs',
             'webdav_username' => 'unite', 'webdav_password' => '',
         ]), ['id' => (string) $id]);
@@ -260,7 +297,7 @@ class StorageConfigControllerTest extends TestCase
     {
         $id = $this->declareWebDav('Nextcloud');
 
-        $this->controller->update($this->formRequest([
+        $this->webDavController()->update($this->formRequest([
             'label' => 'Nextcloud', 'webdav_url' => 'https://example.org/dav/scoutmagic',
             'webdav_username' => 'unite', 'webdav_password' => 'le-nouveau',
         ]), ['id' => (string) $id]);
@@ -1790,14 +1827,26 @@ class StorageConfigControllerTest extends TestCase
 
     private function buildController(StorageLocationRepository $repository): StorageConfigController
     {
-        return new StorageConfigController(
-            $this->twig,
-            $repository,
+        return $this->buildControllerWith(
             $repository === $this->repository ? $this->service : new StorageLocationService(
                 $repository,
                 new StorageBackendFactory($repository, $this->storagePath),
                 $this->consumers
             ),
+            $repository
+        );
+    }
+
+    private function buildControllerWith(
+        StorageLocationService $service,
+        ?StorageLocationRepository $repository = null
+    ): StorageConfigController {
+        $repository ??= $this->repository;
+
+        return new StorageConfigController(
+            $this->twig,
+            $repository,
+            $service,
             $this->consumers,
             $this->inventory(),
             $this->journal,

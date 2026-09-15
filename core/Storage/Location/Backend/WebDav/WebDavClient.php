@@ -127,8 +127,57 @@ final class WebDavClient
             throw self::errorFor($response['status'], 'L\'extrait demandé n\'a pas pu être lu sur le partage.');
         }
 
+        self::assertSliceIsTheOneAskedFor($response, $offset, $last);
+
         return $response['body'];
     }
+
+    /**
+     * That a 206 carries the bytes that were asked for, and only those.
+     *
+     * **The status alone is not the answer.** A share — or something
+     * between this server and it — can answer 206 with another part of the
+     * file, or with the whole of it, and those bytes go straight into the
+     * gallery's own 206, under a `Content-Range` this site computed from
+     * the object's size. The visitor's player would then be handed a range
+     * header that does not describe its payload, and the failure shows up
+     * as a video that stutters or refuses to seek, nowhere near here.
+     *
+     * The end is allowed to fall SHORT of what was asked: RFC 9110 has a
+     * server clamp a range that runs past the end of the object, and a
+     * caller reading the tail of a file legitimately meets that. What is
+     * refused is a start that is not the one requested, an end beyond it,
+     * a body whose length disagrees with the range announced, and a
+     * missing `Content-Range` — which a 206 must carry.
+     *
+     * @param array{status: int, body: string, headers: array<string, string>} $response
+     * @throws WebDavAccessException
+     */
+    private static function assertSliceIsTheOneAskedFor(array $response, int $offset, int $last): void
+    {
+        $announced = $response['headers']['content-range'] ?? '';
+        if (preg_match('#^bytes\s+(\d+)-(\d+)/#i', trim($announced), $matches) !== 1) {
+            throw WebDavAccessException::of(self::WRONG_SLICE);
+        }
+
+        $from = (int) $matches[1];
+        $to = (int) $matches[2];
+        if ($from !== $offset || $to > $last || $to < $from) {
+            throw WebDavAccessException::of(self::WRONG_SLICE);
+        }
+        if (strlen($response['body']) !== $to - $from + 1) {
+            throw WebDavAccessException::of(self::WRONG_SLICE);
+        }
+    }
+
+    /**
+     * One sentence for every shape of a mis-answered range, deliberately.
+     * The operator's move is the same in all of them — this share cannot
+     * be trusted to serve video — and the shapes differ only in ways that
+     * would name protocol internals on a configuration screen.
+     */
+    private const WRONG_SLICE = 'Ce partage a renvoyé un extrait qui ne correspond pas à celui demandé : '
+        . 'les vidéos ne peuvent pas être lues depuis cet emplacement de façon fiable.';
 
     /** @throws WebDavAccessException */
     public function delete(string $url, string $auth): void
@@ -211,22 +260,24 @@ final class WebDavClient
     private static function errorFor(int $status, string $fallback): WebDavAccessException
     {
         if ($status === 401 || $status === 403) {
-            return WebDavAccessException::of(
+            return WebDavAccessException::ofStatus(
+                $status,
                 'Le partage a refusé ces identifiants. Vérifiez le nom d\'utilisateur et le mot de passe — '
                 . 'certains hébergeurs demandent ici un mot de passe d\'application et non celui du compte.'
             );
         }
         if ($status === 404 || $status === 409) {
-            return WebDavAccessException::of(
+            return WebDavAccessException::ofStatus(
+                $status,
                 'Le chemin indiqué n\'existe pas sur ce partage. Vérifiez l\'adresse et le dossier de '
                 . 'destination.'
             );
         }
         if ($status === 507) {
-            return WebDavAccessException::of('Le partage n\'a plus de place disponible.');
+            return WebDavAccessException::ofStatus($status, 'Le partage n\'a plus de place disponible.');
         }
 
-        return WebDavAccessException::of($fallback);
+        return WebDavAccessException::ofStatus($status, $fallback);
     }
 
     /**

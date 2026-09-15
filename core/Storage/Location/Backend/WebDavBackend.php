@@ -48,6 +48,30 @@ final class WebDavBackend implements RangeReadableBackend, QuotaReportingBackend
      */
     private const LIST_CEILING = 5000;
 
+    /**
+     * How deep the walk below a prefix may go. The keys this application
+     * writes are one level deep (`{albumId}/med_{mediaId}.jpg`) and the
+     * inventory's are two; anything past this is a share answering
+     * something other than its own contents.
+     */
+    private const WALK_DEPTH_CEILING = 8;
+
+    /**
+     * Collections this instance has already made sure of.
+     *
+     * **One MKCOL per album, not one per file.** Processing a photograph
+     * writes three renditions under the same `{albumId}`, and the factory
+     * hands the same backend instance out for the whole request, so
+     * without this each write spent a round trip on a folder the previous
+     * one had just created — answered `405`, on the ADSL link this type
+     * exists to be usable over. {@see put()} empties it and starts again
+     * when a write reports the parent gone, so a collection removed on the
+     * share mid-request costs one retry rather than a broken instance.
+     *
+     * @var array<string, true>
+     */
+    private array $knownCollections = [];
+
     public function __construct(
         private readonly WebDavClient $client,
         private readonly WebDavLocationConfig $config,
@@ -84,7 +108,22 @@ final class WebDavBackend implements RangeReadableBackend, QuotaReportingBackend
         // on the first write of every album.
         $this->ensureCollectionsFor($key);
 
-        $this->client->put($this->urlFor($key), $this->auth(), $contents, $mimeType);
+        try {
+            $this->client->put($this->urlFor($key), $this->auth(), $contents, $mimeType);
+        } catch (WebDavAccessException $e) {
+            if (!$e->isNotFound()) {
+                throw $e;
+            }
+
+            // **The missing parent the cache promised was there.** The
+            // folder was created earlier in this request and has gone
+            // since — somebody tidying the share, another site writing
+            // into it. Forget what was remembered, make the collections
+            // again, and write once more; a second failure is real.
+            $this->knownCollections = [];
+            $this->ensureCollectionsFor($key);
+            $this->client->put($this->urlFor($key), $this->auth(), $contents, $mimeType);
+        }
     }
 
     public function get(string $key): string
@@ -97,13 +136,23 @@ final class WebDavBackend implements RangeReadableBackend, QuotaReportingBackend
         return $this->client->getRange($this->urlFor($key), $this->auth(), $offset, $length);
     }
 
+    /**
+     * **The one reader that still answers null for a share in trouble.**
+     * `StorageBackendInterface` lets this return null for a backend error,
+     * and its caller in the gallery is a `Range:` request that falls
+     * through to an ordinary full read on null — where a throw would turn
+     * an outage into a 500 on a visitor's page instead of a 404.
+     */
     public function size(string $key): ?int
     {
-        $resource = $this->describe($key);
-
-        return $resource?->contentLength;
+        try {
+            return $this->describe($key)?->contentLength;
+        } catch (WebDavAccessException) {
+            return null;
+        }
     }
 
+    /** @throws WebDavAccessException when the share cannot be asked at all */
     public function exists(string $key): bool
     {
         return $this->describe($key) !== null;
@@ -130,41 +179,110 @@ final class WebDavBackend implements RangeReadableBackend, QuotaReportingBackend
         $this->client->delete($this->urlFor($prefix), $this->auth());
     }
 
+    /**
+     * Every object under $prefix, one page at a time.
+     *
+     * **Two things WebDAV does not give and this has to build.**
+     *
+     * `PROPFIND` at `Depth: 1` answers one collection's direct children
+     * and nothing below them, and `Depth: infinity` is refused outright by
+     * Nextcloud and most of its peers. The gallery's keys are
+     * `{albumId}/med_{mediaId}.jpg`, so a single depth-1 call on the share
+     * root sees album FOLDERS and not one media file — a safety copy
+     * reading it would have copied nothing and reported success. So the
+     * tree is walked, one request per collection.
+     *
+     * And there is no cursor in the protocol, so the cursor here is the
+     * last key already handed out and resuming means walking again and
+     * skipping past it. That costs a re-walk per page, which is the price
+     * of a listing that can be interrupted at all; `ProtectionPass` reads
+     * a page, does the work, and comes back — it cannot hold the whole
+     * share in memory, and neither can this.
+     */
     public function list(string $prefix, ?string $cursor = null, int $limit = 1000): StorageListing
     {
-        $root = $this->urlFor(trim($prefix, '/'));
+        $prefix = trim($prefix, '/');
+        $ceiling = max(1, min($limit, self::LIST_CEILING));
 
+        $keys = [];
         try {
-            $resources = $this->client->propfind($root, $this->auth(), 1);
-        } catch (WebDavAccessException) {
+            $this->walk($prefix, $this->collectionPath(), $keys, 0);
+        } catch (WebDavAccessException $e) {
+            if (!$e->isNotFound()) {
+                throw $e;
+            }
+
             // A collection that is not there is an empty listing, not a
             // failure: every caller derives its prefix from something that
             // can be older than the share.
             return new StorageListing([]);
         }
 
-        $base = $this->collectionPath();
-        $objects = [];
+        // Sorted so that « after this key » is a stable instruction: the
+        // order a server returns children in is its own business, and a
+        // cursor against an unstable order skips files or repeats them.
+        ksort($keys, SORT_STRING);
+
+        $page = [];
+        $truncated = false;
+        foreach ($keys as $key => $object) {
+            if ($cursor !== null && strcmp((string) $key, $cursor) <= 0) {
+                continue;
+            }
+            if (count($page) >= $ceiling) {
+                $truncated = true;
+                break;
+            }
+            $page[] = $object;
+        }
+
+        // **A truncated page says so.** `StorageListing::isComplete()`
+        // reads a null cursor as « that was everything », so returning one
+        // here would stop a copy after the first page and call it done.
+        return new StorageListing($page, $truncated ? $page[count($page) - 1]->key : null);
+    }
+
+    /**
+     * Collects every object under one collection, recursively.
+     *
+     * The depth cap is a guard and not a feature: a share that answers its
+     * own path as a child — a misconfigured proxy, a symlink loop — would
+     * otherwise walk for ever on a page an administrator is waiting on.
+     *
+     * @param array<string, StoredObject> $keys keyed by key, so a server
+     *        that lists an entry twice yields one object
+     * @throws WebDavAccessException
+     */
+    private function walk(string $prefix, string $base, array &$keys, int $depth): void
+    {
+        if ($depth > self::WALK_DEPTH_CEILING || count($keys) > self::LIST_CEILING) {
+            return;
+        }
+
+        $resources = $this->client->propfind($this->urlFor($prefix), $this->auth(), 1);
         foreach ($resources as $resource) {
-            if ($resource->isCollection) {
-                continue;
-            }
             $key = self::keyFrom($resource->href, $base);
-            if ($key === null || ($prefix !== '' && !str_starts_with($key, trim($prefix, '/')))) {
+            if ($key === null || $key === $prefix) {
+                // The collection describes itself in its own answer; only
+                // its children are of interest.
                 continue;
             }
-            $objects[] = new StoredObject(
+            if ($prefix !== '' && !str_starts_with($key, $prefix . '/')) {
+                continue;
+            }
+
+            if ($resource->isCollection) {
+                $this->walk($key, $base, $keys, $depth + 1);
+                continue;
+            }
+
+            $keys[$key] = new StoredObject(
                 $key,
                 $resource->contentLength,
                 $resource->etag,
                 $resource->lastModified
             );
-            if (count($objects) >= min($limit, self::LIST_CEILING)) {
-                break;
-            }
         }
-
-        return new StorageListing($objects);
     }
 
     /**
@@ -203,6 +321,10 @@ final class WebDavBackend implements RangeReadableBackend, QuotaReportingBackend
      */
     public function announcedChecksum(string $key): ?string
     {
+        // Not wrapped, unlike size(): null here means « this destination
+        // says nothing comparable », and a verification reads that as
+        // « skip the comparison ». A share that is down would then have
+        // every file pass unverified.
         return $this->describe($key)?->etag;
     }
 
@@ -224,6 +346,7 @@ final class WebDavBackend implements RangeReadableBackend, QuotaReportingBackend
 
         try {
             $this->client->propfind($this->config->baseUrl, $this->auth(), 0);
+            $this->proveItCanServeASlice();
         } catch (WebDavAccessException $e) {
             // Already a French sentence naming the remedy — that is what
             // marks this exception as user-facing.
@@ -243,6 +366,53 @@ final class WebDavBackend implements RangeReadableBackend, QuotaReportingBackend
 
         return null;
     }
+
+    /**
+     * Writes a witness file, reads a few bytes out of the middle of it,
+     * and removes it.
+     *
+     * **Because `PROPFIND` answering is not the promise this type makes.**
+     * `StorageLocationType::capabilities()` declares `RangeRead` for every
+     * WebDAV location, and the Emplacements screen turns that into
+     * « Vidéos : oui — une vidéo se lit, et on peut avancer dedans ». A
+     * server can answer `PROPFIND` perfectly and ignore `Range:`, and an
+     * administrator who read that sentence would find out on the evening a
+     * parent tries to skip to the end of the camp film. The capability is
+     * checked where the sentence is earned, at declaration time.
+     *
+     * The witness is removed whatever happens, including when the read
+     * refuses: leaving files behind on somebody's cloud is not something a
+     * connection test may do.
+     *
+     * @throws WebDavAccessException
+     */
+    private function proveItCanServeASlice(): void
+    {
+        $key = self::WITNESS_PREFIX . bin2hex(random_bytes(8));
+        $contents = str_repeat('scoutmagic', 16);
+
+        $this->client->put($this->urlFor($key), $this->auth(), $contents, 'application/octet-stream');
+
+        try {
+            $slice = $this->client->getRange($this->urlFor($key), $this->auth(), 10, 10);
+        } finally {
+            $this->client->delete($this->urlFor($key), $this->auth());
+        }
+
+        if ($slice !== substr($contents, 10, 10)) {
+            throw WebDavAccessException::of(
+                'Ce partage n\'a pas renvoyé l\'extrait de fichier demandé : les vidéos n\'y seraient pas '
+                . 'parcourables.'
+            );
+        }
+    }
+
+    /**
+     * The witness file's name. Prefixed and random: a share is somebody's
+     * own folder, and a test that collided with a file already there would
+     * overwrite it and then delete it.
+     */
+    private const WITNESS_PREFIX = '.scoutmagic-test-';
 
     /**
      * What the share says is left, or null when it will not say.
@@ -272,17 +442,26 @@ final class WebDavBackend implements RangeReadableBackend, QuotaReportingBackend
     /**
      * One `PROPFIND` at depth 0, or null when the object is not there.
      *
-     * A refusal is read as absence on purpose: every caller of
-     * {@see exists()} and {@see size()} is asking a question that has
-     * « no » as an ordinary answer, and turning a 404 into an exception
-     * would make each of them wrap this call.
+     * **Absence is null; everything else is raised.** This used to catch
+     * every `WebDavAccessException` and answer null, which reads the same
+     * as « not there » for a share that is refusing the password, out of
+     * space, or simply down. The callers act on that answer: a
+     * repatriation concludes the source lost a file it still holds, and a
+     * safety copy re-sends objects that are sitting there intact. A
+     * failure that is not an absence has to reach them as a failure.
+     *
+     * @throws WebDavAccessException
      */
     private function describe(string $key): ?\Core\Storage\Location\Backend\WebDav\WebDavResource
     {
         try {
             $resources = $this->client->propfind($this->urlFor($key), $this->auth(), 0);
-        } catch (WebDavAccessException) {
-            return null;
+        } catch (WebDavAccessException $e) {
+            if ($e->isNotFound()) {
+                return null;
+            }
+
+            throw $e;
         }
 
         return $resources[0] ?? null;
@@ -297,13 +476,21 @@ final class WebDavBackend implements RangeReadableBackend, QuotaReportingBackend
      */
     private function ensureCollectionsFor(string $key): void
     {
-        $segments = array_values(array_filter(explode('/', trim($key, '/')), static fn (string $s): bool => $s !== ''));
+        $segments = array_values(array_filter(
+            explode('/', trim($key, '/')),
+            static fn (string $segment): bool => $segment !== ''
+        ));
         array_pop($segments);
 
         $path = '';
         foreach ($segments as $segment) {
             $path = $path === '' ? $segment : $path . '/' . $segment;
+            if (isset($this->knownCollections[$path])) {
+                continue;
+            }
+
             $this->client->makeCollection($this->urlFor($path), $this->auth());
+            $this->knownCollections[$path] = true;
         }
     }
 
@@ -341,12 +528,23 @@ final class WebDavBackend implements RangeReadableBackend, QuotaReportingBackend
         return 'Basic ' . base64_encode($this->config->username . ':' . $this->password);
     }
 
-    /** The path part of the configured collection, for turning hrefs back into keys. */
+    /**
+     * The path part of the configured collection, for turning hrefs back
+     * into keys — **decoded, because that is how the hrefs arrive.**
+     *
+     * {@see WebDavResource} runs `rawurldecode()` over every `href`, so a
+     * base left percent-encoded matches none of them. A Nextcloud address
+     * carrying an account name with a space —
+     * `…/dav/files/marie%20dupont/scoutmagic` — would make every listing
+     * come back empty while writes and reads went on working, which is
+     * the shape of failure that gets discovered by a migration that
+     * copied nothing and said it was done.
+     */
     private function collectionPath(): string
     {
         $path = parse_url($this->config->baseUrl, PHP_URL_PATH);
 
-        return is_string($path) ? rtrim($path, '/') : '';
+        return is_string($path) ? rtrim(rawurldecode($path), '/') : '';
     }
 
     /**

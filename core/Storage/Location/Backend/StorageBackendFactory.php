@@ -15,6 +15,8 @@ use Core\Storage\Location\Config\GoogleDriveSecret;
 use Core\Storage\Location\Config\LocalLocationConfig;
 use Core\Storage\Location\Config\ObjectStorageLocationConfig;
 use Core\Storage\Location\Config\WebDavLocationConfig;
+use Core\Storage\Location\Backend\WebDav\WebDavAccessException;
+use Core\Security\SsrfUrlValidator;
 use Core\Storage\Location\StorageLocation;
 use Core\Storage\Location\StorageLocationException;
 use Core\Storage\Location\StorageLocationRepository;
@@ -76,6 +78,21 @@ class StorageBackendFactory
         }
 
         if ($config instanceof WebDavLocationConfig) {
+            // **The address is checked again here, not only when it was
+            // saved.** A username and a password travel on it in an
+            // `Authorization` header on every single request, and the row
+            // it comes from can have arrived since the form: a restore
+            // from another installation, a hand-edited column. The save
+            // path refuses anything that is not a public https URL
+            // (SECURITY.md §17); this refuses it again before a single
+            // byte of the credential leaves the server.
+            if (!SsrfUrlValidator::isPublicHttpsUrl($config->baseUrl, true)) {
+                throw WebDavAccessException::of(
+                    'L\'adresse enregistrée pour ce partage n\'est pas une adresse https publique. '
+                    . 'Corrigez-la sur la fiche de cet emplacement.'
+                );
+            }
+
             // The password is read here and nowhere else, like every other
             // credential: the strict reader, because this builds a backend
             // that is about to talk to the share.

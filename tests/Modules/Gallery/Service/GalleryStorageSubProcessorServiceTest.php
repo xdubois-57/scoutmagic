@@ -6,7 +6,9 @@ namespace Tests\Modules\Gallery\Service;
 
 use Core\Module\SubProcessorView;
 use Core\Storage\Location\Config\LocalLocationConfig;
+use Core\Storage\Location\Config\GoogleDriveLocationConfig;
 use Core\Storage\Location\Config\ObjectStorageLocationConfig;
+use Core\Storage\Location\Config\WebDavLocationConfig;
 use Core\Storage\Location\StorageLocation;
 use Core\Storage\Location\StorageLocationRepository;
 use Core\Storage\Location\StorageLocationType;
@@ -63,6 +65,81 @@ class GalleryStorageSubProcessorServiceTest extends TestCase
             null,
             '2026-01-01 00:00:00'
         );
+    }
+
+    private static function share(string $baseUrl): StorageLocation
+    {
+        return new StorageLocation(
+            1,
+            StorageLocationType::WebDav,
+            'Un partage',
+            false,
+            new WebDavLocationConfig($baseUrl, 'unite'),
+            true,
+            null,
+            null,
+            null,
+            '2026-01-01 00:00:00'
+        );
+    }
+
+    private static function drive(): StorageLocation
+    {
+        return new StorageLocation(
+            1,
+            StorageLocationType::GoogleDrive,
+            'Un Drive',
+            false,
+            new GoogleDriveLocationConfig('client-1', 'dossier-1', '2026-01-01T00:00:00+00:00'),
+            true,
+            null,
+            null,
+            null,
+            '2026-01-01 00:00:00'
+        );
+    }
+
+    /**
+     * **What flows to these hosts is photographs and films of children**,
+     * so a destination missing from this page is a disclosure that is
+     * wrong rather than merely short. This used to read one `instanceof`
+     * for S3 and skip everything else, which was right while S3 was the
+     * only kind there was.
+     */
+    public function testAShareIsDeclaredByItsHostAndNotByTheAccountUnderIt(): void
+    {
+        $views = $this->service([
+            self::share('https://cloud.exemple.test/remote.php/dav/files/marie.dupont/scoutmagic'),
+        ])->getSubProcessors();
+
+        $this->assertCount(1, $views);
+        $this->assertSame(SubProcessorView::CATEGORY_MEDIA_STORAGE, $views[0]->category);
+        $this->assertStringContainsString('cloud.exemple.test', $views[0]->name);
+        $this->assertStringNotContainsString('marie.dupont', $views[0]->name);
+    }
+
+    public function testADriveFolderIsDeclaredToo(): void
+    {
+        $views = $this->service([self::drive()])->getSubProcessors();
+
+        $this->assertCount(1, $views);
+        $this->assertStringContainsString('Google', $views[0]->name);
+    }
+
+    /**
+     * The one that would catch the next omission: every type the enum
+     * knows, at once, and every one of them but the local disk named.
+     */
+    public function testEveryKindOfExternalDestinationIsDeclared(): void
+    {
+        $views = $this->service([
+            self::localLocation(),
+            self::bucket('hetzner'),
+            self::share('https://cloud.exemple.test/dav'),
+            self::drive(),
+        ])->getSubProcessors();
+
+        $this->assertCount(count(StorageLocationType::cases()) - 1, $views);
     }
 
     public function testLocalStorageDeclaresNoSubProcessor(): void

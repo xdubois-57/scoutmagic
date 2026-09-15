@@ -52,6 +52,21 @@ final class FakeWebDavServer
     /** When true, `GET` ignores `Range:` and answers the whole object with 200. */
     public bool $ignoresRange = false;
 
+    /**
+     * A `Content-Range` to answer instead of the true one, and a body to
+     * answer instead of the true slice — the two ways a share, or an
+     * intermediary, can say 206 and hand over something else.
+     */
+    public ?string $contentRangeOverride = null;
+
+    public ?string $sliceOverride = null;
+
+    /**
+     * Answers the next `PUT` with 409 « Conflict » — how a real server
+     * reports a parent collection that is not there.
+     */
+    public bool $refusePutOnce = false;
+
     public function __construct(
         public readonly string $baseUrl = 'https://cloud.example.org/dav/scoutmagic'
     ) {
@@ -91,6 +106,12 @@ final class FakeWebDavServer
     /** @return WebDavFakeResponse */
     private function put(string $path, string $body): array
     {
+        if ($this->refusePutOnce) {
+            $this->refusePutOnce = false;
+
+            return ['status' => 409, 'body' => '', 'headers' => []];
+        }
+
         $existed = isset($this->files[$path]);
         $this->files[$path] = $body;
 
@@ -111,12 +132,19 @@ final class FakeWebDavServer
 
         preg_match('/bytes=(\d+)-(\d+)/', $range, $matches);
         $from = (int) $matches[1];
-        $to = (int) $matches[2];
+        // Clamped like a real server does: RFC 9110 has the last byte of
+        // the object end a range that runs past it, which is what a caller
+        // reading a file's tail meets.
+        $to = min((int) $matches[2], strlen($contents) - 1);
+        $slice = $this->sliceOverride ?? substr($contents, $from, $to - $from + 1);
 
         return [
             'status' => 206,
-            'body' => substr($contents, $from, $to - $from + 1),
-            'headers' => [],
+            'body' => $slice,
+            'headers' => [
+                'content-range' => $this->contentRangeOverride
+                    ?? sprintf('bytes %d-%d/%d', $from, $to, strlen($contents)),
+            ],
         ];
     }
 
@@ -158,20 +186,57 @@ final class FakeWebDavServer
             return ['status' => 404, 'body' => '', 'headers' => []];
         }
 
-        $entries = '';
         if ($depth === 0) {
             $entries = isset($this->files[$path])
                 ? $this->fileEntry($path)
                 : $this->collectionEntry($path);
-        } else {
-            $entries = $this->collectionEntry($path);
-            foreach ($this->files as $known => $contents) {
-                if (str_starts_with($known, rtrim($path, '/') . '/')) {
-                    $entries .= $this->fileEntry($known);
-                }
-            }
+
+            return self::multiStatus($entries);
         }
 
+        // **`Depth: 1` is one level, and only one.** This used to answer
+        // every file below the path, which no server does and which let a
+        // caller that never recursed look as though it had listed the
+        // whole share. A fake that is more generous than the protocol is
+        // a fake that agrees with the code instead of checking it.
+        $entries = $this->collectionEntry($path);
+        $root = rtrim($path, '/');
+        foreach ($this->directChildrenOf($root) as $child) {
+            $entries .= isset($this->files[$child])
+                ? $this->fileEntry($child)
+                : $this->collectionEntry($child);
+        }
+
+        return self::multiStatus($entries);
+    }
+
+    /**
+     * The direct children of a collection — a file sitting in it, and the
+     * first segment of anything deeper, as a collection of its own.
+     *
+     * @return list<string>
+     */
+    private function directChildrenOf(string $root): array
+    {
+        $children = [];
+        $known = array_merge(array_keys($this->files), $this->collections);
+
+        foreach ($known as $entry) {
+            if ($entry === $root || !str_starts_with($entry, $root . '/')) {
+                continue;
+            }
+            $rest = substr($entry, strlen($root) + 1);
+            $slash = strpos($rest, '/');
+            $child = $root . '/' . ($slash === false ? $rest : substr($rest, 0, $slash));
+            $children[$child] = true;
+        }
+
+        return array_keys($children);
+    }
+
+    /** @return WebDavFakeResponse */
+    private static function multiStatus(string $entries): array
+    {
         return [
             'status' => 207,
             'body' => '<?xml version="1.0"?><d:multistatus xmlns:d="DAV:">' . $entries . '</d:multistatus>',
