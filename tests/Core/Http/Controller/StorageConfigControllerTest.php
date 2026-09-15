@@ -760,6 +760,37 @@ class StorageConfigControllerTest extends TestCase
     }
 
     /**
+     * A location whose secret no longer decrypts still renders — and it
+     * is the screen carrying « Déraccorder » that has to.
+     *
+     * Replacing the master key without re-encrypting leaves the row
+     * unreadable. The decrypt happens in the repository, one frame before
+     * `GoogleDriveSecret::fromStorage()` gets its « never throws »
+     * promise, so letting it out turns
+     * `GET /config/stockage/emplacements` into a 500 — and that page is
+     * the only one offering the action that clears the location. The
+     * broken row would take down the screen for repairing it.
+     */
+    public function testALocationWhoseSecretNoLongerDecryptsStillRendersItsCard(): void
+    {
+        $this->declareDrive();
+
+        // The same rows, read with a master key that never encrypted them.
+        $rotated = new StorageLocationRepository(
+            $this->pdo,
+            new EncryptionService(str_repeat('z', 32), str_repeat('y', 32))
+        );
+
+        $body = $this->buildController($rotated)->locations(
+            new Request('GET', '/config/stockage/emplacements', [], [], [], []),
+            []
+        )->getBody();
+
+        $this->assertStringContainsString('Google Drive', $body);
+        $this->assertStringNotContainsString('unite@example.org', $body, 'an unreadable secret was rendered anyway');
+    }
+
+    /**
      * **A Drive location is not tested on creation**, and it cannot be:
      * the row exists before any account is behind it, so a check would
      * record « échec » on a destination nobody has had the chance to

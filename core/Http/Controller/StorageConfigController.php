@@ -791,7 +791,7 @@ class StorageConfigController extends AbstractController
             $locationId = (int) ($data['location_id'] ?? 0);
             $location = $locationId > 0 ? $this->storageLocationRepository->findById($locationId) : null;
             if ($location !== null && $location->type === StorageLocationType::ObjectStorage) {
-                $secretKey = (string) $this->storageLocationRepository->getSecret($location->id);
+                $secretKey = (string) $this->storageLocationRepository->getSecretForDisplay($location->id);
             }
         }
 
@@ -1281,7 +1281,7 @@ class StorageConfigController extends AbstractController
 
         $existing = $location === null
             ? new GoogleDriveSecret()
-            : GoogleDriveSecret::fromStorage($this->storageLocationRepository->getSecret($location->id));
+            : GoogleDriveSecret::fromStorage($this->storageLocationRepository->getSecretForDisplay($location->id));
 
         return $existing->withClientSecret(trim($clientSecret))->toStorage();
     }
@@ -1312,7 +1312,7 @@ class StorageConfigController extends AbstractController
             return new GoogleDriveSecret();
         }
 
-        return GoogleDriveSecret::fromStorage($this->storageLocationRepository->getSecret($location->id));
+        return GoogleDriveSecret::fromStorage($this->storageLocationRepository->getSecretForDisplay($location->id));
     }
 
     private function driveConfigOf(?StorageLocation $location): GoogleDriveLocationConfig

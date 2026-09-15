@@ -419,6 +419,6 @@ final class GoogleDriveConnectionController extends AbstractController
 
     private function secretOf(StorageLocation $location): GoogleDriveSecret
     {
-        return GoogleDriveSecret::fromStorage($this->locations->getSecret($location->id));
+        return GoogleDriveSecret::fromStorage($this->locations->getSecretForDisplay($location->id));
     }
 }
