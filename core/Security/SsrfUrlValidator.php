@@ -85,8 +85,58 @@ final class SsrfUrlValidator
      */
     public static function resolveHostToPublicIp(string $host): ?string
     {
+        $ips = self::addressesOf($host);
+        if ($ips === []) {
+            return null;
+        }
+
+        foreach ($ips as $ip) {
+            if (!self::isPublicIp($ip)) {
+                return null;
+            }
+        }
+
+        return $ips[0];
+    }
+
+    /**
+     * That a host resolves, and resolves somewhere it must not be reached.
+     *
+     * **This is the half of the check above that is worth repeating before
+     * every request, and the other half is not.** `resolveHostToPublicIp()`
+     * answers null both for a host that points at `10.0.0.5` and for one
+     * the resolver could not answer for at all, and those are not the same
+     * fact: the first is the attack this guard exists to stop, while the
+     * second means the connection about to be made cannot reach anything
+     * either. Refusing on it buys no protection and costs an accusation —
+     * a location whose address is perfectly good, recorded as « corrigez
+     * l'adresse » because a resolver blinked.
+     *
+     * Used where a stored address is re-checked on use; the save-time
+     * check stays strict, because an address nobody can resolve is not one
+     * to write down.
+     */
+    public static function resolvesOutsideThePublicInternet(string $host): bool
+    {
+        foreach (self::addressesOf($host) as $ip) {
+            if (!self::isPublicIp($ip)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Every A/AAAA record for $host, or the literal when it is already an
+     * address. Empty when the resolver had nothing to say.
+     *
+     * @return list<string>
+     */
+    private static function addressesOf(string $host): array
+    {
         if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
-            return self::isPublicIp($host) ? $host : null;
+            return [$host];
         }
 
         $records = array_merge(
@@ -102,17 +152,40 @@ final class SsrfUrlValidator
             }
         }
 
-        if ($ips === []) {
-            return null;
+        return $ips;
+    }
+
+    /**
+     * The same target check as {@see assertPublicHttpsUrl()}, minus the
+     * requirement that the host resolve right now.
+     *
+     * For a value that was validated strictly when it was saved and is
+     * being re-checked before a request goes out. Everything structural —
+     * the scheme, embedded credentials, the port — is refused exactly as
+     * before; only « the resolver said nothing » stops being a refusal.
+     */
+    public static function isStoredHttpsTargetStillSafe(string $url, bool $allowCustomPort = false): bool
+    {
+        $parts = @parse_url($url);
+        if (!is_array($parts)) {
+            return false;
+        }
+        if (strtolower((string) ($parts['scheme'] ?? '')) !== 'https') {
+            return false;
+        }
+        if (isset($parts['user']) || isset($parts['pass'])) {
+            return false;
         }
 
-        foreach ($ips as $ip) {
-            if (!self::isPublicIp($ip)) {
-                return null;
-            }
+        $host = $parts['host'] ?? null;
+        if (!is_string($host) || $host === '') {
+            return false;
+        }
+        if (!$allowCustomPort && ($parts['port'] ?? 443) !== 443) {
+            return false;
         }
 
-        return $ips[0];
+        return !self::resolvesOutsideThePublicInternet($host);
     }
 
     /**

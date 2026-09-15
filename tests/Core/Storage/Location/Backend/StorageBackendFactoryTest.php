@@ -112,9 +112,30 @@ class StorageBackendFactoryTest extends TestCase
     public function testAStoredWebDavAddressIsRefusedAgainBeforeTheCredentialTravels(string $baseUrl): void
     {
         $this->expectException(WebDavAccessException::class);
-        $this->expectExceptionMessage('https publique');
+        $this->expectExceptionMessage('adresse publique');
 
         $this->factory->create($this->webDavLocation($baseUrl));
+    }
+
+    /**
+     * **And a host the resolver cannot answer for is not refused here.**
+     * This check runs before every request that touches the share, so its
+     * message is what the Emplacements page shows about the location. A
+     * resolver blink would otherwise record « vérifiez l'adresse » against
+     * a configuration that is perfectly good — and refusing buys nothing,
+     * because the request about to be made cannot reach anything either.
+     * What must be refused is an address that resolves somewhere it must
+     * not be reached, which the cases above cover.
+     */
+    public function testAnAddressTheResolverCannotAnswerForIsNotCalledWrong(): void
+    {
+        // A name under the documentation domain: well-formed, public in
+        // shape, and answering nothing.
+        $backend = $this->factory->create(
+            $this->webDavLocation('https://partage-inexistant.example.org/dav/scoutmagic')
+        );
+
+        $this->assertInstanceOf(\Core\Storage\Location\Backend\WebDavBackend::class, $backend);
     }
 
     public function testARelativePathHangsUnderTheSitesStorageFolder(): void

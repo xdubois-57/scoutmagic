@@ -86,10 +86,18 @@ class StorageBackendFactory
             // path refuses anything that is not a public https URL
             // (SECURITY.md §17); this refuses it again before a single
             // byte of the credential leaves the server.
-            if (!SsrfUrlValidator::isPublicHttpsUrl($config->baseUrl, true)) {
+            //
+            // The re-check is the STORED-value one, which differs from the
+            // save-time check in a single place: a host the resolver
+            // cannot answer for is not a refusal here. It buys nothing —
+            // the request about to be made cannot reach anything either —
+            // and it costs an accusation, because this message is what the
+            // Emplacements page shows about a location whose address may
+            // be perfectly good.
+            if (!SsrfUrlValidator::isStoredHttpsTargetStillSafe($config->baseUrl, true)) {
                 throw WebDavAccessException::of(
-                    'L\'adresse enregistrée pour ce partage n\'est pas une adresse https publique. '
-                    . 'Corrigez-la sur la fiche de cet emplacement.'
+                    'L\'adresse enregistrée pour ce partage ne mène plus à une adresse publique. '
+                    . 'Vérifiez-la sur la fiche de cet emplacement.'
                 );
             }
 

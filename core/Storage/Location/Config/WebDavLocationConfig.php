@@ -104,10 +104,22 @@ final class WebDavLocationConfig implements LocationConfig
 
     /**
      * Trailing slashes removed, so that appending `/key` is the only
-     * join rule this type ever needs.
+     * join rule this type ever needs — **and everything from a `?` or a
+     * `#` removed with them.**
+     *
+     * Neither belongs in the address of a collection, and both survive
+     * the SSRF check, which reads the scheme, the host and the port. What
+     * they do not survive is the join: every key is appended to this
+     * string, so a base of `…/dav#partage` becomes
+     * `…/dav#partage/12/med_3.jpg`, cURL drops everything from the `#`
+     * before sending, and every single key resolves to `…/dav`. A query
+     * string collapses the same way. Reads and listings then answer the
+     * wrong resource quietly instead of failing.
      */
     public static function normaliseBaseUrl(string $url): string
     {
-        return rtrim(trim($url), '/');
+        $url = trim($url);
+
+        return rtrim(substr($url, 0, strcspn($url, '?#')), '/');
     }
 }

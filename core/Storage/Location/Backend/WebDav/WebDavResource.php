@@ -24,7 +24,15 @@ final class WebDavResource
     public function __construct(
         public readonly string $href,
         public readonly bool $isCollection,
-        public readonly int $contentLength = 0,
+        /**
+         * **Null when the share said nothing about it**, which is not the
+         * same as zero. A `<response>` carrying no `propstat` at 200 is
+         * legal — a server may split properties across per-status blocks
+         * and succeed at none — and reading that as a 0-byte file is how
+         * `ProtectedCopier` comes to compare a real file against an
+         * announced zero, call the copy corrupt and delete it.
+         */
+        public readonly ?int $contentLength = 0,
         public readonly ?string $contentMd5 = null,
         public readonly ?string $lastModified = null,
         public readonly ?int $quotaAvailableBytes = null,
@@ -86,7 +94,7 @@ final class WebDavResource
         }
 
         if ($properties === null) {
-            return new self(self::decodeHref($href), false);
+            return new self(self::decodeHref($href), false, null);
         }
 
         $dav = $properties->children('DAV:');

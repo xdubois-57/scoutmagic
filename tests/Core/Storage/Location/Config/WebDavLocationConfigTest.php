@@ -30,6 +30,33 @@ class WebDavLocationConfigTest extends TestCase
     }
 
     /**
+     * **A query string or a fragment does not belong in the address of a
+     * collection, and does not survive the join.** Every key is appended
+     * to this string, so a base of `…/dav#partage` becomes
+     * `…/dav#partage/12/med_3.jpg`; cURL drops everything from the `#`
+     * before sending, and every key resolves to `…/dav`. The SSRF check
+     * reads the scheme, the host and the port, so neither is caught
+     * there.
+     *
+     * @return array<string, array{0: string, 1: string}>
+     */
+    public static function addressesCarryingMoreThanAPath(): array
+    {
+        return [
+            'a fragment' => ['https://cloud.example.org/dav#partage', 'https://cloud.example.org/dav'],
+            'a query string' => ['https://cloud.example.org/dav?x=1', 'https://cloud.example.org/dav'],
+            'both' => ['https://cloud.example.org/dav?x=1#y', 'https://cloud.example.org/dav'],
+            'a fragment after a slash' => ['https://cloud.example.org/dav/#y', 'https://cloud.example.org/dav'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('addressesCarryingMoreThanAPath')]
+    public function testTheAddressKeepsItsPathAndNothingAfterIt(string $given, string $expected): void
+    {
+        $this->assertSame($expected, WebDavLocationConfig::normaliseBaseUrl($given));
+    }
+
+    /**
      * **A `(string)` cast turns a JSON array into the literal « Array »**,
      * with a PHP warning beside it, and the location would then be active
      * and pointed at nothing. This record comes out of a column: a row

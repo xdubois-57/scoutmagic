@@ -150,6 +150,38 @@ final class WebDavResourceTest extends TestCase
     }
 
     /**
+     * **A `<response>` whose properties all failed is not a 0-byte file.**
+     * RFC 4918 lets a server split properties across per-status blocks and
+     * succeed at none of them, and reading that as a definite zero is how
+     * `ProtectedCopier` comes to compare a real file against an announced
+     * nothing, call the copy corrupt and delete it.
+     */
+    public function testAnEntryWhoseEveryPropertyFailedHasNoSizeRatherThanZero(): void
+    {
+        $xml = '<?xml version="1.0"?>'
+            . '<d:multistatus xmlns:d="DAV:"><d:response>'
+            . '<d:href>/dav/photo.jpg</d:href>'
+            . '<d:propstat><d:status>HTTP/1.1 404 Not Found</d:status>'
+            . '<d:prop><d:getcontentlength/></d:prop></d:propstat>'
+            . '</d:response></d:multistatus>';
+
+        $this->assertNull(WebDavResource::parseMultiStatus($xml)[0]->contentLength);
+    }
+
+    /** A file the server did describe still measures what it says. */
+    public function testAnEntryTheServerDescribedKeepsItsSize(): void
+    {
+        $xml = '<?xml version="1.0"?>'
+            . '<d:multistatus xmlns:d="DAV:"><d:response>'
+            . '<d:href>/dav/photo.jpg</d:href>'
+            . '<d:propstat><d:status>HTTP/1.1 200 OK</d:status>'
+            . '<d:prop><d:getcontentlength>512</d:getcontentlength></d:prop></d:propstat>'
+            . '</d:response></d:multistatus>';
+
+        $this->assertSame(512, WebDavResource::parseMultiStatus($xml)[0]->contentLength);
+    }
+
+    /**
      * A share with no limit answers « unknown », never « nothing free » —
      * a screen must show nothing rather than a reassuring zero.
      *

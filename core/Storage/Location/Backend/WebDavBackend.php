@@ -322,6 +322,19 @@ final class WebDavBackend implements RangeReadableBackend, QuotaReportingBackend
                 continue;
             }
 
+            if ($resource->contentLength === null) {
+                // **Not listed as zero bytes, and not skipped either.** A
+                // zero would have a copy compare a real file against it
+                // and delete the copy as corrupt; skipping would have the
+                // same pass read the file as gone from the source and
+                // delete its backup. Neither is recoverable, and a listing
+                // that stops is.
+                throw WebDavAccessException::of(
+                    'Le partage a répondu sans donner la taille d\'un des fichiers : sa liste ne peut pas '
+                    . 'être établie de façon fiable.'
+                );
+            }
+
             $keys[$key] = new StoredObject(
                 $key,
                 $resource->contentLength,
