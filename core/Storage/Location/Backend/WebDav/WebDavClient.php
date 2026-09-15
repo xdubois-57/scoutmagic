@@ -231,11 +231,17 @@ final class WebDavClient
      */
     public function propfind(string $url, string $auth, int $depth): array
     {
+        // Null, like `get()`: a 207 carries a multistatus document whose
+        // size is what this request is going to find out. `Depth: 1` on a
+        // collection of ten thousand renditions answers megabytes, and a
+        // ceiling sized on the tiny REQUEST body would cut it off at
+        // roughly sixty kilobytes on the connection this client is built
+        // for — reported as a share that could not be reached.
         $response = $this->send('PROPFIND', $url, [
             'Authorization' => $auth,
             'Depth' => (string) $depth,
             'Content-Type' => 'application/xml; charset="utf-8"',
-        ], self::PROPFIND_BODY);
+        ], self::PROPFIND_BODY, null);
 
         if ($response['status'] !== 207) {
             throw self::errorFor($response['status'], 'Le contenu du partage n\'a pas pu être lu.');
@@ -299,8 +305,8 @@ final class WebDavClient
      * @param null|int $expectedResponseBytes how many bytes the ANSWER is
      *        expected to carry. A ranged read knows; a status-only verb
      *        answers nothing, which is the 0 default; **null means the
-     *        caller cannot know**, which is a `GET` of a whole object and
-     *        the one case with no figure to size a ceiling on.
+     *        caller cannot know**, which is a `GET` of a whole object or
+     *        a `PROPFIND` — both learn the length from the answer.
      * @return WebDavResponse
      */
     private function send(

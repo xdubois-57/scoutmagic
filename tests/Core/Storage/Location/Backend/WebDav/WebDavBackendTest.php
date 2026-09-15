@@ -746,6 +746,30 @@ final class WebDavBackendTest extends TestCase
         );
     }
 
+    /**
+     * **A `PROPFIND` is not a status-only verb.** Its answer is a
+     * multistatus document whose size the caller learns from the answer —
+     * `Depth: 1` on a collection of ten thousand renditions carries
+     * megabytes — so sizing its ceiling on the tiny request body would cut
+     * a large album's listing off at roughly sixty kilobytes, and report
+     * it as a share that could not be reached.
+     */
+    public function testAListingIsNotGivenTheCeilingOfAStatusOnlyRequest(): void
+    {
+        $backend = $this->backend();
+        $backend->put('12/a.jpg', 'x', 'image/jpeg');
+        $this->share->calls = [];
+
+        $backend->list('');
+
+        $propfind = array_values(array_filter(
+            $this->share->calls,
+            static fn (array $call): bool => $call['method'] === 'PROPFIND'
+        ));
+        $this->assertNotSame([], $propfind);
+        $this->assertGreaterThan(30, $propfind[0]['ceiling']);
+    }
+
     // ———— One MKCOL per album, not one per file ————
 
     public function testAFolderIsNotCreatedAgainForEveryFileWrittenIntoIt(): void

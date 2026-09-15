@@ -224,13 +224,16 @@ class StorageLocationsCollectorTest extends TestCase
     }
 
     /**
-     * **A share's address is a host plus the account it belongs to.** The
-     * path under a Nextcloud is literally `…/dav/files/{login}/…`, and a
-     * login is very often somebody's name — the same promise the absolute
-     * path above keeps, one type further along. The host answers the
-     * diagnostic question on its own: which cloud the unit is on.
+     * **A share's address names the unit and the account both.** The path
+     * under a Nextcloud is literally `…/dav/files/{login}/…`, and a login
+     * is very often somebody's name; the host is usually self-hosted, so
+     * `cloud.<unité>.org` says which unit this is — and it would sit one
+     * line above « Identifiants : configurés » in a file that goes to
+     * somebody else. The class rule about a bucket's endpoint applies
+     * here with more force, and unlike S3 there is no provider name to
+     * answer the diagnostic question instead.
      */
-    public function testItNamesTheShareHostAndNotTheAccountUnderIt(): void
+    public function testItNamesNeitherTheShareHostNorTheAccountUnderIt(): void
     {
         $this->repository->create(
             StorageLocationType::WebDav,
@@ -244,7 +247,9 @@ class StorageLocationsCollectorTest extends TestCase
 
         $report = $this->collect();
 
-        $this->assertStringContainsString('cloud.exemple.test', $report);
+        $this->assertStringContainsString('Partage WebDAV', $report, 'the kind is diagnostic and safe');
+        $this->assertStringContainsString('Identifiants   : configurés', $report);
+        $this->assertStringNotContainsString('cloud.exemple.test', $report);
         $this->assertStringNotContainsString('marie.dupont', $report);
         $this->assertStringNotContainsString('MOT-DE-PASSE-A-NE-JAMAIS-ECRIRE', $report);
     }

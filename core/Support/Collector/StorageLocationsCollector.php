@@ -233,13 +233,16 @@ class StorageLocationsCollector implements SupportCollectorInterface
         }
 
         if ($config instanceof WebDavLocationConfig) {
-            // **The host, and deliberately not the rest of the address.**
-            // `describe()` stops at the hostname; the path below it names
-            // the account on the share (`…/dav/files/marie.dupont/…`),
-            // which is exactly the kind of thing §11 keeps out of a
-            // package that goes to somebody else. Which cloud the unit
-            // uses is what a diagnosis needs.
-            return $config->describe();
+            // **Not the host either, and that costs something.** The rule
+            // above is about a bucket's endpoint, and it applies here with
+            // more force: a share is usually self-hosted, so
+            // `cloud.<unité>.org` names the unit outright and sits one
+            // line above « Identifiants : configurés » in a file that goes
+            // to somebody else. S3 answers the same diagnostic question
+            // with a provider name; a protocol has no provider to name, so
+            // this line says the kind and stops. The operator reads the
+            // address on their own Emplacements page, where it belongs.
+            return 'Partage WebDAV (hébergeur externe)';
         }
 
         return $location->type->value;
