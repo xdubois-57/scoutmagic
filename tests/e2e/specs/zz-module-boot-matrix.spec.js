@@ -72,6 +72,27 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const modulesDir = path.join(repoRoot, 'modules');
 
 /**
+ * The parameterless GET routes of one manifest that a superadmin can be
+ * sent to: the ones a menu labels, or — for a module that labels none —
+ * the ones declaring a breadcrumb, which is this application's own
+ * definition of a page (Core\Http\FrontController sets `route_breadcrumb`
+ * on exactly those).
+ *
+ * @param {{ routes?: Array<{ method?: string, path: string, label?: string, breadcrumb?: unknown }> }} manifest
+ * @returns {string[]}
+ */
+function pagesOf(manifest) {
+    const routes = (manifest.routes ?? []).filter(
+        (route) => (route.method ?? 'GET') === 'GET' && !route.path.includes('{'),
+    );
+
+    const labelled = routes.filter((route) => typeof route.label === 'string' && route.label !== '');
+
+    return (labelled.length > 0 ? labelled : routes.filter((route) => Boolean(route.breadcrumb)))
+        .map((route) => route.path);
+}
+
+/**
  * @typedef {{ id: string, name: string, requires: string[], pages: string[] }} ModuleUnderTest
  */
 
@@ -90,11 +111,19 @@ const allModules = fs.readdirSync(modulesDir)
             // labelled (menu-bearing), parameterless GET routes. Visiting a
             // page whose route needs a row id would test a fixture, not the
             // wiring.
-            pages: (manifest.routes ?? [])
-                .filter((route) => (route.method ?? 'GET') === 'GET'
-                    && typeof route.label === 'string' && route.label !== ''
-                    && !route.path.includes('{'))
-                .map((route) => route.path),
+            //
+            // A module can have none, and that is not a module without
+            // pages: since issue #347, an entry whose page is narrower
+            // than its `role_min` is contributed at request time by a
+            // Core\Module\MenuEntryProvider instead of being declared
+            // here, and `banner` — one page, one entry — then labels
+            // nothing at all. Such a module falls back to its
+            // parameterless pages (a route carrying a breadcrumb), so it
+            // keeps being visited rather than silently dropping out of
+            // the matrix. Only as a fallback: reading every page of every
+            // module would double a scenario that already boots the site
+            // twenty-odd times.
+            pages: pagesOf(manifest),
         };
     });
 

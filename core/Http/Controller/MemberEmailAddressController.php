@@ -31,6 +31,15 @@ use Twig\Environment;
  */
 class MemberEmailAddressController extends AbstractController
 {
+    /**
+     * The self-only rule above, said to whoever ran into it. Every
+     * one of these four writes is posted from a member's own page, so
+     * the ordinary way to land here is a page left open while the
+     * session changed hands — a reader who needs the reason rather
+     * than the bare word "Forbidden" the site used to answer.
+     */
+    private const SELF_ONLY_MESSAGE = 'Vous ne pouvez gérer que vos propres adresses e-mail.';
+
     public function __construct(
         protected Environment $twig,
         private MemberEmailService $memberEmailService,
@@ -48,7 +57,7 @@ class MemberEmailAddressController extends AbstractController
         $memberYearId = (int) $params['id'];
         $memberId = $this->requireOwnMemberId($request, $memberYearId);
         if ($memberId === null) {
-            return new Response('Forbidden', 403);
+            return $this->forbidden(self::SELF_ONLY_MESSAGE, $request);
         }
 
         if (($guard = $this->guardCsrf($request, '/members/' . $memberYearId)) !== null) {
@@ -85,7 +94,7 @@ class MemberEmailAddressController extends AbstractController
         $memberYearId = (int) $params['id'];
         $memberId = $this->requireOwnMemberId($request, $memberYearId);
         if ($memberId === null) {
-            return new Response('Forbidden', 403);
+            return $this->forbidden(self::SELF_ONLY_MESSAGE, $request);
         }
 
         if (($guard = $this->guardCsrf($request, '/members/' . $memberYearId)) !== null) {
@@ -118,7 +127,7 @@ class MemberEmailAddressController extends AbstractController
         $memberYearId = (int) $params['id'];
         $memberId = $this->requireOwnMemberId($request, $memberYearId);
         if ($memberId === null) {
-            return new Response('Forbidden', 403);
+            return $this->forbidden(self::SELF_ONLY_MESSAGE, $request);
         }
 
         if (($guard = $this->guardCsrf($request, '/members/' . $memberYearId)) !== null) {
@@ -149,7 +158,7 @@ class MemberEmailAddressController extends AbstractController
         $memberYearId = (int) $params['id'];
         $memberId = $this->requireOwnMemberId($request, $memberYearId);
         if ($memberId === null) {
-            return new Response('Forbidden', 403);
+            return $this->forbidden(self::SELF_ONLY_MESSAGE, $request);
         }
 
         if (($guard = $this->guardCsrf($request, '/members/' . $memberYearId)) !== null) {

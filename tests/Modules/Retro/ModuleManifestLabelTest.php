@@ -7,10 +7,18 @@ namespace Tests\Modules\Retro;
 use PHPUnit\Framework\TestCase;
 
 /**
- * modules/retro/module.json's menu label for its Espace chefs d'U config
- * page — renamed from "Rétrospectives — Config" to "Rétrospective". The
- * separate, unrelated "Rétrospectives" (plural) entry on Espace animateurs is
- * untouched.
+ * The two entries the retro module puts in two different menus, and the
+ * wording that keeps them apart: « Rétrospective » (singular) for the
+ * Espace chefs d'U configuration page, « Rétrospectives » (plural) for the
+ * boards themselves on Espace animateurs.
+ *
+ * The singular one is no longer a `label` in the manifest. It could not
+ * stay one: the page asks for Staff d'U membership on top of its
+ * `role_min`, and a manifest label is drawn from `role_min` alone, so the
+ * menu offered the link to people the page refused (issue #347). It is
+ * contributed per request by Modules\Retro\Menu\RetroMenuHookService
+ * instead — which is where this test now reads the wording, since that is
+ * where it lives.
  */
 class ModuleManifestLabelTest extends TestCase
 {
@@ -33,14 +41,29 @@ class ModuleManifestLabelTest extends TestCase
         return null;
     }
 
-    public function testConfigRouteLabelIsRetrospectiveSingular(): void
+    public function testTheConfigRouteDeclaresNoMenuLabelOfItsOwn(): void
     {
         $route = $this->routeFor('/config/retro', 'GET');
 
         $this->assertNotNull($route);
-        $this->assertSame('Rétrospective', $route['label']);
+        $this->assertSame(
+            '',
+            $route['label'],
+            'a manifest label puts this entry back in front of every admin role, including the ones the '
+            . 'page refuses — issue #347',
+        );
         $this->assertSame('Rétrospective', $route['breadcrumb']['label']);
         $this->assertSame(["Espace chefs d'U"], $route['breadcrumb']['parents']);
+    }
+
+    public function testTheConfigEntryIsStillWordedInTheSingularWhereItNowLives(): void
+    {
+        $hook = (string) file_get_contents(
+            dirname(__DIR__, 3) . '/modules/retro/src/Menu/RetroMenuHookService.php',
+        );
+
+        $this->assertStringContainsString("'Rétrospective',", $hook);
+        $this->assertStringNotContainsString("'Rétrospectives',", $hook);
     }
 
     public function testEspaceChefsRouteLabelIsUnchanged(): void

@@ -36,9 +36,25 @@ use Twig\Environment;
  * POST /api/rich-text-content) via partials/rich_text_field.html.twig —
  * this controller only manages the list itself (add/reorder/activate/
  * delete), via partials/list_editor.html.twig.
+ *
+ * The finer check is invisible to `role_min`, so the menu entry is not
+ * declared in module.json either: Menu\BannerMenuHookService contributes
+ * it only to somebody this controller will let in, and the refusal below
+ * says why in French rather than answering the bare word "Forbidden" a
+ * visitor can do nothing with (issue #347 — reported against the retro
+ * configuration page, and this one had the same hole).
  */
 class BannerConfigController extends AbstractController
 {
+    /**
+     * Why this page refuses, in the words of somebody who has to act on
+     * it. Read by whoever kept a bookmark or was in the Staff d'U last
+     * year and is not this year — the menu no longer offers it to anybody
+     * else.
+     */
+    private const UNIT_CHIEF_ONLY_MESSAGE = 'Cette page est réservée aux membres du Staff d\'Unité '
+        . 'de l\'année scoute en cours.';
+
     public function __construct(
         protected Environment $twig,
         private BannerService $bannerService,
@@ -53,7 +69,7 @@ class BannerConfigController extends AbstractController
      */
     public function index(Request $request, array $params): Response
     {
-        $forbidden = $this->requireUnitChief();
+        $forbidden = $this->requireUnitChief($request);
         if ($forbidden !== null) {
             return $forbidden;
         }
@@ -223,7 +239,7 @@ class BannerConfigController extends AbstractController
      */
     private function decodeAndAuthorize(Request $request): array|Response
     {
-        $forbidden = $this->requireUnitChief();
+        $forbidden = $this->requireUnitChief($request);
         if ($forbidden !== null) {
             return $forbidden;
         }
@@ -241,12 +257,12 @@ class BannerConfigController extends AbstractController
         return $data;
     }
 
-    private function requireUnitChief(): ?Response
+    private function requireUnitChief(Request $request): ?Response
     {
         $email = AuthSession::getEmail();
         $scoutYearId = $this->scoutYearResolver->getAuthorizationYear()->id;
         if ($email === null || !$this->memberService->isUnitChief($email, $scoutYearId)) {
-            return (new Response('', 403))->setBody('Forbidden');
+            return $this->forbidden(self::UNIT_CHIEF_ONLY_MESSAGE, $request);
         }
 
         return null;

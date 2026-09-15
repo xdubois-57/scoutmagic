@@ -46,6 +46,15 @@ use Twig\Environment;
 
 class NewsController extends AbstractController
 {
+    /**
+     * The two refusals this controller can hand a reader, in French:
+     * an article whose visibility is above them, and somebody
+     * else's article they may read but not manage.
+     */
+    private const NOT_VISIBLE_MESSAGE = "Cet article n'est pas visible avec votre compte.";
+    private const NOT_THE_AUTHOR_MESSAGE = "Seul l'auteur de cet article, ou un chef d'unité, "
+        . 'peut le modifier.';
+
     /** Cards per page on /news and /news/manage. */
     private const LIST_PER_PAGE = 30;
 
@@ -334,7 +343,7 @@ class NewsController extends AbstractController
         $role = Role::fromString(AuthSession::getRole());
         $accountId = (int) AuthSession::getUserAccountId();
         if (!$this->articleService->canEdit($article, $role, $accountId)) {
-            return new Response('Forbidden', 403);
+            return $this->forbidden(self::NOT_THE_AUTHOR_MESSAGE, $request);
         }
 
         $context = $this->editorContext($article);
@@ -362,7 +371,7 @@ class NewsController extends AbstractController
         $role = Role::fromString(AuthSession::getRole());
         $accountId = (int) AuthSession::getUserAccountId();
         if (!$this->articleService->canEdit($article, $role, $accountId)) {
-            return new Response('Forbidden', 403);
+            return $this->forbidden(self::NOT_THE_AUTHOR_MESSAGE, $request);
         }
 
         $visibility = (string) $request->getBody('visibility', Article::VISIBILITY_PUBLIC);
@@ -469,7 +478,7 @@ class NewsController extends AbstractController
         // a chief blocked from an admin-visibility article at /news/{id}
         // could still read all three straight out of the PDF.
         if (!$this->articleService->canView($article, Role::fromString(AuthSession::getRole()))) {
-            return new Response('Forbidden', 403);
+            return $this->forbidden(self::NOT_VISIBLE_MESSAGE, $request);
         }
 
         $baseUrl = rtrim((string) ($this->settingService->get('base_url') ?: ''), '/');
@@ -518,7 +527,7 @@ class NewsController extends AbstractController
             // else is refused as before.
             return $this->articleService->isSociallyShareable($article)
                 ? $this->renderSocialPreview($article)
-                : new Response('Forbidden', 403);
+                : $this->forbidden(self::NOT_VISIBLE_MESSAGE, $request);
         }
 
         $form = $this->formService->findByArticleId($article->id);

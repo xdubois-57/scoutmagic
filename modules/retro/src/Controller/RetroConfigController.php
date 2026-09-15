@@ -29,9 +29,26 @@ use Twig\Environment;
  * form. Restricted to chefs d'U specifically (Core\Member\MemberService::
  * isUnitChief() — STAFFDU section membership, not merely Role::ADMIN),
  * same precedent as Modules\Banner\Controller\BannerConfigController.
+ *
+ * That narrowing is invisible to `role_min`, so the menu entry is not
+ * declared in module.json either: Menu\RetroMenuHookService contributes it
+ * only to somebody this controller will let in, and the refusal below says
+ * why in French rather than answering the bare word "Forbidden" a visitor
+ * can do nothing with (issue #347).
  */
 class RetroConfigController extends AbstractController
 {
+    /**
+     * Why this page refuses, in the words of somebody who has to act on
+     * it. The menu no longer offers the page to anybody this sentence
+     * would be shown to (Menu\RetroMenuHookService), so it is read by
+     * someone who kept a bookmark, followed a link, or was in the Staff
+     * d'U last year and is not this year — each of whom needs the reason
+     * rather than the word "Forbidden" (issue #347).
+     */
+    private const UNIT_CHIEF_ONLY_MESSAGE = 'Cette page est réservée aux membres du Staff d\'Unité '
+        . 'de l\'année scoute en cours.';
+
     private const ROLE_MIN_CREATE_VALUES = ['intendant', 'chief', 'admin'];
     private const ROLE_MIN_CLOSE_VALUES = ['chief', 'admin'];
     private const MODERATION_MODES = ['disabled', 'warning', 'enforced'];
@@ -53,7 +70,7 @@ class RetroConfigController extends AbstractController
      */
     public function index(Request $request, array $params): Response
     {
-        $forbidden = $this->requireUnitChief();
+        $forbidden = $this->requireUnitChief($request);
         if ($forbidden !== null) {
             return $forbidden;
         }
@@ -66,7 +83,7 @@ class RetroConfigController extends AbstractController
      */
     public function save(Request $request, array $params): Response
     {
-        $forbidden = $this->requireUnitChief();
+        $forbidden = $this->requireUnitChief($request);
         if ($forbidden !== null) {
             return $forbidden;
         }
@@ -184,7 +201,7 @@ class RetroConfigController extends AbstractController
         ];
     }
 
-    private function requireUnitChief(): ?Response
+    private function requireUnitChief(Request $request): ?Response
     {
         $email = AuthSession::getEmail();
         // The year this session is actually looking at. On the
@@ -198,7 +215,7 @@ class RetroConfigController extends AbstractController
         // get this page back (ARCHITECTURE.md §4 « Scout year »).
         $scoutYearId = $this->scoutYearService->getAuthorizationYear()->id;
         if ($email === null || !$this->memberService->isUnitChief($email, $scoutYearId)) {
-            return (new Response('', 403))->setBody('Forbidden');
+            return $this->forbidden(self::UNIT_CHIEF_ONLY_MESSAGE, $request);
         }
 
         return null;

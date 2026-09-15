@@ -477,7 +477,14 @@ class RetroBoardController extends AbstractController
     private function setHidden(Request $request, array $params, bool $hidden): Response
     {
         if (!$this->isUnitChief(Role::fromString(AuthSession::getRole()))) {
-            return (new Response('', 403))->setBody('Forbidden');
+            // JSON, not forbidden(): this endpoint is only ever called by
+            // the board's own script and answers nothing but JSON, so the
+            // shape the caller can show inline is the shape to refuse in
+            // (the same reasoning as the groups module's own endpoints).
+            return $this->json(
+                ['success' => false, 'error' => "Seul un chef d'unité peut masquer ou rétablir un commentaire."],
+                403
+            );
         }
 
         [, $comment, $error] = $this->resolveBoardAndComment($params);

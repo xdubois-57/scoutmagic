@@ -21,6 +21,15 @@ use Twig\Environment;
 
 class FileController extends AbstractController
 {
+    /**
+     * Why a file is refused, in French. The guard answers the same
+     * 403 for a file that does not exist and for one this visitor may
+     * not have — deliberately, so a refusal never maps out which ids
+     * exist — and this sentence keeps that property: it describes the
+     * visitor's access, never the file.
+     */
+    private const NO_ACCESS_MESSAGE = "Ce fichier n'est pas accessible avec votre compte.";
+
     private ?JournalService $journalService = null;
 
     public function __construct(
@@ -61,7 +70,7 @@ class FileController extends AbstractController
                 ['file_id' => $id, 'ip' => $_SERVER['REMOTE_ADDR'] ?? ''],
                 AuthSession::getUserAccountId()
             );
-            return (new Response('Forbidden', 403));
+            return $this->forbidden(self::NO_ACCESS_MESSAGE, $request);
         }
 
         $this->journalOwnerScopedAccess($file);
@@ -250,7 +259,7 @@ class FileController extends AbstractController
 
         $file = $this->fileAccessGuard->check($id);
         if ($file === null) {
-            return (new Response('Forbidden', 403));
+            return $this->forbidden(self::NO_ACCESS_MESSAGE, $request);
         }
 
         if ($file->mimeType !== 'application/pdf') {
@@ -361,7 +370,7 @@ class FileController extends AbstractController
                 ['file_id' => $id, 'ip' => $_SERVER['REMOTE_ADDR'] ?? ''],
                 AuthSession::getUserAccountId()
             );
-            return (new Response('Forbidden', 403));
+            return $this->forbidden(self::NO_ACCESS_MESSAGE, $request);
         }
 
         $this->journalOwnerScopedAccess($file);
