@@ -168,6 +168,41 @@ final class WebDavResourceTest extends TestCase
         $this->assertNull(WebDavResource::parseMultiStatus($xml)[0]->contentLength);
     }
 
+    /**
+     * **And the common shape of the same silence**: a 200 block that
+     * simply omits `getcontentlength` while a sibling block answers 404
+     * for it, which is how RFC 4918 has a server report a property it
+     * cannot answer. `(int) (string)` on an absent element is 0, so this
+     * one slipped past a guard that only looked for a missing 200 block.
+     */
+    public function testAnEntryWhose200BlockOmitsTheLengthHasNoSizeEither(): void
+    {
+        $xml = '<?xml version="1.0"?>'
+            . '<d:multistatus xmlns:d="DAV:"><d:response>'
+            . '<d:href>/dav/photo.jpg</d:href>'
+            . '<d:propstat><d:status>HTTP/1.1 200 OK</d:status>'
+            . '<d:prop><d:getetag>"1a2b3c"</d:getetag></d:prop></d:propstat>'
+            . '<d:propstat><d:status>HTTP/1.1 404 Not Found</d:status>'
+            . '<d:prop><d:getcontentlength/></d:prop></d:propstat>'
+            . '</d:response></d:multistatus>';
+
+        $this->assertNull(WebDavResource::parseMultiStatus($xml)[0]->contentLength);
+    }
+
+    /** An empty length is silence too, not a zero-byte file. */
+    public function testAnEmptyLengthIsSilenceRatherThanZero(): void
+    {
+        $xml = '<?xml version="1.0"?>'
+            . '<d:multistatus xmlns:d="DAV:"><d:response>'
+            . '<d:href>/dav/photo.jpg</d:href>'
+            . '<d:propstat><d:status>HTTP/1.1 200 OK</d:status>'
+            . '<d:prop><d:getcontentlength>0</d:getcontentlength></d:prop></d:propstat>'
+            . '</d:response></d:multistatus>';
+
+        // A stated zero IS a zero — an empty file is a thing that exists.
+        $this->assertSame(0, WebDavResource::parseMultiStatus($xml)[0]->contentLength);
+    }
+
     /** A file the server did describe still measures what it says. */
     public function testAnEntryTheServerDescribedKeepsItsSize(): void
     {

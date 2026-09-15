@@ -26,11 +26,19 @@ final class WebDavResource
         public readonly bool $isCollection,
         /**
          * **Null when the share said nothing about it**, which is not the
-         * same as zero. A `<response>` carrying no `propstat` at 200 is
-         * legal — a server may split properties across per-status blocks
-         * and succeed at none — and reading that as a 0-byte file is how
+         * same as zero. Reading silence as a definite 0-byte file is how
          * `ProtectedCopier` comes to compare a real file against an
          * announced zero, call the copy corrupt and delete it.
+         *
+         * Two shapes of silence, and the second is the common one. A
+         * `<response>` may carry no `propstat` at 200 at all; and — the
+         * ordinary way a server reports a property it cannot answer, per
+         * RFC 4918 — a 200 block may simply omit `getcontentlength` while
+         * a sibling block answers 404 for it. `(int) (string)` on an
+         * absent element is 0, so only an `isset()` tells them apart.
+         *
+         * A collection is null here too and that costs nothing: every
+         * caller settles what a resource IS before asking how big it is.
          */
         public readonly ?int $contentLength = 0,
         public readonly ?string $contentMd5 = null,
@@ -102,7 +110,7 @@ final class WebDavResource
         return new self(
             self::decodeHref($href),
             isset($dav->resourcetype->children('DAV:')->collection),
-            (int) (string) $dav->getcontentlength,
+            isset($dav->getcontentlength) ? (int) (string) $dav->getcontentlength : null,
             self::contentMd5Of($properties),
             self::textOrNull((string) $dav->getlastmodified),
             self::bytesOrNull((string) $dav->{'quota-available-bytes'}),
