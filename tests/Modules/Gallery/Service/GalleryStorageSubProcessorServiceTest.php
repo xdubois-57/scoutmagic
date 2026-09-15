@@ -127,19 +127,57 @@ class GalleryStorageSubProcessorServiceTest extends TestCase
     }
 
     /**
-     * The one that would catch the next omission: every type the enum
-     * knows, at once, and every one of them but the local disk named.
+     * **The one that catches the NEXT omission, and it has to derive its
+     * own fixtures to do that.** A hand-written list of locations only
+     * catches a type somebody remembered to add to it, which is the same
+     * forgetting this test exists to prevent. So it walks
+     * `StorageLocationType::cases()` and builds each config through the
+     * enum's own `configFromArray()`: a case added there arrives here on
+     * its own, and fails if nothing names it.
+     *
+     * PHP offers no exhaustiveness over a set of classes — a `match`
+     * without a default arm would raise on the « Sous-traitants » page
+     * itself, trading a silent omission for a broken page — so this is
+     * the guarantee.
      */
     public function testEveryKindOfExternalDestinationIsDeclared(): void
     {
-        $views = $this->service([
-            self::localLocation(),
-            self::bucket('hetzner'),
-            self::share('https://cloud.exemple.test/dav'),
-            self::drive(),
-        ])->getSubProcessors();
+        foreach (StorageLocationType::cases() as $type) {
+            $views = $this->service([self::locationOfType($type)])->getSubProcessors();
 
-        $this->assertCount(count(StorageLocationType::cases()) - 1, $views);
+            if ($type === StorageLocationType::Local) {
+                $this->assertSame([], $views, 'the unit\'s own server is no sub-processor');
+                continue;
+            }
+
+            $this->assertCount(
+                1,
+                $views,
+                sprintf(
+                    'the « %s » type sends photographs to somebody and is not named on the RGPD page',
+                    $type->value
+                )
+            );
+            $this->assertNotSame('', $views[0]->name);
+        }
+    }
+
+    private static function locationOfType(StorageLocationType $type): StorageLocation
+    {
+        return new StorageLocation(
+            1,
+            $type,
+            'Un emplacement',
+            false,
+            // The enum's own reader, so a type added to it needs nothing
+            // written here for this test to reach it.
+            $type->configFromArray([]),
+            false,
+            null,
+            null,
+            null,
+            '2026-01-01 00:00:00'
+        );
     }
 
     public function testLocalStorageDeclaresNoSubProcessor(): void

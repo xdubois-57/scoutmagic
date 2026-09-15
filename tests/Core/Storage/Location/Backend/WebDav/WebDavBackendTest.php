@@ -511,6 +511,188 @@ final class WebDavBackendTest extends TestCase
         }
     }
 
+    // ———— A share is not trusted to name what belongs to it ————
+
+    /**
+     * **A prefix test is not containment.** A share answering an `href` of
+     * `…/scoutmagic/../../secret.jpg` passes « starts with the base », and
+     * `urlFor()` leaves `..` exactly as it is when it percent-encodes each
+     * segment — so the address that goes out carries a literal `../../`
+     * that cURL resolves outside the operator's folder. That key would
+     * have reached `get()`, `put()` and `delete()` like any other.
+     */
+    public function testAnHrefClimbingOutOfTheCollectionIsNotAKey(): void
+    {
+        $share = new FakeWebDavServer();
+        $backend = new WebDavBackend(
+            new WebDavClient($this->climbingListing($share)),
+            new WebDavLocationConfig($share->baseUrl, 'unite'),
+            'le-mot-de-passe'
+        );
+
+        $this->assertSame([], $this->keysOf($backend->list('')));
+    }
+
+    /**
+     * And the same guard on the caller's side: nothing here builds a key
+     * with a `..` in it, which is why one that has is worth refusing
+     * rather than sending. Every read, write and delete goes through
+     * `urlFor()`.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('keysThatClimb')]
+    public function testAKeyThatClimbsIsRefusedRatherThanSent(string $key): void
+    {
+        $this->expectException(WebDavAccessException::class);
+
+        $this->backend()->delete($key);
+    }
+
+    /** @return array<string, array{0: string}> */
+    public static function keysThatClimb(): array
+    {
+        return [
+            'straight up' => ['../secret.jpg'],
+            'up from inside' => ['12/../../secret.jpg'],
+            'the current folder' => ['./secret.jpg'],
+            'an empty segment' => ['12//secret.jpg'],
+        ];
+    }
+
+    /**
+     * A `%2F` inside a file name stays inside it. The href is parsed
+     * before it is decoded, one segment at a time, so a server cannot
+     * smuggle a separator through a name — and a file genuinely called
+     * `photo?1.jpg` survives, where decoding first made `parse_url()`
+     * read everything past the `?` as a query string.
+     */
+    public function testAnEncodedSeparatorStaysInsideTheNameItBelongsTo(): void
+    {
+        $share = new FakeWebDavServer();
+        $backend = new WebDavBackend(
+            new WebDavClient($this->smuggledListing($share)),
+            new WebDavLocationConfig($share->baseUrl, 'unite'),
+            'le-mot-de-passe'
+        );
+
+        $this->assertSame(['photo?1.jpg'], $this->keysOf($backend->list('')));
+    }
+
+    // ———— One folder gone is not the whole share gone ————
+
+    /**
+     * **A sub-collection removed mid-walk used to empty the listing.** The
+     * « not there is an empty listing » shortcut wrapped the whole walk,
+     * so a 404 on any nested `PROPFIND` threw away every key already
+     * gathered from its siblings and answered an empty, COMPLETE listing —
+     * which `ProtectionPass` reads as « the whole share, seen » and acts on
+     * by treating files that never moved as gone from the source.
+     */
+    public function testAFolderThatVanishesMidWalkDoesNotEmptyTheListing(): void
+    {
+        $share = new FakeWebDavServer();
+        $backend = new WebDavBackend(
+            new WebDavClient($this->vanishingFolderListing($share)),
+            new WebDavLocationConfig($share->baseUrl, 'unite'),
+            'le-mot-de-passe'
+        );
+        $this->backendOn($share)->put('12/a.jpg', 'aa', 'image/jpeg');
+        $this->backendOn($share)->put('13/b.jpg', 'bb', 'image/jpeg');
+
+        $listing = $backend->list('');
+
+        $this->assertSame(['12/a.jpg'], $this->keysOf($listing));
+        $this->assertTrue($listing->isComplete(), 'what is there is there');
+    }
+
+    /** A share that answers one href climbing out of its own collection. */
+    private function climbingListing(FakeWebDavServer $share): \Closure
+    {
+        return $this->listingAnswering(
+            $share,
+            '<d:response><d:href>/dav/scoutmagic/..%2F..%2Fsecret.jpg</d:href>'
+            . '<d:propstat><d:status>HTTP/1.1 200 OK</d:status>'
+            . '<d:prop><d:getcontentlength>4</d:getcontentlength></d:prop>'
+            . '</d:propstat></d:response>'
+        );
+    }
+
+    /** A share that answers a file whose NAME holds a separator and a query mark. */
+    private function smuggledListing(FakeWebDavServer $share): \Closure
+    {
+        return $this->listingAnswering(
+            $share,
+            '<d:response><d:href>/dav/scoutmagic/photo%3F1.jpg</d:href>'
+            . '<d:propstat><d:status>HTTP/1.1 200 OK</d:status>'
+            . '<d:prop><d:getcontentlength>4</d:getcontentlength></d:prop>'
+            . '</d:propstat></d:response>'
+        );
+    }
+
+    /**
+     * A share whose root lists two album folders and answers 404 for the
+     * second — the folder somebody removed while the walk was running.
+     */
+    private function vanishingFolderListing(FakeWebDavServer $share): \Closure
+    {
+        $real = $share->transport();
+
+        return function (
+            string $method,
+            string $url,
+            array $headers,
+            ?string $body,
+            int $ceiling
+        ) use ($real): array {
+            if ($method === 'PROPFIND' && str_ends_with($url, '/13')) {
+                return ['status' => 404, 'body' => '', 'headers' => []];
+            }
+
+            return $real($method, $url, $headers, $body, $ceiling);
+        };
+    }
+
+    /**
+     * A transport answering one fabricated `PROPFIND` body at the root and
+     * deferring to the share for everything else.
+     */
+    private function listingAnswering(FakeWebDavServer $share, string $entries): \Closure
+    {
+        $real = $share->transport();
+
+        return function (
+            string $method,
+            string $url,
+            array $headers,
+            ?string $body,
+            int $ceiling
+        ) use ($real, $entries): array {
+            if ($method !== 'PROPFIND') {
+                return $real($method, $url, $headers, $body, $ceiling);
+            }
+
+            return [
+                'status' => 207,
+                'body' => '<?xml version="1.0"?><d:multistatus xmlns:d="DAV:">'
+                    . '<d:response><d:href>/dav/scoutmagic/</d:href>'
+                    . '<d:propstat><d:status>HTTP/1.1 200 OK</d:status>'
+                    . '<d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop>'
+                    . '</d:propstat></d:response>'
+                    . $entries
+                    . '</d:multistatus>',
+                'headers' => [],
+            ];
+        };
+    }
+
+    private function backendOn(FakeWebDavServer $share): WebDavBackend
+    {
+        return new WebDavBackend(
+            new WebDavClient($share->transport()),
+            new WebDavLocationConfig($share->baseUrl, 'unite'),
+            'le-mot-de-passe'
+        );
+    }
+
     // ———— A digest, and only where the share states one ————
 
     /**

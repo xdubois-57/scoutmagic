@@ -33,9 +33,17 @@ use Core\Storage\Location\StorageLocationRepository;
  * second kind arrived. What flows to these hosts is photographs and films
  * of children, so a destination missing from this list is a disclosure
  * that is wrong rather than merely incomplete, and AGENTS.md § RGPD is
- * explicit that a change adding one without saying so is unfinished. A
- * `match` over the config type is what makes a third kind fail to compile
- * here rather than fail to appear on the page.
+ * explicit that a change adding one without saying so is unfinished.
+ *
+ * **What guards the next kind is a test, not the language.** PHP has no
+ * exhaustiveness to offer over a set of classes — a `match` on the config
+ * class without a default arm would raise at RUNTIME, on the « Sous-
+ * traitants » page itself, which trades a silent omission for a broken
+ * page. So `GalleryStorageSubProcessorServiceTest` walks
+ * `StorageLocationType::cases()`, builds each one's config through the
+ * enum's own `configFromArray()`, and fails if any type but the local
+ * disk comes back unnamed. A case added to the enum arrives in that test
+ * on its own.
  */
 final class GalleryStorageSubProcessorService implements SubProcessorProvider
 {

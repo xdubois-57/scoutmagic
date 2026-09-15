@@ -103,15 +103,31 @@ final class WebDavResource
     }
 
     /**
-     * An `href` is percent-encoded, and a key may hold anything a file
-     * name holds — a space, an accent, a plus sign. Decoding with
-     * `rawurldecode()` rather than `urldecode()` because the second turns
-     * `+` into a space, and `scoutmagic+1.zip` is a name somebody will
-     * have.
+     * An `href` as a path, decoded one segment at a time.
+     *
+     * A key may hold anything a file name holds — a space, an accent, a
+     * plus sign — so `rawurldecode()` rather than `urldecode()`, which
+     * turns `+` into a space and `scoutmagic+1.zip` is a name somebody
+     * will have.
+     *
+     * **The order matters twice.** Decoding the whole href first and
+     * parsing afterwards loses a file called `photo?1.jpg`: the server
+     * sends `photo%3F1.jpg`, the decode makes it `photo?1.jpg`, and
+     * `parse_url()` then reads everything past the `?` as a query string,
+     * leaving the key `photo`. And it hands a hostile server a way to
+     * smuggle separators: `..%2F..%2Fsecret.jpg` is ONE segment, and
+     * decoding before splitting turns it into three. Parsed first, then
+     * decoded per segment, a `%2F` stays inside the name it belongs to.
      */
     private static function decodeHref(string $href): string
     {
-        return rawurldecode($href);
+        $path = parse_url($href, PHP_URL_PATH);
+        $path = is_string($path) ? $path : $href;
+
+        return implode('/', array_map(
+            static fn (string $segment): string => rawurldecode($segment),
+            explode('/', $path)
+        ));
     }
 
     /** ownCloud's and Nextcloud's namespace, where the real digest lives. */

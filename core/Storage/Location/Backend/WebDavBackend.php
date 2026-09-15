@@ -204,19 +204,17 @@ final class WebDavBackend implements RangeReadableBackend, QuotaReportingBackend
         $prefix = trim($prefix, '/');
         $ceiling = max(1, min($limit, self::LIST_CEILING));
 
+        // **Not wrapped in a catch of its own.** « A collection that is not
+        // there is an empty listing » is true of the collection asked for,
+        // and catching it out here applied it to every collection the walk
+        // touches: one sub-folder deleted while the walk was running threw
+        // away every key gathered from its siblings and returned an EMPTY
+        // listing with no cursor — which `isComplete()` reads as « the
+        // whole share, seen ». `ProtectionPass` would then have marked
+        // files that never moved as gone from the source. The walk handles
+        // absence per collection instead, and everything else still rises.
         $keys = [];
-        try {
-            $this->walk($prefix, $this->collectionPath(), $keys, 0, $cursor, $ceiling);
-        } catch (WebDavAccessException $e) {
-            if (!$e->isNotFound()) {
-                throw $e;
-            }
-
-            // A collection that is not there is an empty listing, not a
-            // failure: every caller derives its prefix from something that
-            // can be older than the share.
-            return new StorageListing([]);
-        }
+        $this->walk($prefix, $this->collectionPath(), $keys, 0, $cursor, $ceiling);
 
         // Sorted so that « after this key » is a stable instruction: the
         // order a server returns children in is its own business, and a
@@ -289,7 +287,21 @@ final class WebDavBackend implements RangeReadableBackend, QuotaReportingBackend
             return;
         }
 
-        $resources = $this->client->propfind($this->urlFor($prefix), $this->auth(), 1);
+        try {
+            $resources = $this->client->propfind($this->urlFor($prefix), $this->auth(), 1);
+        } catch (WebDavAccessException $e) {
+            if (!$e->isNotFound()) {
+                throw $e;
+            }
+
+            // This collection is not there — the prefix a caller derived
+            // from something older than the share, or a folder removed
+            // while this walk was running. Either way it holds nothing,
+            // which is an answer and not a failure. What the walk has
+            // already gathered elsewhere stays.
+            return;
+        }
+
         foreach ($resources as $resource) {
             $key = self::keyFrom($resource->href, $base);
             if ($key === null || $key === $prefix) {
@@ -554,6 +566,16 @@ final class WebDavBackend implements RangeReadableBackend, QuotaReportingBackend
             return $this->config->baseUrl;
         }
 
+        // **The same containment guard, on the caller's side.** Nothing in
+        // this application builds a key with a `..` in it, and that is
+        // exactly why a key that has one is worth refusing rather than
+        // sending: every read, write and delete goes through here.
+        if (!self::isContained($trimmed)) {
+            throw WebDavAccessException::of(
+                'Le chemin demandé n\'est pas valide pour ce partage.'
+            );
+        }
+
         $encoded = array_map(
             static fn (string $segment): string => rawurlencode($segment),
             explode('/', $trimmed)
@@ -598,19 +620,48 @@ final class WebDavBackend implements RangeReadableBackend, QuotaReportingBackend
      * **A server may answer an absolute URL or an absolute path**, and
      * both are legal. Null for anything outside the collection, which a
      * misconfigured proxy can produce and which must not become a key
-     * this site believes it owns.
+     * this site believes it owns. `WebDavResource` has already parsed the
+     * href and decoded it a segment at a time, so what arrives here is a
+     * path and a `%2F` inside a file name has stayed inside it.
      */
     private static function keyFrom(string $href, string $base): ?string
     {
-        $path = parse_url($href, PHP_URL_PATH);
-        $path = is_string($path) ? $path : $href;
+        $path = $href;
 
         if ($base !== '' && !str_starts_with($path, $base . '/')) {
             return null;
         }
 
         $key = trim(substr($path, strlen($base)), '/');
+        if ($key === '' || !self::isContained($key)) {
+            return null;
+        }
 
-        return $key === '' ? null : $key;
+        return $key;
+    }
+
+    /**
+     * That a key stays inside the collection it is relative to.
+     *
+     * **A prefix test is not containment**, and this is the guard
+     * `LocalStorageBackend::fullPath()` has always had on the other side.
+     * A share answering `<d:href>/dav/scoutmagic/../../secret.jpg</d:href>`
+     * passes « starts with the base » and yields the key `../../secret.jpg`;
+     * {@see urlFor()} percent-encodes each segment and leaves `..` exactly
+     * as it is, so the address that goes out carries a literal `../../`
+     * that cURL resolves outside the operator's folder — and that key
+     * reaches `get()`, `put()` and `delete()` like any other. A hostile or
+     * misconfigured server would be reading, overwriting and removing
+     * files this site was never pointed at.
+     */
+    private static function isContained(string $key): bool
+    {
+        foreach (explode('/', $key) as $segment) {
+            if ($segment === '' || $segment === '.' || $segment === '..') {
+                return false;
+            }
+        }
+
+        return true;
     }
 }
