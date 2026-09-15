@@ -15,6 +15,7 @@ use Core\Journal\JournalService;
 use Core\Scheduler\SchedulerService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Security\DecryptionException;
 use Core\Security\SsrfUrlValidator;
 use Core\Storage\Location\Backend\ObjectStorageBackend;
 use Core\Storage\Location\Backend\Drive\GoogleDriveClient;
@@ -791,7 +792,24 @@ class StorageConfigController extends AbstractController
             $locationId = (int) ($data['location_id'] ?? 0);
             $location = $locationId > 0 ? $this->storageLocationRepository->findById($locationId) : null;
             if ($location !== null && $location->type === StorageLocationType::ObjectStorage) {
-                $secretKey = (string) $this->storageLocationRepository->getSecretForDisplay($location->id);
+                // **The strict reader, and this is the line that decides
+                // it.** Everything else on this screen merely DISPLAYS the
+                // record and wants `getSecretForDisplay()`; this one hands
+                // the secret to a backend that is about to talk to the
+                // service. Degrading to « none » here would send an empty
+                // secret and report « vos identifiants sont refusés » to
+                // an administrator who never touched their credentials
+                // and left the field blank on purpose — the wrong repair,
+                // pointing away from the real one.
+                try {
+                    $secretKey = (string) $this->storageLocationRepository->getSecret($location->id);
+                } catch (DecryptionException) {
+                    return $this->json([
+                        'success' => false,
+                        'error' => 'La clé secrète enregistrée n\'est plus lisible sur ce serveur : '
+                            . 'saisissez-la à nouveau dans le champ ci-dessus pour tester la connexion.',
+                    ], 422);
+                }
             }
         }
 

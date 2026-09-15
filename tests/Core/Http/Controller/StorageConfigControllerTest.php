@@ -760,6 +760,40 @@ class StorageConfigControllerTest extends TestCase
     }
 
     /**
+     * But the CONNECTION TEST says so outright instead of blaming the
+     * credentials.
+     *
+     * The edit form leaves the secret blank on purpose, so this path falls
+     * back on the stored one — and it hands what it finds to a backend
+     * about to talk to the service. Reading it tolerantly would send an
+     * empty secret and report « identifiants refusés » to an
+     * administrator who never touched their credentials, pointing them at
+     * the wrong repair.
+     */
+    public function testAConnectionTestOnAnUnreadableSecretSaysSoRatherThanBlamingTheCredentials(): void
+    {
+        $id = $this->declareObjectStorage('Bucket', null);
+
+        $rotated = $this->buildController(new StorageLocationRepository(
+            $this->pdo,
+            new EncryptionService(str_repeat('z', 32), str_repeat('y', 32))
+        ));
+
+        $response = $rotated->testConnection($this->jsonRequest([
+            '_csrf_token' => $this->csrfToken(),
+            'location_id' => $id,
+            'secret_key' => '',
+            'endpoint' => 'https://fsn1.your-objectstorage.com',
+            'region' => 'fsn1',
+            'bucket' => 'scoutmagic',
+            'access_key' => 'AK',
+        ]), []);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertStringContainsString('n\'est plus lisible', $response->getBody());
+    }
+
+    /**
      * A location whose secret no longer decrypts still renders — and it
      * is the screen carrying « Déraccorder » that has to.
      *
