@@ -148,12 +148,24 @@ final class RemoteBackupDestination
      * old one stays for ever. Every backend hides its own internal prefix
      * from `list()`, so no retention sweep will reach it either.
      *
-     * Null rather than a refusal, on both counts. The id is a hint
-     * carried in a task payload, which D12 allows precisely because
-     * losing it costs a cleanup and never a wrong decision — so a row
-     * that has since been deleted means « nothing left to clean », not an
-     * error. And a location that cannot resume an upload never held a
-     * partial of ours to begin with.
+     * Null rather than a refusal, on every count — and the catch is part
+     * of that promise, not defensive noise. The id is a hint carried in a
+     * task payload, which D12 allows precisely because losing it costs a
+     * cleanup and never a wrong decision, so every way of failing to reach
+     * that destination has to read as « nothing left to clean »: a row
+     * since deleted, a type this build cannot open
+     * ({@see \Core\Storage\Location\StorageLocationException}), a secret
+     * that no longer decrypts after a master-key rotation
+     * ({@see \Core\Security\DecryptionException}), or a location that
+     * cannot resume an upload and so never held a partial of ours.
+     *
+     * **Letting one of those out would cost the very thing this method
+     * exists to protect.** Its callers are cleanup paths running beside an
+     * archive that carries `master.key`; an exception escaping `handle()`
+     * leaves the scheduler marking the task failed WITHOUT re-arming it
+     * with the payload, so that archive is never referenced again — the
+     * failure `SendRemoteBackupHandler::recordFailure()` exists to count
+     * toward the ceiling that deletes it.
      */
     public function backendFor(int $locationId): ?ResumableUploadBackend
     {
@@ -166,7 +178,11 @@ final class RemoteBackupDestination
             return null;
         }
 
-        $backend = $this->backends->create($location);
+        try {
+            $backend = $this->backends->create($location);
+        } catch (\RuntimeException) {
+            return null;
+        }
 
         return $backend instanceof ResumableUploadBackend ? $backend : null;
     }

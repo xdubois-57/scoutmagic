@@ -702,6 +702,48 @@ final class SendRemoteBackupHandlerTest extends TestCase
     }
 
     /**
+     * And a destination whose secret no longer decrypts does not take the
+     * run down with it.
+     *
+     * `backendFor()` is reached from cleanup paths that run beside an
+     * archive carrying `master.key`. An exception escaping `handle()`
+     * leaves `SchedulerRunner` marking the task failed WITHOUT re-arming
+     * it with the payload — so that archive stops being referenced by
+     * anything, and never reaches the ceiling that would delete it. The
+     * unreachable destination has to read as « nothing left to clean ».
+     */
+    public function testADestinationWhoseSecretNoLongerDecryptsDoesNotStopTheCleanup(): void
+    {
+        $archive = $this->archiveOf(1000);
+
+        // The Drive location from connect(), read back with a master key
+        // that never encrypted it.
+        $rotatedId = $this->destination->locationId();
+        $this->destination->choose($this->declareLocal('nouveau'));
+
+        $rotated = new RemoteBackupDestination(
+            $this->settings,
+            $this->locations,
+            new StorageBackendFactory(
+                new StorageLocationRepository(
+                    $this->pdo,
+                    new EncryptionService(str_repeat('z', 32), str_repeat('y', 32))
+                ),
+                $this->storagePath
+            )
+        );
+        $this->assertNull($rotated->backendFor($rotatedId), 'an unreadable secret escaped as an exception');
+
+        // And the whole run survives it, archive still on disk for the
+        // next one rather than orphaned by a failed task.
+        $payload = $this->payloadFor($archive);
+        $payload['location_id'] = $rotatedId;
+        $this->runOnce($payload, new RecordingBackend($this));
+
+        $this->assertNotNull($this->pending(), 'the chain died on a destination it could not open');
+    }
+
+    /**
      * A local location, chosen, already holding a partial under the name
      * this test suite sends under.
      *
