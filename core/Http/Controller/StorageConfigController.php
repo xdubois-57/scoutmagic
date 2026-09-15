@@ -25,6 +25,7 @@ use Core\Storage\Location\Config\GoogleDriveSecret;
 use Core\Storage\Location\Config\LocalLocationConfig;
 use Core\Storage\Location\Config\LocationConfig;
 use Core\Storage\Location\Config\ObjectStorageLocationConfig;
+use Core\Storage\Location\Config\WebDavLocationConfig;
 use Core\Storage\Location\Protection\StorageProtectionService;
 use Core\Storage\Location\Protection\Task\RepatriateFromCopyHandler;
 use Core\Storage\Location\Diagnostics\ObjectStorageErrorExplainer;
@@ -1252,6 +1253,26 @@ class StorageConfigController extends AbstractController
             );
         }
 
+        if ($type === StorageLocationType::WebDav) {
+            $baseUrl = WebDavLocationConfig::normaliseBaseUrl((string) $request->getBody('webdav_url', ''));
+            // **The same gate as the S3 endpoint, for the same reason.**
+            // A username and a password travel on this address on every
+            // single request, so plain http would put them on the wire in
+            // clear, and an internal address would make this site fetch
+            // whatever an operator — or somebody who talked one into it —
+            // pointed it at (SSRF, audit M6).
+            if (!SsrfUrlValidator::isPublicHttpsUrl($baseUrl, true)) {
+                throw new StorageLocationException(
+                    'L\'adresse du partage doit être une URL https publique.'
+                );
+            }
+
+            return new WebDavLocationConfig(
+                baseUrl: $baseUrl,
+                username: trim((string) $request->getBody('webdav_username', ''))
+            );
+        }
+
         $endpoint = (string) $request->getBody('s3_endpoint', '');
         // Validated at save time and not only on « Tester » : runtime reads
         // and writes trust the stored value.
@@ -1288,6 +1309,12 @@ class StorageConfigController extends AbstractController
     ): ?string {
         if ($type === StorageLocationType::ObjectStorage) {
             return $this->nullableString($request->getBody('s3_secret_key'));
+        }
+
+        if ($type === StorageLocationType::WebDav) {
+            // One value, so « leave blank to keep the current one » is
+            // the whole convention here — no merge to do.
+            return $this->nullableString($request->getBody('webdav_password'));
         }
 
         if ($type !== StorageLocationType::GoogleDrive) {

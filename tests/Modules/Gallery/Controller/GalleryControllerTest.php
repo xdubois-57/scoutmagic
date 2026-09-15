@@ -44,6 +44,10 @@ use Modules\Gallery\Service\GalleryStorageWiring;
 use Core\Storage\Location\StorageLocationType;
 use Core\Storage\Location\Config\LocalLocationConfig;
 use Core\Storage\Location\Config\ObjectStorageLocationConfig;
+use Core\Storage\Location\Config\WebDavLocationConfig;
+use Core\Storage\Location\Backend\WebDavBackend;
+use Core\Storage\Location\Backend\WebDav\WebDavClient;
+use Tests\Core\Storage\Location\Backend\WebDav\FakeWebDavServer;
 use Modules\Gallery\Service\GalleryLocationService;
 
 /**
@@ -386,6 +390,115 @@ class GalleryControllerTest extends TestCase
         );
 
         $this->assertSame(404, $response->getStatusCode());
+    }
+
+    // ————— A media that lives on a WebDAV share (IT-06) —————
+
+    /**
+     * **A share hands out no signed URL, so the site serves the bytes
+     * itself** — down the same path the server's own disk has always
+     * used. Nothing in `serveMedia()` is WebDAV-aware, and this is the
+     * test that says so: it asks a real {@see WebDavBackend}, over a fake
+     * share, through the ordinary endpoint.
+     */
+    public function testAMediaOnAWebDavShareIsServedByTheSiteItself(): void
+    {
+        $share = new FakeWebDavServer();
+        $backend = $this->webDavBackendFor($share);
+        $backend->put('med.mp4', 'les-octets-de-la-video', 'video/mp4');
+        $this->storageBackendFactory->method('create')->willReturn($backend);
+        $mediaId = $this->createDoneVideo($this->createAlbumOn($this->createWebDavLocation()));
+
+        $response = $this->controller->serveMedia(
+            new Request('GET', '/gallery/media/' . $mediaId . '/medium', [], [], [], []),
+            ['media_id' => (string) $mediaId, 'size' => 'medium']
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('les-octets-de-la-video', $response->getBody());
+        $this->assertSame('video/mp4', $response->getHeaders()['Content-Type']);
+        $this->assertSame('bytes', $response->getHeaders()['Accept-Ranges']);
+    }
+
+    /**
+     * **And the video can be moved around in, which is the whole reason
+     * this type exists next to Google Drive.** A share answers `Range:`,
+     * so a player that scrubs to the middle gets a 206 carrying that
+     * slice rather than the film from byte zero.
+     */
+    public function testAVideoOnAWebDavShareCanBeSeekedIn(): void
+    {
+        $share = new FakeWebDavServer();
+        $backend = $this->webDavBackendFor($share);
+        $backend->put('med.mp4', '0123456789abcdefghij', 'video/mp4');
+        $this->storageBackendFactory->method('create')->willReturn($backend);
+        $mediaId = $this->createDoneVideo($this->createAlbumOn($this->createWebDavLocation()));
+
+        $response = $this->controller->serveMedia(
+            new Request('GET', '/gallery/media/' . $mediaId . '/medium', [], [], [], [
+                'HTTP_RANGE' => 'bytes=10-14',
+            ]),
+            ['media_id' => (string) $mediaId, 'size' => 'medium']
+        );
+
+        $this->assertSame(206, $response->getStatusCode());
+        $this->assertSame('abcde', $response->getBody());
+        $this->assertSame('bytes 10-14/20', $response->getHeaders()['Content-Range']);
+    }
+
+    /**
+     * A share that has lost the file answers 404, and the visitor gets a
+     * 404 — never the transport's own words, which would name the host,
+     * the collection and the account this site writes as.
+     */
+    public function testAMediaMissingFromTheShareIsANotFoundAndNotAStackTrace(): void
+    {
+        $share = new FakeWebDavServer();
+        $this->storageBackendFactory->method('create')->willReturn($this->webDavBackendFor($share));
+        $mediaId = $this->createDoneVideo($this->createAlbumOn($this->createWebDavLocation()));
+
+        $response = $this->controller->serveMedia(
+            new Request('GET', '/gallery/media/' . $mediaId . '/medium', [], [], [], []),
+            ['media_id' => (string) $mediaId, 'size' => 'medium']
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertStringNotContainsString($share->baseUrl, $response->getBody());
+        $this->assertStringNotContainsString('unite', $response->getBody());
+    }
+
+    private function webDavBackendFor(FakeWebDavServer $share): WebDavBackend
+    {
+        return new WebDavBackend(
+            new WebDavClient($share->transport()),
+            new WebDavLocationConfig($share->baseUrl, 'unite'),
+            'mot-de-passe-application'
+        );
+    }
+
+    private function createWebDavLocation(): int
+    {
+        return $this->storageLocationRepository->create(
+            StorageLocationType::WebDav,
+            'Nextcloud de l\'unité',
+            new WebDavLocationConfig('https://cloud.example.org/dav/scoutmagic', 'unite'),
+            'mot-de-passe-application'
+        );
+    }
+
+    private function createAlbumOn(int $locationId): int
+    {
+        return $this->albumRepository->create(
+            Album::TYPE_LOCAL,
+            'Camp',
+            null,
+            '2026-01-01',
+            null,
+            $this->scoutYearId,
+            null,
+            $locationId,
+            $this->authorId
+        );
     }
 
     private function createPrivateS3Location(): int

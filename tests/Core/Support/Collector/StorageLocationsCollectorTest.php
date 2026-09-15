@@ -12,6 +12,7 @@ use Core\Storage\Location\Backend\StorageBackendFactory;
 use Core\Storage\Location\Config\LocalLocationConfig;
 use Core\Storage\Location\Config\LocationConfig;
 use Core\Storage\Location\Config\ObjectStorageLocationConfig;
+use Core\Storage\Location\Config\WebDavLocationConfig;
 use Core\Storage\Location\StorageLocation;
 use Core\Storage\Location\StorageLocationConsumer;
 use Core\Storage\Location\StorageLocationConsumerRegistry;
@@ -220,6 +221,37 @@ class StorageLocationsCollectorTest extends TestCase
         $this->assertStringNotContainsString('fsn1.endpoint-a-ne-pas-ecrire.test', $report);
         $this->assertStringContainsString('hetzner', $report, 'The provider answers the same question.');
         $this->assertStringContainsString('photos-de-lunite', $report, 'The bucket is not the target on its own.');
+    }
+
+    /**
+     * **A share's address names the unit and the account both.** The path
+     * under a Nextcloud is literally `…/dav/files/{login}/…`, and a login
+     * is very often somebody's name; the host is usually self-hosted, so
+     * `cloud.<unité>.org` says which unit this is — and it would sit one
+     * line above « Identifiants : configurés » in a file that goes to
+     * somebody else. The class rule about a bucket's endpoint applies
+     * here with more force, and unlike S3 there is no provider name to
+     * answer the diagnostic question instead.
+     */
+    public function testItNamesNeitherTheShareHostNorTheAccountUnderIt(): void
+    {
+        $this->repository->create(
+            StorageLocationType::WebDav,
+            'Nextcloud de l\'unité',
+            new WebDavLocationConfig(
+                'https://cloud.exemple.test/remote.php/dav/files/marie.dupont/scoutmagic',
+                'marie.dupont'
+            ),
+            'MOT-DE-PASSE-A-NE-JAMAIS-ECRIRE'
+        );
+
+        $report = $this->collect();
+
+        $this->assertStringContainsString('Partage WebDAV', $report, 'the kind is diagnostic and safe');
+        $this->assertStringContainsString('Identifiants   : configurés', $report);
+        $this->assertStringNotContainsString('cloud.exemple.test', $report);
+        $this->assertStringNotContainsString('marie.dupont', $report);
+        $this->assertStringNotContainsString('MOT-DE-PASSE-A-NE-JAMAIS-ECRIRE', $report);
     }
 
     /**

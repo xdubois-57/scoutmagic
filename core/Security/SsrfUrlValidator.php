@@ -85,8 +85,74 @@ final class SsrfUrlValidator
      */
     public static function resolveHostToPublicIp(string $host): ?string
     {
+        $ips = self::addressesOf($host);
+        if ($ips === []) {
+            return null;
+        }
+
+        foreach ($ips as $ip) {
+            if (!self::isPublicIp($ip)) {
+                return null;
+            }
+        }
+
+        return $ips[0];
+    }
+
+    /**
+     * That a host resolves, and resolves somewhere it must not be reached.
+     *
+     * **This is the half of the check above that is worth repeating before
+     * every request, and the other half is not.** `resolveHostToPublicIp()`
+     * answers null both for a host that points at `10.0.0.5` and for one
+     * the resolver could not answer for at all, and those are not the same
+     * fact: the first is the attack this guard exists to stop, while the
+     * second means the connection about to be made cannot reach anything
+     * either. Refusing on it buys no protection and costs an accusation —
+     * a location whose address is perfectly good, recorded as « corrigez
+     * l'adresse » because a resolver blinked.
+     *
+     * Used where a stored address is re-checked on use; the save-time
+     * check stays strict, because an address nobody can resolve is not one
+     * to write down.
+     */
+    public static function resolvesOutsideThePublicInternet(string $host): bool
+    {
+        foreach (self::addressesOf($host) as $ip) {
+            if (!self::isPublicIp($ip)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Every address $host resolves to, or the literal when it is already
+     * one. Empty when nothing could answer for it.
+     *
+     * **Two resolvers, because the clients use the second one.**
+     * `dns_get_record()` speaks the DNS protocol and only that: it never
+     * consults `/etc/hosts` or any other NSS source. cURL and the library
+     * clients go through `getaddrinfo()`, which does. A host known only to
+     * `/etc/hosts` — `localhost`, a container alias — therefore answered
+     * « nothing resolves » here while the request that followed connected
+     * to it perfectly well, which turns this whole check into a formality
+     * for exactly the addresses it exists to refuse.
+     *
+     * `gethostbyname()` is the NSS-backed lookup PHP exposes, and it is
+     * IPv4-only: an NSS entry that is IPv6-only is the one shape this
+     * still cannot see. Closing that would mean pinning the validated
+     * address for the connection itself rather than resolving twice, which
+     * is a decision for this whole family rather than one caller
+     * (SECURITY.md §17).
+     *
+     * @return list<string>
+     */
+    private static function addressesOf(string $host): array
+    {
         if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
-            return self::isPublicIp($host) ? $host : null;
+            return [$host];
         }
 
         $records = array_merge(
@@ -102,17 +168,51 @@ final class SsrfUrlValidator
             }
         }
 
-        if ($ips === []) {
-            return null;
+        // Returns the name unchanged when it cannot resolve, which is how
+        // « nothing answered » is told from an address.
+        $system = @gethostbyname($host);
+        if (
+            $system !== $host
+            && filter_var($system, FILTER_VALIDATE_IP) !== false
+            && !in_array($system, $ips, true)
+        ) {
+            $ips[] = $system;
         }
 
-        foreach ($ips as $ip) {
-            if (!self::isPublicIp($ip)) {
-                return null;
-            }
+        return $ips;
+    }
+
+    /**
+     * The same target check as {@see assertPublicHttpsUrl()}, minus the
+     * requirement that the host resolve right now.
+     *
+     * For a value that was validated strictly when it was saved and is
+     * being re-checked before a request goes out. Everything structural —
+     * the scheme, embedded credentials, the port — is refused exactly as
+     * before; only « the resolver said nothing » stops being a refusal.
+     */
+    public static function isStoredHttpsTargetStillSafe(string $url, bool $allowCustomPort = false): bool
+    {
+        $parts = @parse_url($url);
+        if (!is_array($parts)) {
+            return false;
+        }
+        if (strtolower((string) ($parts['scheme'] ?? '')) !== 'https') {
+            return false;
+        }
+        if (isset($parts['user']) || isset($parts['pass'])) {
+            return false;
         }
 
-        return $ips[0];
+        $host = $parts['host'] ?? null;
+        if (!is_string($host) || $host === '') {
+            return false;
+        }
+        if (!$allowCustomPort && ($parts['port'] ?? 443) !== 443) {
+            return false;
+        }
+
+        return !self::resolvesOutsideThePublicInternet($host);
     }
 
     /**
