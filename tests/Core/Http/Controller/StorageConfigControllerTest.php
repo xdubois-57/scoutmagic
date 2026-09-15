@@ -19,7 +19,9 @@ use Core\Security\EncryptionService;
 use Core\Storage\Location\Backend\StorageBackendFactory;
 use Core\Http\Controller\GoogleDriveConnectionController;
 use Core\Storage\Location\Backend\Drive\GoogleDriveClient;
+use Core\Storage\Location\Config\GoogleDriveGrantSummary;
 use Core\Storage\Location\Config\GoogleDriveLocationConfig;
+use Core\Storage\Location\Config\GoogleDriveSecret;
 use Core\Storage\Location\Config\LocalLocationConfig;
 use Core\Storage\Location\Config\LocationConfig;
 use Core\Storage\Location\Config\ObjectStorageLocationConfig;
@@ -757,6 +759,31 @@ class StorageConfigControllerTest extends TestCase
         $this->assertStringContainsString('unite@example.org', $body);
         $this->assertStringNotContainsString('le-secret-du-client', $body);
         $this->assertStringNotContainsString('le-jeton-de-rafraichissement', $body);
+    }
+
+    /**
+     * What reaches the render context cannot carry the Google
+     * credentials, whatever a template later decides to print.
+     *
+     * The two screens read three fields today, which is the state of two
+     * files rather than a guarantee: `GoogleDriveSecret` holds
+     * `clientSecret` and `refreshToken` as public readonly strings, so
+     * handing it to Twig put both one `dump()` away from a page under a
+     * debug environment. Asserted on the SHAPE the controller hands over,
+     * not on the rendered output — the output is the part a future edit
+     * changes.
+     */
+    public function testWhatReachesTheRenderContextCannotCarryTheGoogleCredentials(): void
+    {
+        $handedOver = (new \ReflectionMethod(StorageConfigController::class, 'driveGrantOf'))->getReturnType();
+        self::assertInstanceOf(\ReflectionNamedType::class, $handedOver);
+        $this->assertSame(GoogleDriveGrantSummary::class, $handedOver->getName());
+
+        $fields = array_keys(get_object_vars(GoogleDriveGrantSummary::of(
+            new GoogleDriveSecret('le-secret-du-client', 'le-jeton', 'unite@example.org')
+        )));
+        sort($fields);
+        $this->assertSame(['account', 'hasClientSecret', 'hasGrant'], $fields);
     }
 
     /**

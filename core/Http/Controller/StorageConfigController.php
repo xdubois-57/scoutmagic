@@ -19,6 +19,7 @@ use Core\Security\DecryptionException;
 use Core\Security\SsrfUrlValidator;
 use Core\Storage\Location\Backend\ObjectStorageBackend;
 use Core\Storage\Location\Backend\Drive\GoogleDriveClient;
+use Core\Storage\Location\Config\GoogleDriveGrantSummary;
 use Core\Storage\Location\Config\GoogleDriveLocationConfig;
 use Core\Storage\Location\Config\GoogleDriveSecret;
 use Core\Storage\Location\Config\LocalLocationConfig;
@@ -381,17 +382,18 @@ class StorageConfigController extends AbstractController
     }
 
     /**
-     * The encrypted half of every Drive location on the page, by id.
+     * What the page may know of every Drive location's grant, by id —
+     * never the credentials themselves ({@see driveGrantOf()}).
      *
      * @param list<StorageLocation> $locations
-     * @return array<int, GoogleDriveSecret>
+     * @return array<int, GoogleDriveGrantSummary>
      */
     private function driveSecretsFor(array $locations): array
     {
         $secrets = [];
         foreach ($locations as $location) {
             if ($location->type === StorageLocationType::GoogleDrive) {
-                $secrets[$location->id] = $this->driveSecretOf($location);
+                $secrets[$location->id] = $this->driveGrantOf($location);
             }
         }
 
@@ -1020,7 +1022,7 @@ class StorageConfigController extends AbstractController
             'drive_redirect_uri' => GoogleDriveConnectionController::redirectUriFor(
                 (string) ($this->settings?->get('base_url') ?: '')
             ),
-            'drive_secret' => $this->driveSecretOf($location),
+            'drive_secret' => $this->driveGrantOf($location),
             // The number the warning quotes comes from the client that
             // suffers it, so the screen and the code cannot drift.
             'drive_testing_token_days' => GoogleDriveClient::TESTING_TOKEN_LIFETIME_DAYS,
@@ -1317,20 +1319,29 @@ class StorageConfigController extends AbstractController
      * The encrypted half of a Drive location, for the card that shows the
      * account and whether a client secret is stored.
      *
-     * **The refresh token never leaves this method's return value for a
-     * template**, and the account deliberately does: it is the e-mail of a
-     * real person, kept encrypted because a support package would
-     * otherwise carry it, and the one place it legitimately appears is in
-     * front of the administrator who is deciding whether the right account
-     * is connected.
+     * **The credentials do not leave this method**, and they cannot: it
+     * narrows to {@see GoogleDriveGrantSummary}, which has no field to
+     * carry them. Both callers put what they get straight into a render
+     * context, and this used to return the secret itself — templates
+     * reading only three of its fields was the state of two files, not a
+     * guarantee, and one `dump()` under a debug Twig would have printed
+     * the client secret and the refresh token verbatim.
+     *
+     * The account address deliberately survives that narrowing: it is the
+     * e-mail of a real person, kept encrypted because a support package
+     * would otherwise carry it, and the one place it legitimately appears
+     * is in front of the administrator who is deciding whether the right
+     * account is connected.
      */
-    private function driveSecretOf(?StorageLocation $location): GoogleDriveSecret
+    private function driveGrantOf(?StorageLocation $location): GoogleDriveGrantSummary
     {
         if ($location === null || $location->type !== StorageLocationType::GoogleDrive) {
-            return new GoogleDriveSecret();
+            return new GoogleDriveGrantSummary();
         }
 
-        return GoogleDriveSecret::fromStorage($this->storageLocationRepository->getSecretForDisplay($location->id));
+        return GoogleDriveGrantSummary::of(GoogleDriveSecret::fromStorage(
+            $this->storageLocationRepository->getSecretForDisplay($location->id)
+        ));
     }
 
     private function driveConfigOf(?StorageLocation $location): GoogleDriveLocationConfig
