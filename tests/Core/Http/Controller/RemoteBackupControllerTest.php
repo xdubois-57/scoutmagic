@@ -15,23 +15,29 @@ use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
-use Core\Maintenance\Remote\GoogleDriveClient;
-use Core\Maintenance\Remote\RemoteBackupConnection;
+use Core\Maintenance\Remote\RemoteBackupDestination;
 use Core\Security\CsrfGuard;
+use Core\Security\EncryptionService;
 use Core\Security\SecretManager;
-use Core\Security\SessionStore;
+use Core\Storage\Location\Backend\StorageBackendFactory;
+use Core\Storage\Location\Config\GoogleDriveLocationConfig;
+use Core\Storage\Location\Config\LocalLocationConfig;
+use Core\Storage\Location\StorageLocationRepository;
+use Core\Storage\Location\StorageLocationType;
 use PHPUnit\Framework\TestCase;
+use Tests\DatabaseTestHelper;
 use Twig\Environment;
 use Twig\Loader\ArrayLoader;
 
 /**
- * The OAuth round trip, decision by decision.
+ * The two things about the off-site backup that are not a storage
+ * location: the phrase, and where the archives go.
  *
- * **Every one of these is a refusal or a redirect**, which is what a
- * connection flow is: the browser leaves, comes back carrying something,
- * and this class decides whether that something is trustworthy. Google is
- * behind a faked transport; the session, the settings and the secrets are
- * real, because the questions being asked are about them.
+ * **The OAuth round trip is not here any more.** It moved to
+ * {@see \Tests\Core\Http\Controller\GoogleDriveConnectionControllerTest}
+ * with the code, because a Drive folder is a storage location now and its
+ * connection belongs beside the declaration of that location. What is
+ * left is what genuinely belongs to the backup.
  *
  * `RemoteBackupRbacTest` covers who may reach these methods at all. What
  * is asserted here is what happens once they are reached.
@@ -39,11 +45,12 @@ use Twig\Loader\ArrayLoader;
 final class RemoteBackupControllerTest extends TestCase
 {
     private string $base;
-    private RemoteBackupConnection $connection;
     private RemoteBackupSettingsDouble $settings;
     private RecordingJournalRepository $journal;
     private \Core\Maintenance\Remote\RemotePassphrase $passphrase;
     private SecretManager $secrets;
+    private StorageLocationRepository $locations;
+    private RemoteBackupDestination $destination;
 
     protected function setUp(): void
     {
@@ -63,12 +70,17 @@ final class RemoteBackupControllerTest extends TestCase
         $secrets->writeSecrets([]);
         $this->secrets = $secrets;
 
-        $this->settings = new RemoteBackupSettingsDouble([
-            'base_url' => 'https://unite.example',
-            RemoteBackupConnection::STATE_SETTING => RemoteBackupConnection::STATE_DISCONNECTED,
-        ]);
-        $this->connection = new RemoteBackupConnection($this->settings, $secrets);
+        $this->settings = new RemoteBackupSettingsDouble(['base_url' => 'https://unite.example']);
         $this->passphrase = new \Core\Maintenance\Remote\RemotePassphrase($this->settings, $secrets);
+        $this->locations = new StorageLocationRepository(
+            DatabaseTestHelper::createTestDatabase(),
+            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
+        $this->destination = new RemoteBackupDestination(
+            $this->settings,
+            $this->locations,
+            new StorageBackendFactory($this->locations, sys_get_temp_dir())
+        );
     }
 
     protected function tearDown(): void
@@ -83,333 +95,95 @@ final class RemoteBackupControllerTest extends TestCase
         @rmdir($this->base);
     }
 
-    public function testSavingCredentialsStoresThemAndSaysSo(): void
-    {
-        $response = $this->controller()->saveCredentials($this->postRequest([
-            'client_id' => '  client-1  ',
-            'client_secret' => ' secret-1 ',
-        ]), []);
-
-        $this->assertSame(302, $response->getStatusCode());
-        // Trimmed: a value pasted from Google's console carries whitespace
-        // often enough, and Google refuses a client id that has any.
-        $this->assertSame('client-1', $this->connection->clientId());
-        $this->assertSame('secret-1', $this->connection->clientSecret());
-        $this->assertTrue($this->connection->hasCredentials());
-    }
-
-    public function testHalfEnteredCredentialsAreRefusedRatherThanStored(): void
-    {
-        $this->controller()->saveCredentials($this->postRequest([
-            'client_id' => 'client-1',
-            'client_secret' => '',
-        ]), []);
-
-        $this->assertFalse($this->connection->hasCredentials());
-        $this->assertSame('', $this->connection->clientId());
-    }
-
-    public function testTheFlowRefusesToStartBeforeTheCredentialsExist(): void
-    {
-        $response = $this->controller()->connect(new Request('GET', '/config/maintenance/remote/connect', [], [], [], []), []);
-
-        $this->assertSame(302, $response->getStatusCode());
-        $this->assertSame('/config/maintenance#remote-backup', $response->getHeaders()['Location']);
-    }
+    // ————— The destination —————
 
     /**
-     * Leaving for Google carries the narrow scope, the redirect the
-     * project registered, and a state this session will recognise.
+     * **D4, spelled out.** Locations are declared centrally and chosen
+     * locally; the choice lives in this consumer's own setting, and there
+     * is deliberately no join table in the middle.
      */
-    public function testStartingTheFlowLeavesForGoogleWithAStateThisSessionCanRecognise(): void
+    public function testChoosingADestinationRecordsItAndSaysWhere(): void
     {
-        $this->connection->saveCredentials('client-1', 'secret-1');
+        $id = $this->declareDrive();
 
-        $response = $this->controller()->connect(new Request('GET', '/config/maintenance/remote/connect', [], [], [], []), []);
-
-        $this->assertSame(302, $response->getStatusCode());
-        $location = $response->getHeaders()['Location'];
-        $this->assertStringStartsWith('https://accounts.google.com/', $location);
-
-        parse_str((string) parse_url($location, PHP_URL_QUERY), $query);
-        $this->assertSame(GoogleDriveClient::SCOPE, $query['scope'] ?? null);
-        $this->assertSame('https://unite.example/config/maintenance/remote/callback', $query['redirect_uri'] ?? null);
-        $this->assertNotSame('', (string) ($query['state'] ?? ''));
-        $this->assertSame($query['state'], SessionStore::get('remote_backup_oauth_state'));
-    }
-
-    /**
-     * **A callback nobody started is refused.**
-     *
-     * This is the whole reason the state exists: without it, a URL
-     * composed by somebody else — sent to an administrator, or simply
-     * guessed — would graft a stranger's Google account onto this site's
-     * backups.
-     */
-    public function testACallbackWithNoMatchingStateIsRefusedAndNothingIsStored(): void
-    {
-        $this->connection->saveCredentials('client-1', 'secret-1');
-        SessionStore::set('remote_backup_oauth_state', 'the-real-state');
-
-        $response = $this->controller()->callback(
-            new Request('GET', '/config/maintenance/remote/callback', ['state' => 'forged', 'code' => 'c'], [], [], []),
+        $response = $this->controller()->chooseDestination(
+            $this->postRequest(['location_id' => (string) $id]),
             []
         );
 
         $this->assertSame(302, $response->getStatusCode());
-        $this->assertFalse($this->connection->isConnected());
-        $this->assertSame('', $this->connection->refreshToken());
-    }
-
-    /** And a state is single-use: replaying the same one does not work twice. */
-    public function testAStateCannotBeUsedTwice(): void
-    {
-        $this->connection->saveCredentials('client-1', 'secret-1');
-        SessionStore::set('remote_backup_oauth_state', 'st4te');
-
-        $this->controller($this->googleAnsweringHappily())->callback($this->callbackRequest('st4te', 'code-1'), []);
-        $this->assertTrue($this->connection->isConnected());
-
-        $this->connection->disconnect();
-        $this->connection->saveCredentials('client-1', 'secret-1');
-        $this->controller($this->googleAnsweringHappily())->callback($this->callbackRequest('st4te', 'code-2'), []);
-
-        $this->assertFalse($this->connection->isConnected(), 'a replayed state connected the site a second time');
-    }
-
-    /**
-     * The operator pressed « Annuler » on Google's screen. Not an error to
-     * shout about, and nothing to store.
-     */
-    public function testARefusedConsentComesBackWithoutStoringAnything(): void
-    {
-        $this->connection->saveCredentials('client-1', 'secret-1');
-        SessionStore::set('remote_backup_oauth_state', 'st4te');
-
-        $response = $this->controller()->callback(
-            new Request('GET', '/config/maintenance/remote/callback', ['state' => 'st4te', 'error' => 'access_denied'], [], [], []),
-            []
-        );
-
-        $this->assertSame(302, $response->getStatusCode());
-        $this->assertFalse($this->connection->isConnected());
-    }
-
-    public function testACallbackWithoutACodeIsRefused(): void
-    {
-        $this->connection->saveCredentials('client-1', 'secret-1');
-        SessionStore::set('remote_backup_oauth_state', 'st4te');
-
-        $this->controller()->callback($this->callbackRequest('st4te', ''), []);
-
-        $this->assertFalse($this->connection->isConnected());
-    }
-
-    /** The happy path, end to end: token, account, folder, state. */
-    public function testASuccessfulCallbackStoresTheGrantTheAccountAndTheFolder(): void
-    {
-        $this->connection->saveCredentials('client-1', 'secret-1');
-        SessionStore::set('remote_backup_oauth_state', 'st4te');
-
-        $response = $this->controller($this->googleAnsweringHappily())
-            ->callback($this->callbackRequest('st4te', 'code-1'), []);
-
-        $this->assertSame(302, $response->getStatusCode());
-        $this->assertTrue($this->connection->isConnected());
-        $this->assertSame('refresh-abc', $this->connection->refreshToken());
-        $this->assertSame('unite@example.org', $this->connection->account());
-        $this->assertSame('folder-1', $this->connection->folderId());
-        $this->assertSame(RemoteBackupConnection::STATE_CONNECTED, $this->connection->state());
-
-        // **And the journal names nobody.** The address is a real
-        // person's, so the entry says what happened and not who it
-        // happened to — the precedent SECURITY.md sets for the mail
-        // probe, « le journal compte les boîtes et n'en nomme aucune ».
-        // Asserted on the entry itself, not only on the ratchet that
-        // forbids the controller to read `account()`: the ratchet closes
-        // the door this address came through, this closes the room.
-        $this->assertStringNotContainsString(
-            'unite@example.org',
-            $this->journal->textOf('remote_backup_connected')
+        $this->assertSame($id, $this->destination->locationId());
+        $this->assertStringContainsString(
+            'Google Drive',
+            $this->journal->textOf('remote_backup_destination_chosen')
         );
     }
 
     /**
-     * A refusal from Google leaves the site unconnected and says why, in
-     * a sentence written for a person.
+     * **A destination that cannot resume an interrupted upload is refused
+     * at the moment it is chosen**, not discovered at four in the
+     * morning. An archive of several gibibytes over a domestic upstream
+     * link does not finish in one run on any hosting this application
+     * exists for, and the send would meet the same refusal nightly with
+     * nobody reading the journal.
      */
-    public function testAGoogleRefusalIsReportedWithoutConnectingAnything(): void
+    public function testADestinationThatCannotResumeAnUploadIsRefused(): void
     {
-        $this->connection->saveCredentials('client-1', 'secret-1');
-        SessionStore::set('remote_backup_oauth_state', 'st4te');
+        // An object store: the one declared type that does not carry the
+        // capability today. Keyed on the capability rather than on the
+        // type, so this follows a backend that gains it.
+        $id = $this->locations->create(
+            StorageLocationType::ObjectStorage,
+            'Bucket',
+            new \Core\Storage\Location\Config\ObjectStorageLocationConfig(
+                'https://s3.example',
+                'eu',
+                'seau',
+                'cle'
+            ),
+            null
+        );
 
-        $client = new GoogleDriveClient(fn (): array => ['status' => 400, 'body' => '{"error":"invalid_grant"}']);
-        $this->controller($client)->callback($this->callbackRequest('st4te', 'code-1'), []);
+        $this->controller()->chooseDestination($this->postRequest(['location_id' => (string) $id]), []);
 
-        $this->assertFalse($this->connection->isConnected());
-        $this->assertStringContainsString('Reconnectez', $this->connection->lastError());
+        $this->assertSame(0, $this->destination->locationId());
     }
 
-    public function testTheTestButtonAnswersInJsonAndNamesTheAccount(): void
+    /** A location that has gone is a sentence, not a stack trace. */
+    public function testChoosingALocationThatNoLongerExistsIsRefused(): void
     {
-        $this->connectSite();
+        $this->controller()->chooseDestination($this->postRequest(['location_id' => '9999']), []);
 
-        $response = $this->controller($this->googleAnsweringHappily())->test($this->jsonRequest(), []);
-        $decoded = json_decode($response->getBody(), true);
-
-        $this->assertIsArray($decoded);
-        $this->assertTrue($decoded['success'] ?? false, (string) ($decoded['message'] ?? ''));
-        $this->assertSame('unite@example.org', $decoded['account'] ?? null);
-        $this->assertFalse($decoded['needs_reauthorisation'] ?? true);
-    }
-
-    public function testTheTestButtonReportsAWithdrawnGrantAsSomethingToReconnect(): void
-    {
-        $this->connectSite();
-
-        $client = new GoogleDriveClient(fn (): array => ['status' => 400, 'body' => '{"error":"invalid_grant"}']);
-        $decoded = json_decode($this->controller($client)->test($this->jsonRequest(), [])->getBody(), true);
-
-        $this->assertIsArray($decoded);
-        $this->assertFalse($decoded['success'] ?? true);
-        $this->assertTrue($decoded['needs_reauthorisation'] ?? false);
-        $this->assertSame(RemoteBackupConnection::STATE_NEEDS_REAUTH, $this->connection->state());
-    }
-
-    public function testDisconnectingForgetsEverything(): void
-    {
-        $this->connectSite();
-
-        $response = $this->controller()->disconnect($this->postRequest([]), []);
-
-        $this->assertSame(302, $response->getStatusCode());
-        $this->assertFalse($this->connection->isConnected());
-        $this->assertFalse($this->connection->hasCredentials());
-        $this->assertSame('', $this->connection->account());
+        $this->assertSame(0, $this->destination->locationId());
     }
 
     /**
-     * Without a valid CSRF token none of the writing endpoints do
-     * anything — the connection is a credential store, and a form posted
-     * from elsewhere must not reach it.
+     * Choosing none is a legitimate answer — and a loud one: it means
+     * nothing leaves this server, which is worth a security entry and a
+     * warning rather than a quiet success.
      */
-    public function testTheWritingEndpointsRefuseARequestWithoutAValidToken(): void
+    public function testChoosingNoneStopsTheSendsAndSaysSo(): void
     {
-        $this->connectSite();
+        $this->destination->choose($this->declareDrive());
+
+        $this->controller()->chooseDestination($this->postRequest(['location_id' => '0']), []);
+
+        $this->assertSame(0, $this->destination->locationId());
+        $this->assertNotSame('', $this->journal->textOf('remote_backup_destination_cleared'));
+    }
+
+    /** And none of it happens without the token. */
+    public function testChoosingADestinationNeedsTheCsrfToken(): void
+    {
+        $id = $this->declareDrive();
         $_POST = [];
 
-        $bare = new Request('POST', '/config/maintenance/remote/disconnect', [], [], [], []);
-        $this->controller()->disconnect($bare, []);
-        $this->assertTrue($this->connection->isConnected(), 'a request with no CSRF token disconnected the site');
-
-        $this->controller()->saveCredentials(
-            new Request('POST', '/config/maintenance/remote/credentials', [], ['client_id' => 'x', 'client_secret' => 'y'], [], []),
-            []
-        );
-        $this->assertNotSame('x', $this->connection->clientId());
-    }
-
-    /**
-     * **A site that does not know its own address cannot start at all**,
-     * and that refusal replaces a fallback built from `HTTP_HOST`.
-     *
-     * Two reasons, and either one is enough. The Host header is supplied
-     * by whoever made the request — `InstallationProfile` says it in as
-     * many words, « la SEULE source de l'adresse du site, ici comme
-     * ailleurs : jamais HTTP_HOST » — and an OAuth redirect URI is the
-     * last place to take an attacker's word for where to send a browser
-     * back. And it disagreed with the screen, which renders
-     * `RemoteBackupConnection::redirectUri()` and had no such fallback:
-     * the operator was told to register a bare path Google's console
-     * refuses, while the flow sent an absolute URL. Google answers that
-     * with `redirect_uri_mismatch` and neither side says why.
-     */
-    public function testASiteThatDoesNotKnowItsAddressIsToldSoRatherThanGuessing(): void
-    {
-        $this->settings->values['base_url'] = '';
-        $this->connection->saveCredentials('client-1', 'secret-1');
-
-        $response = $this->controller()->connect(
-            new Request('GET', '/x', [], [], [], ['HTTPS' => 'on', 'HTTP_HOST' => 'attaquant.example']),
+        $this->controller()->chooseDestination(
+            new Request('POST', '/config/maintenance/remote/destination', [], ['location_id' => (string) $id], [], []),
             []
         );
 
-        // Back to the page, not off to Google: nothing was started.
-        $this->assertSame(302, $response->getStatusCode());
-        $this->assertSame('/config/maintenance#remote-backup', $response->getHeaders()['Location'] ?? '');
-        $this->assertNull(
-            SessionStore::get('remote_backup_oauth_state'),
-            'a raccordement was begun on an address a request header chose'
-        );
-    }
-
-    /** And the screen shows no address to register rather than a bare path. */
-    public function testTheScreenShowsNothingToRegisterUntilTheSiteKnowsItsAddress(): void
-    {
-        $this->settings->values['base_url'] = '';
-
-        $this->assertSame('', $this->connection->redirectUri());
-
-        $this->settings->values['base_url'] = 'https://unite.example/';
-
-        $this->assertSame(
-            'https://unite.example/config/maintenance/remote/callback',
-            $this->connection->redirectUri()
-        );
-    }
-
-    /**
-     * **« Consultez le journal du site » has to lead somewhere.**
-     *
-     * Google's own answer is forbidden on screen — `UserFacingException`
-     * keeps English internals away from the operator — so it travels as
-     * the exception's cause. Nothing read it back: the cause was built,
-     * attached, and dropped. A broken connection therefore produced one
-     * generic French sentence and no record at all of what Google said,
-     * in a feature whose whole logic turns on telling `invalid_client`
-     * from `invalid_grant`.
-     */
-    public function testAFailedTestRecordsWhatGoogleActuallySaid(): void
-    {
-        $this->connectSite();
-
-        $client = new GoogleDriveClient(fn (): array => [
-            'status' => 401,
-            'body' => '{"error":"invalid_client","error_description":"The OAuth client was not found."}',
-        ]);
-        $this->controller($client)->test($this->jsonRequest(), []);
-
-        $recorded = $this->journal->textOf('remote_backup_test_failed');
-        $this->assertNotSame('', $recorded, 'the operator was sent to a journal entry nobody wrote');
-        $this->assertStringContainsString('invalid_client', $recorded);
-    }
-
-    /** And a test that works writes nothing: the button is pressable at will. */
-    public function testASuccessfulTestDoesNotFillTheJournal(): void
-    {
-        $this->connectSite();
-
-        $this->controller($this->googleAnsweringHappily())->test($this->jsonRequest(), []);
-
-        $this->assertSame('', $this->journal->textOf('remote_backup_test_failed'));
-    }
-
-    /**
-     * The same, on the connection path — where the consequence is
-     * sharper still, since a wrong reading there deletes a valid grant.
-     */
-    public function testARefusedCallbackRecordsWhatGoogleActuallySaid(): void
-    {
-        $this->connection->saveCredentials('client-1', 'secret-1');
-        SessionStore::set('remote_backup_oauth_state', 'st4te');
-
-        $client = new GoogleDriveClient(fn (): array => ['status' => 400, 'body' => '{"error":"invalid_grant"}']);
-        $this->controller($client)->callback($this->callbackRequest('st4te', 'code-1'), []);
-
-        $this->assertStringContainsString(
-            'invalid_grant',
-            $this->journal->textOf('remote_backup_connect_failed')
-        );
+        $this->assertSame(0, $this->destination->locationId());
     }
 
     // ————— The passphrase —————
@@ -525,48 +299,76 @@ final class RemoteBackupControllerTest extends TestCase
 
     private function connectSite(): void
     {
-        $this->connection->saveCredentials('client-1', 'secret-1');
-        $this->connection->saveConnection('refresh-abc', 'unite@example.org', 'folder-1');
+        $this->destination->choose($this->declareDrive());
     }
 
-    private function controller(?GoogleDriveClient $client = null): RemoteBackupController
+    /** A declared Google Drive location, which is what a destination is. */
+    private function declareDrive(): int
+    {
+        return $this->locations->create(
+            StorageLocationType::GoogleDrive,
+            'Google Drive',
+            new GoogleDriveLocationConfig('client-1', 'dossier-1', '2026-03-01T00:00:00+00:00'),
+            (string) json_encode([
+                'client_secret' => 's',
+                'refresh_token' => 'refresh-abc',
+                'account' => 'unite@example.org',
+            ])
+        );
+    }
+
+    private function controller(): RemoteBackupController
     {
         $this->journal = new RecordingJournalRepository();
 
         return new RemoteBackupController(
             new Environment(new ArrayLoader([])),
-            $this->connection,
+            $this->destination,
+            $this->locations,
             new JournalService($this->journal),
-            $this->passphrase,
-            $client ?? new GoogleDriveClient(fn (): array => ['status' => 500, 'body' => '{}'])
+            $this->passphrase
         );
     }
 
-    /** Google saying yes to everything: token, account, folder, upload, delete. */
-    private function googleAnsweringHappily(): GoogleDriveClient
+    /**
+     * **The screen asks before the archives stop leaving the server.**
+     *
+     * `chooseDestination` accepts `0` — « Aucune » — and the controller's
+     * own flash reports the loss AFTER it has happened, which is the one
+     * thing a warning cannot undo. Nothing else on this page announces
+     * itself either: no archive fails, no alert fires, and the site looks
+     * exactly as it did until the day somebody needs a copy that was
+     * never sent.
+     *
+     * Asserted on the form's opening tag rather than on the file, so that
+     * the attribute is shown to sit UNDER the `remote_backup_location`
+     * guard: the confirmation belongs to a site that has a destination to
+     * lose, and a fresh site — where this form is the way to set the first
+     * one up — must not meet a modal in front of it.
+     */
+    public function testTheDestinationFormAsksBeforeItCanStopEveryOffsiteBackup(): void
     {
-        return new GoogleDriveClient(function (string $method, string $url): array {
-            if (str_contains($url, '/token')) {
-                return ['status' => 200, 'body' => '{"refresh_token":"refresh-abc","access_token":"ya29.ok","expires_in":3599}'];
-            }
-            if (str_contains($url, '/about')) {
-                return ['status' => 200, 'body' => '{"user":{"emailAddress":"unite@example.org"},"storageQuota":{"usage":"1","limit":"9"}}'];
-            }
-            if (str_contains($url, '/upload/')) {
-                return ['status' => 200, 'body' => '{}', 'location' => 'https://upload.example/s1'];
-            }
-            if ($method === 'PUT') {
-                return ['status' => 200, 'body' => '{"id":"witness-1"}'];
-            }
-            if ($method === 'POST') {
-                return ['status' => 200, 'body' => '{"id":"folder-1"}'];
-            }
-            if ($method === 'DELETE') {
-                return ['status' => 204, 'body' => ''];
-            }
+        $template = file_get_contents(
+            dirname(__DIR__, 4) . '/core/View/templates/config/maintenance.html.twig'
+        );
+        $this->assertIsString($template, 'The maintenance template is unreadable.');
 
-            return ['status' => 200, 'body' => '{"files":[{"id":"folder-1"}]}'];
-        });
+        $at = strpos($template, '<form method="post" action="/config/maintenance/remote/destination"');
+        $this->assertIsInt($at, 'The destination form is no longer on the maintenance page.');
+
+        $openingTag = substr($template, $at, (int) strpos($template, '>', $at) - $at);
+
+        $this->assertStringContainsString(
+            'data-confirm',
+            $openingTag,
+            'Choosing « Aucune » stops every off-site backup without asking: the form carries no confirmation.'
+        );
+        $this->assertStringContainsString(
+            '{% if remote_backup_location %}',
+            $openingTag,
+            'The confirmation is unconditional, so a site with no destination yet is asked to confirm '
+            . 'setting its first one up — which teaches operators to click past this dialog.'
+        );
     }
 
     /** @param array<string, string> $body */
@@ -586,83 +388,4 @@ final class RemoteBackupControllerTest extends TestCase
         return new Request('POST', '/config/maintenance/remote/test', [], ['_csrf_token' => $token], [], []);
     }
 
-    private function callbackRequest(string $state, string $code): Request
-    {
-        return new Request(
-            'GET',
-            '/config/maintenance/remote/callback',
-            ['state' => $state, 'code' => $code],
-            [],
-            [],
-            []
-        );
-    }
-}
-
-/** The settings table, in an array — see `GoogleDriveTargetTest`. */
-final class RemoteBackupSettingsDouble extends SettingService
-{
-    /** @param array<string, string> $values */
-    public function __construct(public array $values = [])
-    {
-        parent::__construct(new \Core\Config\SettingRepository(new \PDO('sqlite::memory:')));
-    }
-
-    public function get(string $key, ?string $moduleId = null, mixed $default = null): mixed
-    {
-        return $this->values[$key] ?? $default;
-    }
-
-    public function setInternal(string $key, string $value, ?string $moduleId = null): void
-    {
-        $this->values[$key] = $value;
-    }
-}
-
-/**
- * A journal that writes to an array.
- *
- * **It used to write nowhere, and that was a hole.** The controller
- * journals a security event on every outcome, and one rule about those
- * entries is a rule about personal data: the connected Google account is
- * the e-mail address of a real person, so it belongs in `secrets.enc`
- * and nowhere near a journal line that is read on screen and carried
- * into a diagnostic archive. A repository that discarded its arguments
- * asserted that rule by never looking — so the entries are kept, and the
- * test reads them.
- */
-final class RecordingJournalRepository extends JournalRepository
-{
-    /** @var list<array{type: string, description: string, context: string}> */
-    public array $entries = [];
-
-    public function __construct()
-    {
-        parent::__construct(new \PDO('sqlite::memory:'));
-    }
-
-    public function insert(
-        string $category,
-        string $type,
-        string $level,
-        string $description,
-        ?string $contextJson,
-        ?int $userId,
-        ?string $ipAddress = null
-    ): void {
-        $this->entries[] = ['type' => $type, 'description' => $description, 'context' => (string) $contextJson];
-    }
-
-    /** Everything one entry could show a human, in one string. */
-    public function textOf(string $type): string
-    {
-        $text = '';
-        foreach ($this->entries as $entry) {
-            if ($entry['type'] === $type) {
-                $text .= $entry['description'] . ' ' . $entry['context'];
-            }
-        }
-
-        return $text;
-    }
 }

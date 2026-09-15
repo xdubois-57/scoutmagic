@@ -18,14 +18,14 @@ use Core\Alert\Check\MailDeliveryCheck;
 use Core\Alert\Check\PortableBackupLingerCheck;
 use Core\Alert\Check\RemoteBackupAgeCheck;
 use Core\Alert\Check\RemoteQuotaCheck;
+use Core\Maintenance\Remote\RemoteBackupDestination;
+use Core\Storage\Location\Backend\QuotaReportingBackend;
+use Core\Storage\Location\Backend\StorageBackendFactory;
+use Core\Storage\Location\StorageLocationRepository;
 use Core\Alert\OperationalAlertRepository;
 use Core\Alert\OperationalAlertService;
 use Core\Journal\JournalRepository;
 use Core\Maintenance\BackupRepository;
-use Core\Maintenance\Remote\GoogleDriveClient;
-use Core\Maintenance\Remote\GoogleDriveTarget;
-use Core\Maintenance\Remote\RemoteBackupConnection;
-use Core\Maintenance\Remote\RemoteBackupTarget;
 use Core\Mail\Transport\DeferredMailRepository;
 use Core\Mail\Transport\LaneChainRepository;
 use Core\Mail\Transport\MailProviderDirectory;
@@ -93,12 +93,12 @@ class RunOperationalChecksHandler implements TaskHandlerInterface
             // were gone » — a different question from BackupAgeCheck's,
             // and one a site backing up perfectly to its own disk fails
             // completely (Core\Alert\Check\RemoteBackupAgeCheck).
-            new RemoteBackupAgeCheck($context->settings, $this->secrets($context)),
-            new RemoteQuotaCheck($this->remoteTarget($context)),
+            new RemoteBackupAgeCheck($this->remoteDestination($context), $context->settings),
+            $this->remoteQuotaCheck($context),
             new MailDeliveryCheck(new JournalRepository($pdo)),
             // The two the outbound chantier adds (D9, ARCHITECTURE.md
             // §8.106). Both are built here rather than inside the check,
-            // the same reason RemoteQuotaCheck's target is: a check has to
+            // the same reason RemoteQuotaCheck's backend is: a check has to
             // stay something a test can hand a double to.
             new AuthenticationLaneCheck(
                 new LaneChainRepository($pdo),
@@ -117,29 +117,59 @@ class RunOperationalChecksHandler implements TaskHandlerInterface
     }
 
     /**
-     * The destination to ask about free space, or null when there is
-     * none.
+     * Which location the off-site backup sends to, for the two checks
+     * that measure it.
      *
-     * Built here rather than inside the check so that the check itself
-     * stays a thing a test can hand a double to — the whole point of
-     * {@see RemoteBackupTarget} — and so that the ONE network call this
-     * daily pass makes is visible at the place the pass is assembled.
-     *
-     * **Null means DISCONNECTED, never "the grant is gone".** Null is
-     * what makes the check re-arm, and re-arming is « all clear » — so
-     * returning it for a `needs_reauth` site would put the quota alert
-     * out on a destination that has stopped accepting anything. A target
-     * is built for that site too; every call it makes fails, and
-     * {@see RemoteQuotaCheck} turns that into *inconclusive*, which
-     * leaves a standing alert exactly where it was.
+     * Built here rather than inside a check so that the check itself
+     * stays a thing a test can hand a double to, and so the ONE network
+     * call this daily pass makes is visible at the place the pass is
+     * assembled.
      */
-    private function remoteTarget(TaskContext $context): ?RemoteBackupTarget
+    private function remoteDestination(TaskContext $context): RemoteBackupDestination
     {
-        $connection = new RemoteBackupConnection($context->settings, $this->secrets($context));
+        $repository = new StorageLocationRepository($context->connection->getPdo(), $context->encryption);
 
-        return $connection->state() === RemoteBackupConnection::STATE_DISCONNECTED
-            ? null
-            : new GoogleDriveTarget($connection, new GoogleDriveClient());
+        return new RemoteBackupDestination(
+            $context->settings,
+            $repository,
+            new StorageBackendFactory($repository, $context->storagePath)
+        );
+    }
+
+    /**
+     * The free-space check, told which of three situations this site is
+     * in.
+     *
+     * **A backend, « nothing to measure », and « I could not measure »
+     * are three answers, and only the last two look alike.** A null
+     * backend re-arms the alert, which is « all clear » — the right
+     * answer for a site with no destination chosen, and for one whose
+     * destination simply cannot say (a bucket, a folder on this server's
+     * own disk). The capability decides that, so a backend that gains or
+     * loses the aptitude changes one declaration and this follows.
+     *
+     * A destination that is chosen and cannot be BUILT is neither. « All
+     * clear » there would drop a standing alert about an account nobody
+     * measured, on the very site whose destination has just broken, so it
+     * is handed back as unreadable and the check calls it inconclusive.
+     */
+    private function remoteQuotaCheck(TaskContext $context): RemoteQuotaCheck
+    {
+        try {
+            $backend = $this->remoteDestination($context)->backend();
+        } catch (\Throwable) {
+            // **Not null.** A destination that is chosen and cannot be
+            // built is the one case where « nothing to measure » would be
+            // a lie: null re-arms, and re-arming drops a standing alert
+            // about an account that may well be full — on the site whose
+            // destination has just stopped working, which is where the
+            // alert is worth most. The failure itself is not reported
+            // here; the send that fails says it once, in the operator's
+            // own terms.
+            return RemoteQuotaCheck::unreadable();
+        }
+
+        return new RemoteQuotaCheck($backend instanceof QuotaReportingBackend ? $backend : null);
     }
 
     /**

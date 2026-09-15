@@ -38,6 +38,35 @@ namespace Core\Storage\Location\Backend;
 interface ResumableUploadBackend extends StorageBackendInterface
 {
     /**
+     * Announces that an upload of $key is starting, and how many bytes it
+     * will be in total.
+     *
+     * **Only when {@see partialSize()} answered 0**, and that is the whole
+     * protocol: a resume continues a transfer already open, and telling a
+     * destination to start one it has not finished would throw away
+     * everything that arrived.
+     *
+     * **Why the total has to be said before the first byte.** A filesystem
+     * does not need it — a partial file is a partial file, and the last
+     * append is indistinguishable from any other. A destination that mints
+     * a SESSION does need it: Google's resumable protocol wants the length
+     * up front, or else it wants the final chunk to declare it, and
+     * {@see appendToPartial()} has no way to know which chunk is the last
+     * one. Without this, a Drive destination would have to guess, and the
+     * guess it would be forced into is « every chunk might be the last »,
+     * which finalises a file in the middle of itself.
+     *
+     * A backend for which the question is meaningless implements this as
+     * nothing at all, which is one line and costs no round trip.
+     *
+     * @param int $totalBytes what the source announces, and what the
+     *        destination may hold the caller to: a transfer that ends
+     *        anywhere else is a transfer that failed.
+     * @throws \RuntimeException when the upload cannot be opened
+     */
+    public function beginPartial(string $key, int $totalBytes): void;
+
+    /**
      * How many bytes of an interrupted upload of $key are already stored,
      * or 0 when none is in flight.
      *

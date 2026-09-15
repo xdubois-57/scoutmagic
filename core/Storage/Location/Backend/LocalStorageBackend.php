@@ -106,6 +106,43 @@ class LocalStorageBackend implements RangeReadableBackend, ResumableUploadBacken
      */
     private const PARTIAL_SUFFIX = '.scoutmagic-part';
 
+    /**
+     * Nothing to announce: a partial file needs no opening, and its last
+     * append is indistinguishable from any other.
+     *
+     * **Deliberately not a place to pre-allocate, nor to validate.** The
+     * announced total is what the SOURCE says, and a destination that
+     * created a file here on the strength of it would leave a zero-byte
+     * object behind for every copy that never started — where a
+     * filesystem's honest answer to « is an upload in flight » is the
+     * presence of the partial file itself.
+     */
+    public function beginPartial(string $key, int $totalBytes): void
+    {
+        // **Except for an object that has no bytes at all.** The reasoning
+        // above holds because the partial file's presence is how a
+        // filesystem answers « is a copy in flight », and its absence has
+        // to keep meaning « no ». But a zero-byte source appends nothing,
+        // so nothing else will ever create that file, and
+        // `promotePartial()` refuses a copy that is in fact complete —
+        // one empty file in a location is enough to stop its whole
+        // protection pass. Here the announced total says outright that
+        // there is nothing to wait for.
+        if ($totalBytes !== 0) {
+            return;
+        }
+
+        $path = $this->fullPath($key . self::PARTIAL_SUFFIX);
+        $dir = dirname($path);
+        if (!is_dir($dir) && !@mkdir($dir, 0755, true) && !is_dir($dir)) {
+            throw new \RuntimeException("Storage directory could not be created for: {$key}");
+        }
+
+        if (@file_put_contents($path, '') === false) {
+            throw new \RuntimeException("Partial upload could not be started: {$key}");
+        }
+    }
+
     public function partialSize(string $key): int
     {
         $path = $this->fullPath($key . self::PARTIAL_SUFFIX);

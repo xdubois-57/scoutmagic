@@ -42,16 +42,36 @@ final class RemoteBackupRbacTest extends TestCase
 {
     /** @var array<int, array{string, string}> */
     private const ROUTES = [
-        ['POST', '/config/maintenance/remote/credentials'],
-        ['GET', '/config/maintenance/remote/connect'],
-        ['GET', '/config/maintenance/remote/callback'],
-        ['POST', '/config/maintenance/remote/test'],
-        ['POST', '/config/maintenance/remote/disconnect'],
+        // Where the archives go. The Google conversation moved to
+        // Configuration > Stockage in IT-05 — a Drive folder is a storage
+        // location now — and the routes it moved to are listed below; a
+        // move that silently dropped a floor is exactly what this class
+        // exists to catch.
+        ['POST', '/config/maintenance/remote/destination'],
         // The two that matter most: one hands back the key to every
         // archive this site has ever sent off-server, the other makes
         // them all unreadable in a single request.
         ['POST', '/config/maintenance/remote/passphrase/reveal'],
         ['POST', '/config/maintenance/remote/passphrase/regenerate'],
+    ];
+
+    /**
+     * The connection, which moved to the location's own card in IT-05.
+     *
+     * **A stricter floor, and listed separately because of it.** Every
+     * route on Configuration > Stockage is `superadmin` — declaring where
+     * a unit's files leave to is not an ordinary administrator's decision
+     * — so these cannot be folded into the list above, which asserts the
+     * administrator floor exactly.
+     *
+     * @var array<int, array{string, string}>
+     */
+    private const STORAGE_ROUTES = [
+        ['POST', '/config/stockage/emplacements/{id}/google/identifiants'],
+        ['GET', '/config/stockage/emplacements/{id}/google/raccordement'],
+        ['POST', '/config/stockage/emplacements/{id}/google/deraccordement'],
+        // The one a browser arrives at from somewhere else.
+        ['GET', '/config/stockage/google/retour'],
     ];
 
     private Environment $twig;
@@ -122,6 +142,32 @@ final class RemoteBackupRbacTest extends TestCase
             $key = $method . ' ' . $path;
             $this->assertArrayHasKey($key, $declared, "{$key} is not registered in public/index.php at all");
             $this->assertSame('admin', $declared[$key], "{$key} is not behind the administrator floor");
+        }
+    }
+
+    /**
+     * **And the connection sits higher still.**
+     *
+     * The callback is the one worth spelling out: it is the only route in
+     * this feature that a browser arrives at from somewhere else — Google
+     * sends it — and it is also the one that writes a refresh token. Left
+     * open, it would be a route where anybody able to compose a URL
+     * decides which Google account this site writes to, and where a
+     * stranger's account could be grafted onto a unit's site without
+     * anyone logging in. The `state` checked against the session sits on
+     * top of this floor; it does not replace it.
+     */
+    public function testTheGoogleConnectionIsDeclaredAtTheSuperAdministratorFloor(): void
+    {
+        $declared = [];
+        foreach (\authzCoreRoutes() as $route) {
+            $declared[$route['method'] . ' ' . $route['path']] = $route['role_min'];
+        }
+
+        foreach (self::STORAGE_ROUTES as [$method, $path]) {
+            $key = $method . ' ' . $path;
+            $this->assertArrayHasKey($key, $declared, "{$key} is not registered in public/index.php at all");
+            $this->assertSame('superadmin', $declared[$key], "{$key} is not behind the super-administrator floor");
         }
     }
 

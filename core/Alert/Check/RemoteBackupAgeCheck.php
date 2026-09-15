@@ -12,9 +12,8 @@ use Core\Alert\AlertReading;
 use Core\Alert\AlertThresholds;
 use Core\Alert\OperationalCheck;
 use Core\Config\SettingService;
-use Core\Maintenance\Remote\RemoteBackupConnection;
+use Core\Maintenance\Remote\RemoteBackupDestination;
 use Core\Maintenance\Task\SendRemoteBackupHandler;
-use Core\Security\SecretManager;
 use Core\Service\DateInput;
 
 /**
@@ -35,16 +34,16 @@ use Core\Service\DateInput;
  * instead of freezing it: « I cannot tell » would leave the last reading
  * standing for ever.
  *
- * **"No destination" means DISCONNECTED, and nothing else.** A site whose
- * grant Google withdrew is `needs_reauth`, and
- * {@see RemoteBackupConnection::isConnected()} answers false for it too —
- * `markNeedsReauthorisation()` clears the refresh token. Keying this check
- * on that method would therefore silence it on exactly the site it exists
- * for: a destination configured, an operator who believes it is working,
- * and nothing having left the server since the day the authorisation
- * died. So the state decides, not the token: only a deliberate
- * disconnection re-arms, and a withdrawn grant goes on being measured
- * until somebody reconnects it.
+ * **"No destination" means NONE CHOSEN, and nothing else.** This used to
+ * be a harder distinction than it now is: a site whose grant Google had
+ * withdrawn had its refresh token dropped, so anything keyed on « can we
+ * still reach the destination » fell silent on exactly the site this check
+ * exists for — a destination configured, an operator who believes it is
+ * working, and nothing having left the server since the day the
+ * authorisation died. IT-05 removed the trap rather than working around
+ * it: a destination is an assignment ({@see RemoteBackupDestination}), the
+ * grant lives in the location row and is no longer dropped on refusal, and
+ * the only way to stop being measured is to stop choosing a destination.
  *
  * **A connected destination that has never received anything is measured
  * from the day it was connected**, not declared unknown. Ten days is ten
@@ -56,8 +55,8 @@ final class RemoteBackupAgeCheck implements OperationalCheck
     public const KEY = 'remote_backup_age';
 
     public function __construct(
+        private readonly RemoteBackupDestination $destination,
         private readonly SettingService $settings,
-        private readonly SecretManager $secrets,
         private readonly ?\DateTimeImmutable $now = null
     ) {
     }
@@ -74,13 +73,12 @@ final class RemoteBackupAgeCheck implements OperationalCheck
 
     public function read(): AlertReading
     {
-        $connection = new RemoteBackupConnection($this->settings, $this->secrets);
-        if ($connection->state() === RemoteBackupConnection::STATE_DISCONNECTED) {
+        if (!$this->destination->isConfigured()) {
             return $this->notApplicable();
         }
 
         $lastSuccess = (string) ($this->settings->get(SendRemoteBackupHandler::LAST_SUCCESS_SETTING) ?: '');
-        $since = $lastSuccess !== '' ? $lastSuccess : $connection->connectedAt();
+        $since = $lastSuccess !== '' ? $lastSuccess : $this->destination->activeSince();
         $everArrived = $lastSuccess !== '';
 
         // Through DateInput, never PHP's raw parser: that one raises on a
@@ -111,22 +109,22 @@ final class RemoteBackupAgeCheck implements OperationalCheck
     }
 
     /**
-     * Re-armed, not inconclusive: a unit that has never set up a
+     * Re-armed, not inconclusive: a unit that has never chosen a
      * destination is not failing at anything, and one that deliberately
-     * disconnects theirs must see the alert go out rather than stay lit
-     * on a measurement nothing will ever take again.
+     * stops sending off site must see the alert go out rather than stay
+     * lit on a measurement nothing will ever take again.
      *
-     * Reached only from `disconnected`. A withdrawn grant never lands
-     * here — see the class docblock for why that distinction is the whole
-     * point of this check.
+     * Reached only when no destination is chosen. A withdrawn grant never
+     * lands here — see the class docblock for why that distinction is the
+     * whole point of this check.
      */
     private function notApplicable(): AlertReading
     {
         return new AlertReading(
             overTrigger: false,
             underRearm: true,
-            value: 'non raccordé',
-            title: 'Aucune destination hors site n\'est raccordée.',
+            value: 'non configuré',
+            title: 'Aucune destination hors site n\'est choisie.',
             why: 'Rien ne part de ce serveur, et rien ne le surveille.',
             actionUrl: '/config/maintenance',
             actionLabel: 'Voir les sauvegardes'

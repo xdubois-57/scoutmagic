@@ -97,15 +97,26 @@
     // ------------------------------------------------------------------
     // Add/edit location form (config/storage/location_form.html.twig)
     // ------------------------------------------------------------------
-    var localFields = document.querySelector('.storage-location-local');
-    var s3Fields = document.querySelector('.storage-location-s3');
+    // One block per storage type, shown by the radio that names it.
+    //
+    // Keyed on the type VALUE rather than on a boolean, which is what
+    // IT-05 had to change: `isS3` was a two-type answer, so adding Google
+    // Drive to the picker would have shown the local folder field for it
+    // — the branch nobody thinks to re-read when a third case appears.
+    var typeBlocks = {
+        local: document.querySelector('.storage-location-local'),
+        s3: document.querySelector('.storage-location-s3'),
+        google_drive: document.querySelector('.storage-location-google_drive'),
+    };
     var typeRadios = document.querySelectorAll('input[name="type"]');
 
     function syncType() {
         var checked = /** @type {HTMLInputElement} */ (document.querySelector('input[name="type"]:checked'));
-        var isS3 = checked?.value === 's3';
-        if (localFields) localFields.classList.toggle('d-none', isS3);
-        if (s3Fields) s3Fields.classList.toggle('d-none', !isS3);
+        var selected = checked?.value || 'local';
+        Object.keys(typeBlocks).forEach(function (type) {
+            var block = typeBlocks[type];
+            if (block) block.classList.toggle('d-none', type !== selected);
+        });
     }
     if (typeRadios.length) {
         typeRadios.forEach(function (r) { r.addEventListener('change', syncType); });

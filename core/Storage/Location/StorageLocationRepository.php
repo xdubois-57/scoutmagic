@@ -70,6 +70,16 @@ class StorageLocationRepository
     /**
      * The decrypted secret, for {@see Backend\StorageBackendFactory} only —
      * never exposed on the DTO, which carries `secretConfigured: bool`.
+     *
+     * **Throws when the row will not decrypt**, and that is the point:
+     * the factory builds a backend that is about to act on real data, so
+     * a secret this build cannot read has to stop it rather than be
+     * quietly read as « none configured ». A screen that merely DISPLAYS
+     * the record wants the opposite answer and asks
+     * {@see getSecretForDisplay()} for it.
+     *
+     * @throws \Core\Security\DecryptionException when the stored secret
+     *         cannot be decrypted with this build's master key
      */
     public function getSecret(int $id): ?string
     {
@@ -93,6 +103,38 @@ class StorageLocationRepository
         }
 
         return $this->encryption->decrypt($encrypted, 'storage_locations.secret');
+    }
+
+    /**
+     * The same secret, but « unreadable » answers as « not there ».
+     *
+     * **A configuration screen must open even when the row is beyond
+     * repair — especially then.** A master key replaced without
+     * re-encrypting, a row written by a newer build: the record stops
+     * decrypting, and the only screens carrying « Déraccorder », the one
+     * action that clears it, are the ones that would have to render it.
+     * Letting {@see \Core\Security\DecryptionException} out of a page
+     * context turns those into a 500 — {@see \Core\Http\FrontController}
+     * classifies `\PDOException` and rethrows everything else — so the
+     * screen somebody opened to fix the location is the screen the broken
+     * location takes down.
+     *
+     * Null rather than an exception puts the tolerance where
+     * {@see Config\GoogleDriveSecret::fromStorage()} already promises it:
+     * that method is documented never to throw for exactly this case, and
+     * it could not keep the promise, because the decrypt happens here, one
+     * frame before it is reached.
+     *
+     * Never for a backend about to move bytes. {@see getSecret()} is that
+     * caller, and it still throws.
+     */
+    public function getSecretForDisplay(int $id): ?string
+    {
+        try {
+            return $this->getSecret($id);
+        } catch (\Core\Security\DecryptionException) {
+            return null;
+        }
     }
 
     /**

@@ -10,7 +10,9 @@ declare(strict_types=1);
 namespace Tests\Core\Storage\Location\Protection;
 
 use Core\Maintenance\BackupRepository;
+use Core\Maintenance\Remote\RemoteBackupDestination;
 use Core\Security\EncryptionService;
+use Core\Storage\Location\Backend\StorageBackendFactory;
 use Core\Storage\Location\Config\LocalLocationConfig;
 use Core\Storage\Location\Config\ObjectStorageLocationConfig;
 use Core\Storage\Location\Protection\StorageProtectionRepository;
@@ -18,6 +20,7 @@ use Core\Storage\Location\Protection\StorageProtectionService;
 use Core\Storage\Location\StorageLocationException;
 use Core\Storage\Location\StorageLocationRepository;
 use Core\Storage\Location\StorageLocationType;
+use Tests\Core\Maintenance\Remote\InMemorySettingService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
@@ -31,6 +34,7 @@ final class StorageProtectionServiceTest extends TestCase
     private StorageLocationRepository $locations;
     private StorageProtectionRepository $protections;
     private StorageProtectionService $service;
+    private RemoteBackupDestination $remoteBackup;
 
     protected function setUp(): void
     {
@@ -40,10 +44,16 @@ final class StorageProtectionServiceTest extends TestCase
             new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
         );
         $this->protections = new StorageProtectionRepository($this->pdo);
+        $this->remoteBackup = new RemoteBackupDestination(
+            new InMemorySettingService(),
+            $this->locations,
+            new StorageBackendFactory($this->locations, sys_get_temp_dir())
+        );
         $this->service = new StorageProtectionService(
             $this->protections,
             $this->locations,
-            new BackupRepository($this->pdo)
+            new BackupRepository($this->pdo),
+            $this->remoteBackup
         );
     }
 
@@ -282,6 +292,83 @@ final class StorageProtectionServiceTest extends TestCase
     public function testAGracePeriodLongerThanTheHorizonIsNotWarnedAbout(): void
     {
         $this->completeBackupAgedInDays(21);
+        $source = $this->locations->findById($this->local('Galerie')) ?? $this->fail('missing');
+        $destination = $this->locations->findById($this->local('NAS', 'nas')) ?? $this->fail('missing');
+
+        $this->assertSame([], $this->service->warningsFor($source, $destination, 30));
+    }
+
+    /**
+     * **Two retention mechanisms on the same files: a warning, and
+     * deliberately not a refusal.**
+     *
+     * This is the question IT-05 left to be decided. Protecting the
+     * location the off-site backup writes to means the backup's own
+     * retention deletes archives there, and the copy then follows: an
+     * archive purged from the source disappears from the copy a grace
+     * period later. That is coherent — the copy lags the purge rather
+     * than fighting it, and nothing is deleted the operator did not
+     * transitively ask to have deleted — and it is the one arrangement a
+     * unit with a single cloud account and a spare disk actually wants.
+     *
+     * Refusing would also fail in the wrong direction: a location becomes
+     * the backup destination AFTER a protection is declared just as
+     * easily as before, so a declaration-time refusal is side-stepped by
+     * doing the two steps in the other order. The sentence names the
+     * grace period, which is the one figure an operator can change in
+     * response to reading it.
+     */
+    public function testProtectingTheOffSiteDestinationIsWarnedAboutRatherThanRefused(): void
+    {
+        $source = $this->local('Dossier hors site', 'hors-site');
+        $destination = $this->local('NAS', 'nas');
+        $this->remoteBackup->choose($source);
+
+        $id = $this->service->save($source, $destination, 30, 24, true);
+        $this->assertGreaterThan(0, $id, 'the relation must be allowed');
+
+        $warnings = $this->service->warningsFor(
+            $this->locations->findById($source) ?? $this->fail('missing source'),
+            $this->locations->findById($destination) ?? $this->fail('missing destination'),
+            30
+        );
+
+        $joined = implode(' ', $warnings);
+        $this->assertStringContainsString('sauvegardes hors site', $joined);
+        $this->assertStringContainsString('30 jours', $joined, 'the warning does not name the figure that decides');
+        $this->assertStringContainsString('NAS', $joined, 'the warning does not say where the copy goes');
+    }
+
+    /**
+     * And the other way round: copying INTO the destination the backup
+     * writes to puts two mechanisms' files in one folder, where only one
+     * of them is ever purged.
+     */
+    public function testCopyingIntoTheOffSiteDestinationIsWarnedAboutToo(): void
+    {
+        $source = $this->local('Galerie');
+        $destination = $this->local('Dossier hors site', 'hors-site');
+        $this->remoteBackup->choose($destination);
+
+        $warnings = $this->service->warningsFor(
+            $this->locations->findById($source) ?? $this->fail('missing source'),
+            $this->locations->findById($destination) ?? $this->fail('missing destination'),
+            30
+        );
+
+        $joined = implode(' ', $warnings);
+        $this->assertStringContainsString('sauvegardes hors site', $joined);
+        $this->assertStringContainsString('jamais purgés', $joined);
+    }
+
+    /**
+     * A relation that touches neither end of the off-site backup says
+     * nothing about it — the ordinary case, and the one a warning on
+     * every save would make unreadable.
+     */
+    public function testARelationAwayFromTheOffSiteDestinationIsNotWarnedAbout(): void
+    {
+        $this->remoteBackup->choose($this->local('Dossier hors site', 'hors-site'));
         $source = $this->locations->findById($this->local('Galerie')) ?? $this->fail('missing');
         $destination = $this->locations->findById($this->local('NAS', 'nas')) ?? $this->fail('missing');
 

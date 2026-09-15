@@ -8,6 +8,9 @@ declare(strict_types=1);
 
 namespace Core\Storage\Location\Backend;
 
+use Core\Storage\Location\Backend\Drive\GoogleDriveClient;
+use Core\Storage\Location\Config\GoogleDriveLocationConfig;
+use Core\Storage\Location\Config\GoogleDriveSecret;
 use Core\Storage\Location\Config\LocalLocationConfig;
 use Core\Storage\Location\Config\ObjectStorageLocationConfig;
 use Core\Storage\Location\StorageLocation;
@@ -67,6 +70,19 @@ class StorageBackendFactory
                 $config->accessKey,
                 $this->repository->getSecret($location->id) ?? '',
                 $config->publicUrl
+            );
+        }
+
+        if ($config instanceof GoogleDriveLocationConfig) {
+            // **The secret is read here and nowhere else**, which is the
+            // rule the repository's own docblock states: nothing that
+            // renders, journals or exports a location ever holds the
+            // refresh token, and this is the one place that turns the
+            // encrypted column back into something usable.
+            return new GoogleDriveBackend(
+                new GoogleDriveClient(),
+                $config,
+                GoogleDriveSecret::fromStorage($this->repository->getSecret($location->id))
             );
         }
 

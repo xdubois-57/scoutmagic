@@ -107,8 +107,8 @@ final class ProviderConnections
      * Reading before writing is not optional: `writeSecrets()` replaces
      * the whole document, so composing one out of four mail keys would
      * take the master encryption keys and the database password with it.
-     * Same rule, and the same refusal, as `Core\Maintenance\Remote\
-     * RemoteBackupConnection::writeSecrets()`.
+     * Same rule, and the same refusal, as every other writer of
+     * `secrets.enc`: never write back a document that could not be read.
      */
     public function store(string $prefix, string $host, int $port, string $username, ?string $password): void
     {

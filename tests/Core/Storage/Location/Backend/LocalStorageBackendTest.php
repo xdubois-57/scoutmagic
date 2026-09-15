@@ -47,6 +47,27 @@ class LocalStorageBackendTest extends TestCase
         rmdir($dir);
     }
 
+    /**
+     * **A source file with no bytes is still a file to copy.**
+     *
+     * `beginPartial()` deliberately writes nothing — the partial file's
+     * presence is how a filesystem answers « is a copy in flight », so
+     * creating one up front would leave a zero-byte object behind for
+     * every copy that never started. The one source that then has nothing
+     * to append is an empty one, and `promotePartial()` refused a copy
+     * that was in fact complete: a single empty file in a location was
+     * enough to stop its whole protection pass, every night, on a file
+     * nobody would think to look at.
+     */
+    public function testAnEmptySourceFileCanStillBeCopied(): void
+    {
+        $this->backend->beginPartial('1/vide.txt', 0);
+        $this->backend->promotePartial('1/vide.txt', 'text/plain');
+
+        $this->assertTrue($this->backend->exists('1/vide.txt'));
+        $this->assertSame('', $this->backend->get('1/vide.txt'));
+    }
+
     public function testPutThenGetRoundTrips(): void
     {
         $this->backend->put('1/thumb_1.jpg', 'fake-jpeg-bytes', 'image/jpeg');

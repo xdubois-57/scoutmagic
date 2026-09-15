@@ -1651,6 +1651,16 @@ consulte pas le budget disque, faute de base de données où lire un quota
 
 ## IT-08 — Le raccordement à Google Drive
 
+> **Cette section décrit ce qui a été livré à l'époque.** Le chantier
+> « Emplacements de stockage » (IT-05) a depuis fait de Google Drive un
+> emplacement de stockage comme un autre : `RemoteBackupTarget` a disparu,
+> `GoogleDriveTarget` est devenu `GoogleDriveBackend`, et les identifiants
+> ont quitté `secrets.enc` pour la colonne chiffrée de la ligne
+> d'emplacement. Les décisions ci-dessous — la portée `drive.file`,
+> l'absence de compte de service, l'écran de consentement à publier — sont
+> intactes ; seuls les noms et l'endroit ont bougé. Voir
+> `docs/chantiers/emplacements-de-stockage.md`.
+
 Le raccordement, et rien que lui : s'authentifier, prouver qu'on sait
 écrire et supprimer un fichier. Aucune sauvegarde n'est encore envoyée —
 c'est ce qui rend cette itération relisible, et c'est délibéré.
@@ -1841,7 +1851,7 @@ refusé, et cinq refus auraient abandonné une archive effectivement
 arrivée.
 
 **Une fragilité de la suite, corrigée en passant.**
-`InMemorySettingService` vivait au pied de `GoogleDriveTargetTest` : il
+`InMemorySettingService` vivait au pied du test du backend Drive : il
 n'était trouvé que si PHPUnit avait chargé ce fichier-là en premier, et
 PHPStan ne le voyait pas du tout. Il a désormais un fichier à son nom.
 

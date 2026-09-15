@@ -14,15 +14,17 @@ use Core\Database\Connection;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Mail\MailService;
-use Core\Maintenance\Remote\RemoteBackupConnection;
-use Core\Maintenance\Remote\RemoteBackupException;
-use Core\Maintenance\Remote\RemoteBackupTarget;
-use Core\Maintenance\Remote\RemoteConnectionCheck;
-use Core\Maintenance\Remote\RemoteFile;
-use Core\Maintenance\Remote\RemoteQuota;
+use Core\Maintenance\Remote\RemoteBackupDestination;
 use Core\Maintenance\Remote\RemoteRetention;
-use Core\Maintenance\Remote\RemoteUpload;
 use Core\Maintenance\Task\SendRemoteBackupHandler;
+use Core\Storage\Location\Backend\ResumableUploadBackend;
+use Core\Storage\Location\Backend\StorageBackendFactory;
+use Core\Storage\Location\Config\GoogleDriveLocationConfig;
+use Core\Storage\Location\StorageListing;
+use Core\Storage\Location\StorageLocationException;
+use Core\Storage\Location\StorageLocationRepository;
+use Core\Storage\Location\StorageLocationType;
+use Core\Storage\Location\StoredObject;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\TaskContext;
 use Core\Security\EncryptionService;
@@ -30,17 +32,27 @@ use Core\Security\SecretManager;
 use Core\Security\UserAccountRepository;
 use PHPUnit\Framework\TestCase;
 use Tests\Core\Maintenance\Remote\RefusingSettingService;
+use Tests\Core\Storage\Location\Backend\RefusingBackend;
 use Tests\DatabaseTestHelper;
 
 /**
  * The recurring send, run against a destination that is not there.
  *
- * **Not one byte of this suite crosses the network.** IT-08's whole point
- * was to put a destination behind {@see RemoteBackupTarget}, and this is
- * what that interface was for: `RecordingTarget` below answers exactly as
- * Google would — a session URI, a partial commit, a refusal — without a
- * Google account, a consent screen or a project. A suite that could only
- * exercise the real thing would exercise nothing.
+ * **Not one byte of this suite crosses the network.** The destination
+ * sits behind {@see ResumableUploadBackend} — since IT-05 the same
+ * contract a local folder and a bucket keep — and `RecordingBackend`
+ * below answers as one would: it holds what it has been given, resumes
+ * from it, and refuses on demand, without a Google account, a consent
+ * screen or a project. A suite that could only exercise the real thing
+ * would exercise nothing.
+ *
+ * **What survives between runs is no longer in the payload.** It used to
+ * be a session URI, a byte offset and a flag saying whether the offset
+ * could be trusted; now the destination is asked
+ * ({@see ResumableUploadBackend::partialSize()}) and the payload carries
+ * only which archive is being sent. So the assertions below read the
+ * DESTINATION's state where they used to read the queue row — which is
+ * the point of the change, not a detail of it.
  *
  * What each test drives is one run of the handler; a send that spans
  * three runs is three calls, each fed the payload the previous one left
@@ -63,8 +75,13 @@ final class SendRemoteBackupHandlerTest extends TestCase
     private ?BreakableJournalService $journal = null;
     private SecretManager $secrets;
     private SchedulerRepository $scheduler;
+    private StorageLocationRepository $locations;
+    private RemoteBackupDestination $destination;
 
-    /** Seconds on the fake clock, advanced by the target as it sends. */
+    /** The key every archive in this suite is sent under. */
+    private const REMOTE_NAME = 'scoutmagic-2026-03-03-120000-g1.zip';
+
+    /** Seconds on the fake clock, advanced by the destination as it accepts. */
     private float $clock = 1000.0;
 
     protected function setUp(): void
@@ -96,6 +113,15 @@ final class SendRemoteBackupHandlerTest extends TestCase
         $this->secrets->writeSecrets(['smtp_password' => 'le-mot-de-passe-smtp']);
 
         $this->settings = new RefusingSettingService();
+        $this->locations = new StorageLocationRepository(
+            $this->pdo,
+            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
+        $this->destination = new RemoteBackupDestination(
+            $this->settings,
+            $this->locations,
+            new StorageBackendFactory($this->locations, $this->storagePath)
+        );
         $this->connect();
     }
 
@@ -133,82 +159,72 @@ final class SendRemoteBackupHandlerTest extends TestCase
     public function testASecondRunResumesWhereTheFirstStoppedAndResendsNothing(): void
     {
         $archive = $this->archiveOf(300);
-        $target = new RecordingTarget($this);
-        $target->chunkBytes = 100;
-        $target->secondsPerChunk = SendRemoteBackupHandler::TIME_BUDGET_SECONDS;
+        $backend = new RecordingBackend($this);
+        $backend->chunkBytes = 100;
+        $backend->secondsPerChunk = SendRemoteBackupHandler::TIME_BUDGET_SECONDS;
 
         $payload = $this->payloadFor($archive);
-        $this->runOnce($payload, $target);
+        $this->runOnce($payload, $backend);
 
         $next = $this->pending();
         $this->assertNotNull($next, 'the chain stopped after one run — the rest would never go');
-        $this->assertSame(100, $next['payload']['offset']);
-        $this->assertTrue($next['payload']['offset_is_certain']);
+        $this->assertSame(100, $backend->partials[self::REMOTE_NAME], 'the destination did not keep what arrived');
+        $this->assertSame($archive, $next['payload']['archive_path']);
 
-        $this->runOnce($next['payload'], $target);
+        $this->runOnce($next['payload'], $backend);
 
         $this->assertSame(
             [0, 100],
-            $target->startedAt,
+            $backend->startedAt,
             'a run began at an offset the destination had already taken — those bytes went twice'
         );
-        $this->assertSame(1, $target->sessionsOpened, 'the second run opened a new session instead of resuming');
+        $this->assertSame(1, $backend->sessionsOpened, 'the second run opened a new transfer instead of resuming');
     }
 
     /**
-     * A run that dies without writing anything back leaves an offset that
-     * is a guess, and the next run asks the destination rather than
-     * trusting it.
+     * **Where the transfer stands is the destination's to say, and the
+     * payload no longer carries a second opinion.**
      *
-     * The guess is not merely stale: a run can hand over eight mebibytes
-     * and have the destination commit one, so « what I sent » and « what
-     * it holds » are different numbers, and only the second is safe to
-     * resume from.
+     * A run can hand over eight mebibytes and have the destination commit
+     * one, so « what I sent » and « what it holds » are different numbers
+     * and only the second is safe to resume from. Under the old payload
+     * that difference had to be guessed at and carried in a flag; now it
+     * is asked, once per run, of the only thing that knows.
      */
-    public function testAnUncertainOffsetIsSettledByTheDestinationNotByThePayload(): void
+    public function testWhereToResumeComesFromTheDestinationAndNotFromThePayload(): void
     {
         $archive = $this->archiveOf(300);
-        $target = new RecordingTarget($this);
-        $target->chunkBytes = 100;
-        $target->secondsPerChunk = SendRemoteBackupHandler::TIME_BUDGET_SECONDS;
-        $target->probeAnswer = 40;
+        $backend = new RecordingBackend($this);
+        $backend->chunkBytes = 100;
+        $backend->secondsPerChunk = SendRemoteBackupHandler::TIME_BUDGET_SECONDS;
+        // A previous run handed over 250 bytes; the destination kept 40.
+        $backend->partials[self::REMOTE_NAME] = 40;
 
-        $payload = $this->payloadFor($archive) + [];
-        $payload['session_url'] = 'https://upload.example/session-1';
-        $payload['offset'] = 250;
-        $payload['offset_is_certain'] = false;
-        $target->sessions['https://upload.example/session-1'] = 40;
+        $this->runOnce($this->payloadFor($archive), $backend);
 
-        $this->runOnce($payload, $target);
-
-        $this->assertSame([40], $target->startedAt, 'the run trusted its own guess over the destination');
-        $this->assertSame(1, $target->probes);
+        $this->assertSame([40], $backend->startedAt, 'the run resumed past bytes the destination never took');
+        $this->assertSame(0, $backend->sessionsOpened, 'a transfer already under way was started again');
+        $this->assertSame(1, $backend->asked, 'the destination was asked more than once in one run');
     }
 
     /**
-     * The probe can answer « it is already there ».
+     * The destination can answer « I have all of it ».
      *
-     * A run that commits its last chunk and is killed before it can write
-     * that down leaves a payload saying « unfinished ». Sending into a
-     * session the destination has already closed is refused, so a handler
-     * that did not read the probe's answer would fail that send five
-     * times and abandon an archive that had, in fact, arrived.
+     * A run that hands over its last chunk and is killed before it can
+     * promote leaves an archive on disk and a transfer that is complete.
+     * A handler that did not believe the answer would push into a
+     * finished transfer, fail five times, and abandon an archive that had
+     * in fact arrived.
      */
-    public function testAProbeThatFindsTheFileAlreadyThereFinishesTheSend(): void
+    public function testADestinationThatAlreadyHoldsTheWholeArchiveFinishesTheSend(): void
     {
         $archive = $this->archiveOf(300);
-        $target = new RecordingTarget($this);
-        $target->probeAnswer = 300;
-        $target->sessions['https://upload.example/session-1'] = 300;
+        $backend = new RecordingBackend($this);
+        $backend->partials[self::REMOTE_NAME] = 300;
 
-        $payload = $this->payloadFor($archive);
-        $payload['session_url'] = 'https://upload.example/session-1';
-        $payload['offset'] = 250;
-        $payload['offset_is_certain'] = false;
+        $this->runOnce($this->payloadFor($archive), $backend);
 
-        $this->runOnce($payload, $target);
-
-        $this->assertSame([], $target->startedAt, 'bytes were pushed into a session the destination had closed');
+        $this->assertSame([], $backend->startedAt, 'bytes were pushed into a transfer that was already finished');
         $this->assertFileDoesNotExist($archive, 'an archive that had arrived was kept on the server');
         $this->assertSame(['remote_backup_sent'], $this->events(['remote_backup_sent', 'remote_backup_failed']));
         $next = $this->pending();
@@ -217,55 +233,33 @@ final class SendRemoteBackupHandlerTest extends TestCase
     }
 
     /**
-     * And a certain offset is NOT re-probed — the round trip is a request
-     * to Google for a number this application already knows.
-     */
-    public function testACertainOffsetIsNotProbed(): void
-    {
-        $archive = $this->archiveOf(300);
-        $target = new RecordingTarget($this);
-        $target->chunkBytes = 100;
-        $target->secondsPerChunk = SendRemoteBackupHandler::TIME_BUDGET_SECONDS;
-
-        $payload = $this->payloadFor($archive);
-        $payload['session_url'] = 'https://upload.example/session-1';
-        $payload['offset'] = 100;
-        $payload['offset_is_certain'] = true;
-        $target->sessions['https://upload.example/session-1'] = 100;
-
-        $this->runOnce($payload, $target);
-
-        $this->assertSame(0, $target->probes);
-        $this->assertSame([100], $target->startedAt);
-    }
-
-    /**
-     * **The session is written down before the first byte moves.** A run
+     * **The archive is written down before the first byte moves.** A run
      * killed mid-chunk — the host reboots, the process is reaped — leaves
      * nothing behind otherwise, and the next run would rebuild a
-     * multi-gibibyte archive to send it to a session that was already
-     * most of the way there.
+     * multi-gibibyte archive to send to a destination that was already
+     * most of the way through the last one.
      */
-    public function testTheSessionIsRecordedBeforeAnyByteIsSent(): void
+    public function testTheArchiveIsRecordedBeforeAnyByteIsSent(): void
     {
         $archive = $this->archiveOf(300);
-        $target = new RecordingTarget($this);
-        $target->chunkBytes = 100;
-        $target->secondsPerChunk = SendRemoteBackupHandler::TIME_BUDGET_SECONDS;
+        $backend = new RecordingBackend($this);
+        $backend->chunkBytes = 100;
+        $backend->secondsPerChunk = SendRemoteBackupHandler::TIME_BUDGET_SECONDS;
 
-        // Observed from inside sendChunks(): what a run that never
+        // Observed from inside the first append: what a run that never
         // returns would have left in the table.
-        $target->onSend = function () use (&$duringSend): void {
+        $backend->onSend = function () use (&$duringSend): void {
             $duringSend = $this->pending();
         };
 
-        $this->runOnce($this->payloadFor($archive), $target);
+        $this->runOnce($this->payloadFor($archive), $backend);
 
-        $this->assertNotNull($duringSend, 'nothing was queued before the send — a killed run loses the session');
-        $this->assertSame('https://upload.example/session-1', $duringSend['payload']['session_url']);
-        $this->assertFalse(
-            $duringSend['payload']['offset_is_certain'],
-            'the row written before the send claims to know an offset the run had not reached yet'
+        $this->assertNotNull($duringSend, 'nothing was queued before the send — a killed run rebuilds the archive');
+        $this->assertSame($archive, $duringSend['payload']['archive_path']);
+        $this->assertSame(
+            self::REMOTE_NAME,
+            $duringSend['payload']['remote_name'],
+            'the row written before the send does not say which key the bytes are going under'
         );
     }
 
@@ -280,17 +274,22 @@ final class SendRemoteBackupHandlerTest extends TestCase
     public function testTheRunStopsOnItsBudgetAndQueuesTheRemainderImmediately(): void
     {
         $archive = $this->archiveOf(1000);
-        $target = new RecordingTarget($this);
+        $backend = new RecordingBackend($this);
         // Eight seconds a chunk against a twenty-second budget: three
         // chunks fit (0, 8, 16 are all under 20) and the fourth does not.
-        $target->chunkBytes = 100;
-        $target->secondsPerChunk = 8.0;
+        $backend->chunkBytes = 100;
+        $backend->secondsPerChunk = 8.0;
 
-        $this->runOnce($this->payloadFor($archive), $target);
+        $this->runOnce($this->payloadFor($archive), $backend);
 
         $next = $this->pending();
         $this->assertNotNull($next);
-        $this->assertSame(300, $next['payload']['offset'], 'the run sent past the budget it was given');
+        $this->assertSame(
+            300,
+            $backend->partials[self::REMOTE_NAME],
+            'the run sent past the budget it was given'
+        );
+        $this->assertSame($archive, $next['payload']['archive_path'], 'the remainder lost the archive it resumes on');
         $this->assertLessThanOrEqual(
             time() + 5,
             strtotime((string) $next['run_at']),
@@ -305,9 +304,9 @@ final class SendRemoteBackupHandlerTest extends TestCase
     public function testAFinishedSendWaitsTheWholeIntervalBeforeTheNextOne(): void
     {
         $archive = $this->archiveOf(50);
-        $target = new RecordingTarget($this);
+        $backend = new RecordingBackend($this);
 
-        $this->runOnce($this->payloadFor($archive), $target);
+        $this->runOnce($this->payloadFor($archive), $backend);
 
         $next = $this->pending();
         $this->assertNotNull($next);
@@ -332,7 +331,7 @@ final class SendRemoteBackupHandlerTest extends TestCase
     {
         $archive = $this->archiveOf(50);
 
-        $this->runOnce($this->payloadFor($archive), new RecordingTarget($this));
+        $this->runOnce($this->payloadFor($archive), new RecordingBackend($this));
 
         $this->assertFileDoesNotExist($archive, 'a portable archive carrying the master key was left on disk');
     }
@@ -341,11 +340,11 @@ final class SendRemoteBackupHandlerTest extends TestCase
     public function testTheLocalArchiveSurvivesAnUnfinishedRun(): void
     {
         $archive = $this->archiveOf(1000);
-        $target = new RecordingTarget($this);
-        $target->chunkBytes = 100;
-        $target->secondsPerChunk = SendRemoteBackupHandler::TIME_BUDGET_SECONDS;
+        $backend = new RecordingBackend($this);
+        $backend->chunkBytes = 100;
+        $backend->secondsPerChunk = SendRemoteBackupHandler::TIME_BUDGET_SECONDS;
 
-        $this->runOnce($this->payloadFor($archive), $target);
+        $this->runOnce($this->payloadFor($archive), $backend);
 
         $this->assertFileExists($archive);
     }
@@ -354,10 +353,10 @@ final class SendRemoteBackupHandlerTest extends TestCase
     public function testTheLocalArchiveSurvivesAFailure(): void
     {
         $archive = $this->archiveOf(1000);
-        $target = new RecordingTarget($this);
-        $target->failSendWith = 'Google a refusé la tranche.';
+        $backend = new RecordingBackend($this);
+        $backend->failSendWith = 'Google a refusé la tranche.';
 
-        $this->runOnce($this->payloadFor($archive), $target);
+        $this->runOnce($this->payloadFor($archive), $backend);
 
         $this->assertFileExists($archive, 'a failed run threw away the archive it had just built');
         $next = $this->pending();
@@ -367,42 +366,45 @@ final class SendRemoteBackupHandlerTest extends TestCase
     }
 
     /**
-     * **A failure must not throw away the session this run just opened.**
+     * **A failure must not throw away what the destination already
+     * holds.**
      *
-     * `send()` opens the resumable session locally; if that state never
-     * reaches the catch in `handle()`, `recordFailure()` re-arms on the
-     * payload it was *called* with — where `session_url` is still empty
-     * for a fresh archive. The next run then opens a SECOND session and
-     * pushes a multi-gibibyte archive from byte zero again, leaving an
-     * orphan session on the destination. Every failure would cost one
+     * This is where the old payload was at its most dangerous: it carried
+     * the session and the offset, and a failure that re-armed on the
+     * payload it was *called* with lost both — so the next run opened a
+     * SECOND transfer and pushed a multi-gibibyte archive from byte zero
+     * again, leaving an orphan session behind. Every failure cost one
      * whole upload, on exactly the shared hosting this chunked design
-     * exists for.
+     * exists for. Asking the destination removes the question: what it
+     * holds is what it holds, whatever this site remembers.
      */
-    public function testAFailureKeepsTheSessionThisRunOpened(): void
+    public function testAFailureKeepsWhatTheDestinationAlreadyHolds(): void
     {
         $archive = $this->archiveOf(1000);
-        $target = new RecordingTarget($this);
-        $target->failSendWith = 'Google a refusé la tranche.';
+        $backend = new RecordingBackend($this);
+        $backend->chunkBytes = 100;
+        // One chunk lands, the next is refused.
+        $backend->failSendWith = 'La destination a refusé la tranche.';
+        $backend->failAfterChunks = 1;
 
-        $this->runOnce($this->payloadFor($archive), $target);
+        $this->runOnce($this->payloadFor($archive), $backend);
 
         $next = $this->pending();
         $this->assertNotNull($next);
+        $this->assertSame($archive, $next['payload']['archive_path']);
+        $this->assertSame(1, $next['payload']['failures']);
         $this->assertSame(
-            'https://upload.example/session-1',
-            $next['payload']['session_url'] ?? '',
-            'the session this run opened was lost, so the next run restarts the whole upload'
-        );
-        $this->assertFalse(
-            $next['payload']['offset_is_certain'],
-            'the retry would resume on an offset nobody confirmed'
+            100,
+            $backend->partials[self::REMOTE_NAME],
+            'a failed run threw away the bytes the destination had already taken'
         );
 
         // And the retry really does continue on it rather than opening
-        // another: one session for the whole archive.
-        $target->failSendWith = '';
-        $this->runOnce($next['payload'], $target);
-        $this->assertSame(1, $target->sessionsOpened, 'the retry opened a second session on the same archive');
+        // another: one transfer for the whole archive.
+        $backend->failSendWith = '';
+        $this->runOnce($next['payload'], $backend);
+        $this->assertSame([0, 100], $backend->startedAt);
+        $this->assertSame(1, $backend->sessionsOpened, 'the retry opened a second transfer on the same archive');
     }
 
     /**
@@ -420,9 +422,9 @@ final class SendRemoteBackupHandlerTest extends TestCase
     {
         $archive = $this->archiveOf(50);
         $this->settings->refuseKey = SendRemoteBackupHandler::LAST_SUCCESS_SETTING;
-        $target = new RecordingTarget($this);
+        $backend = new RecordingBackend($this);
 
-        $this->runOnce($this->payloadFor($archive), $target);
+        $this->runOnce($this->payloadFor($archive), $backend);
 
         $this->assertSame(
             ['remote_backup_sent', 'remote_backup_stamp_failed'],
@@ -459,7 +461,7 @@ final class SendRemoteBackupHandlerTest extends TestCase
         $archive = $this->archiveOf(50);
         $this->journalBreakingOn('remote_backup_sent');
 
-        $this->runOnce($this->payloadFor($archive), new RecordingTarget($this));
+        $this->runOnce($this->payloadFor($archive), new RecordingBackend($this));
 
         $this->assertFileDoesNotExist($archive);
         $this->assertSame([], $this->events(['remote_backup_failed', 'remote_backup_abandoned']),
@@ -483,18 +485,18 @@ final class SendRemoteBackupHandlerTest extends TestCase
     public function testARearmFailureDoesNotUndoADeliveredArchiveEither(): void
     {
         $archive = $this->archiveOf(50);
-        $target = new RecordingTarget($this);
+        $backend = new RecordingBackend($this);
         // Broken DURING the send, not before it: the queue has to survive
         // long enough for this run to write its pessimistic row and for
         // the destination to take the bytes, so that what fails is the
         // POST-delivery bookkeeping and nothing else. `journal_entries`
         // is a different table and stays readable, which is how the
         // assertions below can see what happened.
-        $target->onSend = function (): void {
+        $backend->onSend = function (): void {
             $this->pdo->exec('DROP TABLE scheduled_actions');
         };
 
-        $this->runOnce($this->payloadFor($archive), $target);
+        $this->runOnce($this->payloadFor($archive), $backend);
 
         $this->assertFileDoesNotExist($archive, 'a delivered archive was kept because the re-arm failed');
         $this->assertSame(
@@ -521,11 +523,11 @@ final class SendRemoteBackupHandlerTest extends TestCase
     public function testAJournalFailureWhileReportingAFailedPurgeDoesNotUndoTheDelivery(): void
     {
         $archive = $this->archiveOf(50);
-        $target = new RecordingTarget($this);
-        $target->failListWith = 'Google ne répond plus.';
+        $backend = new RecordingBackend($this);
+        $backend->failListWith = 'Google ne répond plus.';
         $this->journalBreakingOn('remote_backup_purge_failed');
 
-        $this->runOnce($this->payloadFor($archive), $target);
+        $this->runOnce($this->payloadFor($archive), $backend);
 
         $this->assertFileDoesNotExist($archive);
         $this->assertSame(
@@ -557,14 +559,14 @@ final class SendRemoteBackupHandlerTest extends TestCase
     public function testTheDeliveryReportsWhetherTheLocalCopyIsActuallyGone(): void
     {
         $archive = $this->archiveOf(50);
-        $target = new RecordingTarget($this);
+        $backend = new RecordingBackend($this);
         // Swept away mid-send, as a stray clean-up would: `unlink()` then
         // answers false for a file that is nonetheless gone.
-        $target->onSend = function () use ($archive): void {
+        $backend->onSend = function () use ($archive): void {
             unlink($archive);
         };
 
-        $this->runOnce($this->payloadFor($archive), $target);
+        $this->runOnce($this->payloadFor($archive), $backend);
 
         $this->assertSame(
             [],
@@ -588,15 +590,15 @@ final class SendRemoteBackupHandlerTest extends TestCase
     {
         $this->settings->values[SendRemoteBackupHandler::MAX_FAILURES_SETTING] = '2';
         $archive = $this->archiveOf(1000);
-        $target = new RecordingTarget($this);
-        $target->failSendWith = 'Google a refusé la tranche.';
+        $backend = new RecordingBackend($this);
+        $backend->failSendWith = 'Google a refusé la tranche.';
 
         $payload = $this->payloadFor($archive);
-        $this->runOnce($payload, $target);
+        $this->runOnce($payload, $backend);
         $next = $this->pending();
         $this->assertNotNull($next);
 
-        $this->runOnce($next['payload'], $target);
+        $this->runOnce($next['payload'], $backend);
 
         $this->assertFileDoesNotExist($archive);
         $this->assertSame(
@@ -606,19 +608,178 @@ final class SendRemoteBackupHandlerTest extends TestCase
         );
     }
 
+    /**
+     * And abandoning discards what the DESTINATION is holding, not only
+     * the local archive.
+     *
+     * `beginPartial()` leaves a note beside the archive under the
+     * backend's own internal prefix, and every backend hides that prefix
+     * from `list()` — so `RemoteRetention` cannot see the note and no
+     * sweep will ever reach it. Without this, one orphaned object is
+     * leaked into the operator's folder per abandoned send, permanently.
+     */
+    public function testAbandoningAlsoDiscardsWhatTheDestinationIsHolding(): void
+    {
+        $this->settings->values[SendRemoteBackupHandler::MAX_FAILURES_SETTING] = '2';
+        $archive = $this->archiveOf(1000);
+        $backend = new RecordingBackend($this);
+        $backend->failSendWith = 'Google a refus\u00e9 la tranche.';
+
+        $payload = $this->payloadFor($archive);
+        $this->runOnce($payload, $backend);
+        $next = $this->pending();
+        $this->assertNotNull($next);
+        $this->assertNotSame([], $backend->partials, 'nothing was begun, so this test proves nothing');
+
+        $this->runOnce($next['payload'], $backend);
+
+        $this->assertSame([], $backend->partials, 'the abandoned transfer was left on the destination');
+    }
+
     /** And the run after an abandonment starts from a wholly new session. */
     public function testTheRunAfterAnAbandonmentOpensAFreshSession(): void
     {
         $this->settings->values[SendRemoteBackupHandler::MAX_FAILURES_SETTING] = '1';
         $archive = $this->archiveOf(1000);
-        $target = new RecordingTarget($this);
-        $target->failSendWith = 'Google a refusé la tranche.';
+        $backend = new RecordingBackend($this);
+        $backend->failSendWith = 'Google a refusé la tranche.';
 
-        $this->runOnce($this->payloadFor($archive), $target);
+        $this->runOnce($this->payloadFor($archive), $backend);
 
         $next = $this->pending();
         $this->assertNotNull($next);
         $this->assertSame([], $next['payload'], 'the abandoned session was carried into the next send');
+    }
+
+    // ---------------------------------------------------------------
+    // A destination that moved under a transfer
+    // ---------------------------------------------------------------
+
+    /**
+     * A destination RE-POINTED mid-transfer takes its orphan with it.
+     *
+     * The run carries the id it started on; the site now names another
+     * location. Nothing below will look at the first one again, and every
+     * backend hides its own internal prefix from `list()`, so no retention
+     * sweep can see the partial either. Without the carried id there is
+     * nothing left that knows where those bytes are.
+     */
+    public function testRePointingTheDestinationDiscardsThePartialLeftOnTheOldOne(): void
+    {
+        [$oldId, $oldBackend, $partial] = $this->localDestinationHoldingAPartial('ancien');
+        $this->assertFileExists($partial, 'no partial was left, so this test proves nothing');
+
+        $this->destination->choose($this->declareLocal('nouveau'));
+
+        $payload = $this->payloadFor($this->archiveOf(1000));
+        $payload['location_id'] = $oldId;
+        $this->runOnce($payload, new RecordingBackend($this));
+
+        $this->assertFileDoesNotExist($partial, 'the orphan was left on the destination that moved');
+        $this->assertSame(0, $oldBackend->partialSize(self::REMOTE_NAME));
+    }
+
+    /**
+     * And a destination UNSET mid-transfer does the same.
+     *
+     * This branch already threw away the local archive, which carries
+     * `master.key`; the half-sent copy at the far end was staying behind.
+     */
+    public function testUnsettingTheDestinationDiscardsThePartialItWasHolding(): void
+    {
+        [, $oldBackend, $partial] = $this->localDestinationHoldingAPartial('ancien');
+        $this->assertFileExists($partial, 'no partial was left, so this test proves nothing');
+
+        $oldId = $this->destination->locationId();
+        $this->destination->choose(0);
+
+        $payload = $this->payloadFor($this->archiveOf(1000));
+        $payload['location_id'] = $oldId;
+        $this->runOnce($payload, new RecordingBackend($this));
+
+        $this->assertFileDoesNotExist($partial, 'the orphan outlived the destination that held it');
+        $this->assertSame(0, $oldBackend->partialSize(self::REMOTE_NAME));
+    }
+
+    /**
+     * And a destination whose secret no longer decrypts does not take the
+     * run down with it.
+     *
+     * `backendFor()` is reached from cleanup paths that run beside an
+     * archive carrying `master.key`. An exception escaping `handle()`
+     * leaves `SchedulerRunner` marking the task failed WITHOUT re-arming
+     * it with the payload — so that archive stops being referenced by
+     * anything, and never reaches the ceiling that would delete it. The
+     * unreachable destination has to read as « nothing left to clean ».
+     */
+    public function testADestinationWhoseSecretNoLongerDecryptsDoesNotStopTheCleanup(): void
+    {
+        $archive = $this->archiveOf(1000);
+
+        // The Drive location from connect(), read back with a master key
+        // that never encrypted it.
+        $rotatedId = $this->destination->locationId();
+        $this->destination->choose($this->declareLocal('nouveau'));
+
+        $rotated = new RemoteBackupDestination(
+            $this->settings,
+            $this->locations,
+            new StorageBackendFactory(
+                new StorageLocationRepository(
+                    $this->pdo,
+                    new EncryptionService(str_repeat('z', 32), str_repeat('y', 32))
+                ),
+                $this->storagePath
+            )
+        );
+        $this->assertNull($rotated->backendFor($rotatedId), 'an unreadable secret escaped as an exception');
+
+        // And the whole run survives it, archive still on disk for the
+        // next one rather than orphaned by a failed task.
+        $payload = $this->payloadFor($archive);
+        $payload['location_id'] = $rotatedId;
+        $this->runOnce($payload, new RecordingBackend($this));
+
+        $this->assertNotNull($this->pending(), 'the chain died on a destination it could not open');
+    }
+
+    /**
+     * A local location, chosen, already holding a partial under the name
+     * this test suite sends under.
+     *
+     * Local rather than Drive on purpose: the point is to watch a REAL
+     * backend\'s partial disappear from the disk, which a double could
+     * only claim.
+     *
+     * @return array{0: int, 1: \Core\Storage\Location\Backend\LocalStorageBackend, 2: string}
+     */
+    private function localDestinationHoldingAPartial(string $label): array
+    {
+        $id = $this->declareLocal($label);
+        $this->destination->choose($id);
+
+        $backend = (new StorageBackendFactory($this->locations, $this->storagePath))
+            ->create($this->locations->findById($id));
+        self::assertInstanceOf(\Core\Storage\Location\Backend\LocalStorageBackend::class, $backend);
+
+        $backend->beginPartial(self::REMOTE_NAME, 1000);
+        $backend->appendToPartial(self::REMOTE_NAME, str_repeat('a', 10));
+
+        return [
+            $id,
+            $backend,
+            $this->storagePath . '/' . $label . '/' . self::REMOTE_NAME . '.scoutmagic-part',
+        ];
+    }
+
+    private function declareLocal(string $label): int
+    {
+        return $this->locations->create(
+            StorageLocationType::Local,
+            $label,
+            new \Core\Storage\Location\Config\LocalLocationConfig($label),
+            null
+        );
     }
 
     // ---------------------------------------------------------------
@@ -629,16 +790,16 @@ final class SendRemoteBackupHandlerTest extends TestCase
     public function testASuccessfulSendPurgesTheDestination(): void
     {
         $this->settings->values[RemoteRetention::KEEP_SETTING] = '2';
-        $target = new RecordingTarget($this);
-        $target->remote = [
-            new RemoteFile('new', 'scoutmagic-2026-03-03.zip', 10, '2026-03-03T00:00:00Z'),
-            new RemoteFile('mid', 'scoutmagic-2026-02-02.zip', 10, '2026-02-02T00:00:00Z'),
-            new RemoteFile('old', 'scoutmagic-2026-01-01.zip', 10, '2026-01-01T00:00:00Z'),
+        $backend = new RecordingBackend($this);
+        $backend->remote = [
+            new StoredObject('scoutmagic-2026-03-03.zip', 10, null, '2026-03-03T00:00:00Z'),
+            new StoredObject('scoutmagic-2026-02-02.zip', 10, null, '2026-02-02T00:00:00Z'),
+            new StoredObject('scoutmagic-2026-01-01.zip', 10, null, '2026-01-01T00:00:00Z'),
         ];
 
-        $this->runOnce($this->payloadFor($this->archiveOf(50)), $target);
+        $this->runOnce($this->payloadFor($this->archiveOf(50)), $backend);
 
-        $this->assertSame(['old'], $target->deleted);
+        $this->assertSame(['scoutmagic-2026-01-01.zip'], $backend->deleted);
     }
 
     /**
@@ -648,10 +809,10 @@ final class SendRemoteBackupHandlerTest extends TestCase
      */
     public function testAFailingPurgeDoesNotUndoASuccessfulSend(): void
     {
-        $target = new RecordingTarget($this);
-        $target->failListWith = 'Google ne répond plus.';
+        $backend = new RecordingBackend($this);
+        $backend->failListWith = 'Google ne répond plus.';
 
-        $this->runOnce($this->payloadFor($this->archiveOf(50)), $target);
+        $this->runOnce($this->payloadFor($this->archiveOf(50)), $backend);
 
         $this->assertSame(
             ['remote_backup_purge_failed', 'remote_backup_sent'],
@@ -676,13 +837,12 @@ final class SendRemoteBackupHandlerTest extends TestCase
      */
     public function testASiteWithNoDestinationKeepsTheChainAliveAndBuildsNothing(): void
     {
-        $this->settings->values[RemoteBackupConnection::STATE_SETTING]
-            = RemoteBackupConnection::STATE_DISCONNECTED;
-        $target = new RecordingTarget($this);
+        $this->destination->choose(0);
+        $backend = new RecordingBackend($this);
 
-        (new SendRemoteBackupHandler($target, fn(): float => $this->clock))->handle([], $this->context());
+        $this->runOnce([], $backend);
 
-        $this->assertSame(0, $target->sessionsOpened);
+        $this->assertSame(0, $backend->sessionsOpened);
         $this->assertSame([], glob($this->storagePath . '/maintenance/*') ?: []);
         $this->assertNotNull($this->pending(), 'the chain died on a site that had simply not connected one yet');
     }
@@ -691,32 +851,31 @@ final class SendRemoteBackupHandlerTest extends TestCase
      * **A destination can vanish mid-send, and the archive must go with
      * it.**
      *
-     * A multi-run upload crosses runs; between two of them an operator
-     * can disconnect, or Google can withdraw the grant — which clears the
-     * refresh token, so the very next run takes the "nothing connected"
+     * A multi-run upload crosses runs; between two of them an
+     * administrator can re-point the off-site backup somewhere else, or
+     * clear it altogether, so the very next run takes the "no destination"
      * branch. The half-sent archive carries `master.key` and the phrase
      * that opens it sits in `secrets.enc` beside it, and nothing else
      * would ever remove it: it is never registered in `BackupRepository`,
      * so `PortableBackupLingerCheck` — a query over `backups`, not a walk
      * of the disk — cannot see it either.
      */
-    public function testDisconnectingMidSendTakesTheHalfSentArchiveWithIt(): void
+    public function testDroppingTheDestinationMidSendTakesTheHalfSentArchiveWithIt(): void
     {
         $archive = $this->archiveOf(1000);
-        $target = new RecordingTarget($this);
-        $target->chunkBytes = 100;
-        $target->secondsPerChunk = SendRemoteBackupHandler::TIME_BUDGET_SECONDS;
+        $backend = new RecordingBackend($this);
+        $backend->chunkBytes = 100;
+        $backend->secondsPerChunk = SendRemoteBackupHandler::TIME_BUDGET_SECONDS;
 
-        $this->runOnce($this->payloadFor($archive), $target);
+        $this->runOnce($this->payloadFor($archive), $backend);
         $inFlight = $this->pending();
         $this->assertNotNull($inFlight);
         $this->assertFileExists($archive, 'the send did not get as far as carrying an archive');
 
-        // The grant is withdrawn between the two runs.
-        (new RemoteBackupConnection($this->settings, $this->secrets))
-            ->markNeedsReauthorisation('Google n\'accepte plus l\'autorisation de ce site.');
+        // The destination is dropped between the two runs.
+        $this->destination->choose(0);
 
-        $this->runOnce($inFlight['payload'], $target);
+        $this->runOnce($inFlight['payload'], $backend);
 
         $this->assertFileDoesNotExist(
             $archive,
@@ -735,13 +894,71 @@ final class SendRemoteBackupHandlerTest extends TestCase
     // ---------------------------------------------------------------
 
     /**
-     * Marks the site as connected to a destination, exactly as
-     * `RemoteBackupConnection::saveConnection()` would.
+     * **A destination whose secret no longer decrypts is a failure, not a
+     * crash — and the difference is a key-bearing archive left on disk.**
+     *
+     * `backend()` reaches `StorageBackendFactory`, which reads the
+     * location's encrypted column; a master key that has been rotated
+     * makes that read raise `Security\\DecryptionException`, which is not
+     * a `RemoteBackupException`. Caught too narrowly, it escapes past
+     * `recordFailure()` — and `recordFailure()` is what climbs the counter
+     * and, at the ceiling, DELETES the archive. The archive is a portable
+     * backup: it carries `master.key`. So the run dies, the file stays,
+     * the same thing happens every night, and the ceiling that would have
+     * removed it is never reached.
+     *
+     * That rotation is precisely the scenario D7 cites for moving these
+     * credentials out of `secrets.enc` in the first place.
+     */
+    public function testADestinationWhoseSecretNoLongerDecryptsIsRecordedRatherThanThrown(): void
+    {
+        $archive = $this->archiveOf(64);
+
+        // The same rows, read with a different key: what a master-key
+        // rotation leaves behind.
+        $rotated = new RemoteBackupDestination(
+            $this->settings,
+            new StorageLocationRepository(
+                $this->pdo,
+                new EncryptionService(str_repeat('z', 32), str_repeat('y', 32))
+            ),
+            new StorageBackendFactory(
+                new StorageLocationRepository(
+                    $this->pdo,
+                    new EncryptionService(str_repeat('z', 32), str_repeat('y', 32))
+                ),
+                $this->storagePath
+            )
+        );
+
+        // No backend handed in: this is the path that builds one.
+        (new SendRemoteBackupHandler(null, $rotated, fn (): float => $this->clock, 1024))
+            ->handle($this->payloadFor($archive), $this->context());
+
+        $next = $this->pending();
+        $this->assertNotNull($next, 'the run died instead of recording a failure');
+        $this->assertSame(1, $next['payload']['failures']);
+        $this->assertSame($archive, $next['payload']['archive_path']);
+        $this->assertFileExists($archive, 'the archive was thrown away on the first failure');
+    }
+
+    /**
+     * Declares a destination and points the off-site backup at it, exactly
+     * as the two screens would.
      */
     private function connect(): void
     {
-        (new RemoteBackupConnection($this->settings, $this->secrets))
-            ->saveConnection('un-jeton-de-rafraichissement', 'unite@example.org', 'dossier-distant');
+        $id = $this->locations->create(
+            StorageLocationType::GoogleDrive,
+            'Google Drive',
+            new GoogleDriveLocationConfig('client-1', 'dossier-1', '2026-03-01T00:00:00+00:00'),
+            (string) json_encode([
+                'client_secret' => 's',
+                'refresh_token' => 'un-jeton-de-rafraichissement',
+                'account' => 'unite@example.org',
+            ])
+        );
+        $this->destination->choose($id);
     }
 
     /** A file of `$bytes` standing in for a portable archive. */
@@ -789,7 +1006,7 @@ final class SendRemoteBackupHandlerTest extends TestCase
     {
         return [
             'archive_path' => $archive,
-            'remote_name' => 'scoutmagic-2026-03-03-120000-g1.zip',
+            'remote_name' => self::REMOTE_NAME,
         ];
     }
 
@@ -798,10 +1015,15 @@ final class SendRemoteBackupHandlerTest extends TestCase
      *
      * @param array<string, mixed> $payload
      */
-    private function runOnce(array $payload, RecordingTarget $target): void
+    private function runOnce(array $payload, RecordingBackend $backend): void
     {
-        (new SendRemoteBackupHandler($target, fn(): float => $this->clock))
-            ->handle($payload, $this->context());
+        $backend->beginRun();
+        (new SendRemoteBackupHandler(
+            $backend,
+            $this->destination,
+            fn (): float => $this->clock,
+            $backend->chunkBytes > 0 ? $backend->chunkBytes : SendRemoteBackupHandler::CHUNK_BYTES
+        ))->handle($payload, $this->context());
     }
 
     /**
@@ -874,58 +1096,74 @@ final class SendRemoteBackupHandlerTest extends TestCase
 }
 
 /**
- * A destination that behaves like Google without being Google.
+ * A destination that behaves like a resumable one without being any.
  *
- * It commits a bounded number of bytes per run and then reports "not
- * finished", which is what a resumable upload under a time budget
- * actually looks like; the handler's `hasTimeLeft()` closure is consulted
- * for real, against a clock this double advances.
+ * It **holds what it has been given**, which is what makes the resume
+ * assertions mean something: a run that started over would be visible as
+ * bytes going twice, not as a mock expectation nobody wrote. The
+ * handler's own budget is consulted for real, against a clock this double
+ * advances as it accepts each chunk — so a test that wants a run to stop
+ * half way buys that with time, exactly as a slow link would.
  */
-final class RecordingTarget implements RemoteBackupTarget
+final class RecordingBackend extends RefusingBackend implements ResumableUploadBackend
 {
-    /** Bytes committed per chunk; 0 means "the whole remainder at once". */
+    /**
+     * Bytes the handler is told to read at a time; 0 leaves it on its own
+     * constant.
+     *
+     * This is a test-only seam on the HANDLER (which chunks at 8 MiB in
+     * production), not on this double: without it, every test about a
+     * send that crosses runs would have to write tens of mebibytes to a
+     * temporary disk to produce a second chunk.
+     */
     public int $chunkBytes = 0;
 
     /**
      * Seconds each chunk costs on the test's clock.
      *
-     * This is what makes the handler's time budget real rather than
-     * decorative: `sendChunks()` below stops when `hasTimeLeft()` says so
-     * and at no other point, so a test that wants a run to stop half way
-     * buys that with time, exactly as a slow link would.
+     * What makes the handler's time budget real rather than decorative:
+     * it stops when the deadline says so and at no other point.
      */
     public float $secondsPerChunk = 0.0;
 
     /**
-     * Offsets the handler asked each run to start from.
+     * The offset each run began appending from.
      *
      * @var list<int>
      */
     public array $startedAt = [];
 
     /**
-     * Names `beginUpload()` was asked for, in order.
+     * Keys `beginPartial()` was asked for, in order.
      *
      * @var list<string>
      */
     public array $names = [];
 
+    /** How many transfers were OPENED — a resume must not add to this. */
     public int $sessionsOpened = 0;
-    public int $probes = 0;
+
+    /** How many times the destination was asked where it stood. */
+    public int $asked = 0;
 
     /**
-     * session URI => bytes the destination holds.
+     * Bytes held per key, and what has been promoted.
      *
      * @var array<string, int>
      */
-    public array $sessions = [];
+    public array $partials = [];
 
-    public int $probeAnswer = 0;
+    /** @var array<string, int> */
+    public array $stored = [];
 
     public string $failSendWith = '';
+
+    /** Chunks to accept before {@see $failSendWith} bites. */
+    public int $failAfterChunks = 0;
+
     public string $failListWith = '';
 
-    /** @var RemoteFile[] */
+    /** @var list<StoredObject> */
     public array $remote = [];
 
     /** @var list<string> */
@@ -933,84 +1171,77 @@ final class RecordingTarget implements RemoteBackupTarget
 
     public ?\Closure $onSend = null;
 
+    private bool $sentThisRun = false;
+
+    private int $acceptedThisRun = 0;
+
     public function __construct(private readonly SendRemoteBackupHandlerTest $test)
     {
     }
 
-    public function upload(string $localPath, string $remoteName): string
+    /** Called by the test before each run, never by the handler. */
+    public function beginRun(): void
     {
-        return 'witness';
+        $this->sentThisRun = false;
+        $this->acceptedThisRun = 0;
     }
 
-    public function beginUpload(string $remoteName, int $size): string
+    public function beginPartial(string $key, int $totalBytes): void
     {
         $this->sessionsOpened++;
-        $this->names[] = $remoteName;
-        $url = 'https://upload.example/session-' . $this->sessionsOpened;
-        $this->sessions[$url] = 0;
-
-        return $url;
+        $this->names[] = $key;
+        $this->partials[$key] = 0;
     }
 
-    public function probeUpload(string $sessionUrl, int $size): RemoteUpload
+    public function partialSize(string $key): int
     {
-        $this->probes++;
+        $this->asked++;
 
-        return $this->probeAnswer >= $size
-            ? RemoteUpload::completed($sessionUrl, 'file-' . $this->probes)
-            : RemoteUpload::inProgress($sessionUrl, $this->probeAnswer);
+        return $this->partials[$key] ?? 0;
     }
 
-    public function sendChunks(
-        string $sessionUrl,
-        string $localPath,
-        int $size,
-        int $offset,
-        \Closure $hasTimeLeft
-    ): RemoteUpload {
-        $this->startedAt[] = $offset;
-        if ($this->onSend !== null) {
-            ($this->onSend)();
+    public function appendToPartial(string $key, string $chunk): void
+    {
+        if (!$this->sentThisRun) {
+            $this->startedAt[] = $this->partials[$key] ?? 0;
+            $this->sentThisRun = true;
+            if ($this->onSend !== null) {
+                ($this->onSend)();
+            }
         }
 
-        if ($this->failSendWith !== '') {
-            throw RemoteBackupException::of($this->failSendWith);
+        if ($this->failSendWith !== '' && $this->acceptedThisRun >= $this->failAfterChunks) {
+            throw new StorageLocationException($this->failSendWith);
         }
+        $this->acceptedThisRun++;
 
-        $chunk = $this->chunkBytes > 0 ? $this->chunkBytes : max(1, $size - $offset);
-        while ($offset < $size && $hasTimeLeft()) {
-            $offset = min($size, $offset + $chunk);
-            $this->test->advanceClock($this->secondsPerChunk);
-        }
-        $this->sessions[$sessionUrl] = $offset;
-
-        return $offset >= $size
-            ? RemoteUpload::completed($sessionUrl, 'file-' . count($this->startedAt))
-            : RemoteUpload::inProgress($sessionUrl, $offset);
+        $this->partials[$key] = ($this->partials[$key] ?? 0) + strlen($chunk);
+        $this->test->advanceClock($this->secondsPerChunk);
     }
 
-    public function list(): array
+    public function promotePartial(string $key, string $mimeType): void
+    {
+        $this->stored[$key] = $this->partials[$key] ?? 0;
+        unset($this->partials[$key]);
+    }
+
+    public function discardPartial(string $key): void
+    {
+        unset($this->partials[$key]);
+    }
+
+    public function list(string $prefix, ?string $cursor = null, int $limit = 1000): StorageListing
     {
         if ($this->failListWith !== '') {
-            throw RemoteBackupException::of($this->failListWith);
+            throw new StorageLocationException($this->failListWith);
         }
 
-        return $this->remote;
+        return new StorageListing($this->remote);
     }
 
-    public function delete(string $remoteId): void
+    public function delete(string $key): void
     {
-        $this->deleted[] = $remoteId;
-    }
-
-    public function quota(): ?RemoteQuota
-    {
-        return null;
-    }
-
-    public function testConnection(): RemoteConnectionCheck
-    {
-        return RemoteConnectionCheck::success('unite@example.org', null);
+        $this->deleted[] = $key;
     }
 }
 
