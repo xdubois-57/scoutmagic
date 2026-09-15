@@ -77,16 +77,21 @@ class BounceService
     }
 
     /**
-     * A message reached this address: everything known about its failures
-     * stops being true.
+     * A message for this address has just gone to a relay.
      *
      * Called from the send path, and deliberately cheap when there is
-     * nothing to forget — the overwhelming majority of sends are to
-     * addresses that have never bounced.
+     * nothing to settle — the overwhelming majority of sends are to
+     * addresses that have never bounced, and those cost one indexed read.
+     *
+     * The name is `recordSend` and not `recordSuccess` on purpose: handing
+     * a message to a relay is not a success, and treating it as one is the
+     * mistake that would quietly disable every block on this site. See
+     * {@see BounceStateRepository::recordSend()} for what actually settles
+     * a send.
      */
-    public function recordSuccess(string $email): void
+    public function recordSend(string $email, ?\DateTimeImmutable $now = null): void
     {
-        $this->states->forget($email);
+        $this->states->recordSend($email, $now ?? new \DateTimeImmutable());
     }
 
     /** Is the site still writing to this address? */

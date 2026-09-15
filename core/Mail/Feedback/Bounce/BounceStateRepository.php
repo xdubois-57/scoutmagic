@@ -129,7 +129,8 @@ class BounceStateRepository
             $existing->firstSeenAt,
             $now,
             $existing->blockedAt,
-            $existing->notifiedCode
+            $existing->notifiedCode,
+            $existing->lastSendAt
         );
     }
 
@@ -171,16 +172,51 @@ class BounceStateRepository
     }
 
     /**
-     * A message reached this address: forget everything.
+     * Note that a message for this address has just gone to a relay, and
+     * settle the previous send while we are here.
      *
-     * **The only reliable signal that the problem is over.** Not a timer:
-     * a mailbox is emptied when its owner gets round to it, and an address
-     * that comes back after three weeks would have been silently unblocked
-     * by any delay short enough to be useful. The row is deleted rather
-     * than zeroed — a state that records no failure, no block and no
-     * pending notification is a row saying nothing, and keeping it would
-     * grow a table with one entry per address the unit has ever written
-     * to.
+     * **A send cannot clear the counter at the moment it happens**, and
+     * getting that wrong would have disabled the whole mechanism in a way
+     * no test of the blocking rule would have caught: the relay accepting
+     * a message says nothing about delivery, and the bounce for that very
+     * send arrives seconds later. Clearing on acceptance would therefore
+     * wipe the count before every single bounce, and no address would ever
+     * reach the threshold.
+     *
+     * So each send judges the one before it. If the previous send is more
+     * recent than the last bounce, nothing came back from it — the address
+     * works, and everything known about its failures stops being true. The
+     * row is then deleted rather than zeroed: a state recording no
+     * failure, no block and no pending notification says nothing, and
+     * keeping one would grow a table with an entry per address the unit
+     * has ever written to.
+     *
+     * The one-send lag is inherent, not a shortcut. A send is only known
+     * to have worked once there has been time for it not to bounce, and
+     * the next send is the natural moment to look.
+     */
+    public function recordSend(string $email, \DateTimeImmutable $now): void
+    {
+        $existing = $this->find($email);
+        if ($existing === null) {
+            // The overwhelming majority of sends are to addresses that
+            // have never bounced. Nothing to settle and nothing to write.
+            return;
+        }
+
+        if ($existing->lastSendWasClean()) {
+            $this->forget($email);
+
+            return;
+        }
+
+        $statement = $this->pdo->prepare('UPDATE mail_bounce_states SET last_send_at = ? WHERE id = ?');
+        $statement->execute([$now->format('Y-m-d H:i:s'), $existing->id]);
+    }
+
+    /**
+     * Drop everything known about an address — used when a send settles a
+     * clean one, and by the tests that need a blank slate.
      */
     public function forget(string $email): void
     {
@@ -227,7 +263,7 @@ class BounceStateRepository
     private function selectClause(): string
     {
         return 'SELECT id, email_encrypted, category, severity, status_code, failures,
-                       first_seen_at, last_seen_at, blocked_at, notified_code
+                       first_seen_at, last_seen_at, blocked_at, notified_code, last_send_at
                   FROM mail_bounce_states';
     }
 
@@ -246,7 +282,8 @@ class BounceStateRepository
             DateInput::requireFromStorage($row['first_seen_at'], 'mail_bounce_states.first_seen_at'),
             DateInput::requireFromStorage($row['last_seen_at'], 'mail_bounce_states.last_seen_at'),
             DateInput::fromStorage($row['blocked_at']),
-            $row['notified_code'] === null ? null : (string) $row['notified_code']
+            $row['notified_code'] === null ? null : (string) $row['notified_code'],
+            DateInput::fromStorage($row['last_send_at'])
         );
     }
 }

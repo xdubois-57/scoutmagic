@@ -30,8 +30,24 @@ final class BounceState
         public readonly \DateTimeImmutable $firstSeenAt,
         public readonly \DateTimeImmutable $lastSeenAt,
         public readonly ?\DateTimeImmutable $blockedAt = null,
-        public readonly ?string $notifiedCode = null
+        public readonly ?string $notifiedCode = null,
+        /** When a message for this address was last handed to a relay. */
+        public readonly ?\DateTimeImmutable $lastSendAt = null
     ) {
+    }
+
+    /**
+     * Did the last send produce no bounce?
+     *
+     * **The only honest reading of « un envoi réussi ».** A relay
+     * accepting a message proves nothing — the bounce for that very send
+     * arrives seconds later — so a send can only be judged once the next
+     * one comes round. If the last send is more recent than the last
+     * bounce, nothing came back from it, and the address is working.
+     */
+    public function lastSendWasClean(): bool
+    {
+        return $this->lastSendAt !== null && $this->lastSendAt > $this->lastSeenAt;
     }
 
     /** Blocked means: the site stops writing to it until somebody says otherwise. */

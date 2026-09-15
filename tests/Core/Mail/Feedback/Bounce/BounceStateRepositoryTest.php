@@ -169,6 +169,31 @@ class BounceStateRepositoryTest extends TestCase
         $this->assertSame(0, $this->countRows(), 'a row recording nothing is a row nobody needs.');
     }
 
+    /**
+     * **A send is clean only if it is more recent than the last bounce**,
+     * and this is the case that separates that from « there was a send at
+     * some point ». Here a bounce lands AFTER a stamped send, so the next
+     * send must settle nothing: the address is still failing, and the
+     * count it has built up is the whole basis for blocking it.
+     *
+     * Without the comparison, this send would wipe a count of two and the
+     * address would start again from nothing at every mailing.
+     */
+    public function testASendThatArrivedBeforeTheLastBounceSettlesNothing(): void
+    {
+        $t = $this->now('2026-09-15 09:00:00');
+
+        $this->states->record('parent@exemple.be', BounceCategory::NoSuchAddress, BounceSeverity::Permanent, '5.1.1', $t);
+        $this->states->recordSend('parent@exemple.be', $t->modify('+1 day'));
+        $this->states->record('parent@exemple.be', BounceCategory::NoSuchAddress, BounceSeverity::Permanent, '5.1.1', $t->modify('+2 days'));
+
+        $this->states->recordSend('parent@exemple.be', $t->modify('+3 days'));
+
+        $state = $this->states->find('parent@exemple.be');
+        $this->assertNotNull($state, 'an address that is still failing must not be forgotten.');
+        $this->assertSame(2, $state->failures);
+    }
+
     public function testForgettingAnAddressThatNeverBouncedIsHarmless(): void
     {
         $this->states->forget('jamais@exemple.be');

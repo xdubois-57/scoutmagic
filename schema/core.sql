@@ -1801,6 +1801,17 @@ CREATE TABLE IF NOT EXISTS mail_bounce_states (
     -- The code the member was last told about, so a mailbox that bounces
     -- at every mailing notifies once rather than once per send.
     notified_code VARCHAR(16) NULL,
+    -- When this site last handed a message for this address to a relay.
+    --
+    -- **This is what makes « remis à zéro par un envoi réussi » possible
+    -- at all.** A send cannot clear the counter when it happens: the relay
+    -- accepting a message says nothing, and the bounce for that very send
+    -- lands seconds later — clearing on acceptance would wipe the count
+    -- before every single bounce, and no address would ever be blocked.
+    -- So a send is judged by the NEXT one: at send time, if the previous
+    -- send is more recent than the last bounce, that previous send
+    -- produced none, the address works, and the counter goes back to zero.
+    last_send_at DATETIME NULL,
     UNIQUE INDEX idx_mbs_blind (email_blind_index),
     INDEX idx_mbs_blocked (blocked_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -148,16 +148,90 @@ class BounceServiceTest extends TestCase
         $this->assertCount(1, $blocking, 'passing the threshold again is not a second event.');
     }
 
-    public function testASuccessfulSendForgetsEverything(): void
+    /**
+     * **The scenario that would have disabled every block on this site,
+     * silently.** A relay accepting a message is not a delivery, and the
+     * bounce for that very send arrives seconds later. A send path that
+     * cleared the counter on acceptance would wipe it before every single
+     * bounce — the count would never reach two, no address would ever be
+     * blocked, and every test of the blocking rule would still pass
+     * because none of them sends anything.
+     *
+     * So the send is recorded, not celebrated: it settles the PREVIOUS
+     * send and nothing more.
+     */
+    public function testASendFollowedByItsOwnBounceStillCounts(): void
     {
-        $this->bounces->record($this->report('5.1.1'));
-        $this->bounces->record($this->report('5.1.1'));
-        $this->assertTrue($this->bounces->isBlocked('parent@exemple.be'));
+        $send = new \DateTimeImmutable('2026-09-15 10:00:00');
+        $bounce = $send->modify('+30 seconds');
 
-        $this->bounces->recordSuccess('parent@exemple.be');
+        $this->bounces->recordSend('parent@exemple.be', $send);
+        $this->bounces->record($this->report('5.1.1'), $bounce);
 
-        $this->assertFalse($this->bounces->isBlocked('parent@exemple.be'));
+        $this->bounces->recordSend('parent@exemple.be', $send->modify('+7 days'));
+        $this->bounces->record($this->report('5.1.1'), $bounce->modify('+7 days'));
+
+        $this->assertTrue(
+            $this->bounces->isBlocked('parent@exemple.be'),
+            'two failing mailings must block, however many sends happened between them.'
+        );
+    }
+
+    /**
+     * And the other half: a send that produced nothing settles the
+     * address. Judged one send later, because that is the first moment
+     * anybody can know.
+     */
+    public function testASendThatBouncedNothingClearsTheAddressAtTheNextSend(): void
+    {
+        $start = new \DateTimeImmutable('2026-09-15 10:00:00');
+
+        $this->bounces->recordSend('parent@exemple.be', $start);
+        $this->bounces->record($this->report('5.1.1'), $start->modify('+1 minute'));
+        $this->assertSame(1, $this->states->find('parent@exemple.be')?->failures);
+
+        // The parent fixes their mailbox. This send produces no bounce —
+        // which nobody can tell yet.
+        $this->bounces->recordSend('parent@exemple.be', $start->modify('+7 days'));
+        $this->assertNotNull($this->states->find('parent@exemple.be'), 'not knowable yet.');
+
+        // The next one looks back and finds the previous send clean.
+        $this->bounces->recordSend('parent@exemple.be', $start->modify('+14 days'));
+
         $this->assertNull($this->states->find('parent@exemple.be'));
+    }
+
+    /**
+     * Two unrelated failures a year apart are not a pattern, and must not
+     * add up to a block.
+     */
+    public function testFailuresSeparatedByWorkingSendsDoNotAccumulate(): void
+    {
+        $start = new \DateTimeImmutable('2026-01-10 10:00:00');
+
+        $this->bounces->recordSend('parent@exemple.be', $start);
+        $this->bounces->record($this->report('5.4.1'), $start->modify('+1 minute'));
+
+        // A year of mailings that all work.
+        foreach (range(1, 12) as $month) {
+            $this->bounces->recordSend('parent@exemple.be', $start->modify("+{$month} months"));
+        }
+
+        $this->bounces->record($this->report('5.4.1'), $start->modify('+13 months'));
+
+        $this->assertFalse(
+            $this->bounces->isBlocked('parent@exemple.be'),
+            'a failure last January says nothing about one this January.'
+        );
+    }
+
+    public function testASendToAnAddressThatNeverBouncedWritesNothing(): void
+    {
+        $this->bounces->recordSend('jamais@exemple.be', new \DateTimeImmutable());
+
+        $statement = $this->pdo->query('SELECT COUNT(*) FROM mail_bounce_states');
+        $this->assertNotFalse($statement);
+        $this->assertSame(0, (int) $statement->fetchColumn());
     }
 
     /**
