@@ -137,6 +137,41 @@ final class RemoteBackupDestination
     }
 
     /**
+     * A backend for ONE NAMED location, whatever the site is pointed at
+     * now — null when that row is gone or cannot resume an upload.
+     *
+     * **For cleaning up after a transfer, never for starting one.** An
+     * abandoned upload leaves a note in the destination it was going to,
+     * and by the time anything notices, the site may be pointed somewhere
+     * else entirely: {@see backend()} would then hand back the NEW
+     * destination, where discarding removes nothing and the orphan on the
+     * old one stays for ever. Every backend hides its own internal prefix
+     * from `list()`, so no retention sweep will reach it either.
+     *
+     * Null rather than a refusal, on both counts. The id is a hint
+     * carried in a task payload, which D12 allows precisely because
+     * losing it costs a cleanup and never a wrong decision — so a row
+     * that has since been deleted means « nothing left to clean », not an
+     * error. And a location that cannot resume an upload never held a
+     * partial of ours to begin with.
+     */
+    public function backendFor(int $locationId): ?ResumableUploadBackend
+    {
+        if ($locationId <= 0) {
+            return null;
+        }
+
+        $location = $this->locations->findById($locationId);
+        if ($location === null) {
+            return null;
+        }
+
+        $backend = $this->backends->create($location);
+
+        return $backend instanceof ResumableUploadBackend ? $backend : null;
+    }
+
+    /**
      * Since when this site has had somewhere to send to — the date the
      * age check measures from when nothing has ever arrived.
      *

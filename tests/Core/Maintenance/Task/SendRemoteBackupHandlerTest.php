@@ -652,6 +652,95 @@ final class SendRemoteBackupHandlerTest extends TestCase
     }
 
     // ---------------------------------------------------------------
+    // A destination that moved under a transfer
+    // ---------------------------------------------------------------
+
+    /**
+     * A destination RE-POINTED mid-transfer takes its orphan with it.
+     *
+     * The run carries the id it started on; the site now names another
+     * location. Nothing below will look at the first one again, and every
+     * backend hides its own internal prefix from `list()`, so no retention
+     * sweep can see the partial either. Without the carried id there is
+     * nothing left that knows where those bytes are.
+     */
+    public function testRePointingTheDestinationDiscardsThePartialLeftOnTheOldOne(): void
+    {
+        [$oldId, $oldBackend, $partial] = $this->localDestinationHoldingAPartial('ancien');
+        $this->assertFileExists($partial, 'no partial was left, so this test proves nothing');
+
+        $this->destination->choose($this->declareLocal('nouveau'));
+
+        $payload = $this->payloadFor($this->archiveOf(1000));
+        $payload['location_id'] = $oldId;
+        $this->runOnce($payload, new RecordingBackend($this));
+
+        $this->assertFileDoesNotExist($partial, 'the orphan was left on the destination that moved');
+        $this->assertSame(0, $oldBackend->partialSize(self::REMOTE_NAME));
+    }
+
+    /**
+     * And a destination UNSET mid-transfer does the same.
+     *
+     * This branch already threw away the local archive, which carries
+     * `master.key`; the half-sent copy at the far end was staying behind.
+     */
+    public function testUnsettingTheDestinationDiscardsThePartialItWasHolding(): void
+    {
+        [, $oldBackend, $partial] = $this->localDestinationHoldingAPartial('ancien');
+        $this->assertFileExists($partial, 'no partial was left, so this test proves nothing');
+
+        $oldId = $this->destination->locationId();
+        $this->destination->choose(0);
+
+        $payload = $this->payloadFor($this->archiveOf(1000));
+        $payload['location_id'] = $oldId;
+        $this->runOnce($payload, new RecordingBackend($this));
+
+        $this->assertFileDoesNotExist($partial, 'the orphan outlived the destination that held it');
+        $this->assertSame(0, $oldBackend->partialSize(self::REMOTE_NAME));
+    }
+
+    /**
+     * A local location, chosen, already holding a partial under the name
+     * this test suite sends under.
+     *
+     * Local rather than Drive on purpose: the point is to watch a REAL
+     * backend\'s partial disappear from the disk, which a double could
+     * only claim.
+     *
+     * @return array{0: int, 1: \Core\Storage\Location\Backend\LocalStorageBackend, 2: string}
+     */
+    private function localDestinationHoldingAPartial(string $label): array
+    {
+        $id = $this->declareLocal($label);
+        $this->destination->choose($id);
+
+        $backend = (new StorageBackendFactory($this->locations, $this->storagePath))
+            ->create($this->locations->findById($id));
+        self::assertInstanceOf(\Core\Storage\Location\Backend\LocalStorageBackend::class, $backend);
+
+        $backend->beginPartial(self::REMOTE_NAME, 1000);
+        $backend->appendToPartial(self::REMOTE_NAME, str_repeat('a', 10));
+
+        return [
+            $id,
+            $backend,
+            $this->storagePath . '/' . $label . '/' . self::REMOTE_NAME . '.scoutmagic-part',
+        ];
+    }
+
+    private function declareLocal(string $label): int
+    {
+        return $this->locations->create(
+            StorageLocationType::Local,
+            $label,
+            new \Core\Storage\Location\Config\LocalLocationConfig($label),
+            null
+        );
+    }
+
+    // ---------------------------------------------------------------
     // Retention
     // ---------------------------------------------------------------
 

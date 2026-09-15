@@ -159,9 +159,29 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
             // it sits in `secrets.enc` beside it, and nothing else would
             // ever remove it.
             $this->discardArchive($payload, $context);
+            // And the half-sent copy at the far end, on the destination it
+            // was actually going to. `$destination->backend()` is no use
+            // here — there is no destination any more — so the payload's
+            // own `location_id` is the only thing that still knows where
+            // those bytes are.
+            $this->discardPartial($payload, $destination->backendFor(
+                (int) ($payload['location_id'] ?? 0)
+            ));
             $this->scheduleNext($context, []);
 
             return;
+        }
+
+        // **Re-pointed rather than unset.** The branch above catches a
+        // destination that went away; this one catches one that MOVED. The
+        // run carries the id it started on, the site now names another,
+        // and the partial on the first is orphaned from this moment on —
+        // nothing below will look at it again, and no retention sweep can
+        // see it. Discarded here, while the payload still remembers where
+        // it is.
+        $startedOn = (int) ($payload['location_id'] ?? 0);
+        if ($startedOn > 0 && $startedOn !== $destination->locationId()) {
+            $this->discardPartial($payload, $destination->backendFor($startedOn));
         }
 
         try {
@@ -233,6 +253,15 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
             'archive_path' => $archivePath,
             'remote_name' => $remoteName,
             'failures' => (int) ($payload['failures'] ?? 0),
+            // **Which destination this transfer was going to**, not which
+            // one the site is pointed at now. The two part company exactly
+            // when the cleanup matters: an administrator re-points or
+            // deletes the destination while a multi-run upload is crossing
+            // runs, and every later run resolves somewhere else. A hint,
+            // never authority (D12) — losing it costs a cleanup, never a
+            // wrong decision, and a row since deleted simply means there
+            // is nothing left to clean.
+            'location_id' => $destination->locationId(),
         ];
 
         try {
@@ -290,7 +319,7 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
      * The run that died mid-chunk therefore resumes from the truth, and a
      * database restored to last week cannot move it.
      *
-     * @param array{archive_path: string, remote_name: string, failures: int} $carried
+     * @param array{archive_path: string, remote_name: string, failures: int, location_id: int} $carried
      * @throws \RuntimeException
      */
     private function send(array $carried, TaskContext $context, ResumableUploadBackend $backend): void
@@ -377,7 +406,7 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
      * the ORDINARY outcome of a run, and treating it as anything else
      * would abandon every archive larger than twenty seconds of upstream.
      *
-     * @param array{archive_path: string, remote_name: string, failures: int} $carried
+     * @param array{archive_path: string, remote_name: string, failures: int, location_id: int} $carried
      */
     private function pause(TaskContext $context, array $carried): void
     {
