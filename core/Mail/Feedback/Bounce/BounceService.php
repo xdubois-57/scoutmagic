@@ -1,0 +1,174 @@
+<?php
+/**
+ * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+ */
+
+declare(strict_types=1);
+
+namespace Core\Mail\Feedback\Bounce;
+
+use Core\Journal\JournalService;
+
+/**
+ * What happens when a message comes back (roadmap IT-05).
+ *
+ * **The policy, kept away from the parsing and away from the storage.**
+ * {@see DeliveryStatusReport} reads what a stranger's server wrote;
+ * {@see BounceStateRepository} counts; this decides — block or not, tell
+ * the member or not. Three decisions that change for different reasons.
+ */
+class BounceService
+{
+    /**
+     * Permanent failures before an address stops being written to.
+     *
+     * **Two, not one and not five.** One is too few: a 5.x.x is sometimes
+     * a momentary misconfiguration at the far end reported with the wrong
+     * class, and blocking on it cuts a family off over a server's bad
+     * minute. Five is too many: a unit sends a handful of mailings a
+     * month, so five failures is most of a school year during which
+     * nobody is told anything — which is the silence this whole chantier
+     * exists to end.
+     */
+    public const FAILURES_BEFORE_BLOCK = 2;
+
+    public function __construct(
+        private BounceStateRepository $states,
+        private ?JournalService $journal = null,
+        private ?BounceNotifier $notifier = null
+    ) {
+    }
+
+    /**
+     * Record one recipient's failure and act on it.
+     *
+     * Returns the state as it now stands, so a caller that wants to
+     * report on a whole report can count what it changed.
+     */
+    public function record(DeliveryStatusReport $report, ?\DateTimeImmutable $now = null): BounceState
+    {
+        $now ??= new \DateTimeImmutable();
+
+        $state = $this->states->record(
+            $report->recipient,
+            $report->category,
+            $report->severity,
+            $report->statusCode,
+            $now
+        );
+
+        // **No severity test here, deliberately.** It would read well —
+        // « only a permanent failure blocks » — and it would be a branch
+        // no input can enter: `BounceStateRepository::record()` increments
+        // the counter for permanent failures only, so a transient bounce
+        // cannot move `failures` at all, let alone over the line. One
+        // place enforces the rule, and it is the one that counts.
+        $blocking = !$state->isBlocked() && $state->failures >= self::FAILURES_BEFORE_BLOCK;
+
+        if ($blocking) {
+            $this->states->block($state->id, $now);
+            $this->journalBlocked($state);
+        }
+
+        $this->notify($state, $blocking);
+
+        return $this->states->findById($state->id) ?? $state;
+    }
+
+    /**
+     * A message reached this address: everything known about its failures
+     * stops being true.
+     *
+     * Called from the send path, and deliberately cheap when there is
+     * nothing to forget — the overwhelming majority of sends are to
+     * addresses that have never bounced.
+     */
+    public function recordSuccess(string $email): void
+    {
+        $this->states->forget($email);
+    }
+
+    /** Is the site still writing to this address? */
+    public function isBlocked(string $email): bool
+    {
+        return $this->states->find($email)?->isBlocked() ?? false;
+    }
+
+    /**
+     * Lift a block, whoever asked for it.
+     *
+     * The two callers are the member on their own address list and the
+     * super-admin on the Courrier sortant page, and D19 is what makes
+     * both legitimate: the site placed this block, so the site — or the
+     * person it inconveniences — may lift it. Neither of them can
+     * reactivate an address a parent switched off, which is a different
+     * decision belonging to a different person.
+     */
+    public function unblock(int $stateId, bool $byTheMemberThemselves): void
+    {
+        $state = $this->states->findById($stateId);
+        if ($state === null) {
+            return;
+        }
+
+        $this->states->unblock($stateId);
+
+        try {
+            $this->journal?->log(
+                'core',
+                'mail_bounce_unblocked',
+                'info',
+                'Blocage sur rebond levé',
+                // The category and who lifted it, never the address
+                // (SECURITY.md §11) — and no member id either, because
+                // one address belongs to as many members as reference it.
+                ['category' => $state->category->value, 'by' => $byTheMemberThemselves ? 'member' : 'superadmin']
+            );
+        } catch (\Throwable) {
+            // The block is lifted either way; the journal entry is the
+            // record of it, never a condition of it.
+        }
+    }
+
+    /**
+     * Tell the member, under the one rule that makes it bearable.
+     *
+     * A blocking bounce always notifies: the address has just stopped
+     * receiving anything, and there is no version of that which is not
+     * news. A non-blocking one notifies only the first time for *that*
+     * error — a full mailbox bounces at every single mailing, so without
+     * the rule a parent would get one notification per send, which is the
+     * fastest way to teach somebody to ignore this site.
+     */
+    private function notify(BounceState $state, bool $blocking): void
+    {
+        if (!$blocking && !$state->isNewError($state->statusCode)) {
+            return;
+        }
+
+        try {
+            $this->notifier?->notify($state, $blocking);
+        } catch (\Throwable) {
+            // Best effort, like the journal: a notification that could not
+            // be sent must not undo a bounce that was correctly recorded.
+        }
+
+        $this->states->markNotified($state->id, $state->statusCode);
+    }
+
+    private function journalBlocked(BounceState $state): void
+    {
+        try {
+            $this->journal?->log(
+                'core',
+                'mail_bounce_blocked',
+                'info',
+                'Adresse suspendue après rebonds',
+                ['category' => $state->category->value, 'failures' => $state->failures]
+            );
+        } catch (\Throwable) {
+            // As above.
+        }
+    }
+}
