@@ -4767,7 +4767,7 @@ $router->addRoute(
 //
 // The Google conversation used to sit here and moved to Configuration >
 // Stockage in IT-05, because a Drive folder is a storage location now and
-// its raccordement belongs on its own card. What is left is the
+// its connection belongs on its own card. What is left is the
 // ASSIGNMENT, which is D4: it belongs to the consumer that made it.
 $router->addRoute(
     'POST',
@@ -5603,7 +5603,7 @@ $frontController->registerController(
         __DIR__,
         // Where the archives go, and what they could be pointed at
         // instead. The page shows the assignment and nothing about
-        // Google: since IT-05 the raccordement lives on the location's
+        // Google: since IT-05 the connection lives on the location's
         // own card under Configuration > Stockage.
         $remoteBackupDestination,
         $storageLocationService

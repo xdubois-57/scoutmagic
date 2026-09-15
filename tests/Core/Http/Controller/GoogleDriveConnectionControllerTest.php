@@ -515,7 +515,7 @@ final class GoogleDriveConnectionControllerTest extends TestCase
         $this->assertSame('/config/stockage/emplacements', $response->getHeaders()['Location'] ?? '');
         $this->assertNull(
             SessionStore::get('storage_google_oauth_state'),
-            'a raccordement was begun on an address a request header chose'
+            'a connection was begun on an address a request header chose'
         );
     }
 

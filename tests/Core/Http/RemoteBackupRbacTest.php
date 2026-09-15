@@ -56,7 +56,7 @@ final class RemoteBackupRbacTest extends TestCase
     ];
 
     /**
-     * The raccordement, which moved to the location's own card in IT-05.
+     * The connection, which moved to the location's own card in IT-05.
      *
      * **A stricter floor, and listed separately because of it.** Every
      * route on Configuration > Stockage is `superadmin` — declaring where
@@ -146,7 +146,7 @@ final class RemoteBackupRbacTest extends TestCase
     }
 
     /**
-     * **And the raccordement sits higher still.**
+     * **And the connection sits higher still.**
      *
      * The callback is the one worth spelling out: it is the only route in
      * this feature that a browser arrives at from somewhere else — Google
@@ -157,7 +157,7 @@ final class RemoteBackupRbacTest extends TestCase
      * anyone logging in. The `state` checked against the session sits on
      * top of this floor; it does not replace it.
      */
-    public function testTheGoogleRaccordementIsDeclaredAtTheSuperAdministratorFloor(): void
+    public function testTheGoogleConnectionIsDeclaredAtTheSuperAdministratorFloor(): void
     {
         $declared = [];
         foreach (\authzCoreRoutes() as $route) {

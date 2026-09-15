@@ -268,8 +268,9 @@ class MaintenanceController extends AbstractController
             'update_history' => $updateHistory,
             // ——— Bloc « Sauvegarde hors site » ———
             // ——— Where the archives go (IT-05) ———
-            // **This page no longer knows what Google is.** Raccordement,
-            // credentials, the consent screen and the connection test all
+            // **This page no longer knows what Google is.** The
+            // connection, the credentials, the consent screen and the
+            // connection test all
             // moved to the location's own card on Configuration >
             // Stockage; what is left here is the ASSIGNMENT, which is D4:
             // the choice belongs to the consumer that made it. Nothing

@@ -36,7 +36,7 @@ use Twig\Loader\ArrayLoader;
  * **The OAuth round trip is not here any more.** It moved to
  * {@see \Tests\Core\Http\Controller\GoogleDriveConnectionControllerTest}
  * with the code, because a Drive folder is a storage location now and its
- * raccordement belongs beside the declaration of that location. What is
+ * connection belongs beside the declaration of that location. What is
  * left is what genuinely belongs to the backup.
  *
  * `RemoteBackupRbacTest` covers who may reach these methods at all. What
