@@ -124,10 +124,12 @@ final class WebDavResource
         $path = parse_url($href, PHP_URL_PATH);
         $path = is_string($path) ? $path : $href;
 
-        return implode('/', array_map(
+        $segments = array_map(
             static fn (string $segment): string => rawurldecode($segment),
             explode('/', $path)
-        ));
+        );
+
+        return implode('/', $segments);
     }
 
     /** ownCloud's and Nextcloud's namespace, where the real digest lives. */
