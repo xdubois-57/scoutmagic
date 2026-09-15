@@ -145,6 +145,11 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
     {
         $destination = $this->destination ?? $this->destinationFor($context);
 
+        // The destination this run's transfer BEGAN on, read once: both
+        // branches below need it, and neither can ask the site, which by
+        // then names somewhere else or nowhere at all.
+        $startedOn = (int) ($payload['location_id'] ?? 0);
+
         if (!$destination->isConfigured()) {
             // No destination chosen: nothing to send, and nothing wrong.
             // The chain keeps ticking so that choosing one later starts
@@ -164,9 +169,7 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
             // here — there is no destination any more — so the payload's
             // own `location_id` is the only thing that still knows where
             // those bytes are.
-            $this->discardPartial($payload, $destination->backendFor(
-                (int) ($payload['location_id'] ?? 0)
-            ));
+            $this->discardPartial($payload, $destination->backendFor($startedOn));
             $this->scheduleNext($context, []);
 
             return;
@@ -179,7 +182,6 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
         // nothing below will look at it again, and no retention sweep can
         // see it. Discarded here, while the payload still remembers where
         // it is.
-        $startedOn = (int) ($payload['location_id'] ?? 0);
         if ($startedOn > 0 && $startedOn !== $destination->locationId()) {
             $this->discardPartial($payload, $destination->backendFor($startedOn));
         }
