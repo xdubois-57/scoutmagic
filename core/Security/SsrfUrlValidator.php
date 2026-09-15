@@ -128,8 +128,24 @@ final class SsrfUrlValidator
     }
 
     /**
-     * Every A/AAAA record for $host, or the literal when it is already an
-     * address. Empty when the resolver had nothing to say.
+     * Every address $host resolves to, or the literal when it is already
+     * one. Empty when nothing could answer for it.
+     *
+     * **Two resolvers, because the clients use the second one.**
+     * `dns_get_record()` speaks the DNS protocol and only that: it never
+     * consults `/etc/hosts` or any other NSS source. cURL and the library
+     * clients go through `getaddrinfo()`, which does. A host known only to
+     * `/etc/hosts` — `localhost`, a container alias — therefore answered
+     * « nothing resolves » here while the request that followed connected
+     * to it perfectly well, which turns this whole check into a formality
+     * for exactly the addresses it exists to refuse.
+     *
+     * `gethostbyname()` is the NSS-backed lookup PHP exposes, and it is
+     * IPv4-only: an NSS entry that is IPv6-only is the one shape this
+     * still cannot see. Closing that would mean pinning the validated
+     * address for the connection itself rather than resolving twice, which
+     * is a decision for this whole family rather than one caller
+     * (SECURITY.md §17).
      *
      * @return list<string>
      */
@@ -150,6 +166,17 @@ final class SsrfUrlValidator
             if (is_string($ip) && $ip !== '') {
                 $ips[] = $ip;
             }
+        }
+
+        // Returns the name unchanged when it cannot resolve, which is how
+        // « nothing answered » is told from an address.
+        $system = @gethostbyname($host);
+        if (
+            $system !== $host
+            && filter_var($system, FILTER_VALIDATE_IP) !== false
+            && !in_array($system, $ips, true)
+        ) {
+            $ips[] = $system;
         }
 
         return $ips;
