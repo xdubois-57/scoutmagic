@@ -30,12 +30,17 @@ final class WebDavResource
          * `ProtectedCopier` comes to compare a real file against an
          * announced zero, call the copy corrupt and delete it.
          *
-         * Two shapes of silence, and the second is the common one. A
+         * Several shapes of silence, and the second is the common one. A
          * `<response>` may carry no `propstat` at 200 at all; and — the
          * ordinary way a server reports a property it cannot answer, per
          * RFC 4918 — a 200 block may simply omit `getcontentlength` while
-         * a sibling block answers 404 for it. `(int) (string)` on an
-         * absent element is 0, so only an `isset()` tells them apart.
+         * a sibling block answers 404 for it. A server may also send the
+         * element empty, or non-numeric, or negative. `(int) (string)`
+         * reads every one of those as a definite size: 0 for the first
+         * three, -1 for the last. {@see bytesOrNull()} reads them as
+         * silence, and it is the same normalisation the two quota
+         * properties beside it already use — a stated `0` still means a
+         * genuinely empty file.
          *
          * A collection is null here too and that costs nothing: every
          * caller settles what a resource IS before asking how big it is.
@@ -110,7 +115,7 @@ final class WebDavResource
         return new self(
             self::decodeHref($href),
             isset($dav->resourcetype->children('DAV:')->collection),
-            isset($dav->getcontentlength) ? (int) (string) $dav->getcontentlength : null,
+            self::bytesOrNull((string) $dav->getcontentlength),
             self::contentMd5Of($properties),
             self::textOrNull((string) $dav->getlastmodified),
             self::bytesOrNull((string) $dav->{'quota-available-bytes'}),
@@ -207,12 +212,20 @@ final class WebDavResource
     }
 
     /**
-     * A quota figure, or null when the server declines to give one.
+     * A byte count, or null when the server did not state one.
      *
-     * RFC 4331 lets `quota-available-bytes` be absent, and some servers
-     * answer a negative sentinel for « no limit at all ». Both are
-     * « unknown » rather than « none »: a screen showing a reassuring
-     * zero free would be worse than showing nothing.
+     * The three size properties read here all need the same distinction,
+     * and all three cost something when it is lost. RFC 4331 lets
+     * `quota-available-bytes` be absent, and some servers answer a
+     * negative sentinel for « no limit at all »; both are « unknown »
+     * rather than « none », and a screen showing a reassuring zero free
+     * would be worse than showing nothing. `getcontentlength` is the same
+     * shape with a sharper edge: read an empty or unparsable element as a
+     * definite 0 and `ProtectedCopier` compares a real file against an
+     * announced zero, calls the copy corrupt and deletes it.
+     *
+     * A stated `0` stays `0` — an empty file is a fact a server is
+     * entitled to report.
      */
     private static function bytesOrNull(string $value): ?int
     {

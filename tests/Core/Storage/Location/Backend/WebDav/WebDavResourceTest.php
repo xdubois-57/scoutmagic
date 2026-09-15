@@ -189,8 +189,12 @@ final class WebDavResourceTest extends TestCase
         $this->assertNull(WebDavResource::parseMultiStatus($xml)[0]->contentLength);
     }
 
-    /** An empty length is silence too, not a zero-byte file. */
-    public function testAnEmptyLengthIsSilenceRatherThanZero(): void
+    /**
+     * **A stated zero IS a zero** — an empty file is a thing that exists,
+     * and the normalisation must not swallow it along with the silences
+     * around it.
+     */
+    public function testAStatedZeroIsAnEmptyFileRatherThanSilence(): void
     {
         $xml = '<?xml version="1.0"?>'
             . '<d:multistatus xmlns:d="DAV:"><d:response>'
@@ -199,8 +203,43 @@ final class WebDavResourceTest extends TestCase
             . '<d:prop><d:getcontentlength>0</d:getcontentlength></d:prop></d:propstat>'
             . '</d:response></d:multistatus>';
 
-        // A stated zero IS a zero — an empty file is a thing that exists.
         $this->assertSame(0, WebDavResource::parseMultiStatus($xml)[0]->contentLength);
+    }
+
+    /**
+     * **A length the server sent but could not fill in is silence**, and
+     * this is the shape an `isset()` guard cannot see: the element is
+     * there, inside the 200 block, and carries nothing — or carries
+     * something that is not a number at all, or a negative sentinel. Each
+     * of those read as a definite size announces a file that measures 0
+     * or -1 bytes, and `ProtectedCopier` deletes the copy it has just
+     * made for disagreeing with it.
+     *
+     * @param string $stated what the 200 block puts inside the element
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('unusableLengths')]
+    public function testALengthTheServerCouldNotStateIsSilence(string $stated): void
+    {
+        $xml = '<?xml version="1.0"?>'
+            . '<d:multistatus xmlns:d="DAV:"><d:response>'
+            . '<d:href>/dav/photo.jpg</d:href>'
+            . '<d:propstat><d:status>HTTP/1.1 200 OK</d:status>'
+            . '<d:prop><d:getcontentlength>' . $stated . '</d:getcontentlength></d:prop>'
+            . '</d:propstat>'
+            . '</d:response></d:multistatus>';
+
+        $this->assertNull(WebDavResource::parseMultiStatus($xml)[0]->contentLength);
+    }
+
+    /** @return array<string, array{string}> */
+    public static function unusableLengths(): array
+    {
+        return [
+            'present but empty' => [''],
+            'whitespace only' => ['   '],
+            'not a number' => ['unknown'],
+            'a negative sentinel' => ['-1'],
+        ];
     }
 
     /** A file the server did describe still measures what it says. */
