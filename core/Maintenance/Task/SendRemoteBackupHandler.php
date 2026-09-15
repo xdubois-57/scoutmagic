@@ -612,9 +612,13 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
             // answer must not be able to keep it on the disk.
             $discarded = $this->discardPartial($payload, $backend);
 
-            $context->journal->log('core', 'remote_backup_abandoned', 'warning',
+            $context->journal->log(
+                'core',
+                'remote_backup_abandoned',
+                'warning',
                 'Envoi hors site abandonné après plusieurs échecs consécutifs',
-                ['failures' => $failures, 'error' => $reason, 'partial_discarded' => $discarded]);
+                ['failures' => $failures, 'error' => $reason, 'partial_discarded' => $discarded]
+            );
             $this->scheduleNext($context, []);
 
             return;
