@@ -455,6 +455,115 @@ final class WebDavBackendTest extends TestCase
         $this->assertSame(['12/a.jpg'], $this->keysOf($backend->list('')));
     }
 
+    /**
+     * **The page ceiling is not a cliff.** The walk used to stop dead at
+     * `LIST_CEILING` keys and return silently, and because every page
+     * re-walks from scratch, each one drew from the same first five
+     * thousand keys — so once the cursor had passed all of them, the next
+     * page came back EMPTY with a null cursor, which `isComplete()` reads
+     * as « the whole share, seen ». A safety copy would then have treated
+     * everything past that point as gone from the source and deleted its
+     * backups.
+     *
+     * Walked here with a page of two against fifteen files, which is the
+     * same arithmetic at a size a test can hold.
+     */
+    public function testEveryObjectIsReachedEvenPastThePageCeiling(): void
+    {
+        $backend = $this->backend();
+        $expected = [];
+        foreach (range(1, 15) as $index) {
+            $key = sprintf('12/photo-%02d.jpg', $index);
+            $backend->put($key, 'x', 'image/jpeg');
+            $expected[] = $key;
+        }
+
+        $seen = [];
+        $cursor = null;
+        $pages = 0;
+        do {
+            $listing = $backend->list('', $cursor, 2);
+            $seen = array_merge($seen, $this->keysOf($listing));
+            $cursor = $listing->cursor;
+            $pages++;
+        } while ($cursor !== null && $pages < 50);
+
+        $this->assertSame($expected, $seen);
+        $this->assertSame(8, $pages, 'fifteen objects, two per page, then the page that ends it');
+    }
+
+    /** A page that lands exactly on the last object still ends the walk. */
+    public function testAPageEndingExactlyOnTheLastObjectIsComplete(): void
+    {
+        $backend = $this->backend();
+        $backend->put('12/a.jpg', 'x', 'image/jpeg');
+        $backend->put('12/b.jpg', 'x', 'image/jpeg');
+
+        $first = $backend->list('', null, 2);
+        $this->assertSame(['12/a.jpg', '12/b.jpg'], $this->keysOf($first));
+
+        // Two objects, a page of two: the page is full, so there may be
+        // more — and the next call is what says there is not.
+        if (!$first->isComplete()) {
+            $second = $backend->list('', $first->cursor, 2);
+            $this->assertSame([], $this->keysOf($second));
+            $this->assertTrue($second->isComplete());
+        }
+    }
+
+    // ———— A digest, and only where the share states one ————
+
+    /**
+     * **Nextcloud's etag is `md5(mtime . inode . dev . size)`** — thirty-two
+     * hexadecimal characters that describe an inode. Announcing it as a
+     * checksum makes `ProtectedCopier` compare it against the source's
+     * real MD5, delete the copy it has just uploaded and report the file
+     * as corrupt. On every file.
+     */
+    public function testAShareThatStatesNoDigestAnnouncesNothing(): void
+    {
+        $backend = $this->backend();
+        $backend->put('photo.jpg', 'les-octets', 'image/jpeg');
+
+        $this->assertNull($backend->announcedChecksum('photo.jpg'));
+    }
+
+    public function testAShareThatStatesADigestAnnouncesIt(): void
+    {
+        $this->share->announcesChecksums = true;
+        $backend = $this->backend();
+        $backend->put('photo.jpg', 'les-octets', 'image/jpeg');
+
+        $this->assertSame(md5('les-octets'), $backend->announcedChecksum('photo.jpg'));
+    }
+
+    // ———— How long one transfer may take ————
+
+    /**
+     * **A read is sized like a write.** The ceiling used to come from the
+     * request body alone, so every download got the flat thirty-second
+     * floor whatever it carried — and the stall guard does not cover that,
+     * since a transfer holding steady at the acceptable floor never
+     * stalls. An 8 MiB slice, which is what seeking in a video asks for,
+     * would have needed 279 kB/s sustained, on the connection this whole
+     * type exists to be usable over.
+     */
+    public function testARangedReadGetsLongerThanAShortOne(): void
+    {
+        $backend = $this->backend();
+        $backend->put('film.mp4', str_repeat('x', 40), 'video/mp4');
+        $this->share->calls = [];
+
+        $backend->getRange('film.mp4', 0, 8 * 1024 * 1024);
+
+        $ceiling = $this->share->calls[0]['ceiling'];
+        $this->assertGreaterThan(
+            60,
+            $ceiling,
+            'an 8 MiB slice cannot be given the same thirty seconds as a PROPFIND'
+        );
+    }
+
     // ———— One MKCOL per album, not one per file ————
 
     public function testAFolderIsNotCreatedAgainForEveryFileWrittenIntoIt(): void

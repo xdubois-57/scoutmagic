@@ -82,33 +82,70 @@ final class WebDavResourceTest extends TestCase
     }
 
     /**
-     * An etag is believed only where it looks like an MD5 — everywhere
-     * else it describes an inode, and comparing a file against it would
-     * report corruption on a file that is intact.
+     * **A digest is announced only where the server states one as a
+     * digest**, and never derived from the `getetag`.
      *
+     * The rule used to be « believe an etag that is thirty-two hexadecimal
+     * characters, because nothing else has that shape ». Nextcloud — the
+     * server this type is aimed at first — writes
+     * `md5(mtime . inode . dev . size)`, which has exactly that shape and
+     * describes an inode. `ProtectedCopier` compares an announced checksum
+     * against the source's real MD5 and, on a mismatch, DELETES the copy
+     * it has just uploaded and reports the file as corrupt: every file, on
+     * every pass, for a safety copy pointed at a Nextcloud.
+     *
+     * @param string $properties the `<d:prop>` contents to answer
      */
-    #[\PHPUnit\Framework\Attributes\DataProvider('etags')]
-    public function testAnEtagIsAChecksumOnlyWhenItLooksLikeOne(string $etag, ?string $expected): void
+    #[\PHPUnit\Framework\Attributes\DataProvider('checksumSources')]
+    public function testOnlyAStatedDigestIsAnnouncedAsAChecksum(string $properties, ?string $expected): void
     {
         $xml = '<?xml version="1.0"?>'
-            . '<d:multistatus xmlns:d="DAV:"><d:response>'
+            . '<d:multistatus xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns"><d:response>'
             . '<d:href>/dav/photo.jpg</d:href>'
             . '<d:propstat><d:status>HTTP/1.1 200 OK</d:status>'
-            . '<d:prop><d:getetag>' . $etag . '</d:getetag></d:prop>'
+            . '<d:prop>' . $properties . '</d:prop>'
             . '</d:propstat></d:response></d:multistatus>';
 
-        $this->assertSame($expected, WebDavResource::parseMultiStatus($xml)[0]->etag);
+        $this->assertSame($expected, WebDavResource::parseMultiStatus($xml)[0]->contentMd5);
     }
 
     /** @return array<string, array{0: string, 1: ?string}> */
-    public static function etags(): array
+    public static function checksumSources(): array
     {
+        $md5 = 'd41d8cd98f00b204e9800998ecf8427e';
+
         return [
-            'a quoted MD5 is one' => ['"d41d8cd98f00b204e9800998ecf8427e"', 'd41d8cd98f00b204e9800998ecf8427e'],
-            'an unquoted MD5 is one' => ['d41d8cd98f00b204e9800998ecf8427e', 'd41d8cd98f00b204e9800998ecf8427e'],
-            'Apache mod_dav inode-size-mtime is not' => ['"1a2b3c-1000-5f8a"', null],
-            'a Nextcloud validator is not' => ['"6a1c3f9b2e4d5a7c8b9e0f1a2b3c4d5e6"', null],
-            'a weak validator says so itself' => ['W/"d41d8cd98f00b204e9800998ecf8427e"', null],
+            // The case that made the old rule wrong: a real Nextcloud
+            // etag, thirty-two hexadecimal characters, describing an inode.
+            'a Nextcloud metadata etag that looks exactly like an MD5' => [
+                '<d:getetag>"' . md5('1740000000' . '12345' . '2049' . '8192') . '"</d:getetag>',
+                null,
+            ],
+            'an etag that IS the content MD5 is still not announced' => [
+                '<d:getetag>"' . $md5 . '"</d:getetag>',
+                null,
+            ],
+            'Apache mod_dav inode-size-mtime' => ['<d:getetag>"1a2b3c-1000-5f8a"</d:getetag>', null],
+            'no properties at all' => ['<d:getcontentlength>12</d:getcontentlength>', null],
+            'a stated MD5, alone' => [
+                '<oc:checksums><oc:checksum>MD5:' . $md5 . '</oc:checksum></oc:checksums>',
+                $md5,
+            ],
+            'a stated MD5 beside other algorithms in one element' => [
+                '<oc:checksums><oc:checksum>SHA1:da39a3ee5e6b4b0d3255bfef95601890afd80709 MD5:'
+                    . $md5 . '</oc:checksum></oc:checksums>',
+                $md5,
+            ],
+            'a stated MD5 in an element of its own' => [
+                '<oc:checksums><oc:checksum>SHA1:da39a3ee5e6b4b0d3255bfef95601890afd80709</oc:checksum>'
+                    . '<oc:checksum>MD5:' . strtoupper($md5) . '</oc:checksum></oc:checksums>',
+                $md5,
+            ],
+            'a checksums block naming no MD5' => [
+                '<oc:checksums><oc:checksum>ADLER32:0dc4028e</oc:checksum></oc:checksums>',
+                null,
+            ],
+            'an empty checksums block' => ['<oc:checksums/>', null],
         ];
     }
 

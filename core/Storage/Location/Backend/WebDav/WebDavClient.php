@@ -33,7 +33,7 @@ namespace Core\Storage\Location\Backend\WebDav;
  * above it can be.
  *
  * @phpstan-type WebDavResponse array{status: int, body: string, headers: array<string, string>}
- * @phpstan-type WebDavTransport \Closure(string, string, array<string, string>, ?string): WebDavResponse
+ * @phpstan-type WebDavTransport \Closure(string, string, array<string, string>, ?string, int): WebDavResponse
  */
 final class WebDavClient
 {
@@ -51,6 +51,14 @@ final class WebDavClient
     private const MIN_BYTES_PER_SECOND = 2048;
 
     private const STALL_SECONDS = 30;
+
+    /**
+     * The ceiling for a transfer whose size the caller cannot know —
+     * a `GET` of a whole object. Ten minutes, against the stall guard
+     * doing the real work: anything moving slower than
+     * {@see MIN_BYTES_PER_SECOND} is cut within {@see STALL_SECONDS}.
+     */
+    private const UNSIZED_CEILING = 600;
 
     /**
      * @param null|WebDavTransport $transport
@@ -88,7 +96,9 @@ final class WebDavClient
      */
     public function get(string $url, string $auth): string
     {
-        $response = $this->send('GET', $url, ['Authorization' => $auth]);
+        // Null: the length of a whole object is what this request is
+        // going to find out, so there is nothing to size a ceiling on.
+        $response = $this->send('GET', $url, ['Authorization' => $auth], null, null);
         if ($response['status'] !== 200) {
             throw self::errorFor($response['status'], 'Le fichier n\'a pas pu être lu sur le partage.');
         }
@@ -115,7 +125,7 @@ final class WebDavClient
         $response = $this->send('GET', $url, [
             'Authorization' => $auth,
             'Range' => sprintf('bytes=%d-%d', $offset, $last),
-        ]);
+        ], null, $length);
 
         if ($response['status'] === 200) {
             throw WebDavAccessException::of(
@@ -244,9 +254,13 @@ final class WebDavClient
      * nothing here reads.
      */
     private const PROPFIND_BODY = '<?xml version="1.0" encoding="utf-8"?>'
-        . '<d:propfind xmlns:d="DAV:"><d:prop>'
+        . '<d:propfind xmlns:d="DAV:" xmlns:oc="' . WebDavResource::OWNCLOUD_NS . '"><d:prop>'
         . '<d:resourcetype/><d:getcontentlength/><d:getetag/><d:getlastmodified/>'
         . '<d:quota-available-bytes/><d:quota-used-bytes/>'
+        // The one property here that is a digest of the CONTENT. A server
+        // that does not know it answers a second propstat at 404 for it,
+        // which the parser already steps over.
+        . '<oc:checksums/>'
         . '</d:prop></d:propfind>';
 
     /**
@@ -282,27 +296,55 @@ final class WebDavClient
 
     /**
      * @param array<string, string> $headers
+     * @param null|int $expectedResponseBytes how many bytes the ANSWER is
+     *        expected to carry. A ranged read knows; a status-only verb
+     *        answers nothing, which is the 0 default; **null means the
+     *        caller cannot know**, which is a `GET` of a whole object and
+     *        the one case with no figure to size a ceiling on.
      * @return WebDavResponse
      */
-    private function send(string $method, string $url, array $headers, ?string $body = null): array
-    {
+    private function send(
+        string $method,
+        string $url,
+        array $headers,
+        ?string $body = null,
+        ?int $expectedResponseBytes = 0
+    ): array {
         $transport = $this->transport ?? self::defaultTransport();
+        $moved = $expectedResponseBytes === null
+            ? null
+            : max(strlen($body ?? ''), $expectedResponseBytes);
 
-        return $transport($method, $url, $headers, $body);
+        return $transport($method, $url, $headers, $body, self::transferCeilingSeconds($moved));
     }
 
     /**
-     * How long one request may take in total, sized on what it carries
-     * rather than fixed: a flat number is a bet on the site's upstream,
-     * and this one is meant to run on a unit hall's ADSL.
+     * How long one request may take in total, sized on how many bytes it
+     * is expected to move rather than fixed: a flat number is a bet on the
+     * site's upstream, and this one is meant to run on a unit hall's ADSL.
+     *
+     * **It sizes reads too, not only writes.** It used to read the request
+     * body alone, so every download got the flat 30-second floor whatever
+     * it carried — and the stall guard does not cover that, because a
+     * transfer holding steady at the acceptable floor never stalls by that
+     * definition. An 8 MiB slice, which is what a video seek asks for,
+     * would have needed 279 kB/s sustained to finish inside 30 seconds, on
+     * the connection this whole type exists to be usable over.
+     *
+     * A `GET` of a whole object is the one case with no figure to size on:
+     * the caller learns the length from the answer. That gets
+     * {@see UNSIZED_CEILING} — finite, because an unbounded cURL in a
+     * request would hold a worker for as long as a slow server cared to
+     * keep it, and generous, because the stall guard is the real bound
+     * there.
      */
-    public static function transferCeilingSeconds(?string $body): int
+    public static function transferCeilingSeconds(?int $expectedBytes): int
     {
-        if ($body === null) {
-            return self::TIMEOUT;
+        if ($expectedBytes === null) {
+            return self::UNSIZED_CEILING;
         }
 
-        return max(self::TIMEOUT, (int) ceil(strlen($body) / self::MIN_BYTES_PER_SECOND));
+        return max(self::TIMEOUT, (int) ceil($expectedBytes / self::MIN_BYTES_PER_SECOND));
     }
 
     /**
@@ -319,7 +361,13 @@ final class WebDavClient
      */
     public static function defaultTransport(): \Closure
     {
-        return static function (string $method, string $url, array $headers, ?string $body): array {
+        return static function (
+            string $method,
+            string $url,
+            array $headers,
+            ?string $body,
+            int $ceilingSeconds
+        ): array {
             $handle = curl_init($url);
             if ($handle === false) {
                 throw WebDavAccessException::of('La requête vers le partage n\'a pas pu être préparée.');
@@ -336,7 +384,7 @@ final class WebDavClient
                 CURLOPT_HTTPHEADER => $headerLines,
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_CONNECTTIMEOUT => self::CONNECT_TIMEOUT,
-                CURLOPT_TIMEOUT => self::transferCeilingSeconds($body),
+                CURLOPT_TIMEOUT => $ceilingSeconds,
                 CURLOPT_LOW_SPEED_LIMIT => self::MIN_BYTES_PER_SECOND,
                 CURLOPT_LOW_SPEED_TIME => self::STALL_SECONDS,
                 CURLOPT_SSL_VERIFYPEER => true,

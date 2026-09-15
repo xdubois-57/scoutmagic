@@ -32,7 +32,7 @@ final class FakeWebDavServer
     /** @var list<string> */
     public array $collections = [];
 
-    /** @var list<array{method: string, url: string}> */
+    /** @var list<array{method: string, url: string, ceiling: int}> */
     public array $calls = [];
 
     /** The Authorization header of the last request, so a test can see credentials travel. */
@@ -67,6 +67,12 @@ final class FakeWebDavServer
      */
     public bool $refusePutOnce = false;
 
+    /**
+     * Whether this share states a digest as a digest — Nextcloud does
+     * when checksums are enabled, and most WebDAV servers never do.
+     */
+    public bool $announcesChecksums = false;
+
     public function __construct(
         public readonly string $baseUrl = 'https://cloud.example.org/dav/scoutmagic'
     ) {
@@ -75,12 +81,18 @@ final class FakeWebDavServer
     /**
      * The transport closure {@see \Core\Storage\Location\Backend\WebDav\WebDavClient} takes.
      *
-     * @return \Closure(string, string, array<string, string>, ?string): WebDavFakeResponse
+     * @return \Closure(string, string, array<string, string>, ?string, int): WebDavFakeResponse
      */
     public function transport(): \Closure
     {
-        return function (string $method, string $url, array $headers, ?string $body): array {
-            $this->calls[] = ['method' => $method, 'url' => $url];
+        return function (
+            string $method,
+            string $url,
+            array $headers,
+            ?string $body,
+            int $ceilingSeconds
+        ): array {
+            $this->calls[] = ['method' => $method, 'url' => $url, 'ceiling' => $ceilingSeconds];
             $this->lastAuth = $headers['Authorization'] ?? '';
 
             if ($this->connectionFails) {
@@ -239,20 +251,36 @@ final class FakeWebDavServer
     {
         return [
             'status' => 207,
-            'body' => '<?xml version="1.0"?><d:multistatus xmlns:d="DAV:">' . $entries . '</d:multistatus>',
+            'body' => '<?xml version="1.0"?><d:multistatus xmlns:d="DAV:" '
+                . 'xmlns:oc="http://owncloud.org/ns">' . $entries . '</d:multistatus>',
             'headers' => [],
         ];
     }
 
+    /**
+     * **The etag here is deliberately NOT the content's MD5.** Nextcloud
+     * writes `md5(mtime . inode . dev . size)` for a file on local
+     * storage: thirty-two hexadecimal characters that describe an inode
+     * and not the bytes. A fake that answered the content digest as its
+     * etag would let a backend believing etags look correct for ever,
+     * while against a real share every comparison failed.
+     */
     private function fileEntry(string $path): string
     {
         $contents = $this->files[$path] ?? '';
+        $metadataEtag = md5('inode:' . $path . ':' . strlen($contents));
+
+        $checksums = $this->announcesChecksums
+            ? '<oc:checksums><oc:checksum>SHA1:' . sha1($contents)
+                . ' MD5:' . md5($contents) . '</oc:checksum></oc:checksums>'
+            : '';
 
         return '<d:response><d:href>' . self::encodeHref($path) . '</d:href>'
             . '<d:propstat><d:status>HTTP/1.1 200 OK</d:status><d:prop>'
             . '<d:getcontentlength>' . strlen($contents) . '</d:getcontentlength>'
-            . '<d:getetag>"' . md5($contents) . '"</d:getetag>'
+            . '<d:getetag>"' . $metadataEtag . '"</d:getetag>'
             . '<d:getlastmodified>Mon, 03 Mar 2026 12:00:00 GMT</d:getlastmodified>'
+            . $checksums
             . '</d:prop></d:propstat></d:response>';
     }
 

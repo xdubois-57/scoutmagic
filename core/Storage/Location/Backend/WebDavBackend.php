@@ -206,7 +206,7 @@ final class WebDavBackend implements RangeReadableBackend, QuotaReportingBackend
 
         $keys = [];
         try {
-            $this->walk($prefix, $this->collectionPath(), $keys, 0);
+            $this->walk($prefix, $this->collectionPath(), $keys, 0, $cursor, $ceiling);
         } catch (WebDavAccessException $e) {
             if (!$e->isNotFound()) {
                 throw $e;
@@ -221,41 +221,71 @@ final class WebDavBackend implements RangeReadableBackend, QuotaReportingBackend
         // Sorted so that « after this key » is a stable instruction: the
         // order a server returns children in is its own business, and a
         // cursor against an unstable order skips files or repeats them.
-        ksort($keys, SORT_STRING);
+        self::keepTheSmallest($keys, $ceiling + 1);
 
-        $page = [];
-        $truncated = false;
-        foreach ($keys as $key => $object) {
-            if ($cursor !== null && strcmp((string) $key, $cursor) <= 0) {
-                continue;
-            }
-            if (count($page) >= $ceiling) {
-                $truncated = true;
-                break;
-            }
-            $page[] = $object;
-        }
+        $truncated = count($keys) > $ceiling;
+        $page = array_values(array_slice($keys, 0, $ceiling));
 
         // **A truncated page says so.** `StorageListing::isComplete()`
         // reads a null cursor as « that was everything », so returning one
         // here would stop a copy after the first page and call it done.
-        return new StorageListing($page, $truncated ? $page[count($page) - 1]->key : null);
+        return new StorageListing(
+            $page,
+            $truncated && $page !== [] ? $page[count($page) - 1]->key : null
+        );
     }
 
     /**
-     * Collects every object under one collection, recursively.
+     * Sorts what has been collected and keeps the $wanted smallest keys.
      *
-     * The depth cap is a guard and not a feature: a share that answers its
-     * own path as a child — a misconfigured proxy, a symlink loop — would
-     * otherwise walk for ever on a page an administrator is waiting on.
+     * **This is what makes the walk bounded without making it lie.** The
+     * walk used to stop dead once it held `LIST_CEILING` keys and return
+     * silently, and because each page re-walks from scratch, every page
+     * drew from the same first five thousand keys: once the cursor had
+     * passed all of them the next walk found nothing new, the page came
+     * back empty with no cursor, and `isComplete()` read that as « the
+     * whole share, seen ». `ProtectionPass` would then have treated
+     * everything past the five-thousandth object as gone from the source
+     * and deleted its backup copies.
+     *
+     * Pruning to the smallest keys instead is exactly as bounded and
+     * cannot silently drop anything: whatever is discarded here is larger
+     * than the page being built, so it belongs to a later page and a
+     * later walk — which starts after this page's last key — will find it.
+     *
+     * @param array<string, StoredObject> $keys
+     */
+    private static function keepTheSmallest(array &$keys, int $wanted): void
+    {
+        ksort($keys, SORT_STRING);
+        if (count($keys) > $wanted) {
+            $keys = array_slice($keys, 0, $wanted, true);
+        }
+    }
+
+    /**
+     * Collects every object under one collection, recursively, keeping
+     * only what could still belong to the page being built.
      *
      * @param array<string, StoredObject> $keys keyed by key, so a server
      *        that lists an entry twice yields one object
+     * @param null|string $cursor the last key already handed out; anything
+     *        at or before it belongs to a page that is already gone
+     * @param int $ceiling how many keys the page being built wants
      * @throws WebDavAccessException
      */
-    private function walk(string $prefix, string $base, array &$keys, int $depth): void
-    {
-        if ($depth > self::WALK_DEPTH_CEILING || count($keys) > self::LIST_CEILING) {
+    private function walk(
+        string $prefix,
+        string $base,
+        array &$keys,
+        int $depth,
+        ?string $cursor,
+        int $ceiling
+    ): void {
+        // The depth cap is a guard and not a feature: a share that answers
+        // its own path as a child — a misconfigured proxy, a symlink loop
+        // — would otherwise walk for ever on a page somebody is waiting on.
+        if ($depth > self::WALK_DEPTH_CEILING) {
             return;
         }
 
@@ -272,16 +302,28 @@ final class WebDavBackend implements RangeReadableBackend, QuotaReportingBackend
             }
 
             if ($resource->isCollection) {
-                $this->walk($key, $base, $keys, $depth + 1);
+                $this->walk($key, $base, $keys, $depth + 1, $cursor, $ceiling);
+                continue;
+            }
+
+            if ($cursor !== null && strcmp($key, $cursor) <= 0) {
                 continue;
             }
 
             $keys[$key] = new StoredObject(
                 $key,
                 $resource->contentLength,
-                $resource->etag,
+                $resource->contentMd5,
                 $resource->lastModified
             );
+
+            // Pruned as we go rather than at the end, so the whole share
+            // is never held at once — the point of paging at all. Twice
+            // the page is the slack that keeps the sort from running on
+            // every single entry.
+            if (count($keys) > 2 * ($ceiling + 1)) {
+                self::keepTheSmallest($keys, $ceiling + 1);
+            }
         }
     }
 
@@ -311,13 +353,16 @@ final class WebDavBackend implements RangeReadableBackend, QuotaReportingBackend
     }
 
     /**
-     * The `getetag`, but only where it is an MD5 of the content.
+     * A digest of the content when the share states one as a digest —
+     * `<oc:checksums>` — and null everywhere else.
      *
-     * {@see \Core\Storage\Location\Backend\WebDav\WebDavResource} decides
-     * that, and answers null everywhere else: an etag is an opaque
-     * validator, and `mod_dav` writes inode-size-mtime into it. A
-     * verification comparing a file against that would report corruption
-     * on a file that is intact.
+     * **Never the `getetag`.** An etag is an opaque validator, and
+     * Nextcloud's is `md5(mtime . inode . dev . size)`: 32 hexadecimal
+     * characters that describe an inode. A verification comparing a file
+     * against that finds a mismatch on every file, deletes the copy it has
+     * just made, and reports the album as corrupt.
+     * {@see \Core\Storage\Location\Backend\WebDav\WebDavResource} is
+     * where that decision lives.
      */
     public function announcedChecksum(string $key): ?string
     {
@@ -325,7 +370,7 @@ final class WebDavBackend implements RangeReadableBackend, QuotaReportingBackend
         // says nothing comparable », and a verification reads that as
         // « skip the comparison ». A share that is down would then have
         // every file pass unverified.
-        return $this->describe($key)?->etag;
+        return $this->describe($key)?->contentMd5;
     }
 
     /**

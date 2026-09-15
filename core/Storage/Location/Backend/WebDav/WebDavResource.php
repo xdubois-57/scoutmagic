@@ -25,7 +25,7 @@ final class WebDavResource
         public readonly string $href,
         public readonly bool $isCollection,
         public readonly int $contentLength = 0,
-        public readonly ?string $etag = null,
+        public readonly ?string $contentMd5 = null,
         public readonly ?string $lastModified = null,
         public readonly ?int $quotaAvailableBytes = null,
         public readonly ?int $quotaUsedBytes = null
@@ -95,7 +95,7 @@ final class WebDavResource
             self::decodeHref($href),
             isset($dav->resourcetype->children('DAV:')->collection),
             (int) (string) $dav->getcontentlength,
-            self::checksumOf((string) $dav->getetag),
+            self::contentMd5Of($properties),
             self::textOrNull((string) $dav->getlastmodified),
             self::bytesOrNull((string) $dav->{'quota-available-bytes'}),
             self::bytesOrNull((string) $dav->{'quota-used-bytes'})
@@ -114,28 +114,55 @@ final class WebDavResource
         return rawurldecode($href);
     }
 
+    /** ownCloud's and Nextcloud's namespace, where the real digest lives. */
+    public const OWNCLOUD_NS = 'http://owncloud.org/ns';
+
     /**
-     * An etag believed only when it looks like an MD5.
+     * An MD5 of the CONTENT, and only from a property that claims to be
+     * one — `<oc:checksums><oc:checksum>MD5:…</oc:checksum></oc:checksums>`.
      *
-     * **`getetag` is not a checksum and the standard never said it was.**
-     * It is an opaque validator: Nextcloud writes something of its own,
-     * Apache's `mod_dav` writes inode-size-mtime, some servers quote it
-     * and some do not. Where it happens to be a 32-character hexadecimal
-     * string it is an MD5 of the content and worth having; anywhere else,
-     * answering it as an « announced checksum » would make a verification
-     * compare a file against a number that describes an inode, and report
-     * corruption on a file that is intact.
+     * **`getetag` is not a checksum and looking like one does not make it
+     * one.** This used to answer the etag whenever it was 32 hexadecimal
+     * characters, on the reasoning that such a shape could only be an MD5
+     * of the bytes. Nextcloud — the server this type is aimed at first —
+     * writes `md5(mtime . inode . dev . size)` for a file on local
+     * storage: 32 hexadecimal characters that describe an inode. Handing
+     * that over as an announced checksum makes `ProtectedCopier` compare
+     * it against the source's real MD5, find a mismatch, **delete the copy
+     * it has just uploaded** and report the file as corrupt — on every
+     * file, so a safety copy to a Nextcloud would never finish and would
+     * say the whole album was damaged.
+     *
+     * So nothing is announced unless the server states a digest as a
+     * digest. Where it does not, the verification falls back to comparing
+     * sizes, which is exactly what it already does for an S3 multipart
+     * ETag.
      */
-    private static function checksumOf(string $etag): ?string
+    private static function contentMd5Of(\SimpleXMLElement $properties): ?string
     {
-        $value = strtolower(trim($etag, " \t\n\r\0\x0B\"'"));
-        // Some servers suffix a weak-validator marker; a weak etag says
-        // outright that it does not describe the bytes exactly.
-        if (str_starts_with($value, 'w/')) {
+        // `children()` answers null for an element carrying nothing in
+        // that namespace at all, which is every server that does not know
+        // this property — the ordinary case, not an exception.
+        $owncloud = $properties->children(self::OWNCLOUD_NS);
+        if ($owncloud === null || !isset($owncloud->checksums)) {
+            return null;
+        }
+        $stated = $owncloud->checksums->children(self::OWNCLOUD_NS);
+        if ($stated === null) {
             return null;
         }
 
-        return preg_match('/^[0-9a-f]{32}$/', $value) === 1 ? $value : null;
+        // One element per algorithm on some servers, all of them
+        // space-separated inside one element on others.
+        foreach ($stated->checksum as $entry) {
+            foreach (preg_split('/\s+/', trim((string) $entry)) ?: [] as $candidate) {
+                if (preg_match('/^md5:([0-9a-f]{32})$/i', $candidate, $matches) === 1) {
+                    return strtolower($matches[1]);
+                }
+            }
+        }
+
+        return null;
     }
 
     private static function textOrNull(string $value): ?string
