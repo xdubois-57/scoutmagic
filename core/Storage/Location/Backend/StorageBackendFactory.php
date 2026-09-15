@@ -9,10 +9,12 @@ declare(strict_types=1);
 namespace Core\Storage\Location\Backend;
 
 use Core\Storage\Location\Backend\Drive\GoogleDriveClient;
+use Core\Storage\Location\Backend\WebDav\WebDavClient;
 use Core\Storage\Location\Config\GoogleDriveLocationConfig;
 use Core\Storage\Location\Config\GoogleDriveSecret;
 use Core\Storage\Location\Config\LocalLocationConfig;
 use Core\Storage\Location\Config\ObjectStorageLocationConfig;
+use Core\Storage\Location\Config\WebDavLocationConfig;
 use Core\Storage\Location\StorageLocation;
 use Core\Storage\Location\StorageLocationException;
 use Core\Storage\Location\StorageLocationRepository;
@@ -70,6 +72,17 @@ class StorageBackendFactory
                 $config->accessKey,
                 $this->repository->getSecret($location->id) ?? '',
                 $config->publicUrl
+            );
+        }
+
+        if ($config instanceof WebDavLocationConfig) {
+            // The password is read here and nowhere else, like every other
+            // credential: the strict reader, because this builds a backend
+            // that is about to talk to the share.
+            return new WebDavBackend(
+                new WebDavClient(),
+                $config,
+                $this->repository->getSecret($location->id) ?? ''
             );
         }
 
