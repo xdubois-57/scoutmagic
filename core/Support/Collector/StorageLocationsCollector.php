@@ -10,6 +10,7 @@ namespace Core\Support\Collector;
 
 use Core\Storage\Location\Config\LocalLocationConfig;
 use Core\Storage\Location\Config\ObjectStorageLocationConfig;
+use Core\Storage\Location\Config\WebDavLocationConfig;
 use Core\Storage\Location\StorageLocation;
 use Core\Storage\Location\StorageLocationConsumerRegistry;
 use Core\Storage\Location\StorageLocationRepository;
@@ -229,6 +230,16 @@ class StorageLocationsCollector implements SupportCollectorInterface
 
         if ($config instanceof ObjectStorageLocationConfig) {
             return ($config->provider ?? 'point de terminaison personnalisé') . ' / ' . $config->bucket;
+        }
+
+        if ($config instanceof WebDavLocationConfig) {
+            // **The host, and deliberately not the rest of the address.**
+            // `describe()` stops at the hostname; the path below it names
+            // the account on the share (`…/dav/files/marie.dupont/…`),
+            // which is exactly the kind of thing §11 keeps out of a
+            // package that goes to somebody else. Which cloud the unit
+            // uses is what a diagnosis needs.
+            return $config->describe();
         }
 
         return $location->type->value;

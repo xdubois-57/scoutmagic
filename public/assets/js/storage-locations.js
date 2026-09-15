@@ -103,12 +103,24 @@
     // IT-05 had to change: `isS3` was a two-type answer, so adding Google
     // Drive to the picker would have shown the local folder field for it
     // — the branch nobody thinks to re-read when a third case appears.
-    var typeBlocks = {
-        local: document.querySelector('.storage-location-local'),
-        s3: document.querySelector('.storage-location-s3'),
-        google_drive: document.querySelector('.storage-location-google_drive'),
-    };
+    //
+    // And the map is now READ OFF the radios rather than written out, which
+    // is what IT-06 had to change: a hand-written map is the same trap one
+    // step further along. WebDAV would have had a radio, a fieldset, and no
+    // entry — so picking it would have shown nothing at all, on a form whose
+    // every other type works. The radios come from
+    // StorageLocationType::cases(), so a type added to the enum arrives here
+    // on its own.
     var typeRadios = document.querySelectorAll('input[name="type"]');
+    /** @type {Record<string, Element|null>} */
+    var typeBlocks = {};
+    typeRadios.forEach(function (r) {
+        var value = /** @type {HTMLInputElement} */ (r).value;
+        // The values are the enum's own, but they land in a selector, so
+        // only the shape an enum value has is allowed through.
+        if (!/^[a-z0-9_]+$/.test(value)) return;
+        typeBlocks[value] = document.querySelector('.storage-location-' + value);
+    });
 
     function syncType() {
         var checked = /** @type {HTMLInputElement} */ (document.querySelector('input[name="type"]:checked'));

@@ -48,6 +48,9 @@
                             <input type="radio" class="btn-check" name="type" id="storage-google-drive" value="google_drive" autocomplete="off"
                                    {{ location and location.type.value == 'google_drive' ? 'checked' : '' }} {{ location ? 'disabled' : '' }}>
                             <label class="btn btn-outline-primary" for="storage-google-drive"><i class="bi bi-google" aria-hidden="true"></i> Google Drive</label>
+                            <input type="radio" class="btn-check" name="type" id="storage-webdav" value="webdav" autocomplete="off"
+                                   {{ location and location.type.value == 'webdav' ? 'checked' : '' }} {{ location ? 'disabled' : '' }}>
+                            <label class="btn btn-outline-primary" for="storage-webdav"><i class="bi bi-hdd-network" aria-hidden="true"></i> WebDAV</label>
                         </fieldset>
                         {% if location %}
                             {# Disabled radios don't submit their value — resend it as a hidden field so the type is preserved. #}
@@ -293,6 +296,66 @@
                                 ensuite, depuis sa fiche.
                             </p>
                         {% endif %}
+                    </div>
+                </div>
+
+                {# ————— WebDAV: an address, a username, a password —————
+
+                   No second screen and no round trip: unlike Drive, everything
+                   this type needs is on this form, which is the reason it is
+                   here at all. #}
+                <div class="storage-location-webdav row g-3 mt-1">
+                    <div class="col-12">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'webdav-url',
+                            field_name: 'webdav_url',
+                            label: 'Adresse du partage',
+                            type: 'url',
+                            value: location and location.type.value == 'webdav' ? location.config.baseUrl : '',
+                            placeholder: 'https://cloud.example.org/remote.php/dav/files/unite/scoutmagic',
+                            help: 'L\'adresse https du dossier où ce site écrira. Nextcloud la donne dans « Paramètres › Personnel › Général », en bas de page.',
+                            size: 'sm',
+                        } only %}
+                    </div>
+
+                    <div class="col-12 col-md-6">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'webdav-username',
+                            field_name: 'webdav_username',
+                            label: 'Nom d\'utilisateur',
+                            value: location and location.type.value == 'webdav' ? location.config.username : '',
+                            autocomplete: 'off',
+                            size: 'sm',
+                        } only %}
+                    </div>
+
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small" for="webdav-password">Mot de passe</label>
+                        <input type="password" class="form-control form-control-sm" id="webdav-password"
+                               name="webdav_password" autocomplete="new-password"
+                               aria-describedby="webdav-password-help"
+                               placeholder="{{ location and location.type.value == 'webdav' and location.secretConfigured ? '••••••••' : '' }}">
+                        <div class="form-text" id="webdav-password-help">
+                            {% if location and location.type.value == 'webdav' and location.secretConfigured %}
+                                Laisser vide pour conserver le mot de passe actuel.
+                            {% else %}
+                                La plupart des hébergeurs demandent ici un mot de passe d'application, créé dans
+                                les réglages de sécurité du compte, et non le mot de passe de connexion.
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    {# Information, not a red warning: this is a consequence
+                       of the type chosen, not an operator mistake. #}
+                    <div class="col-12">
+                        <p class="small text-body-secondary mb-0">
+                            <i class="bi bi-info-circle" aria-hidden="true"></i>
+                            Un partage WebDAV ne sert rien directement aux visiteurs : chaque photo et chaque
+                            vidéo est lue par ce serveur, puis transmise. Les vidéos restent parcourables,
+                            contrairement à Google Drive. Sur un hébergement mutualisé modeste, un album très
+                            consulté fait donc travailler ce serveur davantage qu'un stockage objet, qui lui
+                            répond directement au visiteur.
+                        </p>
                     </div>
                 </div>
             </div>

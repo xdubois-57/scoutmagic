@@ -4280,6 +4280,22 @@ So the installed application offers, once, a small dialog: « Activer les notifi
 
 **`public/assets/js/push-subscribe.js` is where subscribing lives now**, for both surfaces. The base64url-to-`Uint8Array` conversion, the permission request, `pushManager.subscribe()` and the POST are the same act whoever asked for it, and the invitation would have been a second copy of all four. Every function there resolves a **status string** rather than throwing (`'enabled'`/`'denied'`/`'error'`, `'disabled'`/`'error'`): both callers have to tell a browser's refusal — nothing broke, nothing to retry — apart from something that actually failed, in order to say the right sentence, and neither has anything to do with an exception.
 
+### 8.112 A WebDAV share as a storage location (`Core\Storage\Location\Backend\WebDavBackend`)
+
+The type that asks the least of a unit: **an address, a username, a password.** No developer console, no OAuth application to register, no consent screen to publish and re-publish. Nextcloud, kDrive, a Hetzner Storage Box and Koofr all speak it, and a unit that already has one of those is a minute away from using it.
+
+**A client written by hand, in curl, and no new Composer dependency.** `Backend\WebDav\WebDavClient` covers five verbs — `PROPFIND`, `PUT`, `GET` (with `Range:`), `DELETE`, `MKCOL` — which is the whole of what a storage backend needs from the protocol. The transport is an injectable closure, the same testability seam `GoogleDriveClient` uses (§8.104), so the suite exercises the real client against a share that keeps what it is given rather than against a mock that agrees with it.
+
+**`getRange()` refuses a 200 outright.** RFC 9110 lets a server ignore a `Range:` it does not implement and answer the whole object, and a client that took that at face value would return a whole film where a five-byte slice was asked for — a memory sink that looks like a working seek. The refusal is what turns that into a named error instead.
+
+**`getetag` is a validator, not a checksum.** `announcedChecksum()` returns the etag only when it is 32 hex characters, normalised to lowercase, and never for a weak (`W/`) one: the format is not normalised, most servers derive it from inode and mtime, and a comparison against an MD5 computed here would silently report every file as differing. Nothing is better than something that is wrong in the one place this value is read — reconciling a copy against its source (§8.110).
+
+**Three guards in the `PROPFIND` parser**, each verified in both directions by the suite: a doctype is refused before the document is parsed at all (XXE), only the `propstat` whose status carries ` 200 ` is read (a server that answers 404 for a property it does not carry must not zero the ones it does), and `href` is decoded with `rawurldecode()` rather than `urldecode()`, which would turn a `+` in a filename into a space.
+
+**Capabilities: range read yes, quota yes** (RFC 4331 `quota-available-bytes`), **signed URL no.** That last « no » is where the real work is, and the answer was not to write a serving path: `directUrl()` and `stableDirectUrl()` return null by contract, `MediaService::resolveUrl()` falls back to the site's own route, and `GalleryController::serveMedia()` chains `serveRange()` → `localPath()` → `get()` exactly as it already did for the local disk (§8.107). Nothing in the gallery is WebDAV-aware. What the administrator is told on the form is the consequence of that, as an information and not a red warning: every photo and every video is read by this server and passed on, videos remain seekable — unlike Drive — and a much-visited album makes a modest shared host work harder than an object store would.
+
+**No refusal quotes the transport.** `testConnection()` catches the named access error *and* any other `RuntimeException` the transport raised, answering a French sentence of its own; curl's words would name the host, the collection and the resolved address. `deletePrefix('')` returns early rather than walking the share root, which is the operator's own folder and not this site's to empty.
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php

@@ -25,6 +25,7 @@ use Core\Storage\Location\Config\GoogleDriveSecret;
 use Core\Storage\Location\Config\LocalLocationConfig;
 use Core\Storage\Location\Config\LocationConfig;
 use Core\Storage\Location\Config\ObjectStorageLocationConfig;
+use Core\Storage\Location\Config\WebDavLocationConfig;
 use Core\Storage\Location\Diagnostics\ObjectStorageErrorExplainer;
 use Core\Storage\Location\Diagnostics\ObjectStorageTestFailure;
 use Core\Storage\Location\StorageLocation;
@@ -153,6 +154,164 @@ class StorageConfigControllerTest extends TestCase
         $this->assertCount(1, $locations);
         $this->assertSame(StorageLocationType::ObjectStorage, $locations[0]->type);
         $this->assertTrue($locations[0]->secretConfigured);
+    }
+
+    // ————— WebDAV (IT-06) —————
+
+    public function testStoreCreatesAWebDavLocation(): void
+    {
+        $response = $this->controller->store($this->formRequest([
+            'type' => 'webdav', 'label' => 'Nextcloud de l\'unité',
+            'webdav_url' => 'https://example.org/remote.php/dav/files/unite/scoutmagic',
+            'webdav_username' => 'unite', 'webdav_password' => 'mot-de-passe-application',
+        ]), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $locations = $this->repository->findAll();
+        $this->assertCount(1, $locations);
+        $this->assertSame(StorageLocationType::WebDav, $locations[0]->type);
+        $config = $locations[0]->config;
+        $this->assertInstanceOf(WebDavLocationConfig::class, $config);
+        $this->assertSame(
+            'https://example.org/remote.php/dav/files/unite/scoutmagic',
+            $config->baseUrl
+        );
+        $this->assertSame('unite', $config->username);
+        $this->assertTrue($locations[0]->secretConfigured);
+    }
+
+    /**
+     * **The address is normalised at the door, not at every join.**
+     * `…/scoutmagic` and `…/scoutmagic/` would otherwise name two
+     * different collections once a key is appended to each.
+     */
+    public function testAWebDavAddressIsStoredWithoutItsTrailingSlash(): void
+    {
+        $this->controller->store($this->formRequest([
+            'type' => 'webdav', 'label' => 'Avec barre finale',
+            'webdav_url' => 'https://example.org/dav/scoutmagic/',
+            'webdav_username' => 'unite', 'webdav_password' => 'secret',
+        ]), []);
+
+        $config = $this->repository->findAll()[0]->config;
+        $this->assertInstanceOf(WebDavLocationConfig::class, $config);
+        $this->assertSame('https://example.org/dav/scoutmagic', $config->baseUrl);
+    }
+
+    /**
+     * **A username and a password travel on this address on every single
+     * request**, so the gate is the S3 endpoint's, for the S3 endpoint's
+     * reasons: plain http would put the credentials on the wire in clear,
+     * and a private address would make this site fetch whatever an
+     * operator — or somebody who talked one into it — pointed it at.
+     *
+     * @return list<array{string}>
+     */
+    public static function refusedWebDavAddresses(): array
+    {
+        return [
+            'plain http' => ['http://example.org/dav'],
+            'the loopback interface' => ['https://127.0.0.1/dav'],
+            'a private range' => ['https://192.168.1.10/dav'],
+            'the cloud metadata address' => ['https://169.254.169.254/dav'],
+            'not an address at all' => ['pas-une-adresse'],
+            'nothing' => [''],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('refusedWebDavAddresses')]
+    public function testStoreRefusesAWebDavAddressThisSiteMustNotSendCredentialsTo(string $url): void
+    {
+        $response = $this->controller->store($this->formRequest([
+            'type' => 'webdav', 'label' => 'Refusé',
+            'webdav_url' => $url, 'webdav_username' => 'unite', 'webdav_password' => 'secret',
+        ]), []);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame([], $this->repository->findAll());
+        $this->assertStringContainsString('https publique', $response->getBody());
+    }
+
+    /**
+     * The edit form leaves the password field blank — « laisser vide pour
+     * conserver le mot de passe actuel » — so a save that changes only the
+     * address must not blank the credential out from under the backend.
+     */
+    public function testUpdatingAWebDavLocationWithoutRetypingThePasswordKeepsIt(): void
+    {
+        $id = $this->declareWebDav('Nextcloud');
+
+        $response = $this->controller->update($this->formRequest([
+            'label' => 'Nextcloud', 'webdav_url' => 'https://example.org/dav/ailleurs',
+            'webdav_username' => 'unite', 'webdav_password' => '',
+        ]), ['id' => (string) $id]);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $location = $this->repository->findById($id);
+        $this->assertNotNull($location);
+        $this->assertTrue($location->secretConfigured);
+        $this->assertSame('mot-de-passe-application', $this->repository->getSecret($id));
+        $config = $location->config;
+        $this->assertInstanceOf(WebDavLocationConfig::class, $config);
+        $this->assertSame('https://example.org/dav/ailleurs', $config->baseUrl);
+    }
+
+    public function testUpdatingAWebDavLocationWithANewPasswordReplacesIt(): void
+    {
+        $id = $this->declareWebDav('Nextcloud');
+
+        $this->controller->update($this->formRequest([
+            'label' => 'Nextcloud', 'webdav_url' => 'https://example.org/dav/scoutmagic',
+            'webdav_username' => 'unite', 'webdav_password' => 'le-nouveau',
+        ]), ['id' => (string) $id]);
+
+        $this->assertSame('le-nouveau', $this->repository->getSecret($id));
+    }
+
+    /**
+     * **D3 again: the form says what the choice costs, not what the
+     * protocol does.** WebDAV serves nothing to the visitor directly —
+     * every photo and every video is read by this server and passed on —
+     * and that is a sentence about the evening the album is shared, not
+     * about `range_read`.
+     */
+    public function testTheCreationFormOffersWebDavAndSaysWhatItCosts(): void
+    {
+        $body = $this->controller->create(
+            new Request('GET', '/config/stockage/emplacements/nouveau', [], [], [], []),
+            []
+        )->getBody();
+
+        $this->assertStringContainsString('value="webdav"', $body);
+        $this->assertStringContainsString('name="webdav_url"', $body);
+        $this->assertStringContainsString('name="webdav_username"', $body);
+        $this->assertStringContainsString('name="webdav_password"', $body);
+        $this->assertStringContainsString('est lue par ce serveur, puis transmise', $body);
+        // An information, not a red warning (roadmap, IT-06): choosing a
+        // share is not a mistake to be told off for.
+        $this->assertStringNotContainsString('alert-danger', $body);
+        $this->assertStringNotContainsString('range_read', $body);
+    }
+
+    /**
+     * The password is in the encrypted column and it stays there (D7). A
+     * placeholder says one is set; the value itself never reaches the page.
+     */
+    public function testTheEditFormShowsThatAPasswordIsSetWithoutShowingIt(): void
+    {
+        $id = $this->declareWebDav('Nextcloud');
+
+        $body = $this->controller->edit(
+            new Request('GET', '/config/stockage/emplacements/' . $id, [], [], [], []),
+            ['id' => (string) $id]
+        )->getBody();
+
+        $this->assertStringContainsString('mot de passe actuel', $body);
+        $this->assertStringNotContainsString('mot-de-passe-application', $body);
+        $this->assertStringContainsString(
+            'https://example.org/remote.php/dav/files/unite/scoutmagic',
+            $body
+        );
     }
 
     public function testStoreRejectsADuplicateLabel(): void
@@ -1799,6 +1958,19 @@ class StorageConfigControllerTest extends TestCase
                 'refresh_token' => 'le-jeton-de-rafraichissement',
                 'account' => 'unite@example.org',
             ])
+        );
+    }
+
+    private function declareWebDav(string $label = 'Nextcloud'): int
+    {
+        return $this->repository->create(
+            StorageLocationType::WebDav,
+            $label,
+            new WebDavLocationConfig(
+                'https://example.org/remote.php/dav/files/unite/scoutmagic',
+                'unite'
+            ),
+            'mot-de-passe-application'
         );
     }
 

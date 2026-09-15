@@ -12,6 +12,7 @@ use Core\Storage\Location\Backend\StorageBackendFactory;
 use Core\Storage\Location\Config\LocalLocationConfig;
 use Core\Storage\Location\Config\LocationConfig;
 use Core\Storage\Location\Config\ObjectStorageLocationConfig;
+use Core\Storage\Location\Config\WebDavLocationConfig;
 use Core\Storage\Location\StorageLocation;
 use Core\Storage\Location\StorageLocationConsumer;
 use Core\Storage\Location\StorageLocationConsumerRegistry;
@@ -220,6 +221,32 @@ class StorageLocationsCollectorTest extends TestCase
         $this->assertStringNotContainsString('fsn1.endpoint-a-ne-pas-ecrire.test', $report);
         $this->assertStringContainsString('hetzner', $report, 'The provider answers the same question.');
         $this->assertStringContainsString('photos-de-lunite', $report, 'The bucket is not the target on its own.');
+    }
+
+    /**
+     * **A share's address is a host plus the account it belongs to.** The
+     * path under a Nextcloud is literally `…/dav/files/{login}/…`, and a
+     * login is very often somebody's name — the same promise the absolute
+     * path above keeps, one type further along. The host answers the
+     * diagnostic question on its own: which cloud the unit is on.
+     */
+    public function testItNamesTheShareHostAndNotTheAccountUnderIt(): void
+    {
+        $this->repository->create(
+            StorageLocationType::WebDav,
+            'Nextcloud de l\'unité',
+            new WebDavLocationConfig(
+                'https://cloud.exemple.test/remote.php/dav/files/marie.dupont/scoutmagic',
+                'marie.dupont'
+            ),
+            'MOT-DE-PASSE-A-NE-JAMAIS-ECRIRE'
+        );
+
+        $report = $this->collect();
+
+        $this->assertStringContainsString('cloud.exemple.test', $report);
+        $this->assertStringNotContainsString('marie.dupont', $report);
+        $this->assertStringNotContainsString('MOT-DE-PASSE-A-NE-JAMAIS-ECRIRE', $report);
     }
 
     /**
