@@ -30,12 +30,7 @@
                     <h5 class="card-title"><i class="bi bi-people" aria-hidden="true"></i> Staff d'Unité</h5>
                     <ul class="list-unstyled mb-0">
                         {% for member in staffdu_staff %}
-                            <li>
-                                {{ (member.firstName ~ ' ' ~ member.lastName)|normalize_name }}
-                                {% if member.totem %}
-                                    <span class="text-body-secondary">({{ member.totem|normalize_totem }})</span>
-                                {% endif %}
-                            </li>
+                            <li>{{ member|display_name_full }}</li>
                         {% endfor %}
                     </ul>
                 </div>
