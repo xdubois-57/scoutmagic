@@ -35,10 +35,25 @@ use Core\Attention\AttentionPointProvider;
  */
 final class OperationalAttentionProvider implements AttentionPointProvider
 {
-    /** @param array<string, string> $labels alert key => French surface name */
+    /** The destination that suits eleven of the twelve checks. */
+    private const DEFAULT_WHY = 'Le site l\'a signalé aux administrateurs et le répète ici tant que c\'est '
+        . 'vrai. La page Maintenance en dit le détail.';
+
+    private const DEFAULT_ACTION_LABEL = 'Ouvrir la maintenance';
+
+    private const DEFAULT_ACTION_URL = '/config/maintenance';
+
+    /**
+     * @param array<string, string> $labels alert key => French surface name
+     * @param array<string, array{path: string, label: string, why: string}> $destinations
+     *        the alerts that need somewhere other than the maintenance
+     *        page — see {@see AlertSurfaces::destinations()}, which is
+     *        also where the reason each one is an exception is written.
+     */
     public function __construct(
         private readonly OperationalAlertRepository $repository,
-        private readonly array $labels = []
+        private readonly array $labels = [],
+        private readonly array $destinations = []
     ) {
     }
 
@@ -63,12 +78,22 @@ final class OperationalAttentionProvider implements AttentionPointProvider
         foreach ($this->repository->findTriggered() as $alert) {
             $surface = $this->labels[$alert->alertKey] ?? null;
 
+            // Issue #352 — this page used to send every alert to the
+            // maintenance page, whatever the check itself had to say. For
+            // « Le site est servi en HTTP » that was a dead end: the
+            // maintenance page restates the reading, and the reading was
+            // never the problem. The check's own `actionUrl` could not
+            // help, because it only ever reaches the notification — and
+            // the installations this concerns cannot earn a fresh
+            // notification without first applying the fix they are trying
+            // to find.
+            $destination = $this->destinations[$alert->alertKey] ?? null;
+
             $points[] = new AttentionPoint(
                 title: $this->title($alert, $surface),
-                why: 'Le site l\'a signalé aux administrateurs et le répète ici tant que c\'est vrai. '
-                    . 'La page Maintenance en dit le détail.',
-                actionLabel: 'Ouvrir la maintenance',
-                actionUrl: '/config/maintenance',
+                why: $destination['why'] ?? self::DEFAULT_WHY,
+                actionLabel: $destination['label'] ?? self::DEFAULT_ACTION_LABEL,
+                actionUrl: $destination['path'] ?? self::DEFAULT_ACTION_URL,
                 severity: AttentionPoint::SEVERITY_URGENT
             );
         }

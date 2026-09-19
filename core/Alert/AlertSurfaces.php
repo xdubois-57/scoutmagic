@@ -43,4 +43,44 @@ final class AlertSurfaces
             Check\DeferredMailBacklogCheck::KEY => 'Messages différés',
         ];
     }
+
+    /**
+     * The alerts whose attention point must NOT send the reader to the
+     * maintenance page, and where it sends them instead.
+     *
+     * **Only the exceptions are listed.** For eleven of the twelve checks
+     * the maintenance page is the right destination — it is where the
+     * disk figure, the backup age and the cron stamp all live, so a
+     * reader arrives at the thing the alert is about. The twelfth is the
+     * one issue #352 is about: « Le site est servi en HTTP » has two
+     * causes calling for opposite gestures, and the maintenance page only
+     * restates the reading the reader has just read. It needs the help
+     * topic that can tell the two apart.
+     *
+     * This map exists for the same reason {@see labels()} does, and it is
+     * not a duplicate of what the check declares: the check's own
+     * `AlertReading` reaches the **notification**, which
+     * {@see OperationalAlertService::notify()} sends once, on the
+     * armed→triggered transition. {@see OperationalAttentionProvider}
+     * renders stored rows and constructs no check, so nothing a check
+     * returns can reach it. An installation already sitting on a
+     * triggered alert — precisely #352's population, which cannot re-arm
+     * before applying the fix the topic explains — would otherwise never
+     * see the new destination on either surface.
+     *
+     * The values are `const` on the checks themselves, so this cannot
+     * drift from what the notification says without failing to compile.
+     *
+     * @return array<string, array{path: string, label: string, why: string}>
+     */
+    public static function destinations(): array
+    {
+        return [
+            Check\HttpsCheck::KEY => [
+                'path' => Check\HttpsCheck::HELP_PATH,
+                'label' => Check\HttpsCheck::HELP_LABEL,
+                'why' => Check\HttpsCheck::ATTENTION_WHY,
+            ],
+        ];
+    }
 }
