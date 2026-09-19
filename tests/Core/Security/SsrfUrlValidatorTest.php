@@ -103,19 +103,91 @@ class SsrfUrlValidatorTest extends TestCase
      * than becoming a refusal, which is the whole point of the stored
      * check being softer than the save-time one: the request it runs
      * before cannot reach anything either.
+     *
+     * **That leniency is conditional, and the condition is stated here
+     * rather than left to the machine.** « Nothing resolved » is only
+     * evidence when the lookup was the one the request will make, i.e.
+     * `getaddrinfo()` through ext-sockets. Without that extension the two
+     * remaining lookups are narrower than cURL's, the silence means
+     * nothing, and the stored check refuses instead of guessing.
      */
     public function testAHostNothingCanAnswerForIsNotCalledPrivate(): void
     {
         $this->assertFalse(
             SsrfUrlValidator::resolvesOutsideThePublicInternet('partage-inexistant.example.org')
         );
-        $this->assertTrue(
-            SsrfUrlValidator::isStoredHttpsTargetStillSafe('https://partage-inexistant.example.org/dav')
+        $this->assertSame(
+            extension_loaded('sockets'),
+            SsrfUrlValidator::isStoredHttpsTargetStillSafe('https://partage-inexistant.example.org/dav'),
+            'an unresolvable host is tolerated only where we resolve as the client does'
         );
 
         // The save-time check stays strict about it: an address nobody can
         // resolve is not one to write down.
         $this->assertFalse(SsrfUrlValidator::isPublicHttpsUrl('https://partage-inexistant.example.org/dav'));
+    }
+
+    /**
+     * **The IPv6 half of the same gap, which was a live hole.**
+     *
+     * `gethostbyname()` closed the NSS gap for IPv4 only. A name carrying
+     * nothing but an IPv6 address in `/etc/hosts` was invisible to it AND
+     * to `dns_get_record()`, so the stored check saw no address at all,
+     * called that « unresolved », and returned safe — after which cURL
+     * resolved the same name through `getaddrinfo()` and sent the share's
+     * password to it in an `Authorization: Basic` header. Reproduced with
+     * `fd00::1` before the fix.
+     *
+     * Only `getaddrinfo()` sees every source the client will, so that is
+     * what the validator asks now.
+     */
+    public function testANameCarryingOnlyAPrivateIpv6InNssIsRefused(): void
+    {
+        $name = self::aNameOnlyReachableAsPrivateIpv6();
+        if ($name === null) {
+            self::markTestSkipped(
+                'no IPv6-only NSS name on this machine to exercise it with '
+                . '(the fix is in addressesOf(); this asserts it end to end)'
+            );
+        }
+
+        $this->assertTrue(SsrfUrlValidator::resolvesOutsideThePublicInternet($name));
+        $this->assertFalse(SsrfUrlValidator::isStoredHttpsTargetStillSafe('https://' . $name . '/dav'));
+    }
+
+    /**
+     * A host this machine resolves ONLY to a non-public IPv6 address, and
+     * only through the system resolver — the exact shape the bug needed.
+     * Null when this machine has none, which is the ordinary case.
+     */
+    private static function aNameOnlyReachableAsPrivateIpv6(): ?string
+    {
+        if (!function_exists('socket_addrinfo_lookup')) {
+            return null;
+        }
+
+        foreach (['ip6-localhost', 'ip6-loopback'] as $candidate) {
+            if (@dns_get_record($candidate, DNS_A) || @dns_get_record($candidate, DNS_AAAA)) {
+                continue;
+            }
+            if (@gethostbyname($candidate) !== $candidate) {
+                continue;
+            }
+
+            $found = @socket_addrinfo_lookup($candidate, '443', [
+                'ai_family' => AF_INET6,
+                'ai_socktype' => SOCK_STREAM,
+            ]);
+            foreach (is_array($found) ? $found : [] as $one) {
+                $address = socket_addrinfo_explain($one)['ai_addr'] ?? null;
+                $ip = is_array($address) ? ($address['sin6_addr'] ?? null) : null;
+                if (is_string($ip) && $ip !== '' && !SsrfUrlValidator::isPublicIp($ip)) {
+                    return $candidate;
+                }
+            }
+        }
+
+        return null;
     }
 
     /** The structural refusals are the same on both checks. */

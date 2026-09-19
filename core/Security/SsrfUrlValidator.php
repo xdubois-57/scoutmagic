@@ -131,21 +131,28 @@ final class SsrfUrlValidator
      * Every address $host resolves to, or the literal when it is already
      * one. Empty when nothing could answer for it.
      *
-     * **Two resolvers, because the clients use the second one.**
-     * `dns_get_record()` speaks the DNS protocol and only that: it never
-     * consults `/etc/hosts` or any other NSS source. cURL and the library
-     * clients go through `getaddrinfo()`, which does. A host known only to
-     * `/etc/hosts` — `localhost`, a container alias — therefore answered
-     * « nothing resolves » here while the request that followed connected
-     * to it perfectly well, which turns this whole check into a formality
-     * for exactly the addresses it exists to refuse.
+     * **Resolve the way the client that follows will resolve.** This check
+     * only means something if it sees what cURL will see, and cURL calls
+     * `getaddrinfo()`. `dns_get_record()` speaks the DNS protocol and only
+     * that — it never consults `/etc/hosts` or any other NSS source — so a
+     * host known only to NSS answered « nothing resolves » here while the
+     * request that followed connected to it perfectly well, which turns
+     * the whole check into a formality for exactly the addresses it exists
+     * to refuse.
      *
-     * `gethostbyname()` is the NSS-backed lookup PHP exposes, and it is
-     * IPv4-only: an NSS entry that is IPv6-only is the one shape this
-     * still cannot see. Closing that would mean pinning the validated
-     * address for the connection itself rather than resolving twice, which
-     * is a decision for this whole family rather than one caller
-     * (SECURITY.md §17).
+     * `gethostbyname()` reads NSS but is **IPv4-only**, and that gap was a
+     * live hole rather than a theoretical one: a name carrying a single
+     * `fd00::1` in `/etc/hosts` was invisible to both of the lookups this
+     * used to do, so {@see isStoredHttpsTargetStillSafe()} called it safe
+     * and the share's password travelled to a private address in an
+     * `Authorization: Basic` header.
+     *
+     * So `socket_addrinfo_lookup()` — PHP's own `getaddrinfo()`, both
+     * families — is asked first and is the one that matters; the other two
+     * stay because they cost nothing and still answer when ext-sockets is
+     * absent. When it IS absent we cannot see what the client will see,
+     * and {@see canSeeWhatTheClientSees()} says so rather than letting
+     * this pretend otherwise.
      *
      * @return list<string>
      */
@@ -155,15 +162,22 @@ final class SsrfUrlValidator
             return [$host];
         }
 
+        $ips = [];
+
+        foreach (self::throughGetaddrinfo($host) as $ip) {
+            if (!in_array($ip, $ips, true)) {
+                $ips[] = $ip;
+            }
+        }
+
         $records = array_merge(
             @dns_get_record($host, DNS_A) ?: [],
             @dns_get_record($host, DNS_AAAA) ?: []
         );
 
-        $ips = [];
         foreach ($records as $record) {
             $ip = ($record['type'] ?? null) === 'AAAA' ? ($record['ipv6'] ?? null) : ($record['ip'] ?? null);
-            if (is_string($ip) && $ip !== '') {
+            if (is_string($ip) && $ip !== '' && !in_array($ip, $ips, true)) {
                 $ips[] = $ip;
             }
         }
@@ -177,6 +191,65 @@ final class SsrfUrlValidator
             && !in_array($system, $ips, true)
         ) {
             $ips[] = $system;
+        }
+
+        return $ips;
+    }
+
+    /**
+     * Whether this installation can resolve the way its HTTP clients do.
+     *
+     * Only `getaddrinfo()` answers for every source the connecting client
+     * will consult. Without ext-sockets the two DNS/IPv4 lookups left are
+     * strictly narrower than what cURL does, so a « nothing resolved » here
+     * stops being evidence of anything — which is what
+     * {@see isStoredHttpsTargetStillSafe()} reads this for.
+     */
+    private static function canSeeWhatTheClientSees(): bool
+    {
+        return function_exists('socket_addrinfo_lookup')
+            && function_exists('socket_addrinfo_explain');
+    }
+
+    /**
+     * `getaddrinfo()` for both families, or nothing when ext-sockets is
+     * not installed.
+     *
+     * The service argument is required — the lookup returns nothing at all
+     * without one — and `443` is right for every caller here, all of which
+     * vet an https target. The resolved address sits under a family-shaped
+     * key, `sin_addr` for IPv4 and `sin6_addr` for IPv6.
+     *
+     * @return list<string>
+     */
+    private static function throughGetaddrinfo(string $host): array
+    {
+        if (!self::canSeeWhatTheClientSees()) {
+            return [];
+        }
+
+        $ips = [];
+        foreach ([AF_INET, AF_INET6] as $family) {
+            $found = @socket_addrinfo_lookup($host, '443', [
+                'ai_family' => $family,
+                'ai_socktype' => SOCK_STREAM,
+            ]);
+            if (!is_array($found)) {
+                continue;
+            }
+
+            foreach ($found as $one) {
+                $explained = socket_addrinfo_explain($one);
+                $address = $explained['ai_addr'] ?? null;
+                if (!is_array($address)) {
+                    continue;
+                }
+
+                $ip = $address['sin_addr'] ?? $address['sin6_addr'] ?? null;
+                if (is_string($ip) && $ip !== '') {
+                    $ips[] = $ip;
+                }
+            }
         }
 
         return $ips;
@@ -209,6 +282,16 @@ final class SsrfUrlValidator
             return false;
         }
         if (!$allowCustomPort && ($parts['port'] ?? 443) !== 443) {
+            return false;
+        }
+
+        // « Nothing resolved » is only an acceptable answer when we looked
+        // with the resolver the request itself will use. Without it, the
+        // silence says nothing about where cURL would go, and sending the
+        // share's credentials on that basis is the hole this exists to
+        // close — so the lenient branch is the one that goes away, not the
+        // check.
+        if (self::addressesOf($host) === [] && !self::canSeeWhatTheClientSees()) {
             return false;
         }
 
