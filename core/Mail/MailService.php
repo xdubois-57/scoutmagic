@@ -174,20 +174,7 @@ class MailService
         ?string $fromAddressOverride = null,
         ?string $fromNameOverride = null,
         array $extraHeaders = [],
-        MailPurpose $purpose = MailPurpose::Ordinary,
-        /**
-         * Does this send count as evidence that the site writes to this
-         * address (roadmap IT-05)?
-         *
-         * True for every message the site decides to send. False for the
-         * one kind it sends to an address nobody has yet shown they can
-         * read: the confirmation of a newly claimed secondary address.
-         *
-         * **Deliberately not a `MailPurpose` case.** That enum is a
-         * delivery category and says so — a fourth case there would mean
-         * a fourth lane and a third chain to configure.
-         */
-        bool $countsAsProofOfSend = true
+        MailPurpose $purpose = MailPurpose::Ordinary
     ): void {
         $mail = new PHPMailer(true);
 
@@ -286,28 +273,20 @@ class MailService
             // yet. `recordSend()` also settles the PREVIOUS send, which
             // is why it is this call and not `stampReceipt()`.
             //
-            // **And a receipt is what lets a bounce naming this address
-            // be believed, so one send must not mint it.** `addEmail()`
-            // lets any signed-in member claim any syntactically valid
-            // address as a `pending` row — that is what claiming an
-            // address IS — and the confirmation that follows is a send
-            // the claimant chose the target of. Stamped, it would lower
-            // the forgery gate from « no account needed » to « any
-            // account needed »: claim a victim's address, deliver a
-            // forged report, delete and re-claim, deliver a second, and
-            // the address is cut off site-wide.
+            // **A receipt is what lets a bounce naming this address be
+            // believed, and `recordSend()` decides for itself whether
+            // this one earns one.** It stamps only for an address the
+            // site already holds — a confirmed `member_emails` row or a
+            // `user_accounts` row — never for one a visitor supplied.
             //
-            // Refusing it costs nothing real. A `pending` address is
-            // never resolved for a mailing
-            // (`resolveValidAddressesForMassMail()` keeps `valid` rows
-            // only), so the only message it can receive is this
-            // confirmation — and a bounce on it protects no send that
-            // was ever going to happen. Confirming the address is itself
-            // proof the mailbox reads, and from then on every send
-            // stamps normally.
-            if ($countsAsProofOfSend) {
-                $this->sendReceipts?->recordSend($to, new \DateTimeImmutable());
-            }
+            // That question deliberately does NOT live here as a
+            // parameter. It was tried: a `$countsAsProofOfSend` flag,
+            // defaulting to « yes ». A security default that fails open,
+            // which 42 call sites had to remember and the deferred-mail
+            // queue silently dropped on replay. Derived from the address,
+            // it cannot be forgotten by a caller that does not know the
+            // rule exists.
+            $this->sendReceipts?->recordSend($to, new \DateTimeImmutable());
         } catch (Transport\LaneExhaustedException $e) {
             // A lane with nothing left is not a refusal: nobody has said
             // no to this message, the road is simply shut. So it is kept

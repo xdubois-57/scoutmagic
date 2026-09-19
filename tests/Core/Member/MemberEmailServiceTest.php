@@ -539,7 +539,10 @@ class MemberEmailServiceTest extends TestCase
     {
         $now = new \DateTimeImmutable('2026-09-19 10:00:00');
         // The unit wrote to this address first — a bounce for one it
-        // never wrote to is refused (see `mail_send_receipts`).
+        // never wrote to is refused (see `mail_send_receipts`) — and the
+        // address is one the site holds, since a receipt is stamped for
+        // no other kind.
+        DatabaseTestHelper::markAddressOnFile($this->pdo, $email);
         $this->bounceStates->recordSend($email, $now->modify('-1 hour'));
         $state = $this->bounceStates->record(
             $email,

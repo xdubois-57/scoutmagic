@@ -116,8 +116,7 @@ class EmailTemplateControllerTest extends TestCase
                 ?string $fromAddressOverride = null,
                 ?string $fromNameOverride = null,
                 array $extraHeaders = [],
-                \Core\Mail\MailPurpose $purpose = \Core\Mail\MailPurpose::Ordinary,
-                bool $countsAsProofOfSend = true
+                \Core\Mail\MailPurpose $purpose = \Core\Mail\MailPurpose::Ordinary
             ): void {
                 $this->sent[] = ['to' => $to, 'subject' => $subject, 'html' => $bodyHtml, 'text' => $bodyText];
             }

@@ -38,6 +38,12 @@ class BounceServiceTest extends TestCase
         );
         $this->told = [];
         $this->clock = new \DateTimeImmutable('2026-09-19 08:00:00');
+        // The addresses these tests write to are ones the site holds:
+        // `recordSend()` stamps a receipt only for those, so a fixture
+        // that skipped this would be exercising the refusal instead.
+        foreach (['parent@exemple.be', 'un@exemple.be', 'deux@exemple.be', 'jamais@exemple.be'] as $onFile) {
+            \Tests\DatabaseTestHelper::markAddressOnFile($this->pdo, $onFile);
+        }
 
         $this->bounces = new BounceService(
             $this->states,
@@ -83,6 +89,7 @@ class BounceServiceTest extends TestCase
      */
     private function bounce(string $status, string $email = 'parent@exemple.be'): ?BounceState
     {
+        \Tests\DatabaseTestHelper::markAddressOnFile($this->pdo, $email);
         $this->clock = $this->clock->modify('+1 hour');
         $this->bounces->recordSend($email, $this->clock);
 
@@ -98,6 +105,7 @@ class BounceServiceTest extends TestCase
      */
     private function tick(string $email = 'parent@exemple.be'): \DateTimeImmutable
     {
+        \Tests\DatabaseTestHelper::markAddressOnFile($this->pdo, $email);
         $this->clock = $this->clock->modify('+1 hour');
         $this->bounces->recordSend($email, $this->clock);
 

@@ -243,8 +243,30 @@ class BounceStateRepository
      * keeping one would grow a table with an entry per address the unit
      * has ever written to.
      */
-    public function recordSend(string $email, \DateTimeImmutable $now): void
+    public function recordSend(string $email, \DateTimeImmutable $now, bool $vouchedFor = false): void
     {
+        // **Who the site writes to is DERIVED, never declared.** A receipt
+        // is what lets a bounce naming an address be believed, so minting
+        // one for an address a visitor typed hands the forgery gate to
+        // whoever asked: claim it or post it into a public form, deliver a
+        // forged report, repeat.
+        //
+        // An earlier attempt said this with a parameter on
+        // `MailService::send()`, defaulting to « yes, this vouches ». That
+        // was the wrong shape twice over — a security default that fails
+        // OPEN, and one that 42 call sites had to remember, plus the
+        // deferred-mail queue which replays a message without carrying it.
+        // Every path missed was a hole, and several were.
+        //
+        // So the question is asked of the ADDRESS instead: is this one the
+        // site already holds? `$vouchedFor` exists for the one case that
+        // cannot be: a mailing-list address a staff member entered, which
+        // lives in a module's table and which the module vouches for
+        // itself at its own send.
+        if (!$vouchedFor && !$this->isOnFile($email)) {
+            return;
+        }
+
         $this->stampReceipt($email, $now);
 
         $existing = $this->find($email);
@@ -275,6 +297,43 @@ class BounceStateRepository
             );
             $statement->execute([$now->format('Y-m-d H:i:s'), $existing->id]);
         }
+    }
+
+    /**
+     * Does the site already hold this address, rather than having been
+     * handed it just now?
+     *
+     * A confirmed `member_emails` row or a `user_accounts` row: the two
+     * core places an address earns its way into before the site writes to
+     * it of its own accord. Both index under the shared `'email'` purpose,
+     * which is what makes one lookup answer for both.
+     *
+     * `status = 'valid'` and not merely « present »: `addEmail()` accepts
+     * any syntactically valid address as a `pending` row from any signed-in
+     * member — that is what claiming an address IS — and a claim is not
+     * proof. The confirmation sent to such a row therefore mints nothing,
+     * and nothing real is lost, since a `pending` address is never resolved
+     * for a mailing and that confirmation is the only message it can ever
+     * receive.
+     */
+    private function isOnFile(string $email): bool
+    {
+        $blindIndex = $this->encryption->blindIndex(
+            EncryptionService::normalizeEmailForIndex($email),
+            self::BLIND_INDEX_PURPOSE
+        );
+
+        $statement = $this->pdo->prepare(
+            "SELECT 1
+               FROM member_emails
+              WHERE email_blind_index = ? AND status = 'valid'
+              UNION ALL
+             SELECT 1 FROM user_accounts WHERE email_blind_index = ?
+              LIMIT 1"
+        );
+        $statement->execute([$blindIndex, $blindIndex]);
+
+        return $statement->fetchColumn() !== false;
     }
 
     /** When this site last wrote to this address, or null if it never has. */

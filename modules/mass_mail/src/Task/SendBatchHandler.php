@@ -190,12 +190,26 @@ class SendBatchHandler implements TaskHandlerInterface
                     \Core\Mail\MailPurpose::Bulk
                 );
                 $recipientRepository->recordSendSuccess($recipient->id);
-                // No bounce receipt is stamped here any more (roadmap
-                // IT-05). `Core\Mail\MailService::send()` does it for
-                // every message the site sends, this one included —
-                // stamping it again here would be a second writer of one
-                // fact, and the mailing is not the only way an address
-                // gets written to.
+                // **The module vouches for its own list addresses**
+                // (roadmap IT-05). `Core\Mail\MailService::send()` stamps
+                // a bounce receipt by itself, but only for an address the
+                // CORE already holds — a confirmed `member_emails` row or
+                // a `user_accounts` row — because an address the site was
+                // merely handed must not vouch for itself.
+                //
+                // A custom mailing-list address is neither, and it lives
+                // in a table this module owns, which core cannot read
+                // (§7.5). It is also not something a visitor typed: a
+                // staff member entered it. So the module says so here,
+                // for its own recipients, and nothing else has to know
+                // the rule.
+                //
+                // Harmless for a member recipient, whose receipt core
+                // stamped a moment ago: one address is one receipt, and
+                // the settling clock is set by the first send after a
+                // bounce and left alone by the rest.
+                (new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $context->encryption))
+                    ->recordSend($recipient->emailAddress, new \DateTimeImmutable(), true);
                 // One line per copy that actually left — see
                 // Service\MassMailService::journalRecipientSent(). The
                 // batch summary below stays, but it answers a different

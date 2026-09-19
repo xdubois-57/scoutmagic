@@ -1594,14 +1594,25 @@ c'est ce qu'est revendiquer une adresse — et la confirmation qui suit
 partait par le même `send()` qui pose les preuves. Le verrou tombait donc
 de « aucun compte nécessaire » à « n'importe quel compte » : revendiquer
 l'adresse d'un tiers, déposer un faux rapport, supprimer et revendiquer,
-déposer un second, et l'adresse était coupée pour tout le site. `send()`
-prend désormais `countsAsProofOfSend`, faux pour cette confirmation et
-pour elle seule. Ce n'est **pas** un cas de `MailPurpose` : cette
-énumération est une catégorie d'acheminement et le dit, un quatrième cas y
-signifierait une quatrième voie. Rien de réel n'est perdu : une adresse
-`pending` n'est jamais résolue pour un envoi groupé, donc cette
-confirmation est le seul message qu'elle puisse recevoir, et la confirmer
-prouve déjà que la boîte se lit.
+déposer un second, et l'adresse était coupée pour tout le site. Le premier correctif a
+ajouté à `send()` un drapeau `countsAsProofOfSend`, faux pour cette
+confirmation — et c'était la mauvaise forme deux fois : **une valeur par
+défaut de sécurité qui échoue en mode ouvert**, que 42 sites d'appel
+devaient penser à poser, et que la file des messages différés perdait au
+rejeu puisqu'elle ne la transporte pas. Le relecteur a trouvé les deux :
+le jumeau du module `registration`, et trois formulaires publics où un
+visiteur anonyme suffisait.
+
+La question est donc posée à l'**adresse** et non à l'appelant : une
+preuve n'est enregistrée que pour une adresse que le site détient déjà —
+ligne `member_emails` confirmée, ou ligne `user_accounts`. Un appelant qui
+n'a jamais entendu parler de la règle ne peut plus la casser, et le rejeu
+différé se referme tout seul. Rien de réel n'est perdu : une adresse que
+le site ne détient pas est une adresse à laquelle il n'écrira pas non
+plus, donc un rebond enregistré contre elle ne protège aucun envoi à
+venir. La seule qui échappe à la déduction est l'adresse d'une liste de
+diffusion, qui vit dans la table d'un module et qu'un membre du staff a
+saisie : ce module s'en porte garant lui-même, à son propre envoi.
 
 **Et la branche « adresse suspendue » du publipostage n'avait aucun test.**
 C'est le seul trou que le filtre côté membre ne peut pas couvrir, puisque

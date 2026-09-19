@@ -361,7 +361,10 @@ class OutboundMailCollectorTest extends TestCase
     {
         $now = new \DateTimeImmutable('2026-09-19 10:00:00');
         foreach (['un@gmail.com', 'deux@gmail.com', 'trois@exemple.be'] as $email) {
-            $this->bounceStates->recordSend($email, $now->modify('-1 hour'));
+            // Vouched for: these fixtures stand in for addresses the unit
+            // writes to, and `recordSend()` stamps a receipt only for one
+            // the site holds on file.
+            $this->bounceStates->recordSend($email, $now->modify('-1 hour'), true);
             $state = $this->bounceStates->record(
                 $email,
                 \Core\Mail\Feedback\Bounce\BounceCategory::NoSuchAddress,

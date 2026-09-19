@@ -286,7 +286,11 @@ class ListAddressFlowTest extends TestCase
         $this->addressService->add($this->listId, 'Commune', 'jeunesse@wavre.be');
 
         $t = new \DateTimeImmutable('2026-03-01 09:00:00');
-        $this->bounceStates->recordSend('jeunesse@wavre.be', $t);
+        // Vouched for by the module, as `SendBatchHandler` does for its
+        // own recipients: a list address is one a staff member entered,
+        // it lives in a table the core cannot read, and so the core's
+        // « is this address on file? » cannot answer for it.
+        $this->bounceStates->recordSend('jeunesse@wavre.be', $t, true);
         $state = $this->bounceStates->record(
             'jeunesse@wavre.be',
             \Core\Mail\Feedback\Bounce\BounceCategory::NoSuchAddress,

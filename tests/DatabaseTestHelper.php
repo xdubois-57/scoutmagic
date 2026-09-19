@@ -852,4 +852,33 @@ class DatabaseTestHelper
 
         return $pdo;
     }
+
+    /**
+     * Put an address on the site's books, the way a bounce receipt now
+     * requires before it will vouch for one.
+     *
+     * `BounceStateRepository::recordSend()` stamps a receipt only for an
+     * address the site already holds — a confirmed `member_emails` row or
+     * a `user_accounts` row — because an address a visitor merely handed
+     * it must not vouch for itself. A fixture that sends to an address
+     * nobody has ever heard of is therefore testing the refusal, which is
+     * rarely what it means to test.
+     */
+    public static function markAddressOnFile(\PDO $pdo, string $email): void
+    {
+        $encryption = new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $blindIndex = $encryption->blindIndex(
+            \Core\Security\EncryptionService::normalizeEmailForIndex($email),
+            'email'
+        );
+
+        $existing = $pdo->prepare('SELECT 1 FROM user_accounts WHERE email_blind_index = ?');
+        $existing->execute([$blindIndex]);
+        if ($existing->fetchColumn() !== false) {
+            return;
+        }
+
+        $pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)')
+            ->execute([$encryption->encrypt($email, 'user_accounts.email'), $blindIndex]);
+    }
 }

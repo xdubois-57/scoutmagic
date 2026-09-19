@@ -57,6 +57,12 @@ class BounceStateRepositoryTest extends TestCase
         string $code,
         \DateTimeImmutable $now
     ): \Core\Mail\Feedback\Bounce\BounceState {
+        // On the site's books, because a receipt is stamped only for an
+        // address the site already holds. A fixture that skipped this
+        // would be exercising that refusal rather than the counting —
+        // which `testABounceForAnAddressWeNeverWroteToIsRefused` does
+        // deliberately, and on purpose does NOT come through here.
+        DatabaseTestHelper::markAddressOnFile($this->pdo, $email);
         $this->states->recordSend($email, $now->modify('-1 minute'));
 
         $state = $this->states->record($email, $category, $severity, $code, $now);
@@ -227,7 +233,9 @@ class BounceStateRepositoryTest extends TestCase
 
         // Deliberately NOT through bounce(): this test drives the
         // timeline itself, and the helper's own send would be an extra
-        // event in the middle of the sequence being measured.
+        // event in the middle of the sequence being measured — so the
+        // address goes on file here instead.
+        DatabaseTestHelper::markAddressOnFile($this->pdo, 'parent@exemple.be');
         $this->states->recordSend('parent@exemple.be', $t);
         $this->states->record(
             'parent@exemple.be',
@@ -413,6 +421,7 @@ class BounceStateRepositoryTest extends TestCase
 
     public function testASendIsRememberedEvenWhenNothingBounces(): void
     {
+        DatabaseTestHelper::markAddressOnFile($this->pdo, 'bonne@exemple.be');
         $this->states->recordSend('bonne@exemple.be', $this->now());
 
         $this->assertNotNull($this->states->lastSendAt('bonne@exemple.be'));

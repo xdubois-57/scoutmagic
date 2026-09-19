@@ -419,7 +419,10 @@ class OutboundMailControllerTest extends TestCase
     private function blockOne(string $email = 'parent@exemple.be'): int
     {
         $now = new \DateTimeImmutable('2026-09-19 10:00:00');
-        $this->bounceStates->recordSend($email, $now->modify('-1 hour'));
+        // Vouched for: these fixtures stand in for addresses the unit
+        // writes to, and `recordSend()` stamps a receipt only for one
+        // the site holds on file.
+        $this->bounceStates->recordSend($email, $now->modify('-1 hour'), true);
         $state = $this->bounceStates->record(
             $email,
             \Core\Mail\Feedback\Bounce\BounceCategory::NoSuchAddress,

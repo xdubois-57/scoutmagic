@@ -4233,30 +4233,43 @@ What it deliberately does not refuse is the sequence the feature exists
 for: send, bounce, send, bounce, blocked. Each send re-opens the door for
 exactly one answer.
 
-*One send is deliberately exempt: the confirmation of a newly claimed
-address.* `MemberEmailService::addEmail()` accepts any syntactically
-valid address as a `pending` row from any signed-in member — that is what
-claiming an address is, and the unique index is per member, so naming
-somebody else's succeeds. If the confirmation that follows stamped a
-receipt, the claim would stand in for proof that the site writes there,
-and the forgery gate would fall from « no account needed » to « any
-account needed »: claim the address, deliver a forged report, delete and
-re-claim, deliver a second, and it is cut off site-wide. `send()` takes
-`$countsAsProofOfSend` for this — deliberately not a `MailPurpose` case,
-which is a delivery category and would mean another lane. Nothing real is
-lost: a `pending` address is never resolved for a mailing, so that
-confirmation is the only message it can receive, and confirming it is
-itself proof the mailbox reads.
+*A receipt is stamped only for an address the site already holds, and
+that question is asked of the ADDRESS rather than of the caller.*
+`recordSend()` looks for a confirmed `member_emails` row or a
+`user_accounts` row — the two places an address earns its way into before
+the site writes to it of its own accord. `status = 'valid'` and not merely
+present, because `addEmail()` accepts any syntactically valid address as a
+`pending` row from any signed-in member: that is what claiming an address
+IS, and a claim is not proof.
 
-*Every other send stamps a receipt, and the stamping lives in
-`Core\Mail\MailService::send()`.* That is the single point every message
-passes through, the confirmation of a freshly typed address as much as a
-mailing, and it is stamped after `deliver()` returns — a refused message
-wrote nothing, a deferred one has not written yet. Stamped in the mailing
-task alone, as it first was, an installation without `mass_mail` could
-never block anything while its Rebonds page went on promising it would,
-and a mistyped address refused on its very first confirmation mail — the
-likeliest real bounce there is — would be the one the site threw away.
+Without that, minting a receipt is a way in. Claim a victim's address,
+deliver a forged report, delete and re-claim, deliver a second, and it is
+cut off site-wide — and several public forms mail a visitor-supplied
+address with no account at all. **This was first written as a
+`$countsAsProofOfSend` parameter on `send()`, defaulting to « yes ».** A
+security default that fails open, which 42 call sites had to remember and
+which the deferred-mail queue dropped on replay, since it neither carries
+the flag in its payload nor passes it back. Derived from the address, a
+caller that has never heard of the rule cannot break it.
+
+Nothing real is lost by refusing the rest: an address the site does not
+hold is one it will not write to again either, so a bounce recorded
+against it protects no send that was ever going to happen. Confirming an
+address is itself proof the mailbox reads, and from then on every send to
+it stamps normally.
+
+The one address that cannot be derived this way is a custom mailing-list
+address: it belongs to a module's table, which the core cannot read
+(§7.5), and it was entered by a staff member rather than typed by a
+visitor. So `Modules\MassMail\Task\SendBatchHandler` vouches for its own
+recipients explicitly, at its own send, and nothing else has to know.
+
+*The stamping itself lives in `Core\Mail\MailService::send()`*, the one
+point every message on the site passes through, right after
+`transport->deliver()` returns — a refused message wrote nothing, and a
+deferred one has not written yet. Stamped in the mailing task alone, as it
+first was, an installation without `mass_mail` could never block anything
+while its Rebonds page went on promising it would.
 
 *The receipt upsert asks whether the row exists rather than reading
 `rowCount()`.* This application does not set `PDO::MYSQL_ATTR_FOUND_ROWS`,

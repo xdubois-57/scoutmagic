@@ -45,6 +45,7 @@ class BounceConsumerTest extends TestCase
         // The unit wrote to this address. Without that receipt the bounce
         // below is refused, which is the point of
         // `testAForgedBounceForAnAddressWeNeverWroteToIsRefused`.
+        DatabaseTestHelper::markAddressOnFile($this->pdo, 'parent@exemple.be');
         $this->states->recordSend('parent@exemple.be', new \DateTimeImmutable('2026-09-19 08:00:00'));
     }
 

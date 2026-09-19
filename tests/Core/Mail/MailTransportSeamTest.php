@@ -251,10 +251,10 @@ class MailTransportSeamTest extends TestCase
 
     // ── the send receipt, and the one send that must not mint one ─────
 
-    private function receiptsOverFreshDatabase(): \Core\Mail\Feedback\Bounce\BounceStateRepository
+    private function receiptsOver(\PDO $pdo): \Core\Mail\Feedback\Bounce\BounceStateRepository
     {
         return new \Core\Mail\Feedback\Bounce\BounceStateRepository(
-            \Tests\DatabaseTestHelper::createTestDatabase(),
+            $pdo,
             new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
         );
     }
@@ -275,13 +275,29 @@ class MailTransportSeamTest extends TestCase
         );
     }
 
-    /**
-     * An ordinary message is the site deciding to write somewhere, so it
-     * is evidence a bounce naming that address can be believed.
-     */
-    public function testAnOrdinarySendIsNotedAsProofTheSiteWroteThere(): void
+    private function addressOnFile(\PDO $pdo, string $email): void
     {
-        $receipts = $this->receiptsOverFreshDatabase();
+        $encryption = new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)')
+            ->execute([
+                $encryption->encrypt($email, 'user_accounts.email'),
+                $encryption->blindIndex(
+                    \Core\Security\EncryptionService::normalizeEmailForIndex($email),
+                    'email'
+                ),
+            ]);
+    }
+
+    /**
+     * A message to an address the site already holds is the site deciding
+     * to write somewhere, so it is evidence a bounce naming that address
+     * can be believed.
+     */
+    public function testASendToAnAddressOnFileIsNotedAsProof(): void
+    {
+        $pdo = \Tests\DatabaseTestHelper::createTestDatabase();
+        $receipts = $this->receiptsOver($pdo);
+        $this->addressOnFile($pdo, 'parent@exemple.be');
 
         $this->serviceWithReceipts($this->recordingTransport(), $receipts)
             ->send('parent@exemple.be', 'Sujet', '<p>x</p>', 'x');
@@ -290,27 +306,28 @@ class MailTransportSeamTest extends TestCase
     }
 
     /**
-     * **But the confirmation of a newly claimed address is not.** Any
-     * signed-in member can name any address in `addEmail()` — that is
-     * what claiming one is — and this is the message that follows.
-     * Minting a receipt here would let the claim stand in for proof the
-     * site writes there, and a forged delivery-status report naming the
-     * same address would then be credited against somebody else's
-     * mailbox.
+     * **But an address the site was merely handed vouches for nothing**,
+     * and nothing at the call site has to remember that.
      *
-     * Nothing real is lost: a `pending` address is never resolved for a
-     * mailing, so this confirmation is the only message it can receive.
+     * This covers the confirmation of a freshly claimed secondary address
+     * — any signed-in member can name any address there — and equally the
+     * public forms that mail a visitor-supplied address, and the
+     * deferred-mail queue replaying either of them. An earlier attempt
+     * put the decision in a `send()` parameter defaulting to « yes »:
+     * 42 call sites had to remember it and the deferred queue dropped it
+     * on replay. Derived from the address, there is nothing to forget.
      */
-    public function testTheConfirmationOfAClaimedAddressIsNotProofOfAnything(): void
+    public function testASendToAnAddressTheSiteWasMerelyHandedIsNotProof(): void
     {
-        $receipts = $this->receiptsOverFreshDatabase();
+        $pdo = \Tests\DatabaseTestHelper::createTestDatabase();
+        $receipts = $this->receiptsOver($pdo);
 
         $this->serviceWithReceipts($this->recordingTransport(), $receipts)
-            ->send('victime@exemple.be', 'Confirmez', '<p>x</p>', 'x', countsAsProofOfSend: false);
+            ->send('victime@exemple.be', 'Confirmez', '<p>x</p>', 'x');
 
         $this->assertNull(
             $receipts->lastSendAt('victime@exemple.be'),
-            'claiming an address must not vouch for it.'
+            'an address nobody has proven vouches for nothing.'
         );
     }
 
@@ -320,7 +337,9 @@ class MailTransportSeamTest extends TestCase
      */
     public function testARefusedSendNotesNothing(): void
     {
-        $receipts = $this->receiptsOverFreshDatabase();
+        $pdo = \Tests\DatabaseTestHelper::createTestDatabase();
+        $receipts = $this->receiptsOver($pdo);
+        $this->addressOnFile($pdo, 'parent@exemple.be');
         $refusing = new class implements MailTransportInterface {
             public function deliver(PHPMailer $mail, MailPurpose $purpose): void
             {

@@ -141,11 +141,16 @@ class BounceSendReceiptMysqlTest extends TestCase
     {
         $sameSecond = new \DateTimeImmutable('2026-09-19 10:00:00');
 
-        $this->states->recordSend('parent@exemple.be', $sameSecond);
-        $this->states->recordSend('parent@exemple.be', $sameSecond);
+        // Vouched for, because this test is about the upsert and not
+        // about who the site writes to: the `isOnFile()` lookup that
+        // normally answers that reads two core tables this fixture
+        // deliberately does not build, and stubbing them would put a
+        // second thing under test.
+        $this->states->recordSend('parent@exemple.be', $sameSecond, true);
+        $this->states->recordSend('parent@exemple.be', $sameSecond, true);
         // And the same mailbox reached under a different spelling, which
         // is how two siblings' rows actually differ.
-        $this->states->recordSend('PARENT@Exemple.BE', $sameSecond);
+        $this->states->recordSend('PARENT@Exemple.BE', $sameSecond, true);
 
         $this->assertSame(
             '2026-09-19 10:00:00',
@@ -161,8 +166,8 @@ class BounceSendReceiptMysqlTest extends TestCase
     /** And a later send still moves the date forward. */
     public function testALaterSendReplacesTheStoredDate(): void
     {
-        $this->states->recordSend('parent@exemple.be', new \DateTimeImmutable('2026-09-19 10:00:00'));
-        $this->states->recordSend('parent@exemple.be', new \DateTimeImmutable('2026-09-20 11:30:00'));
+        $this->states->recordSend('parent@exemple.be', new \DateTimeImmutable('2026-09-19 10:00:00'), true);
+        $this->states->recordSend('parent@exemple.be', new \DateTimeImmutable('2026-09-20 11:30:00'), true);
 
         $this->assertSame(
             '2026-09-20 11:30:00',
