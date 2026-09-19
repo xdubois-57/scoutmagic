@@ -23,6 +23,7 @@ function renderLocationForm(locationId = '') {
     document.head.innerHTML = '<meta name="csrf-token" content="tok">';
     document.body.innerHTML = `
         <div class="storage-location-local"></div>
+        <div class="storage-location-google_drive"></div>
         <div class="storage-location-s3">
             <select id="s3-provider"><option value="custom" selected>Personnalisé</option></select>
             <input id="s3-endpoint" value="https://s3.example.org">
@@ -45,6 +46,58 @@ function renderLocationsTable() {
         </tr></tbody></table>
     `;
 }
+
+/**
+ * Which block of fields the type picker shows.
+ *
+ * **The reason this has a test of its own is that it used to be a
+ * boolean.** `isS3` answered for exactly two types, so a third — Google
+ * Drive, in IT-05 — would have been shown the LOCAL folder field, which
+ * is the branch nobody re-reads when a case is added.
+ */
+describe('storage-locations.js type picker', () => {
+    function renderTypePicker(checked) {
+        document.head.innerHTML = '<meta name="csrf-token" content="tok">';
+        document.body.innerHTML = `
+            <input type="radio" name="type" value="local" ${checked === 'local' ? 'checked' : ''}>
+            <input type="radio" name="type" value="s3" ${checked === 's3' ? 'checked' : ''}>
+            <input type="radio" name="type" value="google_drive" ${checked === 'google_drive' ? 'checked' : ''}>
+            <div class="storage-location-local"></div>
+            <div class="storage-location-s3"></div>
+            <div class="storage-location-google_drive"></div>
+        `;
+    }
+
+    function shown() {
+        return ['local', 's3', 'google_drive'].filter(
+            (type) => !document.querySelector(`.storage-location-${type}`).classList.contains('d-none'),
+        );
+    }
+
+    beforeEach(() => {
+        vi.restoreAllMocks();
+        document.head.innerHTML = '';
+        document.body.innerHTML = '';
+    });
+
+    it.each(['local', 's3', 'google_drive'])('shows only the %s block', async (type) => {
+        renderTypePicker(type);
+        await loadScript();
+
+        expect(shown()).toEqual([type]);
+    });
+
+    it('follows the picker when the administrator changes their mind', async () => {
+        renderTypePicker('local');
+        await loadScript();
+
+        const drive = document.querySelector('input[value="google_drive"]');
+        drive.checked = true;
+        drive.dispatchEvent(new Event('change'));
+
+        expect(shown()).toEqual(['google_drive']);
+    });
+});
 
 describe('storage-locations.js test-connection', () => {
     beforeEach(() => {

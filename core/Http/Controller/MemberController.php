@@ -53,7 +53,10 @@ class MemberController extends AbstractController
         // proves the visitor is logged in; canAccess() is what actually
         // scopes this page to "chief/admin, or the member themselves".
         if (!$this->memberService->canAccess($userEmail, $memberYearId, $userRole)) {
-            return new Response('Forbidden', 403);
+            return $this->forbidden(
+                "Cette fiche n'est consultable que par la personne concernée et par les animateurs.",
+                $request
+            );
         }
 
         try {

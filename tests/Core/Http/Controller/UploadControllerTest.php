@@ -95,6 +95,10 @@ class UploadControllerTest extends TestCase
         // asset() is what base.html.twig references every static file through
         // (Core\View\TwigFactory); the bare path is enough for a test render.
         $twig->addFunction(new \Twig\TwigFunction('asset', static fn (string $path): string => $path));
+        // base.html.twig puts the token in a <meta>, and a refused
+        // upload renders errors/403.html.twig through it now rather
+        // than answering the bare word "Forbidden" (issue #347).
+        $twig->addFunction(new \Twig\TwigFunction('csrf_token', static fn (): string => 'token'));
         $twig->addFunction(new \Twig\TwigFunction('csrf_field', fn() => '', ['is_safe' => ['html']]));
         $twig->addFunction(new \Twig\TwigFunction('get_flash', fn() => null));
         $twig->addGlobal('site_name', 'Test');

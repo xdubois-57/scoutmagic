@@ -21,6 +21,16 @@ use Twig\Loader\ArrayLoader;
 
 class FileControllerTest extends TestCase
 {
+    /**
+     * The site's own 403 page, stubbed: a refused file answers it now
+     * rather than the bare word "Forbidden" (issue #347), and a test
+     * environment that cannot render it would report the refusal as a
+     * Twig error.
+     *
+     * @var array<string, string>
+     */
+    private const REFUSAL_TEMPLATE = ['errors/403.html.twig' => 'Accès refusé : {{ message }}'];
+
     private \PDO $pdo;
     private FileRepository $fileRepository;
     private FileController $controller;
@@ -65,7 +75,7 @@ class FileControllerTest extends TestCase
         $storage = new EncryptedFileStorageService($this->fileRepository, $encryption, $this->storagePath);
         $this->imageVariantService = new ImageVariantService($this->fileRepository, new ImageVariantProcessor(), $this->storagePath);
 
-        $this->controller = new FileController(new Environment(new ArrayLoader([])), $guard, $this->storagePath, $storage, $this->imageVariantService);
+        $this->controller = new FileController(new Environment(new ArrayLoader(self::REFUSAL_TEMPLATE)), $guard, $this->storagePath, $storage, $this->imageVariantService);
     }
 
     public function testThumbnailReturns403WhenAccessDenied(): void
@@ -112,7 +122,7 @@ class FileControllerTest extends TestCase
     public function testServeJournalsAccessToAnOwnerScopedFile(): void
     {
         $guard = new FileAccessGuard($this->fileRepository, Role::IDENTIFIED, [42]);
-        $controller = new FileController(new Environment(new ArrayLoader([])), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
+        $controller = new FileController(new Environment(new ArrayLoader(self::REFUSAL_TEMPLATE)), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
         $journalRepo = new JournalRepository($this->pdo);
         $controller->setJournalService(new JournalService($journalRepo));
 
@@ -147,7 +157,7 @@ class FileControllerTest extends TestCase
     {
         // Admin, and linked to nobody: the bypass, not ownership.
         $guard = new FileAccessGuard($this->fileRepository, Role::ADMIN, []);
-        $controller = new FileController(new Environment(new ArrayLoader([])), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
+        $controller = new FileController(new Environment(new ArrayLoader(self::REFUSAL_TEMPLATE)), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
         $controller->setJournalService(new JournalService(new JournalRepository($this->pdo)));
 
         mkdir($this->storagePath, 0755, true);
@@ -180,7 +190,7 @@ class FileControllerTest extends TestCase
     public function testServeDoesNotJournalAccessToAnOrdinaryFile(): void
     {
         $guard = new FileAccessGuard($this->fileRepository, Role::PUBLIC);
-        $controller = new FileController(new Environment(new ArrayLoader([])), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
+        $controller = new FileController(new Environment(new ArrayLoader(self::REFUSAL_TEMPLATE)), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
         $journalRepo = new JournalRepository($this->pdo);
         $controller->setJournalService(new JournalService($journalRepo));
 
@@ -237,7 +247,7 @@ class FileControllerTest extends TestCase
 
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $storage = new EncryptedFileStorageService($this->fileRepository, $encryption, $this->storagePath);
-        $controller = new FileController(new Environment(new ArrayLoader([])), new FileAccessGuard($this->fileRepository, Role::PUBLIC), $this->storagePath, $storage, $this->imageVariantService);
+        $controller = new FileController(new Environment(new ArrayLoader(self::REFUSAL_TEMPLATE)), new FileAccessGuard($this->fileRepository, Role::PUBLIC), $this->storagePath, $storage, $this->imageVariantService);
 
         $fileId = $storage->store(self::BLANK_PDF, 'application/pdf', 'doc.pdf', 'documents', 'public', null, null);
         $response = $controller->thumbnail(new Request('GET', "/files/{$fileId}/thumbnail", [], [], [], []), ['id' => (string) $fileId]);
@@ -298,7 +308,7 @@ class FileControllerTest extends TestCase
     public function testVariantServesTheGeneratedDerivative(): void
     {
         $guard = new FileAccessGuard($this->fileRepository, Role::PUBLIC);
-        $controller = new FileController(new Environment(new ArrayLoader([])), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
+        $controller = new FileController(new Environment(new ArrayLoader(self::REFUSAL_TEMPLATE)), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
         $id = $this->storeFileWithVariant('public');
 
         $response = $controller->variant(new Request('GET', "/files/{$id}/thumb", [], [], [], []), ['id' => (string) $id, 'variant' => 'thumb']);
@@ -315,7 +325,7 @@ class FileControllerTest extends TestCase
     public function testVariantReturns403ForARoleBelowRoleMin(): void
     {
         $guard = new FileAccessGuard($this->fileRepository, Role::IDENTIFIED);
-        $controller = new FileController(new Environment(new ArrayLoader([])), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
+        $controller = new FileController(new Environment(new ArrayLoader(self::REFUSAL_TEMPLATE)), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
         $id = $this->storeFileWithVariant('admin');
 
         $response = $controller->variant(new Request('GET', "/files/{$id}/thumb", [], [], [], []), ['id' => (string) $id, 'variant' => 'thumb']);
@@ -330,7 +340,7 @@ class FileControllerTest extends TestCase
     public function testVariantReturns403ForAnOwnerScopedFileTheSessionDoesNotOwn(): void
     {
         $guard = new FileAccessGuard($this->fileRepository, Role::IDENTIFIED, [999]);
-        $controller = new FileController(new Environment(new ArrayLoader([])), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
+        $controller = new FileController(new Environment(new ArrayLoader(self::REFUSAL_TEMPLATE)), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
         $id = $this->storeFileWithVariant('identified', 42);
 
         $response = $controller->variant(new Request('GET', "/files/{$id}/thumb", [], [], [], []), ['id' => (string) $id, 'variant' => 'thumb']);
@@ -341,7 +351,7 @@ class FileControllerTest extends TestCase
     public function testVariantAllowsAnOwnerScopedFileTheSessionDoesOwn(): void
     {
         $guard = new FileAccessGuard($this->fileRepository, Role::IDENTIFIED, [42]);
-        $controller = new FileController(new Environment(new ArrayLoader([])), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
+        $controller = new FileController(new Environment(new ArrayLoader(self::REFUSAL_TEMPLATE)), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
         $id = $this->storeFileWithVariant('identified', 42);
 
         $response = $controller->variant(new Request('GET', "/files/{$id}/thumb", [], [], [], []), ['id' => (string) $id, 'variant' => 'thumb']);
@@ -352,7 +362,7 @@ class FileControllerTest extends TestCase
     public function testVariantReturns404ForAnUnknownVariantNameAndNeverTouchesTheFilesystem(): void
     {
         $guard = new FileAccessGuard($this->fileRepository, Role::PUBLIC);
-        $controller = new FileController(new Environment(new ArrayLoader([])), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
+        $controller = new FileController(new Environment(new ArrayLoader(self::REFUSAL_TEMPLATE)), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
         $id = $this->storeFileWithVariant('public');
 
         $response = $controller->variant(new Request('GET', "/files/{$id}/original", [], [], [], []), ['id' => (string) $id, 'variant' => 'original']);
@@ -368,7 +378,7 @@ class FileControllerTest extends TestCase
     public function testVariantReturns404ForAPathTraversalAttempt(): void
     {
         $guard = new FileAccessGuard($this->fileRepository, Role::PUBLIC);
-        $controller = new FileController(new Environment(new ArrayLoader([])), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
+        $controller = new FileController(new Environment(new ArrayLoader(self::REFUSAL_TEMPLATE)), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
         $id = $this->storeFileWithVariant('public');
 
         $response = $controller->variant(
@@ -382,7 +392,7 @@ class FileControllerTest extends TestCase
     public function testVariantReturns404WhenTheDerivativeWasNeverGenerated(): void
     {
         $guard = new FileAccessGuard($this->fileRepository, Role::PUBLIC);
-        $controller = new FileController(new Environment(new ArrayLoader([])), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
+        $controller = new FileController(new Environment(new ArrayLoader(self::REFUSAL_TEMPLATE)), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
 
         $dir = $this->storagePath . '/core/member_photos';
         if (!is_dir($dir)) {

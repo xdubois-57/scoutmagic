@@ -37,6 +37,20 @@ use Twig\Environment;
  */
 class RetroChiefController extends AbstractController
 {
+    /**
+     * The two refusals this controller can hand an animateur, in
+     * French. Both thresholds are settings a chef d'U can move
+     * (`retro_role_min_create_board`, `retro_role_min_close_board`),
+     * so the page an animateur reaches from the list can refuse
+     * them on an installation where it would have let them in — the
+     * reason has to be readable rather than the bare word
+     * "Forbidden" this used to answer.
+     */
+    private const CREATE_RESERVED_MESSAGE = 'La création et la modification des rétrospectives '
+        . "sont réservées à un rôle que votre compte ne porte pas.";
+    private const CLOSE_RESERVED_MESSAGE = 'La clôture des rétrospectives est réservée à un rôle '
+        . "que votre compte ne porte pas.";
+
     public function __construct(
         Environment $twig,
         private BoardRepository $boardRepository,
@@ -82,7 +96,7 @@ class RetroChiefController extends AbstractController
     public function create(Request $request, array $params): Response
     {
         if (!$this->hasRequiredRole('retro_role_min_create_board', 'intendant')) {
-            return (new Response('', 403))->setBody('Forbidden');
+            return $this->forbidden(self::CREATE_RESERVED_MESSAGE, $request);
         }
 
         return $this->render('@retro/config.html.twig', $this->formContext(null));
@@ -97,7 +111,7 @@ class RetroChiefController extends AbstractController
             return $guard;
         }
         if (!$this->hasRequiredRole('retro_role_min_create_board', 'intendant')) {
-            return (new Response('', 403))->setBody('Forbidden');
+            return $this->forbidden(self::CREATE_RESERVED_MESSAGE, $request);
         }
 
         try {
@@ -133,7 +147,7 @@ class RetroChiefController extends AbstractController
     public function edit(Request $request, array $params): Response
     {
         if (!$this->hasRequiredRole('retro_role_min_create_board', 'intendant')) {
-            return (new Response('', 403))->setBody('Forbidden');
+            return $this->forbidden(self::CREATE_RESERVED_MESSAGE, $request);
         }
 
         $board = $this->boardRepository->findById((int) ($params['id'] ?? 0));
@@ -153,7 +167,7 @@ class RetroChiefController extends AbstractController
             return $guard;
         }
         if (!$this->hasRequiredRole('retro_role_min_create_board', 'intendant')) {
-            return (new Response('', 403))->setBody('Forbidden');
+            return $this->forbidden(self::CREATE_RESERVED_MESSAGE, $request);
         }
 
         $id = (int) ($params['id'] ?? 0);
@@ -195,7 +209,7 @@ class RetroChiefController extends AbstractController
             return $guard;
         }
         if (!$this->hasRequiredRole('retro_role_min_close_board', 'chief')) {
-            return (new Response('', 403))->setBody('Forbidden');
+            return $this->forbidden(self::CLOSE_RESERVED_MESSAGE, $request);
         }
 
         try {
@@ -217,7 +231,7 @@ class RetroChiefController extends AbstractController
             return $guard;
         }
         if (!$this->hasRequiredRole('retro_role_min_close_board', 'chief')) {
-            return (new Response('', 403))->setBody('Forbidden');
+            return $this->forbidden(self::CLOSE_RESERVED_MESSAGE, $request);
         }
 
         try {
@@ -239,7 +253,7 @@ class RetroChiefController extends AbstractController
             return $guard;
         }
         if (!$this->hasRequiredRole('retro_role_min_close_board', 'chief')) {
-            return (new Response('', 403))->setBody('Forbidden');
+            return $this->forbidden(self::CLOSE_RESERVED_MESSAGE, $request);
         }
 
         try {
@@ -261,7 +275,7 @@ class RetroChiefController extends AbstractController
             return $guard;
         }
         if (!$this->hasRequiredRole('retro_role_min_close_board', 'chief')) {
-            return (new Response('', 403))->setBody('Forbidden');
+            return $this->forbidden(self::CLOSE_RESERVED_MESSAGE, $request);
         }
 
         try {
@@ -283,7 +297,7 @@ class RetroChiefController extends AbstractController
             return $guard;
         }
         if (!$this->hasRequiredRole('retro_role_min_close_board', 'chief')) {
-            return (new Response('', 403))->setBody('Forbidden');
+            return $this->forbidden(self::CLOSE_RESERVED_MESSAGE, $request);
         }
 
         $id = (int) ($params['id'] ?? 0);

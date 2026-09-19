@@ -205,8 +205,20 @@ abstract class AbstractController
         // Media types are case-insensitive (RFC 9110 8.3.1), and the header
         // is the caller's, not ours: `Application/JSON` has to count.
         $accept = strtolower((string) $request->getServer('HTTP_ACCEPT', ''));
+        if (str_contains($accept, 'application/json')) {
+            return true;
+        }
 
-        return str_contains($accept, 'application/json');
+        // A caller that SENT JSON is a script, whatever it asked for back:
+        // public/assets/js/api.js's postJson() — which most of this site's
+        // AJAX goes through — sets `Content-Type: application/json` and
+        // neither of the two headers above, so its refusals used to come
+        // back as an HTML page that `res.json()` could only fail on. A
+        // browser form never posts this media type (urlencoded or
+        // multipart), so nothing that wants a page is caught here.
+        $contentType = strtolower((string) $request->getServer('CONTENT_TYPE', ''));
+
+        return str_contains($contentType, 'application/json');
     }
 
     /**

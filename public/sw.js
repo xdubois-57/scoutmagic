@@ -151,6 +151,8 @@ const APP_SHELL_BASE_URLS = [
     '/assets/js/help-search.js',
     '/assets/js/help-assistant.js',
     '/assets/js/help-discovery.js',
+    '/assets/js/push-subscribe.js',
+    '/assets/js/push-invitation.js',
     '/assets/js/notification-badge.js',
     '/assets/js/offline-cache.js',
     '/assets/js/offline-nav.js',

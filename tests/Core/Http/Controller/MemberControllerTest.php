@@ -200,19 +200,37 @@ class MemberControllerTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
     }
 
+    /**
+     * The refusal is the site's own 403 page carrying a French sentence,
+     * never the bare word "Forbidden" this used to answer — which a
+     * visitor received as the whole document, with no stylesheet and no
+     * way back (issue #347).
+     */
     public function testShowPageReturns403ForIdentifiedUserViewingSomeoneElsesMember(): void
     {
         // Mock member service to deny access
         $memberService = $this->createMock(MemberService::class);
         $memberService->method('canAccess')->willReturn(false);
 
-        $controller = $this->newController($this->createMock(Environment::class), $memberService);
+        $twig = $this->createMock(Environment::class);
+        $twig->expects($this->once())
+            ->method('render')
+            ->with(
+                'errors/403.html.twig',
+                $this->callback(static fn (array $context): bool => str_contains(
+                    (string) $context['message'],
+                    'Cette fiche',
+                )),
+            )
+            ->willReturn('<h1>Accès refusé</h1>');
+
+        $controller = $this->newController($twig, $memberService);
 
         $request = new Request('GET', '/members/999', [], [], [], []);
         $response = $controller->show($request, ['id' => '999']);
 
         $this->assertSame(403, $response->getStatusCode());
-        $this->assertSame('Forbidden', $response->getBody());
+        $this->assertStringContainsString('Accès refusé', $response->getBody());
     }
 
     public function testShowPageReturns404ForNonExistentMemberYear(): void

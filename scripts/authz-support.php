@@ -36,6 +36,14 @@ declare(strict_types=1);
  *     a hole, but usually a bug — reported, and not fatal, because a
  *     module may legitimately narrow access further than role_min (the
  *     retro module gates board creation on a setting, for instance).
+ *   - A MENU DEAD LINK: the same refusal, on a route that DRAWS ITSELF IN
+ *     A MENU at that very role_min. Fatal. Nothing is narrowed
+ *     legitimately here, because the site already told that role the page
+ *     was theirs and then answered a refusal — issue #347, reported by
+ *     somebody who owns the site and was shown the word "Forbidden".
+ *     The static half of the same rule is
+ *     Tests\Architecture\MenuEntriesAreNotDeadLinksTest; this half sees
+ *     what no parse can, since it asks the running application.
  *
  * HOW A POST IS TESTED WITHOUT WRITING ANYTHING
  *
@@ -226,6 +234,8 @@ function authzCoreRoutes(): array
         exit(1);
     }
 
+    $menuUrls = authzCoreMenuUrls($source);
+
     $routes = [];
     foreach ($matches as $m) {
         $routes[] = [
@@ -233,10 +243,59 @@ function authzCoreRoutes(): array
             'path' => $m[2],
             'role_min' => $m[3],
             'source' => 'core',
+            'menu' => $m[1] === 'GET' && isset($menuUrls[$m[2]]),
         ];
     }
 
     return $routes;
+}
+
+/**
+ * The URLs core draws in a menu, as a set.
+ *
+ * Same counting discipline as the routes above: every `addPage()` call is
+ * matched or this exits. The per-member entries build their URL by
+ * concatenation and are deliberately not in the set — their destination is
+ * `/members/{id}`, a route with its own answer, and a menu entry that
+ * exists only for the member it points at cannot be a promise to anybody
+ * else.
+ *
+ * @return array<string, true>
+ */
+function authzCoreMenuUrls(string $source): array
+{
+    $present = preg_match_all('/\$menuBuilder->addPage\(/', $source);
+    $matched = preg_match_all(
+        '/\$menuBuilder->addPage\(\s*MenuBuilder::MENU_[A-Z_]+\s*,\s*'
+        . '(?:\'(?:[^\'\\\\]|\\\\.)*\'|"(?:[^"\\\\]|\\\\.)*"|[^,]+)\s*,\s*'
+        . '(\'[^\']*\'|[^,]+)\s*,/',
+        $source,
+        $matches,
+        PREG_SET_ORDER
+    );
+
+    if ($matched !== $present) {
+        fwrite(
+            STDERR,
+            sprintf(
+                "authz: public/index.php has %d addPage() calls but only %d parsed.\n"
+                . "       A menu entry the matrix cannot see is a menu entry it cannot hold to its\n"
+                . "       promise, so this refuses to run rather than audit an incomplete list.\n",
+                $present,
+                $matched
+            )
+        );
+        exit(1);
+    }
+
+    $urls = [];
+    foreach ($matches as $m) {
+        if (preg_match("/^'([^']*)'$/", trim($m[1]), $url) === 1) {
+            $urls[$url[1]] = true;
+        }
+    }
+
+    return $urls;
 }
 
 /**
@@ -273,6 +332,11 @@ function authzModuleRoutes(): array
                 'path' => $route['path'],
                 'role_min' => $route['role_min'],
                 'source' => $module,
+                // A non-empty `label` means this route is DRAWN IN A MENU
+                // at its role_min and nothing else, which is what makes a
+                // refusal stricter than role_min a broken promise rather
+                // than defence in depth — see authzMatrix().
+                'menu' => (string) ($route['label'] ?? '') !== '',
             ];
         }
     }
@@ -680,6 +744,7 @@ function authzMatrix(string $baseUrl, string $reportPath): int
 
     $overPermissive = [];
     $underPermissive = [];
+    $menuDeadLinks = [];
     $unreachable = [];
     $checked = 0;
 
@@ -721,7 +786,7 @@ function authzMatrix(string $baseUrl, string $reportPath): int
                     $response['status']
                 );
             } elseif (!$reached && $shouldReach) {
-                $underPermissive[] = sprintf(
+                $finding = sprintf(
                     '%s %s — refused to %s (role_min: %s, HTTP %d)',
                     $route['method'],
                     $route['path'],
@@ -729,6 +794,18 @@ function authzMatrix(string $baseUrl, string $reportPath): int
                     $route['role_min'],
                     $response['status']
                 );
+
+                // The one under-permissive refusal that is a defect
+                // rather than defence in depth: this route is DRAWN IN A
+                // MENU at its role_min, so the site offered this very
+                // role a link and then refused it. That is issue #347,
+                // and the whole reason this class of finding stopped
+                // being only a line to read.
+                if ($route['menu'] ?? false) {
+                    $menuDeadLinks[] = $finding;
+                } else {
+                    $underPermissive[] = $finding;
+                }
             }
         }
     }
@@ -738,6 +815,7 @@ function authzMatrix(string $baseUrl, string $reportPath): int
         'routes' => count($routes),
         'roles' => array_keys($sessions),
         'over_permissive' => $overPermissive,
+        'menu_dead_links' => $menuDeadLinks,
         'under_permissive' => $underPermissive,
         'unreachable' => $unreachable,
     ];
@@ -758,9 +836,11 @@ function authzMatrix(string $baseUrl, string $reportPath): int
         }
     }
 
-    // Reported, never fatal. A module may narrow access further than its
-    // route declares — the retro module gates board creation on a setting
-    // of its own — so this is a list to read, not a wall.
+    // Reported, never fatal — for a route NO menu offers. A module may
+    // narrow access further than its route declares (the retro module
+    // gates board creation on a setting of its own), and nobody is misled
+    // as long as nothing advertised the page at the wider role. The ones
+    // that WERE advertised are counted separately above and are fatal.
     if ($underPermissive !== []) {
         echo "\nauthz: " . count($underPermissive) . " route(s) refused a role that role_min admits:\n";
         foreach (array_slice($underPermissive, 0, 20) as $line) {
@@ -771,12 +851,37 @@ function authzMatrix(string $baseUrl, string $reportPath): int
         }
     }
 
+    // Fatal, unlike its neighbour above. A menu entry is a promise made
+    // from role_min alone; a route that refuses a role role_min admits
+    // while drawing itself in that role's menu is the site offering a
+    // link it will not honour (issue #347). Fix it in one of the two ways
+    // Tests\Architecture\MenuEntriesAreNotDeadLinksTest names: drop the
+    // controller's extra check, or stop declaring the entry statically
+    // and contribute it through Core\Module\MenuEntryProvider, which can
+    // ask the controller's own question.
+    if ($menuDeadLinks !== []) {
+        echo "\nauthz: " . count($menuDeadLinks) . " MENU ENTRY/ENTRIES LEAD TO A REFUSAL:\n";
+        foreach ($menuDeadLinks as $line) {
+            echo "  - {$line}\n";
+        }
+        echo "\n       Each of these routes is drawn in a menu at its role_min and then refuses a role\n";
+        echo "       that role_min admits. Either the controller's extra check goes, or the menu entry\n";
+        echo "       stops being declared in module.json and is contributed by a MenuEntryProvider that\n";
+        echo "       asks the same question (Modules\\Retro\\Menu\\RetroMenuHookService).\n";
+    }
+
     if ($overPermissive !== []) {
         echo "\nauthz: " . count($overPermissive) . " ROUTE(S) REACHED BY A ROLE THAT MAY NOT:\n";
         foreach ($overPermissive as $line) {
             echo "  - {$line}\n";
         }
         echo "\nauthz: FAILED. Report: {$reportPath}\n";
+
+        return 1;
+    }
+
+    if ($menuDeadLinks !== []) {
+        echo "\nauthz: FAILED — no route is over-permissive, but the menu lies. Report: {$reportPath}\n";
 
         return 1;
     }

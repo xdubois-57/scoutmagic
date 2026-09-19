@@ -26,6 +26,15 @@ final class HelpTopic
     private ?string $loadedBody = null;
 
     /**
+     * Where this topic sits in the « Le saviez-vous ? » running order.
+     * Declared here rather than promoted in the constructor because its
+     * default is an object, and only a constant expression may be a
+     * parameter default — the constructor substitutes
+     * DiscoveryPriority::default() for the null a caller omits.
+     */
+    public readonly DiscoveryPriority $discovery;
+
+    /**
      * @param Role $roleMin Below this role the topic does not exist
      *        anywhere — not in the panel, the index, the search, nor by
      *        direct /aide/{id} URL (404, never 403). Core\Help\HelpService
@@ -49,10 +58,13 @@ final class HelpTopic
      * @param ?string $moduleId The module that ships this topic, null for
      *        a core topic (docs/help/). Display-only (the /aide index
      *        badges module topics) — a topic behaves identically either way.
-     * @param DiscoveryPriority $discovery Where this topic sits in the
+     * @param ?DiscoveryPriority $discovery Where this topic sits in the
      *        « Le saviez-vous ? » running order (ARCHITECTURE.md §8.95),
-     *        from the optional `discovery:` front-matter line. Normal
-     *        when the line is absent, which is the ordinary case.
+     *        from the optional `discovery:` front-matter line. Null here
+     *        means the line was absent, which is the ordinary case, and
+     *        reads as DiscoveryPriority::default() — the value object
+     *        cannot be a parameter default, since only a constant
+     *        expression may be one.
      */
     public function __construct(
         public readonly string $id,
@@ -65,8 +77,9 @@ final class HelpTopic
         public readonly array $questions,
         public readonly string $filePath,
         public readonly ?string $moduleId = null,
-        public readonly DiscoveryPriority $discovery = DiscoveryPriority::Normal,
+        ?DiscoveryPriority $discovery = null,
     ) {
+        $this->discovery = $discovery ?? DiscoveryPriority::default();
     }
 
     /**

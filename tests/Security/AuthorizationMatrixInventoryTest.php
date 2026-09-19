@@ -54,6 +54,58 @@ class AuthorizationMatrixInventoryTest extends TestCase
         );
     }
 
+    /**
+     * The menu half of the inventory, added with the fatal
+     * « menu dead link » finding (issue #347): the matrix now treats a
+     * refusal differently depending on whether a menu advertised the
+     * route, so a `menu` flag that quietly became false everywhere would
+     * turn that gate off without turning anything red.
+     *
+     * Two things are asserted, and the second is the one that matters: a
+     * plausible count, and that every URL core draws in a menu is a GET
+     * route the matrix will actually hold to the promise.
+     */
+    public function testTheMatrixKnowsWhichRoutesAMenuAdvertises(): void
+    {
+        $routes = \authzRoutes();
+
+        foreach ($routes as $route) {
+            $this->assertArrayHasKey(
+                'menu',
+                $route,
+                'a route reached the matrix without saying whether a menu advertises it'
+            );
+        }
+
+        $advertised = array_filter($routes, static fn(array $route) => $route['menu']);
+        $this->assertGreaterThan(
+            20,
+            count($advertised),
+            'almost nothing is advertised in a menu any more — either the manifests and public/index.php '
+            . 'changed shape, or the menu dead-link gate is now asking its question about nothing'
+        );
+
+        $getPaths = [];
+        foreach ($routes as $route) {
+            if ($route['method'] === 'GET') {
+                $getPaths[$route['path']] = $route['menu'];
+            }
+        }
+
+        foreach (array_keys(\authzCoreMenuUrls(
+            (string) file_get_contents(dirname(__DIR__, 2) . '/public/index.php')
+        )) as $url) {
+            // '#' is the "no linked member" placeholder entry: it leads
+            // nowhere, so there is no route to hold to anything.
+            if ($url === '#') {
+                continue;
+            }
+
+            $this->assertArrayHasKey($url, $getPaths, "core draws a menu entry for {$url}, which is no GET route");
+            $this->assertTrue($getPaths[$url], "the matrix does not know that {$url} is advertised in a menu");
+        }
+    }
+
     public function testEveryModuleContributesItsRoutes(): void
     {
         $modules = glob(dirname(__DIR__, 2) . '/modules/*/module.json') ?: [];

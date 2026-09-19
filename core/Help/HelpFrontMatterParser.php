@@ -179,16 +179,18 @@ class HelpFrontMatterParser
         }
 
         // Same posture as role_min just above, for the same reason: an
-        // unknown value throws rather than falling back on the default.
-        // A silent downgrade would turn `discovery: 0` (a typo for `1`)
-        // into an ordinary topic that never leads a batch, and nothing
-        // anywhere would ever say so.
-        $discovery = DiscoveryPriority::Normal;
+        // unreadable value throws rather than falling back on the default.
+        // The key takes a whole number or `off`, so what is refused here
+        // is a spelling rather than a range — `1.5`, `1er`, `premier`, or
+        // the key written and then left empty. A silent downgrade would
+        // turn any of them into an ordinary topic that never leads a
+        // batch, and nothing anywhere would ever say so.
+        $discovery = null;
         if (isset($values['discovery'])) {
             $discovery = DiscoveryPriority::tryFrom($values['discovery']);
             if ($discovery === null) {
-                throw new HelpException("Help topic {$filePath} declares an unknown discovery "
-                    . "'{$values['discovery']}' (expected 1, 2, 3 or off)");
+                throw new HelpException("Help topic {$filePath} declares an unreadable discovery "
+                    . "'{$values['discovery']}' (expected a whole number or off)");
             }
         }
 

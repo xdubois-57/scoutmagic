@@ -85,7 +85,10 @@ class UploadController extends AbstractController
         $returnUrl = SafeRedirect::internalPath((string) $request->getBody('return_url', '/'));
 
         if (!$this->isUploadAuthorized($context, $key)) {
-            return (new Response('', 403))->setBody('Forbidden.');
+            return $this->forbidden(
+                "Cet emplacement n'accepte pas de dépôt de fichier avec votre compte.",
+                $request
+            );
         }
 
         $uploadedFile = $request->getFile('file');

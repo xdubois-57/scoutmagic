@@ -137,6 +137,60 @@ class HelpRegistryCacheTest extends TestCase
      * into an incomplete object and would fatal on if the allowed-class
      * list had been left behind.
      */
+    /**
+     * **An index written before `discovery` stopped being an enum is a
+     * MISS, never a crash**, and this is the test that says so.
+     *
+     * The order inside Core\Cache\SerializedFileCache::read() invites the
+     * opposite conclusion — it unserializes first and only then checks the
+     * format mark — so a stored index holding an `E:` tag for a class that
+     * is no longer an enum reaches unserialize() before anything can veto
+     * it. What PHP does there is the whole question, and it answers with a
+     * warning plus `false` (« Class … is not an enum »), which `read()`
+     * suppresses and turns into null. The registry then rescans the
+     * directory and rewrites the file.
+     *
+     * Asserted rather than reasoned about, because the reasoning is what
+     * goes wrong: it was read once as an uncaught Error taking down every
+     * request of an installation that had a warm cache. The bytes below
+     * are that exact situation.
+     */
+    public function testAnIndexHoldingTheOldEnumShapeIsAMissRatherThanACrash(): void
+    {
+        $this->registry('1.0.0')->all();
+        $cacheFile = $this->cacheDir . '/help-index.cache';
+        $written = (string) file_get_contents($cacheFile);
+
+        // The value object as it is stored today, swapped for the enum tag
+        // an index written before the change holds. Everything else — the
+        // format mark, the topics, the errors — stays exactly as the
+        // registry wrote it, so the only thing under test is the shape.
+        $old = preg_replace(
+            '/O:\d+:"Core\\\\Help\\\\DiscoveryPriority":\d+:\{[^}]*\}/',
+            'E:32:"Core\\Help\\DiscoveryPriority:High"',
+            $written,
+            -1,
+            $swapped
+        );
+        $this->assertGreaterThan(0, $swapped, 'the stored index no longer holds a DiscoveryPriority to swap');
+        file_put_contents($cacheFile, (string) $old);
+
+        $topics = $this->registry('1.0.0')->all();
+
+        $this->assertArrayHasKey('premier', $topics, 'an unreadable index must fall back to the directory scan');
+        $this->assertFalse($topics['premier']->discovery->isOff());
+
+        // And the miss was a real one: the enum tag is gone from the file,
+        // which only happens if the read failed and the rescan rewrote it.
+        // Without this, the test would still pass on a cache that had been
+        // read successfully — the one outcome it exists to rule out.
+        $this->assertStringNotContainsString(
+            'E:32:"Core\\Help\\DiscoveryPriority',
+            (string) file_get_contents($cacheFile),
+            'the unreadable index must have been rewritten, not served'
+        );
+    }
+
     public function testACachedTopicKeepsItsDiscoveryPriority(): void
     {
         file_put_contents($this->topicsDir . '/second.md', <<<MD
@@ -154,9 +208,14 @@ class HelpRegistryCacheTest extends TestCase
         $this->registry('1.0.0')->all();
         unlink($this->topicsDir . '/second.md');
 
-        $this->assertSame(
-            \Core\Help\DiscoveryPriority::High,
-            $this->registry('1.0.0')->all()['second']->discovery
-        );
+        $discovery = $this->registry('1.0.0')->all()['second']->discovery;
+
+        // A value object rather than an enum since the key became a whole
+        // number (ARCHITECTURE.md §8.64), so this is the assertion that
+        // catches a cache holding an instance of the OLD shape: `rank()`
+        // is what a reader calls, and an enum unserialized under the new
+        // class name would not answer it.
+        $this->assertFalse($discovery->isOff());
+        $this->assertSame(1, $discovery->rank());
     }
 }

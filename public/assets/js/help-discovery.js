@@ -21,6 +21,17 @@
 (function () {
     var ENDPOINT = '/api/aide/decouverte';
 
+    // One dialog per visit. The installed application's « Activer les
+    // notifications ? » invitation (/assets/js/push-invitation.js,
+    // ARCHITECTURE.md §8.111) runs immediately before this file and says
+    // synchronously whether it is opening; when it is, the tips stand
+    // down and nothing here is consumed — the server holds them back for
+    // the rest of the day when that dialog is answered. Two modals in a
+    // row is what makes people close both without reading either.
+    if (window.ScoutMagicPushInvitation?.showing) {
+        return;
+    }
+
     var modal = document.getElementById('help-discovery-modal');
     if (!modal) {
         return;

@@ -333,6 +333,17 @@
        doing — without it, offline, the field would just swallow a
        question. #}
     <script src="{{ asset('/assets/js/help-assistant.js') }}" defer></script>
+    {# Subscribing a device to Web Push, once for the two surfaces that do
+       it: the « Mon compte » switch and the invitation just below
+       (ARCHITECTURE.md §8.111). It defines a namespace and binds nothing,
+       so it costs a page that uses neither exactly one small file. #}
+    <script src="{{ asset('/assets/js/push-subscribe.js') }}" defer></script>
+    {# « Activer les notifications ? ». Its order matters and is the
+       reason it is written here rather than folded into the partial: it
+       decides SYNCHRONOUSLY whether it is opening, and the discovery
+       dialog just below reads that decision on its own first statement.
+       Swap the two lines and a phone gets both modals at once. #}
+    <script src="{{ asset('/assets/js/push-invitation.js') }}" defer></script>
     {# The discovery dialog's own wiring — walking its cards and the one
        call that closes it. Loaded unconditionally like every other
        site-wide script (and precached in the offline shell for that
@@ -370,6 +381,18 @@
        partial is either included whole or not at all. #}
     {% if help_discovery is defined and help_discovery %}
         {% include 'partials/help_discovery_dialog.html.twig' %}
+    {% endif %}
+
+    {# « Activer les notifications ? » (ARCHITECTURE.md §8.111). Same
+       server-side shape as the two above — Core\Notification\
+       PushInvitationService answers whether this account may be asked at
+       all, and the global is simply not set when the answer is no. The
+       other half of the decision is the browser's, because « is this page
+       being read inside the installed application » is a media query:
+       /assets/js/push-invitation.js opens this dialog or leaves it in the
+       page unopened. #}
+    {% if push_invitation is defined and push_invitation %}
+        {% include 'partials/push_invitation_dialog.html.twig' %}
     {% endif %}
 </body>
 </html>

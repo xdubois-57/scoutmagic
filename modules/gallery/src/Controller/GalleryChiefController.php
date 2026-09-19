@@ -180,7 +180,10 @@ class GalleryChiefController extends AbstractController
         // can_edit flag manage() computes for the very link that leads here.
         [$role, $email] = $this->currentIdentity();
         if (!$this->accessService->canManageAlbum($role, $album->sectionId, $email)) {
-            return new Response('Forbidden', 403);
+            return $this->forbidden(
+                "Cet album appartient à une section que vous n'animez pas.",
+                $request
+            );
         }
 
         return $this->render('@gallery/album_form.html.twig', $this->formContext($album));

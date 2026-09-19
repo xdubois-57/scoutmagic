@@ -45,6 +45,9 @@
                             <input type="radio" class="btn-check" name="type" id="storage-s3" value="s3" autocomplete="off"
                                    {{ location and location.type.value == 's3' ? 'checked' : '' }} {{ location ? 'disabled' : '' }}>
                             <label class="btn btn-outline-primary" for="storage-s3"><i class="bi bi-cloud" aria-hidden="true"></i> Stockage objet (S3)</label>
+                            <input type="radio" class="btn-check" name="type" id="storage-google-drive" value="google_drive" autocomplete="off"
+                                   {{ location and location.type.value == 'google_drive' ? 'checked' : '' }} {{ location ? 'disabled' : '' }}>
+                            <label class="btn btn-outline-primary" for="storage-google-drive"><i class="bi bi-google" aria-hidden="true"></i> Google Drive</label>
                         </fieldset>
                         {% if location %}
                             {# Disabled radios don't submit their value — resend it as a hidden field so the type is preserved. #}
@@ -200,6 +203,95 @@
                                 } only %}
                                 <div id="s3-explain-result" class="mt-2"></div>
                             </div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="storage-location-google_drive row g-3 mt-1">
+                    {#
+                      The seven-day trap, said in full and said first — and
+                      said HERE rather than on the Maintenance page, which is
+                      where it used to live. A Drive folder is a storage
+                      location now, so the warning follows the backend onto its
+                      own card: a refresh token issued by a project whose
+                      consent screen is still in « Test » dies after a week,
+                      silently, and the backups stop with nobody finding out
+                      until the day one is needed. It is the single most common
+                      way this integration fails.
+                    #}
+                    <div class="col-12">
+                        <div class="alert alert-warning small mb-0" role="alert" id="drive-testing-warning">
+                            <strong>Publiez l'écran de consentement de votre projet Google.</strong>
+                            Tant qu'il reste en statut « Test », Google fait expirer l'autorisation au bout de
+                            {{ drive_testing_token_days }} jours : tout ce qui écrit ici s'arrêterait sans
+                            prévenir, et vous ne le découvririez que le jour où vous en auriez besoin. La
+                            publication ne demande aucune vérification de Google tant que ce site se limite aux
+                            fichiers qu'il a lui-même créés, ce qu'il fait.
+                        </div>
+                    </div>
+
+                    <div class="col-12">
+                        <div class="alert alert-light border mb-0 small">
+                            Créez un projet dans la
+                            <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">console Google Cloud</a>,
+                            activez l'API Google Drive, puis créez un identifiant OAuth de type « Application
+                            Web ». <a href="/aide/sauvegarde-hors-site">La marche à suivre, pas à pas.</a>
+                            Le secret n'est jamais réaffiché ensuite : il est chiffré avec la clé de ce site,
+                            comme le mot de passe SMTP.
+                        </div>
+                    </div>
+
+                    {% if drive_redirect_uri %}
+                        <div class="col-12">
+                            <p class="small mb-0">
+                                Adresse de redirection à déclarer dans le projet Google, au caractère près :<br>
+                                <code class="user-select-all">{{ drive_redirect_uri }}</code>
+                            </p>
+                        </div>
+                    {% else %}
+                        {# Composed from the site's own address, so there is
+                           nothing to show until that address is known — and a
+                           bare path would be worse than nothing: Google's
+                           console refuses it, and the operator would have
+                           registered it. #}
+                        <div class="col-12">
+                            <div class="alert alert-warning small mb-0" role="alert">
+                                <strong>Ce site ne connaît pas encore sa propre adresse.</strong>
+                                Renseignez-la dans <a href="/config/settings">Configuration &gt; Réglages</a>
+                                (« Adresse du site ») : l'adresse de redirection à déclarer chez Google s'en
+                                déduit, et le raccordement ne peut pas commencer sans elle.
+                            </div>
+                        </div>
+                    {% endif %}
+
+                    <div class="col-12 col-md-6">
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'drive-client-id',
+                            field_name: 'drive_client_id',
+                            label: 'Identifiant client OAuth',
+                            value: location and location.type.value == 'google_drive' ? location.config.clientId : '',
+                            autocomplete: 'off',
+                            size: 'sm',
+                        } only %}
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small" for="drive-client-secret">Secret client OAuth</label>
+                        <input type="password" class="form-control form-control-sm" id="drive-client-secret"
+                               name="drive_client_secret" autocomplete="new-password"
+                               placeholder="{{ drive_secret.hasClientSecret ? '••••••••' : '' }}">
+                        <div class="form-text">{{ drive_secret.hasClientSecret ? 'Laisser vide pour conserver le secret actuel.' : '' }}</div>
+                    </div>
+
+                    <div class="col-12">
+                        {% if location and location.type.value == 'google_drive' %}
+                            <p class="small text-body-secondary mb-0">
+                                Enregistrez, puis raccordez le compte Google depuis la fiche de cet emplacement.
+                            </p>
+                        {% else %}
+                            <p class="small text-body-secondary mb-0">
+                                Enregistrez l'emplacement d'abord : le raccordement du compte Google se fait
+                                ensuite, depuis sa fiche.
+                            </p>
                         {% endif %}
                     </div>
                 </div>

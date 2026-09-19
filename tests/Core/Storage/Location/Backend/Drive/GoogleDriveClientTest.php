@@ -7,10 +7,10 @@
 
 declare(strict_types=1);
 
-namespace Tests\Core\Maintenance\Remote;
+namespace Tests\Core\Storage\Location\Backend\Drive;
 
-use Core\Maintenance\Remote\GoogleDriveClient;
-use Core\Maintenance\Remote\RemoteBackupException;
+use Core\Storage\Location\Backend\Drive\GoogleDriveClient;
+use Core\Storage\Location\Backend\Drive\DriveAccessException;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -121,7 +121,7 @@ final class GoogleDriveClientTest extends TestCase
         try {
             $client->refreshAccessToken('c', 's', 'dead-token');
             $this->fail('A revoked refresh token was accepted.');
-        } catch (RemoteBackupException $e) {
+        } catch (DriveAccessException $e) {
             $this->assertTrue($e->needsReauthorisation);
             $this->assertStringContainsString('Reconnectez', $e->getMessage());
             // Google's own English, and the word "Token", stay out of the
@@ -139,7 +139,7 @@ final class GoogleDriveClientTest extends TestCase
         try {
             $client->about('stale-access-token');
             $this->fail('A 401 was accepted.');
-        } catch (RemoteBackupException $e) {
+        } catch (DriveAccessException $e) {
             $this->assertTrue($e->needsReauthorisation);
         }
     }
@@ -190,37 +190,28 @@ final class GoogleDriveClientTest extends TestCase
      * and it sits outside the 2xx range — so a client that treats
      * "not 2xx" as failure cannot upload anything larger than one chunk,
      * which is every backup this feature exists for.
+     *
+     * **The loop that walks a file moved out of this class in IT-05.** It
+     * lives in {@see \Core\Storage\Location\Backend\GoogleDriveBackend}
+     * now, behind the resumable-upload contract every backend keeps, which
+     * is what lets a safety copy read a slice from a bucket and append it
+     * here. So what this test pins is one piece and the answer to it.
      */
-    public function testALargeUploadIsSentInPiecesAndTheContinueStatusIsNotAFailure(): void
+    public function testAPieceGoogleAcceptsWithMoreToComeIsProgressAndNotAFailure(): void
     {
-        // Two chunks and a bit, whatever the chunk size happens to be.
-        // Through fileOf(), so tearDown() removes the bytes whatever
-        // happens — an upload that throws half way would otherwise leave
-        // them behind on every failing run.
-        $chunk = GoogleDriveClient::UPLOAD_CHUNK_BYTES;
-        $size = ($chunk * 2) + ($chunk / 2);
-        $path = $this->fileOf(str_repeat('x', (int) $size));
-
+        $chunk = str_repeat('x', 1024);
         $ranges = [];
-        $client = $this->clientAnswering(function (string $method, string $url, array $headers, ?string $body) use (&$ranges, $chunk): array {
-            if ($method === 'POST') {
-                return ['status' => 200, 'body' => '{}', 'location' => 'https://upload.example/session-1'];
-            }
+        $client = $this->clientAnswering(function (string $method, string $url, array $headers) use (&$ranges): array {
             $ranges[] = $headers['Content-Range'] ?? '';
 
-            return str_starts_with($headers['Content-Range'] ?? '', 'bytes ' . ($chunk * 2) . '-')
-                ? ['status' => 200, 'body' => '{"id":"drive-file-9"}']
-                : ['status' => 308, 'body' => '', 'range' => 'bytes=0-' . (($chunk * count($ranges)) - 1)];
+            return ['status' => 308, 'body' => '', 'range' => 'bytes=0-2047'];
         });
 
-        $id = $client->uploadFile('token', 'folder-1', $path, 'sauvegarde.zip');
+        $upload = $client->sendChunk('https://upload.example/session-1', $chunk, 1024, 8192);
 
-        $this->assertSame('drive-file-9', $id);
-        $this->assertSame([
-            sprintf('bytes 0-%d/%d', $chunk - 1, $size),
-            sprintf('bytes %d-%d/%d', $chunk, ($chunk * 2) - 1, $size),
-            sprintf('bytes %d-%d/%d', $chunk * 2, $size - 1, $size),
-        ], $ranges);
+        $this->assertFalse($upload->isComplete());
+        $this->assertSame(2048, $upload->offset);
+        $this->assertSame(['bytes 1024-2047/8192'], $ranges);
     }
 
     /**
@@ -234,36 +225,18 @@ final class GoogleDriveClientTest extends TestCase
      * day somebody needs it: the worst failure shape a backup has, which
      * is silence.
      */
-    public function testAShortCommitIsResumedFromWhereGoogleSaysRatherThanFromWhatWasSent(): void
+    public function testAShortCommitIsReportedAsWhatGoogleKeptRatherThanAsWhatWasSent(): void
     {
-        $chunk = GoogleDriveClient::UPLOAD_CHUNK_BYTES;
-        $size = $chunk * 6;
-        $path = $this->fileOf(str_repeat('x', $size));
+        $client = $this->clientAnswering(fn (): array => [
+            'status' => 308,
+            'body' => '',
+            // Sent 4096 from zero; Google kept 512 of them and says so.
+            'range' => 'bytes=0-511',
+        ]);
 
-        $ranges = [];
-        $answered = 0;
-        $client = $this->clientAnswering(function (string $method, string $url, array $headers) use (&$ranges, &$answered, $chunk): array {
-            if ($method === 'POST') {
-                return ['status' => 200, 'body' => '{}', 'location' => 'https://upload.example/session-1'];
-            }
-            $ranges[] = $headers['Content-Range'] ?? '';
-            $answered++;
+        $upload = $client->sendChunk('https://upload.example/session-1', str_repeat('x', 4096), 0, 8192);
 
-            // Google keeps only the first eighth of that chunk, and says so.
-            return $answered === 1
-                ? ['status' => 308, 'body' => '', 'range' => 'bytes=0-' . (((int) ($chunk / 8)) - 1)]
-                : ['status' => 200, 'body' => '{"id":"drive-file-7"}'];
-        });
-
-        $id = $client->uploadFile('token', 'folder-1', $path, 'sauvegarde.zip');
-
-        $this->assertSame('drive-file-7', $id);
-        $kept = (int) ($chunk / 8);
-        $this->assertSame([
-            sprintf('bytes 0-%d/%d', $chunk - 1, $size),
-            // Resumed at what Google KEPT, not at what this client sent.
-            sprintf('bytes %d-%d/%d', $kept, $kept + $chunk - 1, $size),
-        ], $ranges);
+        $this->assertSame(512, $upload->offset, 'the caller would have resumed past a hole');
     }
 
     /**
@@ -280,32 +253,14 @@ final class GoogleDriveClientTest extends TestCase
      */
     public function testAContinueWithoutARangeHeaderIsRefusedRatherThanAssumedComplete(): void
     {
-        $chunk = GoogleDriveClient::UPLOAD_CHUNK_BYTES;
-        $size = $chunk * 6;
-        $path = $this->fileOf(str_repeat('x', $size));
-
-        $ranges = [];
-        $client = $this->clientAnswering(function (string $method, string $url, array $headers) use (&$ranges): array {
-            if ($method === 'POST') {
-                return ['status' => 200, 'body' => '{}', 'location' => 'https://upload.example/session-1'];
-            }
-            $ranges[] = $headers['Content-Range'] ?? '';
-
-            return ['status' => 308, 'body' => ''];
-        });
+        $client = $this->clientAnswering(fn (): array => ['status' => 308, 'body' => '']);
 
         try {
-            $client->uploadFile('token', 'folder-1', $path, 'sauvegarde.zip');
+            $client->sendChunk('https://upload.example/session-1', str_repeat('x', 4096), 0, 8192);
             $this->fail('A 308 that reported no committed range was treated as progress.');
-        } catch (RemoteBackupException $e) {
+        } catch (DriveAccessException $e) {
             $this->assertStringContainsString('aucun octet', $e->getMessage());
         }
-
-        $this->assertSame(
-            [sprintf('bytes 0-%d/%d', $chunk - 1, $size)],
-            $ranges,
-            'the upload carried on past a chunk the destination never acknowledged'
-        );
     }
 
     /**
@@ -315,20 +270,137 @@ final class GoogleDriveClientTest extends TestCase
      */
     public function testAContinueThatCommittedNothingIsRefusedRatherThanRetriedForEver(): void
     {
-        $chunk = GoogleDriveClient::UPLOAD_CHUNK_BYTES;
-        $size = $chunk * 6;
-        $path = $this->fileOf(str_repeat('x', $size));
-
-        $client = $this->clientAnswering(fn (string $method): array => $method === 'POST'
-            ? ['status' => 200, 'body' => '{}', 'location' => 'https://upload.example/session-1']
-            : ['status' => 308, 'body' => '', 'range' => 'bytes=0-0']);
+        $client = $this->clientAnswering(fn (): array => ['status' => 308, 'body' => '', 'range' => 'bytes=0-0']);
 
         try {
-            $client->uploadFile('token', 'folder-1', $path, 'sauvegarde.zip');
+            $client->sendChunk('https://upload.example/session-1', str_repeat('x', 4096), 1024, 8192);
             $this->fail('An upload making no progress was accepted.');
-        } catch (RemoteBackupException $e) {
+        } catch (DriveAccessException $e) {
             $this->assertStringContainsString('aucun octet', $e->getMessage());
         }
+    }
+
+    /** And a piece that reaches the end reports the id, not an offset. */
+    public function testThePieceThatFinishesCarriesTheIdThePurgeWillDeleteBy(): void
+    {
+        $client = $this->clientAnswering(fn (): array => ['status' => 200, 'body' => '{"id":"drive-file-42"}']);
+
+        $upload = $client->sendChunk('https://upload.example/s1', 'last bytes', 90, 100);
+
+        $this->assertTrue($upload->isComplete());
+        $this->assertSame('drive-file-42', $upload->fileId);
+    }
+
+    /**
+     * Google accepting the last piece without naming the file is a
+     * success this application cannot use: the retention deletes by name,
+     * but the promotion that follows de-duplicates by identifier, and an
+     * empty one would leave two files under one key.
+     */
+    public function testAPieceAcceptedWithoutAnIdentifierIsRefused(): void
+    {
+        $client = $this->clientAnswering(fn (): array => ['status' => 200, 'body' => '{}']);
+
+        try {
+            $client->sendChunk('https://upload.example/s1', 'last bytes', 90, 100);
+            $this->fail('An upload with no identifier was accepted.');
+        } catch (DriveAccessException $e) {
+            $this->assertStringContainsString('identifiant', $e->getMessage());
+        }
+    }
+
+    public function testAPieceGoogleRefusesStopsTheUpload(): void
+    {
+        $client = $this->clientAnswering(fn (): array => [
+            'status' => 500,
+            'body' => '{"error":{"message":"Backend Error"}}',
+        ]);
+
+        try {
+            $client->sendChunk('https://upload.example/s1', 'bytes', 0, 5);
+            $this->fail('A refused chunk was accepted.');
+        } catch (DriveAccessException $e) {
+            $this->assertStringContainsString('envoi vers Google Drive', $e->getMessage());
+        }
+    }
+
+    /**
+     * A session Google opened without saying where to send the bytes.
+     * There is nowhere to `PUT` to, and guessing would be writing to an
+     * address the archive's author could otherwise choose.
+     */
+    public function testAnUploadSessionWithoutAnAddressIsRefused(): void
+    {
+        $client = $this->clientAnswering(fn (): array => ['status' => 200, 'body' => '{}']);
+
+        try {
+            $client->beginUpload('token', 'folder', 'a.zip', 10, 'application/zip');
+            $this->fail('An upload session with no location was accepted.');
+        } catch (DriveAccessException $e) {
+            $this->assertStringContainsString('où envoyer', $e->getMessage());
+        }
+    }
+
+    public function testAnUploadGoogleWillNotEvenBeginIsRefusedBeforeAnyByteIsSent(): void
+    {
+        $client = $this->clientAnswering(fn (): array => ['status' => 403, 'body' => '{"error":{"message":"nope"}}']);
+
+        try {
+            $client->beginUpload('token', 'folder', 'a.zip', 10, 'application/zip');
+            $this->fail('An upload Google refused to start was accepted.');
+        } catch (DriveAccessException $e) {
+            $this->assertStringContainsString('commencer l\'envoi', $e->getMessage());
+        }
+    }
+
+    /**
+     * **The session announces the media type the caller asked for**, and
+     * not `application/zip` for everything.
+     *
+     * It used to be hard-coded, which was true of the one caller there
+     * was. A Drive folder is a storage location now: what goes into it is
+     * whatever a consumer stores, and an operator's own Drive listing
+     * every one of their files as a zip archive is a small lie told on
+     * every row.
+     */
+    public function testTheSessionAnnouncesTheMediaTypeItWasGiven(): void
+    {
+        $announced = '';
+        $client = $this->clientAnswering(function (string $method, string $url, array $headers) use (&$announced): array {
+            $announced = $headers['X-Upload-Content-Type'] ?? '';
+
+            return ['status' => 200, 'body' => '{}', 'location' => 'https://upload.example/s1'];
+        });
+
+        $client->beginUpload('token', 'folder', 'photo.jpg', 4096, 'image/jpeg');
+
+        $this->assertSame('image/jpeg', $announced);
+    }
+
+    /**
+     * A small object goes in ONE request, metadata and bytes together.
+     *
+     * The witness file a connection test writes is a few hundred bytes,
+     * and paying a resumable session for it — open, send, de-duplicate —
+     * is three round trips to prove one.
+     */
+    public function testASmallObjectIsWrittenInASingleMultipartRequest(): void
+    {
+        $requests = [];
+        $client = $this->clientAnswering(function (string $method, string $url, array $headers, ?string $body) use (&$requests): array {
+            $requests[] = ['url' => $url, 'type' => $headers['Content-Type'] ?? '', 'body' => (string) $body];
+
+            return ['status' => 200, 'body' => '{"id":"drive-small-1"}'];
+        });
+
+        $id = $client->uploadContents('token', 'folder-1', 'temoin.txt', 'bonjour', 'text/plain');
+
+        $this->assertSame('drive-small-1', $id);
+        $this->assertCount(1, $requests);
+        $this->assertStringContainsString('uploadType=multipart', $requests[0]['url']);
+        $this->assertStringStartsWith('multipart/related; boundary=', $requests[0]['type']);
+        $this->assertStringContainsString('"name":"temoin.txt"', $requests[0]['body']);
+        $this->assertStringContainsString('bonjour', $requests[0]['body']);
     }
 
     /**
@@ -353,9 +425,9 @@ final class GoogleDriveClientTest extends TestCase
         ]);
 
         try {
-            $client->listFiles('token', 'folder');
+            $client->listPage('token', 'folder', null, 100);
             $this->fail('A full-drive refusal was accepted.');
-        } catch (RemoteBackupException $e) {
+        } catch (DriveAccessException $e) {
             $this->assertFalse($e->needsReauthorisation);
             $this->assertStringContainsString('espace libre', $e->getMessage());
         }
@@ -393,75 +465,124 @@ final class GoogleDriveClientTest extends TestCase
         try {
             $client->exchangeCode('c', 's', 'https://u.example/cb', 'code-1');
             $this->fail('An exchange without a refresh token was accepted.');
-        } catch (RemoteBackupException $e) {
+        } catch (DriveAccessException $e) {
             $this->assertStringContainsString('Révoquez', $e->getMessage());
         }
     }
 
     /**
-     * The listing is what IT-09's remote retention will decide from, so
-     * every field it decides on is read: the id it deletes by, the size
-     * it budgets with, and the remote clock's own timestamp — never
-     * re-parsed into this server's timezone, because a comparison between
-     * two clocks that disagree deletes the wrong file.
+     * The listing is what the retention decides from, so every field it
+     * decides on is read: the key it deletes by, the size it budgets
+     * with, and the remote clock's own timestamp — never re-parsed into
+     * this server's timezone, because a comparison between two clocks
+     * that disagree deletes the wrong file.
      */
     public function testAListingCarriesTheFieldsARetentionWouldDecideFrom(): void
     {
         $client = $this->clientAnswering(fn (): array => [
             'status' => 200,
             'body' => (string) json_encode(['files' => [
-                ['id' => 'f-2', 'name' => 'sauvegarde-2.zip', 'size' => '2048', 'createdTime' => '2026-09-02T03:00:00.000Z'],
-                ['id' => 'f-1', 'name' => 'sauvegarde-1.zip', 'size' => '1024', 'createdTime' => '2026-09-01T03:00:00.000Z'],
+                [
+                    'id' => 'f-2',
+                    'name' => 'sauvegarde-2.zip',
+                    'size' => '2048',
+                    'md5Checksum' => 'D41D8CD98F00B204E9800998ECF8427E',
+                    'modifiedTime' => '2026-09-02T03:00:00.000Z',
+                ],
+                ['id' => 'f-1', 'name' => 'sauvegarde-1.zip', 'size' => '1024', 'modifiedTime' => '2026-09-01T03:00:00.000Z'],
                 // Something the API answered that is not a file: skipped
-                // rather than turned into a RemoteFile with an empty id,
+                // rather than turned into an object with an empty key,
                 // which a delete would then aim at nothing.
-                ['name' => 'sans identifiant'],
+                ['id' => 'sans-nom'],
             ]]),
         ]);
 
-        $files = $client->listFiles('token', 'folder-1');
+        $page = $client->listPage('token', 'folder-1', null, 100);
 
-        $this->assertCount(2, $files);
-        $this->assertSame('f-2', $files[0]->id);
-        $this->assertSame('sauvegarde-2.zip', $files[0]->name);
-        $this->assertSame(2048, $files[0]->sizeBytes);
-        $this->assertSame('2026-09-02T03:00:00.000Z', $files[0]->createdAt);
+        $this->assertCount(2, $page['objects']);
+        $this->assertSame('sauvegarde-2.zip', $page['objects'][0]->key);
+        $this->assertSame(2048, $page['objects'][0]->sizeBytes);
+        $this->assertSame('2026-09-02T03:00:00.000Z', $page['objects'][0]->lastModifiedAt);
+        $this->assertNull($page['cursor'], 'a single page reported more to come');
     }
 
     /**
-     * **A listing is every page of it, and the reason is the purge.**
+     * **Drive's `md5Checksum` really is an MD5**, lower-cased so a
+     * comparison with one computed while reading the source cannot fail
+     * on the case of its letters alone.
      *
-     * Drive answers a folder one page at a time and says so with
-     * `nextPageToken`. A caller reading only the first page sees the
-     * hundred newest files and takes that for the whole folder — and
-     * because the listing is ordered newest-first, the files it never
-     * sees are exactly the oldest ones, which is precisely what IT-09's
-     * retention exists to delete. The account would fill up while the
-     * purge found nothing to remove.
+     * This is the difference from S3 worth pinning: an ETag equals an MD5
+     * only for a single-part upload, so the object store announces
+     * nothing. Drive computes it over the whole file whatever the upload
+     * was cut into, which is what makes a verified copy possible here.
      */
-    public function testAListingFollowsEveryPageRatherThanStoppingAtTheFirst(): void
+    public function testTheAnnouncedChecksumIsAnMd5AndIsComparable(): void
+    {
+        $client = $this->clientAnswering(fn (): array => [
+            'status' => 200,
+            'body' => (string) json_encode(['files' => [
+                ['id' => 'f-1', 'size' => '3', 'md5Checksum' => 'D41D8CD98F00B204E9800998ECF8427E'],
+            ]]),
+        ]);
+
+        $file = $client->findFile('token', 'folder-1', 'a.zip');
+
+        $this->assertNotNull($file);
+        $this->assertSame('d41d8cd98f00b204e9800998ecf8427e', $file['checksum']);
+    }
+
+    /**
+     * A Google-native document announces no checksum, and the honest
+     * answer to « what is its digest » is nothing — never the empty
+     * string, which a comparison would read as a value and call corrupt.
+     */
+    public function testAFileWithoutAChecksumAnnouncesNoneRatherThanAnEmptyOne(): void
+    {
+        $client = $this->clientAnswering(fn (): array => [
+            'status' => 200,
+            'body' => '{"files":[{"id":"f-1","size":"3"}]}',
+        ]);
+
+        $file = $client->findFile('token', 'folder-1', 'a.zip');
+
+        $this->assertNotNull($file);
+        $this->assertNull($file['checksum']);
+    }
+
+    /**
+     * **A listing hands the cursor back rather than walking the folder
+     * itself**, which is what every backend's `list()` contract requires.
+     *
+     * The loop that used to live here moved to the callers that run under
+     * a time budget and must be able to stop between two pages — the
+     * safety copy of IT-04, and the retention purge. What must not happen
+     * is this answering « that is all there is » when Drive said
+     * otherwise: the files a first-page-only reader never sees are the
+     * OLDEST, which is precisely what a purge exists to delete, so the
+     * account would fill up while the purge found nothing to do.
+     */
+    public function testAListingReportsThatThereIsAnotherPageRatherThanSwallowingIt(): void
     {
         $urls = [];
         $client = $this->clientAnswering(function (string $method, string $url) use (&$urls): array {
             $urls[] = $url;
 
             return str_contains($url, 'pageToken=suite')
-                ? ['status' => 200, 'body' => (string) json_encode(['files' => [
-                    ['id' => 'vieux-1', 'name' => 'a.zip', 'size' => '1', 'createdTime' => '2025-01-01T00:00:00.000Z'],
-                ]])]
+                ? ['status' => 200, 'body' => '{"files":[{"id":"vieux-1","name":"a.zip","size":"1"}]}']
                 : ['status' => 200, 'body' => (string) json_encode([
                     'nextPageToken' => 'suite',
-                    'files' => [
-                        ['id' => 'recent-1', 'name' => 'b.zip', 'size' => '2', 'createdTime' => '2026-09-01T00:00:00.000Z'],
-                    ],
+                    'files' => [['id' => 'recent-1', 'name' => 'b.zip', 'size' => '2']],
                 ])];
         });
 
-        $files = $client->listFiles('token', 'folder-1');
+        $first = $client->listPage('token', 'folder-1', null, 100);
+        $this->assertSame('suite', $first['cursor']);
+        $this->assertSame(['b.zip'], array_map(static fn ($o) => $o->key, $first['objects']));
 
-        $this->assertCount(2, $urls, 'the second page was never asked for');
+        $second = $client->listPage('token', 'folder-1', $first['cursor'], 100);
         $this->assertStringContainsString('pageToken=suite', $urls[1]);
-        $this->assertSame(['recent-1', 'vieux-1'], array_map(static fn ($file) => $file->id, $files));
+        $this->assertNull($second['cursor']);
+        $this->assertSame(['a.zip'], array_map(static fn ($o) => $o->key, $second['objects']));
     }
 
     public function testTheFolderIsCreatedWhenThisApplicationHasNoneYet(): void
@@ -485,93 +606,8 @@ final class GoogleDriveClientTest extends TestCase
             ? ['status' => 200, 'body' => '{}']
             : ['status' => 200, 'body' => '{"files":[]}']);
 
-        $this->expectException(RemoteBackupException::class);
+        $this->expectException(DriveAccessException::class);
         $client->ensureFolder('token', 'ScoutMagic');
-    }
-
-    public function testAnUploadGoogleWillNotEvenBeginIsRefusedBeforeAnyByteIsSent(): void
-    {
-        $path = $this->fileOf('x');
-        $client = $this->clientAnswering(fn (): array => ['status' => 403, 'body' => '{"error":{"message":"nope"}}']);
-
-        try {
-            $client->uploadFile('token', 'folder', $path, 'a.zip');
-            $this->fail('An upload Google refused to start was accepted.');
-        } catch (RemoteBackupException $e) {
-            $this->assertStringContainsString('commencer l\'envoi', $e->getMessage());
-        }
-    }
-
-    /**
-     * A session Google opened without saying where to send the bytes.
-     * There is nowhere to `PUT` to, and guessing would be writing to an
-     * address the archive's author could otherwise choose.
-     */
-    public function testAnUploadSessionWithoutAnAddressIsRefused(): void
-    {
-        $path = $this->fileOf('x');
-        $client = $this->clientAnswering(fn (): array => ['status' => 200, 'body' => '{}']);
-
-        try {
-            $client->uploadFile('token', 'folder', $path, 'a.zip');
-            $this->fail('An upload session with no location was accepted.');
-        } catch (RemoteBackupException $e) {
-            $this->assertStringContainsString('où envoyer', $e->getMessage());
-        }
-    }
-
-    public function testAFileThatIsNotThereIsRefusedWithoutContactingGoogle(): void
-    {
-        $calls = 0;
-        $client = $this->clientAnswering(function () use (&$calls): array {
-            $calls++;
-
-            return ['status' => 200, 'body' => '{}'];
-        });
-
-        try {
-            $client->uploadFile('token', 'folder', sys_get_temp_dir() . '/absent_' . uniqid(), 'a.zip');
-            $this->fail('A missing file was sent.');
-        } catch (RemoteBackupException $e) {
-            $this->assertStringContainsString('introuvable', $e->getMessage());
-        }
-        $this->assertSame(0, $calls, 'Google was contacted about a file this server does not have');
-    }
-
-    /**
-     * Google accepting the last piece without naming the file is a
-     * success this application cannot use: IT-09's retention deletes by
-     * identifier, and an empty one would delete nothing while reading as
-     * a completed send.
-     */
-    public function testAnUploadAcceptedWithoutAnIdentifierIsRefused(): void
-    {
-        $path = $this->fileOf('some bytes');
-        $client = $this->clientAnswering(fn (string $method): array => $method === 'POST'
-            ? ['status' => 200, 'body' => '{}', 'location' => 'https://upload.example/s1']
-            : ['status' => 200, 'body' => '{}']);
-
-        try {
-            $client->uploadFile('token', 'folder', $path, 'a.zip');
-            $this->fail('An upload with no identifier was accepted.');
-        } catch (RemoteBackupException $e) {
-            $this->assertStringContainsString('identifiant', $e->getMessage());
-        }
-    }
-
-    public function testAChunkGoogleRefusesStopsTheUpload(): void
-    {
-        $path = $this->fileOf('some bytes');
-        $client = $this->clientAnswering(fn (string $method): array => $method === 'POST'
-            ? ['status' => 200, 'body' => '{}', 'location' => 'https://upload.example/s1']
-            : ['status' => 500, 'body' => '{"error":{"message":"Backend Error"}}']);
-
-        try {
-            $client->uploadFile('token', 'folder', $path, 'a.zip');
-            $this->fail('A refused chunk was accepted.');
-        } catch (RemoteBackupException $e) {
-            $this->assertStringContainsString('envoi vers Google Drive', $e->getMessage());
-        }
     }
 
     public function testATokenResponseWithoutAnAccessTokenIsRefused(): void
@@ -581,7 +617,7 @@ final class GoogleDriveClientTest extends TestCase
         try {
             $client->refreshAccessToken('c', 's', 'r');
             $this->fail('A token response with no token was accepted.');
-        } catch (RemoteBackupException $e) {
+        } catch (DriveAccessException $e) {
             $this->assertStringContainsString('jeton d\'accès', $e->getMessage());
         }
     }
@@ -593,7 +629,7 @@ final class GoogleDriveClientTest extends TestCase
         try {
             $client->about('token');
             $this->fail('An unreadable answer was accepted.');
-        } catch (RemoteBackupException $e) {
+        } catch (DriveAccessException $e) {
             $this->assertStringContainsString('illisible', $e->getMessage());
         }
     }
@@ -624,7 +660,7 @@ final class GoogleDriveClientTest extends TestCase
         try {
             $client->refreshAccessToken('client-id', 'wrong-secret', 'refresh-token');
             $this->fail('A refused client secret was accepted.');
-        } catch (RemoteBackupException $e) {
+        } catch (DriveAccessException $e) {
             $this->assertFalse(
                 $e->needsReauthorisation,
                 'a wrong client secret would have deleted the refresh token it never invalidated'
@@ -646,7 +682,7 @@ final class GoogleDriveClientTest extends TestCase
         try {
             $client->about('token');
             $this->fail('A 401 was accepted.');
-        } catch (RemoteBackupException $e) {
+        } catch (DriveAccessException $e) {
             $this->assertTrue($e->needsReauthorisation);
         }
     }
@@ -658,8 +694,8 @@ final class GoogleDriveClientTest extends TestCase
      * and the number it used to bet on — thirty seconds for a chunk of
      * eight mebibytes — needed 2 Mbps sustained. That is above an
      * ordinary domestic ADSL upstream, which is the link
-     * `uploadFile()`'s own docblock names as the case the resumable
-     * upload exists for: every chunk of every backup would have timed out
+     * the resumable upload's own docblock names as the case it exists
+     * for: every chunk of every backup would have timed out
      * on the one code path built to survive that link.
      *
      * The closure around this cannot be exercised — it opens a socket —
@@ -680,84 +716,47 @@ final class GoogleDriveClientTest extends TestCase
     }
 
     /**
-     * **A run that stops on its budget has not failed.**
-     *
-     * A backup of a whole site does not fit in one request on shared
-     * hosting, where `max_execution_time` is thirty to a hundred and
-     * twenty seconds. So the ordinary outcome of a run is « some of it
-     * went » — and the offset it stops at is what the next run needs.
-     * Reporting that as an exception would turn the normal case into an
-     * error and lose the progress with it.
+     * **Resuming sends from the offset it was given**, which is the whole
+     * point of the destination being asked where it stands.
      */
-    public function testAnUploadThatRunsOutOfTimeReportsHowFarItGotInsteadOfFailing(): void
+    public function testAPieceIsSentAtTheOffsetItWasGivenRatherThanFromTheStart(): void
     {
-        $chunk = GoogleDriveClient::UPLOAD_CHUNK_BYTES;
-        $size = $chunk * 5;
-        $path = $this->fileOf(str_repeat('x', $size));
+        $ranges = [];
+        $client = $this->clientAnswering(function (string $method, string $url, array $headers) use (&$ranges): array {
+            $ranges[] = $headers['Content-Range'] ?? '';
 
-        // Each 308 names what Google kept, which is what the real
-        // service does — a silent 308 means it kept NOTHING and is
-        // refused (testAContinueWithoutARangeHeaderIsRefusedRatherThan-
-        // AssumedComplete).
-        $sent = 0;
-        $client = $this->clientAnswering(function () use (&$sent, $chunk): array {
-            $sent++;
-
-            return ['status' => 308, 'body' => '', 'range' => 'bytes=0-' . (($chunk * $sent) - 1)];
+            return ['status' => 200, 'body' => '{"id":"f"}'];
         });
 
-        // Room for two chunks and no more.
-        $upload = $client->sendChunks('https://upload.example/s1', $path, $size, 0, static function () use (&$sent): bool {
-            return $sent < 2;
-        });
-
-        $this->assertFalse($upload->isComplete());
-        $this->assertSame($chunk * 2, $upload->offset, 'the next run would resend what this one committed');
-        $this->assertSame('https://upload.example/s1', $upload->sessionUrl);
-        $this->assertSame(2, $sent, 'the budget did not bound how many chunks were started');
-    }
-
-    /** And a run that reaches the end reports the id, not an offset. */
-    public function testAnUploadThatFinishesCarriesTheIdThePurgeWillDeleteBy(): void
-    {
         $chunk = GoogleDriveClient::UPLOAD_CHUNK_BYTES;
-        $path = $this->fileOf(str_repeat('x', $chunk));
+        $client->sendChunk('https://upload.example/s1', str_repeat('x', $chunk), $chunk * 2, $chunk * 3);
 
-        $client = $this->clientAnswering(fn (): array => ['status' => 200, 'body' => '{"id":"drive-file-42"}']);
-
-        $upload = $client->sendChunks('https://upload.example/s1', $path, $chunk, 0, static fn(): bool => true);
-
-        $this->assertTrue($upload->isComplete());
-        $this->assertSame('drive-file-42', $upload->fileId);
+        $this->assertSame(
+            [sprintf('bytes %d-%d/%d', $chunk * 2, ($chunk * 3) - 1, $chunk * 3)],
+            $ranges,
+            'a resumed upload started over from zero'
+        );
     }
 
     /**
-     * **Resuming starts from the offset it was given**, which is the
-     * whole point of keeping one between runs.
+     * Cancelling a session that will never be finished **never throws**.
+     *
+     * Its one caller is already reporting a failure — a copy abandoned, a
+     * transfer that disagreed with its source — and a failure to tidy up
+     * must not replace the failure actually being reported.
      */
-    public function testResumingSendsFromTheStoredOffsetRatherThanFromTheStart(): void
+    public function testCancellingASessionSwallowsWhateverGoogleAnswers(): void
     {
-        $chunk = GoogleDriveClient::UPLOAD_CHUNK_BYTES;
-        $size = $chunk * 3;
-        $path = $this->fileOf(str_repeat('x', $size));
+        $methods = [];
+        $client = $this->clientAnswering(function (string $method) use (&$methods): array {
+            $methods[] = $method;
 
-        $ranges = [];
-        $client = $this->clientAnswering(
-            function (string $method, string $url, array $headers) use (&$ranges, $chunk): array {
-                $ranges[] = $headers['Content-Range'] ?? '';
+            throw new \RuntimeException('the network is gone');
+        });
 
-                return count($ranges) < 2
-                    ? ['status' => 308, 'body' => '', 'range' => 'bytes=0-' . (($chunk * 2) - 1)]
-                    : ['status' => 200, 'body' => '{"id":"f"}'];
-            }
-        );
+        $client->cancelUpload('https://upload.example/s1');
 
-        $client->sendChunks('https://upload.example/s1', $path, $size, $chunk, static fn(): bool => true);
-
-        $this->assertSame([
-            sprintf('bytes %d-%d/%d', $chunk, ($chunk * 2) - 1, $size),
-            sprintf('bytes %d-%d/%d', $chunk * 2, $size - 1, $size),
-        ], $ranges, 'a resumed upload started over from zero');
+        $this->assertSame(['DELETE'], $methods);
     }
 
     /**
@@ -781,6 +780,7 @@ final class GoogleDriveClientTest extends TestCase
         $upload = $client->probeUpload('https://upload.example/s1', 10_000);
 
         $this->assertSame(['bytes */10000'], $asked);
+        $this->assertNotNull($upload);
         $this->assertFalse($upload->isComplete());
         $this->assertSame(4096, $upload->offset);
     }
@@ -796,8 +796,43 @@ final class GoogleDriveClientTest extends TestCase
 
         $upload = $client->probeUpload('https://upload.example/s1', 10_000);
 
+        $this->assertNotNull($upload);
         $this->assertTrue($upload->isComplete());
         $this->assertSame('drive-file-9', $upload->fileId);
+    }
+
+    /**
+     * **A session Google no longer has is null, and a session it merely
+     * could not answer about is an exception.**
+     *
+     * Everything downstream turns null into « open a fresh transfer »,
+     * which for a multi-gibibyte archive means sending it again from byte
+     * zero. So the two have to be told apart here, at the one place that
+     * sees the status code: 404 and 410 are a session that is genuinely
+     * gone; a 5xx, a rate limit or a transport error is a transfer that
+     * is still there and still resumable.
+     */
+    public function testAProbeSeparatesAGoneSessionFromOneItCouldNotAskAbout(): void
+    {
+        foreach ([404, 410] as $gone) {
+            $client = $this->clientAnswering(fn (): array => ['status' => $gone, 'body' => '{}']);
+
+            $this->assertNull(
+                $client->probeUpload('https://upload.example/s1', 10_000),
+                "a {$gone} is a session that no longer exists"
+            );
+        }
+
+        foreach ([429, 500, 503] as $transient) {
+            $client = $this->clientAnswering(fn (): array => ['status' => $transient, 'body' => '{}']);
+
+            try {
+                $client->probeUpload('https://upload.example/s1', 10_000);
+                $this->fail("a {$transient} was read as a session that no longer exists");
+            } catch (DriveAccessException $e) {
+                $this->assertStringContainsString('où reprendre l\'envoi', $e->getMessage());
+            }
+        }
     }
 
     private function fileOf(string $contents): string

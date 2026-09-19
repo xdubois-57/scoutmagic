@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Storage\Location\Protection;
 
 use Core\Maintenance\BackupRepository;
+use Core\Maintenance\Remote\RemoteBackupDestination;
 use Core\Service\DateInput;
 use Core\Storage\Location\StorageLocation;
 use Core\Storage\Location\StorageLocationException;
@@ -45,7 +46,15 @@ class StorageProtectionService
     public function __construct(
         private readonly StorageProtectionRepository $protections,
         private readonly StorageLocationRepository $locations,
-        private readonly ?BackupRepository $backups = null
+        private readonly ?BackupRepository $backups = null,
+        /**
+         * Where the off-site backup writes, so that a protection touching
+         * that location can say so — see {@see warningsFor()} for the
+         * decision this exists to carry out. Null on an installation with
+         * no off-site backup configured at all, which warns about nothing
+         * and is correct.
+         */
+        private readonly ?RemoteBackupDestination $remoteBackup = null
     ) {
     }
 
@@ -129,6 +138,11 @@ class StorageProtectionService
                 . 'consomme du trafic des deux côtés.';
         }
 
+        $doubleRetention = $this->doubleRetentionWarning($source, $destination, $gracePeriodDays);
+        if ($doubleRetention !== null) {
+            $warnings[] = $doubleRetention;
+        }
+
         $horizon = $this->restorableHorizonInDays();
         if ($horizon !== null && $gracePeriodDays < $horizon) {
             // **Arithmetic, not documentation.** Restoring a database
@@ -146,6 +160,86 @@ class StorageProtectionService
         }
 
         return $warnings;
+    }
+
+    /**
+     * Two retention mechanisms on the same files — **a warning, and
+     * deliberately not a refusal**.
+     *
+     * This is the question IT-05 left to be decided and written down, so
+     * here is the decision and here is why.
+     *
+     * **The arrangement.** The off-site backup keeps a bounded number of
+     * archives on its destination and deletes the rest
+     * ({@see \Core\Maintenance\Remote\RemoteRetention}: thirty of them,
+     * or ten gibibytes, whichever bites first). A protection copies a
+     * location's objects elsewhere and, once a file has been gone from the
+     * source for the grace period, removes it from the copy too (D13).
+     * Point either mechanism at the other's files and both act on the same
+     * objects.
+     *
+     * **It is refused in no case, because the combination is coherent
+     * once it is named.** The retention decides which archives stay on the
+     * destination; the protection copies whatever is there and, after the
+     * grace period, drops from the copy what has left the source. The copy
+     * TRACKS the retention rather than fighting it, and nothing is ever
+     * deleted that the operator did not, transitively, ask to have
+     * deleted. What they get is a second copy of their off-site archives
+     * that lags the first by the grace period — which is a thing a unit
+     * with one cloud account and one spare disk genuinely wants, and which
+     * a prohibition would forbid outright.
+     *
+     * **And a prohibition would fail in the wrong direction anyway.** A
+     * location becomes the backup destination AFTER a protection is
+     * declared just as easily as before, and no declaration-time refusal
+     * covers that order — IT-04 learned exactly this lesson about the
+     * public-URL refusal, which had to be repeated at reconfiguration
+     * time to mean anything. A rule that is side-stepped by doing two
+     * legitimate steps in the other order is not a protection; it is an
+     * obstacle that tells whoever meets it that the site does not
+     * understand the arrangement.
+     *
+     * **So it is said, once, where it can be acted on, and it names the
+     * number that makes it matter.** The grace period is what decides how
+     * far the copy lags, and it is the one figure an operator can change
+     * in response to reading this.
+     *
+     * Null when neither end is the off-site destination, which is the
+     * ordinary case.
+     */
+    private function doubleRetentionWarning(
+        StorageLocation $source,
+        StorageLocation $destination,
+        int $gracePeriodDays
+    ): ?string {
+        $backupLocationId = $this->remoteBackup?->locationId() ?? 0;
+        if ($backupLocationId === 0) {
+            return null;
+        }
+
+        if ($source->id === $backupLocationId) {
+            return sprintf(
+                'Cet emplacement reçoit aussi les sauvegardes hors site, qui y suppriment d\'elles-mêmes les '
+                . 'archives les plus anciennes. La copie de secours suivra : une archive purgée ici disparaîtra '
+                . 'de « %s » %d jours plus tard. C\'est cohérent — la copie retarde simplement la purge — mais '
+                . 'ce n\'est pas une conservation illimitée ; allongez le délai de grâce si vous vouliez en '
+                . 'garder davantage.',
+                $destination->label,
+                $gracePeriodDays
+            );
+        }
+
+        if ($destination->id === $backupLocationId) {
+            return sprintf(
+                'La copie de secours écrit dans « %s », qui reçoit aussi les sauvegardes hors site. Les deux '
+                . 'mécanismes y déposent des fichiers, et la conservation des archives distantes ne compte que '
+                . 'les archives : les fichiers copiés ici ne sont jamais purgés par elle, et occupent donc de '
+                . 'la place en plus de celle que les sauvegardes réservent.',
+                $destination->label
+            );
+        }
+
+        return null;
     }
 
     /**

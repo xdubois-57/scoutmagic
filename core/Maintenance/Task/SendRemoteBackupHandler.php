@@ -10,12 +10,14 @@ declare(strict_types=1);
 namespace Core\Maintenance\Task;
 
 use Core\Config\SettingService;
-use Core\Maintenance\Remote\GoogleDriveClient;
-use Core\Maintenance\Remote\GoogleDriveTarget;
-use Core\Maintenance\Remote\RemoteBackupConnection;
-use Core\Maintenance\Remote\RemoteBackupTarget;
+use Core\Exception\UserFacingMessage;
+use Core\Maintenance\Remote\RemoteBackupDestination;
+use Core\Maintenance\Remote\RemoteBackupException;
 use Core\Maintenance\Remote\RemotePassphrase;
 use Core\Maintenance\Remote\RemoteRetention;
+use Core\Storage\Location\Backend\ResumableUploadBackend;
+use Core\Storage\Location\Backend\StorageBackendFactory;
+use Core\Storage\Location\StorageLocationRepository;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
@@ -40,9 +42,23 @@ use Core\Security\SecretManager;
  * immediately. It is the only shape that works on shared hosting, where
  * `max_execution_time` is thirty to a hundred and twenty seconds and a
  * backup is measured in gibibytes. The difference is what survives
- * between runs: a notification batch is a list of ids, and here it is a
- * resumable session URI plus an offset, so a send crosses as many runs as
- * it needs without ever restarting.
+ * between runs: a notification batch is a list of ids, and here it is the
+ * archive itself, sitting on the disk under a name the destination already
+ * holds some of — so a send crosses as many runs as it needs without ever
+ * restarting.
+ *
+ * **Nothing about the transfer itself survives in the payload any more,
+ * and that is IT-05's doing.** This handler used to carry a resumable
+ * session URI and a byte offset between runs, plus a flag saying whether
+ * the offset could be trusted — the machinery of a task that was also the
+ * only thing in the application that knew Google's protocol. All of it
+ * moved behind {@see ResumableUploadBackend}: the destination keeps its
+ * own note of the session, and `partialSize()` asks it where the transfer
+ * actually stands. So a database restored to last week can no longer move
+ * an upload backwards, the same D12 reading that governs a location's
+ * safety copy, and what is left here is the one thing genuinely this
+ * task's own — which archive is being sent, and how many runs in a row
+ * have failed.
  *
  * **The local archive is deleted the moment the send succeeds.** It is
  * not a portable backup the operator asked for, and IT-04's quota of one
@@ -70,9 +86,33 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
 
     public const DEFAULT_MAX_FAILURES = 5;
 
+    /**
+     * How much is read from the local archive and appended at a time.
+     *
+     * 8 MiB: large enough that a gibibyte is not ten thousand round trips,
+     * small enough to sit inside any `memory_limit` this application runs
+     * under, including the 128 MB shared hosting still ships. The same
+     * figure `Core\Storage\Location\Protection\ProtectedCopier` reads
+     * its slices in, for the same reason and deliberately not a second
+     * number for the same constraint.
+     */
+    public const CHUNK_BYTES = 8 * 1024 * 1024;
+
     public function __construct(
-        private readonly ?RemoteBackupTarget $target = null,
-        private readonly ?\Closure $now = null
+        /**
+         * Both null in production, and both overridable so a test can run
+         * this whole chain without a Google account or a database: the
+         * destination decides WHERE, the backend is WHAT WRITES there.
+         */
+        private readonly ?ResumableUploadBackend $backend = null,
+        private readonly ?RemoteBackupDestination $destination = null,
+        private readonly ?\Closure $now = null,
+        /**
+         * Overridable so a test can exercise a send that crosses several
+         * runs without writing tens of mebibytes to a temporary disk to
+         * do it. Production never passes it.
+         */
+        private readonly int $chunkBytes = self::CHUNK_BYTES
     ) {
     }
 
@@ -103,26 +143,97 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
      */
     public function handle(array $payload, TaskContext $context): void
     {
-        $connection = new RemoteBackupConnection($context->settings, $this->secrets($context));
-        if (!$connection->isConnected()) {
-            // No destination connected: nothing to send, and nothing
-            // wrong. The chain keeps ticking so that connecting one later
-            // starts the sends without anybody re-arming it by hand.
+        $destination = $this->destination ?? $this->destinationFor($context);
+
+        // The destination this run's transfer BEGAN on, read once: both
+        // branches below need it, and neither can ask the site, which by
+        // then names somewhere else or nowhere at all.
+        $startedOn = (int) ($payload['location_id'] ?? 0);
+
+        if (!$destination->isConfigured()) {
+            // No destination chosen: nothing to send, and nothing wrong.
+            // The chain keeps ticking so that choosing one later starts
+            // the sends without anybody re-arming it by hand.
             //
             // **But a send may have been under way.** A destination goes
-            // from connected to not WHILE a multi-run upload is crossing
-            // runs — an operator disconnects, or Google withdraws the
-            // grant and `markNeedsReauthorisation()` clears the token —
+            // from chosen to not WHILE a multi-run upload is crossing
+            // runs — an administrator re-points it, or deletes the row —
             // and this branch then fires on the very next run. The
-            // half-sent archive it was carrying has to go with the
-            // payload it lived in.
+            // half-sent archive it was carrying has to go with the payload
+            // it lived in: it holds `master.key` and the phrase that opens
+            // it sits in `secrets.enc` beside it, and nothing else would
+            // ever remove it.
             $this->discardArchive($payload, $context);
+            // And the half-sent copy at the far end, on the destination it
+            // was actually going to. `$destination->backend()` is no use
+            // here — there is no destination any more — so the payload's
+            // own `location_id` is the only thing that still knows where
+            // those bytes are.
+            $this->discardPartial($payload, $destination->backendFor($startedOn));
             $this->scheduleNext($context, []);
 
             return;
         }
 
-        $target = $this->target ?? new GoogleDriveTarget($connection, new GoogleDriveClient());
+        // **Re-pointed rather than unset.** The branch above catches a
+        // destination that went away; this one catches one that MOVED. The
+        // run carries the id it started on, the site now names another,
+        // and the partial on the first is orphaned from this moment on —
+        // nothing below will look at it again, and no retention sweep can
+        // see it. Discarded here, while the payload still remembers where
+        // it is.
+        if ($startedOn > 0 && $startedOn !== $destination->locationId()) {
+            $this->discardPartial($payload, $destination->backendFor($startedOn));
+        }
+
+        try {
+            $backend = $this->backend ?? $destination->backend();
+        } catch (\RuntimeException $e) {
+            // **Every way building a backend can fail, not just the one
+            // this feature declares.** `RemoteBackupException` covers a
+            // destination that cannot resume an interrupted upload; but
+            // `backend()` reaches `StorageBackendFactory`, which reads the
+            // location's encrypted column — so a secret that no longer
+            // decrypts raises `Security\DecryptionException`, and a type
+            // this build cannot open raises `StorageLocationException`.
+            // Neither is a `RemoteBackupException`.
+            //
+            // Escaping here is not merely an unreported failure. It is
+            // `recordFailure()` that climbs the counter and, at the
+            // ceiling, DELETES the archive — a portable backup carrying
+            // `master.key`. A resumed run that dies on this line leaves
+            // that file on the disk, re-attempts it every night, and never
+            // reaches the ceiling that would remove it. The master-key
+            // rotation that makes a secret unreadable is the very scenario
+            // D7 cites for moving these credentials.
+            //
+            // Not widened at the send site below, deliberately: the
+            // backend is already built by then, so this family of failures
+            // cannot arise there.
+            $this->recordFailure(
+                $payload,
+                $context,
+                UserFacingMessage::from(
+                    $e,
+                    // `DecryptionException` is not a `UserFacingException`, and
+                    // its message names the cipher rather than the remedy.
+                    'La destination hors site n\'a pas pu être ouverte : ses identifiants sont illisibles. '
+                    . 'Reraccordez le compte depuis Configuration > Stockage.'
+                )
+            );
+
+            return;
+        }
+
+        if ($backend === null) {
+            // Unreachable while `isConfigured()` above said yes, and a
+            // refusal rather than a silent no-op: a destination that
+            // resolves to nothing between two lines is a state worth
+            // meeting as an error rather than as a quiet skipped send.
+            $this->recordFailure($payload, $context, 'La destination hors site n\'a pas pu être ouverte.');
+
+            return;
+        }
 
         // **The archive first, and on its own.** Everything after this
         // point must be able to say « keep the file, resume on it », and
@@ -143,30 +254,37 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
         $carried = [
             'archive_path' => $archivePath,
             'remote_name' => $remoteName,
-            'session_url' => $fresh ? '' : (string) ($payload['session_url'] ?? ''),
-            'offset' => $fresh ? 0 : (int) ($payload['offset'] ?? 0),
-            'offset_is_certain' => $fresh ? true : ($payload['offset_is_certain'] ?? true) !== false,
             'failures' => (int) ($payload['failures'] ?? 0),
+            // **Which destination this transfer was going to**, not which
+            // one the site is pointed at now. The two part company exactly
+            // when the cleanup matters: an administrator re-points or
+            // deletes the destination while a multi-run upload is crossing
+            // runs, and every later run resolves somewhere else. A hint,
+            // never authority (D12) — losing it costs a cleanup, never a
+            // wrong decision, and a row since deleted simply means there
+            // is nothing left to clean.
+            'location_id' => $destination->locationId(),
         ];
 
         try {
-            // By reference, and that is not a style choice: `send()` opens
-            // the resumable session, and a failure two lines later has to
-            // report the payload INCLUDING that session. Passing a copy
-            // sent `recordFailure()` the pre-send state, whose
-            // `session_url` is still empty on a fresh archive — so the
-            // next run opened a second session and pushed a multi-gibibyte
-            // archive from byte zero again, leaving an orphan session on
-            // the destination. Every failure cost one whole upload on
-            // exactly the shared hosting this chunked design exists for.
-            $this->send($carried, $context, $target);
+            if ($fresh) {
+                // A new archive under a name a previous attempt may have
+                // started: whatever the destination is holding describes
+                // different bytes, and resuming onto it would splice two
+                // archives together. The names differ by the second, so
+                // this is rare — and « rare » is exactly the case that
+                // gets shipped broken.
+                $backend->discardPartial($remoteName);
+            }
+
+            $this->send($carried, $context, $backend);
         } catch (\RuntimeException $e) {
-            // RemoteBackupException, BackupException and
-            // InsufficientDiskSpaceException are all RuntimeExceptions,
-            // and all three mean the same thing to the run that catches
-            // them: nothing more left this server, and the next run picks
-            // the same archive back up.
-            $this->recordFailure($carried, $context, $e->getMessage());
+            // RemoteBackupException, StorageLocationException,
+            // BackupException and InsufficientDiskSpaceException are all
+            // RuntimeExceptions, and all of them mean the same thing to
+            // the run that catches them: nothing more left this server,
+            // and the next run picks the same archive back up.
+            $this->recordFailure($carried, $context, $e->getMessage(), $backend);
         }
     }
 
@@ -177,9 +295,8 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
      * @param array<string, mixed> $payload
      * @return array{0: string, 1: string, 2: bool} path, remote name, and
      *         whether it was built just now — a fresh archive invalidates
-     *         any session the payload carried, since a resumable URI is
-     *         bound to the length and the bytes of the file it was opened
-     *         for.
+     *         anything the destination holds under that name, since what
+     *         is there describes different bytes.
      * @throws \Core\Maintenance\BackupException
      */
     private function resolveArchive(array $payload, TaskContext $context): array
@@ -195,95 +312,128 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
     }
 
     /**
-     * @param array{archive_path: string, remote_name: string, session_url: string, offset: int,
-     *     offset_is_certain: bool, failures: int} $carried **by reference**: the
-     *     session this run opens has to reach the caller's catch, or a
-     *     failure re-arms on a payload that predates `beginUpload()`
-     * @throws \Core\Maintenance\BackupException
+     * Pushes as much of the archive as the budget allows.
+     *
+     * **Where the transfer stands is asked of the destination, never
+     * remembered.** `partialSize()` is the resume offset, and it describes
+     * bytes that are certainly stored rather than bytes that were merely
+     * sent — which is the one thing local bookkeeping could never promise.
+     * The run that died mid-chunk therefore resumes from the truth, and a
+     * database restored to last week cannot move it.
+     *
+     * @param array{archive_path: string, remote_name: string, failures: int, location_id: int} $carried
+     * @throws \RuntimeException
      */
-    private function send(array &$carried, TaskContext $context, RemoteBackupTarget $target): void
+    private function send(array $carried, TaskContext $context, ResumableUploadBackend $backend): void
     {
         $archivePath = $carried['archive_path'];
+        $remoteName = $carried['remote_name'];
         $size = (int) filesize($archivePath);
-        $sessionUrl = $carried['session_url'];
-        $offset = $carried['offset'];
 
-        if ($sessionUrl === '') {
-            $sessionUrl = $target->beginUpload($carried['remote_name'], $size);
+        $offset = $backend->partialSize($remoteName);
+        if ($offset > $size) {
+            // What is stored is longer than the archive it claims to be,
+            // so it describes a file that changed under it. Nothing can be
+            // salvaged and keeping it would resume into the middle of
+            // something else.
+            $backend->discardPartial($remoteName);
             $offset = 0;
-            // Straight back into the caller's copy, BEFORE a single byte
-            // is sent. Everything below can throw, and the catch in
-            // handle() re-arms from this array.
-            $carried['session_url'] = $sessionUrl;
-            $carried['offset'] = 0;
-            $carried['offset_is_certain'] = true;
-        } elseif (!$carried['offset_is_certain']) {
-            // The previous run died without saying how far it got. Only
-            // the destination knows, and its answer beats any guess this
-            // application could make from what it had handed over.
-            $probe = $target->probeUpload($sessionUrl, $size);
-            if ($probe->isComplete()) {
-                // finish() cancels whatever pending row exists, guarded
-                // like everything else it does; this run has written none
-                // yet, so there is normally nothing to cancel.
-                $this->finish($context, $target, $archivePath, $probe->fileId);
+        }
+        if ($offset === 0) {
+            $backend->beginPartial($remoteName, $size);
+        }
 
-                return;
+        // **Written down BEFORE a single byte goes.** If this run dies
+        // mid-chunk — the process is killed, the host reboots, the request
+        // is cut — the next one must still find the archive and the name
+        // it is being sent under. Losing those means building a
+        // multi-gibibyte archive again from nothing, where the destination
+        // is already holding most of one.
+        $this->scheduleAfter($context, 0, $carried);
+
+        $handle = @fopen($archivePath, 'rb');
+        if ($handle === false) {
+            throw RemoteBackupException::of('L\'archive à envoyer n\'a pas pu être lue sur ce serveur.');
+        }
+
+        try {
+            if ($offset > 0 && fseek($handle, $offset) !== 0) {
+                throw RemoteBackupException::of('La reprise de la lecture de l\'archive a échoué.');
             }
-            $offset = $probe->offset;
-            $carried['offset'] = $offset;
-            $carried['offset_is_certain'] = true;
+
+            $deadline = $this->clock() + self::TIME_BUDGET_SECONDS;
+            while ($offset < $size) {
+                // Checked between chunks, never inside one: a chunk is a
+                // single request and cannot be interrupted politely, so
+                // the budget bounds how many are STARTED and the overshoot
+                // is at most one — which is what CHUNK_BYTES is sized for.
+                if ($this->clock() >= $deadline) {
+                    $this->pause($context, $carried);
+
+                    return;
+                }
+
+                $chunk = (string) fread($handle, $this->chunkBytes);
+                if ($chunk === '') {
+                    throw RemoteBackupException::of('La lecture de l\'archive à envoyer s\'est interrompue.');
+                }
+
+                // The whole chunk is stored when this returns, or it
+                // throws — {@see ResumableUploadBackend::appendToPartial()}
+                // — which is what lets this advance by what it wrote
+                // instead of asking again between every slice.
+                $backend->appendToPartial($remoteName, $chunk);
+                $offset += strlen($chunk);
+            }
+        } finally {
+            fclose($handle);
         }
 
-        // **Written down BEFORE the chunks go.** If this run dies mid-
-        // chunk — the process is killed, the host reboots, the request is
-        // cut — the next one must still know that a session exists and
-        // that its offset is a guess. Losing the session URI means
-        // starting a multi-gibibyte archive again from nothing.
-        $this->scheduleAfter($context, 0, [
-            'archive_path' => $archivePath,
-            'remote_name' => $carried['remote_name'],
-            'session_url' => $sessionUrl,
-            'offset' => $offset,
-            'offset_is_certain' => false,
-            'failures' => $carried['failures'],
-        ]);
+        $backend->promotePartial($remoteName, 'application/zip');
 
-        $deadline = $this->clock() + self::TIME_BUDGET_SECONDS;
-        $upload = $target->sendChunks(
-            $sessionUrl,
-            $archivePath,
-            $size,
-            $offset,
-            fn(): bool => $this->clock() < $deadline
-        );
+        // The cancel goes INSIDE finish(), not here. Once the destination
+        // has the last byte, every remaining step is post-delivery
+        // bookkeeping and none of it may reach recordFailure() — and
+        // `cancelPending()` is a write to the most contended table on the
+        // site.
+        $this->finish($context, $backend, $archivePath, $remoteName);
+    }
 
-        if ($upload->isComplete()) {
-            // The cancel goes INSIDE finish(), not here. Once the
-            // destination has the last byte, every remaining step is
-            // post-delivery bookkeeping and none of it may reach
-            // recordFailure() — and `cancelPending()` is a write to the
-            // most contended table on the site.
-            $this->finish($context, $target, $archivePath, $upload->fileId);
-
-            return;
-        }
-
-        // Still going, so a failure from here IS a failure: nothing was
-        // delivered, and recordFailure() is the right place for it.
+    /**
+     * Out of budget with bytes still to go: replace the pessimistic row
+     * with what this run actually achieved.
+     *
+     * The failure count goes back to zero, because bytes moved. Not an
+     * error, and emphatically not a failed send: on shared hosting this is
+     * the ORDINARY outcome of a run, and treating it as anything else
+     * would abandon every archive larger than twenty seconds of upstream.
+     *
+     * @param array{archive_path: string, remote_name: string, failures: int, location_id: int} $carried
+     */
+    private function pause(TaskContext $context, array $carried): void
+    {
         $this->cancelPending($context);
+        $this->scheduleAfter($context, 0, array_merge($carried, ['failures' => 0]));
+    }
 
-        // Still going: replace the pessimistic row with what this run
-        // actually achieved, so the next one resumes without a probe. The
-        // failure count goes back to zero — bytes moved.
-        $this->scheduleAfter($context, 0, [
-            'archive_path' => $archivePath,
-            'remote_name' => $carried['remote_name'],
-            'session_url' => $sessionUrl,
-            'offset' => $upload->offset,
-            'offset_is_certain' => true,
-            'failures' => 0,
-        ]);
+    /**
+     * The repository and the factory this task needs, built from the
+     * scheduler's own context.
+     *
+     * Built here rather than injected because a scheduled handler is
+     * constructed once at bootstrap and may never run: an S3 client or a
+     * decrypted secret assembled on every request, for a task that fires
+     * once a day, is work nobody asked for.
+     */
+    private function destinationFor(TaskContext $context): RemoteBackupDestination
+    {
+        $repository = new StorageLocationRepository($context->connection->getPdo(), $context->encryption);
+
+        return new RemoteBackupDestination(
+            $context->settings,
+            $repository,
+            new StorageBackendFactory($repository, $context->storagePath)
+        );
     }
 
     /**
@@ -325,9 +475,9 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
      */
     private function finish(
         TaskContext $context,
-        RemoteBackupTarget $target,
+        ResumableUploadBackend $backend,
         string $archivePath,
-        string $fileId
+        string $remoteName
     ): void {
         // The pessimistic row this run wrote before sending: a write to
         // `scheduled_actions`, and therefore a thing that can fail. Left
@@ -361,17 +511,20 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
         // meant to outlive, and this one was never asked for by a human.
         $deleted = $this->deleteArchive($context, $archivePath);
 
-        $this->quietly($context, static function () use ($context, $fileId, $deleted): void {
+        $this->quietly($context, static function () use ($context, $remoteName, $deleted): void {
             $context->journal->log(
                 'core',
                 'remote_backup_sent',
                 'info',
                 'Sauvegarde envoyée hors site',
-                ['remote_id' => $fileId, 'local_copy_removed' => $deleted]
+                // The key, not a provider's own file id: the entry is
+                // read by somebody looking in their own destination
+                // folder, and the name is what they will find there.
+                ['remote_name' => $remoteName, 'local_copy_removed' => $deleted]
             );
         });
 
-        $this->purge($context, $target);
+        $this->purge($context, $backend);
 
         $this->quietly(
             $context,
@@ -427,12 +580,13 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
      * delivered archive as a failed send. One guard, written once, is
      * what stops that from being reinvented slightly wrong each time.
      */
-    private function purge(TaskContext $context, RemoteBackupTarget $target): void
+    private function purge(TaskContext $context, ResumableUploadBackend $backend): void
     {
         $this->quietly(
             $context,
-            static function () use ($context, $target): void {
-                $report = (new RemoteRetention($context->settings))->purge($target, $target->list());
+            static function () use ($context, $backend): void {
+                $retention = new RemoteRetention($context->settings);
+                $report = $retention->purge($backend, $retention->listArchives($backend));
                 if ($report['deleted'] > 0 || $report['failed'] > 0) {
                     $context->journal->log('core', 'remote_backup_purged', 'info',
                         'Archives distantes supprimées au-delà des bornes de conservation', $report);
@@ -447,15 +601,20 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
      * One more failure in a row — and past the ceiling, the send is
      * abandoned rather than retried for ever.
      *
-     * **Abandoning drops the session, not the idea.** The next scheduled
-     * run opens a fresh one and builds a fresh archive: a session URI
-     * that has been failing for five runs is likelier expired than
-     * unlucky, and Google keeps one only about a week anyway.
+     * **Abandoning drops the archive, not the idea.** The next scheduled
+     * run builds a fresh one, which the destination meets under a new name
+     * and therefore as a new transfer: a send that has been failing for
+     * five runs is likelier to have an expired session behind it than to
+     * be unlucky, and Google keeps one only about a week anyway.
      *
      * @param array<string, mixed> $payload
      */
-    private function recordFailure(array $payload, TaskContext $context, string $reason): void
-    {
+    private function recordFailure(
+        array $payload,
+        TaskContext $context,
+        string $reason,
+        ?ResumableUploadBackend $backend = null
+    ): void {
         $failures = (int) ($payload['failures'] ?? 0) + 1;
         $ceiling = max(1, (int) ($context->settings->get(self::MAX_FAILURES_SETTING)
             ?: self::DEFAULT_MAX_FAILURES));
@@ -471,9 +630,26 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
                 $this->deleteArchive($context, $archivePath);
             }
 
-            $context->journal->log('core', 'remote_backup_abandoned', 'warning',
+            // **The destination keeps its own note, and nothing else can
+            // reach it.** `beginPartial()` writes a `.scoutmagic-part-*`
+            // object beside the archive; every backend hides its own
+            // internal prefix from `list()`, so `RemoteRetention` cannot
+            // see that note and no sweep will ever remove it. Abandoning
+            // without this leaks one orphaned object per abandoned send,
+            // for ever, into a folder the operator owns.
+            //
+            // AFTER `deleteArchive()`, never before: the local file
+            // carries `master.key`, and a destination that refuses to
+            // answer must not be able to keep it on the disk.
+            $discarded = $this->discardPartial($payload, $backend);
+
+            $context->journal->log(
+                'core',
+                'remote_backup_abandoned',
+                'warning',
                 'Envoi hors site abandonné après plusieurs échecs consécutifs',
-                ['failures' => $failures, 'error' => $reason]);
+                ['failures' => $failures, 'error' => $reason, 'partial_discarded' => $discarded]
+            );
             $this->scheduleNext($context, []);
 
             return;
@@ -482,11 +658,48 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
         $context->journal->log('core', 'remote_backup_failed', 'info',
             'Un envoi hors site a échoué et sera repris', ['failures' => $failures, 'error' => $reason]);
 
-        $this->scheduleAfter($context, 0, array_merge($payload, [
-            'failures' => $failures,
-            // The run that failed may have committed bytes before it did.
-            'offset_is_certain' => false,
-        ]));
+        // What is carried forward is the archive and the count, and
+        // nothing about how far the transfer got: the destination is asked
+        // that on the next run, which is the whole point of
+        // {@see ResumableUploadBackend::partialSize()}. The run that failed
+        // may well have committed bytes before it did — under the old
+        // payload this is exactly where that had to be guessed at.
+        $this->scheduleAfter($context, 0, array_merge($payload, ['failures' => $failures]));
+    }
+
+    /**
+     * Throws away the note the destination is holding for a transfer no
+     * run will resume, and tells the caller whether it went.
+     *
+     * Returns false, rather than throwing, when the destination refuses:
+     * this is reached from the abandonment branch, whose remaining work
+     * — the journal line and rearming the chain — matters more than the
+     * note, and whose local half has already run. A destination that is
+     * unreachable now is also one that cannot be cleaned by any caller,
+     * so the alternative to a false here is an exception escaping a
+     * failure handler.
+     *
+     * Silent on the three earlier failure paths, which pass no backend:
+     * two of them fail *because* no backend could be built, and the
+     * third fails before the archive has a name, so there is nothing
+     * there to discard and nothing to discard it with.
+     *
+     * @param array<string, mixed> $payload
+     */
+    private function discardPartial(array $payload, ?ResumableUploadBackend $backend): bool
+    {
+        $remoteName = (string) ($payload['remote_name'] ?? '');
+        if ($backend === null || $remoteName === '') {
+            return false;
+        }
+
+        try {
+            $backend->discardPartial($remoteName);
+
+            return true;
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     /**
