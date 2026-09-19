@@ -176,6 +176,13 @@ function submitForm() {
     return event;
 }
 
+/** The back button: jsdom has no PageTransitionEvent, so `persisted` is set by hand. */
+function restoreFromBackForwardCache() {
+    const event = new Event('pageshow');
+    Object.defineProperty(event, 'persisted', { value: true });
+    window.dispatchEvent(event);
+}
+
 beforeEach(() => {
     vi.restoreAllMocks();
     vi.useRealTimers();
@@ -416,6 +423,64 @@ describe('finance-receipt-form.js: compressing before submit (« Nouveau reçu �
         expect(second.defaultPrevented).toBe(true);
         expect(form().submit).toHaveBeenCalledTimes(1);
     });
+
+    /**
+     * The one way back to a locked form, and it is an ordinary one.
+     *
+     * The lock is deliberately never released by the upload itself — a
+     * native POST always leaves this page. But the back button brings the
+     * page back with its JavaScript heap intact: `sending` still true, the
+     * button still disabled and still saying « Envoi en cours… ». Somebody
+     * who deposits a receipt, goes back and wants to deposit another would
+     * find a form that cannot be sent at all until a hard reload.
+     *
+     * `camps-place-summary.js` already carries this handler for the same
+     * reason, and is where the spinner markup here came from; the first
+     * version of this change copied the markup and left the handler.
+     */
+    it('gives the form back when the back button restores the page', async () => {
+        stubCompressionPipeline();
+        await boot(buildNewReceiptDom);
+        pick(filesInput(), [imageFile('ticket.jpeg')]);
+
+        submitForm();
+        await settle();
+        expect(submitBtn().disabled).toBe(true);
+
+        restoreFromBackForwardCache();
+
+        expect(submitBtn().disabled).toBe(false);
+        expect(submitBtn().textContent).toBe('Ajouter');
+        expect(submitBtn().querySelector('.spinner-border')).toBeNull();
+        expect(status()).toBe('');
+
+        // And the guard is gone with it: the form submits again.
+        pick(filesInput(), [imageFile('second.jpeg')]);
+        const again = submitForm();
+        await settle();
+
+        expect(again.defaultPrevented).toBe(true);
+        expect(form().submit).toHaveBeenCalledTimes(2);
+    });
+
+    /**
+     * A `pageshow` that is not a restoration changes nothing — it fires on
+     * every ordinary load too, and releasing there would hand the button
+     * back in the middle of the upload this lock exists for.
+     */
+    it('ignores a pageshow that is not a restoration', async () => {
+        stubCompressionPipeline();
+        await boot(buildNewReceiptDom);
+        pick(filesInput(), [imageFile('ticket.jpeg')]);
+
+        submitForm();
+        await settle();
+
+        window.dispatchEvent(new Event('pageshow'));
+
+        expect(submitBtn().disabled).toBe(true);
+        expect(status()).toBe('Envoi en cours…');
+    });
 });
 
 describe('finance-receipt-form.js: « Remplacer le reçu »', () => {
@@ -490,6 +555,23 @@ describe('finance-receipt-form.js: « Remplacer le reçu »', () => {
         expect(submittedNames(singleInput())).toEqual(['photo.jpeg']);
         expect(status()).toBe('Envoi en cours…');
         expect(form().submit).toHaveBeenCalledTimes(1);
+    });
+
+    /** The same restoration, on the other shape of the template. */
+    it('gives the replacement form back when the back button restores the page', async () => {
+        stubCompressionPipeline();
+        await boot(buildReplaceReceiptDom);
+        singleInput().files = fileList([pdfFile('facture.pdf')]);
+
+        submitForm();
+        await settle();
+        expect(submitBtn().disabled).toBe(true);
+
+        restoreFromBackForwardCache();
+
+        expect(submitBtn().disabled).toBe(false);
+        expect(submitBtn().textContent).toBe('Remplacer');
+        expect(status()).toBe('');
     });
 
     it('never opens a native dialog on any path', async () => {

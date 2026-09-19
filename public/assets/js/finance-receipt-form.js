@@ -24,8 +24,8 @@
 // ScoutMagicApi JSON envelope: the upload is the form's own native
 // multipart POST, which is also why the file rewrites the <input>'s
 // FileList (through DataTransfer) rather than building a body of its own.
-// That native POST is also why the submit lock below is taken and never
-// given back: this page is leaving either way.
+// That native POST is also why the submit lock below is taken and given
+// back in exactly one circumstance: the back button.
 (function () {
     const form = /** @type {HTMLFormElement|null} */ (document.getElementById('receipt-form'));
     const statusEl = document.getElementById('receipt-file-status');
@@ -63,12 +63,22 @@
      * not de-duplicate a person's own deposit, so nothing downstream
      * caught it either.
      *
-     * **The lock is never released**, and that is the point rather than an
-     * omission: a native form POST always ends by leaving this page, for
-     * the receipts list or for a re-render carrying the error. There is no
-     * outcome in which the visitor is still looking at this button and
-     * needs it back. `withDisabled()` releases because an API call returns
-     * to the same page; this does not.
+     * **The lock outlives the submission on purpose**: a native form POST
+     * always ends by leaving this page, for the receipts list or for a
+     * re-render carrying the error, so there is no outcome in which the
+     * visitor is still looking at this button and needs it back.
+     * `withDisabled()` releases because an API call returns to the same
+     * page; a form POST does not.
+     *
+     * **Except through the back button.** A page restored from the
+     * browser's back-forward cache comes back with its JavaScript heap
+     * intact — `sending` still true, the button still disabled and still
+     * saying « Envoi en cours… » — and both handlers below refuse every
+     * submit while that holds. Somebody who deposits a receipt, goes
+     * back, and wants to deposit another would find a form that cannot be
+     * sent until a hard reload. So `pageshow` releases it, which is what
+     * `camps-place-summary.js` does for the same reason and is where the
+     * spinner markup here comes from.
      */
     let sending = false;
 
@@ -85,10 +95,38 @@
         if (!submitBtn) {
             return;
         }
+        // Kept so releaseSubmit() can put back exactly what was there: the
+        // two shapes of this template do not carry the same word.
+        submitBtn.dataset.idleLabel = submitBtn.innerHTML;
         submitBtn.disabled = true;
         submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"'
             + ' aria-hidden="true"></span>' + SENDING_MESSAGE;
     }
+
+    /**
+     * Undoes {@see lockSubmit} — only ever called for a page the back
+     * button brought back, where the upload it belonged to is long over.
+     *
+     * @returns {void}
+     */
+    function releaseSubmit() {
+        sending = false;
+        statusEl.textContent = '';
+        if (submitBtn?.dataset.idleLabel === undefined) {
+            return;
+        }
+        submitBtn.innerHTML = submitBtn.dataset.idleLabel;
+        submitBtn.disabled = false;
+        delete submitBtn.dataset.idleLabel;
+    }
+
+    // Back-button: a page restored from the browser's cache comes back
+    // exactly as it was left, mid-upload lock included.
+    window.addEventListener('pageshow', function (event) {
+        if ((/** @type {PageTransitionEvent} */ (event)).persisted) {
+            releaseSubmit();
+        }
+    });
 
     /**
      * @param {File} file
