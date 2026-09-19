@@ -155,10 +155,23 @@ final class WebDavClient
      *
      * The end is allowed to fall SHORT of what was asked: RFC 9110 has a
      * server clamp a range that runs past the end of the object, and a
-     * caller reading the tail of a file legitimately meets that. What is
-     * refused is a start that is not the one requested, an end beyond it,
-     * a body whose length disagrees with the range announced, and a
-     * missing `Content-Range` — which a 206 must carry.
+     * caller reading the tail of a file legitimately meets that.
+     * `ProtectedCopier` is that caller — it walks a file in fixed 8 MiB
+     * slices without clamping the last one — so this tolerance is load
+     * bearing rather than theoretical, and tightening it to « exactly the
+     * end requested » would fail the final chunk of every file whose size
+     * is not a multiple of the chunk.
+     *
+     * It does mean a short answer reaches a caller that did NOT ask for a
+     * tail. `GalleryController::serveRange()` clamps its own end to the
+     * object size beforehand, so it treats what it received as the truth
+     * and builds `Content-Range` from the bytes in hand rather than from
+     * the ones it asked for; the alternative is a 206 whose header and
+     * payload disagree.
+     *
+     * What is refused is a start that is not the one requested, an end
+     * beyond it, a body whose length disagrees with the range announced,
+     * and a missing `Content-Range` — which a 206 must carry.
      *
      * @param array{status: int, body: string, headers: array<string, string>} $response
      * @throws WebDavAccessException

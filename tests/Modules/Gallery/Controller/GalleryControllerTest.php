@@ -447,6 +447,55 @@ class GalleryControllerTest extends TestCase
     }
 
     /**
+     * **A 206 never contradicts itself, even when the share answers
+     * short.**
+     *
+     * The range read tolerates an end falling short of the one requested,
+     * on purpose: `ProtectedCopier` walks a file in fixed slices and its
+     * last one always overruns the end, so refusing a clamped answer
+     * would fail the final chunk of nearly every file. But this caller
+     * has already clamped its own end to the object's size, so a short
+     * body here is the share falling short — a stale size, a truncated
+     * transfer, a server-side ceiling.
+     *
+     * Announcing the end that was ASKED for beside a `Content-Length`
+     * taken from the shorter body hands the player a header that does not
+     * describe its payload, which is precisely what the range checks
+     * exist to prevent. So the header is built from the bytes in hand.
+     */
+    public function testAShortSliceFromAShareStillYieldsAConsistent206(): void
+    {
+        $share = new FakeWebDavServer();
+        $backend = $this->webDavBackendFor($share);
+        $backend->put('med.mp4', '0123456789abcdefghij', 'video/mp4');
+        // The share answers the 206 it was asked for, but with three
+        // bytes where five were requested — and says so in its own
+        // `Content-Range`, which is what makes it a clamp rather than a
+        // lie the read would refuse outright.
+        $share->sliceOverride = 'abc';
+        $share->contentRangeOverride = 'bytes 10-12/20';
+        $this->storageBackendFactory->method('create')->willReturn($backend);
+        $mediaId = $this->createDoneVideo($this->createAlbumOn($this->createWebDavLocation()));
+
+        $response = $this->controller->serveMedia(
+            new Request('GET', '/gallery/media/' . $mediaId . '/medium', [], [], [], [
+                'HTTP_RANGE' => 'bytes=10-14',
+            ]),
+            ['media_id' => (string) $mediaId, 'size' => 'medium']
+        );
+
+        $this->assertSame(206, $response->getStatusCode());
+        $this->assertSame('abc', $response->getBody());
+        $this->assertSame('bytes 10-12/20', $response->getHeaders()['Content-Range']);
+        $this->assertSame('3', $response->getHeaders()['Content-Length']);
+        $this->assertSame(
+            strlen($response->getBody()),
+            (int) $response->getHeaders()['Content-Length'],
+            'the announced length must be the length actually served'
+        );
+    }
+
+    /**
      * A share that has lost the file answers 404, and the visitor gets a
      * 404 — never the transport's own words, which would name the host,
      * the collection and the account this site writes as.
@@ -1093,7 +1142,23 @@ class GalleryControllerTest extends TestCase
         $backend = $this->createMock(\Core\Storage\Location\Backend\RangeReadableBackend::class);
         $backend->method('supports')->willReturn(true);
         $backend->method('size')->willReturn($objectSize);
-        $backend->method('getRange')->willReturn($slice);
+        // **The double answers the length it was asked for**, filling it
+        // with $slice. A stub that returned six bytes for an eight-megabyte
+        // request used to be harmless here, because the response announced
+        // the range REQUESTED; now that the header is built from the bytes
+        // in hand, such a stub would assert a short read rather than the
+        // cap or the suffix arithmetic these cases are about. A genuinely
+        // short answer is a behaviour of its own and is tested as one, on a
+        // real backend over a fake share.
+        $backend->method('getRange')->willReturnCallback(
+            static function (string $key, int $offset, int $length) use ($slice): string {
+                if ($slice === '') {
+                    return '';
+                }
+
+                return substr(str_repeat($slice, intdiv($length, strlen($slice)) + 1), 0, $length);
+            }
+        );
         $backend->method('get')->willReturn(str_repeat('x', $objectSize));
         $this->storageBackendFactory->method('create')->willReturn($backend);
 
