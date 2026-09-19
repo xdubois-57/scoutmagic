@@ -19,6 +19,14 @@ namespace Core\Mail\Feedback\Bounce;
  */
 final class BounceState
 {
+    /**
+     * How long a send is given to bounce before its silence counts as
+     * success. Two days: the mailbox poll may sit `MAX_INTERVAL_MINUTES`
+     * (1440, a full day) between passes, and the answer has to travel
+     * before it can wait.
+     */
+    public const SETTLING_PERIOD = 'P2D';
+
     public function __construct(
         public readonly int $id,
         public readonly string $email,
@@ -47,9 +55,34 @@ final class BounceState
      * `mail_send_receipts`, which exists for a second and more important
      * reason (see that table's comment).
      */
-    public function wasSettledBy(?\DateTimeImmutable $previousSendAt): bool
+    public function wasSettledBy(?\DateTimeImmutable $previousSendAt, ?\DateTimeImmutable $now = null): bool
     {
-        return $previousSendAt !== null && $previousSendAt > $this->lastSeenAt;
+        if ($previousSendAt === null || $previousSendAt <= $this->lastSeenAt) {
+            return false;
+        }
+
+        // **And it must have had TIME not to bounce**, which is the half
+        // the first version left out while its own comment claimed it.
+        //
+        // A bounce is not refused at the door: the far end answers, and
+        // that answer then waits for the mailbox poll, up to
+        // `SyncMailboxesHandler::MAX_INTERVAL_MINUTES` (1440). So a send
+        // made minutes ago has no bounce recorded against it yet whether
+        // or not it produced one, and reading that silence as « clean »
+        // is reading the poll interval, not the address.
+        //
+        // What that cost: two messages to one mailbox before the next
+        // poll — two siblings sharing a parent's address, resolved into
+        // one mass-mail batch, which is precisely the case this feature
+        // exists for — and the second send judged the first clean and
+        // deleted the row, `failures` and all. Every batch reset the
+        // counter the same way, so the second strike never arrived and
+        // the address was never blocked.
+        //
+        // Erring long only delays a forgetting; erring short loses the
+        // count that blocking is built on.
+        return $previousSendAt->add(new \DateInterval(self::SETTLING_PERIOD))
+            <= ($now ?? new \DateTimeImmutable());
     }
 
     /** Blocked means: the site stops writing to it until somebody says otherwise. */

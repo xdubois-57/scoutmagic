@@ -254,6 +254,60 @@ class BounceStateRepositoryTest extends TestCase
     }
 
     /**
+     * **Two messages to the same mailbox before the next poll must not
+     * wipe the count**, and this is the exact case the whole feature
+     * exists for: two siblings sharing a parent's address, resolved into
+     * one mass-mail batch and sent seconds apart.
+     *
+     * A bounce is not refused at the door — the far end answers, and that
+     * answer waits for the mailbox poll, up to a full day. So the second
+     * send finds no bounce recorded against the first whether or not the
+     * first produced one. Read as « clean », it deleted the row and the
+     * count with it, every batch, so the second strike never arrived.
+     *
+     * `testACleanSendNeverLiftsABlock` cannot catch this: its fixture
+     * blocks the address first, so `recordSend()` returns at the
+     * `isBlocked()` guard before settlement is ever considered.
+     */
+    public function testASecondSendMinutesLaterDoesNotWipeTheCount(): void
+    {
+        $t = $this->now('2026-09-15 09:00:00');
+
+        $this->bounce('parent@exemple.be', BounceCategory::NoSuchAddress, BounceSeverity::Permanent, '5.1.1', $t);
+        $this->assertSame(1, $this->states->find('parent@exemple.be')?->failures);
+
+        // The mailing reaches the same mailbox twice, seconds apart.
+        $this->states->recordSend('parent@exemple.be', $t->modify('+1 day'));
+        $this->states->recordSend('parent@exemple.be', $t->modify('+1 day +10 seconds'));
+
+        $this->assertSame(
+            1,
+            $this->states->find('parent@exemple.be')?->failures,
+            'the second send judged the first clean before any bounce could have been read.'
+        );
+    }
+
+    /**
+     * And once a send HAS had its time — longer than the poll can
+     * possibly delay an answer — its silence does settle the address,
+     * which is what stops a single old failure counting for ever.
+     */
+    public function testASendLeftLongEnoughWithoutABounceStillSettles(): void
+    {
+        $t = $this->now('2026-09-15 09:00:00');
+
+        $this->bounce('parent@exemple.be', BounceCategory::MailboxFull, BounceSeverity::Permanent, '5.2.2', $t);
+
+        $this->states->recordSend('parent@exemple.be', $t->modify('+1 day'));
+        $this->states->recordSend('parent@exemple.be', $t->modify('+8 days'));
+
+        $this->assertNull(
+            $this->states->find('parent@exemple.be'),
+            'a send a week old with nothing back is the only evidence an address works.'
+        );
+    }
+
+    /**
      * **A send never lifts a block.** A blocked address should not be
      * written to at all, but the module's own list-address path can still
      * reach one — and a clean-looking send deleting the row would be an

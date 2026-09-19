@@ -4233,7 +4233,22 @@ What it deliberately does not refuse is the sequence the feature exists
 for: send, bounce, send, bounce, blocked. Each send re-opens the door for
 exactly one answer.
 
-*Every send stamps a receipt, and the stamping lives in
+*One send is deliberately exempt: the confirmation of a newly claimed
+address.* `MemberEmailService::addEmail()` accepts any syntactically
+valid address as a `pending` row from any signed-in member — that is what
+claiming an address is, and the unique index is per member, so naming
+somebody else's succeeds. If the confirmation that follows stamped a
+receipt, the claim would stand in for proof that the site writes there,
+and the forgery gate would fall from « no account needed » to « any
+account needed »: claim the address, deliver a forged report, delete and
+re-claim, deliver a second, and it is cut off site-wide. `send()` takes
+`$countsAsProofOfSend` for this — deliberately not a `MailPurpose` case,
+which is a delivery category and would mean another lane. Nothing real is
+lost: a `pending` address is never resolved for a mailing, so that
+confirmation is the only message it can receive, and confirming it is
+itself proof the mailbox reads.
+
+*Every other send stamps a receipt, and the stamping lives in
 `Core\Mail\MailService::send()`.* That is the single point every message
 passes through, the confirmation of a freshly typed address as much as a
 mailing, and it is stamped after `deliver()` returns — a refused message
@@ -4259,8 +4274,16 @@ and the bounce for that very send lands seconds later — so clearing the
 counter on acceptance would wipe it before every bounce and no address
 would ever be blocked. The receipt's `last_send_at` makes each send judge
 the previous one: if the last send is more recent than the last bounce, it
-produced none. The one-send lag is inherent, since a send has to be given
-time not to bounce. And a send never lifts a block: `recordSend()` returns
+produced none — **and only once that send has had the time not to bounce**,
+which is `BounceState::SETTLING_PERIOD`. The far end answers, and the
+answer then waits for the mailbox poll, up to
+`SyncMailboxesHandler::MAX_INTERVAL_MINUTES` (a full day), so a send made
+minutes ago has no bounce recorded against it either way: its silence is
+the poll interval, not the address. Without that window two messages to
+one mailbox before the next poll — two siblings sharing a parent's
+address, resolved into one batch, which is the case this feature exists
+for — had the second judge the first clean and delete the row, `failures`
+and all, so the second strike never arrived and nothing was ever blocked. And a send never lifts a block: `recordSend()` returns
 early on a blocked state, so only the member or the super-admin ever undoes
 one.
 

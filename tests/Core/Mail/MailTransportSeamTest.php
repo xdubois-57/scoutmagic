@@ -248,4 +248,93 @@ class MailTransportSeamTest extends TestCase
         }
         rmdir($dir);
     }
+
+    // ── the send receipt, and the one send that must not mint one ─────
+
+    private function receiptsOverFreshDatabase(): \Core\Mail\Feedback\Bounce\BounceStateRepository
+    {
+        return new \Core\Mail\Feedback\Bounce\BounceStateRepository(
+            \Tests\DatabaseTestHelper::createTestDatabase(),
+            new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
+    }
+
+    private function serviceWithReceipts(
+        MailTransportInterface $transport,
+        \Core\Mail\Feedback\Bounce\BounceStateRepository $receipts
+    ): \Core\Mail\MailService {
+        return new \Core\Mail\MailService(
+            mode: 'local',
+            fromAddress: 'unite@example.com',
+            fromName: 'Unité',
+            shortName: '25SV',
+            dkimManager: new \Core\Mail\DkimManager($this->tempDir),
+            dkimSelector: 'mail',
+            transport: $transport,
+            sendReceipts: $receipts
+        );
+    }
+
+    /**
+     * An ordinary message is the site deciding to write somewhere, so it
+     * is evidence a bounce naming that address can be believed.
+     */
+    public function testAnOrdinarySendIsNotedAsProofTheSiteWroteThere(): void
+    {
+        $receipts = $this->receiptsOverFreshDatabase();
+
+        $this->serviceWithReceipts($this->recordingTransport(), $receipts)
+            ->send('parent@exemple.be', 'Sujet', '<p>x</p>', 'x');
+
+        $this->assertNotNull($receipts->lastSendAt('parent@exemple.be'));
+    }
+
+    /**
+     * **But the confirmation of a newly claimed address is not.** Any
+     * signed-in member can name any address in `addEmail()` — that is
+     * what claiming one is — and this is the message that follows.
+     * Minting a receipt here would let the claim stand in for proof the
+     * site writes there, and a forged delivery-status report naming the
+     * same address would then be credited against somebody else's
+     * mailbox.
+     *
+     * Nothing real is lost: a `pending` address is never resolved for a
+     * mailing, so this confirmation is the only message it can receive.
+     */
+    public function testTheConfirmationOfAClaimedAddressIsNotProofOfAnything(): void
+    {
+        $receipts = $this->receiptsOverFreshDatabase();
+
+        $this->serviceWithReceipts($this->recordingTransport(), $receipts)
+            ->send('victime@exemple.be', 'Confirmez', '<p>x</p>', 'x', countsAsProofOfSend: false);
+
+        $this->assertNull(
+            $receipts->lastSendAt('victime@exemple.be'),
+            'claiming an address must not vouch for it.'
+        );
+    }
+
+    /**
+     * And a message nobody accepted is not proof either — the receipt is
+     * stamped after the transport returns, never before it is tried.
+     */
+    public function testARefusedSendNotesNothing(): void
+    {
+        $receipts = $this->receiptsOverFreshDatabase();
+        $refusing = new class implements MailTransportInterface {
+            public function deliver(PHPMailer $mail, MailPurpose $purpose): void
+            {
+                throw new \RuntimeException('550 unknown recipient');
+            }
+        };
+
+        try {
+            $this->serviceWithReceipts($refusing, $receipts)
+                ->send('parent@exemple.be', 'Sujet', '<p>x</p>', 'x');
+        } catch (\Core\Mail\MailException) {
+            // The refusal is the point; what matters is what it left.
+        }
+
+        $this->assertNull($receipts->lastSendAt('parent@exemple.be'));
+    }
 }

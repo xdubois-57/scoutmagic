@@ -563,7 +563,15 @@ class MemberEmailService
                 to: $to,
                 subject: $email->subject,
                 bodyHtml: $email->bodyHtml,
-                bodyText: $email->bodyText
+                bodyText: $email->bodyText,
+                // **The one send that must not vouch for its own
+                // recipient** (roadmap IT-05). Anyone signed in can name
+                // any address here, so a receipt stamped now would let a
+                // claim stand in for proof the site writes to it — and a
+                // forged bounce report would then be credited against
+                // somebody else's mailbox. Confirming the address is the
+                // proof; until then nothing else is ever sent there.
+                countsAsProofOfSend: false
             );
         } catch (MailException $e) {
             $reason = str_replace($to, '[adresse]', $e->getMessage());

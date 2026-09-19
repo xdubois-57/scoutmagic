@@ -71,6 +71,7 @@ class ListAddressFlowTest extends TestCase
     private ListAddressRepository $addressRepository;
     private RecipientRepository $recipientRepository;
     private SuppressedAddressRepository $suppressedRepository;
+    private \Core\Mail\Feedback\Bounce\BounceStateRepository $bounceStates;
     private MemberEmailService $memberEmailService;
     private int $scoutYearId;
     private int $sectionId;
@@ -128,7 +129,16 @@ class ListAddressFlowTest extends TestCase
             new AudienceRepository($this->pdo, $this->encryption),
             new MemberResolutionRepository($this->pdo, $this->encryption),
             $this->suppressedRepository,
-            new MergeRenderer()
+            new MergeRenderer(),
+            // A REAL bounce service over the same database. Null would
+            // answer « jamais rebondi » to every question and the block
+            // branch below could never be reached.
+            new \Core\Mail\Feedback\Bounce\BounceService(
+                $this->bounceStates = new \Core\Mail\Feedback\Bounce\BounceStateRepository(
+                    $this->pdo,
+                    $this->encryption
+                )
+            )
         );
 
         [$label, $yearStart, $yearEnd] = DatabaseTestHelper::scoutYear();
@@ -257,6 +267,54 @@ class ListAddressFlowTest extends TestCase
         $recipient = $this->recipientFor($this->recipientRepository->findByEmailId($email->id), 'jeunesse@wavre.be');
         $this->assertSame(Recipient::STATUS_ERROR, $recipient->status);
         $this->assertSame('Adresse désinscrite des emails groupés', $recipient->errorMessage);
+    }
+
+    /**
+     * **The one hole the member-side filter cannot cover** (roadmap
+     * IT-05). `MemberEmailService::resolveValidAddressesForMassMail()`
+     * drops blocked addresses, but it never sees a list address: a
+     * custom list carries addresses that belong to no member. Without
+     * this branch, an address the far end has refused twice goes on being
+     * written to through a list — which is the reputation damage the
+     * whole feature exists to stop.
+     *
+     * Frozen as an explicit error row rather than silently dropped, like
+     * the suppression above, so the tracking page says why.
+     */
+    public function testABounceBlockedAddressIsFrozenAsAnExplicitError(): void
+    {
+        $this->addressService->add($this->listId, 'Commune', 'jeunesse@wavre.be');
+
+        $t = new \DateTimeImmutable('2026-03-01 09:00:00');
+        $this->bounceStates->recordSend('jeunesse@wavre.be', $t);
+        $state = $this->bounceStates->record(
+            'jeunesse@wavre.be',
+            \Core\Mail\Feedback\Bounce\BounceCategory::NoSuchAddress,
+            \Core\Mail\Feedback\Bounce\BounceSeverity::Permanent,
+            '5.1.1',
+            $t->modify('+1 minute')
+        );
+        self::assertNotNull($state);
+        $this->bounceStates->block($state->id, $t->modify('+2 minutes'));
+
+        $email = $this->sendableEmail();
+        $this->massMailService->startSending($email->id, null);
+
+        $recipient = $this->recipientFor($this->recipientRepository->findByEmailId($email->id), 'jeunesse@wavre.be');
+        $this->assertSame(Recipient::STATUS_ERROR, $recipient->status);
+        $this->assertSame('Adresse suspendue après des refus répétés', $recipient->errorMessage);
+    }
+
+    /** And an address that never bounced goes through untouched. */
+    public function testAnAddressThatNeverBouncedIsStillSendable(): void
+    {
+        $this->addressService->add($this->listId, 'Commune', 'jeunesse@wavre.be');
+
+        $email = $this->sendableEmail();
+        $this->massMailService->startSending($email->id, null);
+
+        $recipient = $this->recipientFor($this->recipientRepository->findByEmailId($email->id), 'jeunesse@wavre.be');
+        $this->assertSame(Recipient::STATUS_PENDING, $recipient->status);
     }
 
     /**

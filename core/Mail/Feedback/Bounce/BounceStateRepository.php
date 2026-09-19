@@ -254,7 +254,7 @@ class BounceStateRepository
             return;
         }
 
-        if ($existing->wasSettledBy($previousSendAt)) {
+        if ($existing->wasSettledBy($previousSendAt, $now)) {
             $this->forget($email);
         }
     }

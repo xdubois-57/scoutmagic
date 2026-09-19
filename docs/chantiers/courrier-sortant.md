@@ -1556,6 +1556,43 @@ aujourd'hui », tous les jours, et contredisait la page du super-admin qui,
 elle, retombait déjà sur le bon champ. `MemberPageServiceTest` n'avait
 aucune couverture des rebonds : c'est pour cela que rien ne l'avait dit.
 
+**Un envoi qui se jugeait lui-même propre avant d'en avoir eu le temps.**
+Le commentaire disait déjà « un envoi doit avoir eu le temps de ne pas
+rebondir » ; le code ne vérifiait que l'ordre des dates, jamais le délai.
+Or un rebond n'est pas refusé à la porte : le serveur d'en face répond, et
+cette réponse attend ensuite le relevé de la boîte, jusqu'à une journée
+entière (`MAX_INTERVAL_MINUTES` = 1440). Deux messages vers la même boîte
+avant le relevé suivant — deux frères et sœurs partageant l'adresse d'un
+parent, résolus dans un même lot, c'est-à-dire précisément le cas pour
+lequel cette fonctionnalité existe — et le second déclarait le premier
+propre, effaçant la ligne et son compteur. À chaque lot. Le second échec
+n'arrivait donc jamais et rien n'était jamais bloqué.
+`BounceState::SETTLING_PERIOD` est la fenêtre de grâce ; se tromper en
+long ne fait que retarder un oubli, se tromper en court perd le compte sur
+lequel tout le blocage repose. Le test existant ne pouvait pas le voir :
+son montage bloquait l'adresse d'abord, donc `recordSend()` sortait au
+garde `isBlocked()` avant même d'examiner le règlement.
+
+**Et la preuve d'envoi pouvait être fabriquée par la victime d'à côté.**
+`addEmail()` accepte n'importe quelle adresse comme ligne `pending` —
+c'est ce qu'est revendiquer une adresse — et la confirmation qui suit
+partait par le même `send()` qui pose les preuves. Le verrou tombait donc
+de « aucun compte nécessaire » à « n'importe quel compte » : revendiquer
+l'adresse d'un tiers, déposer un faux rapport, supprimer et revendiquer,
+déposer un second, et l'adresse était coupée pour tout le site. `send()`
+prend désormais `countsAsProofOfSend`, faux pour cette confirmation et
+pour elle seule. Ce n'est **pas** un cas de `MailPurpose` : cette
+énumération est une catégorie d'acheminement et le dit, un quatrième cas y
+signifierait une quatrième voie. Rien de réel n'est perdu : une adresse
+`pending` n'est jamais résolue pour un envoi groupé, donc cette
+confirmation est le seul message qu'elle puisse recevoir, et la confirmer
+prouve déjà que la boîte se lit.
+
+**Et la branche « adresse suspendue » du publipostage n'avait aucun test.**
+C'est le seul trou que le filtre côté membre ne peut pas couvrir, puisque
+`resolveValidAddressesForMassMail()` ne voit jamais une adresse de liste.
+Deux tests dans `ListAddressFlowTest`, cassés-vérifiés.
+
 **Le consommateur n'était inscrit que sur un registre sur deux**, et pas
 celui qui travaille. Celui de `public/index.php` dit à l'écran de
 configuration quelles portées existent ; celui de

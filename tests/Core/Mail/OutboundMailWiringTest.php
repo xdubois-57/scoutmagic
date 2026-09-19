@@ -342,6 +342,30 @@ class OutboundMailWiringTest extends TestCase
     }
 
     /**
+     * **The claim of an address is not proof the site writes to it.**
+     * `MemberEmailService::addEmail()` accepts any syntactically valid
+     * address as a `pending` row from any signed-in member, and the
+     * confirmation that follows goes out through the same `send()` that
+     * stamps receipts. Stamped, it would lower the forgery gate from « no
+     * account needed » to « any account needed »: claim a victim's
+     * address, deliver a forged report, delete and re-claim, deliver a
+     * second, and the address is cut off site-wide.
+     */
+    public function testTheAddressConfirmationDoesNotVouchForItsOwnRecipient(): void
+    {
+        $source = self::source('core/Member/MemberEmailService.php');
+
+        $position = strpos($source, "render('member_email_confirmation'");
+        $this->assertNotFalse($position, 'the confirmation must still be rendered here.');
+
+        $this->assertStringContainsString(
+            'countsAsProofOfSend: false',
+            substr($source, $position, 1600),
+            'the confirmation send mints a receipt, so claiming an address stands in for proving it.'
+        );
+    }
+
+    /**
      * And the consumer the SCHEDULER builds is given a notifier too.
      * Only that one ever runs `analyze()`, so a notifier present on the
      * web side alone would tell nobody anything: the block would land
