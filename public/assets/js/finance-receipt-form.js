@@ -24,9 +24,8 @@
 // ScoutMagicApi JSON envelope: the upload is the form's own native
 // multipart POST, which is also why the file rewrites the <input>'s
 // FileList (through DataTransfer) rather than building a body of its own.
-// The submit button rides api.withDisabled() for the duration of the
-// compression, so a second click cannot start a second submit of the same
-// receipts while the first one is still resizing.
+// That native POST is also why the submit lock below is taken and given
+// back in exactly one circumstance: the back button.
 (function () {
     const form = /** @type {HTMLFormElement|null} */ (document.getElementById('receipt-form'));
     const statusEl = document.getElementById('receipt-file-status');
@@ -41,13 +40,93 @@
     const JPEG_QUALITY = 0.75;
     const MAX_FILES = 10;
 
-    const api = window.ScoutMagicApi;
     const submitBtn = /** @type {HTMLButtonElement|null} */ (form.querySelector('button[type="submit"]'));
 
     // Downscaling needs all three, and so does rewriting the input's
     // FileList afterwards. Where any is missing the form submits the files
     // exactly as they were picked — the server accepts them either way.
     const supportsResize = !!(window.FileReader && window.HTMLCanvasElement && window.DataTransfer);
+
+    const SENDING_MESSAGE = 'Envoi en cours\u2026';
+
+    /**
+     * Issue #364 — one receipt, deposited twice.
+     *
+     * The upload is a native multipart POST and a photo taken on a phone
+     * takes seconds to travel. Nothing said the first click had landed:
+     * `api.withDisabled()` covered the client-side compression and handed
+     * the button back the instant it finished — which is exactly when the
+     * transfer starts — and on the paths that never compress (a PDF, a
+     * browser without DataTransfer) the button was never disabled at all.
+     * A second click by reflex posted the same receipts again, and
+     * `Modules\Finance\Service\ReceiptService::upload()` deliberately does
+     * not de-duplicate a person's own deposit, so nothing downstream
+     * caught it either.
+     *
+     * **The lock outlives the submission on purpose**: a native form POST
+     * always ends by leaving this page, for the receipts list or for a
+     * re-render carrying the error, so there is no outcome in which the
+     * visitor is still looking at this button and needs it back.
+     * `withDisabled()` releases because an API call returns to the same
+     * page; a form POST does not.
+     *
+     * **Except through the back button.** A page restored from the
+     * browser's back-forward cache comes back with its JavaScript heap
+     * intact — `sending` still true, the button still disabled and still
+     * saying « Envoi en cours… » — and both handlers below refuse every
+     * submit while that holds. Somebody who deposits a receipt, goes
+     * back, and wants to deposit another would find a form that cannot be
+     * sent until a hard reload. So `pageshow` releases it, which is what
+     * `camps-place-summary.js` does for the same reason and is where the
+     * spinner markup here comes from.
+     */
+    let sending = false;
+
+    /**
+     * Disables the submit button for good and says so — a spinner and
+     * « Envoi en cours… » in place of « Ajouter », the same shape the
+     * camps page uses for its own slow button.
+     *
+     * @returns {void}
+     */
+    function lockSubmit() {
+        sending = true;
+        statusEl.textContent = SENDING_MESSAGE;
+        if (!submitBtn) {
+            return;
+        }
+        // Kept so releaseSubmit() can put back exactly what was there: the
+        // two shapes of this template do not carry the same word.
+        submitBtn.dataset.idleLabel = submitBtn.innerHTML;
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"'
+            + ' aria-hidden="true"></span>' + SENDING_MESSAGE;
+    }
+
+    /**
+     * Undoes {@see lockSubmit} — only ever called for a page the back
+     * button brought back, where the upload it belonged to is long over.
+     *
+     * @returns {void}
+     */
+    function releaseSubmit() {
+        sending = false;
+        statusEl.textContent = '';
+        if (submitBtn?.dataset.idleLabel === undefined) {
+            return;
+        }
+        submitBtn.innerHTML = submitBtn.dataset.idleLabel;
+        submitBtn.disabled = false;
+        delete submitBtn.dataset.idleLabel;
+    }
+
+    // Back-button: a page restored from the browser's cache comes back
+    // exactly as it was left, mid-upload lock included.
+    window.addEventListener('pageshow', function (event) {
+        if ((/** @type {PageTransitionEvent} */ (event)).persisted) {
+            releaseSubmit();
+        }
+    });
 
     /**
      * @param {File} file
@@ -138,27 +217,45 @@
     if (singleInput) {
         // --- « Remplacer le reçu » : one file, one input ---
         form.addEventListener('submit', async (e) => {
+            if (sending) {
+                e.preventDefault();
+                return;
+            }
+
             const file = singleInput.files[0];
-            if (!file?.type.startsWith('image/') || !supportsResize) {
+            // Nothing picked: the input's own `required` refuses this, and
+            // locking here would kill a button that never posted anything.
+            if (!file) {
+                return;
+            }
+
+            if (!file.type.startsWith('image/') || !supportsResize) {
+                lockSubmit();
                 return; // native submit proceeds — non-image, or no client-side resize support
             }
 
             e.preventDefault();
+            // Taken before the first await, so the click that starts the
+            // compression is also the click that closes the button.
+            lockSubmit();
             statusEl.textContent = 'Compression de l\'image…';
 
-            await api.withDisabled(submitBtn, async () => {
-                try {
-                    const resizedBlob = await resizeImage(file);
-                    const transfer = new DataTransfer();
-                    transfer.items.add(toJpegFile(file, resizedBlob));
-                    singleInput.files = transfer.files;
-                    statusEl.textContent = 'Image compressée (' + Math.round(resizedBlob.size / 1024) + ' Ko).';
-                } catch {
-                    // The original file is still in the input: submit it.
-                    statusEl.textContent = '';
-                }
-            });
+            // Kept, and now finally legible: this figure used to be
+            // written one microtask before form.submit() replaced the
+            // page, so nobody ever read it. It rides the sending notice
+            // instead, which stands for the whole transfer.
+            let compressed = '';
+            try {
+                const resizedBlob = await resizeImage(file);
+                const transfer = new DataTransfer();
+                transfer.items.add(toJpegFile(file, resizedBlob));
+                singleInput.files = transfer.files;
+                compressed = 'Image compressée (' + Math.round(resizedBlob.size / 1024) + ' Ko). ';
+            } catch {
+                // The original file is still in the input: submit it.
+            }
 
+            statusEl.textContent = compressed + SENDING_MESSAGE;
             form.submit();
         });
     } else if (dropZone) {
@@ -223,49 +320,51 @@
         window.ScoutMagicDropZone.bind(dropZone, addFiles, { input: filesInput });
 
         form.addEventListener('submit', async (e) => {
+            if (sending) {
+                e.preventDefault();
+                return;
+            }
+
             if (selectedFiles.length === 0) {
                 e.preventDefault();
                 statusEl.textContent = 'Veuillez sélectionner au moins un reçu.';
                 return;
             }
 
-            if (!supportsResize) {
+            const hasImages = selectedFiles.some(file => file.type.startsWith('image/'));
+            if (!supportsResize || !hasImages) {
+                lockSubmit();
                 return; // native submit proceeds
             }
 
-            const hasImages = selectedFiles.some(file => file.type.startsWith('image/'));
-            if (!hasImages) {
-                return;
-            }
-
             e.preventDefault();
+            // Taken before the first await, so the click that starts the
+            // compression is also the click that closes the button.
+            lockSubmit();
             statusEl.textContent = 'Compression des images…';
 
-            await api.withDisabled(submitBtn, async () => {
-                try {
-                    const processed = [];
-                    for (const file of selectedFiles) {
-                        if (!file.type.startsWith('image/')) {
-                            processed.push(file);
-                            continue;
-                        }
-                        try {
-                            const resizedBlob = await resizeImage(file);
-                            processed.push(toJpegFile(file, resizedBlob));
-                        } catch {
-                            processed.push(file); // fall back to the original file
-                        }
+            try {
+                const processed = [];
+                for (const file of selectedFiles) {
+                    if (!file.type.startsWith('image/')) {
+                        processed.push(file);
+                        continue;
                     }
-                    selectedFiles = processed;
-                    syncInputAndRender();
-                    statusEl.textContent = '';
-                } catch {
-                    // Resizing the batch failed as a whole — the files the
-                    // user chose are still the ones submitted.
-                    statusEl.textContent = '';
+                    try {
+                        const resizedBlob = await resizeImage(file);
+                        processed.push(toJpegFile(file, resizedBlob));
+                    } catch {
+                        processed.push(file); // fall back to the original file
+                    }
                 }
-            });
+                selectedFiles = processed;
+                syncInputAndRender();
+            } catch {
+                // Resizing the batch failed as a whole — the files the
+                // user chose are still the ones submitted.
+            }
 
+            statusEl.textContent = SENDING_MESSAGE;
             form.submit();
         });
     }
