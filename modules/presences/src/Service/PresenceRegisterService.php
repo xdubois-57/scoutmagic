@@ -121,7 +121,11 @@ class PresenceRegisterService
             // exceed 100 %: it is the section's size while nobody has
             // left, and the evening's own roll once somebody has.
             $roll = max($animeCount, $decided);
-            $rate = $pointed && $roll > 0
+            // No `$roll > 0` guard beside `$pointed`: being pointed means
+            // `$decided >= 1`, so the max is at least one and the guard
+            // could never be false — phpstan 2.2.14 says so outright. The
+            // division is safe for that reason, not by inspection.
+            $rate = $pointed
                 ? (int) round($counts[PresenceStatus::PRESENT->value] * 100 / $roll)
                 : 0;
 

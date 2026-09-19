@@ -387,15 +387,25 @@ class SupportTicketSender
 
         $entries = [];
         foreach (array_slice($stored, 0, self::RECENT_KEPT) as $entry) {
-            $reference = is_array($entry) ? (string) ($entry['reference'] ?? '') : '';
+            // One guard for the whole entry rather than the same ternary
+            // three times. The behaviour is unchanged — a non-array entry
+            // used to produce an empty reference and be skipped on the
+            // next line — and phpstan 2.2.14 is now sharp enough to see
+            // that the second and third checks could never be false,
+            // having already established it at the first.
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $reference = (string) ($entry['reference'] ?? '');
             if ($reference === '') {
                 continue;
             }
 
-            $category = is_array($entry) ? (string) ($entry['category'] ?? '') : '';
+            $category = (string) ($entry['category'] ?? '');
             $entries[] = [
                 'reference' => $reference,
-                'sent_at' => is_array($entry) ? (string) ($entry['sent_at'] ?? '') : '',
+                'sent_at' => (string) ($entry['sent_at'] ?? ''),
                 'category_label' => $labels[$category] ?? null,
             ];
         }
