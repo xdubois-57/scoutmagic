@@ -12,6 +12,8 @@ use Core\Import\MemberYearRepository;
 use Core\Member\MemberDocumentRepository;
 use Core\Member\MemberDocumentService;
 use Core\Member\MemberEmailRepository;
+use Core\Mail\Feedback\Bounce\BounceCategory;
+use Core\Mail\Feedback\Bounce\BounceSeverity;
 use Core\Member\MemberEmailService;
 use Core\Member\MemberPageService;
 use Core\Member\MemberProfile;
@@ -47,6 +49,7 @@ class MemberPageServiceTest extends TestCase
     private AgeBranchRepository $ageBranchRepository;
     private MemberDocumentService $memberDocumentService;
     private MemberEmailService $memberEmailService;
+    private \Core\Mail\Feedback\Bounce\BounceStateRepository $bounceStates;
     private \Core\Member\SectionDocumentService $sectionDocumentService;
     private int $scoutYearId;
     private int $sectionId;
@@ -74,6 +77,25 @@ class MemberPageServiceTest extends TestCase
             'https://example.test',
             'Test Unité'
         );
+        // The bounce state, so `bounceFor()` can answer at all: without
+        // it every bounce question is « jamais rebondi » and the block
+        // panel below can never be built.
+        $this->bounceStates = new \Core\Mail\Feedback\Bounce\BounceStateRepository($this->pdo, $this->encryption);
+        $this->memberEmailService = new MemberEmailService(
+            new MemberEmailRepository($this->pdo, $this->encryption),
+            $this->createMock(\Core\Mail\MailService::class),
+            EmailTemplateRendererFactory::overTestDatabase($this->pdo, $this->createMock(\Twig\Environment::class)),
+            $this->createMock(\Core\Journal\JournalService::class),
+            $this->sectionService,
+            $this->memberService,
+            new \Core\Config\ScoutYearService($this->pdo),
+            'https://example.test',
+            'Test Unité',
+            // Named, because `$emailDomainValidator` sits between: passed
+            // positionally this would hand the validator a BounceService.
+            bounces: new \Core\Mail\Feedback\Bounce\BounceService($this->bounceStates)
+        );
+
         $settingService = new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo));
         $settingService->register('section_document_compression_enabled', '1', 'boolean', 'x', 'x');
         $settingService->register('section_document_compression_quality', \Core\Pdf\PdfCompressor::QUALITY_BALANCED, 'select', 'x', 'x');
@@ -562,5 +584,64 @@ class MemberPageServiceTest extends TestCase
         $data = $this->buildService()->buildPageData($profile, $this->scoutYearId, true, false, Role::IDENTIFIED);
 
         $this->assertSame([], $data['open_payments']);
+    }
+
+    // ── addresses that bounce (roadmap IT-05) ─────────────────────────
+
+    /**
+     * Blocks the member's own address after two failures a week apart,
+     * then lets a third bounce land afterwards — which is exactly what a
+     * still-failing mailbox does, and what moves `last_seen_at` away from
+     * `blocked_at`.
+     */
+    private function blockedMemberAddress(string $email): void
+    {
+        $t = new \DateTimeImmutable('2026-03-01 09:00:00');
+
+        $this->bounceStates->recordSend($email, $t);
+        $this->bounceStates->record($email, BounceCategory::NoSuchAddress, BounceSeverity::Permanent, '5.1.1', $t->modify('+1 minute'));
+
+        $this->bounceStates->recordSend($email, $t->modify('+7 days'));
+        $state = $this->bounceStates->record($email, BounceCategory::NoSuchAddress, BounceSeverity::Permanent, '5.1.1', $t->modify('+7 days +1 minute'));
+        self::assertNotNull($state);
+        $this->bounceStates->block($state->id, $t->modify('+7 days +2 minutes'));
+
+        // Months later the mailbox is still refusing, and the module's
+        // list path can still reach a blocked address — so `last_seen_at`
+        // moves on while `blocked_at` does not.
+        $this->bounceStates->recordSend($email, $t->modify('+6 months'));
+        $this->bounceStates->record($email, BounceCategory::NoSuchAddress, BounceSeverity::Permanent, '5.1.1', $t->modify('+6 months +1 minute'));
+    }
+
+    /**
+     * **« Suspendue depuis le … » is the day of the block, not the day of
+     * the last bounce.** `last_seen_at` moves with every refusal the
+     * address goes on producing; `blocked_at` is written once. Read from
+     * the wrong one, somebody cut off in March is told it happened today,
+     * every day — and the super-admin page, which already falls back the
+     * right way, would disagree with the member's own.
+     */
+    public function testTheSuspensionDateIsTheDayTheBlockWasPlaced(): void
+    {
+        $profile = $this->createMemberInSection();
+        $email = 'rebond@example.com';
+        $emailId = (new MemberEmailRepository($this->pdo, $this->encryption))->create(
+            $profile->memberId,
+            $email,
+            \Core\Member\MemberEmail::SOURCE_MANUAL,
+            \Core\Member\MemberEmail::STATUS_VALID,
+            null,
+            null
+        );
+        $this->blockedMemberAddress($email);
+
+        $data = $this->buildService()->buildPageData($profile, $this->scoutYearId, true, true, Role::IDENTIFIED);
+
+        $this->assertTrue($data['member_email_bounces'][$emailId]['blocked'] ?? null);
+        $this->assertSame(
+            '2026-03-08',
+            $data['member_email_bounces'][$emailId]['since']->format('Y-m-d'),
+            'the date shown must be the block, not the newest refusal.'
+        );
     }
 }

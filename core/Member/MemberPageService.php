@@ -108,7 +108,15 @@ class MemberPageService
                     // means nothing to a parent (SECURITY.md §11).
                     'label' => $bounce->category->label(),
                     'guidance' => $bounce->category->guidance(),
-                    'since' => $bounce->lastSeenAt,
+                    // **`blockedAt` when there is one, and that is not the
+                    // same date.** `last_seen_at` moves with every bounce
+                    // the address goes on producing — including after it
+                    // was blocked, since the module's list path can still
+                    // reach one — while `blocked_at` is written once. Read
+                    // from `last_seen_at`, « Suspendue depuis le … » would
+                    // show today to somebody blocked months ago. The
+                    // super-admin page already falls back the same way.
+                    'since' => $bounce->blockedAt ?? $bounce->lastSeenAt,
                 ];
             }
         }

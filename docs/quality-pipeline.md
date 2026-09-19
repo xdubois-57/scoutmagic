@@ -93,6 +93,30 @@ Inside a Claude Code remote session the `SessionStart` hook has started
 MariaDB and exported `TEST_DB_*`; in a local checkout that hook exits at its
 first line. Read the skipped count before believing a green run.
 
+### The engine a test actually runs on, which is not what the group says
+
+`#[Group('database')]` selects tests for the `database-mariadb` job. It
+switches no connection. A test reaches MySQL only if it opens one itself
+from `TEST_DB_*` — the shape `Tests\Core\Database\MigrationRunnerTest`
+and `SchemaIntrospectorTest` use. Everything built on
+`DatabaseTestHelper::createTestDatabase()` runs on in-memory SQLite,
+group or no group, in every job.
+
+That matters wherever the two engines disagree about something other than
+syntax. The case that cost a round here: **SQLite reports the rows an
+UPDATE MATCHED, MySQL and MariaDB report the rows it CHANGED** unless
+`PDO::MYSQL_ATTR_FOUND_ROWS` is set, which this application does not set
+(`Core\Config\SettingRepository::replaceIfUnchanged()` documents the same
+trap). An upsert deciding « no row exists » from `rowCount()` is therefore
+correct on the test engine and raises a duplicate-key error on the
+production one, and no quantity of SQLite coverage will ever say so.
+
+A test for behaviour of that kind belongs in a class that connects for
+real, skips when no server answers, and **asserts its own premise** —
+`Tests\Core\Mail\Feedback\Bounce\BounceSendReceiptMysqlTest` checks
+that this engine really does report changed rows before testing anything
+that depends on it. A premise nobody checked is how the defect got in.
+
 ### JavaScript — Vitest
 
 `tests/js/`, one `<name>.test.js` per script under `public/assets/js/`.

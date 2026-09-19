@@ -1534,6 +1534,28 @@ l'index unique lève une `PDOException` que la boucle d'envoi — qui ne
 rattrape que `MailException` — aurait emportée hors du lot, à moitié
 distribué. L'existence est donc demandée, jamais déduite.
 
+**Et ce défaut-là était invisible à toute la suite.** SQLite, sur lequel
+tourne la quasi-totalité des tests, rapporte les lignes *trouvées* qu'un
+UPDATE ait changé quelque chose ou non : l'upsert fautif y est correct.
+`#[Group('database')]` ne suffit pas non plus — le groupe sert à
+sélectionner les tests dans le job CI, il ne bascule aucune connexion. Un
+test n'atteint MySQL que s'il ouvre lui-même une connexion depuis
+`TEST_DB_*`, comme le font `MigrationRunnerTest` ou `SchemaIntrospectorTest`.
+D'où `BounceSendReceiptMysqlTest`, qui se connecte pour de bon, se
+*skippe* sans serveur, et commence par vérifier sa propre prémisse : que
+ce moteur-ci rapporte bien les lignes modifiées. Cassé-vérifié, il
+reproduit exactement l'erreur annoncée (`Duplicate entry … for key
+'idx_msr_blind'`).
+
+**Une date d'écran qui vieillissait à l'envers.** La page du membre
+affichait « Suspendue depuis le … » à partir de `last_seen_at`, qui avance
+à chaque refus — y compris après le blocage, puisque le chemin « adresse
+de liste » du module peut encore écrire à une adresse bloquée. `blocked_at`
+est écrit une fois. Quelqu'un coupé en mars lisait donc « depuis
+aujourd'hui », tous les jours, et contredisait la page du super-admin qui,
+elle, retombait déjà sur le bon champ. `MemberPageServiceTest` n'avait
+aucune couverture des rebonds : c'est pour cela que rien ne l'avait dit.
+
 **Le consommateur n'était inscrit que sur un registre sur deux**, et pas
 celui qui travaille. Celui de `public/index.php` dit à l'écran de
 configuration quelles portées existent ; celui de
