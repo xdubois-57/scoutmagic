@@ -1602,6 +1602,59 @@ class OutboundMailControllerTest extends TestCase
         $this->assertSame([], $this->pendingIds());
     }
 
+    /**
+     * The branch that says the round trip ran and nothing left.
+     *
+     * Three outcomes come back from `ReturnPathVerifier::launch()` and
+     * the screen says a different thing for each: impossible (the module
+     * or the mailbox is missing), nothing sent, or a count. The middle
+     * one is the only one that means « the configuration is complete and
+     * the transport still refused », which is why its message points at
+     * Fournisseurs rather than at the module — and it was the one no
+     * test exercised, found by SonarCloud when the surrounding lines
+     * were reformatted.
+     *
+     * Built with a real verifier rather than a stub: what makes `sent`
+     * zero without `impossible` is a mailbox that IS open to this
+     * consumer and a send that throws, and a stub returning the triple
+     * by hand would assert nothing about that combination being
+     * reachable.
+     */
+    public function testAVerificationThatSendsNothingPointsAtTheProvidersPage(): void
+    {
+        $inbound = $this->createStub(\Modules\InboundMail\Api\InboundMailInterface::class);
+        $inbound->method('probeAddressesFor')->willReturn(['retours@unite.be']);
+
+        $refusing = $this->createStub(\Core\Mail\MailService::class);
+        $refusing->method('withoutDeferral')->willReturnSelf();
+        $refusing->method('send')->willThrowException(new \RuntimeException('relay refused'));
+
+        $arguments = $this->controllerArguments;
+        $index = array_search($this->returns, $arguments, true);
+        self::assertIsInt($index, 'the verifier is no longer one of the controller arguments');
+        $arguments[$index] = new \Core\Mail\Feedback\ReturnPathVerifier(
+            new \Core\Mail\Feedback\ReturnProbeRepository(
+                $this->pdo,
+                new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+            ),
+            $refusing,
+            new JournalService(new JournalRepository($this->pdo)),
+            $inbound
+        );
+
+        $response = (new OutboundMailController(...$arguments))
+            ->verifyReturns($this->formRequest([]), []);
+
+        $flash = \Core\Http\FlashMessage::get();
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertStringContainsString(
+            'Aucun message de vérification n’a pu partir',
+            (string) ($flash['message'] ?? '')
+        );
+    }
+
     public function testRelaunchingWithNoLaneChosenDoesNothing(): void
     {
         $this->abandonOne(MailLane::Bulk, date('Y-m-d H:i:s', time() - 3600));

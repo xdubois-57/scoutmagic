@@ -662,7 +662,10 @@ class OutboundMailController extends AbstractController
         }
 
         try {
-            $revived = $this->queue->relaunch($lanes, (string) $request->getBody('window', DeferredMailQueue::DEFAULT_WINDOW));
+            $revived = $this->queue->relaunch(
+                $lanes,
+                (string) $request->getBody('window', DeferredMailQueue::DEFAULT_WINDOW)
+            );
         } catch (\Throwable) {
             FlashMessage::set('error', 'La relance n’a pas pu être effectuée.');
 
@@ -1493,7 +1496,10 @@ class OutboundMailController extends AbstractController
                     . 'et d’au moins une boîte ouverte à « Courrier sortant ».'
             );
         } elseif ($result['sent'] === 0) {
-            FlashMessage::set('error', 'Aucun message de vérification n’a pu partir. Regardez la page « Fournisseurs ».');
+            FlashMessage::set(
+                'error',
+                'Aucun message de vérification n’a pu partir. Regardez la page « Fournisseurs ».'
+            );
         } else {
             FlashMessage::set(
                 'success',
