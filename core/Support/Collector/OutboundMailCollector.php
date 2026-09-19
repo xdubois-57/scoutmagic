@@ -390,24 +390,6 @@ class OutboundMailCollector implements SupportCollectorInterface
     }
 
     /**
-     * The manual probes, by road and by verdict — never by destination
-     * (roadmap IT-04).
-     *
-     * **The address stays out, and the screen shows it.** Those are not
-     * in tension: the page is read by the person who typed the address in
-     * one minute ago and needs the comparison « même destinataire, deux
-     * relais, deux verdicts »; this file goes to a third party and is
-     * kept for a long time, and the question it has to answer — « par
-     * quels chemins cette unité a-t-elle testé, et qu'est-ce que ça a
-     * donné » — needs the road and the verdict, not who was written to.
-     *
-     * A total as well as the last few, because « deux sondes en six
-     * mois » and « quarante » say different things about how much the
-     * lines below are worth.
-     *
-     * @return array<int, string>
-     */
-    /**
      * How many addresses have stopped being written to, and at which
      * providers — never WHICH addresses (roadmap IT-05).
      *
@@ -460,6 +442,24 @@ class OutboundMailCollector implements SupportCollectorInterface
         return $lines;
     }
 
+    /**
+     * The manual probes, by road and by verdict — never by destination
+     * (roadmap IT-04).
+     *
+     * **The address stays out, and the screen shows it.** Those are not
+     * in tension: the page is read by the person who typed the address in
+     * one minute ago and needs the comparison « même destinataire, deux
+     * relais, deux verdicts »; this file goes to a third party and is
+     * kept for a long time, and the question it has to answer — « par
+     * quels chemins cette unité a-t-elle testé, et qu'est-ce que ça a
+     * donné » — needs the road and the verdict, not who was written to.
+     *
+     * A total as well as the last few, because « deux sondes en six
+     * mois » and « quarante » say different things about how much the
+     * lines below are worth.
+     *
+     * @return array<int, string>
+     */
     private function probeLines(): array
     {
         if ($this->probes === null) {
