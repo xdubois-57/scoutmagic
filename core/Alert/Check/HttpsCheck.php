@@ -45,6 +45,30 @@ final class HttpsCheck implements OperationalCheck
     public const LAST_CLEAR_SETTING = 'insecure_request_last_seen';
 
     /**
+     * Where this alert sends the administrator, on **both** surfaces.
+     *
+     * Constants rather than two string literals because the notification
+     * and the attention page are built from different sides — `read()`
+     * below for the first, {@see \Core\Alert\AlertSurfaces::destinations()}
+     * for the second, which renders stored rows and never constructs a
+     * check. One of the two would otherwise be edited alone, and the
+     * surface that goes stale is the persistent one: the notification
+     * fires once and is gone, while the attention page is what an
+     * administrator still looking at a triggered alert actually reads.
+     */
+    public const HELP_PATH = '/aide/connexion-securisee';
+
+    public const HELP_LABEL = 'Comprendre cette alerte';
+
+    /**
+     * The same two causes as `why` below, said in one line — what the
+     * attention page has room for.
+     */
+    public const ATTENTION_WHY = 'Deux causes possibles, et elles n\'appellent pas le même geste : '
+        . 'aucun certificat HTTPS, ou un intermédiaire qui en porte un devant le site et qui '
+        . 'transmet la requête en clair. L\'aide explique comment les distinguer.';
+
+    /**
      * @param array<string, mixed> $server normally the Request's own captured `$_SERVER`
      * @param SettingService|null $settings holds {@see LAST_CLEAR_SETTING}
      *        across requests — see {@see read()} for why one request's
@@ -230,8 +254,8 @@ final class HttpsCheck implements OperationalCheck
                 . 'n\'est pas activé chez votre hébergeur — c\'est gratuit chez la plupart d\'entre eux —, '
                 . 'soit un proxy ou un CDN le gère devant le site et il reste un réglage à activer. '
                 . 'L\'aide explique comment distinguer les deux.',
-            actionUrl: '/aide/connexion-securisee',
-            actionLabel: 'Comprendre cette alerte'
+            actionUrl: self::HELP_PATH,
+            actionLabel: self::HELP_LABEL
         );
     }
 }

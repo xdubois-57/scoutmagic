@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Core\Alert;
 
+use Core\Alert\AlertSurfaces;
+use Core\Alert\Check\HttpsCheck;
 use Core\Alert\OperationalAlert;
 use Core\Alert\OperationalAlertRepository;
 use Core\Alert\OperationalAttentionProvider;
@@ -111,6 +113,81 @@ class RunOperationalChecksHandlerTest extends TestCase
         $this->assertCount(1, $points);
         $this->assertSame('Espace disque : 92 %', $points[0]->title);
         $this->assertSame(AttentionPoint::SEVERITY_URGENT, $points[0]->severity);
+    }
+
+    /**
+     * The default destination, and the eleven checks it is right for.
+     *
+     * The disk figure, the backup age and the cron stamp all live on the
+     * maintenance page, so a reader who follows this link arrives at the
+     * thing the alert is about.
+     */
+    public function testAnAlertWithNoDestinationOfItsOwnOpensTheMaintenancePage(): void
+    {
+        (new OperationalAlertRepository($this->pdo))->markTriggered('disk_usage', '92 %');
+
+        $points = (new OperationalAttentionProvider(
+            new OperationalAlertRepository($this->pdo),
+            ['disk_usage' => 'Espace disque'],
+            AlertSurfaces::destinations()
+        ))->collect(1);
+
+        $this->assertSame('/config/maintenance', $points[0]->actionUrl);
+        $this->assertSame('Ouvrir la maintenance', $points[0]->actionLabel);
+    }
+
+    /**
+     * Issue #352 — the fix has to reach the people already living with
+     * the alert, and this page is the only surface that can.
+     *
+     * `AlertReading::actionUrl` is read by
+     * `OperationalAlertService::notify()` alone, which fires once on the
+     * armed→triggered transition. An installation whose HTTPS is
+     * terminated in front of it is *already* triggered and cannot re-arm
+     * without first enabling the setting the help topic explains — so it
+     * can never earn a fresh notification carrying the new link. What it
+     * has is this page, which used to send every alert to
+     * `/config/maintenance`: a page that restates the reading, when the
+     * reading was never what was wrong.
+     */
+    public function testTheHttpsAlertSendsTheAttentionPageToItsHelpTopicToo(): void
+    {
+        (new OperationalAlertRepository($this->pdo))->markTriggered(HttpsCheck::KEY, 'en clair à l\'instant');
+
+        $points = (new OperationalAttentionProvider(
+            new OperationalAlertRepository($this->pdo),
+            AlertSurfaces::labels(),
+            AlertSurfaces::destinations()
+        ))->collect(1);
+
+        $this->assertCount(1, $points);
+        $this->assertSame('Connexion sécurisée : en clair à l\'instant', $points[0]->title);
+        $this->assertSame(HttpsCheck::HELP_PATH, $points[0]->actionUrl);
+        $this->assertSame(HttpsCheck::HELP_LABEL, $points[0]->actionLabel);
+
+        // And it says why the maintenance page would not have helped:
+        // two causes, opposite gestures.
+        $this->assertStringContainsString('Deux causes', $points[0]->why);
+        $this->assertStringNotContainsString('La page Maintenance', $points[0]->why);
+    }
+
+    /**
+     * The two surfaces name the same destination, and cannot drift.
+     *
+     * They are built from opposite ends — the notification from the
+     * check's own reading, this page from a map of stored rows — so
+     * nothing but this holds them together. The constants make a silent
+     * divergence impossible; this makes an intentional one visible.
+     */
+    public function testBothSurfacesSendTheHttpsAlertToTheSamePlace(): void
+    {
+        $settings = new SettingService(new SettingRepository($this->pdo));
+        $reading = (new HttpsCheck(['HTTPS' => 'off', 'SERVER_PORT' => '80'], $settings))->read();
+
+        $destination = AlertSurfaces::destinations()[HttpsCheck::KEY];
+
+        $this->assertSame($reading->actionUrl, $destination['path']);
+        $this->assertSame($reading->actionLabel, $destination['label']);
     }
 
     /** An armed alert is not a current problem and must not be listed. */

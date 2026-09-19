@@ -34,23 +34,17 @@ l'hébergeur. **C'est lui qui porte le certificat.** Il déchiffre la
 requête du visiteur, puis la transmet à l'application en interne, en
 clair.
 
-Le visiteur est bel et bien en HTTPS de bout en bout. L'application, elle,
-ne voit que la dernière étape — et cette étape n'est pas chiffrée. Elle
-signale donc ce qu'elle observe, et ce qu'elle observe est exact.
-
-Un signe qui ne trompe pas : si une adresse en HTTP bascule toute seule
-vers la version sécurisée, cette redirection ne vient pas de ScoutMagic,
-qui n'en fait aucune. Elle vient forcément de quelque chose placé devant
-lui.
+Le visiteur est en HTTPS de bout en bout ; l'application ne voit que la
+dernière étape, qui ne l'est pas. Elle signale ce qu'elle observe, et ce
+qu'elle observe est exact.
 
 ### Ce qu'il faut faire alors
 
-Le site sait fonctionner ainsi, mais il ne le suppose jamais de lui-même :
-il faut l'y autoriser. Le réglage qui l'autorise à croire l'intermédiaire
-est dans le fichier de configuration du site, sur votre serveur — celui
-que vous avez rempli à l'installation. Il y est décrit à l'endroit où il
-se trouve. Activez-le, puis rechargez une page sécurisée. L'alerte ne
-s'éteint pas dans la foulée : voyez plus bas.
+Le site sait fonctionner ainsi, mais ne le suppose jamais : il faut l'y
+autoriser. Le réglage est dans le fichier de configuration du site, sur
+votre serveur — celui rempli à l'installation — et y est décrit à
+l'endroit où il se trouve. Activez-le, puis rechargez une page sécurisée.
+L'alerte ne s'éteint pas dans la foulée : voyez plus bas.
 
 > Il est désactivé par défaut, et ce n'est pas une précaution excessive.
 > Sans un intermédiaire qui garantisse l'information à chaque requête,
@@ -62,9 +56,15 @@ s'éteint pas dans la foulée : voyez plus bas.
 
 N'activez pas le réglage pour voir : sans intermédiaire qui garantisse
 l'information, l'activer ouvre la porte décrite ci-dessus — que vous
-naviguiez vous-même en HTTPS n'y change rien. Le signe donné plus haut
-tranche déjà. Sinon, posez la question à votre hébergeur : elle se répond
-en une phrase.
+naviguiez vous-même en HTTPS n'y change rien.
+
+**Posez la question à votre hébergeur** : quelque chose porte-t-il le
+certificat devant le site ? C'est le seul moyen sûr de trancher.
+
+Ce que montre le navigateur ne suffit pas. Une adresse en HTTP qui
+bascule seule vers la version sécurisée ressemble à la preuve d'un
+intermédiaire ; mais un navigateur qui a déjà vu ce site en HTTPS fait ce
+saut de mémoire, pendant un an, sans que rien ne soit placé devant.
 
 ## Vérifier que c'est réglé
 

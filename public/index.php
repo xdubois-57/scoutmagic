@@ -2873,7 +2873,8 @@ $attentionProviders = [
     // compared.
     new \Core\Alert\OperationalAttentionProvider(
         new \Core\Alert\OperationalAlertRepository($pdo),
-        \Core\Alert\AlertSurfaces::labels()
+        \Core\Alert\AlertSurfaces::labels(),
+        \Core\Alert\AlertSurfaces::destinations()
     ),
     new \Core\Member\Duplicate\DuplicateAttentionProvider(
         new \Core\Member\Duplicate\DuplicateMemberRepository($pdo, $encryptionService)
