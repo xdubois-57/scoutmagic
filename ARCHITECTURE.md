@@ -4201,19 +4201,58 @@ dropped — it quotes the address back and is written by a stranger's
 software (SECURITY.md §11). Nothing downstream can show it: it is not a
 property of `DeliveryStatusReport`.
 
-*A bounce only counts for an address this site wrote to, and the check is
-in the REPOSITORY.* A watched mailbox is by design one anybody can write
-to, and a delivery-status report is written by whoever sent it — so shape
-is not provenance. Without this, two forged reports naming any member's
-address would cut it off site-wide and notify them, with no message ever
-sent. `mail_send_receipts` answers the only question that settles it: did
-we write here? It holds a blind index and a date and **never the address
-itself**, and `BounceStateRepository::record()` returns null for an address
-that has no receipt. An address already carrying a state keeps counting —
-its receipt may have been purged, and it has bounced at least once. The
-test belongs here rather than in `DeliveryStatusReport`, because a parser
-can recognise a form and has no way to establish an origin; putting it
-there would have produced a guard that merely looks like one.
+*A bounce counts only when a message has gone out since the last bounce
+that counted, and the check is in the REPOSITORY.* A watched mailbox is by
+design one anybody can write to, and a delivery-status report is written by
+whoever sent it — so shape is not provenance. A parser recognises a form and
+has no way to establish an origin; a guard there would only look like one.
+`mail_send_receipts` answers the question that settles it, holding a blind
+index and a date and **never the address itself**; `BounceStateRepository::
+record()` returns null unless a receipt exists AND is more recent than the
+state's `last_seen_at`.
+
+That one sentence does the work of four separate guards:
+
+- An address the site never wrote to has no receipt, so nothing about it
+  can ever be recorded. Without this, two forged reports naming any
+  member's address would cut it off site-wide and notify them.
+- One message carrying the same failed recipient twice — two
+  blank-line-separated groups, which costs an attacker one paragraph —
+  counts once. `FAILURES_BEFORE_BLOCK = 2` means two separate events, and
+  a naive count turned it into a one-message rule.
+- The same message read twice counts once.
+  `Modules\InboundMail\Service\MailboxSyncService` calls `analyzeAll()`
+  **before** its Message-ID check, deliberately, because a re-read is
+  expected after a UIDVALIDITY reset or when a message lands in two
+  watched folders — so a genuine bounce read twice would otherwise block
+  an address in half the failures it should take.
+- And an old receipt authorises exactly one report rather than an endless
+  supply, so knowing one address the unit has ever mailed is not a way in.
+
+What it deliberately does not refuse is the sequence the feature exists
+for: send, bounce, send, bounce, blocked. Each send re-opens the door for
+exactly one answer.
+
+*Every send stamps a receipt, and the stamping lives in
+`Core\Mail\MailService::send()`.* That is the single point every message
+passes through, the confirmation of a freshly typed address as much as a
+mailing, and it is stamped after `deliver()` returns — a refused message
+wrote nothing, a deferred one has not written yet. Stamped in the mailing
+task alone, as it first was, an installation without `mass_mail` could
+never block anything while its Rebonds page went on promising it would,
+and a mistyped address refused on its very first confirmation mail — the
+likeliest real bounce there is — would be the one the site threw away.
+
+*The receipt upsert asks whether the row exists rather than reading
+`rowCount()`.* This application does not set `PDO::MYSQL_ATTR_FOUND_ROWS`,
+so MySQL counts rows CHANGED rather than matched — the hazard
+`Core\Config\SettingRepository::replaceIfUnchanged()` documents for
+itself. `last_send_at` is a `DATETIME`, and two messages to one address
+inside one second are routine, since siblings share a parent's mailbox and
+a batch walks them back to back. The identical second write answers 0, an
+UPDATE-then-INSERT falls through to the INSERT, and the unique index
+raises a `PDOException` that the send loop — which catches `MailException`
+only — would carry out of a half-finished mailing.
 
 *A send cannot settle itself.* Handing a message to a relay proves nothing,
 and the bounce for that very send lands seconds later — so clearing the

@@ -28,13 +28,20 @@ class MailServiceFactory
      *                                               means « fail as before », which is
      *                                               what the setup wizard wants: there
      *                                               is no cron yet to drain anything.
+     * @param Feedback\Bounce\BounceStateRepository|null $sendReceipts Where « we wrote
+     *                                               to this address » is noted, so a
+     *                                               bounce naming it can be believed
+     *                                               (roadmap IT-05). Null for the setup
+     *                                               wizard, same as the journal: no
+     *                                               database, and nothing to bounce yet.
      */
     public static function create(
         array $secrets,
         DkimManager $dkimManager,
         ?MailTransportInterface $transport = null,
         ?\Core\Journal\JournalService $journal = null,
-        ?Transport\DeferredMailQueue $deferred = null
+        ?Transport\DeferredMailQueue $deferred = null,
+        ?Feedback\Bounce\BounceStateRepository $sendReceipts = null
     ): MailService {
         return new MailService(
             mode: $secrets['mail_mode'] ?? 'local',
@@ -50,7 +57,8 @@ class MailServiceFactory
             smtpPassword: $secrets['smtp_password'] ?? null,
             transport: $transport ?? new PhpMailerTransport(),
             journal: $journal,
-            deferred: $deferred
+            deferred: $deferred,
+            sendReceipts: $sendReceipts
         );
     }
 }

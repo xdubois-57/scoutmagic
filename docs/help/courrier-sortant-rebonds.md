@@ -55,16 +55,17 @@ Vous pouvez aussi le faire ici, ce qui est souvent nécessaire : beaucoup de
 parents ne se connectent jamais. Dans les deux cas le compteur repart de
 zéro.
 
-Et si un message repart normalement vers cette adresse, le site oublie tout
-de lui-même. C'est le seul signal fiable que le problème est réglé — mieux
-qu'un délai, puisqu'une boîte est vidée quand son propriétaire y pense.
+Et si un message repart normalement, le site oublie tout de lui-même :
+seul signal fiable que c'est réglé, une boîte étant vidée quand son
+propriétaire y pense.
 
 ## Ce que le site refuse de croire
 
 N'importe qui peut écrire dans une boîte surveillée, faux avis compris. Un
-rebond n'est donc compté que pour une adresse à laquelle le site a vraiment
-écrit. Même raison côté membre : une adresse secondaire jamais confirmée
-ne montre rien et ne se réactive pas.
+rebond ne compte donc que si un message est parti vers cette adresse
+**depuis le dernier rebond compté** : c'est une réponse, il lui faut une
+question. Un message relu compte une fois. Côté membre, une adresse
+secondaire jamais confirmée ne montre rien et ne se réactive pas.
 
 ## Le piège, et c'est le plus coûteux de tout ce chantier
 

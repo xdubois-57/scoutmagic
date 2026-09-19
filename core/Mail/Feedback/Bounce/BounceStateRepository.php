@@ -77,20 +77,43 @@ class BounceStateRepository
         $existing = $this->find($email);
         $stamp = $now->format('Y-m-d H:i:s');
 
-        if ($existing === null) {
-            // **The security boundary, and it belongs here rather than in
-            // the parser.** A bounce report is written by whoever sent it,
-            // and a watched mailbox is one anybody can write to — so a
-            // well-formed report proves nothing on its own. Without a
-            // receipt, somebody able to deliver mail to the unit could
-            // forge two permanent failures naming any address and have it
-            // suspended, with a notification to the member.
-            //
-            // Refusing here rather than at the consumer keeps the rule in
-            // the one place every path to a bounce passes through.
-            if (!$this->hasWrittenTo($email)) {
-                return null;
-            }
+        // **The security boundary, and it belongs here rather than in the
+        // parser.** A bounce report is written by whoever sent it, and a
+        // watched mailbox is one anybody can write to — so a well-formed
+        // report proves nothing on its own. A parser recognises a shape
+        // and has no way to establish an origin; a guard there would only
+        // look like one.
+        //
+        // The rule is one sentence: **a report counts only when a message
+        // has gone out since the last report that counted.** A bounce is
+        // an answer, and an answer needs a question more recent than the
+        // last answer.
+        //
+        // That single rule does the work of three:
+        //
+        // - An address the site has never written to has no receipt at
+        //   all, so nothing about it can ever be recorded.
+        // - One message carrying the same failed recipient twice — two
+        //   blank-line-separated groups, which costs an attacker nothing
+        //   to write — counts once: the second finds `last_seen_at`
+        //   already at or past the send it answers. So does a message
+        //   re-read, which `MailboxSyncService` expects (a UIDVALIDITY
+        //   reset, or the same message in two watched folders) and which
+        //   reaches `analyze()` BEFORE its Message-ID check.
+        // - And an old receipt authorises exactly one report rather than
+        //   an endless supply. Otherwise knowing one address the unit has
+        //   ever mailed would be enough to forge its way to a block.
+        //
+        // What it deliberately does NOT refuse is the honest sequence the
+        // feature exists for: send, bounce, send, bounce, blocked. Each
+        // send re-opens the door for exactly one answer.
+        $lastSendAt = $this->lastSendAt($email);
+        if ($lastSendAt === null) {
+            return null;
+        }
+
+        if ($existing !== null && $existing->lastSeenAt >= $lastSendAt) {
+            return null;
         }
 
         if ($existing === null) {
@@ -249,35 +272,58 @@ class BounceStateRepository
         return $value === false ? null : DateInput::fromStorage($value);
     }
 
-    public function hasWrittenTo(string $email): bool
-    {
-        return $this->lastSendAt($email) !== null;
-    }
-
     /**
      * Note that a message for this address has gone to a relay.
      *
-     * An upsert spelled as two statements rather than one vendor-specific
-     * clause: this runs on MySQL, MariaDB and SQLite, and the unique index
-     * is what actually keeps it to one row per address.
+     * An upsert spelled as several statements rather than one
+     * vendor-specific clause: this runs on MySQL, MariaDB and SQLite, and
+     * the unique index is what actually keeps it to one row per address.
+     *
+     * **Existence is asked for, never inferred from `rowCount()`.** This
+     * application does not set `PDO::MYSQL_ATTR_FOUND_ROWS`, so MySQL
+     * counts rows it CHANGED rather than rows it matched — the hazard
+     * `Core\Config\SettingRepository::replaceIfUnchanged()` already
+     * documents for itself. `last_send_at` is a `DATETIME`, one-second
+     * resolution, and two messages to one address inside the same second
+     * are routine: siblings share a parent's mailbox, and a batch walks
+     * them back to back. The second write is identical, so `rowCount()`
+     * answers 0, an UPDATE-then-INSERT falls through to the INSERT, and
+     * the unique index raises a `PDOException` that the send loop — which
+     * catches `MailException` only — would carry out of the whole batch,
+     * halfway through a mailing.
      */
     private function stampReceipt(string $email, \DateTimeImmutable $now): void
     {
         $stamp = $now->format('Y-m-d H:i:s');
+        $blindIndex = $this->blindIndex($email);
 
-        $update = $this->pdo->prepare(
-            'UPDATE mail_send_receipts SET last_send_at = ? WHERE email_blind_index = ?'
-        );
-        $update->execute([$stamp, $this->blindIndex($email)]);
+        $existing = $this->pdo->prepare('SELECT 1 FROM mail_send_receipts WHERE email_blind_index = ?');
+        $existing->execute([$blindIndex]);
 
-        if ($update->rowCount() > 0) {
+        if ($existing->fetchColumn() !== false) {
+            $update = $this->pdo->prepare(
+                'UPDATE mail_send_receipts SET last_send_at = ? WHERE email_blind_index = ?'
+            );
+            $update->execute([$stamp, $blindIndex]);
+
             return;
         }
 
-        $insert = $this->pdo->prepare(
-            'INSERT INTO mail_send_receipts (email_blind_index, last_send_at) VALUES (?, ?)'
-        );
-        $insert->execute([$this->blindIndex($email), $stamp]);
+        try {
+            $insert = $this->pdo->prepare(
+                'INSERT INTO mail_send_receipts (email_blind_index, last_send_at) VALUES (?, ?)'
+            );
+            $insert->execute([$blindIndex, $stamp]);
+        } catch (\PDOException) {
+            // Another process inserted between the SELECT and here — two
+            // scheduler passes, or a page view alongside one. The row now
+            // exists, which is all this method wanted; bringing its date
+            // forward is the same write as above.
+            $update = $this->pdo->prepare(
+                'UPDATE mail_send_receipts SET last_send_at = ? WHERE email_blind_index = ?'
+            );
+            $update->execute([$stamp, $blindIndex]);
+        }
     }
 
     /**

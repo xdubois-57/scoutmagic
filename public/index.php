@@ -2187,7 +2187,13 @@ $mailService = MailServiceFactory::create(
     $dkimManager,
     $mailTransportChain,
     $journalService,
-    $deferredMailQueue
+    $deferredMailQueue,
+    // The send receipts (roadmap IT-05). Passed here because THIS is
+    // where the one MailService every page uses is built: a bounce is
+    // only credited to an address the site can show it wrote to, so an
+    // unwired factory would make the whole of IT-05 record nothing —
+    // silently, the way a missing optional dependency always does.
+    new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $encryptionService)
 );
 
 // Automatic e-mails (Core\Mail\Template, ARCHITECTURE.md §8.7bis).

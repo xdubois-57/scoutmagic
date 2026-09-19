@@ -1479,12 +1479,60 @@ notification qui va avec, sans qu'un seul message soit jamais parti.
 
 La frontière est posée dans le **dépôt** plutôt que dans l'analyseur : un
 analyseur reconnaît une forme, il n'a aucun moyen d'établir une provenance,
-et l'y mettre aurait donné une garde qui a l'air d'en être une. Une table
+et l'y mettre aurait donné une garde qui a seulement l'air d'en être une.
+
+La première version de cette garde demandait « avons-nous déjà écrit à
+cette adresse ? ». Les relecteurs ont montré, en trois angles distincts,
+que c'était trop faible. La règle est donc devenue une phrase :
+**un rapport ne compte que si un message est parti depuis le dernier
+rapport qui a compté.** Un rebond est une réponse, et une réponse demande
+une question plus récente que la réponse précédente. Une table
 `mail_send_receipts` retient, par index aveugle et **sans jamais stocker
 l'adresse**, la date du dernier envoi vers chaque destinataire ; `record()`
-refuse de créer un état pour une adresse à qui le site n'a rien écrit. Un
-état déjà connu continue de compter — la preuve d'envoi a pu être purgée
-entre-temps, et l'adresse a bien rebondi au moins une fois.
+compare cette date au `last_seen_at` de l'état.
+
+Cette phrase remplace quatre gardes :
+
+- une adresse à qui le site n'a jamais écrit n'a aucune preuve, donc rien
+  ne peut jamais être enregistré à son sujet ;
+- **un seul message nommant deux fois le même destinataire compte une
+  fois.** Deux paragraphes séparés par une ligne vide coûtent une ligne à
+  écrire, et suffisaient à atteindre le seuil de deux échecs d'un coup :
+  la règle « deux événements distincts » était devenue « un message » ;
+- **le même message relu compte une fois.** `MailboxSyncService` appelle
+  `analyzeAll()` **avant** son contrôle de Message-ID — délibérément, son
+  propre commentaire dit qu'une relecture est attendue après une remise à
+  zéro d'UIDVALIDITY ou quand un message tombe dans deux dossiers
+  surveillés. Un vrai rebond relu bloquait donc en moitié moins d'échecs
+  qu'il n'en faut ;
+- et **une vieille preuve d'envoi n'autorise qu'un seul rapport**, pas une
+  provision sans fin. Sinon, connaître une adresse à qui l'unité a écrit
+  un jour — n'importe quel parent, n'importe quel publipostage — suffisait
+  à forcer le blocage message après message.
+
+Ce qu'elle ne refuse pas, et c'est tout l'enjeu : envoi, rebond, envoi,
+rebond, blocage. Chaque envoi rouvre la porte pour exactement une réponse.
+
+**Et la preuve d'envoi est posée dans `MailService::send()`**, le seul
+point par lequel tout message passe. Posée dans la tâche de publipostage
+seule, comme au premier jet, une installation sans le module `mass_mail`
+n'aurait jamais rien pu bloquer pendant que sa page Rebonds promettait le
+contraire — et le rebond le plus probable qui soit, une adresse fraîchement
+mal tapée refusée dès son courriel de confirmation, était précisément celui
+que le site jetait.
+
+**Un `rowCount()` qui aurait fait tomber un publipostage en plein milieu.**
+L'upsert de la preuve lisait `rowCount()` pour savoir si la ligne existait.
+Sans `PDO::MYSQL_ATTR_FOUND_ROWS`, que ce site ne pose pas, MySQL compte
+les lignes *modifiées* et non les lignes trouvées — le piège que
+`SettingRepository::replaceIfUnchanged()` documente déjà pour lui-même.
+`last_send_at` est un `DATETIME` : deux messages à la même adresse dans la
+même seconde sont la règle, pas l'exception, puisque des frères et sœurs
+partagent la boîte d'un parent et qu'un lot les parcourt à la suite. La
+seconde écriture est identique, `rowCount()` répond 0, l'INSERT part et
+l'index unique lève une `PDOException` que la boucle d'envoi — qui ne
+rattrape que `MailException` — aurait emportée hors du lot, à moitié
+distribué. L'existence est donc demandée, jamais déduite.
 
 **Le consommateur n'était inscrit que sur un registre sur deux**, et pas
 celui qui travaille. Celui de `public/index.php` dit à l'écran de

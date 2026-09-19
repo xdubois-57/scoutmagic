@@ -494,8 +494,9 @@ réactiver une adresse que le membre a lui-même désactivée ; que ces informat
 et que la ligne est effacée dès qu'un message repart normalement, plutôt qu'au terme d'un délai. Doivent y figurer
 aussi la **preuve d'envoi** conservée à part — une empreinte irréversible de l'adresse et une date, **jamais
 l'adresse**, même chiffrée —, la raison d'être de cette preuve (sans elle un faux avis de non-remise suffirait à
-faire suspendre l'adresse de n'importe qui), et le fait qu'une adresse secondaire doit avoir été **confirmée** avant
-que son état de rebond ne soit montré ou levé depuis la page du membre.
+faire suspendre l'adresse de n'importe qui), le fait qu'un refus n'est enregistré que si un message est parti vers
+cette adresse **depuis le dernier refus enregistré**, et le fait qu'une adresse secondaire doit avoir été
+**confirmée** avant que son état de rebond ne soit montré ou levé depuis la page du membre.
 
 5. **Modules actifs uniquement** : Retirer les sections des modules INACTIFS (comparer avec liste modules actifs)
 6. **Personnalisation obligatoire** : Remplacer {$unitName} et {$contactEmail} partout. Ne JAMAIS laisser de

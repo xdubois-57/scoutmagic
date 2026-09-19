@@ -297,6 +297,51 @@ class OutboundMailWiringTest extends TestCase
     }
 
     /**
+     * **The half that says « we wrote here », and it is the one every
+     * message passes through.** A bounce counts only for an address the
+     * site can show it wrote to, so the receipt is what makes any bounce
+     * admissible at all. Stamped anywhere narrower than
+     * `Core\Mail\MailService::send()` — in the mailing task alone, as it
+     * first was — an installation without that module could never block
+     * anything while its Rebonds page went on promising it would, and
+     * the likeliest real bounce of the lot, a freshly mistyped address
+     * refused on its very first confirmation mail, would be the one the
+     * site threw away.
+     *
+     * Both entry points, because `public/cron.php` builds its own and a
+     * receipt missing there means every scheduled mailing is invisible to
+     * the bounce rule.
+     */
+    public function testEveryEntryPointHandsTheMailFactoryItsSendReceipts(): void
+    {
+        foreach (['public/index.php', 'public/cron.php'] as $entryPoint) {
+            $source = self::source($entryPoint);
+
+            $position = strpos($source, 'MailServiceFactory::create(');
+            $this->assertNotFalse($position, $entryPoint . ' must build the mail service from the factory.');
+
+            $this->assertStringContainsString(
+                'new \Core\Mail\Feedback\Bounce\BounceStateRepository(',
+                substr($source, $position, 900),
+                $entryPoint . ' builds a MailService that notes no send, so no bounce is ever believed.'
+            );
+        }
+    }
+
+    /**
+     * And the service actually stamps one. A dependency it accepts and
+     * never calls is the same absence, one layer further in.
+     */
+    public function testTheMailServiceStampsAReceiptOnAMessageThatLeft(): void
+    {
+        $this->assertStringContainsString(
+            '$this->sendReceipts?->recordSend(',
+            self::source('core/Mail/MailService.php'),
+            'MailService takes the receipts and never writes one.'
+        );
+    }
+
+    /**
      * And the consumer the SCHEDULER builds is given a notifier too.
      * Only that one ever runs `analyze()`, so a notifier present on the
      * web side alone would tell nobody anything: the block would land

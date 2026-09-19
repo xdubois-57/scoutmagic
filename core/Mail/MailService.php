@@ -70,7 +70,21 @@ class MailService
          * happened, loudly, the first time this one went in next to the
          * other addresses where it reads better.
          */
-        private string $replyAddress = ''
+        private string $replyAddress = '',
+        /**
+         * The send receipts (roadmap IT-05), and **last for the same
+         * reason `$replyAddress` is**: several call sites build this
+         * service positionally.
+         *
+         * The repository rather than `Bounce\BounceService`, because
+         * stamping a receipt needs no notifier — and a notifier would
+         * drag `NotificationService` in, which is built with a
+         * MailService of its own.
+         *
+         * Null is a site with no bounce handling; nothing is recorded and
+         * nothing breaks.
+         */
+        private ?Feedback\Bounce\BounceStateRepository $sendReceipts = null
     ) {
     }
 
@@ -244,6 +258,21 @@ class MailService
             // above stays here so a captured message is byte-for-byte the
             // message that would have gone out.
             $this->transport->deliver($mail, $purpose);
+
+            // **The one place the site knows it wrote to somebody.** A
+            // bounce is only credited to an address a message actually
+            // went to (Feedback\Bounce\BounceStateRepository::record()),
+            // and this is the single point every message passes through —
+            // the confirmation of a freshly typed address as much as a
+            // mailing. Wired anywhere narrower, the most likely real
+            // bounce of all, a typo caught on its very first send, would
+            // be the one the site threw away.
+            //
+            // After `deliver()` and not before: a relay that refused the
+            // message wrote nothing, and a deferred one has not written
+            // yet. `recordSend()` also settles the PREVIOUS send, which
+            // is why it is this call and not `stampReceipt()`.
+            $this->sendReceipts?->recordSend($to, new \DateTimeImmutable());
         } catch (Transport\LaneExhaustedException $e) {
             // A lane with nothing left is not a refusal: nobody has said
             // no to this message, the road is simply shut. So it is kept

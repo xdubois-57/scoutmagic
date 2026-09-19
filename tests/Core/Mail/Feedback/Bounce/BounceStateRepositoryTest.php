@@ -38,11 +38,17 @@ class BounceStateRepositoryTest extends TestCase
     }
 
     /**
-     * Record a bounce for an address the site has written to.
+     * **One message out, then one bounce back in** — the send belongs to
+     * the fixture, not beside it.
      *
-     * The receipt is what makes the bounce admissible at all — without
-     * one it is somebody's word about a message this site cannot show it
-     * sent, and `record()` refuses it.
+     * A report counts only when a message has gone out since the last
+     * report that counted, so stamping the receipt once and then
+     * recording two bounces would model a sequence the site cannot
+     * produce. It is also the shape that let one forged message be
+     * counted as two strikes: two blank-line-separated groups naming the
+     * same address, or the same message read twice, which
+     * `MailboxSyncService` expects and hands to `analyze()` before its
+     * Message-ID check.
      */
     private function bounce(
         string $email,
@@ -51,9 +57,7 @@ class BounceStateRepositoryTest extends TestCase
         string $code,
         \DateTimeImmutable $now
     ): \Core\Mail\Feedback\Bounce\BounceState {
-        if ($this->states->lastSendAt($email) === null) {
-            $this->states->recordSend($email, $now->modify('-1 hour'));
-        }
+        $this->states->recordSend($email, $now->modify('-1 minute'));
 
         $state = $this->states->record($email, $category, $severity, $code, $now);
         self::assertNotNull($state, 'the fixture must produce a recorded bounce.');
@@ -84,13 +88,13 @@ class BounceStateRepositoryTest extends TestCase
      */
     public function testATransientBounceNeverCountsTowardTheBlock(): void
     {
-        foreach (range(1, 5) as $ignored) {
+        foreach (range(1, 5) as $round) {
             $state = $this->bounce(
                 'parent@exemple.be',
                 BounceCategory::MailboxFull,
                 BounceSeverity::Transient,
                 '4.2.2',
-                $this->now()
+                $this->now()->modify("+{$round} hours")
             );
         }
 
@@ -101,13 +105,13 @@ class BounceStateRepositoryTest extends TestCase
 
     public function testPermanentBouncesAccumulateOnTheSameRow(): void
     {
-        foreach (range(1, 3) as $ignored) {
+        foreach (range(1, 3) as $round) {
             $state = $this->bounce(
                 'parent@exemple.be',
                 BounceCategory::NoSuchAddress,
                 BounceSeverity::Permanent,
                 '5.1.1',
-                $this->now()
+                $this->now()->modify("+{$round} hours")
             );
         }
 
@@ -123,7 +127,15 @@ class BounceStateRepositoryTest extends TestCase
     public function testOneMailboxIsOneRowHoweverManyProfilesShareIt(): void
     {
         $this->bounce('parent@exemple.be', BounceCategory::Refused, BounceSeverity::Permanent, '5.7.1', $this->now());
-        $this->bounce('PARENT@Exemple.BE', BounceCategory::Refused, BounceSeverity::Permanent, '5.7.1', $this->now());
+        // An hour later, and after a second message went out to the same
+        // mailbox: two strikes are two answers to two questions.
+        $this->bounce(
+            'PARENT@Exemple.BE',
+            BounceCategory::Refused,
+            BounceSeverity::Permanent,
+            '5.7.1',
+            $this->now()->modify('+1 hour')
+        );
 
         $this->assertSame(1, $this->countRows(), 'the address is matched case-insensitively.');
         $this->assertSame(2, $this->states->find('parent@exemple.be')?->failures);
@@ -148,7 +160,13 @@ class BounceStateRepositoryTest extends TestCase
     public function testUnblockingAlsoPutsTheCounterBackToZero(): void
     {
         $state = $this->bounce('parent@exemple.be', BounceCategory::NoSuchAddress, BounceSeverity::Permanent, '5.1.1', $this->now());
-        $this->bounce('parent@exemple.be', BounceCategory::NoSuchAddress, BounceSeverity::Permanent, '5.1.1', $this->now());
+        $this->bounce(
+            'parent@exemple.be',
+            BounceCategory::NoSuchAddress,
+            BounceSeverity::Permanent,
+            '5.1.1',
+            $this->now()->modify('+1 hour')
+        );
         $this->states->markNotified($state->id, '5.1.1');
         $this->states->block($state->id, $this->now());
 
@@ -207,9 +225,26 @@ class BounceStateRepositoryTest extends TestCase
     {
         $t = $this->now('2026-09-15 09:00:00');
 
-        $this->bounce('parent@exemple.be', BounceCategory::NoSuchAddress, BounceSeverity::Permanent, '5.1.1', $t);
+        // Deliberately NOT through bounce(): this test drives the
+        // timeline itself, and the helper's own send would be an extra
+        // event in the middle of the sequence being measured.
+        $this->states->recordSend('parent@exemple.be', $t);
+        $this->states->record(
+            'parent@exemple.be',
+            BounceCategory::NoSuchAddress,
+            BounceSeverity::Permanent,
+            '5.1.1',
+            $t->modify('+1 minute')
+        );
+
         $this->states->recordSend('parent@exemple.be', $t->modify('+1 day'));
-        $this->bounce('parent@exemple.be', BounceCategory::NoSuchAddress, BounceSeverity::Permanent, '5.1.1', $t->modify('+2 days'));
+        $this->states->record(
+            'parent@exemple.be',
+            BounceCategory::NoSuchAddress,
+            BounceSeverity::Permanent,
+            '5.1.1',
+            $t->modify('+1 day +1 minute')
+        );
 
         $this->states->recordSend('parent@exemple.be', $t->modify('+3 days'));
 
@@ -264,7 +299,7 @@ class BounceStateRepositoryTest extends TestCase
     {
         $this->states->recordSend('bonne@exemple.be', $this->now());
 
-        $this->assertTrue($this->states->hasWrittenTo('bonne@exemple.be'));
+        $this->assertNotNull($this->states->lastSendAt('bonne@exemple.be'));
         $this->assertSame(0, $this->countRows(), 'a receipt is not a bounce.');
     }
 

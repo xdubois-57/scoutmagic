@@ -27,6 +27,7 @@ class BounceServiceTest extends TestCase
     private BounceService $bounces;
     /** @var list<array{email: string, blocking: bool}> */
     private array $told = [];
+    private \DateTimeImmutable $clock;
 
     protected function setUp(): void
     {
@@ -36,6 +37,7 @@ class BounceServiceTest extends TestCase
             new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
         );
         $this->told = [];
+        $this->clock = new \DateTimeImmutable('2026-09-19 08:00:00');
 
         $this->bounces = new BounceService(
             $this->states,
@@ -54,20 +56,8 @@ class BounceServiceTest extends TestCase
         );
     }
 
-    /**
-     * A report for an address this site HAS written to.
-     *
-     * The receipt is part of the fixture rather than an afterthought: a
-     * bounce for an address the unit never wrote to is refused outright
-     * (see `mail_send_receipts`), so a test that skipped it would be
-     * testing the refusal rather than the counting.
-     */
     private function report(string $status, string $email = 'parent@exemple.be'): DeliveryStatusReport
     {
-        if ($this->states->lastSendAt($email) === null) {
-            $this->states->recordSend($email, new \DateTimeImmutable('2026-09-19 08:00:00'));
-        }
-
         $reports = DeliveryStatusReport::parseAll(
             "Final-Recipient: rfc822; {$email}\nAction: failed\nStatus: {$status}\n"
         );
@@ -76,9 +66,47 @@ class BounceServiceTest extends TestCase
         return $reports[0];
     }
 
+    /**
+     * **One message out, one bounce back** — and the send is part of the
+     * fixture rather than an afterthought.
+     *
+     * A report counts only when a message has gone out since the last
+     * report that counted, so a test recording two bounces in a row with
+     * nothing sent in between would be modelling a sequence the site
+     * cannot produce: a bounce is an answer, and two answers need two
+     * questions. Written the other way these tests went on passing while
+     * `record()` counted one forged message as two strikes.
+     *
+     * The clock advances on every call, because the rule compares two
+     * `DATETIME`s and a fixture crowded into a single second proves
+     * nothing about their order.
+     */
+    private function bounce(string $status, string $email = 'parent@exemple.be'): ?BounceState
+    {
+        $this->clock = $this->clock->modify('+1 hour');
+        $this->bounces->recordSend($email, $this->clock);
+
+        $this->clock = $this->clock->modify('+1 minute');
+
+        return $this->bounces->record($this->report($status, $email), $this->clock);
+    }
+
+    /**
+     * The same send-then-bounce step for the two tests that need a
+     * service of their own (a notifier that throws): stamps the send and
+     * hands back the moment the bounce came in.
+     */
+    private function tick(string $email = 'parent@exemple.be'): \DateTimeImmutable
+    {
+        $this->clock = $this->clock->modify('+1 hour');
+        $this->bounces->recordSend($email, $this->clock);
+
+        return $this->clock = $this->clock->modify('+1 minute');
+    }
+
     public function testOnePermanentFailureIsNotYetABlock(): void
     {
-        $state = $this->bounces->record($this->report('5.1.1'));
+        $state = $this->bounce('5.1.1');
 
         $this->assertFalse($state->isBlocked());
         $this->assertFalse($this->bounces->isBlocked('parent@exemple.be'));
@@ -86,8 +114,8 @@ class BounceServiceTest extends TestCase
 
     public function testTheAddressIsBlockedAtTheSecondPermanentFailure(): void
     {
-        $this->bounces->record($this->report('5.1.1'));
-        $state = $this->bounces->record($this->report('5.1.1'));
+        $this->bounce('5.1.1');
+        $state = $this->bounce('5.1.1');
 
         $this->assertTrue($state->isBlocked());
         $this->assertTrue($this->bounces->isBlocked('parent@exemple.be'));
@@ -101,7 +129,7 @@ class BounceServiceTest extends TestCase
     public function testTransientFailuresNeverBlockTheAddress(): void
     {
         foreach (range(1, 10) as $ignored) {
-            $state = $this->bounces->record($this->report('4.2.2'));
+            $state = $this->bounce('4.2.2');
         }
 
         $this->assertFalse($state->isBlocked());
@@ -115,7 +143,7 @@ class BounceServiceTest extends TestCase
     public function testARepeatedErrorIsToldOnce(): void
     {
         foreach (range(1, 5) as $ignored) {
-            $this->bounces->record($this->report('4.2.2'));
+            $this->bounce('4.2.2');
         }
 
         $this->assertCount(1, $this->told);
@@ -128,8 +156,8 @@ class BounceServiceTest extends TestCase
      */
     public function testADifferentErrorIsToldSeparately(): void
     {
-        $this->bounces->record($this->report('4.2.2'));
-        $this->bounces->record($this->report('4.4.1'));
+        $this->bounce('4.2.2');
+        $this->bounce('4.4.1');
 
         $this->assertCount(2, $this->told);
     }
@@ -141,10 +169,10 @@ class BounceServiceTest extends TestCase
      */
     public function testBlockingAlwaysTellsEvenWhenTheErrorIsOld(): void
     {
-        $this->bounces->record($this->report('5.1.1'));
+        $this->bounce('5.1.1');
         $this->told = [];
 
-        $this->bounces->record($this->report('5.1.1'));
+        $this->bounce('5.1.1');
 
         $this->assertCount(1, $this->told);
         $this->assertTrue($this->told[0]['blocking'], 'the blocking bounce is its own kind of news.');
@@ -153,7 +181,7 @@ class BounceServiceTest extends TestCase
     public function testAnAddressIsBlockedOnlyOnce(): void
     {
         foreach (range(1, 4) as $ignored) {
-            $this->bounces->record($this->report('5.1.1'));
+            $this->bounce('5.1.1');
         }
 
         $blocking = array_filter($this->told, static fn(array $t): bool => $t['blocking']);
@@ -252,14 +280,14 @@ class BounceServiceTest extends TestCase
      */
     public function testUnblockingGivesTheAddressItsFullAllowanceBack(): void
     {
-        $this->bounces->record($this->report('5.1.1'));
-        $state = $this->bounces->record($this->report('5.1.1'));
+        $this->bounce('5.1.1');
+        $state = $this->bounce('5.1.1');
         $this->bounces->unblock($state->id, true);
 
-        $this->bounces->record($this->report('5.1.1'));
+        $this->bounce('5.1.1');
         $this->assertFalse($this->bounces->isBlocked('parent@exemple.be'), 'one failure must not re-block.');
 
-        $this->bounces->record($this->report('5.1.1'));
+        $this->bounce('5.1.1');
         $this->assertTrue($this->bounces->isBlocked('parent@exemple.be'));
     }
 
@@ -288,8 +316,8 @@ class BounceServiceTest extends TestCase
             }
         );
 
-        $bounces->record($this->report('5.1.1'));
-        $bounces->record($this->report('5.1.1'));
+        $bounces->record($this->report('5.1.1'), $this->tick());
+        $bounces->record($this->report('5.1.1'), $this->tick());
 
         $this->assertTrue($bounces->isBlocked('parent@exemple.be'));
     }
@@ -314,7 +342,7 @@ class BounceServiceTest extends TestCase
             }
         );
 
-        $failing->record($this->report('4.2.2'));
+        $failing->record($this->report('4.2.2'), $this->tick());
 
         $this->assertTrue(
             $this->states->find('parent@exemple.be')?->isNewError('4.2.2'),
@@ -325,9 +353,9 @@ class BounceServiceTest extends TestCase
     /** Two addresses fail independently; one blocked is not both blocked. */
     public function testAddressesAreCountedApart(): void
     {
-        $this->bounces->record($this->report('5.1.1', 'un@exemple.be'));
-        $this->bounces->record($this->report('5.1.1', 'un@exemple.be'));
-        $this->bounces->record($this->report('5.1.1', 'deux@exemple.be'));
+        $this->bounce('5.1.1', 'un@exemple.be');
+        $this->bounce('5.1.1', 'un@exemple.be');
+        $this->bounce('5.1.1', 'deux@exemple.be');
 
         $this->assertTrue($this->bounces->isBlocked('un@exemple.be'));
         $this->assertFalse($this->bounces->isBlocked('deux@exemple.be'));

@@ -183,6 +183,72 @@ class BounceConsumerTest extends TestCase
     }
 
     /**
+     * **One message, two strikes — the shape that turned the two-failure
+     * rule into a one-message rule.** Nothing in a delivery-status body
+     * stops the same failed recipient appearing twice, and it costs an
+     * attacker one extra paragraph to write it. Counted naively, the
+     * address is blocked and its owner notified by a single message.
+     *
+     * What refuses it is the same rule that refuses the forged report
+     * above: a report counts only when a message has gone out since the
+     * last one that counted, and no send happened between two paragraphs
+     * of one email.
+     */
+    public function testOneMessageNamingTheSameAddressTwiceCountsOnce(): void
+    {
+        $this->consumer->analyze($this->candidateFrom(
+            "Final-Recipient: rfc822; parent@exemple.be\nAction: failed\nStatus: 5.1.1\n"
+            . "\n"
+            . "Final-Recipient: rfc822; parent@exemple.be\nAction: failed\nStatus: 5.1.1\n"
+        ));
+
+        $state = $this->states->find('parent@exemple.be');
+        $this->assertSame(1, $state?->failures, 'two paragraphs are not two failures.');
+        $this->assertFalse($state?->isBlocked(), 'one message must never be enough to block.');
+    }
+
+    /**
+     * **And the same message read twice counts once.**
+     * `Modules\InboundMail\Service\MailboxSyncService` calls
+     * `analyzeAll()` BEFORE its Message-ID check — deliberately, and its
+     * own comment says a re-read is expected after a UIDVALIDITY reset or
+     * when a message lands in two watched folders. So the second read
+     * reaches `analyze()` in full, and without this rule a single genuine
+     * bounce would block an address in half the failures it should take.
+     */
+    public function testTheSameBounceReadTwiceCountsOnce(): void
+    {
+        $parsed = (new MimeMessageParser(new BulkMailDetector()))->parse(self::bounceMessage(), 1, 'INBOX');
+
+        $this->consumer->analyze($this->candidateFrom($parsed->bodyText));
+        $this->consumer->analyze($this->candidateFrom($parsed->bodyText));
+
+        $this->assertSame(
+            1,
+            $this->states->find('parent@exemple.be')?->failures,
+            'a folder re-read must not cost the member a strike.'
+        );
+    }
+
+    /**
+     * **An old receipt buys one answer, not an endless supply.** Knowing
+     * one address the unit has ever mailed — any parent's, from any
+     * mailing — would otherwise be enough to forge a way to a block, one
+     * message at a time. A second send is what re-opens the door.
+     */
+    public function testASecondForgedReportNeedsASecondRealSend(): void
+    {
+        $parsed = (new MimeMessageParser(new BulkMailDetector()))->parse(self::bounceMessage(), 1, 'INBOX');
+
+        foreach (range(1, 5) as $ignored) {
+            $this->consumer->analyze($this->candidateFrom($parsed->bodyText));
+        }
+
+        $this->assertSame(1, $this->states->find('parent@exemple.be')?->failures);
+        $this->assertFalse($this->states->find('parent@exemple.be')?->isBlocked());
+    }
+
+    /**
      * An ordinary message that happens to reach the box records nothing.
      * The consumer is offered every message in a box opened to it, so
      * « ce n'en est pas un » is its most frequent answer by far.
