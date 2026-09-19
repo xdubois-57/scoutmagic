@@ -636,12 +636,30 @@
             opacity 0.18s ease-out,
             visibility 0s linear 0.25s;
     }
+    /* Read as one column with the « Commenter » line underneath it
+       (.groups-thread-summary), because on a card they are the two
+       things you can do to a message and a reader takes them in
+       together. Issue #361 was the two ways they did not:
+
+       - `font-size: 0.875rem`, not 0.8rem. Both are "small" and neither
+         was chosen against the other; the summary line's is the one the
+         rest of this file calls body copy, so it wins.
+       - `padding-left: 0`, against Bootstrap's `.btn-sm` 0.5rem. That
+         half-rem is why the button looked indented on a message with NO
+         reactions yet and correct on one with some: the tally that sits
+         first in the row when it exists is a `btn-link p-0`, so the row
+         starts flush, and without it the toggle's own padding became the
+         row's left edge. The summary line below has no padding at all,
+         so 8px was the whole of the misalignment. The right padding
+         stays — nothing lines up against that side — and the 44px touch
+         target is kept by min-height, never by the horizontal padding. */
     .groups-js .groups-reaction-toggle {
         display: inline-flex;
         min-height: 44px;
         max-width: 8rem;
+        padding-left: 0;
         color: var(--bs-secondary-color);
-        font-size: 0.8rem;
+        font-size: 0.875rem;
     }
     .groups-js .groups-reaction-picker {
         max-width: 0;
