@@ -9,7 +9,7 @@ question: Pourquoi ai-je reçu un e-mail disant que le disque est presque plein 
 question: Le site peut-il me prévenir si les sauvegardes ne se font plus ?
 question: Pourquoi l'alerte ne revient-elle pas alors que le problème dure ?
 paths: /admin/points-attention
-related: sauvegardes, mises-a-jour
+related: sauvegardes, mises-a-jour, connexion-securisee
 ---
 
 Le site surveille quelques points qui, s'ils lâchent, ne se voient nulle
