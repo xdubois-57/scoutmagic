@@ -211,11 +211,27 @@ final class HttpsCheck implements OperationalCheck
             underRearm: $underRearm,
             value: $value,
             title: 'Le site est servi en HTTP, sans chiffrement.',
+            // **Two causes, and the advice used to name only one.** Issue
+            // #352: an installation whose HTTPS is terminated in front of
+            // it — a proxy, a CDN, a hosting panel — receives every
+            // request in clear and says so, correctly. Telling that
+            // administrator to « activer le certificat HTTPS » sends them
+            // to look for something that is already there, and there was
+            // nowhere in the interface saying the case existed: the
+            // setting that covers it is documented in a server-side
+            // configuration file they may not be able to open.
+            //
+            // So the sentence names both causes, and the link goes to the
+            // help topic that can actually explain them rather than to
+            // the status page, which only restates the reading. That is
+            // the reporter's own suggestion.
             why: 'Les mots de passe et les données des membres circulent en clair entre le navigateur et '
-                . 'le serveur, et n\'importe quel réseau traversé peut les lire. Activez le certificat '
-                . 'HTTPS chez votre hébergeur — c\'est gratuit chez la plupart d\'entre eux.',
-            actionUrl: '/config/maintenance',
-            actionLabel: 'Voir l\'état du site'
+                . 'le serveur, et n\'importe quel réseau traversé peut les lire. Soit le certificat HTTPS '
+                . 'n\'est pas activé chez votre hébergeur — c\'est gratuit chez la plupart d\'entre eux —, '
+                . 'soit un proxy ou un CDN le gère devant le site et il reste un réglage à activer. '
+                . 'L\'aide explique comment distinguer les deux.',
+            actionUrl: '/aide/connexion-securisee',
+            actionLabel: 'Comprendre cette alerte'
         );
     }
 }

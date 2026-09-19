@@ -284,6 +284,47 @@ class ChecksTest extends TestCase
     }
 
     /**
+     * Issue #352 — the alert now leads somewhere that can explain it.
+     *
+     * The reading was never wrong: a request really did arrive in clear.
+     * What was wrong is what it told the administrator to do. An
+     * installation whose HTTPS is terminated in front of it — a proxy, a
+     * CDN, a hosting panel — receives every request unencrypted and
+     * triggers this correctly, while its visitors are secure end to end;
+     * telling that person to « activer le certificat HTTPS » sends them
+     * looking for something already there, and `/config/maintenance`
+     * only restated the reading they had just read.
+     *
+     * The link is the reporter's own suggestion, and the sentence names
+     * BOTH causes, because naming one is what made a correct alert
+     * misleading.
+     */
+    public function testTheHttpsAlertPointsAtTheHelpTopicThatExplainsBothCauses(): void
+    {
+        $settings = $this->httpsSettings(null);
+
+        $reading = (new HttpsCheck(self::PLAIN_REQUEST, $settings, $this->at('2026-06-01 12:00:00')))->read();
+
+        $this->assertSame('/aide/connexion-securisee', $reading->actionUrl);
+        $this->assertSame('Comprendre cette alerte', $reading->actionLabel);
+
+        // The reverse-proxy case has to be in the sentence itself: the
+        // bell and the e-mail carry `why`, and somebody who never opens
+        // the link must still learn that the case exists.
+        $this->assertStringContainsString('proxy', $reading->why);
+        $this->assertStringContainsString('certificat HTTPS', $reading->why);
+
+        // And the topic it points at is shipped. A check linking to
+        // /aide/{id} is a coupling nothing else holds: rename the file
+        // and the alert's one useful button becomes a 404, silently, on
+        // the day somebody needs it most.
+        $this->assertFileExists(
+            dirname(__DIR__, 3) . '/docs/help/connexion-securisee.md',
+            'the HTTPS alert links to /aide/connexion-securisee, and that topic no longer exists.'
+        );
+    }
+
+    /**
      * Triggering also stamps, because nothing else would.
      *
      * `CronSilenceCheck` reads a stamp `public/cron.php` writes as it runs;
