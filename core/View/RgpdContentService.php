@@ -399,7 +399,8 @@ d'audit, rien n'étant conservé au-delà de la session ni copié dans la consul
 et l'adresse postale du chef désigné responsable d'une section sont affichés, sur la page de chaque membre de cette
 section, aux comptes qui lui sont liés (le membre, ses parents), et que la page « Sections » montre en outre le
 nom complet de ce responsable — jamais son adresse — à tout visiteur connecté, lié ou non à cette section, un
-visiteur non connecté n'y voyant que le totem ; (c) que le site conserve un
+visiteur non connecté n'y voyant que le nom d'usage — le totem, ou le prénom à défaut, jamais le nom de
+famille ; (c) que le site conserve un
 historique des sections auxquelles chaque membre a appartenu au fil des années (utilisé uniquement pour déterminer
 l'accès aux documents de section ci-dessous) ; (d) que les responsables d'une section peuvent y déposer des documents
 (carnets de camp, feuilles d'activité, etc.), chiffrés au repos, consultables par tout membre ayant appartenu à cette

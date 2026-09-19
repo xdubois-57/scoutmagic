@@ -726,6 +726,25 @@ class PageControllerTest extends TestCase
         );
     }
 
+    /**
+     * The case the notice has to be honest about: a responsable with no
+     * totem.
+     *
+     * `display_name` is `totem ?? firstName`, so the anonymous branch
+     * does not render « nothing » when there is no totem — it renders
+     * the first name. The surname is still withheld, which is the
+     * guarantee that matters, but « n'y voit que le totem » would have
+     * been a promise this page does not keep, and the coverage test next
+     * door only reads the words. This is what makes them true.
+     */
+    public function testAResponsableWithNoTotemIsNamedByFirstNameAloneToThePublic(): void
+    {
+        $body = $this->renderSectionsPageWithResponsable(false, null)['body'];
+
+        $this->assertStringContainsString(TextNormalizerService::normalizeName('Marie'), $body);
+        $this->assertStringNotContainsString(TextNormalizerService::normalizeName('Curie'), $body);
+    }
+
 
     /**
      * One section, one designated responsable — Marie Curie, totem
@@ -735,9 +754,14 @@ class PageControllerTest extends TestCase
      *        which is the whole question on this page: the responsable's
      *        surname is shown to a member and withheld from the public
      *        (RGPD notice, « n'est jamais publique »).
+     * @param string|null $totem null for a responsable who has none — an
+     *        adult chef often does. `totem_encrypted` is nullable and
+     *        display_name falls back to the FIRST NAME rather than to
+     *        nothing, so that case is what an anonymous visitor actually
+     *        reads, and it has to be exercised rather than assumed.
      * @return array{body: string, section_id: int, scout_year_id: int, calls: array<int, array{0: int, 1: int}>}
      */
-    private function renderSectionsPageWithResponsable(bool $authenticated = true): array
+    private function renderSectionsPageWithResponsable(bool $authenticated = true, ?string $totem = 'Aigle'): array
     {
         $this->twig->addGlobal('is_authenticated', $authenticated);
 
@@ -753,7 +777,13 @@ class PageControllerTest extends TestCase
         $stmt = $this->pdo->prepare(
             'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, totem_encrypted) VALUES (?, ?, ?, ?, ?)'
         );
-        $stmt->execute([$memberId, $scoutYearId, $encryption->encrypt('Marie', 'member_years.first_name'), $encryption->encrypt('Curie', 'member_years.last_name'), $encryption->encrypt('Aigle', 'member_years.totem')]);
+        $stmt->execute([
+            $memberId,
+            $scoutYearId,
+            $encryption->encrypt('Marie', 'member_years.first_name'),
+            $encryption->encrypt('Curie', 'member_years.last_name'),
+            $totem !== null ? $encryption->encrypt($totem, 'member_years.totem') : null,
+        ]);
         $memberYearId = (int) $this->pdo->lastInsertId();
 
         $profile = $this->sectionService->hydrateMemberProfile($memberYearId);

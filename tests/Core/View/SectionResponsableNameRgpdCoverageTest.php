@@ -85,16 +85,37 @@ final class SectionResponsableNameRgpdCoverageTest extends TestCase
 
     /**
      * And the other half of the same fact, which is the one an anonymous
-     * visitor cares about.
+     * visitor cares about — stated to the letter of what the page does.
+     *
+     * « n'y voit que le totem » would have been wrong, and wrong in the
+     * direction that flatters us: `display_name` is `totem ?? firstName`
+     * (Core\Member\MemberProfile::getDisplayName()), `totem_encrypted`
+     * is nullable, and an adult chef frequently has none — so what an
+     * anonymous visitor reads is the first name, not nothing. The
+     * surname is what is actually withheld, and that is what the
+     * sentence has to say.
+     *
+     * Tests\Core\Http\Controller\PageControllerTest::
+     * testAResponsableWithNoTotemIsNamedByFirstNameAloneToThePublic
+     * exercises that case; this one is why it has to exist.
      */
-    public function testTheNoticeSaysAnAnonymousVisitorSeesOnlyTheTotem(): void
+    public function testTheNoticeIsAccurateAboutWhatAnAnonymousVisitorSees(): void
     {
+        $notice = self::flattened(self::NOTICE);
+
+        $this->assertStringContainsString('non connecté', $notice);
         $this->assertStringContainsString(
-            'non connecté',
-            self::flattened(self::NOTICE),
-            'the RGPD notice no longer states what an anonymous visitor sees on the Sections page. '
-            . 'Saying who DOES see a surname without saying who does not is the half that reads as a '
-            . 'reassurance and is not one.',
+            'le totem, ou le prénom à défaut',
+            $notice,
+            'the RGPD notice claims an anonymous visitor sees only the totem. A responsable without '
+            . 'one is named by their FIRST NAME on that page, so the sentence has to say so — a '
+            . 'privacy notice that overstates the protection is worse than one that says nothing.',
+        );
+        $this->assertStringContainsString(
+            'jamais le nom de famille',
+            $notice,
+            'the RGPD notice no longer names what is actually withheld from an anonymous visitor, '
+            . 'which is the surname — the only part of this the code really guarantees.',
         );
     }
 
@@ -124,6 +145,7 @@ final class SectionResponsableNameRgpdCoverageTest extends TestCase
         $prompt = self::flattened(self::PROMPT);
 
         $this->assertStringContainsString('la page « Sections »', $prompt);
+        $this->assertStringContainsString('le totem, ou le prénom à défaut', $prompt);
         $this->assertStringContainsString(
             'à tout visiteur connecté, lié ou non à cette section',
             $prompt,
