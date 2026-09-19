@@ -4172,6 +4172,49 @@ the instrument becomes the cause of what it measures. There is no task
 handler, and `Tests\Core\Mail\Probe\MailProbeSenderTest` fails if one
 appears.
 
+**Bounces** (`Core\Mail\Feedback\Bounce`, roadmap IT-05). A
+`message/delivery-status` (RFC 3464) arriving in a watched mailbox is read
+by `BounceConsumer` — the core implementing `Modules\InboundMail\Api`'s
+contract, built only when the module is on (D2), like `ReturnPathConsumer`
+above.
+
+*One row per address, never per profile.* `mail_bounce_states` is keyed by
+the address's blind index under the SHARED `'email'` purpose, because it is
+compared against `member_emails` to find who owns a bounced mailbox. A
+parent's address sits on every one of their children's profiles, so
+recording per profile would let « bloquée » be true on one screen and false
+on another for a single mailbox — the same reasoning
+`MemberEmailService::unsubscribe()` already applies.
+`mass_mail_list_addresses` keeps its own domain-separated purpose, so the
+module never matches indexes across the boundary: it asks the core with the
+plaintext address it holds at send time.
+
+*The state lives beside `member_emails.status`, never inside it* (D19).
+Those three values record decisions the MEMBER made; a block is the SITE's.
+From that follows the access rule: a super-admin may lift a block the site
+placed, and still cannot reactivate an address a parent switched off.
+
+*Only what the far end said, in four categories.* `BounceCategory` is
+mapped from the RFC 3463 enhanced status code, never from the server's
+prose, and the diagnostic text is read for the code it hides and then
+dropped — it quotes the address back and is written by a stranger's
+software (SECURITY.md §11). Nothing downstream can show it: it is not a
+property of `DeliveryStatusReport`.
+
+*A send cannot settle itself.* Handing a message to a relay proves nothing,
+and the bounce for that very send lands seconds later — so clearing the
+counter on acceptance would wipe it before every bounce and no address
+would ever be blocked. `last_send_at` makes each send judge the previous
+one: if the last send is more recent than the last bounce, it produced
+none. The one-send lag is inherent, since a send has to be given time not
+to bounce.
+
+*And it is blind to spam filing.* A bounce is an explicit refusal; the
+large providers accept and move the message silently instead. An empty
+Rebonds page means « nothing was refused », never « everything arrives » —
+which is why that sentence is on the screen and not only in the help topic,
+and why the manual probe above exists at all.
+
 ### 8.107 Storage locations (`Core\Storage\Location`)
 
 **One declared destination for bytes, and every consumer picks one.** The same idea used to be written twice, with two incompatible models: the gallery had `gallery_storage_locations` — N rows, a `StorageBackendInterface`, a cached health column — while the off-site backup had a dozen flat `SettingService` keys, a `RemoteBackupTarget` interface and a `remote_backup_last_error` setting. A single destination in flat settings on one side, N destinations in a table on the other. The second form is the right one, and this is it, generalised. **Both halves have now arrived**: the gallery moved here in IT-01 and the off-site backup in IT-05, which is where `RemoteBackupTarget` disappeared and a Drive folder became a location like any other (§8.104).

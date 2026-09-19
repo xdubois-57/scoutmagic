@@ -357,6 +357,7 @@ Structure OBLIGATOIRE (respecter scrupuleusement) :
    - 2.7 Consultation hors ligne (uniquement avec consentement fonctionnel)
    - 2.8 Assistant d'aide (uniquement si un fournisseur d'IA est configuré)
    - 2.9 Vérification de la délivrabilité des e-mails (sonde manuelle, fonctionnalité du cœur)
+   - 2.10 Adresses qui refusent nos messages (rebonds, fonctionnalité du cœur)
 3. Combien de temps conservons-nous vos données (conservation active, archivage 5 ans après départ, journaux,
 suppression sur demande)
 4. Avec qui partageons-nous vos données (sous-traitants essentiels sans mention localisation précise, modules,
@@ -480,6 +481,17 @@ technique ni dans l'archive de diagnostic, lesquels ne portent que le fournisseu
 site n'appelle lui-même **aucun service d'analyse** ; et qu'aucune sonde n'est jamais envoyée automatiquement.
 L'historique est conservé sans purge automatique, parce que comparer deux essais séparés de plusieurs mois est
 précisément ce à quoi il sert.
+
+4decies. **Rebonds d'adresses (fonctionnalité core, PAS un module)** : Sections 2.10 et 3.1 doivent conserver
+qu'un serveur distant peut renvoyer un message comme non remis ; que l'adresse concernée est conservée **chiffrée au
+repos** avec la catégorie du refus, le code technique, le nombre d'échecs et les dates, **une ligne par adresse et
+non par fiche** ; que le texte renvoyé par le serveur distant n'est **jamais** conservé ni affiché, parce qu'il cite
+l'adresse et n'apprend rien à la personne ; que l'adresse ne figure ni au journal technique, ni dans les
+notifications envoyées, ni dans l'archive de diagnostic ; que la raison et la marche à suivre s'affichent en français
+ordinaire sur la page des adresses du membre ; que **le membre peut réactiver lui-même** une adresse suspendue
+puisque c'est le site qui l'a suspendue, et qu'un administrateur peut lever une suspension **sans** pouvoir
+réactiver une adresse que le membre a lui-même désactivée ; que ces informations ne sont transmises à aucun tiers ;
+et que la ligne est effacée dès qu'un message repart normalement, plutôt qu'au terme d'un délai.
 
 5. **Modules actifs uniquement** : Retirer les sections des modules INACTIFS (comparer avec liste modules actifs)
 6. **Personnalisation obligatoire** : Remplacer {$unitName} et {$contactEmail} partout. Ne JAMAIS laisser de

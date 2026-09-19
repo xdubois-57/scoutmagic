@@ -1405,3 +1405,93 @@ faut » de « rien n'entre jamais dedans ».
   `RET-` d'IT-03) ; ce qui manque est le lecteur de `delivery-status`,
   qui est le sujet d'IT-05.
 
+---
+
+## IT-05 — Les rebonds
+
+### Livré
+
+Un rebond (`message/delivery-status`, RFC 3464) arrivant dans une boîte du
+courrier entrant est lu, attribué à l'adresse qui a échoué, compté, et au
+deuxième échec définitif l'adresse cesse d'être écrite. La personne
+concernée est prévenue, voit la raison en français ordinaire sur sa page
+d'adresses, et peut remettre son adresse en service elle-même. Le
+super-admin dispose d'une page « Rebonds » pour la même levée, parce que
+beaucoup de parents ne se connectent jamais.
+
+### Décisions structurantes
+
+**Une ligne par adresse, pas par fiche.** L'adresse d'un parent figure sur
+la fiche de chacun de ses enfants ; sans cela « bloquée » serait vrai sur
+un écran et faux sur un autre, pour une seule boîte aux lettres. C'est le
+raisonnement que `MemberEmailService::unsubscribe()` applique déjà.
+
+**À côté de `status`, jamais dedans** (D19). Les trois valeurs de cette
+colonne enregistrent des décisions du **membre** ; le blocage est une
+décision du **site**. De là découle la règle d'accès : un super-admin peut
+lever un blocage qu'il n'a pas posé lui-même, et ne peut toujours pas
+réactiver une adresse qu'un parent a éteinte.
+
+**L'index aveugle partagé, et pourquoi.** `EncryptionService::blindIndex()`
+pose la règle : les index comparés entre tables partagent un usage. Celui
+des rebonds est comparé à `member_emails`. En face,
+`mass_mail_list_addresses` garde son usage séparé — donc le module ne
+compare jamais d'index à travers la frontière, il interroge le cœur avec
+l'adresse en clair qu'il tient déjà.
+
+### Ce que les tests ont trouvé
+
+**Un « envoi réussi » qui aurait désarmé tous les blocages du site.**
+`recordSuccess()` effaçait l'état quand le relais acceptait le message. Or
+un relais qui accepte ne prouve rien, et le rebond de cet envoi-là arrive
+trente secondes plus tard : le compteur aurait été vidé avant chaque
+rebond, jamais deux échecs, jamais un blocage — et silencieusement, puisque
+aucun test de la règle de blocage n'envoie quoi que ce soit. « Réussi » ne
+peut vouloir dire qu'une chose : n'a produit aucun rebond. Ce n'est
+connaissable qu'après coup, donc chaque envoi juge le précédent
+(`last_send_at`). Le décalage d'un envoi est inhérent, pas un raccourci.
+
+**Et ce même `recordSend()` n'avait aucun appelant en production**,
+découvert en construisant les statistiques par domaine. Toute la logique de
+règlement était morte. Câblée dans `SendBatchHandler`, le seul endroit du
+site où un message est confirmé remis à un relais pour une adresse nommée.
+
+**Une garde inatteignable, la même qu'en IT-04.** Le service testait « seul
+un définitif bloque » ; en le cassant, rien ne tombait, parce que seul le
+dépôt incrémente le compteur. Retirée.
+
+**Deux faits d'`inbound_mail` que rien n'écrivait**, vérifiés plutôt que
+supposés et désormais épinglés : la partie `message/delivery-status` arrive
+dans le corps texte (elle n'a ni nom de fichier ni `Content-Disposition`),
+et le drapeau « automatique » de `BulkMailDetector` ne filtre ni le
+stockage ni l'analyse. Les casser rendrait le site aveugle aux rebonds sans
+qu'aucun test ne rougisse.
+
+### Écarts et limites, assumés
+
+**Seul un échec définitif bloque**, comme le demande la roadmap.
+Conséquence : une boîte pleine depuis six mois rebondit en temporaire
+indéfiniment et continue d'être écrite — exactement la réputation que ce
+chantier protège. Implémenté tel que spécifié ; `FAILURES_BEFORE_BLOCK` et
+la condition de sévérité sont les deux points à toucher si l'on veut
+changer cela.
+
+**Le notifieur ne joint pas tout le monde.** Un membre dont le compte est
+son adresse Desk et dont une adresse *secondaire* rebondit n'est atteint
+par aucun des deux chemins de résolution : l'adresse Desk vit dans
+`member_years` et est toujours fournie par l'appelant. Cette personne n'est
+pas laissée sans rien — la raison et le bouton l'attendent sur sa page — mais
+elle n'est pas alertée.
+
+**Les statistiques par domaine ne comptent que les refus.** La roadmap
+demande « envoyés et refusés » ; compter les envois par domaine
+destinataire demanderait une table de compteurs que rien d'autre ne
+justifie aujourd'hui. Le refus par domaine répond déjà à la question qui
+compte — une adresse qui échoue est une famille, dix chez le même
+fournisseur est ce fournisseur qui refuse l'unité.
+
+### Reporté
+
+- Le rattachement d'un rebond à une sonde précise reste possible
+  (`MailProbeSender::codeIn()`), et reste sans intérêt tant que personne ne
+  le demande.

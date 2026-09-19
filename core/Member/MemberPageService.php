@@ -87,11 +87,29 @@ class MemberPageService
         // resendConfirmation() itself.
         $memberEmails = $isSelf ? $this->memberEmailService->listForMember($profile->memberId, $profile->email) : [];
         $resendCooldownMinutes = [];
+        // What the site knows about each address's failures, keyed by row
+        // id and absent for the addresses that work — which is nearly all
+        // of them, so the page says nothing at all about those (roadmap
+        // IT-05).
+        $bounces = [];
         foreach ($memberEmails as $memberEmail) {
             if ($memberEmail->isPending()) {
                 $resendCooldownMinutes[
                     $memberEmail->id
                 ] = $this->memberEmailService->resendCooldownRemainingMinutes($memberEmail);
+            }
+
+            $bounce = $this->memberEmailService->bounceFor($memberEmail);
+            if ($bounce !== null) {
+                $bounces[$memberEmail->id] = [
+                    'blocked' => $bounce->isBlocked(),
+                    // The category and the gesture, never the remote
+                    // server's own sentence: it quotes the address back and
+                    // means nothing to a parent (SECURITY.md §11).
+                    'label' => $bounce->category->label(),
+                    'guidance' => $bounce->category->guidance(),
+                    'since' => $bounce->lastSeenAt,
+                ];
             }
         }
 
@@ -112,6 +130,7 @@ class MemberPageService
                 : [],
             'member_emails' => $memberEmails,
             'member_email_resend_cooldown_minutes' => $resendCooldownMinutes,
+            'member_email_bounces' => $bounces,
             'gallery_albums' => $this->getGalleryAlbums($profile),
             'trombinoscope_enabled' => $this->hooks?->getOptional(SectionResponsableProvider::class) !== null,
             'calendar_enabled' => $this->calendarEventLookup !== null,

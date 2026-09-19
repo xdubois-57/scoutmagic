@@ -180,6 +180,47 @@ class MemberEmailAddressController extends AbstractController
     }
 
     /**
+     * POST .../emails/{email_id}/bounce-unblock — the member lifts a
+     * block the SITE placed (roadmap IT-05, D19).
+     *
+     * **Deliberately separate from `reactivate`**, which undoes the
+     * member's own « je ne veux plus rien recevoir ici ». These are two
+     * different decisions by two different deciders, and one button doing
+     * both would let a parent silently undo their own unsubscribe while
+     * meaning to empty their mailbox.
+     *
+     * The self-access check is the same one every other action here runs,
+     * unchanged: a block belongs to a mailbox rather than to a person,
+     * but reaching it still goes through an address the member owns.
+     *
+     * @param array<string, string> $params
+     */
+    public function unblockBounce(Request $request, array $params): Response
+    {
+        $memberYearId = (int) $params['id'];
+        $memberId = $this->requireOwnMemberId($request, $memberYearId);
+        if ($memberId === null) {
+            return $this->forbidden(self::SELF_ONLY_MESSAGE, $request);
+        }
+
+        if (($guard = $this->guardCsrf($request, '/members/' . $memberYearId)) !== null) {
+            return $guard;
+        }
+
+        try {
+            $this->memberEmailService->unblockBounce($memberId, (int) $params['email_id']);
+            FlashMessage::set(
+                'success',
+                'Adresse réactivée. Si elle refuse à nouveau nos messages, elle sera suspendue de nouveau.'
+            );
+        } catch (MemberEmailException $e) {
+            FlashMessage::set('error', $e->getMessage());
+        }
+
+        return $this->redirect('/members/' . $memberYearId);
+    }
+
+    /**
      * GET /members/emails/confirm/{id}?token=... — the confirmation
      * link's target. Public, unauthenticated (the visitor may be on a
      * different device than the one they're logged in on, or not logged

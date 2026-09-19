@@ -190,6 +190,21 @@ class SendBatchHandler implements TaskHandlerInterface
                     \Core\Mail\MailPurpose::Bulk
                 );
                 $recipientRepository->recordSendSuccess($recipient->id);
+                // The bounce counter's other half (roadmap IT-05). This is
+                // the one place on this site where a message is confirmed
+                // handed to a relay for a named address, so it is the only
+                // place that can settle the PREVIOUS send to it — see
+                // `Core\Mail\Feedback\Bounce\BounceStateRepository::
+                // recordSend()` for why a send cannot settle itself.
+                //
+                // Module → core, the allowed direction, and over the core
+                // table directly because the bounce state belongs to an
+                // address rather than to anything this module owns.
+                // No null check on the address: a recipient without one
+                // was refused far above, with « Adresse invalide ».
+                (new \Core\Mail\Feedback\Bounce\BounceService(
+                    new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $context->encryption)
+                ))->recordSend($recipient->emailAddress);
                 // One line per copy that actually left — see
                 // Service\MassMailService::journalRecipientSent(). The
                 // batch summary below stays, but it answers a different

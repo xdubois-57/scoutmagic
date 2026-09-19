@@ -4027,6 +4027,21 @@ $router->addRoute(
     'recordProbeVerdict',
     'superadmin',
 );
+// Rebonds (roadmap IT-05).
+$router->addRoute(
+    'GET',
+    '/config/courrier-sortant/rebonds',
+    \Core\Http\Controller\OutboundMailController::class,
+    'bounces',
+    'superadmin',
+);
+$router->addRoute(
+    'POST',
+    '/config/courrier-sortant/rebonds/{id}/reprise',
+    \Core\Http\Controller\OutboundMailController::class,
+    'unblockBounce',
+    'superadmin',
+);
 $router->addRoute(
     'POST',
     '/config/courrier-sortant/relance',
@@ -4285,6 +4300,16 @@ $router->addRoute(
     '/members/{id}/emails/{email_id}/delete',
     \Core\Http\Controller\MemberEmailAddressController::class,
     'delete',
+    'identified',
+);
+// Lifting a block the SITE placed after bounces (roadmap IT-05, D19) —
+// its own route rather than a flag on `reactivate`, because the two undo
+// decisions taken by two different people.
+$router->addRoute(
+    'POST',
+    '/members/{id}/emails/{email_id}/bounce-unblock',
+    \Core\Http\Controller\MemberEmailAddressController::class,
+    'unblockBounce',
     'identified',
 );
 // The confirmation link's target — public, unauthenticated, same reasoning
@@ -6872,7 +6897,20 @@ $frontController->registerController(
             $journalService,
             $sendCounterRepository
         ),
-        $mailProbeRepository
+        $mailProbeRepository,
+        // Bounces (roadmap IT-05). Built only when `inbound_mail` is on:
+        // the table is always readable, but a site that records no bounce
+        // must not be offered a screen promising a feature that cannot
+        // work — it says so instead (D2). That is the opposite choice
+        // from MemberEmailService above, which asks « cette adresse
+        // est-elle suspendue » and must answer everywhere.
+        $inboundMailForOthers === null ? null : new \Core\Mail\Feedback\Bounce\BounceService(
+            new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $encryptionService),
+            $journalService
+        ),
+        $inboundMailForOthers === null
+            ? null
+            : new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $encryptionService)
     )
 );
 

@@ -98,7 +98,9 @@ class OutboundMailCollector implements SupportCollectorInterface
          * on the wire while it is being assembled, so what it gets is the
          * table and not the sender.
          */
-        private ?MailProbeRepository $probes = null
+        private ?MailProbeRepository $probes = null,
+        /** The bounce state (roadmap IT-05). */
+        private ?\Core\Mail\Feedback\Bounce\BounceStateRepository $bounces = null
     ) {
     }
 
@@ -173,6 +175,10 @@ class OutboundMailCollector implements SupportCollectorInterface
         }
 
         foreach ($this->probeLines() as $line) {
+            $lines[] = $line;
+        }
+
+        foreach ($this->bounceLines() as $line) {
             $lines[] = $line;
         }
 
@@ -401,6 +407,59 @@ class OutboundMailCollector implements SupportCollectorInterface
      *
      * @return array<int, string>
      */
+    /**
+     * How many addresses have stopped being written to, and at which
+     * providers — never WHICH addresses (roadmap IT-05).
+     *
+     * **The domain and the count, and that is the whole section.** This
+     * file goes to a third party and is kept far longer than the screen
+     * it mirrors, so an address has no business in it — while « douze
+     * adresses suspendues, onze chez le même fournisseur » is exactly the
+     * shape somebody helping needs, and says nothing about any one
+     * family.
+     *
+     * @return list<string>
+     */
+    private function bounceLines(): array
+    {
+        if ($this->bounces === null) {
+            return [];
+        }
+
+        try {
+            $blocked = $this->bounces->blocked();
+            $total = $this->bounces->countBlocked();
+        } catch (\Throwable) {
+            return [];
+        }
+
+        $lines = ['── Adresses suspendues sur rebond ──────────────────────────'];
+
+        if ($blocked === []) {
+            $lines[] = 'aucune adresse suspendue';
+            $lines[] = '';
+
+            return $lines;
+        }
+
+        $byDomain = [];
+        foreach ($blocked as $state) {
+            $at = strrpos($state->email, '@');
+            $domain = $at === false ? '(inconnu)' : substr($state->email, $at + 1);
+            $byDomain[$domain] = ($byDomain[$domain] ?? 0) + 1;
+        }
+        arsort($byDomain);
+
+        $lines[] = sprintf('%d adresse%s suspendue%s, par fournisseur :', $total, $total > 1 ? 's' : '', $total > 1 ? 's' : '');
+        foreach ($byDomain as $domain => $count) {
+            $lines[] = sprintf('%-40s  %d', mb_substr((string) $domain, 0, 40), $count);
+        }
+
+        $lines[] = '';
+
+        return $lines;
+    }
+
     private function probeLines(): array
     {
         if ($this->probes === null) {
