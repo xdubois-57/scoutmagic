@@ -36,6 +36,16 @@ use Core\Storage\Location\StoredObject;
  * the refresh token is kept, when it was last used, or what a backup is.
  * That is {@see \Core\Storage\Location\Backend\GoogleDriveBackend} and
  * {@see \Core\Http\Controller\GoogleDriveConnectionController}.
+ *
+ * The two transport shapes are named rather than spelled out at each use:
+ * written inline they run past the line length this project holds itself
+ * to, and the same closure signature appearing twice in slightly
+ * different words is how the two drift apart.
+ *
+ * @phpstan-type DriveCall array{status: int, body: string}
+ * @phpstan-type DriveResumableCall array{status: int, body: string, location?: string, range?: string}
+ * @phpstan-type DriveTransport \Closure(string, string, array<string, string>, ?string): DriveCall
+ * @phpstan-type DriveResumableTransport \Closure(string, string, array<string, string>, ?string): DriveResumableCall
  */
 final class GoogleDriveClient
 {
@@ -135,7 +145,7 @@ final class GoogleDriveClient
     private const ENDPOINT_TOKEN = 'token';
 
     /**
-     * @param (\Closure(string, string, array<string, string>, ?string): array{status: int, body: string})|null $transport
+     * @param DriveTransport|null $transport
      */
     public function __construct(private ?\Closure $transport = null)
     {
@@ -894,7 +904,9 @@ final class GoogleDriveClient
         string $fallback,
         string $endpoint = self::ENDPOINT_API
     ): DriveAccessException {
-        $detail = new \RuntimeException('Google responded ' . $response['status'] . ': ' . substr($response['body'], 0, 500));
+        $detail = new \RuntimeException(
+            'Google responded ' . $response['status'] . ': ' . substr($response['body'], 0, 500)
+        );
 
         if ($endpoint === self::ENDPOINT_TOKEN && $response['status'] === 401) {
             return DriveAccessException::of(
@@ -963,7 +975,7 @@ final class GoogleDriveClient
      * resumable-session response, and a 308 that the stream wrapper
      * reports as a failure rather than as a status.
      *
-     * @return \Closure(string, string, array<string, string>, ?string): array{status: int, body: string, location?: string, range?: string}
+     * @return DriveResumableTransport
      */
     public static function defaultTransport(): \Closure
     {
