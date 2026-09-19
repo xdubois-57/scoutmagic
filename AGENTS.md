@@ -536,6 +536,50 @@ backlog » — and it is a standing instruction, not a one-off. It means:
    written on it is the backlog being rude. Verify per block, as each one
    lands, rather than saving it all for the last merge.
 
+10. **Leave every release gate green — and do not cut a release.** Asked
+    for on 2026-09-19, in the same breath as the rest: « souviens-toi en
+    plus de faire tout ce qui est prévu de t'assurer que toutes les
+    dépendances soient à jour, que toutes les issues SonarCloud soient
+    fixées, et en général que toutes les gates nécessaires pour faire une
+    release soient vertes. Sans pour cela lancer une release. » So « fixe
+    le backlog » is not only the accepted issues. It is also leaving the
+    repository in a state where `scripts/release.sh` would pass every one
+    of its gates on the first try — because the alternative is what this
+    step exists to stop: a release that aborts on a finding nobody had
+    looked at since the last one, at the moment somebody wanted to ship.
+
+    Cut the same way as everything else — **dependency work and
+    SonarQube Cloud work are each their own block**, never smuggled into
+    an issue's pull request, whose diff a reviewer is holding for a
+    different reason.
+
+    - **Dependencies up to date.** Every outdated direct Composer package
+      (`composer outdated --direct`) and every vendored front-end library
+      against its latest upstream release. That pair is exactly what
+      § Releases' dependency freshness gate checks, so run that gate's own
+      commands rather than something that resembles them. `composer audit`
+      and `npm audit` come back clean too.
+    - **SonarQube Cloud at zero.** Every unresolved finding on `main` that
+      survives the one exemption in § SonarQube Cloud release gate, every
+      Security Hotspot still `TO_REVIEW`, and a Quality Gate that is `OK`.
+      Fix them. Resolving one in SonarQube Cloud with a written
+      justification is the second-best answer and carries the same
+      standard as dismissing a Dependabot alert.
+    - **The rest of the gates, read rather than assumed**: open CodeQL
+      alerts, open Dependabot alerts, `All checks` green on `main`.
+
+    **Never run `scripts/release.sh` for this.** The instruction is to
+    leave the gates green, not to ship — releasing is its own instruction
+    and the maintainer gives it separately, with its own notes file and
+    its own hour of runner time. An agent that releases because the gates
+    happened to go green has done something nobody asked for, to a
+    production site.
+
+    A gate you cannot make green is what this step sends back, the same
+    way an accepted issue you did not fix goes back on its issue: a major
+    version bump that takes the suite red, a finding whose fix is a design
+    decision. Finish the others, then say which one and why.
+
 **Do not wait for the maintainer at any point of this**, once step 3 is
 behind you. Not to start, not to cut the blocks, not to merge, not to
 close. The instruction covers the whole sequence — plan, fix,
