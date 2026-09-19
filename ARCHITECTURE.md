@@ -4269,23 +4269,29 @@ UPDATE-then-INSERT falls through to the INSERT, and the unique index
 raises a `PDOException` that the send loop — which catches `MailException`
 only — would carry out of a half-finished mailing.
 
-*A send cannot settle itself.* Handing a message to a relay proves nothing,
-and the bounce for that very send lands seconds later — so clearing the
-counter on acceptance would wipe it before every bounce and no address
-would ever be blocked. The receipt's `last_send_at` makes each send judge
-the previous one: if the last send is more recent than the last bounce, it
-produced none — **and only once that send has had the time not to bounce**,
-which is `BounceState::SETTLING_PERIOD`. The far end answers, and the
-answer then waits for the mailbox poll, up to
-`SyncMailboxesHandler::MAX_INTERVAL_MINUTES` (a full day), so a send made
-minutes ago has no bounce recorded against it either way: its silence is
-the poll interval, not the address. Without that window two messages to
-one mailbox before the next poll — two siblings sharing a parent's
-address, resolved into one batch, which is the case this feature exists
-for — had the second judge the first clean and delete the row, `failures`
-and all, so the second strike never arrived and nothing was ever blocked. And a send never lifts a block: `recordSend()` returns
-early on a blocked state, so only the member or the super-admin ever undoes
-one.
+*A send cannot settle itself, and neither can the next one.* Handing a
+message to a relay proves nothing, and the bounce for that very send lands
+seconds later — so clearing the counter on acceptance would wipe it before
+every bounce and no address would ever be blocked. But judging a send by
+the one that follows it is wrong too, in two directions at once. Two
+messages in one batch (siblings share a parent's mailbox, and the batch
+walks them back to back) would settle each other seconds apart, deleting
+the row and its `failures` at every mailing. And an address written to
+more often than the grace period would never settle at all, because no two
+consecutive sends are ever far enough apart — one stale failure would sit
+there for ever and make the next unrelated bounce a second strike rather
+than a first.
+
+The question is how long ONE send has been quiet, so the answer is stored
+on the row: `settling_since` is set by the first send after the last
+bounce, left alone by the sends that follow, and cleared by any new
+bounce, which is the answer the clock was waiting for. Once
+`BounceState::SETTLING_PERIOD` has run — two days, because the far end
+answers and that answer then waits for the mailbox poll, up to
+`SyncMailboxesHandler::MAX_INTERVAL_MINUTES` — the address has shown it
+works and the row is dropped. A send never lifts a block, though:
+`recordSend()` returns early on a blocked state, so only the member or the
+super-admin ever undoes one.
 
 *Reaching a bounce state needs proof of control, not ownership of a row.*
 `addEmail()` accepts any syntactically valid address as a `pending` row —

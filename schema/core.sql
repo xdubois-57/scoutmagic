@@ -1796,9 +1796,10 @@ CREATE TABLE IF NOT EXISTS mail_bounce_states (
     -- « first time for THIS error » is indexed on: a full mailbox emptied
     -- and full again six months later has to notify a second time.
     status_code VARCHAR(16) NOT NULL,
-    -- Consecutive PERMANENT failures. Reset to zero by the first
-    -- successful send to this address, which is the only reliable signal
-    -- that the problem is over — never by a timer.
+    -- Consecutive PERMANENT failures. Cleared by a send that has since
+    -- had the time to bounce and did not (see `settling_since`), which is
+    -- the only reliable signal the problem is over — never by a timer
+    -- alone, and never by the mere fact that a message was accepted.
     failures INT UNSIGNED NOT NULL DEFAULT 0,
     first_seen_at DATETIME NOT NULL,
     last_seen_at DATETIME NOT NULL,
@@ -1809,6 +1810,23 @@ CREATE TABLE IF NOT EXISTS mail_bounce_states (
     -- The code the member was last told about, so a mailbox that bounces
     -- at every mailing notifies once rather than once per send.
     notified_code VARCHAR(16) NULL,
+    -- When the address was last written to with nothing recorded against
+    -- it since — the moment the clock on « this may be working again »
+    -- started, and NOT simply the last send.
+    --
+    -- A bounce is not refused at the door: the far end answers, and that
+    -- answer then waits for the mailbox poll, up to a full day. So a send
+    -- only proves anything once it has had that long to come back, and
+    -- the question is « how long has THIS send been quiet », which the
+    -- gap between two consecutive sends does not answer. An address
+    -- mailed every day would then never settle at all, and one stale
+    -- failure would sit there for ever, making the next unrelated bounce
+    -- a second strike instead of a first.
+    --
+    -- Set by the first send after the last bounce, left alone by the ones
+    -- that follow, and cleared by any new bounce — which is what restarts
+    -- the clock.
+    settling_since DATETIME NULL,
     UNIQUE INDEX idx_mbs_blind (email_blind_index),
     INDEX idx_mbs_blocked (blocked_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

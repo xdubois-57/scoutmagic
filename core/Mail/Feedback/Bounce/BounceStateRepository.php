@@ -145,8 +145,12 @@ class BounceStateRepository
         $failures = $existing->failures + ($severity === BounceSeverity::Permanent ? 1 : 0);
 
         $statement = $this->pdo->prepare(
+            // `settling_since` back to NULL: this bounce is the answer
+            // the clock was waiting for, so whatever was settling is
+            // settled the other way and the next send starts a new one.
             'UPDATE mail_bounce_states
-                SET category = ?, severity = ?, status_code = ?, failures = ?, last_seen_at = ?
+                SET category = ?, severity = ?, status_code = ?, failures = ?, last_seen_at = ?,
+                    settling_since = NULL
               WHERE id = ?'
         );
         $statement->execute([
@@ -168,7 +172,8 @@ class BounceStateRepository
             $existing->firstSeenAt,
             $now,
             $existing->blockedAt,
-            $existing->notifiedCode
+            $existing->notifiedCode,
+            null
         );
     }
 
@@ -196,7 +201,7 @@ class BounceStateRepository
     {
         $statement = $this->pdo->prepare(
             'UPDATE mail_bounce_states
-                SET blocked_at = NULL, failures = 0, notified_code = NULL
+                SET blocked_at = NULL, failures = 0, notified_code = NULL, settling_since = NULL
               WHERE id = ?'
         );
         $statement->execute([$id]);
@@ -211,7 +216,7 @@ class BounceStateRepository
 
     /**
      * Note that a message for this address has just gone to a relay, and
-     * settle the previous send while we are here.
+     * advance the « is it working again? » clock while we are here.
      *
      * **A send cannot clear the counter at the moment it happens**, and
      * getting that wrong would have disabled the whole mechanism in a way
@@ -221,21 +226,25 @@ class BounceStateRepository
      * wipe the count before every single bounce, and no address would ever
      * reach the threshold.
      *
-     * So each send judges the one before it. If the previous send is more
-     * recent than the last bounce, nothing came back from it — the address
-     * works, and everything known about its failures stops being true. The
+     * **Nor can it be judged by the send that follows it.** A bounce
+     * waits for the mailbox poll, up to a full day, so the interesting
+     * question is how long one particular send has been quiet — not how
+     * far apart the last two sends were. Asked the second way, two
+     * messages in one batch (siblings sharing a parent's mailbox) settled
+     * each other seconds apart and deleted the row at every mailing,
+     * while an address mailed more often than the settling period never
+     * settled at all and carried one stale failure for ever.
+     *
+     * So the first send after a bounce starts a clock — `settling_since`
+     * — the sends that follow leave it alone, any new bounce clears it,
+     * and once it has run its course the address has shown it works. The
      * row is then deleted rather than zeroed: a state recording no
      * failure, no block and no pending notification says nothing, and
      * keeping one would grow a table with an entry per address the unit
      * has ever written to.
-     *
-     * The one-send lag is inherent, not a shortcut. A send is only known
-     * to have worked once there has been time for it not to bounce, and
-     * the next send is the natural moment to look.
      */
     public function recordSend(string $email, \DateTimeImmutable $now): void
     {
-        $previousSendAt = $this->lastSendAt($email);
         $this->stampReceipt($email, $now);
 
         $existing = $this->find($email);
@@ -254,8 +263,17 @@ class BounceStateRepository
             return;
         }
 
-        if ($existing->wasSettledBy($previousSendAt, $now)) {
+        if ($existing->hasSettledBy($now)) {
             $this->forget($email);
+
+            return;
+        }
+
+        if ($existing->startsSettling($now)) {
+            $statement = $this->pdo->prepare(
+                'UPDATE mail_bounce_states SET settling_since = ? WHERE id = ? AND settling_since IS NULL'
+            );
+            $statement->execute([$now->format('Y-m-d H:i:s'), $existing->id]);
         }
     }
 
@@ -375,7 +393,7 @@ class BounceStateRepository
     private function selectClause(): string
     {
         return 'SELECT id, email_encrypted, category, severity, status_code, failures,
-                       first_seen_at, last_seen_at, blocked_at, notified_code
+                       first_seen_at, last_seen_at, blocked_at, notified_code, settling_since
                   FROM mail_bounce_states';
     }
 
@@ -394,7 +412,8 @@ class BounceStateRepository
             DateInput::requireFromStorage($row['first_seen_at'], 'mail_bounce_states.first_seen_at'),
             DateInput::requireFromStorage($row['last_seen_at'], 'mail_bounce_states.last_seen_at'),
             DateInput::fromStorage($row['blocked_at']),
-            $row['notified_code'] === null ? null : (string) $row['notified_code']
+            $row['notified_code'] === null ? null : (string) $row['notified_code'],
+            DateInput::fromStorage($row['settling_since'])
         );
     }
 }

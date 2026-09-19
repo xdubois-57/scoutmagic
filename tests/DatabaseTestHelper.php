@@ -742,7 +742,8 @@ class DatabaseTestHelper
             first_seen_at TEXT NOT NULL,
             last_seen_at TEXT NOT NULL,
             blocked_at TEXT,
-            notified_code TEXT
+            notified_code TEXT,
+            settling_since TEXT
         )');
 
         $pdo->exec('CREATE TABLE mail_send_receipts (

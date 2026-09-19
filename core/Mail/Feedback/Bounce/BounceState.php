@@ -38,51 +38,57 @@ final class BounceState
         public readonly \DateTimeImmutable $firstSeenAt,
         public readonly \DateTimeImmutable $lastSeenAt,
         public readonly ?\DateTimeImmutable $blockedAt = null,
-        public readonly ?string $notifiedCode = null
+        public readonly ?string $notifiedCode = null,
+        /** When the clock on « this may be working again » started. */
+        public readonly ?\DateTimeImmutable $settlingSince = null
     ) {
     }
 
     /**
-     * Was the send that preceded this one clean?
+     * Has this address been quiet long enough since it was last written
+     * to for that silence to mean anything?
      *
      * **The only honest reading of « un envoi réussi ».** A relay
      * accepting a message proves nothing — the bounce for that very send
-     * arrives seconds later — so a send can only be judged once the next
-     * one comes round. If the previous receipt is more recent than the
-     * last bounce, nothing came back from it and the address is working.
+     * arrives seconds later — and a bounce is not refused at the door
+     * either: the far end answers, and that answer then waits for the
+     * mailbox poll, up to `SyncMailboxesHandler::MAX_INTERVAL_MINUTES`
+     * (1440, a full day). So a send only says anything once it has had
+     * that long to come back.
      *
-     * The receipt is passed in rather than carried here: it lives in
-     * `mail_send_receipts`, which exists for a second and more important
-     * reason (see that table's comment).
+     * `settlingSince` is the moment the clock started: the first send
+     * after the last bounce, left alone by the ones that follow, cleared
+     * by any new bounce. **The question is how long THAT send has been
+     * quiet, which is not the gap between the last two sends.** Asked the
+     * second way — as this first was — an address mailed more often than
+     * the settling period never settles at all, because no two
+     * consecutive sends are ever far enough apart. One stale failure
+     * would then sit there for ever and make the next unrelated bounce a
+     * second strike rather than a first.
+     *
+     * And asked either way it must not be the gap between two sends in
+     * ONE batch: two siblings share a parent's address, the batch walks
+     * them back to back, and the second send would otherwise judge the
+     * first clean seconds after it left — deleting the row, `failures`
+     * and all, at every mailing, so the second strike never arrived.
      */
-    public function wasSettledBy(?\DateTimeImmutable $previousSendAt, ?\DateTimeImmutable $now = null): bool
+    public function hasSettledBy(\DateTimeImmutable $now): bool
     {
-        if ($previousSendAt === null || $previousSendAt <= $this->lastSeenAt) {
+        if ($this->settlingSince === null) {
             return false;
         }
 
-        // **And it must have had TIME not to bounce**, which is the half
-        // the first version left out while its own comment claimed it.
-        //
-        // A bounce is not refused at the door: the far end answers, and
-        // that answer then waits for the mailbox poll, up to
-        // `SyncMailboxesHandler::MAX_INTERVAL_MINUTES` (1440). So a send
-        // made minutes ago has no bounce recorded against it yet whether
-        // or not it produced one, and reading that silence as « clean »
-        // is reading the poll interval, not the address.
-        //
-        // What that cost: two messages to one mailbox before the next
-        // poll — two siblings sharing a parent's address, resolved into
-        // one mass-mail batch, which is precisely the case this feature
-        // exists for — and the second send judged the first clean and
-        // deleted the row, `failures` and all. Every batch reset the
-        // counter the same way, so the second strike never arrived and
-        // the address was never blocked.
-        //
-        // Erring long only delays a forgetting; erring short loses the
-        // count that blocking is built on.
-        return $previousSendAt->add(new \DateInterval(self::SETTLING_PERIOD))
-            <= ($now ?? new \DateTimeImmutable());
+        return $this->settlingSince->add(new \DateInterval(self::SETTLING_PERIOD)) <= $now;
+    }
+
+    /**
+     * Is this send the one that starts the clock? True when nothing is
+     * already settling and the send comes after the last bounce — a send
+     * that predates it proves nothing about what happened since.
+     */
+    public function startsSettling(\DateTimeImmutable $sentAt): bool
+    {
+        return $this->settlingSince === null && $sentAt > $this->lastSeenAt;
     }
 
     /** Blocked means: the site stops writing to it until somebody says otherwise. */

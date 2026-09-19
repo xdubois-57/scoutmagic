@@ -1567,11 +1567,26 @@ parent, résolus dans un même lot, c'est-à-dire précisément le cas pour
 lequel cette fonctionnalité existe — et le second déclarait le premier
 propre, effaçant la ligne et son compteur. À chaque lot. Le second échec
 n'arrivait donc jamais et rien n'était jamais bloqué.
-`BounceState::SETTLING_PERIOD` est la fenêtre de grâce ; se tromper en
-long ne fait que retarder un oubli, se tromper en court perd le compte sur
-lequel tout le blocage repose. Le test existant ne pouvait pas le voir :
-son montage bloquait l'adresse d'abord, donc `recordSend()` sortait au
-garde `isBlocked()` avant même d'examiner le règlement.
+Le test existant ne pouvait pas le voir : son montage bloquait l'adresse
+d'abord, donc `recordSend()` sortait au garde `isBlocked()` avant même
+d'examiner le règlement.
+
+**Et le premier correctif posait la mauvaise question.** Une fenêtre de
+grâce comparée à l'écart entre deux envois consécutifs n'est pas « depuis
+combien de temps cet envoi se tait-il ? » : `lastSendAt()` ne retient que
+le dernier envoi, donc sur une cadence quotidienne — du courrier
+transactionnel, pas une campagne — deux envois ne sont jamais séparés de
+deux jours et rien ne se règle **jamais**. Un échec ancien restait alors
+sur la ligne indéfiniment, et le rebond suivant, sans rapport et des mois
+plus tard, comptait pour un second au lieu d'un premier : l'adresse était
+bloquée. Le commentaire qui disait « se tromper en long ne fait que
+retarder un oubli » était donc faux pour cette cadence : il l'empêchait.
+
+L'horloge appartient à l'envoi qui l'a lancée, pas à l'intervalle entre
+deux : `settling_since` est posé par le premier envoi qui suit le dernier
+rebond, laissé tel quel par les suivants, et effacé par tout nouveau
+rebond — qui est précisément la réponse que l'horloge attendait. La
+colonne n'a coûté aucune migration : la table naît dans cette même PR.
 
 **Et la preuve d'envoi pouvait être fabriquée par la victime d'à côté.**
 `addEmail()` accepte n'importe quelle adresse comme ligne `pending` —

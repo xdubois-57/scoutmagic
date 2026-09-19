@@ -288,6 +288,68 @@ class BounceStateRepositoryTest extends TestCase
     }
 
     /**
+     * **An address written to every day must still settle**, and the
+     * first attempt at the grace window got this exactly backwards.
+     *
+     * Asking « were the last two sends more than the settling period
+     * apart? » is not the same question as « has this send been quiet
+     * long enough? ». `lastSendAt()` only ever holds the most recent
+     * send, so on a daily cadence no two consecutive sends are ever two
+     * days apart and the answer is permanently no: one stale failure
+     * would sit on the row for ever, and the next unrelated bounce —
+     * months later, on an address that has worked all along — would be a
+     * second strike instead of a first, blocking it.
+     *
+     * The clock therefore belongs to the send that started it
+     * (`settling_since`), not to the interval between two of them.
+     */
+    public function testAnAddressMailedEveryDayStillSettles(): void
+    {
+        $t = $this->now('2026-09-15 09:00:00');
+
+        $this->bounce('parent@exemple.be', BounceCategory::MailboxFull, BounceSeverity::Permanent, '5.2.2', $t);
+
+        // A daily cadence — transactional mail, not a campaign. No two of
+        // these are ever a settling period apart.
+        foreach (range(1, 4) as $day) {
+            $this->states->recordSend('parent@exemple.be', $t->modify("+{$day} days"));
+        }
+
+        $this->assertNull(
+            $this->states->find('parent@exemple.be'),
+            'the send on day 1 was quiet for three days; nothing about the cadence changes that.'
+        );
+    }
+
+    /**
+     * And the clock restarts when a bounce answers it: three days of
+     * daily sends do not settle an address that failed again yesterday.
+     */
+    public function testANewBounceRestartsTheClock(): void
+    {
+        $t = $this->now('2026-09-15 09:00:00');
+
+        $this->bounce('parent@exemple.be', BounceCategory::MailboxFull, BounceSeverity::Transient, '4.2.2', $t);
+        $this->states->recordSend('parent@exemple.be', $t->modify('+1 day'));
+
+        // Day two brings another refusal, which is the answer the clock
+        // was waiting for.
+        $this->bounce(
+            'parent@exemple.be',
+            BounceCategory::MailboxFull,
+            BounceSeverity::Transient,
+            '4.2.2',
+            $t->modify('+2 days')
+        );
+        $this->states->recordSend('parent@exemple.be', $t->modify('+3 days'));
+
+        $this->assertNotNull(
+            $this->states->find('parent@exemple.be'),
+            'a send one day old cannot settle an address that bounced the day before.'
+        );
+    }
+
+    /**
      * And once a send HAS had its time — longer than the poll can
      * possibly delay an answer — its silence does settle the address,
      * which is what stops a single old failure counting for ever.

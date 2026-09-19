@@ -87,6 +87,7 @@ class BounceSendReceiptMysqlTest extends TestCase
                 last_seen_at DATETIME NOT NULL,
                 blocked_at DATETIME NULL,
                 notified_code VARCHAR(16) NULL,
+                settling_since DATETIME NULL,
                 UNIQUE KEY idx_mbs_blind (email_blind_index)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
         );
