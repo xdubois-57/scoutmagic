@@ -168,13 +168,40 @@ beforeEach(() => {
     // arrow implementation is not constructible.
     global.bootstrap = { Modal: vi.fn(function () { return modalInstance; }) };
     trackedListeners = [];
+    // Every test starts from a probe that cannot reach anything, so
+    // « the browser says offline » and « the network really is away »
+    // agree unless a test deliberately parts them. Installed here rather
+    // than left to whatever the previous test assigned: the probe holds
+    // the `window.fetch` captured at boot, so a leftover stub from
+    // another test is otherwise the one it calls, and a test asserting
+    // on greyed links would be reading an earlier test's fetch.
     probeReachable = false;
     installedFetch = null;
+    installFetch();
     trackListeners(document);
     trackListeners(window);
 });
 
 afterEach(() => {
+    // Stop every booted module's connectivity heartbeat BEFORE the
+    // listeners go.
+    //
+    // A test that reaches the confirmed-offline state leaves
+    // watchConnectivity()'s 5s interval running, on a module closure
+    // boot()'s `vi.resetModules()` has otherwise abandoned. These are
+    // real timers — this file uses none of Vitest's fake ones — so a
+    // stale tick calls applyState() against the CURRENT jsdom document
+    // and can grey out links in a later, unrelated test once wall-clock
+    // time crosses five seconds, which a loaded runner or coverage
+    // instrumentation makes ordinary.
+    //
+    // watchConnectivity() clears its own interval as soon as the browser
+    // reports online, and every booted module still has its own `online`
+    // listener on window — so one event reaches all of them at once.
+    // Same posture, and the same reason, as the listener tracking above.
+    setOnline(true);
+    window.dispatchEvent(new Event('online'));
+
     trackedListeners.forEach(({ target, type, listener, options }) => {
         target.removeEventListener(type, listener, options);
     });
@@ -329,6 +356,52 @@ describe('offline-nav.js: applyState() greys out unavailable links (isWhiteliste
         document.dispatchEvent(new Event('visibilitychange'));
         await settle();
         expect(document.querySelector('a[href="/finance"]').classList.contains('offline-link-disabled')).toBe(true);
+    });
+
+    /**
+     * Two probes in flight, answered out of order.
+     *
+     * The heartbeat ticks while a `visibilitychange` asks again, and a
+     * probe issued while the network was down times out
+     * (PROBE_TIMEOUT_MS) long after a later one has been answered. If
+     * the stale « unreachable » is allowed to land, it overwrites the
+     * fresh « reachable » AND leaves no heartbeat behind to correct
+     * itself — the page is stranded offline until the next event, which
+     * on an installed iOS application can be minutes. That is the exact
+     * symptom #353 is about, reintroduced from the other end.
+     *
+     * Built with deferred promises rather than timers, because what is
+     * under test is the ORDER the answers arrive in, not how long they
+     * took.
+     */
+    it('ignores a probe that a newer one has already overtaken', async () => {
+        buildConfig(CORE_WHITELIST);
+        buildLinks(['/finance']);
+
+        const pending = [];
+        global.fetch = window.fetch = vi.fn(
+            () => new Promise((resolve, reject) => pending.push({ resolve, reject }))
+        );
+
+        setOnline(false);
+        await boot();            // issues P1, which does not answer yet
+        expect(pending).toHaveLength(1);
+
+        // The network comes back; a second trigger asks again.
+        Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+        document.dispatchEvent(new Event('visibilitychange'));
+        expect(pending).toHaveLength(2);
+
+        pending[1].resolve({ ok: true });   // P2 answers first: reachable
+        await settle();
+        expect(document.querySelector('a[href="/finance"]').classList.contains('offline-link-disabled')).toBe(false);
+
+        pending[0].reject(new TypeError('Failed to fetch')); // P1 times out late
+        await settle();
+
+        // Still online. A stale answer describes a network that has
+        // since been asked again.
+        expect(document.querySelector('a[href="/finance"]').classList.contains('offline-link-disabled')).toBe(false);
     });
 
     it('strips query strings and fragments before matching', async () => {

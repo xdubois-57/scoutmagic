@@ -117,13 +117,14 @@ class OfflineNavDialogTest extends TestCase
         }
 
         $this->assertSame(
-            2,
+            3,
             $reads,
             'navigator.onLine is read in code somewhere new. It is a hint, not a verdict: an '
             . 'installed iOS application reports itself offline while the network is fine, and every '
-            . 'layer that acted on it directly is what issue #353 was. Exactly two reads are right — '
-            . 'isOffline(), where it opens the question, and watchConnectivity(), where it decides '
-            . 'whether to keep asking.'
+            . 'layer that acted on it directly is what issue #353 was. Exactly three reads are right, '
+            . 'and none of them is a decision about a click: isOffline(), where the flag opens the '
+            . 'question the probe answers, and watchConnectivity() and keepRechecking(), which use it '
+            . 'to decide whether there is still anything to poll for.'
         );
     }
 

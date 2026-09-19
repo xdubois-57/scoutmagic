@@ -107,6 +107,19 @@
     var recheckTimer = null;
 
     /**
+     * Which probe is the current one.
+     *
+     * Two can be in flight at once — the heartbeat ticks while a
+     * `visibilitychange` or an `online` event asks again — and they do
+     * not come back in the order they left: a probe issued while the
+     * network was down times out after PROBE_TIMEOUT_MS, long after a
+     * later one has already been answered. Without this, that stale
+     * "unreachable" would overwrite the fresh "reachable" and strand the
+     * page offline, which is the very symptom #353 is about.
+     */
+    var probeSequence = 0;
+
+    /**
      * Is this page REALLY offline — not merely told so?
      *
      * `navigator.onLine === false` is the trigger and never the verdict.
@@ -146,12 +159,29 @@
      * @returns {Promise<void>}
      */
     function confirmConnectivity() {
+        var issued = ++probeSequence;
+
         return probeConnectivity().then(function (reachable) {
+            // A probe a newer one has already overtaken says nothing: it
+            // describes a network that has since been asked again, and
+            // the newer answer is the one to keep.
+            if (issued !== probeSequence) {
+                return;
+            }
+
             lastVerdictReachable = reachable;
             lastVerdictAt = Date.now();
+
+            // Stop on a reachable answer, keep asking on an unreachable
+            // one — and re-arm rather than assume the heartbeat is still
+            // running, because the probe that stopped it may have been
+            // this one's predecessor.
             if (reachable) {
                 stopRechecking();
+            } else {
+                keepRechecking();
             }
+
             applyState();
         });
     }
@@ -160,6 +190,19 @@
         if (recheckTimer !== null) {
             clearInterval(recheckTimer);
             recheckTimer = null;
+        }
+    }
+
+    /**
+     * Ask again in OFFLINE_RECHECK_MS, unless something already will.
+     *
+     * Guarded on the browser's own flag as well: once it says online
+     * there is nothing left to poll for, and the next `offline` event is
+     * what starts this again.
+     */
+    function keepRechecking() {
+        if (recheckTimer === null && !navigator.onLine) {
+            recheckTimer = setInterval(confirmConnectivity, OFFLINE_RECHECK_MS);
         }
     }
 
@@ -182,9 +225,7 @@
             return;
         }
 
-        if (recheckTimer === null) {
-            recheckTimer = setInterval(confirmConnectivity, OFFLINE_RECHECK_MS);
-        }
+        keepRechecking();
         confirmConnectivity();
     }
 
