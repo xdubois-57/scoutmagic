@@ -64,9 +64,20 @@ class MemberEmailService
     /**
      * What is known about this address's failures, or null when it has
      * never bounced — which is the overwhelming majority of them.
+     *
+     * **Answered only for an address the member has PROVEN is theirs**
+     * (`controlIsProven()`). A `mail_bounce_states` row is keyed by the
+     * address's blind index and belongs to the mailbox, not to the row
+     * that reaches it, so an unconfirmed row naming somebody else's
+     * address would otherwise report that address's bounce category and
+     * dates on the wrong person's page.
      */
     public function bounceFor(MemberEmail $row): ?BounceState
     {
+        if (!$this->controlIsProven($row)) {
+            return null;
+        }
+
         return $this->bounces?->stateFor($row->email);
     }
 
@@ -100,7 +111,7 @@ class MemberEmailService
         // on trust from the page would let a member name somebody else's.
         $email = $emailId === 0
             ? $this->requireOwnDeskEmail($memberId, $deskEmail)
-            : $this->requireOwnRow($memberId, $emailId)->email;
+            : $this->requireProvenOwnRow($memberId, $emailId)->email;
 
         if ($this->bounces === null) {
             return;
@@ -648,5 +659,48 @@ class MemberEmailService
             throw new MemberEmailException('Adresse introuvable.');
         }
         return $row;
+    }
+
+    /**
+     * Ownership AND proof of control, for the two calls that read or
+     * write state belonging to the mailbox rather than to the row.
+     *
+     * `requireOwnRow()` alone is the right guard for « renvoyer »,
+     * « supprimer » and « réactiver », which touch nothing outside the
+     * member's own row. It is NOT enough here: `addEmail()` accepts any
+     * syntactically valid address as a `pending` row — deliberately, it
+     * is the very act of claiming one — and the unique index is per
+     * member, so naming an address that already belongs to somebody else
+     * succeeds. Without this second test, that unproven claim would lift
+     * a block the site placed on the real owner's failing mailbox, and
+     * the site would resume writing to an address that refuses it.
+     */
+    private function requireProvenOwnRow(int $memberId, int $emailId): MemberEmail
+    {
+        $row = $this->requireOwnRow($memberId, $emailId);
+        if (!$this->controlIsProven($row)) {
+            // Deliberately the same wording as an id that belongs to
+            // nobody: « confirmez d'abord cette adresse » would answer,
+            // to whoever asked, that the address exists elsewhere on the
+            // site and is currently suspended.
+            throw new MemberEmailException('Adresse introuvable.');
+        }
+
+        return $row;
+    }
+
+    /**
+     * Has this member shown they can read this mailbox?
+     *
+     * Two ways, and only two. A Desk-sourced row was imported from the
+     * registry rather than typed in here, so the address is Desk's word
+     * and not the member's claim. Any other row counts once its
+     * confirmation link has been followed — `confirmedAt`, not
+     * `isValid()`: an address the member later unsubscribed was proven
+     * all the same, and they may still lift a block on it.
+     */
+    private function controlIsProven(MemberEmail $row): bool
+    {
+        return $row->isDeskSourced() || $row->confirmedAt !== null;
     }
 }

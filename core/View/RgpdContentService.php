@@ -491,7 +491,11 @@ notifications envoyées, ni dans l'archive de diagnostic ; que la raison et la m
 ordinaire sur la page des adresses du membre ; que **le membre peut réactiver lui-même** une adresse suspendue
 puisque c'est le site qui l'a suspendue, et qu'un administrateur peut lever une suspension **sans** pouvoir
 réactiver une adresse que le membre a lui-même désactivée ; que ces informations ne sont transmises à aucun tiers ;
-et que la ligne est effacée dès qu'un message repart normalement, plutôt qu'au terme d'un délai.
+et que la ligne est effacée dès qu'un message repart normalement, plutôt qu'au terme d'un délai. Doivent y figurer
+aussi la **preuve d'envoi** conservée à part — une empreinte irréversible de l'adresse et une date, **jamais
+l'adresse**, même chiffrée —, la raison d'être de cette preuve (sans elle un faux avis de non-remise suffirait à
+faire suspendre l'adresse de n'importe qui), et le fait qu'une adresse secondaire doit avoir été **confirmée** avant
+que son état de rebond ne soit montré ou levé depuis la page du membre.
 
 5. **Modules actifs uniquement** : Retirer les sections des modules INACTIFS (comparer avec liste modules actifs)
 6. **Personnalisation obligatoire** : Remplacer {$unitName} et {$contactEmail} partout. Ne JAMAIS laisser de

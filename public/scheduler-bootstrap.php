@@ -386,6 +386,38 @@ function scoutmagicBootstrapScheduler(
                     )
                 ));
 
+                // The bounce consumer (roadmap IT-05), and THIS is the
+                // registration that makes it do anything: the web
+                // registry in public/index.php only tells the mailbox
+                // configuration screen which scopes exist, while the one
+                // built here is what `SyncMailboxesHandler` calls
+                // `analyze()` against. Registered on the web one alone,
+                // a super-admin could tick « Rebonds » on a mailbox and
+                // no bounce would ever be recorded — the whole feature
+                // inert, with nothing on screen saying so.
+                //
+                // Unconditional for the same reason as the consumer
+                // above: it belongs to the core, and a bounce concerns
+                // every message the site sends, not one module's.
+                $registry->register(new \Core\Mail\Feedback\Bounce\BounceConsumer(
+                    new \Core\Mail\Feedback\Bounce\BounceService(
+                        new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $encryptionService),
+                        $journalService,
+                        // Same idiom as every other notifier in this
+                        // file: notifications are optional here, and a
+                        // run without them still RECORDS the bounce and
+                        // still blocks — it simply tells nobody. The
+                        // reverse (no record without a notifier) would
+                        // make the protection depend on the telling.
+                        $notificationService === null ? null : new \Core\Mail\Feedback\Bounce\MemberBounceNotifier(
+                            $notificationService,
+                            new \Core\Member\MemberEmailRepository($pdo, $encryptionService),
+                            $userAccountRepo,
+                            $encryptionService
+                        )
+                    )
+                ));
+
                 // Claims only a message whose subject carries a key this
                 // receiver itself issued — the narrowest claim of the lot
                 // (roadmap IT-27). Order is immaterial: every consumer

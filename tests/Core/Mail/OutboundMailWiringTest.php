@@ -268,21 +268,46 @@ class OutboundMailWiringTest extends TestCase
     // ── the bounces are wired, both halves (roadmap IT-05) ────────────
 
     /**
-     * **The half that records.** A consumer that is built but never
-     * registered is a consumer the mailbox screen cannot even offer a
-     * scope to — so no box is ever opened to it, no bounce is ever
-     * analysed, and nothing says so.
+     * **The half that records, and it takes TWO registrations — the same
+     * two `testTheCoreConsumerIsRegisteredOnBothConsumerRegistries`
+     * pins for the return-path consumer.** The web registry in
+     * public/index.php is what the mailbox configuration screen reads,
+     * so a consumer missing from it can never be granted a box. The one
+     * built in public/scheduler-bootstrap.php is what the sync pass
+     * calls `analyze()` against, so a consumer missing from THAT is
+     * offered on screen, ticked, and then asked nothing — the whole
+     * feature inert with no symptom but silence.
      */
-    public function testTheBounceConsumerIsRegisteredOnTheReadRegistry(): void
+    public function testTheBounceConsumerIsRegisteredOnBothConsumerRegistries(): void
     {
-        $source = self::source('public/index.php');
+        $web = self::source('public/index.php');
 
         $this->assertStringContainsString(
             '\Core\Mail\Feedback\Bounce\BounceConsumer::CONSUMER_ID',
-            $source,
+            $web,
             'Without this registration the superadmin can never grant a box to the bounce consumer.'
         );
-        $this->assertStringContainsString('new \Core\Mail\Feedback\Bounce\BounceConsumer(', $source);
+        $this->assertStringContainsString('new \Core\Mail\Feedback\Bounce\BounceConsumer(', $web);
+
+        $this->assertStringContainsString(
+            'new \Core\Mail\Feedback\Bounce\BounceConsumer(',
+            self::source('public/scheduler-bootstrap.php'),
+            'The sync pass never asks the bounce consumer, so no bounce is ever recorded.'
+        );
+    }
+
+    /**
+     * And the consumer the SCHEDULER builds is given a notifier too.
+     * Only that one ever runs `analyze()`, so a notifier present on the
+     * web side alone would tell nobody anything: the block would land
+     * and the member would simply find the unit gone quiet.
+     */
+    public function testTheSchedulerSideBounceConsumerCanAlsoTellSomebody(): void
+    {
+        $this->assertStringContainsString(
+            'new \Core\Mail\Feedback\Bounce\MemberBounceNotifier(',
+            self::source('public/scheduler-bootstrap.php')
+        );
     }
 
     /**

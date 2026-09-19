@@ -672,6 +672,73 @@ class MemberEmailServiceTest extends TestCase
     }
 
     /**
+     * **Ownership is not control.** `addEmail()` accepts any
+     * syntactically valid address as a `pending` row — that is what
+     * claiming an address IS — and the unique index on `member_emails`
+     * is per member, so naming one that already belongs to somebody else
+     * succeeds. The bounce state, though, is keyed by the address's
+     * blind index and belongs to the mailbox: were it answered here, one
+     * member would read another's bounce category and dates off their
+     * own page, having proven nothing.
+     */
+    public function testAnUnconfirmedClaimOnSomebodyElsesAddressIsToldNothingAboutIt(): void
+    {
+        $this->addPendingRowAndCaptureToken('voisin@example.com');
+        $this->blockAddress('voisin@example.com');
+
+        $row = $this->repository->findById($this->lastRowId);
+        $this->assertNotNull($row);
+        $this->assertTrue($row->isPending());
+
+        $this->assertNull($this->service->bounceFor($row));
+    }
+
+    /**
+     * And the same claim cannot LIFT that block — the half that matters,
+     * since lifting it puts the unit back to writing at a mailbox that
+     * refuses it, which is the reputation damage this whole chantier
+     * exists to stop.
+     */
+    public function testAnUnconfirmedClaimCannotLiftTheBlockOnThatAddress(): void
+    {
+        $this->addPendingRowAndCaptureToken('voisin@example.com');
+        $this->blockAddress('voisin@example.com');
+
+        try {
+            $this->service->unblockBounce($this->memberId, $this->lastRowId);
+            $this->fail('An unconfirmed row must not reach the bounce state of the address it names.');
+        } catch (\Core\Member\MemberEmailException $e) {
+            // Deliberately indistinguishable from an id belonging to
+            // nobody: naming the real reason would confirm, to whoever
+            // asked, that the address is known here and suspended.
+            $this->assertSame('Adresse introuvable.', $e->getMessage());
+        }
+
+        $this->assertTrue($this->bounceStates->find('voisin@example.com')?->isBlocked());
+    }
+
+    /**
+     * The other side of that guard, and the reason it tests `confirmedAt`
+     * rather than the status: once the link has been followed the member
+     * has shown they read this mailbox, and self-service works exactly as
+     * before.
+     */
+    public function testConfirmingTheAddressGivesTheMemberTheirButtonBack(): void
+    {
+        $rawToken = $this->addPendingRowAndCaptureToken('voisin@example.com');
+        $this->blockAddress('voisin@example.com');
+        $this->assertTrue($this->service->confirmEmail($this->lastRowId, $rawToken));
+
+        $row = $this->repository->findById($this->lastRowId);
+        $this->assertNotNull($row);
+        $this->assertNotNull($this->service->bounceFor($row));
+
+        $this->service->unblockBounce($this->memberId, $this->lastRowId);
+
+        $this->assertFalse($this->bounceStates->find('voisin@example.com')?->isBlocked());
+    }
+
+    /**
      * Adds a pending row directly (bypassing addEmail()'s own MailService
      * call, since these tests only care about the token, not the send) and
      * captures the id + raw token for confirmEmail() assertions.

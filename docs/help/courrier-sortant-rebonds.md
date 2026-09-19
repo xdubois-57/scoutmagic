@@ -59,6 +59,13 @@ Et si un message repart normalement vers cette adresse, le site oublie tout
 de lui-même. C'est le seul signal fiable que le problème est réglé — mieux
 qu'un délai, puisqu'une boîte est vidée quand son propriétaire y pense.
 
+## Ce que le site refuse de croire
+
+N'importe qui peut écrire dans une boîte surveillée, faux avis compris. Un
+rebond n'est donc compté que pour une adresse à laquelle le site a vraiment
+écrit. Même raison côté membre : une adresse secondaire jamais confirmée
+ne montre rien et ne se réactive pas.
+
 ## Le piège, et c'est le plus coûteux de tout ce chantier
 
 **Le traitement des rebonds est aveugle au classement en indésirables.**

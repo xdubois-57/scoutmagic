@@ -1467,6 +1467,52 @@ et le drapeau « automatique » de `BulkMailDetector` ne filtre ni le
 stockage ni l'analyse. Les casser rendrait le site aveugle aux rebonds sans
 qu'aucun test ne rougisse.
 
+### Ce que la relecture a trouvé
+
+**N'importe qui pouvait faire suspendre l'adresse de n'importe quel
+membre.** Les deux relecteurs l'ont vu indépendamment. Une boîte surveillée
+est, par construction, une boîte où le monde entier peut écrire ; le
+consommateur lisait tout corps ayant la forme d'un `multipart/report` et
+rien ne rattachait ce rapport à un envoi du site. Deux faux rapports
+nommant l'adresse d'un parent la coupaient du site et déclenchaient la
+notification qui va avec, sans qu'un seul message soit jamais parti.
+
+La frontière est posée dans le **dépôt** plutôt que dans l'analyseur : un
+analyseur reconnaît une forme, il n'a aucun moyen d'établir une provenance,
+et l'y mettre aurait donné une garde qui a l'air d'en être une. Une table
+`mail_send_receipts` retient, par index aveugle et **sans jamais stocker
+l'adresse**, la date du dernier envoi vers chaque destinataire ; `record()`
+refuse de créer un état pour une adresse à qui le site n'a rien écrit. Un
+état déjà connu continue de compter — la preuve d'envoi a pu être purgée
+entre-temps, et l'adresse a bien rebondi au moins une fois.
+
+**Le consommateur n'était inscrit que sur un registre sur deux**, et pas
+celui qui travaille. Celui de `public/index.php` dit à l'écran de
+configuration quelles portées existent ; celui de
+`public/scheduler-bootstrap.php` est celui contre lequel la passe de
+synchronisation appelle `analyze()`. Un super-admin pouvait donc cocher
+« Rebonds » sur une boîte et aucun rebond n'aurait jamais été enregistré —
+toute l'itération inerte, sans autre symptôme que le silence. C'est la
+cinquième fois de ce chantier que la même leçon revient sous un autre
+visage : **une dépendance optionnelle ajoutée à une classe est une
+dépendance absente de la racine de composition tant qu'un test ne dit pas
+le contraire.** Le test qui l'épingle désormais est celui qui construit
+réellement le registre de l'ordonnanceur et compte ses consommateurs, pas
+celui qui lit le texte source.
+
+**Posséder une ligne n'est pas prouver qu'on lit la boîte.** `addEmail()`
+accepte n'importe quelle adresse syntaxiquement valide comme ligne
+`pending` — c'est précisément ce qu'est *revendiquer* une adresse — et
+l'index unique est par membre, donc nommer l'adresse d'un autre réussit. Or
+l'état de rebond est indexé sur l'adresse, pas sur la ligne : cette
+revendication non prouvée affichait la catégorie et les dates de rebond du
+voisin, et surtout **levait** le blocage posé sur sa boîte défaillante.
+`bounceFor()` et `unblockBounce()` exigent maintenant une preuve de
+contrôle — ligne importée de Desk, ou lien de confirmation suivi. Le refus
+emprunte le mot d'une adresse inconnue (« Adresse introuvable. ») : nommer
+la vraie raison confirmerait à qui demande que l'adresse est connue ici et
+suspendue.
+
 ### Écarts et limites, assumés
 
 **Seul un échec définitif bloque**, comme le demande la roadmap.

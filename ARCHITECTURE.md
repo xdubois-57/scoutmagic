@@ -4201,13 +4201,49 @@ dropped — it quotes the address back and is written by a stranger's
 software (SECURITY.md §11). Nothing downstream can show it: it is not a
 property of `DeliveryStatusReport`.
 
+*A bounce only counts for an address this site wrote to, and the check is
+in the REPOSITORY.* A watched mailbox is by design one anybody can write
+to, and a delivery-status report is written by whoever sent it — so shape
+is not provenance. Without this, two forged reports naming any member's
+address would cut it off site-wide and notify them, with no message ever
+sent. `mail_send_receipts` answers the only question that settles it: did
+we write here? It holds a blind index and a date and **never the address
+itself**, and `BounceStateRepository::record()` returns null for an address
+that has no receipt. An address already carrying a state keeps counting —
+its receipt may have been purged, and it has bounced at least once. The
+test belongs here rather than in `DeliveryStatusReport`, because a parser
+can recognise a form and has no way to establish an origin; putting it
+there would have produced a guard that merely looks like one.
+
 *A send cannot settle itself.* Handing a message to a relay proves nothing,
 and the bounce for that very send lands seconds later — so clearing the
 counter on acceptance would wipe it before every bounce and no address
-would ever be blocked. `last_send_at` makes each send judge the previous
-one: if the last send is more recent than the last bounce, it produced
-none. The one-send lag is inherent, since a send has to be given time not
-to bounce.
+would ever be blocked. The receipt's `last_send_at` makes each send judge
+the previous one: if the last send is more recent than the last bounce, it
+produced none. The one-send lag is inherent, since a send has to be given
+time not to bounce. And a send never lifts a block: `recordSend()` returns
+early on a blocked state, so only the member or the super-admin ever undoes
+one.
+
+*Reaching a bounce state needs proof of control, not ownership of a row.*
+`addEmail()` accepts any syntactically valid address as a `pending` row —
+that is what claiming an address is — and `member_emails`'s unique index is
+per member, so naming somebody else's succeeds. Since the state is keyed by
+the address, `MemberEmailService::bounceFor()` and `unblockBounce()` require
+the row to be Desk-sourced or confirmed; otherwise one member would read
+another's bounce category and dates, and could lift the block protecting
+the unit from a mailbox that refuses it. The refusal borrows the wording of
+an unknown address, because naming the real reason would confirm to whoever
+asked that the address is known here and suspended.
+
+*Two registries, and the scheduler's is the one that works.*
+`BounceConsumer` is registered both in `public/index.php` — which is only
+what the mailbox configuration screen reads to know a scope exists — and in
+`public/scheduler-bootstrap.php`, which is what `SyncMailboxesHandler`
+calls `analyze()` against. On the first alone the scope is offered, ticked,
+and never asked anything: the feature inert with no symptom but silence.
+`Tests\Core\Scheduler\SchedulerBootstrapTest` builds that registry and
+counts its consumers, which is what actually pins it.
 
 *And it is blind to spam filing.* A bounce is an explicit refusal; the
 large providers accept and move the message silently instead. An empty
