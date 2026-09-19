@@ -311,7 +311,7 @@ describe('finance-receipt-form.js: compressing before submit (« Nouveau reçu �
         expect(filesInput().files[0].type).toBe('image/jpeg');
         expect(filesInput().files[1].type).toBe('application/pdf');
         expect(listedNames()).toEqual(['ticket.jpg', 'facture.pdf', 'note.jpg']);
-        expect(status()).toBe('');
+        expect(status()).toBe('Envoi en cours…');
         expect(form().submit).toHaveBeenCalledTimes(1);
     });
 
@@ -337,7 +337,9 @@ describe('finance-receipt-form.js: compressing before submit (« Nouveau reçu �
         await settle();
 
         expect(submittedNames(filesInput())).toEqual(['ticket.jpeg']);
-        expect(status()).toBe('');
+        // The compression is what failed, not the upload: it goes up anyway,
+        // and the notice is the one the visitor needs during the transfer.
+        expect(status()).toBe('Envoi en cours…');
         expect(form().submit).toHaveBeenCalledTimes(1);
     });
 
@@ -352,9 +354,26 @@ describe('finance-receipt-form.js: compressing before submit (« Nouveau reçu �
         expect(event.defaultPrevented).toBe(false);
         expect(drawImage).not.toHaveBeenCalled();
         expect(form().submit).not.toHaveBeenCalled();
+        // Issue #364 — and the button is closed on this path too. It is the
+        // one the reporter was on: nothing to compress, so nothing used to
+        // disable it, and the whole upload happened with a live button.
+        expect(submitBtn().disabled).toBe(true);
+        expect(status()).toBe('Envoi en cours…');
     });
 
-    it('keeps the submit button disabled until the compression is done', async () => {
+    /**
+     * Issue #364 — the button stays closed through the upload, not just
+     * through the compression.
+     *
+     * This test used to assert the opposite at its last line, and that
+     * assertion was the bug written down: `withDisabled()` handed the
+     * button back the moment the resizing finished, which is the moment
+     * the multipart POST starts. On a phone that transfer is the slow
+     * part — ten seconds with a live button and no sign anything was
+     * happening — so the reporter clicked again and deposited the same
+     * receipts twice.
+     */
+    it('keeps the submit button disabled through the upload itself', async () => {
         stubCompressionPipeline({ hold: true });
         await boot(buildNewReceiptDom);
         pick(filesInput(), [imageFile('ticket.jpeg')]);
@@ -368,7 +387,33 @@ describe('finance-receipt-form.js: compressing before submit (« Nouveau reçu �
         heldToBlob.forEach((release) => release());
         await settle();
 
-        expect(submitBtn().disabled).toBe(false);
+        expect(form().submit).toHaveBeenCalledTimes(1);
+        expect(submitBtn().disabled).toBe(true);
+        expect(submitBtn().textContent).toContain('Envoi en cours…');
+        expect(submitBtn().querySelector('.spinner-border')).not.toBeNull();
+    });
+
+    /**
+     * The other half of #364: the reflex click itself.
+     *
+     * The disabled button is what a mouse meets, but a submit event can
+     * still arrive without one — Enter in the account select, a second
+     * tap racing the first on a touch screen. The guard is what makes the
+     * fix a property of the form rather than of one control.
+     */
+    it('ignores a second submit while the first one is still going up', async () => {
+        stubCompressionPipeline();
+        await boot(buildNewReceiptDom);
+        pick(filesInput(), [imageFile('ticket.jpeg')]);
+
+        submitForm();
+        await settle();
+        expect(form().submit).toHaveBeenCalledTimes(1);
+
+        const second = submitForm();
+        await settle();
+
+        expect(second.defaultPrevented).toBe(true);
         expect(form().submit).toHaveBeenCalledTimes(1);
     });
 });
@@ -386,9 +431,12 @@ describe('finance-receipt-form.js: « Remplacer le reçu »', () => {
 
         expect(submittedNames(singleInput())).toEqual(['photo.jpg']);
         // 2048 bytes → 2 Ko, rounded the way the form has always rounded it.
-        expect(status()).toBe('Image compressée (2 Ko).');
+        // It now rides the sending notice: written on its own it lived one
+        // microtask before form.submit() replaced the page, so nobody read
+        // it. Issue #364 — and the button does not come back.
+        expect(status()).toBe('Image compressée (2 Ko). Envoi en cours…');
         expect(form().submit).toHaveBeenCalledTimes(1);
-        expect(submitBtn().disabled).toBe(false);
+        expect(submitBtn().disabled).toBe(true);
     });
 
     it('submits a non-image replacement natively', async () => {
@@ -440,7 +488,7 @@ describe('finance-receipt-form.js: « Remplacer le reçu »', () => {
         await settle();
 
         expect(submittedNames(singleInput())).toEqual(['photo.jpeg']);
-        expect(status()).toBe('');
+        expect(status()).toBe('Envoi en cours…');
         expect(form().submit).toHaveBeenCalledTimes(1);
     });
 

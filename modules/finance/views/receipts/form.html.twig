@@ -51,13 +51,13 @@
                         multiple: true,
                     } only %}
                     <ul class="list-unstyled small mt-2 mb-0" id="receipt-files-list"></ul>
-                    <div class="form-text small" id="receipt-file-status"></div>
+                    <div class="form-text small" id="receipt-file-status" aria-live="polite"></div>
                 </div>
             {% else %}
                 <div class="col-12">
                     <label class="form-label small" for="receipt-file">Fichier (PDF, JPEG ou PNG)</label>
                     <input type="file" class="form-control form-control-sm" id="receipt-file" name="receipt" accept=".pdf,.jpg,.jpeg,.png" required>
-                    <div class="form-text small" id="receipt-file-status"></div>
+                    <div class="form-text small" id="receipt-file-status" aria-live="polite"></div>
                 </div>
             {% endif %}
             <div class="col-12">
