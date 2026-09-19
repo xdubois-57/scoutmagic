@@ -332,6 +332,36 @@ class MailTransportSeamTest extends TestCase
     }
 
     /**
+     * **A bookkeeping failure must never be reported as a delivery
+     * failure.** The message has already left by the time the receipt is
+     * written, and that write is several statements against the
+     * database: a deadlock, a lock-wait timeout, a dropped connection, or
+     * the table missing on an install upgraded without the new schema.
+     *
+     * Unguarded, any of those reaches `send()`'s outer catch, which
+     * journals a send failure and throws `MailException` — and
+     * `SendBatchHandler` then marks a delivered message as failed and
+     * sends it again. A missing receipt costs one unrecorded bounce; a
+     * duplicated mailing is seen by everybody who got it twice.
+     */
+    public function testAReceiptStoreThatFailsDoesNotTurnADeliveryIntoAFailure(): void
+    {
+        $pdo = \Tests\DatabaseTestHelper::createTestDatabase();
+        $this->addressOnFile($pdo, 'parent@exemple.be');
+        $receipts = $this->receiptsOver($pdo);
+
+        // The table goes out from under it, exactly as an install
+        // upgraded without the new schema would behave.
+        $pdo->exec('DROP TABLE mail_send_receipts');
+
+        $transport = $this->recordingTransport();
+        $this->serviceWithReceipts($transport, $receipts)
+            ->send('parent@exemple.be', 'Sujet', '<p>x</p>', 'x');
+
+        $this->assertSame(1, $transport->calls, 'the message left, and nothing may say otherwise.');
+    }
+
+    /**
      * And a message nobody accepted is not proof either — the receipt is
      * stamped after the transport returns, never before it is tried.
      */

@@ -286,7 +286,24 @@ class MailService
             // queue silently dropped on replay. Derived from the address,
             // it cannot be forgotten by a caller that does not know the
             // rule exists.
-            $this->sendReceipts?->recordSend($to, new \DateTimeImmutable());
+            //
+            // **Best effort, and guarded on its own**, like the journal
+            // and the bounce notifier. The message has LEFT by this
+            // point. This call is several statements against the
+            // database, and a deadlock, a lock-wait timeout or a dropped
+            // connection would otherwise fall to the outer
+            // `catch (\Exception)` below — which journals a send failure
+            // and throws `MailException`. `SendBatchHandler` would then
+            // mark a delivered message as failed and send it again. A
+            // missing receipt costs one unrecorded bounce; a duplicated
+            // mailing is seen by everybody who received it twice.
+            try {
+                $this->sendReceipts?->recordSend($to, new \DateTimeImmutable());
+            } catch (\Throwable) {
+                // Deliberately silent: there is nobody to tell who could
+                // act on it, and the journal is reached through the same
+                // database that just refused.
+            }
         } catch (Transport\LaneExhaustedException $e) {
             // A lane with nothing left is not a refusal: nobody has said
             // no to this message, the road is simply shut. So it is kept
