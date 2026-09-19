@@ -583,22 +583,25 @@ PRINCIPE DE PRIORITÉ) :
     - Ce point est CRITIQUE lorsque l'administrateur signale explicitement un stockage aux USA ou hors UE : une
     omission constituerait une non-conformité RGPD grave (défaut d'information sur les transferts internationaux, art.
     13.1.f et 44 à 49 RGPD).
-22. **Stockage galerie (module gallery)** : Le contenu de référence liste TOUS les fournisseurs de stockage objet
-possibles (Hetzner, Cloudflare R2, Scaleway, OVHcloud) en section 4.2 et le module galerie en section 2.4. Le module
-gallery permet de configurer PLUSIEURS emplacements de stockage à la fois (disque local et/ou un ou plusieurs buckets
-S3, chaque album restant rattaché à celui utilisé lors de sa création) — {$galleryStorage} liste TOUS les emplacements
-réellement configurés. Tu dois adapter ces sections à cette configuration RÉELLE :
+22. **Stockage galerie (module gallery)** : Le contenu de référence liste TOUS les stockages externes possibles
+(Hetzner, Cloudflare R2, Scaleway, OVHcloud, partage WebDAV, Google Drive) en section 4.2 et le module galerie en
+section 2.4. Le module gallery permet de configurer PLUSIEURS emplacements de stockage à la fois (disque local et/ou
+un ou plusieurs stockages externes — bucket S3, partage WebDAV, dossier Google Drive —, chaque album restant rattaché
+à celui utilisé lors de sa création) — {$galleryStorage} liste TOUS les emplacements réellement configurés. Tu dois
+adapter ces sections à cette configuration RÉELLE :
     - Si le module gallery n'est pas dans la liste des modules actifs : retire entièrement la section 2.4 "Module
-    Galerie photos et vidéos" et le paragraphe "Fournisseurs de stockage objet" de la section 4.2.
-    - Si {$galleryStorage} ne liste AUCUN emplacement S3 (uniquement du stockage local, ou aucun emplacement
+    Galerie photos et vidéos" et le paragraphe "Fournisseurs de stockage externe" de la section 4.2.
+    - Si {$galleryStorage} ne liste AUCUN stockage externe (uniquement du stockage local, ou aucun emplacement
     configuré) : conserve la section 2.4 du module galerie, mais retire complètement le paragraphe "Fournisseurs de
-    stockage objet" de la section 4.2 (aucun sous-traitant externe, les fichiers restent chez l'hébergeur déjà couvert
-    en 4.1) et ne mentionne aucun fournisseur de stockage objet.
-    - Si {$galleryStorage} liste un ou plusieurs emplacements S3 : conserve dans la section 4.2 UNIQUEMENT les
-    fournisseurs effectivement listés (retire ceux qui n'y figurent pas — il peut en rester un seul, ou plusieurs si
-    plusieurs emplacements S3 de fournisseurs différents sont configurés), avec leurs informations exactes
-    (localisation, lien vers leur politique de confidentialité) telles que fournies dans le contenu de référence.
-    Adapte la phrase d'introduction du paragraphe si plusieurs fournisseurs restent (au pluriel) plutôt qu'un seul.
+    stockage externe" de la section 4.2 (aucun sous-traitant externe, les fichiers restent chez l'hébergeur déjà
+    couvert en 4.1) et ne mentionne aucun fournisseur de stockage.
+    - Si {$galleryStorage} liste un ou plusieurs stockages externes — un bucket S3, un partage WebDAV ou un dossier
+    Google Drive : conserve dans la section 4.2 UNIQUEMENT ceux effectivement listés (retire ceux qui n'y figurent
+    pas — il peut en rester un seul, ou plusieurs si plusieurs emplacements de natures ou de fournisseurs différents
+    sont configurés), avec leurs informations exactes (localisation, lien vers leur politique de confidentialité)
+    telles que fournies dans le contenu de référence. Pour un partage WebDAV, {$galleryStorage} en donne l'hébergeur :
+    nomme-le, et dis que la localisation des fichiers est celle de cet hébergeur. Adapte la phrase d'introduction du
+    paragraphe si plusieurs fournisseurs restent (au pluriel) plutôt qu'un seul.
     - Si {$galleryStorage} indique qu'au moins un emplacement Cloudflare R2 a une région hors UE : conserve la mention
     du transfert hors UE correspondante en section 5.2 et dans la phrase de clôture de cette section ; sinon (aucun
     emplacement Cloudflare R2 hors UE) retire cette mention et n'ajoute aucun transfert hors UE lié à la galerie.

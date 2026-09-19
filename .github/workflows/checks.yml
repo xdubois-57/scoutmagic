@@ -103,7 +103,7 @@ jobs:
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
         with:
           php-version: '8.4'
-          extensions: mbstring, pdo, pdo_mysql, openssl, imagick
+          extensions: mbstring, pdo, pdo_mysql, openssl, imagick, sockets
           coverage: pcov
 
       - name: PHP syntax check
@@ -240,7 +240,7 @@ jobs:
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
         with:
           php-version: '8.4'
-          extensions: mbstring, pdo, pdo_mysql, openssl, imagick
+          extensions: mbstring, pdo, pdo_mysql, openssl, imagick, sockets
           coverage: none
 
       - name: Install dependencies
@@ -383,7 +383,7 @@ jobs:
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
         with:
           php-version: '8.4'
-          extensions: mbstring, pdo, pdo_mysql, openssl, imagick
+          extensions: mbstring, pdo, pdo_mysql, openssl, imagick, sockets
           # pcov so the `php -S` process this job drives can record which
           # application lines the browser actually executed — see
           # scripts/e2e-coverage-prepend.php. Without it scripts/e2e.sh
@@ -538,7 +538,7 @@ jobs:
           # pcntl runs the TLS terminator, openssl generates the run's
           # certificate: the matrix signs in over real HTTPS because the
           # session cookie's Secure flag depends on it.
-          extensions: mbstring, pdo, pdo_mysql, openssl, pcntl, imagick
+          extensions: mbstring, pdo, pdo_mysql, openssl, pcntl, imagick, sockets
 
       - name: Install PHP dependencies
         run: composer install --prefer-dist --no-progress
@@ -603,7 +603,7 @@ jobs:
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
         with:
           php-version: '8.4'
-          extensions: mbstring, pdo, pdo_mysql, openssl, pcntl, imagick
+          extensions: mbstring, pdo, pdo_mysql, openssl, pcntl, imagick, sockets
 
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0

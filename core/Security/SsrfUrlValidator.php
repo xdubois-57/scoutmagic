@@ -85,23 +85,7 @@ final class SsrfUrlValidator
      */
     public static function resolveHostToPublicIp(string $host): ?string
     {
-        if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
-            return self::isPublicIp($host) ? $host : null;
-        }
-
-        $records = array_merge(
-            @dns_get_record($host, DNS_A) ?: [],
-            @dns_get_record($host, DNS_AAAA) ?: []
-        );
-
-        $ips = [];
-        foreach ($records as $record) {
-            $ip = ($record['type'] ?? null) === 'AAAA' ? ($record['ipv6'] ?? null) : ($record['ip'] ?? null);
-            if (is_string($ip) && $ip !== '') {
-                $ips[] = $ip;
-            }
-        }
-
+        $ips = self::addressesOf($host);
         if ($ips === []) {
             return null;
         }
@@ -113,6 +97,227 @@ final class SsrfUrlValidator
         }
 
         return $ips[0];
+    }
+
+    /**
+     * That a host resolves, and resolves somewhere it must not be reached.
+     *
+     * **This is the half of the check above that is worth repeating before
+     * every request, and the other half is not.** `resolveHostToPublicIp()`
+     * answers null both for a host that points at `10.0.0.5` and for one
+     * the resolver could not answer for at all, and those are not the same
+     * fact: the first is the attack this guard exists to stop, while the
+     * second means the connection about to be made cannot reach anything
+     * either. Refusing on it buys no protection and costs an accusation —
+     * a location whose address is perfectly good, recorded as « corrigez
+     * l'adresse » because a resolver blinked.
+     *
+     * Used where a stored address is re-checked on use; the save-time
+     * check stays strict, because an address nobody can resolve is not one
+     * to write down.
+     */
+    public static function resolvesOutsideThePublicInternet(string $host): bool
+    {
+        foreach (self::addressesOf($host) as $ip) {
+            if (!self::isPublicIp($ip)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Every address $host resolves to, or the literal when it is already
+     * one. Empty when nothing could answer for it.
+     *
+     * **The brackets come off first.** `parse_url()` hands back the host
+     * of `https://[fd00::1]/dav` as `[fd00::1]`, brackets included, and
+     * `FILTER_VALIDATE_IP` says no to that spelling — so the literal
+     * branch below was skipped, no resolver could answer for it either
+     * (it is neither an address nor a name), and the empty result read as
+     * « nothing resolves ». cURL, meanwhile, parses a bracketed IPv6 URL
+     * and dials it with no lookup at all. The same blind spot refused
+     * every *public* IPv6 literal at save time, for the same reason. The
+     * codebase already strips them in `DestinationMatcher` and
+     * `StatisticsSender`; this is the third place that needs it.
+     *
+     * **Resolve the way the client that follows will resolve.** This check
+     * only means something if it sees what cURL will see, and cURL calls
+     * `getaddrinfo()`. `dns_get_record()` speaks the DNS protocol and only
+     * that — it never consults `/etc/hosts` or any other NSS source — so a
+     * host known only to NSS answered « nothing resolves » here while the
+     * request that followed connected to it perfectly well, which turns
+     * the whole check into a formality for exactly the addresses it exists
+     * to refuse.
+     *
+     * `gethostbyname()` reads NSS but is **IPv4-only**, and that gap was a
+     * live hole rather than a theoretical one: a name carrying a single
+     * `fd00::1` in `/etc/hosts` was invisible to both of the lookups this
+     * used to do, so {@see isStoredHttpsTargetStillSafe()} called it safe
+     * and the share's password travelled to a private address in an
+     * `Authorization: Basic` header.
+     *
+     * So `socket_addrinfo_lookup()` — PHP's own `getaddrinfo()`, both
+     * families — is asked first and is the one that matters; the other two
+     * stay because they cost nothing and still answer when ext-sockets is
+     * absent. When it IS absent we cannot see what the client will see,
+     * and {@see canSeeWhatTheClientSees()} says so rather than letting
+     * this pretend otherwise.
+     *
+     * @return list<string>
+     */
+    private static function addressesOf(string $host): array
+    {
+        $host = self::unbracketed($host);
+
+        if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
+            return [$host];
+        }
+
+        $ips = [];
+
+        foreach (self::throughGetaddrinfo($host) as $ip) {
+            if (!in_array($ip, $ips, true)) {
+                $ips[] = $ip;
+            }
+        }
+
+        $records = array_merge(
+            @dns_get_record($host, DNS_A) ?: [],
+            @dns_get_record($host, DNS_AAAA) ?: []
+        );
+
+        foreach ($records as $record) {
+            $ip = ($record['type'] ?? null) === 'AAAA' ? ($record['ipv6'] ?? null) : ($record['ip'] ?? null);
+            if (is_string($ip) && $ip !== '' && !in_array($ip, $ips, true)) {
+                $ips[] = $ip;
+            }
+        }
+
+        // Returns the name unchanged when it cannot resolve, which is how
+        // « nothing answered » is told from an address.
+        $system = @gethostbyname($host);
+        if (
+            $system !== $host
+            && filter_var($system, FILTER_VALIDATE_IP) !== false
+            && !in_array($system, $ips, true)
+        ) {
+            $ips[] = $system;
+        }
+
+        return $ips;
+    }
+
+    /**
+     * An IPv6 host literal without the brackets `parse_url()` keeps, and
+     * anything else untouched.
+     */
+    private static function unbracketed(string $host): string
+    {
+        return trim($host, '[]');
+    }
+
+    /**
+     * Whether this installation can resolve the way its HTTP clients do.
+     *
+     * Only `getaddrinfo()` answers for every source the connecting client
+     * will consult. Without ext-sockets the two DNS/IPv4 lookups left are
+     * strictly narrower than what cURL does, so a « nothing resolved » here
+     * stops being evidence of anything — which is what
+     * {@see isStoredHttpsTargetStillSafe()} reads this for.
+     */
+    private static function canSeeWhatTheClientSees(): bool
+    {
+        return function_exists('socket_addrinfo_lookup')
+            && function_exists('socket_addrinfo_explain');
+    }
+
+    /**
+     * `getaddrinfo()` for both families, or nothing when ext-sockets is
+     * not installed.
+     *
+     * The service argument is required — the lookup returns nothing at all
+     * without one — and `443` is right for every caller here, all of which
+     * vet an https target. The resolved address sits under a family-shaped
+     * key, `sin_addr` for IPv4 and `sin6_addr` for IPv6.
+     *
+     * @return list<string>
+     */
+    private static function throughGetaddrinfo(string $host): array
+    {
+        if (!self::canSeeWhatTheClientSees()) {
+            return [];
+        }
+
+        $ips = [];
+        foreach ([AF_INET, AF_INET6] as $family) {
+            $found = @socket_addrinfo_lookup($host, '443', [
+                'ai_family' => $family,
+                'ai_socktype' => SOCK_STREAM,
+            ]);
+            if (!is_array($found)) {
+                continue;
+            }
+
+            foreach ($found as $one) {
+                $explained = socket_addrinfo_explain($one);
+                $address = $explained['ai_addr'] ?? null;
+                if (!is_array($address)) {
+                    continue;
+                }
+
+                $ip = $address['sin_addr'] ?? $address['sin6_addr'] ?? null;
+                if (is_string($ip) && $ip !== '') {
+                    $ips[] = $ip;
+                }
+            }
+        }
+
+        return $ips;
+    }
+
+    /**
+     * The same target check as {@see assertPublicHttpsUrl()}, minus the
+     * requirement that the host resolve right now.
+     *
+     * For a value that was validated strictly when it was saved and is
+     * being re-checked before a request goes out. Everything structural —
+     * the scheme, embedded credentials, the port — is refused exactly as
+     * before; only « the resolver said nothing » stops being a refusal.
+     */
+    public static function isStoredHttpsTargetStillSafe(string $url, bool $allowCustomPort = false): bool
+    {
+        $parts = @parse_url($url);
+        if (!is_array($parts)) {
+            return false;
+        }
+        if (strtolower((string) ($parts['scheme'] ?? '')) !== 'https') {
+            return false;
+        }
+        if (isset($parts['user']) || isset($parts['pass'])) {
+            return false;
+        }
+
+        $host = $parts['host'] ?? null;
+        if (!is_string($host) || $host === '') {
+            return false;
+        }
+        if (!$allowCustomPort && ($parts['port'] ?? 443) !== 443) {
+            return false;
+        }
+
+        // « Nothing resolved » is only an acceptable answer when we looked
+        // with the resolver the request itself will use. Without it, the
+        // silence says nothing about where cURL would go, and sending the
+        // share's credentials on that basis is the hole this exists to
+        // close — so the lenient branch is the one that goes away, not the
+        // check.
+        if (self::addressesOf($host) === [] && !self::canSeeWhatTheClientSees()) {
+            return false;
+        }
+
+        return !self::resolvesOutsideThePublicInternet($host);
     }
 
     /**

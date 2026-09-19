@@ -10,6 +10,7 @@ namespace Core\Support\Collector;
 
 use Core\Storage\Location\Config\LocalLocationConfig;
 use Core\Storage\Location\Config\ObjectStorageLocationConfig;
+use Core\Storage\Location\Config\WebDavLocationConfig;
 use Core\Storage\Location\StorageLocation;
 use Core\Storage\Location\StorageLocationConsumerRegistry;
 use Core\Storage\Location\StorageLocationRepository;
@@ -229,6 +230,19 @@ class StorageLocationsCollector implements SupportCollectorInterface
 
         if ($config instanceof ObjectStorageLocationConfig) {
             return ($config->provider ?? 'point de terminaison personnalisé') . ' / ' . $config->bucket;
+        }
+
+        if ($config instanceof WebDavLocationConfig) {
+            // **Not the host either, and that costs something.** The rule
+            // above is about a bucket's endpoint, and it applies here with
+            // more force: a share is usually self-hosted, so
+            // `cloud.<unité>.org` names the unit outright and sits one
+            // line above « Identifiants : configurés » in a file that goes
+            // to somebody else. S3 answers the same diagnostic question
+            // with a provider name; a protocol has no provider to name, so
+            // this line says the kind and stops. The operator reads the
+            // address on their own Emplacements page, where it belongs.
+            return 'Partage WebDAV (hébergeur externe)';
         }
 
         return $location->type->value;

@@ -540,9 +540,27 @@ class GalleryController extends AbstractController
             return new Response('Not Found', 404);
         }
 
+        // **The range announced describes the bytes in hand, never the
+        // bytes asked for.** A backend may answer short — a size read
+        // from a listing that has since changed, a share that truncates
+        // mid-transfer, a server-side chunk ceiling — and the range read
+        // itself tolerates that on purpose, because `ProtectedCopier`
+        // walks a file in fixed slices and its last one always overruns
+        // the end. Here there is no such tail to allow: `$end` was
+        // already clamped to `$total - 1` above, so a short body is the
+        // backend falling short. Announcing the requested `$end` beside a
+        // `Content-Length` taken from the shorter body would hand the
+        // player a 206 that contradicts itself, which is the one thing a
+        // range response must never do.
+        $served = strlen($bytes);
+        if ($served === 0) {
+            return new Response('Not Found', 404);
+        }
+        $end = $start + $served - 1;
+
         return (new Response($bytes, 206))
             ->setHeader('Content-Type', $mimeType)
-            ->setHeader('Content-Length', (string) strlen($bytes))
+            ->setHeader('Content-Length', (string) $served)
             ->setHeader('Content-Range', "bytes {$start}-{$end}/{$total}")
             ->setHeader('Accept-Ranges', 'bytes')
             ->setHeader('Cache-Control', 'private, max-age=31536000')

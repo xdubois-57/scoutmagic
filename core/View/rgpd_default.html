@@ -156,7 +156,7 @@ Modèles : Llama, Qwen, divers modèles open source</li>
 <li>Métadonnées des albums : titre, sous-titre, date, section associée (aucune donnée personnelle)</li>
 <li>Pour les albums externes (lien vers un site tiers) : titre, description et image de couverture récupérés automatiquement depuis les métadonnées publiques (Open Graph) du lien fourni par le chef</li>
 </ul>
-<p><strong>Stockage des fichiers</strong> : l'administrateur peut configurer plusieurs emplacements de stockage à la fois (le serveur de l'hébergeur pour le stockage local, et/ou un ou plusieurs fournisseurs externes de stockage objet compatible S3) — chaque album est associé, dès sa création, à l'un de ces emplacements, qui ne change jamais ensuite pour cet album, même si l'emplacement proposé par défaut pour les nouveaux albums change par la suite (voir section 4.2 pour le ou les sous-traitants S3 effectivement configurés). Un emplacement local n'introduit aucun sous-traitant supplémentaire. Les fichiers ne sont pas chiffrés au repos (il ne s'agit pas de données personnelles au sens strict), mais leur accès est restreint aux utilisateurs identifiés (rôle minimum requis).</p>
+<p><strong>Stockage des fichiers</strong> : l'administrateur peut configurer plusieurs emplacements de stockage à la fois (le serveur de l'hébergeur pour le stockage local, et/ou un ou plusieurs stockages externes : fournisseur de stockage objet compatible S3, partage WebDAV, dossier Google Drive) — chaque album est associé, dès sa création, à l'un de ces emplacements, qui ne change jamais ensuite pour cet album, même si l'emplacement proposé par défaut pour les nouveaux albums change par la suite (voir section 4.2 pour le ou les sous-traitants de stockage effectivement configurés). Un emplacement local n'introduit aucun sous-traitant supplémentaire. Les fichiers ne sont pas chiffrés au repos (il ne s'agit pas de données personnelles au sens strict), mais leur accès est restreint aux utilisateurs identifiés (rôle minimum requis).</p>
 <p><strong>Suppression</strong> : la suppression d'un album entraîne la suppression immédiate et définitive de l'ensemble des photos et vidéos qu'il contient, quel que soit le support de stockage utilisé.</p>
 <p><strong>Base légale</strong> : Intérêt légitime (partage de souvenirs entre membres de l'unité) et consentement explicite pour la prise et le partage de photos (voir section 2.3).</p>
 
@@ -511,7 +511,7 @@ Serveurs : France (UE)<br>
 Politique de confidentialité : <a href="https://www.ovhcloud.com/fr/terms-and-conditions/privacy-policy/" target="_blank" rel="noopener">OVH Cloud Privacy Policy</a></li>
 </ul>
 
-<p><strong>Fournisseurs de stockage objet</strong> (module gallery, uniquement si au moins un emplacement de stockage S3 est configuré — plusieurs peuvent l'être simultanément ; pour un emplacement en stockage local, les fichiers restent sur le serveur de l'hébergeur, déjà couvert en 4.1) :</p>
+<p><strong>Fournisseurs de stockage externe</strong> (module gallery, uniquement si au moins un emplacement de stockage externe est configuré — stockage objet compatible S3, partage WebDAV ou dossier Google Drive, et plusieurs peuvent l'être simultanément ; pour un emplacement en stockage local, les fichiers restent sur le serveur de l'hébergeur, déjà couvert en 4.1) :</p>
 <ul>
 <li><strong>Hetzner Object Storage</strong> (si sélectionné) — <a href="https://www.hetzner.com" target="_blank" rel="noopener">www.hetzner.com</a><br>
 Serveurs : Allemagne et Finlande (UE)<br>
@@ -525,6 +525,12 @@ Politique de confidentialité : <a href="https://www.scaleway.com/en/privacy-pol
 <li><strong>OVHcloud Object Storage</strong> (si sélectionné) — <a href="https://www.ovhcloud.com" target="_blank" rel="noopener">www.ovhcloud.com</a><br>
 Serveurs : France, Allemagne, Pologne (UE)<br>
 Politique de confidentialité : <a href="https://www.ovhcloud.com/fr/terms-and-conditions/privacy-policy/" target="_blank" rel="noopener">OVH Cloud Privacy Policy</a></li>
+<li><strong>Partage WebDAV</strong> (si sélectionné) — l'hébergeur du partage indiqué par l'administrateur (Nextcloud, kDrive, Koofr, Hetzner Storage Box ou tout autre service parlant ce protocole)<br>
+Serveurs : selon l'hébergeur choisi ; la page « Stockage » de la configuration nomme l'hébergeur réellement utilisé<br>
+Politique de confidentialité : celle de cet hébergeur</li>
+<li><strong>Google Drive</strong> (si sélectionné) — Google Ireland Limited, <a href="https://www.google.com" target="_blank" rel="noopener">www.google.com</a><br>
+Serveurs : réseau mondial de Google ; des transferts hors Union européenne sont possibles, encadrés par les Standard Contractual Clauses (art. 46 RGPD)<br>
+Politique de confidentialité : <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Google Privacy Policy</a></li>
 </ul>
 
 <p><strong>Résumé automatique des lieux de camp</strong> (module camps avec connecteur IA actif) : un court texte résumant ce que les séjours et les avis d'un terrain racontent est écrit par le modèle configuré dans le connecteur IA (voir le paragraphe « Intelligence artificielle » de cette section). Ne lui sont transmis que les avis, notes, prix, statuts, dates, nombres de participants et sections — <strong>jamais les coordonnées des contacts, jamais les e-mails reçus</strong>. Cette fonctionnalité peut être désactivée dans la configuration du module.</p>
@@ -562,7 +568,7 @@ Politique de confidentialité : <a href="https://osmfoundation.org/wiki/Privacy_
 <li><strong>Stockage galerie sur Cloudflare R2 avec une région hors UE</strong> (si applicable) : Si le module galerie est actif et qu'au moins un emplacement de stockage configuré utilise Cloudflare R2 avec une région hors UE sélectionnée lors de la configuration du bucket, les photos et vidéos des albums utilisant cet emplacement sont transférées hors UE. Ce transfert est encadré par les Standard Contractual Clauses de la Commission européenne (art. 46.2.c RGPD).</li>
 <li><strong>Notifications push</strong> (si vous activez cette option) : Le contenu chiffré de la notification transite par le service de push propre à votre navigateur (Google pour Chrome/Edge, Apple pour Safari — tous deux situés aux États-Unis ; Mozilla pour Firefox). Ce service ne peut pas déchiffrer le contenu de la notification, mais le transfert technique de l'endpoint et du message chiffré vers un serveur hors UE a bien lieu pour Google et Apple ; ce choix résulte de votre navigateur, pas d'une décision de l'unité.</li>
 </ul>
-<p>Aucun autre transfert hors UE n'est effectué. Les fournisseurs Mistral AI, Scaleway et OVH Télécom opèrent tous au sein de l'Union européenne, de même que Hetzner Object Storage, Scaleway Object Storage et OVHcloud Object Storage pour le module galerie.</p>
+<p>Aucun autre transfert hors UE n'est effectué. Les fournisseurs Mistral AI, Scaleway et OVH Télécom opèrent tous au sein de l'Union européenne, de même que Hetzner Object Storage, Scaleway Object Storage et OVHcloud Object Storage pour le module galerie. Un partage WebDAV se trouve là où son hébergeur l'héberge, et un dossier Google Drive relève de Google Ireland Limited : lorsque l'un de ces deux emplacements est configuré, sa localisation est celle décrite en section 4.2.</p>
 
 <h2>6. Comment protégeons-nous vos données</h2>
 <p>Conformément à l'article 32 du RGPD, nous mettons en œuvre des mesures techniques et organisationnelles appropriées pour garantir un niveau de sécurité adapté au risque.</p>

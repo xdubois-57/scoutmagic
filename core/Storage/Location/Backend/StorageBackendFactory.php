@@ -9,10 +9,14 @@ declare(strict_types=1);
 namespace Core\Storage\Location\Backend;
 
 use Core\Storage\Location\Backend\Drive\GoogleDriveClient;
+use Core\Storage\Location\Backend\WebDav\WebDavClient;
 use Core\Storage\Location\Config\GoogleDriveLocationConfig;
 use Core\Storage\Location\Config\GoogleDriveSecret;
 use Core\Storage\Location\Config\LocalLocationConfig;
 use Core\Storage\Location\Config\ObjectStorageLocationConfig;
+use Core\Storage\Location\Config\WebDavLocationConfig;
+use Core\Storage\Location\Backend\WebDav\WebDavAccessException;
+use Core\Security\SsrfUrlValidator;
 use Core\Storage\Location\StorageLocation;
 use Core\Storage\Location\StorageLocationException;
 use Core\Storage\Location\StorageLocationRepository;
@@ -70,6 +74,40 @@ class StorageBackendFactory
                 $config->accessKey,
                 $this->repository->getSecret($location->id) ?? '',
                 $config->publicUrl
+            );
+        }
+
+        if ($config instanceof WebDavLocationConfig) {
+            // **The address is checked again here, not only when it was
+            // saved.** A username and a password travel on it in an
+            // `Authorization` header on every single request, and the row
+            // it comes from can have arrived since the form: a restore
+            // from another installation, a hand-edited column. The save
+            // path refuses anything that is not a public https URL
+            // (SECURITY.md §17); this refuses it again before a single
+            // byte of the credential leaves the server.
+            //
+            // The re-check is the STORED-value one, which differs from the
+            // save-time check in a single place: a host the resolver
+            // cannot answer for is not a refusal here. It buys nothing —
+            // the request about to be made cannot reach anything either —
+            // and it costs an accusation, because this message is what the
+            // Emplacements page shows about a location whose address may
+            // be perfectly good.
+            if (!SsrfUrlValidator::isStoredHttpsTargetStillSafe($config->baseUrl, true)) {
+                throw WebDavAccessException::of(
+                    'L\'adresse enregistrée pour ce partage ne mène plus à une adresse publique. '
+                    . 'Vérifiez-la sur la fiche de cet emplacement.'
+                );
+            }
+
+            // The password is read here and nowhere else, like every other
+            // credential: the strict reader, because this builds a backend
+            // that is about to talk to the share.
+            return new WebDavBackend(
+                new WebDavClient(),
+                $config,
+                $this->repository->getSecret($location->id) ?? ''
             );
         }
 

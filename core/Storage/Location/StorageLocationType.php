@@ -11,10 +11,12 @@ namespace Core\Storage\Location;
 use Core\Storage\Location\Backend\GoogleDriveBackend;
 use Core\Storage\Location\Backend\LocalStorageBackend;
 use Core\Storage\Location\Backend\ObjectStorageBackend;
+use Core\Storage\Location\Backend\WebDavBackend;
 use Core\Storage\Location\Config\GoogleDriveLocationConfig;
 use Core\Storage\Location\Config\LocalLocationConfig;
 use Core\Storage\Location\Config\LocationConfig;
 use Core\Storage\Location\Config\ObjectStorageLocationConfig;
+use Core\Storage\Location\Config\WebDavLocationConfig;
 
 /**
  * The kinds of destination a storage location can be.
@@ -51,6 +53,16 @@ enum StorageLocationType: string
     case GoogleDrive = 'google_drive';
 
     /**
+     * A WebDAV share: Nextcloud, kDrive, a Hetzner Storage Box, Koofr.
+     *
+     * The value names the PROTOCOL rather than any one vendor, because
+     * that is what this case actually is — four products and every future
+     * one that speaks the same five verbs, behind one address, one
+     * username and one password.
+     */
+    case WebDav = 'webdav';
+
+    /**
      * The French name of this kind of storage, as an administrator picks
      * it from a list. Here rather than in a template because the same
      * words are needed by a screen, a journal-free support package and a
@@ -62,6 +74,7 @@ enum StorageLocationType: string
             self::Local => 'Disque du serveur',
             self::ObjectStorage => 'S3 et compatibles',
             self::GoogleDrive => 'Google Drive',
+            self::WebDav => 'Partage WebDAV (Nextcloud, kDrive, Koofr…)',
         };
     }
 
@@ -77,6 +90,7 @@ enum StorageLocationType: string
             self::Local => LocalStorageBackend::declaredCapabilities(),
             self::ObjectStorage => ObjectStorageBackend::declaredCapabilities(),
             self::GoogleDrive => GoogleDriveBackend::declaredCapabilities(),
+            self::WebDav => WebDavBackend::declaredCapabilities(),
         };
     }
 
@@ -99,6 +113,7 @@ enum StorageLocationType: string
             self::Local => LocalLocationConfig::fromArray($raw),
             self::ObjectStorage => ObjectStorageLocationConfig::fromArray($raw),
             self::GoogleDrive => GoogleDriveLocationConfig::fromArray($raw),
+            self::WebDav => WebDavLocationConfig::fromArray($raw),
         };
     }
 }
