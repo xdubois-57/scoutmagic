@@ -663,15 +663,17 @@ class PageControllerTest extends TestCase
         $this->assertStringContainsString('premier import', $response->getBody());
     }
 
-    public function testSectionsPageShowsResponsableNameFromProvider(): void
+    /**
+     * Issue #359 — a signed-in member sees « Totem (Prénom Nom) », the
+     * display_name_full filter the member page already uses for this same
+     * "responsable" field. A bare totem names nobody: a parent looking up
+     * who runs their child's section has never heard it.
+     */
+    public function testSectionsPageNamesTheResponsableInFullToAMember(): void
     {
         ['body' => $body, 'section_id' => $sectionId, 'scout_year_id' => $scoutYearId, 'calls' => $calls]
             = $this->renderSectionsPageWithResponsable();
 
-        // Issue #359 — display_name_full, not display_name: this page is
-        // PUBLIC, and a parent looking up who runs their child's section
-        // has never heard the totem. Same filter as the member page uses
-        // for this same "responsable" field.
         $this->assertStringContainsString(
             TextNormalizerService::normalizeTotem('Aigle')
                 . ' (' . TextNormalizerService::normalizeName('Marie')
@@ -679,32 +681,66 @@ class PageControllerTest extends TestCase
             $body
         );
         $this->assertContains([$sectionId, $scoutYearId], $calls);
-    }
 
-    /**
-     * Issue #359 — and an icon in front of it, like the e-mail line just
-     * below it in the same card. It was the one fact on that card with
-     * nothing to mark it.
-     */
-    public function testSectionsPageMarksTheResponsableWithAnIcon(): void
-    {
-        $body = $this->renderSectionsPageWithResponsable()['body'];
-
-        $this->assertMatchesRegularExpression(
-            '#<i class="bi bi-person" aria-hidden="true"></i>\s*'
-                . preg_quote(TextNormalizerService::normalizeTotem('Aigle'), '#') . ' \\(#',
+        // Issue #359 — and an icon in front of it, like the e-mail line
+        // just below in the same card. It was the one fact on that card
+        // with nothing to mark it. Asserted on both audiences, since the
+        // icon is the half of this change that does not depend on who is
+        // looking.
+        $this->assertStringContainsString(
+            '<i class="bi bi-person" aria-hidden="true"></i> '
+                . TextNormalizerService::normalizeTotem('Aigle'),
             $body
         );
     }
 
     /**
+     * The other half, and the one with an RGPD line behind it.
+     *
+     * `/sections` is registered role_min 'public', and the site's own
+     * privacy notice says the designated responsable's full name is shown
+     * to the accounts linked to a member and « n'est jamais publique ».
+     * So an anonymous visitor gets the totem alone — the surname must not
+     * reach somebody who never signed in, search engines included.
+     *
+     * Asserted on the SURNAME rather than on the whole rendered string: a
+     * future filter change that reorders the parts would still have to
+     * keep "Curie" off this page, and only naming the surname says that.
+     */
+    public function testSectionsPageWithholdsTheResponsableSurnameFromThePublic(): void
+    {
+        $body = $this->renderSectionsPageWithResponsable(false)['body'];
+
+        $this->assertStringNotContainsString(TextNormalizerService::normalizeName('Curie'), $body);
+        $this->assertStringContainsString(TextNormalizerService::normalizeTotem('Aigle'), $body);
+
+        // Issue #359 — and an icon in front of it, like the e-mail line
+        // just below in the same card. It was the one fact on that card
+        // with nothing to mark it. Asserted on both audiences, since the
+        // icon is the half of this change that does not depend on who is
+        // looking.
+        $this->assertStringContainsString(
+            '<i class="bi bi-person" aria-hidden="true"></i> '
+                . TextNormalizerService::normalizeTotem('Aigle'),
+            $body
+        );
+    }
+
+
+    /**
      * One section, one designated responsable — Marie Curie, totem
      * "Aigle" — rendered through the real provider hook.
      *
+     * @param bool $authenticated what the page is told about its visitor,
+     *        which is the whole question on this page: the responsable's
+     *        surname is shown to a member and withheld from the public
+     *        (RGPD notice, « n'est jamais publique »).
      * @return array{body: string, section_id: int, scout_year_id: int, calls: array<int, array{0: int, 1: int}>}
      */
-    private function renderSectionsPageWithResponsable(): array
+    private function renderSectionsPageWithResponsable(bool $authenticated = true): array
     {
+        $this->twig->addGlobal('is_authenticated', $authenticated);
+
         $this->pdo->exec("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('BRANCH', 'Branche Test', 1)");
         $branchId = (int) $this->pdo->lastInsertId();
         $this->pdo->exec("INSERT INTO sections (age_branch_id, desk_code, name, email) VALUES ($branchId, 'SEC1', 'Section Test', 'sec1@example.com')");
