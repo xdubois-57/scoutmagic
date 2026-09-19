@@ -325,6 +325,50 @@ class ChecksTest extends TestCase
     }
 
     /**
+     * The help topic describes the signal this check actually emits.
+     *
+     * A first draft told the administrator to enable the setting, reload
+     * once, and watch the alert disappear — a method that cannot work.
+     * Re-arming needs {@see AlertThresholds::HTTPS_REARM_QUIET_HOURS} of
+     * quiet, so seconds after the change the alert still stands whichever
+     * case the installation is in; somebody genuinely behind a proxy
+     * would have read that as a failure and reverted the one fix that was
+     * correct.
+     *
+     * What does move immediately is the displayed reading: « à l'instant »
+     * while clear traffic is still arriving, an age that grows once it
+     * stops. So the topic quotes it — and quoting it is a coupling, which
+     * is what this test holds. Reword the reading or shorten the quiet
+     * period and the page stops matching what an administrator sees.
+     */
+    public function testTheHelpTopicQuotesTheReadingsAnAdministratorWillSee(): void
+    {
+        $topic = file_get_contents(dirname(__DIR__, 3) . '/docs/help/connexion-securisee.md');
+        $this->assertIsString($topic);
+
+        $clear = (new HttpsCheck(self::PLAIN_REQUEST, $this->httpsSettings(null), $this->at('2026-06-01 12:00:00')))
+            ->read();
+        $quieting = (new HttpsCheck(
+            self::SECURE_REQUEST,
+            $this->httpsSettings($this->at('2026-06-01 11:30:00')->getTimestamp()),
+            $this->at('2026-06-01 12:00:00')
+        ))->read();
+
+        foreach ([$clear->value, $quieting->value] as $shown) {
+            $this->assertStringContainsString(
+                $shown,
+                $topic,
+                'docs/help/connexion-securisee.md tells the administrator to read the alert\'s value: it has to quote the value this check produces.'
+            );
+        }
+
+        // Twenty-four hours is « environ une journée ». Cut the threshold
+        // to an afternoon and that sentence becomes false.
+        $this->assertSame(24, AlertThresholds::HTTPS_REARM_QUIET_HOURS);
+        $this->assertStringContainsString('journée', $topic);
+    }
+
+    /**
      * Triggering also stamps, because nothing else would.
      *
      * `CronSilenceCheck` reads a stamp `public/cron.php` writes as it runs;

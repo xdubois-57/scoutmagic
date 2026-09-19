@@ -49,8 +49,8 @@ Le site sait fonctionner ainsi, mais il ne le suppose jamais de lui-même :
 il faut l'y autoriser. Le réglage qui l'autorise à croire l'intermédiaire
 est dans le fichier de configuration du site, sur votre serveur — celui
 que vous avez rempli à l'installation. Il y est décrit à l'endroit où il
-se trouve. Activez-le, puis rechargez une page sécurisée : l'alerte cesse
-de se déclencher.
+se trouve. Activez-le, puis rechargez une page sécurisée. L'alerte ne
+s'éteint pas dans la foulée : voyez plus bas.
 
 > Il est désactivé par défaut, et ce n'est pas une précaution excessive.
 > Sans un intermédiaire qui garantisse l'information à chaque requête,
@@ -60,11 +60,21 @@ de se déclencher.
 
 ## Comment savoir dans quel cas je suis
 
-Si vous ne savez pas : faites le test. Activez le réglage, rechargez une
-page sécurisée, et regardez.
+N'activez pas le réglage pour voir : sans intermédiaire qui garantisse
+l'information, l'activer ouvre la porte décrite ci-dessus — que vous
+naviguiez vous-même en HTTPS n'y change rien. Le signe donné plus haut
+tranche déjà. Sinon, posez la question à votre hébergeur : elle se répond
+en une phrase.
 
-- L'alerte disparaît : c'était bien le second cas. Laissez-le activé.
-- Elle persiste : remettez-le comme avant. Il n'y a pas d'intermédiaire,
-  et c'est le premier cas qu'il faut traiter.
+## Vérifier que c'est réglé
 
-Le test ne présente pas de risque tant que vous naviguez en HTTPS réel.
+Ne guettez pas la disparition de l'alerte : il lui faut environ une
+journée entière sans la moindre requête en clair. Regardez **ce qu'elle
+affiche** sur la page Points d'attention.
+
+- « en clair à l'instant » : le site est encore atteint sans chiffrement.
+- « en clair il y a moins d'une heure », puis un décompte en heures :
+  l'âge grandit, c'est réglé — l'alerte s'éteindra seule.
+
+La mesure ne se rafraîchit qu'une fois par quart d'heure : revenez un peu
+plus tard.
