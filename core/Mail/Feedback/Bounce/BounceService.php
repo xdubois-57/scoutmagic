@@ -101,6 +101,16 @@ class BounceService
     }
 
     /**
+     * What is known about this address, or null when it has never
+     * bounced — which is what the screens need in order to say nothing at
+     * all about the addresses that work.
+     */
+    public function stateFor(string $email): ?BounceState
+    {
+        return $this->states->find($email);
+    }
+
+    /**
      * Lift a block, whoever asked for it.
      *
      * The two callers are the member on their own address list and the

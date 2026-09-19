@@ -10,6 +10,8 @@ namespace Core\Member;
 
 use Core\Config\ScoutYearService;
 use Core\Journal\JournalService;
+use Core\Mail\Feedback\Bounce\BounceService;
+use Core\Mail\Feedback\Bounce\BounceState;
 use Core\Mail\MailException;
 use Core\Mail\MailService;
 use Core\Mail\Template\EmailTemplateRenderer;
@@ -43,8 +45,63 @@ class MemberEmailService
         private ScoutYearService $scoutYearService,
         private string $baseUrl,
         private string $siteName,
-        private EmailDomainValidator $emailDomainValidator = new EmailDomainValidator()
+        private EmailDomainValidator $emailDomainValidator = new EmailDomainValidator(),
+        /**
+         * What the site knows about addresses that bounce (roadmap
+         * IT-05).
+         *
+         * Nullable because the bounce table is core but the thing that
+         * fills it is a consumer of `inbound_mail` (D2): an installation
+         * without that module never records a bounce, and must go on
+         * resolving addresses exactly as it always did. Null therefore
+         * means « rien n'a jamais rebondi », which is the correct answer
+         * there, never a silent failure.
+         */
+        private ?BounceService $bounces = null
     ) {
+    }
+
+    /**
+     * What is known about this address's failures, or null when it has
+     * never bounced — which is the overwhelming majority of them.
+     */
+    public function bounceFor(MemberEmail $row): ?BounceState
+    {
+        return $this->bounces?->stateFor($row->email);
+    }
+
+    /**
+     * The member lifts a block the SITE placed (D19).
+     *
+     * **Not a fourth status, and not a contradiction of `isOwnMember()`.**
+     * A block on bounce is the site's decision, so the person it
+     * inconveniences may undo it; the three values of `status` record the
+     * member's own decisions and are untouched here. The ownership guard
+     * is the existing one, unchanged: this reaches nothing a member could
+     * not already reach.
+     *
+     * Unblocking through one child's profile clears the mailbox
+     * everywhere, because there is one mailbox and one state — see the
+     * `mail_bounce_states` table comment.
+     */
+    public function unblockBounce(int $memberId, int $emailId): void
+    {
+        // The ownership guard first, and unconditionally: an
+        // installation with no bounce tracking must still refuse a member
+        // reaching for somebody else's address, so this may never sit
+        // behind the null check below.
+        $row = $this->requireOwnRow($memberId, $emailId);
+
+        if ($this->bounces === null) {
+            return;
+        }
+
+        $state = $this->bounces->stateFor($row->email);
+        if ($state === null) {
+            return;
+        }
+
+        $this->bounces->unblock($state->id, true);
     }
 
     /**
@@ -322,7 +379,15 @@ class MemberEmailService
             $addresses[] = $row;
         }
 
-        return $addresses;
+        // **The point of the whole chantier, in one filter.** An address
+        // the far end has refused twice is an address every further
+        // message damages the unit's reputation with — and the member has
+        // been told, and can lift it themselves. Filtered here rather than
+        // in the caller so that no future sender can forget to.
+        return array_values(array_filter(
+            $addresses,
+            fn(MemberEmail $row): bool => !($this->bounces?->isBlocked($row->email) ?? false)
+        ));
     }
 
     /**
