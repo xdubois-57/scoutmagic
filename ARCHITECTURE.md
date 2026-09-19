@@ -4308,6 +4308,18 @@ The type that asks the least of a unit: **an address, a username, a password.** 
 
 **No refusal quotes the transport.** `testConnection()` catches the named access error *and* any other `RuntimeException` the transport raised, answering a French sentence of its own; curl's words would name the host, the collection and the resolved address. `deletePrefix('')` returns early rather than walking the share root, which is the operator's own folder and not this site's to empty.
 
+### 8.113 Choosing a storage type, and the two refusals that decide it (`Core\Storage\Location\StorageConsequence`)
+
+**The screen never prints a capability** (D3). `StorageCapability` is the right vocabulary for code — « lecture par plage d'octets », « envoi repris » — and the wrong one for an administrator, who is not choosing a storage on byte ranges but for the photographs of a camp. `StorageConsequence` turns the declarations into the four questions the mockup found somebody actually asks: Photos, Vidéos, Sauvegardes, Place restante. Every sentence is COMPUTED from `StorageLocationType::capabilities()`, which interrogates the backend classes (§8.100), so a backend that gains an aptitude moves its own verdict and a table maintained in parallel never exists.
+
+**Two of those four are real refusals, and each is enforced somewhere else by the same condition.** *Vidéos : non* when the type has no `RangeRead` — a player can start a film and never move inside it, which on a phone usually means it does not play, so `MediaService::assertTheAlbumCanServeAVideo()` refuses the upload at the door rather than accepting a file nobody can watch. *Sauvegardes : non* when it has no `ResumableUpload` — a backup archive never goes in one piece, so `RemoteBackupController::choose()` refuses such a destination and `MaintenanceController` does not offer it. Both refusals read the capability, never the type: writing `if Google Drive` would be wrong in one direction or the other the day Drive gains ranged reads or a fifth type arrives without them, and nothing would say so.
+
+That second verdict used to read « oui, sans reprise » — it told an administrator backups would work, merely slower, about a destination the next screen would not accept at all. Two types are affected (S3, WebDAV); `StorageConsequenceTest` now asserts the verdict refuses *exactly* when the controller does, for every type present and future, so the two cannot drift apart again.
+
+**`comparison()` lays the same four across the types**, which is the one reading a stack of per-location cards cannot give: the cards answer « what does THIS location do », the table answers « which kind should I declare next », and the decision needs a line read sideways. It walks `StorageLocationType::cases()`, so a fifth type gets a column on the day it exists. It renders at the foot of Configuration › Stockage › Emplacements, inside `table-responsive` — four types plus a label do not fit a phone, and a comparison is the kind of content that may scroll sideways rather than be cut.
+
+**Google Drive is attachable to a gallery, with two consequences said at the moment of choosing.** Each photograph is an authenticated API call made by this site — Drive hands nothing to the visitor directly, so every image travels through PHP on every view. And the deliberately narrow `drive.file` grant means the site sees only the files it put there itself, so photographs already in the folder stay invisible. Both are information rather than refusals (a Drive holds photographs perfectly well), and both are shown only when a Drive location exists.
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php
