@@ -92,17 +92,20 @@ final class GroupsReactionToggleCssTest extends TestCase
     }
 
     /**
-     * The touch target must survive the padding going away: 44px is a
-     * hard floor in AGENTS.md § CSS / frontend, and it is min-height that
-     * holds it, never the horizontal padding this test just removed.
+     * The touch target must survive the padding going away. AGENTS.md
+     * § CSS / frontend treats 44px as a comfort goal for small controls
+     * — « never a universal minimum » — and this toggle is exactly the
+     * kind it names: a `.btn-sm` on a phone. What matters here is which
+     * declaration carries it, and it is `min-height`, never the
+     * horizontal padding this test just gave back.
      */
     public function testTheTouchTargetStillHoldsWithoutThatPadding(): void
     {
         $this->assertMatchesRegularExpression(
             '/min-height:\s*44px;/',
             $this->toggleRule(),
-            'the « Réagir » toggle lost its 44px floor at the same time as its left padding, which '
-            . 'turns a spacing fix into an accessibility regression.',
+            'the « Réagir » toggle lost its 44px comfort-goal touch target at the same time as its '
+            . 'left padding, which turns a spacing fix into an accessibility regression.',
         );
     }
 }
