@@ -174,7 +174,27 @@ class MailService
         ?string $fromAddressOverride = null,
         ?string $fromNameOverride = null,
         array $extraHeaders = [],
-        MailPurpose $purpose = MailPurpose::Ordinary
+        MailPurpose $purpose = MailPurpose::Ordinary,
+        /**
+         * Did the SITE choose this recipient, or was it handed one?
+         *
+         * **False by default, and that direction is the whole point.** A
+         * bounce receipt is what lets a report naming an address be
+         * believed, so a caller that has never heard of the rule must not
+         * mint one. Forgotten here, a send records nothing and at worst a
+         * bounce goes unnoticed; forgotten the other way round it hands
+         * somebody a way to have an address cut off.
+         *
+         * The first attempt defaulted to true and was wrong in four
+         * places at once — a public form, a registration twin, a claimed
+         * secondary address, and the deferred-mail queue, which replays a
+         * message without carrying any of this.
+         *
+         * True belongs to the paths that write to a correspondent the
+         * site picked from its own records: a notification to a member, a
+         * document sent to the person it concerns, a mailing.
+         */
+        bool $vouchesForRecipient = false
     ): void {
         $mail = new PHPMailer(true);
 
@@ -273,32 +293,21 @@ class MailService
             // yet. `recordSend()` also settles the PREVIOUS send, which
             // is why it is this call and not `stampReceipt()`.
             //
-            // **A receipt is what lets a bounce naming this address be
-            // believed, and `recordSend()` decides for itself whether
-            // this one earns one.** It stamps only for an address the
-            // site already holds — a confirmed `member_emails` row or a
-            // `user_accounts` row — never for one a visitor supplied.
+            // **Two independent conditions, and forgetting either
+            // fails safe.** The caller says whether the site chose this
+            // recipient (`$vouchesForRecipient`, false unless stated),
+            // and `recordSend()` separately refuses an address the site
+            // does not already hold.
             //
-            // That question deliberately does NOT live here as a
-            // parameter. It was tried: a `$countsAsProofOfSend` flag,
-            // defaulting to « yes ». A security default that fails open,
-            // which 42 call sites had to remember and the deferred-mail
-            // queue silently dropped on replay. Derived from the address,
-            // it cannot be forgotten by a caller that does not know the
-            // rule exists.
-            //
-            // **Best effort, and guarded on its own**, like the journal
-            // and the bounce notifier. The message has LEFT by this
-            // point. This call is several statements against the
-            // database, and a deadlock, a lock-wait timeout or a dropped
-            // connection would otherwise fall to the outer
-            // `catch (\Exception)` below — which journals a send failure
-            // and throws `MailException`. `SendBatchHandler` would then
-            // mark a delivered message as failed and send it again. A
-            // missing receipt costs one unrecorded bounce; a duplicated
-            // mailing is seen by everybody who received it twice.
+            // Neither alone is enough. Asking only the address lets an
+            // attacker aim a send AT an address that is on file — claim a
+            // member's confirmed address as an unconfirmed secondary of
+            // their own, or simply post it into a public form — and the
+            // receipt is minted for the victim all the same.
             try {
-                $this->sendReceipts?->recordSend($to, new \DateTimeImmutable());
+                if ($vouchesForRecipient) {
+                    $this->sendReceipts?->recordSend($to, new \DateTimeImmutable());
+                }
             } catch (\Throwable) {
                 // Deliberately silent: there is nobody to tell who could
                 // act on it, and the journal is reached through the same

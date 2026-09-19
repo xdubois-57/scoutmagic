@@ -4233,8 +4233,30 @@ What it deliberately does not refuse is the sequence the feature exists
 for: send, bounce, send, bounce, blocked. Each send re-opens the door for
 exactly one answer.
 
-*A receipt is stamped only for an address the site already holds, and
-that question is asked of the ADDRESS rather than of the caller.*
+*A receipt is stamped only when two independent conditions hold, and
+forgetting either fails safe.* The caller states that the site CHOSE this
+recipient (`send()`'s `$vouchesForRecipient`, **false unless said**), and
+`recordSend()` separately refuses an address the site does not already
+hold.
+
+Neither alone is enough, and both were tried. Asking only the caller, with
+a default of « yes », was wrong in four places at once — a public form, a
+registration twin, a claimed secondary address, and the deferred-mail
+queue, which replays a message carrying none of it. Asking only the
+address lets an attacker aim a send AT an address that is on file: claim a
+member's confirmed address as an unconfirmed secondary of one's own (the
+unique index on `member_emails` is per member) or simply type it into a
+public form, and the receipt is minted for the victim all the same.
+
+False by default is the direction that matters. Forgotten, a send records
+nothing and at worst a bounce goes unnoticed; forgotten the other way it
+hands somebody a way to have an address cut off. The paths that say true
+are the ones writing to a correspondent the site picked from its own
+records: a notification to a member, a document sent to the person it
+concerns, a mailing.
+
+*And the address must be one the site already holds, which is asked of the
+ADDRESS rather than of the caller.*
 `recordSend()` looks for a confirmed `member_emails` row or a
 `user_accounts` row — the two places an address earns its way into before
 the site writes to it of its own accord. `status = 'valid'` and not merely

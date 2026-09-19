@@ -1603,11 +1603,21 @@ rejeu puisqu'elle ne la transporte pas. Le relecteur a trouvé les deux :
 le jumeau du module `registration`, et trois formulaires publics où un
 visiteur anonyme suffisait.
 
-La question est donc posée à l'**adresse** et non à l'appelant : une
-preuve n'est enregistrée que pour une adresse que le site détient déjà —
-ligne `member_emails` confirmée, ou ligne `user_accounts`. Un appelant qui
-n'a jamais entendu parler de la règle ne peut plus la casser, et le rejeu
-différé se referme tout seul. Rien de réel n'est perdu : une adresse que
+Poser la question à l'**adresse** seule ne suffisait pas non plus, et le
+relecteur l'a montré au tour suivant : l'index unique de `member_emails`
+étant par membre, un membre peut revendiquer l'adresse **confirmée d'un
+autre** comme sa propre ligne `pending`, et la confirmation part alors
+vers la victime — dont l'adresse, elle, est bel et bien « sur les
+livres ». Un formulaire public suffit tout autant.
+
+Il faut donc les deux, et **oublier l'une ou l'autre échoue du bon
+côté** : l'appelant déclare que le site a *choisi* ce destinataire
+(`vouchesForRecipient`, **faux tant qu'on ne dit rien**), et `recordSend()`
+refuse séparément une adresse que le site ne détient pas. Oubliée, la
+déclaration ne coûte qu'un rebond non remarqué ; c'est l'inverse qui
+donnait à quelqu'un le moyen de faire couper une adresse. Le rejeu différé
+se referme tout seul, puisqu'il ne transporte rien et que ne rien
+transporter vaut désormais « non ». Rien de réel n'est perdu : une adresse que
 le site ne détient pas est une adresse à laquelle il n'écrira pas non
 plus, donc un rebond enregistré contre elle ne protège aucun envoi à
 venir. La seule qui échappe à la déduction est l'adresse d'une liste de

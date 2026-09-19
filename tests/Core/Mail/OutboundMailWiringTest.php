@@ -342,20 +342,25 @@ class OutboundMailWiringTest extends TestCase
     }
 
     /**
-     * **Who the site vouches for is derived, not declared.** A receipt
-     * lets a bounce naming an address be believed, so minting one for an
-     * address a visitor supplied hands the forgery gate away. Expressed
-     * as a `send()` parameter it failed open and was missed — by call
-     * sites that never knew the rule existed, and by the deferred-mail
-     * queue, which replays a message without carrying it. The rule
-     * therefore lives with the address.
+     * **A receipt takes two independent conditions, and forgetting
+     * either fails safe.** The caller says the site chose this recipient,
+     * defaulting to no; `recordSend()` separately refuses an address the
+     * site does not hold.
+     *
+     * Neither alone survived review. A caller-side flag defaulting to
+     * yes was missed by a public form, a registration twin, a claimed
+     * secondary address and the deferred-mail queue. The address-side
+     * check alone lets an attacker aim a send at an address that IS on
+     * file — `member_emails` is unique per member, so a member can claim
+     * another's confirmed address — and the receipt is minted for the
+     * victim.
      */
-    public function testTheReceiptRuleIsAskedOfTheAddressRatherThanTheCaller(): void
+    public function testAReceiptTakesBothTheCallersWordAndTheAddressesOwn(): void
     {
-        $this->assertStringNotContainsString(
-            'bool $countsAsProofOfSend',
+        $this->assertStringContainsString(
+            'bool $vouchesForRecipient = false',
             self::source('core/Mail/MailService.php'),
-            'a per-call-site flag fails open for every caller that forgets it, and for the deferred queue.'
+            'the caller-side half must default to NO, or every caller that forgets it mints a receipt.'
         );
 
         $this->assertStringContainsString(

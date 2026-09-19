@@ -300,9 +300,36 @@ class MailTransportSeamTest extends TestCase
         $this->addressOnFile($pdo, 'parent@exemple.be');
 
         $this->serviceWithReceipts($this->recordingTransport(), $receipts)
-            ->send('parent@exemple.be', 'Sujet', '<p>x</p>', 'x');
+            ->send('parent@exemple.be', 'Sujet', '<p>x</p>', 'x', vouchesForRecipient: true);
 
         $this->assertNotNull($receipts->lastSendAt('parent@exemple.be'));
+    }
+
+    /**
+     * **And an on-file address is not enough on its own.** A signed-in
+     * member can claim another member's confirmed address as their own
+     * `pending` secondary — the unique index is per member — and the
+     * confirmation that follows is aimed at the victim. Anyone can also
+     * type a member's address into a public form. In both cases the
+     * address IS on the site's books, so asking only the address mints
+     * the receipt for the victim and the forged-report attack is back.
+     *
+     * A caller that has not said the site chose this recipient therefore
+     * vouches for nothing, whoever the address belongs to.
+     */
+    public function testAnOnFileAddressStillNeedsTheSiteToHaveChosenIt(): void
+    {
+        $pdo = \Tests\DatabaseTestHelper::createTestDatabase();
+        $receipts = $this->receiptsOver($pdo);
+        $this->addressOnFile($pdo, 'victime@exemple.be');
+
+        $this->serviceWithReceipts($this->recordingTransport(), $receipts)
+            ->send('victime@exemple.be', 'Confirmez', '<p>x</p>', 'x');
+
+        $this->assertNull(
+            $receipts->lastSendAt('victime@exemple.be'),
+            'a send somebody else aimed must not vouch for its target.'
+        );
     }
 
     /**
@@ -323,11 +350,11 @@ class MailTransportSeamTest extends TestCase
         $receipts = $this->receiptsOver($pdo);
 
         $this->serviceWithReceipts($this->recordingTransport(), $receipts)
-            ->send('victime@exemple.be', 'Confirmez', '<p>x</p>', 'x');
+            ->send('victime@exemple.be', 'Confirmez', '<p>x</p>', 'x', vouchesForRecipient: true);
 
         $this->assertNull(
             $receipts->lastSendAt('victime@exemple.be'),
-            'an address nobody has proven vouches for nothing.'
+            'an address nobody has proven vouches for nothing, even when the caller says otherwise.'
         );
     }
 
@@ -356,7 +383,7 @@ class MailTransportSeamTest extends TestCase
 
         $transport = $this->recordingTransport();
         $this->serviceWithReceipts($transport, $receipts)
-            ->send('parent@exemple.be', 'Sujet', '<p>x</p>', 'x');
+            ->send('parent@exemple.be', 'Sujet', '<p>x</p>', 'x', vouchesForRecipient: true);
 
         $this->assertSame(1, $transport->calls, 'the message left, and nothing may say otherwise.');
     }
@@ -379,7 +406,7 @@ class MailTransportSeamTest extends TestCase
 
         try {
             $this->serviceWithReceipts($refusing, $receipts)
-                ->send('parent@exemple.be', 'Sujet', '<p>x</p>', 'x');
+                ->send('parent@exemple.be', 'Sujet', '<p>x</p>', 'x', vouchesForRecipient: true);
         } catch (\Core\Mail\MailException) {
             // The refusal is the point; what matters is what it left.
         }
