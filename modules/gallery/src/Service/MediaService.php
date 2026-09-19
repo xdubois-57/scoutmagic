@@ -20,6 +20,7 @@ use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\Media;
 use Modules\Gallery\Repository\MediaRepository;
 use Core\Storage\Location\Backend\StorageBackendFactory;
+use Core\Storage\Location\StorageCapability;
 
 class MediaService
 {
@@ -138,6 +139,9 @@ class MediaService
         }
         if ($isVideo && !$this->videoUploadAllowed()) {
             throw new GalleryException('L\'envoi de vidéos est désactivé.');
+        }
+        if ($isVideo) {
+            $this->assertTheAlbumCanServeAVideo($album);
         }
 
         $maxBytes = $isVideo
@@ -370,6 +374,48 @@ class MediaService
             'gallery',
             true
         ) && $this->ffmpegAvailability->check();
+    }
+
+    /**
+     * **A refusal, not a warning, and it is the capability that decides.**
+     *
+     * A player moves inside a film with `Range:` requests. A storage that
+     * cannot answer one — Google Drive today — lets a visitor START a
+     * video and never seek in it: the timeline is dead, and on a phone
+     * that usually means the film simply does not play. That is not a
+     * slower album, it is a feature that does not work, so the upload is
+     * refused at the door rather than accepted into a state nobody can
+     * use (D3: the consequence is what the screen says, never the
+     * capability's name).
+     *
+     * **Keyed on `RangeRead`, never on the type.** Writing « if Google
+     * Drive » here would be the table-that-lies `StorageLocationType`
+     * warns about: the day Drive gains ranged reads, or a fifth type
+     * arrives without them, this sentence would be wrong in one direction
+     * or the other and nothing would say so. Asking the capability makes
+     * the refusal follow the backends.
+     *
+     * A location that cannot be resolved at all is NOT refused here: that
+     * is the album's own problem and it already has its own failure, and
+     * turning « I cannot tell » into « no » would block uploads on a
+     * transient lookup.
+     *
+     * @throws GalleryException when the album's storage cannot serve a range
+     */
+    private function assertTheAlbumCanServeAVideo(Album $album): void
+    {
+        $location = $this->galleryLocationService->resolveLocationForAlbum($album);
+        if ($location === null || $location->supports(StorageCapability::RangeRead)) {
+            return;
+        }
+
+        throw new GalleryException(sprintf(
+            'L\'emplacement « %s » ne sait pas %s : une vidéo qui y serait déposée ne pourrait pas '
+            . 'être parcourue, et resterait illisible pour les visiteurs. Déplacez cet album vers un '
+            . 'autre emplacement, ou n\'y déposez que des photos.',
+            $location->label,
+            StorageCapability::RangeRead->frenchDescription()
+        ));
     }
 
     /**

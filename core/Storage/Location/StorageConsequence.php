@@ -113,7 +113,23 @@ final class StorageConsequence
             );
     }
 
-    /** « Sauvegardes : oui, un envoi coupé est repris ». */
+    /**
+     * « Sauvegardes : oui » — or « non », which is the second real refusal
+     * here and used not to be one.
+     *
+     * **This said « oui, sans reprise » and the product said no.**
+     * `RemoteBackupController::choose()` refuses a destination that cannot
+     * resume, and `MaintenanceController` does not even offer it in the
+     * picker — because a backup archive is never sent in one piece, so a
+     * destination that restarts from zero never finishes a large one.
+     * Meanwhile this sentence told the administrator backups would work
+     * there, merely without resume. Two types are affected today, S3 and
+     * WebDAV, and the comparison table this feeds would have published
+     * the contradiction four types wide.
+     *
+     * A verdict that promises what the next screen refuses is worse than
+     * a blunt one, so it now says the same thing the refusal does.
+     */
     private static function backups(StorageLocationType $type): self
     {
         return $type->supports(StorageCapability::ResumableUpload)
@@ -126,8 +142,9 @@ final class StorageConsequence
             : new self(
                 self::AREA_BACKUPS,
                 'Sauvegardes',
-                'oui, sans reprise',
-                'Un envoi volumineux interrompu repart de zéro.'
+                'non',
+                'Une archive de sauvegarde ne part jamais en une seule fois : '
+                . 'ce stockage ne peut pas être choisi comme destination.'
             );
     }
 
@@ -166,6 +183,57 @@ final class StorageConsequence
                 'non indiquée',
                 'Ce stockage ne sait pas dire ce qu\'il contient sans le parcourir entièrement.'
             );
+    }
+
+    /**
+     * The same four readings, laid out across every kind of storage.
+     *
+     * **One row per question, one column per type**, which is the shape
+     * the decision actually has: an administrator is not reading four
+     * separate verdicts about S3, they are asking « which of these should
+     * hold the camp photographs » and comparing the same line across the
+     * options. IT-01 built `capabilities()` to interrogate the backend
+     * classes for precisely this moment — so this table cannot drift from
+     * what the code does, and a backend that gains an aptitude moves its
+     * own cell.
+     *
+     * The types come from the enum's own `cases()`, so a fifth kind of
+     * storage appears here the day it exists, with no list to remember.
+     *
+     * @return list<array{
+     *     area: string,
+     *     label: string,
+     *     cells: list<array{type: StorageLocationType, verdict: string, detail: string}>
+     * }>
+     */
+    public static function comparison(): array
+    {
+        $byType = [];
+        foreach (StorageLocationType::cases() as $type) {
+            $byType[$type->value] = self::forType($type);
+        }
+
+        $rows = [];
+        foreach (array_keys(self::forType(StorageLocationType::Local)) as $index) {
+            $cells = [];
+            foreach (StorageLocationType::cases() as $type) {
+                $consequence = $byType[$type->value][$index];
+                $cells[] = [
+                    'type' => $type,
+                    'verdict' => $consequence->verdict,
+                    'detail' => $consequence->detail,
+                ];
+            }
+
+            $first = $byType[StorageLocationType::Local->value][$index];
+            $rows[] = [
+                'area' => $first->area,
+                'label' => $first->label,
+                'cells' => $cells,
+            ];
+        }
+
+        return $rows;
     }
 
     /** « Photos : oui, le plus rapide — Les photos vont directement… » */

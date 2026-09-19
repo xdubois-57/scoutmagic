@@ -29,7 +29,9 @@ use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Gallery\GalleryTestHelper;
 use Modules\Gallery\Service\GalleryStorageWiring;
+use Core\Storage\Location\StorageCapability;
 use Core\Storage\Location\StorageLocationType;
+use Core\Storage\Location\Config\GoogleDriveLocationConfig;
 use Core\Storage\Location\Config\LocalLocationConfig;
 use Modules\Gallery\Service\GalleryLocationService;
 
@@ -108,6 +110,168 @@ class MediaServiceTest extends TestCase
         return $this->storageLocationRepository->create(
             StorageLocationType::Local, 'Cible ' . uniqid(), new LocalLocationConfig('gallery2'), null
         );
+    }
+
+    /**
+     * **A video is refused when the album's storage cannot seek in it.**
+     *
+     * Google Drive declares no `RangeRead`, so a player could start the
+     * film and never move inside it — on a phone that usually means it
+     * does not play at all. The gallery therefore blocks the upload
+     * instead of accepting a file nobody can watch, and the sentence
+     * names the album's location and the consequence rather than the
+     * capability.
+     *
+     * Keyed on the capability rather than on the type: this test finds
+     * whichever type lacks the aptitude, so it keeps its meaning if Drive
+     * gains ranged reads or a fifth type arrives without them.
+     */
+    public function testAVideoIsRefusedOnAStorageThatCannotSeek(): void
+    {
+        $type = null;
+        foreach (StorageLocationType::cases() as $candidate) {
+            if (!$candidate->supports(StorageCapability::RangeRead)) {
+                $type = $candidate;
+                break;
+            }
+        }
+        if ($type === null) {
+            self::markTestSkipped('every type can read a range — nothing to refuse');
+        }
+
+        $album = $this->albumRepository->findById($this->albumOn($type));
+
+        $this->expectException(GalleryException::class);
+        $this->expectExceptionMessageMatches('/ne sait pas lire un fichier par morceaux/');
+        $this->serviceWithVideoSupport()->upload(
+            $album,
+            $this->fakeUploadedVideo(),
+            Role::CHIEF,
+            'chief@test.com',
+            $this->authorId
+        );
+    }
+
+    /** And it is accepted on one that can, which is the other half. */
+    public function testAVideoIsAcceptedOnAStorageThatCanSeek(): void
+    {
+        $album = $this->albumRepository->findById($this->albumId);
+
+        $media = $this->serviceWithVideoSupport()->upload(
+            $album,
+            $this->fakeUploadedVideo(),
+            Role::CHIEF,
+            'chief@test.com',
+            $this->authorId
+        );
+
+        $this->assertSame('video', $media->mediaType);
+    }
+
+    /**
+     * The refusal must not fire for a PHOTO on the same storage: Drive
+     * holds photographs perfectly well, and blocking those would turn a
+     * narrow refusal into « this type is unusable ».
+     */
+    public function testAPhotoIsStillAcceptedOnAStorageThatCannotSeek(): void
+    {
+        $type = null;
+        foreach (StorageLocationType::cases() as $candidate) {
+            if (!$candidate->supports(StorageCapability::RangeRead)) {
+                $type = $candidate;
+                break;
+            }
+        }
+        if ($type === null) {
+            self::markTestSkipped('every type can read a range');
+        }
+
+        $album = $this->albumRepository->findById($this->albumOn($type));
+
+        $media = $this->service->upload(
+            $album,
+            $this->fakeUploadedImage(),
+            Role::CHIEF,
+            'chief@test.com',
+            $this->authorId
+        );
+
+        $this->assertSame('photo', $media->mediaType);
+    }
+
+    /** An album whose location is of $type, sharing this test's year. */
+    private function albumOn(StorageLocationType $type): int
+    {
+        $config = $type === StorageLocationType::GoogleDrive
+            ? new GoogleDriveLocationConfig('client-1', 'dossier-1', '2026-01-01T00:00:00+00:00')
+            : new LocalLocationConfig('gallery_' . $type->value);
+
+        $locationId = $this->storageLocationRepository->create(
+            $type,
+            'Emplacement ' . $type->value,
+            $config,
+            null
+        );
+
+        $yearId = (int) $this->pdo->query('SELECT id FROM scout_years LIMIT 1')->fetchColumn();
+
+        return $this->albumRepository->create(
+            Album::TYPE_LOCAL,
+            'Camp sur ' . $type->value,
+            null,
+            '2026-01-01',
+            null,
+            $yearId,
+            null,
+            $locationId,
+            $this->authorId
+        );
+    }
+
+    /**
+     * The service with ffmpeg present — the setUp double reports it
+     * missing, which short-circuits every video path before the storage
+     * is ever consulted.
+     */
+    private function serviceWithVideoSupport(): MediaService
+    {
+        $ffmpeg = $this->createMock(FfmpegAvailability::class);
+        $ffmpeg->method('check')->willReturn(true);
+
+        return new MediaService(
+            $this->mediaRepository,
+            $this->albumRepository,
+            new UploadHandler($this->fileRepository, sys_get_temp_dir()),
+            new SchedulerService(new SchedulerRepository($this->pdo)),
+            $this->settingService,
+            $this->accessService,
+            $this->storageBackendFactory,
+            $this->galleryLocationService,
+            $ffmpeg,
+            $this->storedFileCleaner
+        );
+    }
+
+    /**
+     * The smallest thing `finfo` calls `video/mp4`: an `ftyp` box naming
+     * the isom brand. The gallery never decodes it — the upload is
+     * refused, or handed to a processing task the test does not run.
+     */
+    private function fakeUploadedVideo(): array
+    {
+        $path = tempnam(sys_get_temp_dir(), 'gallery_test_') . '.mp4';
+        file_put_contents(
+            $path,
+            "\x00\x00\x00\x20ftypisom\x00\x00\x02\x00isomiso2avc1mp41" . str_repeat("\x00", 64)
+        );
+
+        return [
+            'name' => 'film.mp4',
+            'tmp_name' => $path,
+            'error' => UPLOAD_ERR_OK,
+            'size' => filesize($path),
+            'type' => 'video/mp4',
+        ];
     }
 
     private function fakeUploadedImage(): array
