@@ -264,4 +264,62 @@ class OutboundMailWiringTest extends TestCase
             'A support package must never be able to send a probe while it is being assembled.'
         );
     }
+
+    // ── the bounces are wired, both halves (roadmap IT-05) ────────────
+
+    /**
+     * **The half that records.** A consumer that is built but never
+     * registered is a consumer the mailbox screen cannot even offer a
+     * scope to — so no box is ever opened to it, no bounce is ever
+     * analysed, and nothing says so.
+     */
+    public function testTheBounceConsumerIsRegisteredOnTheReadRegistry(): void
+    {
+        $source = self::source('public/index.php');
+
+        $this->assertStringContainsString(
+            '\Core\Mail\Feedback\Bounce\BounceConsumer::CONSUMER_ID',
+            $source,
+            'Without this registration the superadmin can never grant a box to the bounce consumer.'
+        );
+        $this->assertStringContainsString('new \Core\Mail\Feedback\Bounce\BounceConsumer(', $source);
+    }
+
+    /**
+     * The consumer is given a notifier. Without one the bounce is
+     * recorded and the member is never told — the block still happens,
+     * and to them the unit has simply gone quiet.
+     */
+    public function testTheBounceConsumerCanActuallyTellSomebody(): void
+    {
+        $this->assertStringContainsString(
+            'new \Core\Mail\Feedback\Bounce\MemberBounceNotifier(',
+            self::source('public/index.php')
+        );
+    }
+
+    /**
+     * **The half that reads, and it is deliberately NOT inside the
+     * `inbound_mail` branch.** The bounce table is core, and « cette
+     * adresse est-elle suspendue » has to answer correctly on every
+     * installation. Built inside the module branch, a site without the
+     * module would resolve blocked addresses for every mailing and go on
+     * writing to them — which is the exact failure this whole chantier
+     * exists to end.
+     */
+    public function testTheAddressResolverIsGivenTheBounceState(): void
+    {
+        $source = self::source('public/index.php');
+
+        $position = strpos($source, 'new \Core\Member\MemberEmailService(');
+        $this->assertNotFalse($position, 'MemberEmailService must be built in the composition root.');
+
+        $construction = substr($source, $position, 1400);
+
+        $this->assertStringContainsString(
+            'new \Core\Mail\Feedback\Bounce\BounceService(',
+            $construction,
+            'Without this, a blocked address is resolved for every mailing exactly as before.'
+        );
+    }
 }

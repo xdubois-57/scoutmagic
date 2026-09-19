@@ -2474,7 +2474,18 @@ $memberEmailService = new \Core\Member\MemberEmailService(
     $memberService,
     $scoutYearService,
     (string) $settingService->get('base_url'),
-    (string) ($settingService->get('site_name') ?: 'Unité scoute')
+    (string) ($settingService->get('site_name') ?: 'Unité scoute'),
+    new \Core\Member\EmailDomainValidator(),
+    // Bounce state (roadmap IT-05). Wired unconditionally, and NOT inside
+    // the `inbound_mail` branch: the table is core, and what this reads it
+    // for — « cette adresse est-elle suspendue » — must answer correctly
+    // on every installation. What FILLS the table is the module's
+    // consumer, so without the module nothing ever bounces and every
+    // answer here is « non », which is true rather than degraded.
+    new \Core\Mail\Feedback\Bounce\BounceService(
+        new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $encryptionService),
+        $journalService
+    )
 );
 
 // Scout year resolution (public / staff / session-preview priority)
@@ -6563,6 +6574,26 @@ if ($isEnabled('inbound_mail')) {
                     $mailService,
                     $journalService,
                     $inboundMailForOthers
+                )
+            )
+    );
+
+    // The bounce consumer (roadmap IT-05), registered on the same
+    // registry and for the same reason: a consumer absent from it can
+    // never be granted the scope it needs, silently.
+    $inboundReadConsumers->registerFactory(
+        \Core\Mail\Feedback\Bounce\BounceConsumer::CONSUMER_ID,
+        static fn(): \Modules\InboundMail\Api\MessageConsumerInterface =>
+            new \Core\Mail\Feedback\Bounce\BounceConsumer(
+                new \Core\Mail\Feedback\Bounce\BounceService(
+                    new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $encryptionService),
+                    $journalService,
+                    new \Core\Mail\Feedback\Bounce\MemberBounceNotifier(
+                        $notificationService,
+                        new \Core\Member\MemberEmailRepository($pdo, $encryptionService),
+                        new \Core\Security\UserAccountRepository($pdo, $encryptionService),
+                        $encryptionService
+                    )
                 )
             )
     );
