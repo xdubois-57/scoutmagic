@@ -8,7 +8,7 @@ question: Où sont stockés les fichiers du site ?
 question: Quel type de stockage choisir pour les photos ?
 question: Comment déclarer un disque réseau ?
 paths: /config/stockage/emplacements, /config/stockage/emplacements/nouveau, /config/stockage/emplacements/*/modification
-related: stockage-copie-de-secours, stockage-espace, stockage-apres-un-sinistre
+related: stockage-webdav, stockage-copie-de-secours, stockage-espace, stockage-apres-un-sinistre
 ---
 
 Un **emplacement de stockage**, c'est une destination où le site écrit
@@ -38,7 +38,8 @@ fiche dit ce que la destination sait faire, en conséquences :
 En pratique : le disque du serveur convient tant que le volume reste
 raisonnable et ne demande aucune configuration. Un stockage externe
 devient intéressant quand les photos dépassent ce que l'hébergement peut
-porter.
+porter ; le plus simple à brancher est alors un
+[partage WebDAV](stockage-webdav).
 
 ## Ce qu'aucune sauvegarde ne reprend
 

@@ -54,22 +54,29 @@ function renderLocationsTable() {
  * boolean.** `isS3` answered for exactly two types, so a third — Google
  * Drive, in IT-05 — would have been shown the LOCAL folder field, which
  * is the branch nobody re-reads when a case is added.
+ *
+ * IT-05 replaced the boolean with a map written out by hand, and IT-06
+ * found the same trap one step along: WebDAV had a radio and a fieldset
+ * and no entry, so picking it showed nothing at all. The map is read off
+ * the radios now, which is what the last two cases below pin down — they
+ * are the ones that fail if anybody writes the list out again.
  */
 describe('storage-locations.js type picker', () => {
-    function renderTypePicker(checked) {
+    const TYPES = ['local', 's3', 'google_drive', 'webdav'];
+
+    function renderTypePicker(checked, types = TYPES) {
         document.head.innerHTML = '<meta name="csrf-token" content="tok">';
-        document.body.innerHTML = `
-            <input type="radio" name="type" value="local" ${checked === 'local' ? 'checked' : ''}>
-            <input type="radio" name="type" value="s3" ${checked === 's3' ? 'checked' : ''}>
-            <input type="radio" name="type" value="google_drive" ${checked === 'google_drive' ? 'checked' : ''}>
-            <div class="storage-location-local"></div>
-            <div class="storage-location-s3"></div>
-            <div class="storage-location-google_drive"></div>
-        `;
+        document.body.innerHTML = types
+            .map(
+                (type) =>
+                    `<input type="radio" name="type" value="${type}" ${type === checked ? 'checked' : ''}>`
+                    + `<div class="storage-location-${type}"></div>`,
+            )
+            .join('\n');
     }
 
-    function shown() {
-        return ['local', 's3', 'google_drive'].filter(
+    function shown(types = TYPES) {
+        return types.filter(
             (type) => !document.querySelector(`.storage-location-${type}`).classList.contains('d-none'),
         );
     }
@@ -80,7 +87,7 @@ describe('storage-locations.js type picker', () => {
         document.body.innerHTML = '';
     });
 
-    it.each(['local', 's3', 'google_drive'])('shows only the %s block', async (type) => {
+    it.each(TYPES)('shows only the %s block', async (type) => {
         renderTypePicker(type);
         await loadScript();
 
@@ -96,6 +103,33 @@ describe('storage-locations.js type picker', () => {
         drive.dispatchEvent(new Event('change'));
 
         expect(shown()).toEqual(['google_drive']);
+    });
+
+    // The guard against IT-06's own mistake: a type this file has never
+    // heard of still gets its fieldset, because the picker reads the
+    // radios the server rendered rather than a list kept in step by hand.
+    it('shows the block of a type no one wrote down here', async () => {
+        const types = ['local', 'a_type_added_later'];
+        renderTypePicker('a_type_added_later', types);
+        await loadScript();
+
+        expect(shown(types)).toEqual(['a_type_added_later']);
+    });
+
+    // Those values reach a CSS selector. They are the enum's own, so this
+    // can only fire on a template mistake — but a template mistake should
+    // leave the other types working rather than throw on page load.
+    it('ignores a radio whose value could not be an enum case', async () => {
+        document.head.innerHTML = '<meta name="csrf-token" content="tok">';
+        document.body.innerHTML = `
+            <input type="radio" name="type" value="local" checked>
+            <input type="radio" name="type" value='"], div'>
+            <div class="storage-location-local"></div>
+        `;
+
+        await loadScript();
+
+        expect(shown(['local'])).toEqual(['local']);
     });
 });
 

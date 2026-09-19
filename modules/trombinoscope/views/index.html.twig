@@ -13,16 +13,21 @@
         action_icon: 'bi-download',
     } only %}
 
-    {# Nobody prints the whole document: the first page and your own
-       section are enough, which is why each page carries its section's
-       name where the print dialog shows it. #}
-    <p class="text-body-secondary small">
-        <i class="bi bi-printer" aria-hidden="true"></i>
-        Un document de {{ pdf_page_count }} page{{ pdf_page_count > 1 ? 's' }} — l'annuaire des responsables,
-        puis une page par section. Inutile de tout imprimer : la première page et celle de votre
-        section suffisent.
-        {%- if not show_contacts %} Les coordonnées personnelles y sont masquées par le réglage.{% endif %}
-    </p>
+    {# The advice on what to print is gone (issue #360): it explained a
+       document to somebody who had not opened it yet, above a button
+       that downloads it. Why nobody needs to print all of it is still
+       written down — in Service\TrombinoscopePdfService, beside the
+       per-page section names that are the answer to it.
+
+       What stays is the one fact a reader cannot work out alone: that
+       the setting is currently withholding contact details from the
+       document they are about to download. Shown only when it is true,
+       so an installation leaving contacts visible sees nothing here. #}
+    {% if not show_contacts %}
+        <p class="text-body-secondary small">
+            Les coordonnées personnelles sont masquées dans le PDF par le réglage.
+        </p>
+    {% endif %}
 
     {% if picker_sections|length > 1 %}
         {% include 'partials/section_picker.html.twig' with {
