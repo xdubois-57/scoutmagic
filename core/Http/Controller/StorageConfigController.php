@@ -30,6 +30,7 @@ use Core\Storage\Location\Protection\StorageProtectionService;
 use Core\Storage\Location\Protection\Task\RepatriateFromCopyHandler;
 use Core\Storage\Location\Diagnostics\ObjectStorageErrorExplainer;
 use Core\Storage\Location\Diagnostics\ObjectStorageTestFailure;
+use Core\Storage\Location\StorageConsequence;
 use Core\Storage\Location\StorageLocation;
 use Core\Storage\Location\StorageLocationConsumerRegistry;
 use Core\Storage\Location\StorageLocationException;
@@ -345,6 +346,12 @@ class StorageConfigController extends AbstractController
         return $this->render('config/storage/locations.html.twig', [
             'locations' => $locations,
             'location_usages' => $this->usagesByLocationId($locations),
+            // The choosing aid: the same four readings the cards print,
+            // laid across every type rather than down one location. Built
+            // from the backends' own declarations, so it cannot disagree
+            // with the card above it (D3, and IT-01's `capabilities()`).
+            'comparison' => StorageConsequence::comparison(),
+            'comparison_types' => StorageLocationType::cases(),
             // Keyed by SOURCE, which is the card the block is rendered on.
             'protections' => $this->protectionsBySourceId(),
             // Every location may be somebody's destination, itself

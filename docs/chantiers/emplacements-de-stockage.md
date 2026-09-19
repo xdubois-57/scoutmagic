@@ -1257,3 +1257,176 @@ atterrit, donc la re-solliciter répond « pas de session » — et cette
 méthode lisait cela comme « rien n'est stocké », ce qui aurait fait
 renvoyer une archive complète une seconde fois. Le décalage est connu à
 cet endroit sans demander à personne.
+
+# IT-06 — WebDAV, le type qui ne demande qu'une adresse
+
+Cette section a été écrite **après coup**, pendant IT-07 : la PR d'IT-06 a
+été fusionnée sans elle, alors que l'en-tête de ce document promet une
+section par itération. L'omission est notée plutôt que corrigée en
+silence, parce que c'est exactement le genre de chose que ce journal
+existe pour empêcher.
+
+## Le « non » qui porte le vrai travail
+
+Capacités : plage d'octets **oui** (donc la vidéo fonctionne,
+contrairement à Drive), quota **oui** (RFC 4331), URL signée **non**.
+
+Ce dernier « non » n'a pas donné un second chemin de service, il a
+réutilisé le premier : `directUrl()` et `stableDirectUrl()` rendent `null`
+par contrat, `MediaService::resolveUrl()` retombe sur la route du site, et
+`GalleryController::serveMedia()` enchaîne `serveRange()` → `localPath()`
+→ `get()` exactement comme pour le disque du serveur. **Rien dans la
+galerie ne connaît WebDAV**, et ce sont les tests qui le disent.
+
+## `getetag` n'est pas une empreinte, et la norme ne l'a jamais dit
+
+Le lecteur de `PROPFIND` rendait l'etag comme empreinte annoncée dès qu'il
+avait la forme d'un MD5, en se disant qu'une telle forme ne pouvait être
+que l'empreinte du contenu. Nextcloud — le serveur visé en premier — y
+écrit `md5(mtime . inode . dev . size)` : trente-deux caractères
+hexadécimaux qui décrivent un inode. `ProtectedCopier` aurait comparé
+cette valeur au vrai MD5 de la source, déclaré chaque copie corrompue et
+**supprimé le fichier qu'il venait de téléverser** — sur tous les
+fichiers, donc une copie de secours vers un Nextcloud n'aurait jamais fini
+et aurait annoncé l'album entier comme endommagé.
+
+Rien n'est donc annoncé à moins que le serveur n'énonce un condensat
+*comme* un condensat (`<oc:checksums>`). Sinon la vérification retombe sur
+la comparaison des tailles, ce qu'elle fait déjà pour un ETag S3
+multipart.
+
+## Le silence d'un serveur sur la taille d'un fichier
+
+Trois défauts successifs au même endroit, chacun trouvé par une relecture
+et chacun réel :
+
+1. `(int) (string)` sur un élément absent vaut `0`, et un `0` annoncé fait
+   comparer un fichier réel à un zéro — même suppression que ci-dessus. Un
+   `isset()` a d'abord été posé.
+2. Il ne voyait qu'une forme du silence. Un serveur peut aussi envoyer
+   l'élément vide, non numérique, ou négatif. `bytesOrNull()`, déjà
+   utilisé deux lignes plus bas pour les quotas, traite les quatre — et un
+   `0` déclaré reste un fichier vide.
+3. Le `206` de la galerie annonçait la fin **demandée** à côté d'un
+   `Content-Length` tiré d'un corps plus court. L'en-tête vient désormais
+   des octets reçus.
+
+La tolérance à une tranche courte, elle, **reste** dans le client : la
+relecture proposait de la supprimer en croyant `serveRange()` seul
+appelant, alors que `ProtectedCopier` lit par tranches de 8 Mio sans
+borner la dernière. La resserrer aurait cassé les copies de protection sur
+presque tout fichier. Une prémisse fausse dans un constat par ailleurs
+juste — c'est le cas qui demande de vérifier avant de corriger.
+
+## Le garde SSRF résolvait autrement que celui qui se connecte
+
+Deux trous, tous deux trouvés en relecture, tous deux reproduits avant
+correction :
+
+- Un nom ne portant qu'une adresse IPv6 en NSS (`fd00::1` dans
+  `/etc/hosts`) était invisible à `dns_get_record()` (qui ne parle que
+  DNS) et à `gethostbyname()` (qui lit NSS mais seulement en IPv4). La
+  vérification répondait « ne résout pas » — donc « sûre » — et cURL s'y
+  connectait avec le mot de passe du partage dans un en-tête
+  `Authorization: Basic`.
+- Un littéral IPv6 entre crochets (`https://[fd00::1]/dav`) tombait dans
+  le même trou : `parse_url()` garde les crochets, `FILTER_VALIDATE_IP`
+  refuse cette écriture, aucun résolveur ne répond pour `[fd00::1]`. Et
+  cURL, lui, n'a besoin d'aucune recherche : il compose l'adresse. La même
+  tache aveugle refusait *tout* littéral IPv6 public à l'enregistrement.
+
+`addressesOf()` interroge donc `socket_addrinfo_lookup()` — le
+`getaddrinfo()` de PHP, les deux familles — en premier, parce que c'est la
+seule recherche qui voit ce que verra le client. Et là où ext-sockets
+manque, c'est la **souplesse** qui disparaît, pas la vérification : « rien
+n'a résolu » cesse de valoir autorisation.
+
+## Ce qui reste ouvert, et qui n'est pas à l'agent
+
+Épingler l'adresse validée pour la connexion elle-même (`CURLOPT_RESOLVE`)
+n'est pas fait. Valider et se connecter résolvent encore séparément, donc
+la fenêtre de re-liaison DNS demeure — plus étroite qu'avant, les deux
+résolutions passant maintenant par le même résolveur, mais présente. Cela
+appartient à toute la famille des clients sortants (Web Push, LLM, S3, le
+racleur de liens) et non à un type de stockage, et `SECURITY.md` §17 le
+porte comme résidu assumé avec son coût de disponibilité.
+
+# IT-07 — Google Drive pour les galeries, et la comparaison des types
+
+La dernière itération, et la plus courte : tout ce qu'elle demande existait
+déjà en pièces détachées depuis IT-01, qui avait construit
+`capabilities()` pour interroger les classes de backend précisément en vue
+de ce moment.
+
+## Le refus de la vidéo est une capacité, jamais un type
+
+Un lecteur se déplace dans un film avec des requêtes `Range:`. Un stockage
+qui ne sait pas y répondre — Google Drive aujourd'hui — laisse un visiteur
+**démarrer** une vidéo sans jamais pouvoir y avancer ; sur un téléphone
+cela veut généralement dire qu'elle ne se lit pas du tout. Ce n'est pas un
+album plus lent, c'est une fonction qui ne marche pas, donc l'envoi est
+refusé à la porte plutôt qu'accepté vers un état inutilisable.
+
+Écrit `if Google Drive`, ce refus aurait été la table-qui-ment contre
+laquelle `StorageLocationType` met en garde : le jour où Drive gagne la
+lecture par plage, ou celui où un cinquième type arrive sans elle, la
+phrase serait fausse dans un sens ou dans l'autre et rien ne le dirait.
+`assertTheAlbumCanServeAVideo()` interroge donc `RangeRead`, et les tests
+cherchent eux aussi « le premier type qui ne sait pas » plutôt que de
+nommer Drive.
+
+Les **photos** restent acceptées : un Drive les garde très bien. Un refus
+qui aurait débordé sur elles aurait transformé une restriction étroite en
+« ce type est inutilisable ».
+
+## Une divergence qui aurait été publiée quatre types de large
+
+`StorageConsequence::backups()` annonçait « oui, sans reprise » pour tout
+type sans `ResumableUpload`. Or `RemoteBackupController::choose()`
+**refuse** une telle destination, et `MaintenanceController` ne la propose
+même pas dans la liste : une archive de sauvegarde ne part jamais en une
+seule fois, donc une destination qui repart de zéro n'en finit jamais une
+grosse.
+
+Deux types sont concernés aujourd'hui, S3 et WebDAV. Tant que la phrase ne
+vivait que sur la fiche d'un emplacement, la contradiction restait
+discrète ; le tableau de comparaison l'aurait affichée sur deux colonnes
+sur quatre. Le verdict dit maintenant « non », et un test lie les deux :
+il vérifie que le verdict refuse **exactement** quand la capacité exigée
+par le contrôleur est absente, pour tout type présent et à venir.
+
+## Le tableau, et pourquoi c'en est un
+
+Les fiches répondent « que sait faire CET emplacement ». Le tableau répond
+« lequel déclarer ensuite », et c'est la seule question qui demande de
+lire une ligne **en travers** des options — la chose qu'une pile de fiches
+ne sait pas faire. Quatre lignes, les quatre questions que la maquette a
+trouvées.
+
+Chaque cellule vient de `StorageConsequence::comparison()`, qui parcourt
+`StorageLocationType::cases()` et interroge les backends : le tableau ne
+peut donc pas diverger des fiches au-dessus de lui, et un cinquième type y
+apparaîtra le jour où il existera, sans colonne à ajouter à la main.
+
+## Les deux avertissements de Drive, et ce qu'ils ne sont pas
+
+Un Drive rattaché à une galerie a deux conséquences que la ligne
+« Vidéos » ne couvre pas : chaque photo est une requête authentifiée faite
+par le site (Drive ne remet rien directement au visiteur), et
+l'autorisation volontairement étroite `drive.file` fait que le site ne
+voit que les fichiers qu'il a lui-même déposés — des photos déjà présentes
+dans le dossier resteront invisibles.
+
+Ce sont des **informations**, pas des refus, et elles ne s'affichent que
+lorsqu'un emplacement Drive existe : un administrateur qui n'en a aucun
+n'a rien à décider là. Toutes deux se découvrent autrement tard et mal —
+la première comme un album qui pèse, la seconde comme un dossier qui
+paraît vide.
+
+## Ce qui n'a pas été fait
+
+Rien n'interdisait déjà à une galerie de pointer vers un Drive : il n'y
+avait aucune restriction à lever, seulement un refus de vidéo à ajouter.
+La maquette montre aussi un onglet « Vidéos » avec conservation de
+l'original et durée maximale ; ils existaient depuis IT-02 et n'ont pas
+bougé.

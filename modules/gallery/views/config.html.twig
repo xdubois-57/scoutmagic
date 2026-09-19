@@ -99,6 +99,38 @@
                         Les emplacements se déclarent dans
                         <a href="/config/stockage/emplacements">Configuration › Stockage</a>.
                     </div>
+                    {#
+                      Two consequences of Google Drive that the « Vidéos »
+                      line of the comparison does not cover, shown only when
+                      a Drive location actually exists — an administrator
+                      with none has nothing to decide here.
+
+                      Information rather than a refusal: a Drive holds an
+                      album's photographs perfectly well. What it does not do
+                      is hand them to the visitor itself, and what it cannot
+                      see is what the site did not put there. Both are
+                      properties of the type an operator meets late and
+                      painfully — the first as an album that feels heavy, the
+                      second as a folder that looks empty — so they are said
+                      at the moment the destination is chosen.
+                    #}
+                    {% if locations|filter(l => l.type.value == 'google_drive')|length %}
+                        <div class="alert alert-info small mt-3 mb-0">
+                            <p class="mb-2">
+                                <strong>Sur un Google Drive, chaque photo est une requête authentifiée
+                                faite par ce site.</strong> Drive ne sait pas remettre un fichier
+                                directement au visiteur : la photo passe par le serveur, à chaque
+                                affichage. Un album ouvert par trente parents le même soir se sent.
+                            </p>
+                            <p class="mb-0">
+                                <strong>Ce site ne voit que les fichiers qu'il a lui-même déposés.</strong>
+                                L'autorisation demandée à Google est volontairement la plus étroite
+                                (<code>drive.file</code>) : des photos déjà présentes dans le dossier
+                                resteront invisibles ici, et c'est le prix à payer pour que le reste du
+                                Drive de la personne le reste aussi.
+                            </p>
+                        </div>
+                    {% endif %}
                 </div>
             </div>
         {% endif %}
@@ -169,10 +201,14 @@
         </div>
 
             <div class="alert alert-warning small">
-                Une vidéo n'est lisible que sur un emplacement qui sait lire par plage d'octets — sans
-                quoi le lecteur peut démarrer le film mais jamais y avancer. L'onglet « Emplacements »
-                de <a href="/config/stockage/emplacements">Configuration › Stockage</a> le dit
-                emplacement par emplacement, sur la ligne « Vidéos ».
+                <strong>Sur un emplacement qui ne sait pas lire par plage d'octets, l'envoi d'une
+                vidéo est refusé</strong> — Google Drive aujourd'hui. Sans cette aptitude le lecteur
+                peut démarrer le film mais jamais y avancer, et une vidéo qu'on ne peut pas parcourir
+                ne sert à rien : mieux vaut le dire au dépôt que le découvrir à la lecture. Les photos,
+                elles, y sont acceptées normalement. L'onglet « Emplacements » de
+                <a href="/config/stockage/emplacements">Configuration › Stockage</a> le dit
+                emplacement par emplacement, sur la ligne « Vidéos », et le tableau au bas de cette
+                page compare les types entre eux.
             </div>
         {% endif %}
 

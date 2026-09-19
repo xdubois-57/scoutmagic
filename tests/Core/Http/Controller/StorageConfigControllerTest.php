@@ -41,6 +41,7 @@ use Core\Storage\Location\Protection\StorageProtectionRepository;
 use Core\Storage\Location\Protection\StorageProtectionService;
 use Core\Storage\Location\StorageLocationRepository;
 use Core\Storage\Location\StorageLocationService;
+use Core\Storage\Location\StorageConsequence;
 use Core\Storage\Location\StorageLocationType;
 use Core\Storage\Volume\VolumeInventory;
 use PHPUnit\Framework\TestCase;
@@ -870,6 +871,53 @@ class StorageConfigControllerTest extends TestCase
         $this->assertStringContainsString('Vidéos', $body);
         $this->assertStringNotContainsString('range_read', $body);
         $this->assertStringNotContainsString('plage d&#039;octets', $body);
+    }
+
+    /**
+     * **The comparison table, and the reason it is worth a test: it is
+     * the one place the four verdicts are readable ACROSS the types.**
+     *
+     * Its cells come from the backends' own declarations, so this asserts
+     * that the table renders every type and carries the two refusals that
+     * are the whole point of consulting it — a « non » that is missing
+     * reads as a « oui ».
+     */
+    public function testTheLocationsPageComparesEveryTypeOnTheFourQuestions(): void
+    {
+        $this->declareLocal('Disque du serveur', 'gallery');
+
+        $body = $this->controller->locations(
+            new Request('GET', '/config/stockage/emplacements', [], [], [], []),
+            []
+        )->getBody();
+
+        $this->assertStringContainsString('Comparer les types de stockage', $body);
+
+        foreach (StorageLocationType::cases() as $type) {
+            $this->assertStringContainsString(
+                htmlspecialchars($type->frenchLabel(), ENT_QUOTES),
+                $body,
+                $type->value . ' must have a column'
+            );
+        }
+
+        foreach ([
+            StorageConsequence::AREA_PHOTOS,
+            StorageConsequence::AREA_VIDEOS,
+            StorageConsequence::AREA_BACKUPS,
+            StorageConsequence::AREA_SPACE,
+        ] as $area) {
+            $label = null;
+            foreach (StorageConsequence::forType(StorageLocationType::Local) as $consequence) {
+                if ($consequence->area === $area) {
+                    $label = $consequence->label;
+                }
+            }
+            $this->assertStringContainsString((string) $label, $body, $area . ' must have a row');
+        }
+
+        // The refusals are what an administrator comes here to find.
+        $this->assertStringContainsString('>non<', $body);
     }
 
     /**

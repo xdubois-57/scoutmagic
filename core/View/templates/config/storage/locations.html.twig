@@ -12,11 +12,11 @@
 
   **What is shown is consequences, never capabilities** (D3). Nobody
   chooses a storage type on « lecture par plage d'octets » — the
-  enumeration stays in the code and produces these sentences. The
-  comparison table that turns the same source into a choosing aid is
-  IT-07, and the « Protection » block the mockup shows on each card is
-  IT-04: a tab pointing at something that does not exist yet is worse than
-  no tab.
+  enumeration stays in the code and produces these sentences. The same
+  source feeds the comparison table at the foot of the page (IT-07): the
+  cards answer « what does THIS location do », the table answers « which
+  kind should I declare next », and both are computed, so neither can
+  contradict the other.
 #}
 {% extends 'base.html.twig' %}
 
@@ -357,6 +357,66 @@
             message: 'Aucun emplacement déclaré.',
         } only %}
     {% endfor %}
+
+    {#
+      The choosing aid, and the reason it is a TABLE where the cards are
+      not: here the whole point is reading one line across the options,
+      which is the one thing a stack of cards cannot do. Four rows, because
+      those are the four questions the mockup found an administrator
+      actually asks.
+
+      Every cell comes from StorageConsequence::comparison(), which asks
+      the backend classes what they declare — so this cannot drift from the
+      cards above, and a fifth type appears here on the day it exists
+      without anyone remembering to add a column.
+
+      Wrapped in `table-responsive`: four types plus a label do not fit a
+      phone, and this is the one kind of content AGENTS.md allows to scroll
+      sideways rather than be cut.
+    #}
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h6 mb-1">Comparer les types de stockage</h2>
+            <p class="text-muted small mb-3">
+                Ce que chaque type sait faire, pour choisir avant d'en déclarer un.
+            </p>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <caption class="visually-hidden">
+                        Comparaison des types de stockage sur quatre critères
+                    </caption>
+                    <thead>
+                        <tr>
+                            <th scope="col"></th>
+                            {% for type in comparison_types %}
+                                <th scope="col" class="fw-medium">{{ type.frenchLabel }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in comparison %}
+                            <tr>
+                                <th scope="row" class="fw-medium">{{ row.label }}</th>
+                                {% for cell in row.cells %}
+                                    {# The detail carries the « why », and it is the
+                                       sentence the card prints — so it is a title
+                                       rather than a second column that would make
+                                       the table unreadable. #}
+                                    <td title="{{ cell.detail }}">
+                                        {% if cell.verdict == 'non' %}
+                                            <span class="text-danger">{{ cell.verdict }}</span>
+                                        {% else %}
+                                            {{ cell.verdict }}
+                                        {% endif %}
+                                    </td>
+                                {% endfor %}
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
 {% endblock %}
 
 {% block scripts %}

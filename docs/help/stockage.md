@@ -8,7 +8,7 @@ question: Où sont stockés les fichiers du site ?
 question: Quel type de stockage choisir pour les photos ?
 question: Comment déclarer un disque réseau ?
 paths: /config/stockage/emplacements, /config/stockage/emplacements/nouveau, /config/stockage/emplacements/*/modification
-related: stockage-webdav, stockage-copie-de-secours, stockage-espace, stockage-apres-un-sinistre
+related: stockage-webdav, stockage-google-drive, stockage-copie-de-secours, stockage-espace, stockage-apres-un-sinistre
 ---
 
 Un **emplacement de stockage**, c'est une destination où le site écrit
@@ -25,21 +25,22 @@ fiche dit ce que la destination sait faire, en conséquences :
   du stockage au visiteur ; un peu plus lent veut dire qu'elles
   transitent par le site. Sur un album ouvert par trente parents le même
   soir, ça se sent.
-- **Vidéos** — un non est le seul refus vraiment bloquant de cette
-  liste. Sans la lecture par morceaux, un lecteur démarre le film mais
-  n'y avance jamais : ce n'est pas plus lent, c'est inutilisable.
-- **Sauvegardes** — un envoi volumineux interrompu reprend, ou repart de
-  zéro. Sur une archive de plusieurs gigaoctets et une connexion
-  capricieuse, la différence peut vouloir dire jamais.
-- **Place restante** — certains stockages savent dire ce qu'ils
-  contiennent, d'autres non. Ceux qui ne savent pas n'affichent rien
-  plutôt qu'une barre fausse.
+- **Vidéos** — un non est un vrai refus : l'envoi y est bloqué, un film
+  qu'on ne peut pas parcourir ne servant à rien. Les photos restent
+  acceptées.
+- **Sauvegardes** — un non est un refus aussi : une archive ne part
+  jamais en une fois, donc un stockage qui ne sait pas reprendre n'est
+  pas proposé.
+- **Place restante** — certains savent dire ce qu'ils contiennent,
+  d'autres non, et n'affichent alors rien plutôt qu'une barre fausse.
 
 En pratique : le disque du serveur convient tant que le volume reste
 raisonnable et ne demande aucune configuration. Un stockage externe
 devient intéressant quand les photos dépassent ce que l'hébergement peut
 porter ; le plus simple à brancher est alors un
-[partage WebDAV](stockage-webdav).
+[partage WebDAV](stockage-webdav), ou un
+[Google Drive](stockage-google-drive).
+
 
 ## Ce qu'aucune sauvegarde ne reprend
 
