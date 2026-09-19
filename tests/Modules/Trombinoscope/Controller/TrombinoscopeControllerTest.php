@@ -267,6 +267,66 @@ class TrombinoscopeControllerTest extends TestCase
         );
     }
 
+    /**
+     * Issue #360 — the page no longer explains the PDF to somebody who
+     * has not opened it.
+     *
+     * Asserted on the sentence AND on the printer icon it hung from,
+     * because deleting one and leaving the other is exactly the half
+     * removal that would read as a bug of its own.
+     */
+    public function testThePageNoLongerExplainsWhatToPrint(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(1, 'member@test.be', 'identified');
+
+        $body = $this->buildFrontController()
+            ->handle(new Request('GET', '/trombinoscope', [], [], [], []))
+            ->getBody();
+
+        $this->assertStringNotContainsString('Inutile de tout imprimer', $body);
+        $this->assertStringNotContainsString('bi-printer', $body);
+        // The download button is untouched — it is the page's action, not
+        // the explanation that sat above it.
+        $this->assertStringContainsString('Télécharger le PDF', $body);
+    }
+
+    /**
+     * Issue #360 — and what a reader cannot work out alone stays: with
+     * the setting off, the document they are about to download is
+     * missing contact details, and nothing else on the page says so.
+     */
+    public function testTheMaskedContactsNoticeSurvivesTheRemoval(): void
+    {
+        $this->showContacts = false;
+        $this->startTestSession();
+        AuthSession::login(1, 'member@test.be', 'identified');
+
+        $body = $this->buildFrontController()
+            ->handle(new Request('GET', '/trombinoscope', [], [], [], []))
+            ->getBody();
+
+        $this->assertStringContainsString('Les coordonnées personnelles sont masquées dans le PDF', $body);
+        $this->assertStringNotContainsString('Inutile de tout imprimer', $body);
+    }
+
+    /**
+     * With the setting on there is nothing to warn about, so the line is
+     * absent rather than negated — most installations see no paragraph
+     * here at all now.
+     */
+    public function testNoNoticeAtAllWhenContactsAreShown(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(1, 'member@test.be', 'identified');
+
+        $body = $this->buildFrontController()
+            ->handle(new Request('GET', '/trombinoscope', [], [], [], []))
+            ->getBody();
+
+        $this->assertStringNotContainsString('Les coordonnées personnelles', $body);
+    }
+
     public function testContactsAreShownWhenTheSettingIsOn(): void
     {
         $this->startTestSession();

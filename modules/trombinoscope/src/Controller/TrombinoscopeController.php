@@ -143,10 +143,6 @@ class TrombinoscopeController extends AbstractController
             'selected_id' => $selectedId,
             'section_blocks' => $sectionBlocks,
             'show_contacts' => $this->showsContacts(),
-            // The printable document always covers the whole unit and the
-            // effective year, whatever this page is currently filtered to
-            // — so the count is every section plus the directory page.
-            'pdf_page_count' => count($allSections) + 1,
             'scout_year_label' => $effectiveYear->label,
         ];
         if ($selectedLabel !== null) {
