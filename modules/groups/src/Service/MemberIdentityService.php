@@ -250,6 +250,34 @@ class MemberIdentityService
     }
 
     /**
+     * What each of these memberships is called by itself — the totem, or
+     * the first name when there is no totem.
+     *
+     * The companion of accountLabelForMembers(), for the callers whose own
+     * fallback is exactly this. That method returns an empty string for a
+     * membership no named account stands behind, deliberately, so each
+     * caller picks its own fallback — and a picker offering MEMBERSHIPS
+     * has only one sensible answer: what the membership is called. Most
+     * animés have no account of their own (their parent's is the only one
+     * in the family), so this is not a rare branch, it is the ordinary
+     * case for a section group.
+     *
+     * Offered here rather than by handing every caller a
+     * Core\Member\MemberService of its own: the batching is the point of
+     * this class, and a picker resolving names one at a time is the N+1
+     * the whole file exists to avoid.
+     *
+     * @param int[] $memberIds
+     * @return array<int, string> member id => display name; a membership
+     *         with no active year, or with neither totem nor first name,
+     *         is simply absent
+     */
+    public function ownDisplayNames(array $memberIds, int $scoutYearId): array
+    {
+        return $this->memberService->findDisplayNamesByMemberIds($memberIds, $scoutYearId);
+    }
+
+    /**
      * The identity as one line — for the few places that can only carry a
      * string (a <select>'s option, a joined list). Everywhere with room
      * for markup renders partials/identity.html.twig instead, so the two

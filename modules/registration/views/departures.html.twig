@@ -100,13 +100,19 @@
                         {% for row in rows %}
                             {% set columns = reenrollment.visible ? 4 : 3 %}
                             <tr{{ row.diverges|default(false) ? ' class="table-warning"' : '' }}>
-                                <td>{{ row.profile.firstName }} {{ row.profile.lastName }}</td>
+                                {# "Totem (Prénom Nom)" rather than the surname alone: a
+                                   staff member reading this list knows the animé by their
+                                   totem, and the legal name is what the rest of the row is
+                                   filed under. The same filter names them in the checkbox's
+                                   accessible label and in the note's hidden one below, so a
+                                   screen reader hears the line that is on screen. #}
+                                <td>{{ row.profile|display_name_full }}</td>
                                 <td>{{ row.branch_year_label }}</td>
                                 {% if reenrollment.visible %}
                                     <td class="d-none d-md-table-cell">{{ answer_ui.family_answer(row) }}</td>
                                 {% endif %}
                                 <td class="text-center">
-                                    <input type="checkbox" class="form-check-input departure-checkbox" data-member-year-id="{{ row.profile.memberYearId }}" aria-label="Ne sera plus là l'année prochaine — {{ row.profile.firstName }} {{ row.profile.lastName }}" {{ row.leaving ? 'checked' : '' }}>
+                                    <input type="checkbox" class="form-check-input departure-checkbox" data-member-year-id="{{ row.profile.memberYearId }}" aria-label="Ne sera plus là l'année prochaine — {{ row.profile|display_name_full }}" {{ row.leaving ? 'checked' : '' }}>
                                 </td>
                             </tr>
                             {# One detail row per member, carrying two things that
@@ -141,7 +147,7 @@
                                            what keeps « Note interne » unambiguous when a section
                                            has twenty of them. #}
                                         <label class="form-label small text-muted mb-1" for="departure-comment-{{ row.profile.memberYearId }}">
-                                            Note interne — jamais vue par la famille<span class="visually-hidden"> — {{ row.profile.firstName }} {{ row.profile.lastName }}</span>
+                                            Note interne — jamais vue par la famille<span class="visually-hidden"> — {{ row.profile|display_name_full }}</span>
                                         </label>
                                         <textarea class="form-control form-control-sm departure-comment" id="departure-comment-{{ row.profile.memberYearId }}" data-member-year-id="{{ row.profile.memberYearId }}"
                                             rows="2" placeholder="Commentaire facultatif (motif du départ, jamais visible en dehors de cette section)">{{ row.comment }}</textarea>

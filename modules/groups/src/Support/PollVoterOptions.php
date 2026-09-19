@@ -62,17 +62,29 @@ final class PollVoterOptions
         // Account-first, narrowed to the one membership each option
         // stands for ("Marie Dupont (Akéla)") — three options reading
         // "Marie Dupont (Akéla, Baloo, Chil)" would be three identical
-        // options. An unnamed membership keeps its id rather than an
-        // empty row: the picker's job is to be pickable.
-        $labels = $identity?->accountLabelForMembers(
-            $memberIds,
-            $group->scoutYearId ?? $context->effectiveScoutYearId
-        ) ?? [];
+        // options.
+        $scoutYearId = $group->scoutYearId ?? $context->effectiveScoutYearId;
+        $labels = $identity?->accountLabelForMembers($memberIds, $scoutYearId) ?? [];
+
+        // The fallback for a membership no NAMED account stands behind,
+        // which in a section group is most of them: an animé's only login
+        // is usually a parent's, under the parent's own name, and a
+        // membership with no login at all has no account name to borrow.
+        // accountLabelForMembers() answers '' for both on purpose and
+        // leaves the fallback to each caller — and the one this picker
+        // wants is the name the membership itself carries, the same one
+        // "qui a réagi" and the group's member list show. Issue #358: it
+        // used to fall straight through to "Membre #40", offering a
+        // parent a choice between two numbers.
+        $ownNames = $identity?->ownDisplayNames($memberIds, $scoutYearId) ?? [];
 
         return array_map(
             static fn(int $memberId): array => [
                 'id' => $memberId,
-                'name' => ($labels[$memberId] ?? '') !== '' ? $labels[$memberId] : ('Membre #' . $memberId),
+                // The bare id survives as the last resort only: a
+                // membership whose year is gone has no name left to show,
+                // and an option with no label at all is unpickable.
+                'name' => self::name($memberId, $labels, $ownNames),
                 // Which side of the group this membership is on — the
                 // picker groups them under two headings rather than
                 // mixing four totems a reader cannot tell apart.
@@ -80,5 +92,20 @@ final class PollVoterOptions
             ],
             $memberIds
         );
+    }
+
+    /**
+     * @param array<int, string> $labels account-first labels, '' when none
+     * @param array<int, string> $ownNames the membership's own display name
+     */
+    private static function name(int $memberId, array $labels, array $ownNames): string
+    {
+        foreach ([$labels[$memberId] ?? '', $ownNames[$memberId] ?? ''] as $candidate) {
+            if ($candidate !== '') {
+                return $candidate;
+            }
+        }
+
+        return 'Membre #' . $memberId;
     }
 }
