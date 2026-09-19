@@ -46,6 +46,86 @@ async function boot() {
     await import('../../public/assets/js/offline-nav.js');
 }
 
+/**
+ * Let the connectivity probe settle.
+ *
+ * Since issue #353 the script does not act on `navigator.onLine`; it
+ * acts on what a HEAD to /api/version answered, and that answer arrives
+ * in a promise. Every assertion about interception therefore has to come
+ * after the probe, and a macrotask turn drains the whole microtask chain
+ * (`then`/`catch`/`then`) the probe is built from.
+ */
+function settle() {
+    return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/**
+ * Whether the connectivity probe is currently allowed to succeed.
+ *
+ * A module-scope switch rather than a fresh stub per phase, because
+ * `probeConnectivity()` deliberately holds the `window.fetch` captured
+ * at boot — « uses the original fetch, not the wrapper » — so a stub
+ * swapped in afterwards is never the one the probe calls. Flipping this
+ * is how a test makes the network come back mid-run.
+ */
+let probeReachable = false;
+
+/**
+ * The fetch installed before boot, kept because layer 2 replaces
+ * `window.fetch` with its own wrapper — so after boot the global is the
+ * wrapper and this is the only handle left on what the probe actually
+ * called.
+ */
+let installedFetch = null;
+
+/**
+ * The page's fetch, answering the probe and everything else separately.
+ *
+ * The probe is a HEAD to /api/version; anything else is the application
+ * doing its own work, and a test asserting « the real fetch was never
+ * called » means that half, never the probe.
+ *
+ * @param {Function} inner what a non-probe call resolves to
+ */
+function installFetch(inner = vi.fn(() => Promise.resolve('ok'))) {
+    const dispatching = vi.fn((input, init) => {
+        const method = String(
+            (init && init.method) || (input && typeof input === 'object' && input.method) || 'GET'
+        ).toUpperCase();
+        const url = typeof input === 'string' ? input : String((input && input.url) || '');
+
+        if (method === 'HEAD' && url === '/api/version') {
+            return probeReachable
+                ? Promise.resolve({ ok: true })
+                : Promise.reject(new TypeError('Failed to fetch'));
+        }
+
+        return inner(input, init);
+    });
+
+    global.fetch = dispatching;
+    window.fetch = dispatching;
+    installedFetch = dispatching;
+
+    return inner;
+}
+
+/**
+ * A device that is REALLY offline: the browser says so, and the probe
+ * cannot reach anything either.
+ *
+ * `boot()` alone is no longer enough to reach the intercepting state,
+ * which is the point of the fix — a browser claiming to be offline is
+ * only a reason to ask.
+ */
+async function bootConfirmedOffline() {
+    setOnline(false);
+    probeReachable = false;
+    installFetch();
+    await boot();
+    await settle();
+}
+
 const CORE_WHITELIST = [
     { path: '/', match: 'exact' },
     { path: '/contact', match: 'exact' },
@@ -88,11 +168,40 @@ beforeEach(() => {
     // arrow implementation is not constructible.
     global.bootstrap = { Modal: vi.fn(function () { return modalInstance; }) };
     trackedListeners = [];
+    // Every test starts from a probe that cannot reach anything, so
+    // « the browser says offline » and « the network really is away »
+    // agree unless a test deliberately parts them. Installed here rather
+    // than left to whatever the previous test assigned: the probe holds
+    // the `window.fetch` captured at boot, so a leftover stub from
+    // another test is otherwise the one it calls, and a test asserting
+    // on greyed links would be reading an earlier test's fetch.
+    probeReachable = false;
+    installedFetch = null;
+    installFetch();
     trackListeners(document);
     trackListeners(window);
 });
 
 afterEach(() => {
+    // Stop every booted module's connectivity heartbeat BEFORE the
+    // listeners go.
+    //
+    // A test that reaches the confirmed-offline state leaves
+    // watchConnectivity()'s 5s interval running, on a module closure
+    // boot()'s `vi.resetModules()` has otherwise abandoned. These are
+    // real timers — this file uses none of Vitest's fake ones — so a
+    // stale tick calls applyState() against the CURRENT jsdom document
+    // and can grey out links in a later, unrelated test once wall-clock
+    // time crosses five seconds, which a loaded runner or coverage
+    // instrumentation makes ordinary.
+    //
+    // watchConnectivity() clears its own interval as soon as the browser
+    // reports online, and every booted module still has its own `online`
+    // listener on window — so one event reaches all of them at once.
+    // Same posture, and the same reason, as the listener tracking above.
+    setOnline(true);
+    window.dispatchEvent(new Event('online'));
+
     trackedListeners.forEach(({ target, type, listener, options }) => {
         target.removeEventListener(type, listener, options);
     });
@@ -191,31 +300,108 @@ describe('offline-nav.js: applyState() greys out unavailable links (isWhiteliste
         expect(link.hasAttribute('aria-disabled')).toBe(false);
     });
 
-    it('re-greys links on the "offline" event too', async () => {
+    it('re-greys links on the "offline" event — once the probe confirms it', async () => {
         buildConfig(CORE_WHITELIST);
         buildLinks(['/finance']);
         setOnline(true);
+        probeReachable = true;
+        installFetch();
+        await boot();
+
+        setOnline(false);
+        probeReachable = false; // the network really did go away
+        window.dispatchEvent(new Event('offline'));
+        await settle();
+
+        expect(document.querySelector('a[href="/finance"]').classList.contains('offline-link-disabled')).toBe(true);
+    });
+
+    /**
+     * Issue #353, in the half a visitor SEES: iOS reports an installed
+     * application offline for a while after the network is back, and the
+     * whole menu used to go grey on that word alone. The probe answers,
+     * so nothing is greyed.
+     */
+    it('leaves links alone when the browser claims offline but the network answers', async () => {
+        buildConfig(CORE_WHITELIST);
+        buildLinks(['/finance']);
+        setOnline(true);
+        probeReachable = true;
+        installFetch();
         await boot();
 
         setOnline(false);
         window.dispatchEvent(new Event('offline'));
-        expect(document.querySelector('a[href="/finance"]').classList.contains('offline-link-disabled')).toBe(true);
+        await settle();
+
+        expect(document.querySelector('a[href="/finance"]').classList.contains('offline-link-disabled')).toBe(false);
     });
 
     it('re-evaluates on visibilitychange only when the tab becomes visible (an installed app resuming from a frozen state)', async () => {
         buildConfig(CORE_WHITELIST);
         buildLinks(['/finance']);
         setOnline(true);
+        probeReachable = true;
+        installFetch();
         await boot();
         setOnline(false); // connectivity changed while frozen; no online/offline event fired
+        probeReachable = false;
 
         Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
         document.dispatchEvent(new Event('visibilitychange'));
+        await settle();
         expect(document.querySelector('a[href="/finance"]').classList.contains('offline-link-disabled')).toBe(false);
 
         Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
         document.dispatchEvent(new Event('visibilitychange'));
+        await settle();
         expect(document.querySelector('a[href="/finance"]').classList.contains('offline-link-disabled')).toBe(true);
+    });
+
+    /**
+     * Two probes in flight, answered out of order.
+     *
+     * The heartbeat ticks while a `visibilitychange` asks again, and a
+     * probe issued while the network was down times out
+     * (PROBE_TIMEOUT_MS) long after a later one has been answered. If
+     * the stale « unreachable » is allowed to land, it overwrites the
+     * fresh « reachable » AND leaves no heartbeat behind to correct
+     * itself — the page is stranded offline until the next event, which
+     * on an installed iOS application can be minutes. That is the exact
+     * symptom #353 is about, reintroduced from the other end.
+     *
+     * Built with deferred promises rather than timers, because what is
+     * under test is the ORDER the answers arrive in, not how long they
+     * took.
+     */
+    it('ignores a probe that a newer one has already overtaken', async () => {
+        buildConfig(CORE_WHITELIST);
+        buildLinks(['/finance']);
+
+        const pending = [];
+        global.fetch = window.fetch = vi.fn(
+            () => new Promise((resolve, reject) => pending.push({ resolve, reject }))
+        );
+
+        setOnline(false);
+        await boot();            // issues P1, which does not answer yet
+        expect(pending).toHaveLength(1);
+
+        // The network comes back; a second trigger asks again.
+        Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+        document.dispatchEvent(new Event('visibilitychange'));
+        expect(pending).toHaveLength(2);
+
+        pending[1].resolve({ ok: true });   // P2 answers first: reachable
+        await settle();
+        expect(document.querySelector('a[href="/finance"]').classList.contains('offline-link-disabled')).toBe(false);
+
+        pending[0].reject(new TypeError('Failed to fetch')); // P1 times out late
+        await settle();
+
+        // Still online. A stale answer describes a network that has
+        // since been asked again.
+        expect(document.querySelector('a[href="/finance"]').classList.contains('offline-link-disabled')).toBe(false);
     });
 
     it('strips query strings and fragments before matching', async () => {
@@ -263,8 +449,7 @@ describe('offline-nav.js: click interception (layer 1a — links)', () => {
         buildConfig(CORE_WHITELIST);
         buildDialog();
         const link = buildLink('/contact');
-        setOnline(false);
-        await boot();
+        await bootConfirmedOffline();
 
         const evt = new MouseEvent('click', { bubbles: true, cancelable: true });
         link.dispatchEvent(evt);
@@ -276,20 +461,37 @@ describe('offline-nav.js: click interception (layer 1a — links)', () => {
         buildConfig(CORE_WHITELIST);
         buildDialog();
         const link = buildLink('/finance');
-        setOnline(false);
-        const probe = vi.fn(() => Promise.reject(new TypeError('Failed to fetch')));
-        window.fetch = probe;
-        await boot();
+        await bootConfirmedOffline();
 
         const evt = new MouseEvent('click', { bubbles: true, cancelable: true });
         link.dispatchEvent(evt);
+
+        // Synchronously, inside the click. The answer was already known
+        // before the tap, so nothing here is deferred to a promise —
+        // which is the whole of issue #353.
         expect(evt.defaultPrevented).toBe(true);
-        await vi.waitFor(() => expect(modalInstance.show).toHaveBeenCalled());
-        expect(probe).toHaveBeenCalledWith('/api/version', expect.objectContaining({ method: 'HEAD', cache: 'no-store' }));
+        expect(modalInstance.show).toHaveBeenCalled();
+        expect(installedFetch).toHaveBeenCalledWith(
+            '/api/version',
+            expect.objectContaining({ method: 'HEAD', cache: 'no-store' })
+        );
         expect(document.getElementById('offline-dialog-message').textContent).toBe("Cette page n'est pas disponible hors ligne.");
     });
 
-    it('opens the page after all when navigator.onLine was stale and the server answers the probe', async () => {
+    /**
+     * **Issue #353.** An installed iOS application thawed by the OS
+     * reports itself offline while the network is perfectly fine. The
+     * click must reach the browser untouched — not be cancelled and
+     * re-issued from a promise, which a standalone WebKit window is
+     * entitled to ignore, and which is exactly how a tap came to do
+     * nothing at all.
+     *
+     * Asserted as « never cancelled », not as « navigated »: the fix is
+     * that this script stops taking the navigation away from the
+     * browser, and a test that watched `location.assign` would be
+     * testing the mechanism that was removed.
+     */
+    it('leaves the click to the browser when navigator.onLine is stale and the server answers', async () => {
         buildConfig(CORE_WHITELIST);
         buildDialog();
         const link = buildLink('/finance');
@@ -298,41 +500,64 @@ describe('offline-nav.js: click interception (layer 1a — links)', () => {
         const assign = vi.fn();
         vi.stubGlobal('location', { ...window.location, assign });
         await boot();
+        await settle();
 
         const evt = new MouseEvent('click', { bubbles: true, cancelable: true });
         link.dispatchEvent(evt);
-        expect(evt.defaultPrevented).toBe(true);
-        await vi.waitFor(() => expect(assign).toHaveBeenCalledWith(link.href));
+
+        expect(evt.defaultPrevented).toBe(false);
         expect(modalInstance.show).not.toHaveBeenCalled();
+        expect(assign).not.toHaveBeenCalled();
         vi.unstubAllGlobals();
     });
 
-    it('never navigates to another origin on its own: a protocol-relative "//host/…" href is left to the browser', async () => {
+    /**
+     * And the window before any answer is back — a page that has just
+     * loaded, or a verdict gone stale — counts as online rather than as
+     * offline. A click let through on a device that really is offline
+     * lands on the service worker's /offline page; a click held back on
+     * a device that is not lands nowhere at all.
+     */
+    it('lets a click through while the probe has not answered yet', async () => {
         buildConfig(CORE_WHITELIST);
         buildDialog();
-        const link = buildLink('//evil.example/finance');
+        const link = buildLink('/finance');
         setOnline(false);
-        const probe = vi.fn(() => Promise.resolve({ ok: true }));
-        window.fetch = probe;
-        const assign = vi.fn();
-        vi.stubGlobal('location', { ...window.location, assign });
+        window.fetch = vi.fn(() => new Promise(() => {})); // never settles
         await boot();
 
         const evt = new MouseEvent('click', { bubbles: true, cancelable: true });
         link.dispatchEvent(evt);
+
         expect(evt.defaultPrevented).toBe(false);
-        await new Promise((resolve) => setTimeout(resolve, 20));
-        expect(assign).not.toHaveBeenCalled();
-        expect(probe).not.toHaveBeenCalled();
-        vi.unstubAllGlobals();
+        expect(modalInstance.show).not.toHaveBeenCalled();
+    });
+
+    /**
+     * `a[href^="/"]` also matches a protocol-relative `//host/…`, and
+     * where that leads is the browser's business: telling somebody that
+     * another site « n'est pas disponible hors ligne » would be this
+     * script speaking out of turn. Confirmed offline, so the only reason
+     * the click survives is the origin check.
+     */
+    it('says nothing about another origin: a protocol-relative "//host/…" href is left to the browser', async () => {
+        buildConfig(CORE_WHITELIST);
+        buildDialog();
+        const link = buildLink('//evil.example/finance');
+        await bootConfirmedOffline();
+
+        const evt = new MouseEvent('click', { bubbles: true, cancelable: true });
+        link.dispatchEvent(evt);
+
+        expect(evt.defaultPrevented).toBe(false);
+        expect(modalInstance.show).not.toHaveBeenCalled();
     });
 
     it('never cancels a click it could not explain — no dialog markup, or no Bootstrap yet', async () => {
         buildConfig(CORE_WHITELIST);
         const link = buildLink('/finance');
-        setOnline(false);
         delete global.bootstrap;
-        await boot();
+        await bootConfirmedOffline();
 
         const evt = new MouseEvent('click', { bubbles: true, cancelable: true });
         link.dispatchEvent(evt);
@@ -342,8 +567,7 @@ describe('offline-nav.js: click interception (layer 1a — links)', () => {
     it('re-evaluates the click against the CURRENT DOM, not a cached class, so a link added after boot is still covered', async () => {
         buildConfig(CORE_WHITELIST);
         buildDialog();
-        setOnline(false);
-        await boot(); // applyState() ran once already, before this link existed
+        await bootConfirmedOffline(); // applyState() ran already, before this link existed
         const lateLink = buildLink('/finance');
 
         const evt = new MouseEvent('click', { bubbles: true, cancelable: true });
@@ -356,8 +580,7 @@ describe('offline-nav.js: click interception (layer 1a — links)', () => {
         buildDialog();
         const div = document.createElement('div');
         document.body.appendChild(div);
-        setOnline(false);
-        await boot();
+        await bootConfirmedOffline();
 
         const evt = new MouseEvent('click', { bubbles: true, cancelable: true });
         div.dispatchEvent(evt);
@@ -370,8 +593,7 @@ describe('offline-nav.js: click interception (layer 1a — links)', () => {
         const link = document.createElement('a');
         link.href = 'https://example.com/';
         document.body.appendChild(link);
-        setOnline(false);
-        await boot();
+        await bootConfirmedOffline();
 
         const evt = new MouseEvent('click', { bubbles: true, cancelable: true });
         link.dispatchEvent(evt);
@@ -477,9 +699,10 @@ describe('offline-nav.js: window.fetch wrapper (layer 2)', () => {
         buildConfig(CORE_WHITELIST);
         buildDialog();
         const inner = vi.fn(() => Promise.resolve('ok'));
-        global.fetch = inner;
+        installFetch(inner);
         setOnline(false);
         await boot();
+        await settle();
 
         await expect(window.fetch('/api/x', { method: 'POST' })).rejects.toThrow('Failed to fetch');
         expect(inner).not.toHaveBeenCalled();
@@ -490,9 +713,10 @@ describe('offline-nav.js: window.fetch wrapper (layer 2)', () => {
     it('reads the method off a Request object when init is absent (fetch(new Request(...)) form)', async () => {
         buildConfig(CORE_WHITELIST);
         buildDialog();
-        global.fetch = vi.fn(() => Promise.resolve('ok'));
+        installFetch();
         setOnline(false);
         await boot();
+        await settle();
 
         const request = { method: 'DELETE' };
         await expect(window.fetch(request)).rejects.toThrow();

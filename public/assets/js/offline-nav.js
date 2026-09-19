@@ -92,6 +92,143 @@
     var PROBE_TIMEOUT_MS = 1500;
     var ACTION_MESSAGE = 'Cette action nécessite une connexion.';
 
+    // How often the probe re-asks while the browser CLAIMS to be
+    // offline, and how long its answer is trusted afterwards.
+    //
+    // The interval is short because it costs nothing where it runs: a
+    // genuinely offline device fails the request without touching the
+    // radio. It only ever runs while `navigator.onLine` is false, and it
+    // stops the moment an answer comes back.
+    var OFFLINE_RECHECK_MS = 5000;
+    var VERDICT_FRESH_MS = 12000;
+
+    var lastVerdictAt = 0;
+    var lastVerdictReachable = true;
+    var recheckTimer = null;
+
+    /**
+     * Which probe is the current one.
+     *
+     * Two can be in flight at once — the heartbeat ticks while a
+     * `visibilitychange` or an `online` event asks again — and they do
+     * not come back in the order they left: a probe issued while the
+     * network was down times out after PROBE_TIMEOUT_MS, long after a
+     * later one has already been answered. Without this, that stale
+     * "unreachable" would overwrite the fresh "reachable" and strand the
+     * page offline, which is the very symptom #353 is about.
+     */
+    var probeSequence = 0;
+
+    /**
+     * Is this page REALLY offline — not merely told so?
+     *
+     * `navigator.onLine === false` is the trigger and never the verdict.
+     * Issue #353: on iOS, an installed application resuming from a
+     * frozen state reports itself offline for a while after the network
+     * is back, and every layer below used to act on that word alone. A
+     * tap then lost its own navigation — cancelled here, handed to a
+     * probe, and re-issued from a promise, which a standalone WebKit
+     * window is entitled to ignore. Nothing appeared, nothing failed,
+     * and closing the menu and reopening it « fixed » it because by then
+     * the flag had corrected itself.
+     *
+     * So the browser's word only opens the question, and the answer is
+     * the probe's, while it is fresh. Unknown counts as ONLINE: letting
+     * a click through costs a real offline visitor the service worker's
+     * /offline page (layer 3, which exists for exactly this), and
+     * holding it back costs everybody else a tap that does nothing. The
+     * file already made that trade for a missing dialog; this is the
+     * same trade, for a missing answer.
+     *
+     * @returns {boolean}
+     */
+    function isOffline() {
+        return !navigator.onLine
+            && !lastVerdictReachable
+            && (Date.now() - lastVerdictAt) <= VERDICT_FRESH_MS;
+    }
+
+    /**
+     * Ask the network, record what it said, and repaint the page.
+     *
+     * A reachable answer also stops the heartbeat: the question has been
+     * settled, and the next `offline` event — or the next page load — is
+     * what asks it again. That matters on iOS precisely because the flag
+     * can stay wrong for minutes without ever firing an event.
+     *
+     * @returns {Promise<void>}
+     */
+    function confirmConnectivity() {
+        var issued = ++probeSequence;
+
+        return probeConnectivity().then(function (reachable) {
+            // A probe a newer one has already overtaken says nothing: it
+            // describes a network that has since been asked again, and
+            // the newer answer is the one to keep.
+            if (issued !== probeSequence) {
+                return;
+            }
+
+            lastVerdictReachable = reachable;
+            lastVerdictAt = Date.now();
+
+            // Stop on a reachable answer, keep asking on an unreachable
+            // one — and re-arm rather than assume the heartbeat is still
+            // running, because the probe that stopped it may have been
+            // this one's predecessor.
+            if (reachable) {
+                stopRechecking();
+            } else {
+                keepRechecking();
+            }
+
+            applyState();
+        });
+    }
+
+    function stopRechecking() {
+        if (recheckTimer !== null) {
+            clearInterval(recheckTimer);
+            recheckTimer = null;
+        }
+    }
+
+    /**
+     * Ask again in OFFLINE_RECHECK_MS, unless something already will.
+     *
+     * Guarded on the browser's own flag as well: once it says online
+     * there is nothing left to poll for, and the next `offline` event is
+     * what starts this again.
+     */
+    function keepRechecking() {
+        if (recheckTimer === null && !navigator.onLine) {
+            recheckTimer = setInterval(confirmConnectivity, OFFLINE_RECHECK_MS);
+        }
+    }
+
+    /**
+     * Keep the verdict fresh for as long as the browser claims to be
+     * offline, and only then.
+     *
+     * Without this the verdict goes stale after VERDICT_FRESH_MS and a
+     * genuinely offline visitor would stop being offered the dialog —
+     * they would get the service worker's page instead, which is worse
+     * for them and pointless for everyone. With it, the one window where
+     * interception matters is also the one window where the answer is
+     * known.
+     */
+    function watchConnectivity() {
+        applyState();
+
+        if (navigator.onLine) {
+            stopRechecking();
+            return;
+        }
+
+        keepRechecking();
+        confirmConnectivity();
+    }
+
     var modalEl = document.getElementById('offline-dialog');
     var modalMessageEl = document.getElementById('offline-dialog-message');
     var modal = null;
@@ -125,7 +262,11 @@
     // offcanvas/mobile menu is the same DOM as the desktop nav, so every
     // greyed entry there falls out of this automatically.
     function applyState() {
-        var offline = !navigator.onLine;
+        // The confirmed verdict, not the browser's claim: greying out
+        // every link on a false « offline » was the other half of issue
+        // #353, and the visible one — a menu that looks disabled while
+        // the network is fine.
+        var offline = isOffline();
         document.querySelectorAll('a[href^="/"]').forEach(function (link) {
             var path = link.getAttribute('href').split('?')[0].split('#')[0];
             var unavailable = offline && !isWhitelisted(path);
@@ -188,16 +329,32 @@
     // inserted into the DOM after the last applyState() run is covered
     // just the same.
     //
-    // A refused click is never a silent one. `navigator.onLine === false`
-    // is only a hint — an installed app thawed by the OS reports it for a
-    // while after the network is back — so the click is cancelled, the
-    // network is asked once (a short HEAD to /api/version), and the page
-    // is opened after all if it answers; the dialog is shown only when it
-    // does not. And if the dialog could not be shown at all (no markup,
-    // no Bootstrap yet), nothing is cancelled: letting the browser fail
-    // visibly beats a tap that does nothing.
+    // A refused click is never a silent one, and — since issue #353 — it
+    // is never a DEFERRED one either.
+    //
+    // This used to cancel the click, ask the network once, and re-issue
+    // the navigation from the promise if it answered. Three things had
+    // to go right afterwards for anything to happen at all, and in an
+    // installed iOS application they did not: a navigation re-issued
+    // outside the tap's own gesture is one a standalone WebKit window
+    // may simply drop. The visitor saw nothing — no page, no dialog, no
+    // error — and got it back by closing the menu and reopening it,
+    // which changed nothing except that `navigator.onLine` had told the
+    // truth again by then.
+    //
+    // So the question is settled BEFORE the click: isOffline() is only
+    // true on a probe that already came back unreachable, and this
+    // handler either shows the dialog immediately or gets out of the
+    // way, leaving the browser's own navigation untouched. Nothing here
+    // navigates any more.
+    //
+    // Unchanged: a click nothing can explain — no dialog markup, no
+    // Bootstrap yet — is never cancelled, because letting the browser
+    // fail visibly beats a tap that does nothing. That was already this
+    // file's rule; #353 is what happens when it is not applied to the
+    // network answer too.
     document.addEventListener('click', function (event) {
-        if (navigator.onLine) {
+        if (!isOffline()) {
             return;
         }
         var link = /** @type {HTMLElement} */ (event.target).closest('a[href^="/"]');
@@ -208,28 +365,30 @@
         if (isWhitelisted(path) || !canShowDialog()) {
             return;
         }
-        var href = sameOriginUrl(link.getAttribute('href'));
-        if (href === null) {
-            // "/" is also how a protocol-relative "//elsewhere/…" starts;
-            // that one is the browser's to refuse or follow, never a URL
-            // this script hands to location.assign() itself.
+        if (sameOriginUrl(link.getAttribute('href')) === null) {
+            // "/" is also how a protocol-relative "//elsewhere/…" starts,
+            // and where that link leads is the browser's business rather
+            // than this dialog's.
             return;
         }
         event.preventDefault();
-        probeConnectivity().then(function (reachable) {
-            if (reachable) {
-                window.location.assign(href);
-            } else {
-                showDialog(PAGE_MESSAGE);
-            }
-        });
+        showDialog(PAGE_MESSAGE);
     }, true);
 
     /**
-     * The one URL this script ever navigates to on its own, validated at
-     * the sink: resolved against the page, and accepted only when it stays
-     * on this origin over http(s). A relative path always does; anything
-     * else (another host, another scheme) is not this script's to open.
+     * Whose business is this link?
+     *
+     * Resolved against the page, and accepted only when it stays on this
+     * origin over http(s). A relative path always does; anything else
+     * (another host, another scheme) is not this dialog's to speak for,
+     * so the click is left alone.
+     *
+     * It used to guard a `location.assign()` sink, which issue #353
+     * removed. The check stays because the QUESTION it answers did not
+     * go away — `a[href^="/"]` also matches a protocol-relative
+     * `//elsewhere/…`, and telling somebody that another site « n'est
+     * pas disponible hors ligne » would be this script speaking out of
+     * turn.
      *
      * @param {string|null} attribute the link's href attribute as written
      * @returns {string|null} the resolved URL, or null when it may not be used
@@ -280,7 +439,7 @@
     // needs the network (there is no "safe, cacheable" form action),
     // so every one is blocked while offline, unconditionally.
     document.addEventListener('submit', function (event) {
-        if (navigator.onLine || !canShowDialog()) {
+        if (!isOffline() || !canShowDialog()) {
             return;
         }
         event.preventDefault();
@@ -298,7 +457,7 @@
                 method = /** @type {Request} */ (input).method;
             }
 
-            if (!navigator.onLine && method.toUpperCase() !== 'GET') {
+            if (isOffline() && method.toUpperCase() !== 'GET') {
                 showDialog(ACTION_MESSAGE);
                 return Promise.reject(new TypeError('Failed to fetch'));
             }
@@ -307,15 +466,21 @@
         };
     }
 
-    window.addEventListener('online', applyState);
-    window.addEventListener('offline', applyState);
+    window.addEventListener('online', watchConnectivity);
+    window.addEventListener('offline', watchConnectivity);
     // An installed app resumes from a frozen state with a stale
-    // connectivity assumption — re-check whenever the tab regains focus.
+    // connectivity assumption — re-ask whenever the tab regains focus.
+    // This is the moment issue #353 is about, and asking the NETWORK
+    // rather than repainting from `navigator.onLine` is the whole fix.
     document.addEventListener('visibilitychange', function () {
         if (document.visibilityState === 'visible') {
-            applyState();
+            watchConnectivity();
         }
     });
 
-    applyState();
+    // Last, and after the fetch wrapper above: probeConnectivity() needs
+    // `originalFetch`, which layer 2 assigns. Started any earlier it
+    // would answer « unreachable » without asking anything, and a page
+    // would open believing itself offline.
+    watchConnectivity();
 })();
