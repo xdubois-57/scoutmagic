@@ -199,6 +199,53 @@ class NotificationRegistry
                 roleMin: 'superadmin',
                 channels: ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'off']
             ),
+            // The two bounce types (roadmap IT-05). **Two, not one with a
+            // variable**: « un message n'est pas arrivé » and « cette
+            // adresse ne reçoit plus rien » ask for different actions, and
+            // per-type preferences only mean something when the types
+            // describe different situations.
+            //
+            // Their channels are the same, and each of the three is
+            // deliberate:
+            //
+            // - `in_app` is `on`, LOCKED. It is the one channel certain to
+            //   arrive, since dispatch() always writes the row. A member
+            //   who could switch it off would never find out why they stop
+            //   hearing from the unit.
+            // - `push` is `default_on` — the channel that actually reaches
+            //   somebody who is not on the site, and it stays theirs to
+            //   turn off.
+            // - `email` is `off`, LOCKED, and not merely because « ça
+            //   vient d'échouer ». dispatch() would send to ALL of the
+            //   member's active addresses, potentially including the one
+            //   that is failing: an e-mail announcing that an e-mail did
+            //   not arrive, to the address that does not receive it. The
+            //   same reasoning as core.operational_alert_mail above, for
+            //   the same reason.
+            //
+            // The assumed consequence: a member with no push subscription
+            // who never signs in learns nothing. The information waits in
+            // their notification centre, the super-admin sees it on the
+            // Courrier sortant page, and inventing a fallback channel
+            // would rebuild the loop this closes.
+            new NotificationType(
+                id: 'core.mail_bounce_temporary',
+                label: 'Un message n\'a pas pu être remis',
+                description: "Quand un message que l'unité t'envoie revient sans avoir été remis. Cette "
+                    . "alerte-là ne peut pas partir par e-mail, pour des raisons évidentes",
+                group: 'Sécurité',
+                roleMin: 'identified',
+                channels: ['in_app' => 'on', 'push' => 'default_on', 'email' => 'off']
+            ),
+            new NotificationType(
+                id: 'core.mail_bounce_blocked',
+                label: 'Une de tes adresses est suspendue',
+                description: "Quand une de tes adresses a refusé plusieurs messages et que l'unité cesse de "
+                    . "lui écrire. Tu peux la réactiver toi-même depuis la page de tes adresses",
+                group: 'Sécurité',
+                roleMin: 'identified',
+                channels: ['in_app' => 'on', 'push' => 'default_on', 'email' => 'off']
+            ),
             new NotificationType(
                 id: 'core.desk_import_done',
                 label: 'Import Desk terminé',
