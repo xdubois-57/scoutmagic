@@ -104,7 +104,8 @@ class MemberBounceNotifierTest extends TestCase
 
     private function createMemberWithAddress(string $email, string $status = MemberEmail::STATUS_VALID): int
     {
-        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK" . bin2hex(random_bytes(3)) . "')");
+        $this->pdo->prepare('INSERT INTO members (desk_id) VALUES (?)')
+            ->execute(['DESK' . bin2hex(random_bytes(3))]);
         $memberId = (int) $this->pdo->lastInsertId();
         $this->memberEmails->create($memberId, $email, MemberEmail::SOURCE_MANUAL, $status, null, null);
 

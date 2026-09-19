@@ -54,8 +54,20 @@ class BounceServiceTest extends TestCase
         );
     }
 
+    /**
+     * A report for an address this site HAS written to.
+     *
+     * The receipt is part of the fixture rather than an afterthought: a
+     * bounce for an address the unit never wrote to is refused outright
+     * (see `mail_send_receipts`), so a test that skipped it would be
+     * testing the refusal rather than the counting.
+     */
     private function report(string $status, string $email = 'parent@exemple.be'): DeliveryStatusReport
     {
+        if ($this->states->lastSendAt($email) === null) {
+            $this->states->recordSend($email, new \DateTimeImmutable('2026-09-19 08:00:00'));
+        }
+
         $reports = DeliveryStatusReport::parseAll(
             "Final-Recipient: rfc822; {$email}\nAction: failed\nStatus: {$status}\n"
         );
@@ -280,6 +292,34 @@ class BounceServiceTest extends TestCase
         $bounces->record($this->report('5.1.1'));
 
         $this->assertTrue($bounces->isBlocked('parent@exemple.be'));
+    }
+
+    /**
+     * **And a failed telling is not recorded as told.** Marking the code
+     * regardless would file an error as « déjà dit » that nobody was ever
+     * told, and every later bounce carrying it would take the early
+     * return. For a full mailbox that is the only notification the member
+     * would ever have had — the address goes quiet and nothing retries.
+     */
+    public function testANotifierFailureLeavesTheErrorStillWorthTelling(): void
+    {
+        $failing = new BounceService(
+            $this->states,
+            null,
+            new class implements BounceNotifier {
+                public function notify(BounceState $state, bool $blocking): void
+                {
+                    throw new \RuntimeException('le centre de notifications est indisponible');
+                }
+            }
+        );
+
+        $failing->record($this->report('4.2.2'));
+
+        $this->assertTrue(
+            $this->states->find('parent@exemple.be')?->isNewError('4.2.2'),
+            'an error nobody was told about must still be news.'
+        );
     }
 
     /** Two addresses fail independently; one blocked is not both blocked. */

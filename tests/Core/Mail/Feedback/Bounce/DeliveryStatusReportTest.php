@@ -152,6 +152,36 @@ class DeliveryStatusReportTest extends TestCase
         $this->assertSame(BounceCategory::MailboxFull, $reports[0]->category);
     }
 
+    /**
+     * **A dotted IP in the diagnostic is not a status code.** A word
+     * boundary is happy to start inside a dotted number, so
+     * `relay[92.5.1.10]` yields `5.1.10` — read as a PERMANENT « adresse
+     * inexistante » when the failure was a transient connection timeout.
+     * Two of those suspend somebody's address, which is precisely the
+     * « inventing one » this class refuses.
+     */
+    public function testAnIpAddressInTheDiagnosticIsNotReadAsAStatusCode(): void
+    {
+        $this->assertSame([], DeliveryStatusReport::parseAll(
+            "Final-Recipient: rfc822; parent@exemple.be\n"
+            . "Action: failed\n"
+            . "Diagnostic-Code: smtp; 421 connect to relay[92.5.1.10]: Connection timed out\n"
+        ));
+    }
+
+    /** And a real code still reads, even when an IP sits beside it. */
+    public function testARealCodeIsStillFoundNextToAnIpAddress(): void
+    {
+        $reports = DeliveryStatusReport::parseAll(
+            "Final-Recipient: rfc822; parent@exemple.be\n"
+            . "Action: failed\n"
+            . "Diagnostic-Code: smtp; 550 5.1.1 relay[92.5.1.10] said: unknown user\n"
+        );
+
+        $this->assertCount(1, $reports);
+        $this->assertSame('5.1.1', $reports[0]->statusCode);
+    }
+
     public function testAnUnreachableServerIsItsOwnCategory(): void
     {
         $reports = DeliveryStatusReport::parseAll(

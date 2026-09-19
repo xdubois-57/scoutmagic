@@ -208,7 +208,15 @@ class MemberEmailAddressController extends AbstractController
         }
 
         try {
-            $this->memberEmailService->unblockBounce($memberId, (int) $params['email_id']);
+            // The Desk address travels with the call, because id 0 is the
+            // synthesised Desk row that has no `member_emails` entry yet
+            // (the common case). It is read off the member's own profile
+            // here, never off the request.
+            $this->memberEmailService->unblockBounce(
+                $memberId,
+                (int) $params['email_id'],
+                $this->deskEmailFor($memberYearId)
+            );
             FlashMessage::set(
                 'success',
                 'Adresse réactivée. Si elle refuse à nouveau nos messages, elle sera suspendue de nouveau.'
@@ -279,6 +287,21 @@ class MemberEmailAddressController extends AbstractController
      * behalf. Returns the persistent member id on success, null when
      * access must be denied.
      */
+    /**
+     * The Desk address on this member's profile, or null when they have
+     * none. Read here rather than taken from the request: an address the
+     * browser supplied would let somebody name a mailbox that is not
+     * theirs.
+     */
+    private function deskEmailFor(int $memberYearId): ?string
+    {
+        try {
+            return $this->memberService->getMemberProfile($memberYearId)->email;
+        } catch (MemberNotFoundException) {
+            return null;
+        }
+    }
+
     private function requireOwnMemberId(Request $request, int $memberYearId): ?int
     {
         $userEmail = AuthSession::getEmail() ?? '';

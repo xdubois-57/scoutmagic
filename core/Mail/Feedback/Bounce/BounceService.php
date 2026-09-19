@@ -46,7 +46,7 @@ class BounceService
      * Returns the state as it now stands, so a caller that wants to
      * report on a whole report can count what it changed.
      */
-    public function record(DeliveryStatusReport $report, ?\DateTimeImmutable $now = null): BounceState
+    public function record(DeliveryStatusReport $report, ?\DateTimeImmutable $now = null): ?BounceState
     {
         $now ??= new \DateTimeImmutable();
 
@@ -57,6 +57,13 @@ class BounceService
             $report->statusCode,
             $now
         );
+
+        // Refused: this site has no record of ever writing to that
+        // address, so the report is somebody's word about a message we
+        // cannot show we sent. See `mail_send_receipts`.
+        if ($state === null) {
+            return null;
+        }
 
         // **No severity test here, deliberately.** It would read well —
         // « only a permanent failure blocks » — and it would be a branch
@@ -120,11 +127,14 @@ class BounceService
      * reactivate an address a parent switched off, which is a different
      * decision belonging to a different person.
      */
-    public function unblock(int $stateId, bool $byTheMemberThemselves): void
+    public function unblock(int $stateId, bool $byTheMemberThemselves): bool
     {
         $state = $this->states->findById($stateId);
         if ($state === null) {
-            return;
+            // A stale link, or an id somebody edited. Saying « remise en
+            // service » for an address that was never found would be a
+            // success message about nothing.
+            return false;
         }
 
         $this->states->unblock($stateId);
@@ -144,6 +154,8 @@ class BounceService
             // The block is lifted either way; the journal entry is the
             // record of it, never a condition of it.
         }
+
+        return true;
     }
 
     /**
@@ -164,12 +176,17 @@ class BounceService
 
         try {
             $this->notifier?->notify($state, $blocking);
+            // **Only once the telling succeeded.** Marking it regardless
+            // would record an error as « déjà dit » that nobody was ever
+            // told, and every later bounce carrying that code would take
+            // the early return above. For a full mailbox that is the only
+            // notification the member would ever have got.
+            $this->states->markNotified($state->id, $state->statusCode);
         } catch (\Throwable) {
             // Best effort, like the journal: a notification that could not
-            // be sent must not undo a bounce that was correctly recorded.
+            // be sent must not undo a bounce that was correctly recorded —
+            // and must not be recorded as sent either.
         }
-
-        $this->states->markNotified($state->id, $state->statusCode);
     }
 
     private function journalBlocked(BounceState $state): void

@@ -538,6 +538,9 @@ class MemberEmailServiceTest extends TestCase
     private function blockAddress(string $email): int
     {
         $now = new \DateTimeImmutable('2026-09-19 10:00:00');
+        // The unit wrote to this address first — a bounce for one it
+        // never wrote to is refused (see `mail_send_receipts`).
+        $this->bounceStates->recordSend($email, $now->modify('-1 hour'));
         $state = $this->bounceStates->record(
             $email,
             BounceCategory::NoSuchAddress,
@@ -545,6 +548,7 @@ class MemberEmailServiceTest extends TestCase
             '5.1.1',
             $now
         );
+        self::assertNotNull($state);
         $this->bounceStates->block($state->id, $now);
 
         return $state->id;

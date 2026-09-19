@@ -73,9 +73,25 @@ class BounceStateRepository
         BounceSeverity $severity,
         string $statusCode,
         \DateTimeImmutable $now
-    ): BounceState {
+    ): ?BounceState {
         $existing = $this->find($email);
         $stamp = $now->format('Y-m-d H:i:s');
+
+        if ($existing === null) {
+            // **The security boundary, and it belongs here rather than in
+            // the parser.** A bounce report is written by whoever sent it,
+            // and a watched mailbox is one anybody can write to — so a
+            // well-formed report proves nothing on its own. Without a
+            // receipt, somebody able to deliver mail to the unit could
+            // forge two permanent failures naming any address and have it
+            // suspended, with a notification to the member.
+            //
+            // Refusing here rather than at the consumer keeps the rule in
+            // the one place every path to a bounce passes through.
+            if (!$this->hasWrittenTo($email)) {
+                return null;
+            }
+        }
 
         if ($existing === null) {
             $statement = $this->pdo->prepare(
@@ -129,8 +145,7 @@ class BounceStateRepository
             $existing->firstSeenAt,
             $now,
             $existing->blockedAt,
-            $existing->notifiedCode,
-            $existing->lastSendAt
+            $existing->notifiedCode
         );
     }
 
@@ -197,21 +212,72 @@ class BounceStateRepository
      */
     public function recordSend(string $email, \DateTimeImmutable $now): void
     {
+        $previousSendAt = $this->lastSendAt($email);
+        $this->stampReceipt($email, $now);
+
         $existing = $this->find($email);
         if ($existing === null) {
-            // The overwhelming majority of sends are to addresses that
-            // have never bounced. Nothing to settle and nothing to write.
+            // Nothing has bounced here. The receipt above is the whole of
+            // what this send had to record.
             return;
         }
 
-        if ($existing->lastSendWasClean()) {
+        // **A send never lifts a block.** A blocked address should not be
+        // written to at all, but the module's own list-address path can
+        // still reach one — and a clean-looking send silently deleting the
+        // block would be an automatic unblock nobody asked for. A block is
+        // lifted by the member or the super-admin, and by nobody else.
+        if ($existing->isBlocked()) {
+            return;
+        }
+
+        if ($existing->wasSettledBy($previousSendAt)) {
             $this->forget($email);
+        }
+    }
 
+    /** When this site last wrote to this address, or null if it never has. */
+    public function lastSendAt(string $email): ?\DateTimeImmutable
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT last_send_at FROM mail_send_receipts WHERE email_blind_index = ?'
+        );
+        $statement->execute([$this->blindIndex($email)]);
+
+        $value = $statement->fetchColumn();
+
+        return $value === false ? null : DateInput::fromStorage($value);
+    }
+
+    public function hasWrittenTo(string $email): bool
+    {
+        return $this->lastSendAt($email) !== null;
+    }
+
+    /**
+     * Note that a message for this address has gone to a relay.
+     *
+     * An upsert spelled as two statements rather than one vendor-specific
+     * clause: this runs on MySQL, MariaDB and SQLite, and the unique index
+     * is what actually keeps it to one row per address.
+     */
+    private function stampReceipt(string $email, \DateTimeImmutable $now): void
+    {
+        $stamp = $now->format('Y-m-d H:i:s');
+
+        $update = $this->pdo->prepare(
+            'UPDATE mail_send_receipts SET last_send_at = ? WHERE email_blind_index = ?'
+        );
+        $update->execute([$stamp, $this->blindIndex($email)]);
+
+        if ($update->rowCount() > 0) {
             return;
         }
 
-        $statement = $this->pdo->prepare('UPDATE mail_bounce_states SET last_send_at = ? WHERE id = ?');
-        $statement->execute([$now->format('Y-m-d H:i:s'), $existing->id]);
+        $insert = $this->pdo->prepare(
+            'INSERT INTO mail_send_receipts (email_blind_index, last_send_at) VALUES (?, ?)'
+        );
+        $insert->execute([$this->blindIndex($email), $stamp]);
     }
 
     /**
@@ -263,7 +329,7 @@ class BounceStateRepository
     private function selectClause(): string
     {
         return 'SELECT id, email_encrypted, category, severity, status_code, failures,
-                       first_seen_at, last_seen_at, blocked_at, notified_code, last_send_at
+                       first_seen_at, last_seen_at, blocked_at, notified_code
                   FROM mail_bounce_states';
     }
 
@@ -282,8 +348,7 @@ class BounceStateRepository
             DateInput::requireFromStorage($row['first_seen_at'], 'mail_bounce_states.first_seen_at'),
             DateInput::requireFromStorage($row['last_seen_at'], 'mail_bounce_states.last_seen_at'),
             DateInput::fromStorage($row['blocked_at']),
-            $row['notified_code'] === null ? null : (string) $row['notified_code'],
-            DateInput::fromStorage($row['last_send_at'])
+            $row['notified_code'] === null ? null : (string) $row['notified_code']
         );
     }
 }

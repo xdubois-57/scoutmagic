@@ -409,8 +409,13 @@ class OutboundMailCollector implements SupportCollectorInterface
         }
 
         try {
+            // Both figures from the SAME bounded set. `countBlocked()`
+            // counts every block while `blocked()` returns the newest
+            // hundred, so pairing them made the heading claim a total the
+            // rows below did not account for.
             $blocked = $this->bounces->blocked();
-            $total = $this->bounces->countBlocked();
+            $total = count($blocked);
+            $overall = $this->bounces->countBlocked();
         } catch (\Throwable) {
             return [];
         }
@@ -432,7 +437,9 @@ class OutboundMailCollector implements SupportCollectorInterface
         }
         arsort($byDomain);
 
-        $lines[] = sprintf('%d adresse%s suspendue%s, par fournisseur :', $total, $total > 1 ? 's' : '', $total > 1 ? 's' : '');
+        $lines[] = $overall > $total
+            ? sprintf('%d adresses suspendues au total, les %d dernières par fournisseur :', $overall, $total)
+            : sprintf('%d adresse%s suspendue%s, par fournisseur :', $total, $total > 1 ? 's' : '', $total > 1 ? 's' : '');
         foreach ($byDomain as $domain => $count) {
             $lines[] = sprintf('%-40s  %d', mb_substr((string) $domain, 0, 40), $count);
         }

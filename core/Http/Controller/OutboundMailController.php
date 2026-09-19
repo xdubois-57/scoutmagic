@@ -154,7 +154,12 @@ class OutboundMailController extends AbstractController
             return $this->redirect(self::BOUNCES_URL);
         }
 
-        $this->bounces->unblock((int) ($params['id'] ?? 0), false);
+        if (!$this->bounces->unblock((int) ($params['id'] ?? 0), false)) {
+            FlashMessage::set('error', 'Cette adresse n’est plus dans la liste.');
+
+            return $this->redirect(self::BOUNCES_URL);
+        }
+
         FlashMessage::set(
             'success',
             'Adresse remise en service. Si elle refuse à nouveau nos messages, elle sera suspendue de nouveau.'

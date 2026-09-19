@@ -1809,19 +1809,39 @@ CREATE TABLE IF NOT EXISTS mail_bounce_states (
     -- The code the member was last told about, so a mailbox that bounces
     -- at every mailing notifies once rather than once per send.
     notified_code VARCHAR(16) NULL,
-    -- When this site last handed a message for this address to a relay.
-    --
-    -- **This is what makes « remis à zéro par un envoi réussi » possible
-    -- at all.** A send cannot clear the counter when it happens: the relay
-    -- accepting a message says nothing, and the bounce for that very send
-    -- lands seconds later — clearing on acceptance would wipe the count
-    -- before every single bounce, and no address would ever be blocked.
-    -- So a send is judged by the NEXT one: at send time, if the previous
-    -- send is more recent than the last bounce, that previous send
-    -- produced none, the address works, and the counter goes back to zero.
-    last_send_at DATETIME NULL,
     UNIQUE INDEX idx_mbs_blind (email_blind_index),
     INDEX idx_mbs_blocked (blocked_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- mail_send_receipts: proof that this site has written to an address, and
+-- when it last did (roadmap IT-05).
+--
+-- **Two jobs, and the first is a security boundary.** A bounce report is
+-- written by whoever sent it, and a watched mailbox is a mailbox anyone
+-- can write to — so a report on its own proves nothing. Without a receipt
+-- here, somebody able to deliver mail to the unit could forge two
+-- permanent failures naming any address they liked and have it suspended
+-- site-wide, with a notification to the member. A bounce is therefore only
+-- recorded for an address this site can show it wrote to, which is what
+-- `BounceConsumer::describeEvidence()` has always claimed and what this
+-- table finally makes true. The sibling `ReturnPathConsumer` gets the same
+-- guarantee from a key it issued itself.
+--
+-- **And it is what settles a send.** A send cannot clear a bounce counter
+-- when it happens — the relay accepting a message says nothing, and the
+-- bounce for that very send lands seconds later. So each send judges the
+-- one before it: if the PREVIOUS receipt is more recent than the last
+-- bounce, that send produced none and the address works.
+--
+-- No address, encrypted or otherwise: the row is only ever looked up by an
+-- index computed from an address the caller already holds, so storing one
+-- would add a copy of everybody the unit writes to for no read that needs
+-- it.
+CREATE TABLE IF NOT EXISTS mail_send_receipts (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    email_blind_index CHAR(64) NOT NULL,
+    last_send_at DATETIME NOT NULL,
+    UNIQUE INDEX idx_msr_blind (email_blind_index)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- storage_locations: one row per declared destination for bytes — a

@@ -4034,6 +4034,11 @@ $router->addRoute(
     \Core\Http\Controller\OutboundMailController::class,
     'bounces',
     'superadmin',
+    // Without a label the breadcrumb stops at the home icon and
+    // `HelpPageLinkResolver` skips the route, so the help topic written
+    // for this exact path gets no link from it.
+    ['label' => 'Rebonds', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Courrier sortant', 'path' => '/config/courrier-sortant']]],
 );
 $router->addRoute(
     'POST',
@@ -7674,7 +7679,12 @@ if ($isEnabled('mass_mail')) {
         $massMailAudienceRepo,
         $massMailResolutionRepo,
         $massMailSuppressedRepo,
-        $massMailMergeRenderer
+        $massMailMergeRenderer,
+        // Bounce state (roadmap IT-05): a blocked address must not be
+        // written to through a custom list either.
+        new \Core\Mail\Feedback\Bounce\BounceService(
+            new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $encryptionService)
+        )
     );
 
     $massMailDraftForOthers = new \Modules\MassMail\Service\MergeDraftService(
@@ -9866,7 +9876,12 @@ if ($isEnabled('registration')) {
             new \Modules\MassMail\Repository\AudienceRepository($pdo, $encryptionService),
             new \Modules\MassMail\Repository\MemberResolutionRepository($pdo, $encryptionService),
             new \Modules\MassMail\Repository\SuppressedAddressRepository($pdo),
-            new \Modules\MassMail\Service\MergeRenderer()
+            new \Modules\MassMail\Service\MergeRenderer(),
+            // Bounce state (roadmap IT-05): a blocked address must not be
+            // written to through a custom list either.
+            new \Core\Mail\Feedback\Bounce\BounceService(
+                new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $encryptionService)
+            )
         );
         $frontController->registerController(
             \Modules\MassMail\Controller\MassMailController::class,

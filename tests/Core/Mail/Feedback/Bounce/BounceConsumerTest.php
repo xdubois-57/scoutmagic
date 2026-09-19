@@ -41,6 +41,11 @@ class BounceConsumerTest extends TestCase
             new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
         );
         $this->consumer = new BounceConsumer(new BounceService($this->states));
+
+        // The unit wrote to this address. Without that receipt the bounce
+        // below is refused, which is the point of
+        // `testAForgedBounceForAnAddressWeNeverWroteToIsRefused`.
+        $this->states->recordSend('parent@exemple.be', new \DateTimeImmutable('2026-09-19 08:00:00'));
     }
 
     /**
@@ -151,6 +156,30 @@ class BounceConsumerTest extends TestCase
         $state = $this->states->find('parent@exemple.be');
         $this->assertSame(1, $state?->failures);
         $this->assertSame('5.1.1', $state?->statusCode);
+    }
+
+    /**
+     * **The security boundary, and the reason this iteration has one.**
+     * A watched mailbox is a mailbox anybody can write to, and a bounce
+     * report is written by whoever sent it. Without a receipt of an
+     * outbound send, somebody able to deliver mail to the unit could
+     * forge two permanent failures naming any address they liked and have
+     * it suspended site-wide — with a notification to that member.
+     *
+     * `describeEvidence()` has always claimed the report designates « une
+     * adresse de cette unité ». This is what makes the claim true.
+     */
+    public function testAForgedBounceForAnAddressWeNeverWroteToIsRefused(): void
+    {
+        $forged = str_replace('parent@exemple.be', 'victime@exemple.be', self::bounceMessage());
+        $parsed = (new MimeMessageParser(new BulkMailDetector()))->parse($forged, 1, 'INBOX');
+
+        $this->consumer->analyze($this->candidateFrom($parsed->bodyText));
+
+        $this->assertNull(
+            $this->states->find('victime@exemple.be'),
+            'a report about a message this site cannot show it sent must record nothing.'
+        );
     }
 
     /**

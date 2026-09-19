@@ -474,7 +474,12 @@ class SendBatchHandler implements TaskHandlerInterface
             new AudienceRepository($pdo, $context->encryption),
             new \Modules\MassMail\Repository\MemberResolutionRepository($pdo, $context->encryption),
             new SuppressedAddressRepository($pdo),
-            new MergeRenderer()
+            new MergeRenderer(),
+            // Bounce state (roadmap IT-05): a blocked address must not be
+            // written to through a custom list either.
+            new \Core\Mail\Feedback\Bounce\BounceService(
+                new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $context->encryption)
+            )
         );
     }
 }

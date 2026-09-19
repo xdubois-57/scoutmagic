@@ -37,9 +37,33 @@ class BounceStateRepositoryTest extends TestCase
         return new \DateTimeImmutable($when);
     }
 
+    /**
+     * Record a bounce for an address the site has written to.
+     *
+     * The receipt is what makes the bounce admissible at all — without
+     * one it is somebody's word about a message this site cannot show it
+     * sent, and `record()` refuses it.
+     */
+    private function bounce(
+        string $email,
+        BounceCategory $category,
+        BounceSeverity $severity,
+        string $code,
+        \DateTimeImmutable $now
+    ): \Core\Mail\Feedback\Bounce\BounceState {
+        if ($this->states->lastSendAt($email) === null) {
+            $this->states->recordSend($email, $now->modify('-1 hour'));
+        }
+
+        $state = $this->states->record($email, $category, $severity, $code, $now);
+        self::assertNotNull($state, 'the fixture must produce a recorded bounce.');
+
+        return $state;
+    }
+
     public function testAFirstPermanentBounceCountsOnce(): void
     {
-        $state = $this->states->record(
+        $state = $this->bounce(
             'parent@exemple.be',
             BounceCategory::NoSuchAddress,
             BounceSeverity::Permanent,
@@ -61,7 +85,7 @@ class BounceStateRepositoryTest extends TestCase
     public function testATransientBounceNeverCountsTowardTheBlock(): void
     {
         foreach (range(1, 5) as $ignored) {
-            $state = $this->states->record(
+            $state = $this->bounce(
                 'parent@exemple.be',
                 BounceCategory::MailboxFull,
                 BounceSeverity::Transient,
@@ -78,7 +102,7 @@ class BounceStateRepositoryTest extends TestCase
     public function testPermanentBouncesAccumulateOnTheSameRow(): void
     {
         foreach (range(1, 3) as $ignored) {
-            $state = $this->states->record(
+            $state = $this->bounce(
                 'parent@exemple.be',
                 BounceCategory::NoSuchAddress,
                 BounceSeverity::Permanent,
@@ -98,8 +122,8 @@ class BounceStateRepositoryTest extends TestCase
      */
     public function testOneMailboxIsOneRowHoweverManyProfilesShareIt(): void
     {
-        $this->states->record('parent@exemple.be', BounceCategory::Refused, BounceSeverity::Permanent, '5.7.1', $this->now());
-        $this->states->record('PARENT@Exemple.BE', BounceCategory::Refused, BounceSeverity::Permanent, '5.7.1', $this->now());
+        $this->bounce('parent@exemple.be', BounceCategory::Refused, BounceSeverity::Permanent, '5.7.1', $this->now());
+        $this->bounce('PARENT@Exemple.BE', BounceCategory::Refused, BounceSeverity::Permanent, '5.7.1', $this->now());
 
         $this->assertSame(1, $this->countRows(), 'the address is matched case-insensitively.');
         $this->assertSame(2, $this->states->find('parent@exemple.be')?->failures);
@@ -107,7 +131,7 @@ class BounceStateRepositoryTest extends TestCase
 
     public function testBlockingIsRecordedWithItsDate(): void
     {
-        $state = $this->states->record('parent@exemple.be', BounceCategory::NoSuchAddress, BounceSeverity::Permanent, '5.1.1', $this->now());
+        $state = $this->bounce('parent@exemple.be', BounceCategory::NoSuchAddress, BounceSeverity::Permanent, '5.1.1', $this->now());
         $this->states->block($state->id, $this->now('2026-09-14 11:00:00'));
 
         $blocked = $this->states->find('parent@exemple.be');
@@ -123,8 +147,8 @@ class BounceStateRepositoryTest extends TestCase
      */
     public function testUnblockingAlsoPutsTheCounterBackToZero(): void
     {
-        $state = $this->states->record('parent@exemple.be', BounceCategory::NoSuchAddress, BounceSeverity::Permanent, '5.1.1', $this->now());
-        $this->states->record('parent@exemple.be', BounceCategory::NoSuchAddress, BounceSeverity::Permanent, '5.1.1', $this->now());
+        $state = $this->bounce('parent@exemple.be', BounceCategory::NoSuchAddress, BounceSeverity::Permanent, '5.1.1', $this->now());
+        $this->bounce('parent@exemple.be', BounceCategory::NoSuchAddress, BounceSeverity::Permanent, '5.1.1', $this->now());
         $this->states->markNotified($state->id, '5.1.1');
         $this->states->block($state->id, $this->now());
 
@@ -143,7 +167,7 @@ class BounceStateRepositoryTest extends TestCase
      */
     public function testAnErrorIsOnlyNewsOnce(): void
     {
-        $state = $this->states->record('parent@exemple.be', BounceCategory::MailboxFull, BounceSeverity::Transient, '4.2.2', $this->now());
+        $state = $this->bounce('parent@exemple.be', BounceCategory::MailboxFull, BounceSeverity::Transient, '4.2.2', $this->now());
         $this->assertTrue($state->isNewError('4.2.2'));
 
         $this->states->markNotified($state->id, '4.2.2');
@@ -160,7 +184,7 @@ class BounceStateRepositoryTest extends TestCase
      */
     public function testASuccessfulSendForgetsTheAddressEntirely(): void
     {
-        $state = $this->states->record('parent@exemple.be', BounceCategory::MailboxFull, BounceSeverity::Permanent, '5.2.2', $this->now());
+        $state = $this->bounce('parent@exemple.be', BounceCategory::MailboxFull, BounceSeverity::Permanent, '5.2.2', $this->now());
         $this->states->block($state->id, $this->now());
 
         $this->states->forget('parent@exemple.be');
@@ -183,15 +207,65 @@ class BounceStateRepositoryTest extends TestCase
     {
         $t = $this->now('2026-09-15 09:00:00');
 
-        $this->states->record('parent@exemple.be', BounceCategory::NoSuchAddress, BounceSeverity::Permanent, '5.1.1', $t);
+        $this->bounce('parent@exemple.be', BounceCategory::NoSuchAddress, BounceSeverity::Permanent, '5.1.1', $t);
         $this->states->recordSend('parent@exemple.be', $t->modify('+1 day'));
-        $this->states->record('parent@exemple.be', BounceCategory::NoSuchAddress, BounceSeverity::Permanent, '5.1.1', $t->modify('+2 days'));
+        $this->bounce('parent@exemple.be', BounceCategory::NoSuchAddress, BounceSeverity::Permanent, '5.1.1', $t->modify('+2 days'));
 
         $this->states->recordSend('parent@exemple.be', $t->modify('+3 days'));
 
         $state = $this->states->find('parent@exemple.be');
         $this->assertNotNull($state, 'an address that is still failing must not be forgotten.');
         $this->assertSame(2, $state->failures);
+    }
+
+    /**
+     * **A send never lifts a block.** A blocked address should not be
+     * written to at all, but the module's own list-address path can still
+     * reach one — and a clean-looking send deleting the row would be an
+     * automatic unblock nobody asked for. Lifting a block belongs to the
+     * member or the super-admin (D19), and to nobody else.
+     */
+    public function testACleanSendNeverLiftsABlock(): void
+    {
+        $t = $this->now('2026-09-19 09:00:00');
+
+        $state = $this->bounce('parent@exemple.be', BounceCategory::NoSuchAddress, BounceSeverity::Permanent, '5.1.1', $t);
+        $this->states->block($state->id, $t);
+
+        // Two clean-looking sends: the second would settle the first.
+        $this->states->recordSend('parent@exemple.be', $t->modify('+1 day'));
+        $this->states->recordSend('parent@exemple.be', $t->modify('+2 days'));
+
+        $after = $this->states->find('parent@exemple.be');
+        $this->assertNotNull($after, 'the block must survive a send.');
+        $this->assertTrue($after->isBlocked());
+    }
+
+    /**
+     * A report about a message this site cannot show it sent records
+     * nothing at all — the boundary that stops a forged bounce from
+     * suspending anybody's address.
+     */
+    public function testABounceForAnAddressWeNeverWroteToIsRefused(): void
+    {
+        $refused = $this->states->record(
+            'jamais-ecrit@exemple.be',
+            BounceCategory::NoSuchAddress,
+            BounceSeverity::Permanent,
+            '5.1.1',
+            $this->now()
+        );
+
+        $this->assertNull($refused);
+        $this->assertSame(0, $this->countRows());
+    }
+
+    public function testASendIsRememberedEvenWhenNothingBounces(): void
+    {
+        $this->states->recordSend('bonne@exemple.be', $this->now());
+
+        $this->assertTrue($this->states->hasWrittenTo('bonne@exemple.be'));
+        $this->assertSame(0, $this->countRows(), 'a receipt is not a bounce.');
     }
 
     public function testForgettingAnAddressThatNeverBouncedIsHarmless(): void
@@ -203,8 +277,8 @@ class BounceStateRepositoryTest extends TestCase
 
     public function testOnlyBlockedAddressesAreListedForTheSuperAdmin(): void
     {
-        $blocked = $this->states->record('bloquee@exemple.be', BounceCategory::NoSuchAddress, BounceSeverity::Permanent, '5.1.1', $this->now());
-        $this->states->record('surveillee@exemple.be', BounceCategory::MailboxFull, BounceSeverity::Transient, '4.2.2', $this->now());
+        $blocked = $this->bounce('bloquee@exemple.be', BounceCategory::NoSuchAddress, BounceSeverity::Permanent, '5.1.1', $this->now());
+        $this->bounce('surveillee@exemple.be', BounceCategory::MailboxFull, BounceSeverity::Transient, '4.2.2', $this->now());
         $this->states->block($blocked->id, $this->now());
 
         $listed = $this->states->blocked();
@@ -215,7 +289,7 @@ class BounceStateRepositoryTest extends TestCase
 
     public function testTheStoredAddressIsNotReadableInTheTable(): void
     {
-        $this->states->record('parent@exemple.be', BounceCategory::NoSuchAddress, BounceSeverity::Permanent, '5.1.1', $this->now());
+        $this->bounce('parent@exemple.be', BounceCategory::NoSuchAddress, BounceSeverity::Permanent, '5.1.1', $this->now());
 
         $statement = $this->pdo->query('SELECT email_encrypted FROM mail_bounce_states');
         $this->assertNotFalse($statement);

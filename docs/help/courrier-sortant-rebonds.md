@@ -40,8 +40,10 @@ boîte pleine, adresse inexistante, message refusé, serveur injoignable — et
 ce qu'il y a à faire. Jamais le charabia que le serveur distant a renvoyé,
 qui ne lui apprendrait rien.
 
-Elle reçoit aussi une notification. Pas par e-mail, évidemment : lui écrire
-pour lui dire qu'on n'arrive pas à lui écrire n'aurait aucun sens.
+Elle reçoit aussi une notification **quand le site sait à quel compte
+l'adresser** — ce qui n'est pas toujours le cas pour une adresse secondaire
+dont le compte est ailleurs. Pas par e-mail, évidemment : lui écrire pour
+lui dire qu'on n'arrive pas à lui écrire n'aurait aucun sens.
 
 ## Remettre une adresse en service
 

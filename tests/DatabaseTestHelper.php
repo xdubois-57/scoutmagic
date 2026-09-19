@@ -742,8 +742,13 @@ class DatabaseTestHelper
             first_seen_at TEXT NOT NULL,
             last_seen_at TEXT NOT NULL,
             blocked_at TEXT,
-            notified_code TEXT,
-            last_send_at TEXT
+            notified_code TEXT
+        )');
+
+        $pdo->exec('CREATE TABLE mail_send_receipts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email_blind_index TEXT NOT NULL UNIQUE,
+            last_send_at TEXT NOT NULL
         )');
 
         $pdo->exec('CREATE TABLE human_check_rate_limits (

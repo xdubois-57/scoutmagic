@@ -153,7 +153,13 @@ final class DeliveryStatusReport
             return $status;
         }
 
-        if (preg_match('/\b([245]\.\d{1,3}\.\d{1,3})\b/', $fields['diagnostic-code'] ?? '', $found) === 1) {
+        // `(?<![\d.])` and `(?![\d.])` rather than `\b`: a word boundary
+        // is happy to start inside a dotted number, so
+        // `connect to relay[92.5.1.10]` yields `5.1.10` — read as a
+        // PERMANENT « adresse inexistante » when the failure was a
+        // transient connection timeout. Two of those suspend an address,
+        // which is exactly the « inventing one » this class rules out.
+        if (preg_match('/(?<![\d.])([245]\.\d{1,3}\.\d{1,3})(?![\d.])/', $fields['diagnostic-code'] ?? '', $found) === 1) {
             return $found[1];
         }
 

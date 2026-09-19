@@ -84,19 +84,29 @@ class MemberEmailService
      * everywhere, because there is one mailbox and one state — see the
      * `mail_bounce_states` table comment.
      */
-    public function unblockBounce(int $memberId, int $emailId): void
+    public function unblockBounce(int $memberId, int $emailId, ?string $deskEmail = null): void
     {
-        // The ownership guard first, and unconditionally: an
-        // installation with no bounce tracking must still refuse a member
-        // reaching for somebody else's address, so this may never sit
-        // behind the null check below.
-        $row = $this->requireOwnRow($memberId, $emailId);
+        // **Id 0 is the Desk address, and it has no row yet.**
+        // `virtualDeskRow()` synthesises one with `id: 0` whenever the
+        // member has never unsubscribed or reactivated their Desk
+        // address — which is most members — so that is the id the page
+        // posts back, and `findById(0)` finds nothing. Refusing here
+        // would deny self-service on the very address most likely to be
+        // the one that bounced.
+        //
+        // The Desk address is supplied by the caller, exactly as
+        // `listForMember()` and `resolveValidAddressesForMassMail()`
+        // already take it: this service never looks it up, and taking it
+        // on trust from the page would let a member name somebody else's.
+        $email = $emailId === 0
+            ? $this->requireOwnDeskEmail($memberId, $deskEmail)
+            : $this->requireOwnRow($memberId, $emailId)->email;
 
         if ($this->bounces === null) {
             return;
         }
 
-        $state = $this->bounces->stateFor($row->email);
+        $state = $this->bounces->stateFor($email);
         if ($state === null) {
             return;
         }
@@ -613,6 +623,22 @@ class MemberEmailService
         } catch (MailException) {
             // Best-effort, same reasoning.
         }
+    }
+
+    /**
+     * The member's own Desk address, for the one id that has no row.
+     *
+     * The address comes from the caller — the controller reads it off the
+     * member's profile — so « la sienne » is established by the profile
+     * lookup and not by anything the browser sent.
+     */
+    private function requireOwnDeskEmail(int $memberId, ?string $deskEmail): string
+    {
+        if ($deskEmail === null || trim($deskEmail) === '') {
+            throw new MemberEmailException('Adresse introuvable.');
+        }
+
+        return $deskEmail;
     }
 
     private function requireOwnRow(int $memberId, int $emailId): MemberEmail

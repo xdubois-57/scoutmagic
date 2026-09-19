@@ -60,7 +60,15 @@ class MassMailService
         private AudienceRepository $audienceRepository,
         private MemberResolutionRepository $memberResolutionRepository,
         private SuppressedAddressRepository $suppressedAddressRepository,
-        private MergeRenderer $mergeRenderer
+        private MergeRenderer $mergeRenderer,
+        /**
+         * Bounce state (roadmap IT-05), in the allowed module → core
+         * direction. Nullable because the core table is always readable
+         * but nothing fills it without `inbound_mail`: null then means
+         * « rien n'a jamais rebondi », which is true rather than
+         * degraded.
+         */
+        private ?\Core\Mail\Feedback\Bounce\BounceService $bounces = null
     ) {
     }
 
@@ -923,6 +931,32 @@ class MassMailService
                 $recipientId,
                 null,
                 'Adresse désinscrite des emails groupés'
+            );
+            return [$validCount, $invalidCount + 1];
+        }
+
+        // A bounce block applies to the ADDRESS, so it has to be honoured
+        // on this path too (roadmap IT-05). Member-resolved recipients are
+        // filtered in `MemberEmailService::resolveValidAddressesForMassMail()`,
+        // which never sees a list address: without this check, an address
+        // the far end has refused twice keeps being written to through a
+        // custom list — the one hole in the rule the whole feature exists
+        // for. Written as an explicit error row, like the suppression just
+        // above, so the tracking page says why.
+        if ($this->bounces?->isBlocked($address) === true) {
+            $recipientId = $this->recipientRepository->create(
+                $email->id,
+                null,
+                null,
+                $address,
+                Recipient::STATUS_ERROR,
+                'Adresse suspendue après des refus répétés'
+            );
+            $this->journalRecipientNotSendable(
+                $email->id,
+                $recipientId,
+                null,
+                'Adresse suspendue après des refus répétés'
             );
             return [$validCount, $invalidCount + 1];
         }

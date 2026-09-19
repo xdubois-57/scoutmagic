@@ -361,6 +361,7 @@ class OutboundMailCollectorTest extends TestCase
     {
         $now = new \DateTimeImmutable('2026-09-19 10:00:00');
         foreach (['un@gmail.com', 'deux@gmail.com', 'trois@exemple.be'] as $email) {
+            $this->bounceStates->recordSend($email, $now->modify('-1 hour'));
             $state = $this->bounceStates->record(
                 $email,
                 \Core\Mail\Feedback\Bounce\BounceCategory::NoSuchAddress,
@@ -368,6 +369,7 @@ class OutboundMailCollectorTest extends TestCase
                 '5.1.1',
                 $now
             );
+            self::assertNotNull($state);
             $this->bounceStates->block($state->id, $now);
         }
 
