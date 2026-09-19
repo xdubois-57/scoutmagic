@@ -131,6 +131,17 @@ final class SsrfUrlValidator
      * Every address $host resolves to, or the literal when it is already
      * one. Empty when nothing could answer for it.
      *
+     * **The brackets come off first.** `parse_url()` hands back the host
+     * of `https://[fd00::1]/dav` as `[fd00::1]`, brackets included, and
+     * `FILTER_VALIDATE_IP` says no to that spelling — so the literal
+     * branch below was skipped, no resolver could answer for it either
+     * (it is neither an address nor a name), and the empty result read as
+     * « nothing resolves ». cURL, meanwhile, parses a bracketed IPv6 URL
+     * and dials it with no lookup at all. The same blind spot refused
+     * every *public* IPv6 literal at save time, for the same reason. The
+     * codebase already strips them in `DestinationMatcher` and
+     * `StatisticsSender`; this is the third place that needs it.
+     *
      * **Resolve the way the client that follows will resolve.** This check
      * only means something if it sees what cURL will see, and cURL calls
      * `getaddrinfo()`. `dns_get_record()` speaks the DNS protocol and only
@@ -158,6 +169,8 @@ final class SsrfUrlValidator
      */
     private static function addressesOf(string $host): array
     {
+        $host = self::unbracketed($host);
+
         if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
             return [$host];
         }
@@ -194,6 +207,15 @@ final class SsrfUrlValidator
         }
 
         return $ips;
+    }
+
+    /**
+     * An IPv6 host literal without the brackets `parse_url()` keeps, and
+     * anything else untouched.
+     */
+    private static function unbracketed(string $host): string
+    {
+        return trim($host, '[]');
     }
 
     /**

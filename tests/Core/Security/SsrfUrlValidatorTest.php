@@ -156,6 +156,59 @@ class SsrfUrlValidatorTest extends TestCase
     }
 
     /**
+     * **A bracketed IPv6 literal is an address, not a name.**
+     *
+     * `parse_url()` keeps the brackets, `FILTER_VALIDATE_IP` refuses that
+     * spelling, and no resolver can answer for `[fd00::1]` either — so the
+     * host fell through every branch and arrived at « nothing resolves »,
+     * which the stored check reads as permission. cURL needs no lookup for
+     * a bracketed URL: it dials the address. A row carrying
+     * `https://[::1]/dav` — a restore from another installation, a
+     * hand-edited column, exactly what the request-time re-check exists
+     * for — therefore sent the share's password to loopback.
+     *
+     * @param string $literal the host as it appears inside the brackets
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('privateIpv6Literals')]
+    public function testABracketedPrivateIpv6LiteralIsRefusedByBothChecks(string $literal): void
+    {
+        $url = 'https://[' . $literal . ']/dav';
+
+        $this->assertFalse(
+            SsrfUrlValidator::isStoredHttpsTargetStillSafe($url),
+            $url . ' must not pass the stored re-check'
+        );
+        $this->assertFalse(
+            SsrfUrlValidator::isPublicHttpsUrl($url),
+            $url . ' must not pass the save-time check'
+        );
+    }
+
+    /** @return array<string, array{string}> */
+    public static function privateIpv6Literals(): array
+    {
+        return [
+            'unique local' => ['fd00::1'],
+            'loopback' => ['::1'],
+            'link-local' => ['fe80::1'],
+            'IPv4-mapped loopback' => ['::ffff:127.0.0.1'],
+        ];
+    }
+
+    /**
+     * And the same blind spot refused every **public** IPv6 literal, which
+     * is the half that cost availability rather than safety: a share
+     * legitimately addressed by IPv6 could not be saved at all.
+     */
+    public function testABracketedPublicIpv6LiteralIsAccepted(): void
+    {
+        $url = 'https://[2606:4700:10::6814:1a88]/dav';
+
+        $this->assertTrue(SsrfUrlValidator::isPublicHttpsUrl($url));
+        $this->assertTrue(SsrfUrlValidator::isStoredHttpsTargetStillSafe($url));
+    }
+
+    /**
      * A host this machine resolves ONLY to a non-public IPv6 address, and
      * only through the system resolver — the exact shape the bug needed.
      * Null when this machine has none, which is the ordinary case.
