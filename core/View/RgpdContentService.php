@@ -735,7 +735,8 @@ consignées dans le journal d'audit ; (e bis) que la réponse à la question « 
 unité Les Scouts ? » et le nom d'unité qui l'accompagne ne servent qu'à la procédure d'encodage dans
 Desk, que ce nom est chiffré au repos et n'est jamais comparé à une liste d'unités ni recherchable
 par son texte, et qu'une demande déposée avant l'existence de cette question n'en porte aucune trace
-— une absence de réponse n'est jamais un « non » ; (f) que deux délais de conservation distincts, tous deux configurables par
+— une absence de réponse n'est jamais un « non » ; (f) que deux délais de conservation distincts,
+tous deux configurables par
 l'administrateur et comptés depuis la clôture de la demande (jamais depuis son dépôt), s'appliquent une fois la
 demande acceptée dans Desk, refusée ou retirée : disparition de l'espace personnel de la famille (3 mois par défaut)
 puis suppression définitive (2 ans par défaut) — une demande encore en attente ou acceptée n'est, elle, jamais

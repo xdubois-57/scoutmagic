@@ -35,11 +35,30 @@
     aria_label  accessible name, when the visible text is not enough —
                 either there is none, or a list repeats « Télécharger »
                 on every row without saying of what (optional)
+
+  **The accessible name always contains the visible one**, and that is
+  computed here rather than asked of each caller. WCAG 2.5.3 « Label in
+  Name » is about somebody driving the page by voice: they say what they
+  READ, « Télécharger », and a control whose accessible name does not
+  contain that word is a control they cannot reach — while looking
+  perfectly fine to everyone else. The second case above is exactly where
+  that goes wrong: a row that shows « Télécharger » and answers to
+  « Télécharger l'attestation de Léa » is correct, and the same row
+  answering only to « Attestation de Léa » is not.
+
+  So a caller passing both gets the visible label put in front of its
+  own text when it is not already in there. Nothing is prefixed when the
+  link has no visible label (the icon-only case, where there is no read
+  word to say) nor when the caller already included it.
 #}
+{%- set accessible_name = (aria_label is defined and aria_label) ? aria_label : '' -%}
+{%- if accessible_name and label and label not in accessible_name -%}
+    {%- set accessible_name = label ~ ' — ' ~ accessible_name -%}
+{%- endif -%}
 <a href="{{ href }}"
    class="{{ classes|default('') }}"
    {% if title is defined and title %}title="{{ title }}"{% endif %}
-   {% if aria_label is defined and aria_label %}aria-label="{{ aria_label }}"{% endif %}
+   {% if accessible_name %}aria-label="{{ accessible_name }}"{% endif %}
    download{% if filename is defined and filename %}="{{ filename }}"{% endif %}
    target="_blank" rel="noopener">
     {%- if icon is defined and icon %}<i class="bi bi-{{ icon }}" aria-hidden="true"></i>{% if label %} {% endif %}{% endif -%}
