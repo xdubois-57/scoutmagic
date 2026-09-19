@@ -121,6 +121,25 @@ class PageControllerTest extends TestCase
         $twig->addFilter(new \Twig\TwigFilter('display_name', function ($member) {
             return $member instanceof MemberProfile ? $member->getDisplayName() : (string) $member;
         }));
+        // Minimal stand-in for TwigFactory::create()'s own
+        // display_name_full — "Totem (Prénom Nom)", or the name alone
+        // when there is no totem. Same posture as display_name above: the
+        // real filter is covered end to end by Tests\Core\View\
+        // TwigFactoryTest, and what this file is proving is which filter
+        // pages/sections.html.twig reaches for.
+        $twig->addFilter(new \Twig\TwigFilter('display_name_full', function ($member) {
+            if (!$member instanceof MemberProfile) {
+                return (string) $member;
+            }
+            $full = trim(
+                \Core\Service\TextNormalizerService::normalizeName($member->firstName)
+                . ' ' . \Core\Service\TextNormalizerService::normalizeName($member->lastName)
+            );
+
+            return $member->totem
+                ? \Core\Service\TextNormalizerService::normalizeTotem($member->totem) . ' (' . $full . ')'
+                : $full;
+        }));
         // Minimal stand-in for TwigFactory::create()'s own relative_date —
         // the real French/UTC formatting is covered in full by
         // Tests\Core\View\TwigFactoryTest; here it only needs to exist so
@@ -646,6 +665,46 @@ class PageControllerTest extends TestCase
 
     public function testSectionsPageShowsResponsableNameFromProvider(): void
     {
+        ['body' => $body, 'section_id' => $sectionId, 'scout_year_id' => $scoutYearId, 'calls' => $calls]
+            = $this->renderSectionsPageWithResponsable();
+
+        // Issue #359 — display_name_full, not display_name: this page is
+        // PUBLIC, and a parent looking up who runs their child's section
+        // has never heard the totem. Same filter as the member page uses
+        // for this same "responsable" field.
+        $this->assertStringContainsString(
+            TextNormalizerService::normalizeTotem('Aigle')
+                . ' (' . TextNormalizerService::normalizeName('Marie')
+                . ' ' . TextNormalizerService::normalizeName('Curie') . ')',
+            $body
+        );
+        $this->assertContains([$sectionId, $scoutYearId], $calls);
+    }
+
+    /**
+     * Issue #359 — and an icon in front of it, like the e-mail line just
+     * below it in the same card. It was the one fact on that card with
+     * nothing to mark it.
+     */
+    public function testSectionsPageMarksTheResponsableWithAnIcon(): void
+    {
+        $body = $this->renderSectionsPageWithResponsable()['body'];
+
+        $this->assertMatchesRegularExpression(
+            '#<i class="bi bi-person" aria-hidden="true"></i>\s*'
+                . preg_quote(TextNormalizerService::normalizeTotem('Aigle'), '#') . ' \\(#',
+            $body
+        );
+    }
+
+    /**
+     * One section, one designated responsable — Marie Curie, totem
+     * "Aigle" — rendered through the real provider hook.
+     *
+     * @return array{body: string, section_id: int, scout_year_id: int, calls: array<int, array{0: int, 1: int}>}
+     */
+    private function renderSectionsPageWithResponsable(): array
+    {
         $this->pdo->exec("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('BRANCH', 'Branche Test', 1)");
         $branchId = (int) $this->pdo->lastInsertId();
         $this->pdo->exec("INSERT INTO sections (age_branch_id, desk_code, name, email) VALUES ($branchId, 'SEC1', 'Section Test', 'sec1@example.com')");
@@ -701,11 +760,15 @@ class PageControllerTest extends TestCase
 
         $request = new Request('GET', '/sections', [], [], [], []);
         $response = $controller->sections($request, []);
-        $body = $response->getBody();
 
         $this->assertSame(200, $response->getStatusCode());
-        $this->assertStringContainsString(TextNormalizerService::normalizeName('Aigle'), $body);
-        $this->assertContains([$sectionId, $scoutYearId], $provider->calls);
+
+        return [
+            'body' => $response->getBody(),
+            'section_id' => $sectionId,
+            'scout_year_id' => $scoutYearId,
+            'calls' => $provider->calls,
+        ];
     }
 
     public function testRgpdPageRenders(): void

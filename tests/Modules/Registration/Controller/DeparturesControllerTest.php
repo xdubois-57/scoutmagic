@@ -127,18 +127,24 @@ class DeparturesControllerTest extends TestCase
         return (int) $this->pdo->lastInsertId();
     }
 
-    private function createMemberInSection(int $sectionId, string $firstName, string $email, string $functionRole): int
-    {
+    private function createMemberInSection(
+        int $sectionId,
+        string $firstName,
+        string $email,
+        string $functionRole,
+        ?string $totem = null
+    ): int {
         $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK_" . uniqid() . "')");
         $memberId = (int) $this->pdo->lastInsertId();
 
         $stmt = $this->pdo->prepare(
-            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, email_encrypted, email_blind_index, birth_date_encrypted)
-             VALUES (?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, totem_encrypted, email_encrypted, email_blind_index, birth_date_encrypted)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $memberId, $this->scoutYearId,
             $this->encryption->encrypt($firstName, 'member_years.first_name'), $this->encryption->encrypt('Dupont', 'member_years.last_name'),
+            $totem !== null ? $this->encryption->encrypt($totem, 'member_years.totem') : null,
             $this->encryption->encrypt($email, 'member_years.email'), $this->encryption->blindIndex(mb_strtolower(trim($email)), 'email'),
             $this->encryption->encrypt('2015-01-01', 'member_years.birth_date'),
         ]);
@@ -233,6 +239,49 @@ class DeparturesControllerTest extends TestCase
 
         $this->assertMatchesRegularExpression(
             '#<h1[^>]*>Départs</h1>\s*<span class="badge text-bg-secondary">2026-2027</span>#',
+            $body
+        );
+    }
+
+    /**
+     * Issue #351 — the totem, on the page whose whole job is to find an
+     * animé in a list.
+     *
+     * "Totem (Prénom Nom)", the display_name_full filter the member page
+     * already uses, rather than the surname alone: staff know an animé by
+     * their totem, and the legal name is what the rest of the row is
+     * filed under. An animé WITHOUT a totem must still read as a plain
+     * name — an empty parenthesis would be worse than the bug.
+     */
+    public function testTheRosterNamesAnAnimeByTotemAndFullName(): void
+    {
+        $this->createMemberInSection($this->sectionAId, 'Manon', 'manon@example.com', 'identified', 'Écureuil');
+
+        AuthSession::login(1, 'chief@example.com', 'chief');
+
+        $body = $this->controller->index(new Request('GET', '/departs', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Écureuil (Manon Dupont)', $body);
+        // Léa has no totem: her line is the name and nothing else.
+        $this->assertStringContainsString('Léa Dupont', $body);
+        $this->assertStringNotContainsString('Léa Dupont (', $body);
+    }
+
+    /**
+     * The same name in the checkbox's accessible label, so a screen
+     * reader hears the line that is on screen rather than a second,
+     * quieter naming convention of its own.
+     */
+    public function testTheCheckboxAccessibleNameCarriesTheSameName(): void
+    {
+        $this->createMemberInSection($this->sectionAId, 'Manon', 'manon@example.com', 'identified', 'Écureuil');
+
+        AuthSession::login(1, 'chief@example.com', 'chief');
+
+        $body = $this->controller->index(new Request('GET', '/departs', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString(
+            'aria-label="Ne sera plus là l\'année prochaine — Écureuil (Manon Dupont)"',
             $body
         );
     }
