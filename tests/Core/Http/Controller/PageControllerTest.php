@@ -655,6 +655,73 @@ class PageControllerTest extends TestCase
         );
     }
 
+    /**
+     * Issue #372 — one person reads the same way on both pages.
+     *
+     * This card built « Prénom Nom (Totem) » by hand while every other
+     * page that shows a totem beside a name goes through
+     * `display_name_full`, which renders « Totem (Prénom Nom) ». Two
+     * orders for one fact, and the hand-written one belonged to no shared
+     * filter — so a change of convention would have left this card behind
+     * with nothing anywhere to say so.
+     *
+     * **Asserted as an agreement, not as a literal order**, and that is
+     * the point of the test rather than a detail of it. #372 leaves open
+     * which of the two orders the site should settle on; the cheap fix
+     * (this one) aligns the page on the filter, the other answer would
+     * change the filter and every page already using it, and choosing
+     * between them is a content decision the issue puts to the
+     * maintainer. A test naming the order outright survives only one of
+     * those answers. This one renders the filter for the very profile the
+     * page was given and looks for that string on both pages, so it holds
+     * under either — and still fails the moment one page stops going
+     * through the shared filter, which is the defect.
+     */
+    public function testTheContactPageNamesAMemberTheSameWayTheSectionsPageDoes(): void
+    {
+        $scoutYearId = $this->scoutYearService->getCurrentYear()['id'];
+        $staffduSectionId = $this->unitStaffSectionService->ensureSection();
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+
+        $this->pdo->prepare("INSERT INTO functions (desk_code, label, role) VALUES ('FN2', ?, 'admin')")->execute(["Chef d'Unité"]);
+        $functionId = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('D3')");
+        $memberId = (int) $this->pdo->lastInsertId();
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, totem_encrypted) VALUES (?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            $memberId,
+            $scoutYearId,
+            $encryption->encrypt('Marie', 'member_years.first_name'),
+            $encryption->encrypt('Curie', 'member_years.last_name'),
+            $encryption->encrypt('Aigle', 'member_years.totem'),
+        ]);
+        $memberYearId = (int) $this->pdo->lastInsertId();
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_functions (member_year_id, function_id, section_id, is_main_function) VALUES (?, ?, ?, 1)'
+        );
+        $stmt->execute([$memberYearId, $functionId, $staffduSectionId]);
+
+        // The convention itself, rendered for this exact profile rather
+        // than spelled out here — see the docblock.
+        $expected = $this->twig
+            ->createTemplate('{{ member|display_name_full }}')
+            ->render(['member' => $this->sectionService->hydrateMemberProfile($memberYearId)]);
+
+        $sectionsBody = $this->renderSectionsPageWithResponsable()['body'];
+
+        $request = new Request('GET', '/contact', [], [], [], []);
+        $contactBody = $this->controller->contact($request, [])->getBody();
+
+        $this->assertStringContainsString($expected, $sectionsBody);
+        $this->assertStringContainsString(
+            $expected,
+            $contactBody,
+            'the Staff d\'Unité card names a member its own way instead of through display_name_full (#372).'
+        );
+    }
+
     public function testSectionsPageRendersEmptyState(): void
     {
         $request = new Request('GET', '/sections', [], [], [], []);
