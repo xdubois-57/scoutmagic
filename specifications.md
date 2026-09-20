@@ -964,6 +964,8 @@ The renter's acknowledgement email carries a link to their own tracking page. **
 
 **The milestone checklist is derived, never stored.** "Deposit paid", "contract sent", "inventory taken" are computed from the booking's own state every time they are shown, so they cannot drift from it and no scheduled task has to keep them in step. Every change a person makes to a booking is kept as the booking's own history, with the value before and after.
 
+**The booking's page leads with one thing to do.** It reads in four movements — the details of the rental, « L'action suivante », the journey in five phases, then « Le dossier » — and only the phase the booking has reached is unfolded. A file whose price, payments, documents, mail, change requests, comments and history are all open at once shows everything and therefore nothing first; each of those is a folded box now, and the figure beside its name (what is still owed, how many requests are waiting) answers the question it would have been opened for. The status is stated once, at the top: a second card repeating it lower down is how a page starts giving two answers to one question. The decision on a request is itself a milestone, because « Demande reçue » ticks when the request arrives and says nothing about whether anybody has answered it.
+
 ### 22.6 Documents
 
 A contract and an invoice are generated from a per-asset template, in three frozen levels: the asset's template, the booking's own copy of it (taken at first generation, so editing the template afterwards changes no existing booking), and the PDF. **Regenerating never overwrites**: v2 appears beside v1, because v1 may already be signed.

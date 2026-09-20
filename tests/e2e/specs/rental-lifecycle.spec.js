@@ -239,6 +239,15 @@ test.describe('Rentals — the milestones after a confirmation', () => {
         await expect(milestone(page, 'Caution restituée')).toContainText(NOT_APPLICABLE);
 
         // ── The contract: generated, then sent ───────────────────────────
+        // « Documents » is a box of « Le dossier » and boxes ship folded
+        // (IT-05): the page opens on the one thing to do, not on eight
+        // panels at once. Opened ONCE here — its fold lives outside the
+        // `data-booking-panel` wrapper, so the four presses below, each of
+        // which re-renders the panel, must all leave it open. A box that
+        // folded under the manager's hands after every action is the
+        // regression this single call is watching for.
+        await openBox(page, 'dossier-documents');
+
         // A marker on the live document. If any of the presses below makes
         // the browser navigate, the document is replaced and the marker goes
         // with it — the only way to tell "the panel was re-rendered" from
@@ -381,7 +390,7 @@ test.describe('Rentals — the milestones after a confirmation', () => {
         // the whole document: a page-wide getByText is how a header, a
         // drawer and the body all answer to one visible string.
         await expect(
-            page.locator('[data-booking-panel="lifecycle"]'),
+            page.locator('[data-booking-panel="next-step"]'),
         ).toContainText('Cette réservation est dans un état définitif');
 
         expect(serverErrors, 'the application returned a server error').toEqual([]);
@@ -411,6 +420,31 @@ test.describe('Rentals — the milestones after a confirmation', () => {
  */
 function milestone(page, label) {
     return page.locator('[data-booking-panel="milestones"] li').filter({ hasText: label });
+}
+
+/**
+ * Unfolds one box of « Le dossier » (IT-05), by the id
+ * `Booking\BookingBox::anchor()` gives its card.
+ *
+ * Idempotent, because the interesting property is that a box STAYS open
+ * across the panel refreshes that follow: calling it on a box already
+ * unfolded must not fold it, and a second call is how a spec would
+ * accidentally do exactly that.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} anchor the card's id, e.g. `dossier-documents`
+ */
+async function openBox(page, anchor) {
+    const trigger = page.locator(`#${anchor} [data-bs-toggle="collapse"]`).first();
+    if (await trigger.getAttribute('aria-expanded') === 'true') {
+        return;
+    }
+
+    await trigger.click();
+    // The animation, waited out rather than slept through: Bootstrap adds
+    // `.show` when it starts and the panel has no height until it ends, so
+    // a click aimed inside it now would land on nothing.
+    await expect(page.locator(`#${anchor} .collapse`).first()).toBeVisible();
 }
 
 /**

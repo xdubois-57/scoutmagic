@@ -1,0 +1,147 @@
+{#
+  The price of one booking (§6.12), a box of « Le dossier ».
+
+  Lifted out of booking.html.twig when that page was reorganised into folded
+  boxes; nothing in it changed. It sits inside the box's own card, so it
+  carries no card and no heading of its own — the fold's header is the
+  heading, and Booking\BookingBox holds its name.
+
+  Requires `asset`, `booking` and `quote`.
+#}
+<div class="card-body pt-0">
+                {% if booking.status.value == 'confirmed' %}
+                    <output class="alert alert-warning d-block">
+                        <strong>Cette réservation est confirmée.</strong> Modifier le prix maintenant :
+                        <ul class="mb-0">
+                            <li>le contrat sera à régénérer en nouvelle version ;</li>
+                            <li>la créance sera mise à jour ;</li>
+                            <li>le changement est visible immédiatement du locataire ;</li>
+                            <li>les paiements déjà reçus ne sont pas touchés — seul le solde change,
+                                et un trop-perçu est possible si le nouveau total passe sous le montant encaissé.</li>
+                        </ul>
+                    </output>
+                {% endif %}
+
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-2">
+                        <thead>
+                            <tr>
+                                <th scope="col">Ligne</th>
+                                <th scope="col" class="text-end">Quantité</th>
+                                <th scope="col" class="text-end">Montant</th>
+                                <th scope="col"><span class="visually-hidden">Actions</span></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for line in quote.lines %}
+                                <tr>
+                                    <td>
+                                        {{ line.label }}
+                                        {% if line.isManual %}
+                                            <span class="badge text-bg-info ms-1"
+                                                  title="Cette ligne ne sera plus recalculée">Modifiée à la main</span>
+                                        {% endif %}
+                                        {% if line.isInformational %}
+                                            <span class="text-body-secondary small d-block">
+                                                Facturé sur relevé — hors total
+                                            </span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-end">{{ line.quantity }}</td>
+                                    <td class="text-end">{{ line.amountCents|money_cents }}</td>
+                                    <td class="text-end">
+                                        <form method="post" action="/mes-locations/ligne" class="d-inline"
+                                              data-confirm="Supprimer la ligne « {{ line.label }} » ?">
+                                            {{ csrf_field()|raw }}
+                                            <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                            <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                            <input type="hidden" name="line_action" value="remove">
+                                            <input type="hidden" name="index" value="{{ loop.index0 }}">
+                                            <button type="submit" class="btn btn-sm btn-outline-danger">
+                                                Supprimer
+                                            </button>
+                                        </form>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td colspan="4" class="pt-0">
+                                        <form method="post" action="/mes-locations/ligne" class="row g-2 align-items-end">
+                                            {{ csrf_field()|raw }}
+                                            <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                            <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                            <input type="hidden" name="line_action" value="edit">
+                                            <input type="hidden" name="index" value="{{ loop.index0 }}">
+                                            <div class="col-12 col-md-5">
+                                                <label class="form-label visually-hidden" for="label-{{ loop.index0 }}">Libellé</label>
+                                                <input type="text" class="form-control form-control-sm"
+                                                       id="label-{{ loop.index0 }}" name="label" value="{{ line.label }}">
+                                            </div>
+                                            <div class="col-6 col-md-2">
+                                                <label class="form-label visually-hidden" for="qty-{{ loop.index0 }}">Quantité</label>
+                                                <input type="number" inputmode="numeric" min="1" class="form-control form-control-sm"
+                                                       id="qty-{{ loop.index0 }}" name="quantity" value="{{ line.quantity }}">
+                                            </div>
+                                            <div class="col-6 col-md-3">
+                                                <label class="form-label visually-hidden" for="amount-{{ loop.index0 }}">Montant</label>
+                                                <input type="text" class="form-control form-control-sm"
+                                                       id="amount-{{ loop.index0 }}" name="amount"
+                                                       value="{{ (line.amountCents / 100)|number_format(2, ',', '') }}"
+                                                       inputmode="decimal">
+                                            </div>
+                                            <div class="col-12 col-md-2">
+                                                <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Modifier</button>
+                                            </div>
+                                        </form>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                        <tfoot>
+                            <tr class="fw-semibold">
+                                <td colspan="2">Total</td>
+                                <td class="text-end">{{ quote.totalCents|money_cents }}</td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+
+                <form method="post" action="/mes-locations/ligne" class="row g-2 align-items-end mb-3">
+                    {{ csrf_field()|raw }}
+                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                    <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                    <input type="hidden" name="line_action" value="add">
+                    <div class="col-12 col-md-5">
+                        <label class="form-label" for="new-label">Nouvelle ligne</label>
+                        <input type="text" class="form-control form-control-sm" id="new-label" name="label"
+                               placeholder="Remise exceptionnelle">
+                    </div>
+                    <div class="col-6 col-md-2">
+                        <label class="form-label" for="new-quantity">Quantité</label>
+                        <input type="number" inputmode="numeric" min="1" class="form-control form-control-sm" id="new-quantity"
+                               name="quantity" value="1">
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label" for="new-amount">Montant</label>
+                        <input type="text" class="form-control form-control-sm" id="new-amount" name="amount"
+                               inputmode="decimal" placeholder="-50,00">
+                    </div>
+                    <div class="col-12 col-md-2">
+                        <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Ajouter</button>
+                    </div>
+                </form>
+
+                <form method="post" action="/mes-locations/ligne">
+                    {{ csrf_field()|raw }}
+                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                    <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                    <input type="hidden" name="line_action" value="recalculate">
+                    <button type="submit" class="btn btn-sm btn-outline-secondary">
+                        Recalculer les lignes automatiques
+                    </button>
+                    <span class="form-text d-block">
+                        Reprend le tarif en vigueur pour les lignes automatiques. Les lignes modifiées
+                        à la main sont conservées telles quelles.
+                    </span>
+                </form>
+</div>

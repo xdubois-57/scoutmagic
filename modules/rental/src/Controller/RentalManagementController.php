@@ -26,6 +26,8 @@ use Core\View\MonthGrid\DayStateGridBuilder;
 use Modules\Calendar\Api\CalendarDirectoryInterface;
 use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Availability\MonthWindow;
+use Modules\Rental\Booking\BookingBox;
+use Modules\Rental\Booking\BookingJourney;
 use Modules\Rental\Booking\BookingMilestones;
 use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\BookingTransition;
@@ -735,6 +737,19 @@ class RentalManagementController extends AbstractController
             $this->stayService?->latestSettlement($booking->id)
         );
 
+        $milestones = BookingMilestones::for($booking, $now, $evidence->done, $evidence->details);
+        $transitions = BookingTransition::allowedFrom($booking->status);
+
+        // Keyed by the enum's own value so the template writes
+        // `boxes.paiements.anchor` rather than the string that anchor
+        // happens to be today: the journey's links are built from the same
+        // enum, and a template that spelled its own would send half of them
+        // to an id nothing carries (Booking\BookingBox).
+        $boxes = [];
+        foreach (BookingBox::cases() as $box) {
+            $boxes[$box->value] = $box;
+        }
+
         return $this->render('@rental/management/booking.html.twig', [
             'asset' => $asset,
             'booking' => $booking,
@@ -745,12 +760,18 @@ class RentalManagementController extends AbstractController
             // the inventory that was finished — never from a stored flag,
             // so pressing a button on this page moves the box it belongs to
             // (§6.15).
-            'milestones' => BookingMilestones::for($booking, $now, $evidence->done, $evidence->details),
-            'allowed_transitions' => BookingTransition::allowedFrom($booking->status),
+            'milestones' => $milestones,
+            // The same checklist, staged into the five stretches the page
+            // reads in — and the one outstanding milestone « L'action
+            // suivante » shows. Derived from `milestones` above, never
+            // beside it: two derivations of one lifecycle is exactly how a
+            // page starts telling two stories (Booking\BookingJourney).
+            'journey' => BookingJourney::of($milestones, $transitions),
+            'allowed_transitions' => $transitions,
             // Keyed by status value so the template can ask "does this
             // button write to the renter?" without knowing which statuses
             // do — that answer belongs to Booking\RenterDecision alone.
-            'renter_decisions' => self::renterDecisionPrompts(BookingTransition::allowedFrom($booking->status)),
+            'renter_decisions' => self::renterDecisionPrompts($transitions),
             'can_confirm' => BookingTransition::isAllowed($booking->status, BookingStatus::CONFIRMED),
             'quote' => $this->operationsService->workingQuote($booking, $asset),
             'price_is_agreed' => $booking->priceHasBeenAgreed(),
@@ -787,6 +808,7 @@ class RentalManagementController extends AbstractController
             'billing' => $this->bookingRepository->findBillingIdentity($booking->id),
             'csrf_token' => CsrfGuard::generateToken(),
             'nav_page' => 'bookings',
+            'boxes' => $boxes,
         ]);
     }
 

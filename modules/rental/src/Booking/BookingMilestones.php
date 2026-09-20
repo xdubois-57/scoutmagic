@@ -77,6 +77,27 @@ final class BookingMilestones
             $booking->holdUntil?->format('d/m/Y à H\hi')
         );
 
+        // The line the chantier's phase 1 names and this list never had:
+        // "décision à prendre". « Demande reçue » ticks when the request
+        // ARRIVES, so a request nobody has looked at showed a phase with
+        // nothing outstanding in it, and the page's « action suivante »
+        // went straight past the decision to ask for a contract.
+        //
+        // Done exactly when confirming is no longer on the table — the same
+        // table `BookingTransition` already keeps, rather than a second
+        // list of "deliberating" statuses that would drift from it. A
+        // proposal sent is not a decision taken: the renter may still
+        // refuse it, and confirming remains allowed.
+        $milestones[] = new BookingMilestone(
+            'decision',
+            'Décision prise sur la demande',
+            !BookingTransition::isAllowed($booking->status, BookingStatus::CONFIRMED),
+            true,
+            BookingTransition::isAllowed($booking->status, BookingStatus::CONFIRMED)
+                ? null
+                : $booking->status->label()
+        );
+
         $milestones[] = self::extra($extras, self::CONTRACT_SENT, 'Contrat envoyé', $details);
         $milestones[] = self::extra($extras, self::CONTRACT_ACCEPTED, 'Conditions et contrat acceptés', $details);
         $milestones[] = self::extra($extras, self::DEPOSIT_RECEIVED, 'Acompte reçu', $details);

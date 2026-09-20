@@ -1,0 +1,35 @@
+{#
+  The header of a folded box of « Le dossier »: its name, its telling
+  figure, a chevron.
+
+  Embedded rather than included, because the figure differs for every box
+  and is the one thing that has to be refreshable — the caller supplies it
+  in the `figure` block, wrapped in its own `data-booking-panel`:
+
+    {% embed '@rental/management/_dossier_header.html.twig' with {
+        box: boxes.paiements, target_id: 'box-paiements',
+    } only %}
+        {% block figure %}<span data-booking-panel="payment-figure">…</span>{% endblock %}
+    {% endembed %}
+
+  Same composition as Configuration > Maintenance's `section_header`, and
+  for the same reason: `.btn` fixes its own colour AND its own font-size, so
+  an `h6` put on the heading itself would deliver neither — the size goes on
+  the span inside.
+
+  Boxes ship folded. `box` is a Booking\BookingBox, which is also what the
+  journey's links are built from, so the card id a link aims at and the
+  panel this button opens can never be two different strings.
+
+  Requires `box` and `target_id`.
+#}
+<h3 class="mb-0">
+    <button type="button"
+            class="btn collapsed w-100 d-flex align-items-center gap-2 p-3 text-start"
+            data-bs-toggle="collapse" data-bs-target="#{{ target_id }}"
+            aria-expanded="false" aria-controls="{{ target_id }}">
+        <span class="h6 mb-0 flex-grow-1">{{ box.label }}</span>
+        {% block figure %}{% endblock %}
+        <i class="bi bi-chevron-down text-body-tertiary" aria-hidden="true"></i>
+    </button>
+</h3>

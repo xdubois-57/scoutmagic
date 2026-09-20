@@ -12,11 +12,13 @@
   - A generated document is never overwritten. Regenerating adds v2 beside
     v1, because v1 may already be signed.
 
+  A box of « Le dossier » since booking.html.twig was reorganised: it sits
+  inside the box's own card, so it carries no card and no heading of its
+  own — the fold's header is the heading.
+
   Requires `asset`, `booking`, `documents` and `uploadable_types`.
 #}
-<div class="card mb-4">
-    <div class="card-body">
-        <h2 class="h5 mb-2">Documents</h2>
+<div class="card-body pt-0">
         <p class="text-body-secondary small">
             Le locataire ne télécharge rien depuis le site : ses documents lui parviennent
             uniquement par email. En cas d'email perdu, renvoyez-le.
@@ -190,12 +192,16 @@
                 <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Ajouter</button>
             </div>
         </form>
-    </div>
-</div>
 
-<div class="card mb-4">
-    <div class="card-body">
-        <h2 class="h5 mb-2">Coordonnées de facturation</h2>
+        {#
+          The invoice's other half, and therefore still a document: the
+          coordinates it is made out to. It stays in this box rather than
+          moving to Paiements, where a VAT number also sounds at home —
+          nothing is paid from here, and the box a manager opens to make an
+          invoice is the one that should hold what the invoice says.
+        #}
+        <hr>
+        <h4 class="h6">Coordonnées de facturation</h4>
         <p class="text-body-secondary small">
             Demandées au moment utile, pas au formulaire public : un visiteur qui se renseigne sur un
             week-end n'a aucune raison de taper un numéro de TVA. Tout est chiffré au repos.
@@ -244,4 +250,3 @@
             </div>
         </form>
     </div>
-</div>
