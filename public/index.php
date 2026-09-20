@@ -10780,6 +10780,7 @@ if ($isEnabled('rental')) {
             $settingService,
             $rentalOperationsService,
             $rentalChangeRequestRepository,
+            $rentalBookingRepository,
             // The renter's own ICS feed (§6.32): only the generator is
             // borrowed from `calendar`, never a calendar row. Without the
             // module the link simply is not offered.

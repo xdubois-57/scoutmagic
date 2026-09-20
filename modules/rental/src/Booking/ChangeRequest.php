@@ -66,6 +66,12 @@ final class ChangeRequest
                 self::frenchDate($this->proposedDepartureDate)
             ),
             ChangeRequestKind::PERSONS => ($this->proposedPersons ?? 0) . ' participants',
+            ChangeRequestKind::DATES_AND_PERSONS => sprintf(
+                'du %s au %s, %d participants',
+                self::frenchDate($this->proposedArrivalDate),
+                self::frenchDate($this->proposedDepartureDate),
+                $this->proposedPersons ?? 0
+            ),
             ChangeRequestKind::CANCELLATION => 'annulation demandée',
         };
     }

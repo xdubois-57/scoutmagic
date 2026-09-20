@@ -591,6 +591,7 @@ class RentalOperationsServiceTest extends TestCase
 
         $this->service->requestChange(
             $booking,
+            $this->asset(),
             ChangeRequestOrigin::RENTER,
             ChangeRequestKind::DATES,
             '2027-07-08',
@@ -612,6 +613,7 @@ class RentalOperationsServiceTest extends TestCase
         $booking = $this->createBooking();
         $this->service->requestChange(
             $booking,
+            $this->asset(),
             ChangeRequestOrigin::RENTER,
             ChangeRequestKind::PERSONS,
             null,
@@ -644,6 +646,7 @@ class RentalOperationsServiceTest extends TestCase
 
         $this->service->requestChange(
             $booking,
+            $this->asset(),
             ChangeRequestOrigin::RENTER,
             ChangeRequestKind::DATES,
             'demain',
@@ -663,6 +666,7 @@ class RentalOperationsServiceTest extends TestCase
 
         $this->service->requestChange(
             $booking,
+            $this->asset(),
             ChangeRequestOrigin::RENTER,
             ChangeRequestKind::DATES,
             '2027-02-30',
@@ -685,6 +689,7 @@ class RentalOperationsServiceTest extends TestCase
 
         $this->service->requestChange(
             $booking,
+            $this->asset(),
             ChangeRequestOrigin::RENTER,
             ChangeRequestKind::DATES,
             '2027-07-11',
@@ -701,6 +706,7 @@ class RentalOperationsServiceTest extends TestCase
         $booking = $this->createBooking();
         $id = $this->service->requestChange(
             $booking,
+            $this->asset(),
             ChangeRequestOrigin::RENTER,
             ChangeRequestKind::DATES,
             '2027-07-08',
@@ -735,6 +741,7 @@ class RentalOperationsServiceTest extends TestCase
         $booking = $this->createBooking();
         $id = $this->service->requestChange(
             $booking,
+            $this->asset(),
             ChangeRequestOrigin::RENTER,
             ChangeRequestKind::DATES,
             '2027-07-08',
@@ -765,6 +772,7 @@ class RentalOperationsServiceTest extends TestCase
         $booking = $this->createBooking();
         $id = $this->service->requestChange(
             $booking,
+            $this->asset(),
             ChangeRequestOrigin::MANAGER,
             ChangeRequestKind::DATES,
             '2027-07-15',
@@ -790,14 +798,56 @@ class RentalOperationsServiceTest extends TestCase
         $this->assertSame('2027-07-15', $this->reload($booking)->arrivalDate);
     }
 
-    public function testADateChangeIsRefusedWhenTheNewDatesAreTaken(): void
+    /**
+     * The refusal now arrives when the renter asks, not weeks later when a
+     * manager presses « Accepter » (IT-03). Until then `requestChange()`
+     * checked that the dates parsed and were in order and nothing else, so
+     * a period already taken was recorded, queued, and refused in the
+     * manager's face — the wrong person finding out at the wrong moment.
+     */
+    public function testADateChangeOntoTakenDatesIsRefusedWhenItIsASKED(): void
     {
         $other = $this->createBooking('LOC-2027-0002', '2027-07-08', '2027-07-11');
         $this->service->confirm($other, $this->asset(), 1, $this->now());
 
         $booking = $this->createBooking('LOC-2027-0003');
+
+        try {
+            $this->service->requestChange(
+                $booking,
+                $this->asset(),
+                ChangeRequestOrigin::RENTER,
+                ChangeRequestKind::DATES,
+                '2027-07-08',
+                '2027-07-11',
+                null,
+                null,
+                null,
+                'Ces dates nous arrangeraient mieux.'
+            );
+            $this->fail('Asking for dates that are already taken must be refused.');
+        } catch (RentalException $e) {
+            $this->assertStringContainsString('disponible', $e->getMessage());
+        }
+
+        // Nothing was recorded: a request that cannot be accepted is not a
+        // request a manager should have to read.
+        $this->assertSame([], $this->changeRequestRepository->findPendingForBooking($booking->id));
+    }
+
+    /**
+     * And the acceptance-time check STAYS, because it answers a different
+     * question: between a request and an answer, the dates can be taken by
+     * somebody else, and only the check inside the lock sees that.
+     */
+    public function testDatesTakenAFTERTheRequestAreStillCaughtAtAcceptance(): void
+    {
+        $booking = $this->createBooking('LOC-2027-0003');
+
+        // Asked while the period is free — this passes the new check.
         $id = $this->service->requestChange(
             $booking,
+            $this->asset(),
             ChangeRequestOrigin::RENTER,
             ChangeRequestKind::DATES,
             '2027-07-08',
@@ -805,8 +855,13 @@ class RentalOperationsServiceTest extends TestCase
             null,
             null,
             null,
-            null
+            'Ces dates nous arrangeraient mieux.'
         );
+
+        // Somebody else takes them in the meantime.
+        $other = $this->createBooking('LOC-2027-0002', '2027-07-08', '2027-07-11');
+        $this->service->confirm($other, $this->asset(), 1, $this->now());
+
         $request = $this->changeRequestRepository->findById($id);
         $this->assertNotNull($request);
 
@@ -837,6 +892,7 @@ class RentalOperationsServiceTest extends TestCase
         $booking = $this->createBooking();
         $id = $this->service->requestChange(
             $booking,
+            $this->asset(),
             ChangeRequestOrigin::RENTER,
             ChangeRequestKind::CANCELLATION,
             null,
@@ -866,6 +922,7 @@ class RentalOperationsServiceTest extends TestCase
         $booking = $this->createBooking();
         $id = $this->service->requestChange(
             $booking,
+            $this->asset(),
             ChangeRequestOrigin::RENTER,
             ChangeRequestKind::DATES,
             '2027-07-08',
@@ -893,6 +950,7 @@ class RentalOperationsServiceTest extends TestCase
         $booking = $this->createBooking();
         $id = $this->service->requestChange(
             $booking,
+            $this->asset(),
             ChangeRequestOrigin::RENTER,
             ChangeRequestKind::PERSONS,
             null,
@@ -924,6 +982,7 @@ class RentalOperationsServiceTest extends TestCase
 
         $this->service->requestChange(
             $this->reload($booking),
+            $this->asset(),
             ChangeRequestOrigin::RENTER,
             ChangeRequestKind::DATES,
             '2027-07-08',
@@ -943,6 +1002,7 @@ class RentalOperationsServiceTest extends TestCase
         $booking = $this->createBooking();
         $id = $this->service->requestChange(
             $booking,
+            $this->asset(),
             ChangeRequestOrigin::RENTER,
             ChangeRequestKind::DATES,
             '2027-07-08',
@@ -986,6 +1046,7 @@ class RentalOperationsServiceTest extends TestCase
         $booking = $this->createBooking();
         $id = $this->service->requestChange(
             $booking,
+            $this->asset(),
             ChangeRequestOrigin::RENTER,
             ChangeRequestKind::PERSONS,
             null,
@@ -1018,6 +1079,7 @@ class RentalOperationsServiceTest extends TestCase
         $booking = $this->createBooking();
         $id = $this->service->requestChange(
             $booking,
+            $this->asset(),
             ChangeRequestOrigin::RENTER,
             ChangeRequestKind::CANCELLATION,
             null,
@@ -1050,11 +1112,11 @@ class RentalOperationsServiceTest extends TestCase
         // button on a file nobody can change any more.
         $booking = $this->createBooking();
         $first = $this->service->requestChange(
-            $booking, ChangeRequestOrigin::MANAGER, ChangeRequestKind::PERSONS,
+            $booking, $this->asset(), ChangeRequestOrigin::MANAGER, ChangeRequestKind::PERSONS,
             null, null, null, 30, null, null
         );
         $second = $this->service->requestChange(
-            $booking, ChangeRequestOrigin::RENTER, ChangeRequestKind::DATES,
+            $booking, $this->asset(), ChangeRequestOrigin::RENTER, ChangeRequestKind::DATES,
             '2027-07-08', '2027-07-11', null, null, null, null
         );
 
@@ -1069,7 +1131,7 @@ class RentalOperationsServiceTest extends TestCase
     {
         $booking = $this->createBooking();
         $id = $this->service->requestChange(
-            $booking, ChangeRequestOrigin::RENTER, ChangeRequestKind::CANCELLATION,
+            $booking, $this->asset(), ChangeRequestOrigin::RENTER, ChangeRequestKind::CANCELLATION,
             null, null, null, null, null, 'Notre camp est annulé.'
         );
         $request = $this->changeRequestRepository->findById($id);
@@ -1090,14 +1152,14 @@ class RentalOperationsServiceTest extends TestCase
         $booking = $this->createBooking();
         for ($i = 0; $i < RentalOperationsService::MAX_PENDING_RENTER_REQUESTS; $i++) {
             $this->service->requestChange(
-                $booking, ChangeRequestOrigin::RENTER, ChangeRequestKind::PERSONS,
+                $booking, $this->asset(), ChangeRequestOrigin::RENTER, ChangeRequestKind::PERSONS,
                 null, null, null, 20 + $i, null, null
             );
         }
 
         try {
             $this->service->requestChange(
-                $booking, ChangeRequestOrigin::RENTER, ChangeRequestKind::PERSONS,
+                $booking, $this->asset(), ChangeRequestOrigin::RENTER, ChangeRequestKind::PERSONS,
                 null, null, null, 40, null, null
             );
             $this->fail('The fourth pending request must be refused.');
@@ -1117,7 +1179,7 @@ class RentalOperationsServiceTest extends TestCase
         $ids = [];
         for ($i = 0; $i < RentalOperationsService::MAX_PENDING_RENTER_REQUESTS; $i++) {
             $ids[] = $this->service->requestChange(
-                $booking, ChangeRequestOrigin::RENTER, ChangeRequestKind::PERSONS,
+                $booking, $this->asset(), ChangeRequestOrigin::RENTER, ChangeRequestKind::PERSONS,
                 null, null, null, 20 + $i, null, null
             );
         }
@@ -1127,7 +1189,7 @@ class RentalOperationsServiceTest extends TestCase
         $this->service->refuseChange($first, ChangeRequestOrigin::MANAGER, 1);
 
         $this->service->requestChange(
-            $booking, ChangeRequestOrigin::RENTER, ChangeRequestKind::PERSONS,
+            $booking, $this->asset(), ChangeRequestOrigin::RENTER, ChangeRequestKind::PERSONS,
             null, null, null, 40, null, null
         );
 
@@ -1144,7 +1206,7 @@ class RentalOperationsServiceTest extends TestCase
         $booking = $this->createBooking();
         for ($i = 0; $i < RentalOperationsService::MAX_PENDING_RENTER_REQUESTS + 2; $i++) {
             $this->service->requestChange(
-                $booking, ChangeRequestOrigin::MANAGER, ChangeRequestKind::PERSONS,
+                $booking, $this->asset(), ChangeRequestOrigin::MANAGER, ChangeRequestKind::PERSONS,
                 null, null, null, 20 + $i, null, null, 1
             );
         }
@@ -1162,6 +1224,7 @@ class RentalOperationsServiceTest extends TestCase
 
         $this->service->requestChange(
             $this->createBooking(),
+            $this->asset(),
             ChangeRequestOrigin::RENTER,
             ChangeRequestKind::DATES,
             '2027-07-08',

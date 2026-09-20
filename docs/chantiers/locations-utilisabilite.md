@@ -299,6 +299,87 @@ celle qui loue le local.
 
 ---
 
+## IT-03 — La page de suivi du locataire
+
+**Livré.**
+
+- **La boîte « Modifier votre demande » est repliée**, et se déplie toute
+  seule quand une proposition de l'unité attend une réponse. Elle prenait
+  la moitié de la page pour quelque chose qui sert une fois sur dix, au
+  dessus des dates et du prix qu'on vient lire.
+- **Le type de demande a disparu du formulaire.** `ChangeRequestKind` est
+  dérivé de ce qui diffère (`forChange()`), le formulaire est prérempli avec
+  les valeurs de la réservation, et un envoi qui ne change rien est refusé.
+  Le message devient obligatoire.
+- **`ChangeRequestKind::DATES_AND_PERSONS`** — le cas que l'ancien
+  formulaire ne savait pas exprimer. La table portait déjà `arrival`,
+  `departure`, `units` et `persons` sur **une** ligne ; seul `kind`
+  interdisait de les combiner, ce qui faisait de « d'autres dates ET moins
+  de monde » deux demandes à répondre séparément, chacune valable seulement
+  si l'autre était acceptée aussi.
+- **`affectsAvailability()` lit « des dates sont présentes »**, plus
+  « c'est le type dates ». Une demande qui déplace les dates *et* le groupe
+  déplace les dates ; la lire comme un changement de participants l'aurait
+  fait passer à côté du seul contrôle qui protège le calendrier.
+- **L'annulation est un bouton distinct**, avec confirmation. Le mot qui
+  l'accompagne vient de la boîte de dialogue (`data-confirm-note`) et reste
+  facultatif.
+- **La validation devient réelle.** `requestChange()` appelle
+  `RentalAvailabilityService::validateRange()` — mêmes règles, même
+  capacité, mêmes messages que le formulaire public.
+- **Les coordonnées de facturation se saisissent par le locataire**, sur sa
+  page de suivi, dans les mêmes colonnes chiffrées que le gestionnaire
+  remplit à la main. Le bloc se présente comme une tâche tant qu'il est
+  vide. Nouvelle route `POST /locations/suivi/{id}/{token}/facturation`,
+  `version` du module montée de 1.21.0 à 1.22.0.
+- **Les trois `->value` de l'historique passent à `->label()`.**
+- Documentation : `ARCHITECTURE.md` §8.53, `specifications.md` §22.5,
+  `modules/rental/help/locations-suivi.md`.
+- Tests : onze de plus sur `RentalRequestControllerTest`, et le test de
+  disponibilité de `RentalOperationsServiceTest` coupé en deux.
+
+**Le test coupé en deux, et pourquoi c'est le vrai sujet de l'itération.**
+`testADateChangeIsRefusedWhenTheNewDatesAreTaken` posait que le refus
+arrivait à l'acceptation. Il arrive maintenant à la demande — et il devait :
+la personne qui apprend que les dates sont prises doit être celle qui les
+demande, au moment où elle les demande. Le contrôle à l'acceptation **reste**
+et a son propre test : entre une demande et une réponse, les dates peuvent
+partir, et seul le contrôle pris dans le verrou le voit. Deux contrôles, deux
+questions différentes.
+
+**Décisions prises seul.**
+
+- **Le message est obligatoire sur le changement, facultatif sur
+  l'annulation.** Un gestionnaire qui lit « du 12/07 au 14/07 » sans un mot
+  ne distingue pas une demande ferme d'une question, et répond à la
+  mauvaise. Mais retenir quelqu'un qui a décidé d'annuler derrière un champ
+  de texte, c'est le faire téléphoner à la place.
+- **Une demande refusée à la saisie n'est pas enregistrée du tout.** Le
+  chantier dit « n'est pas enregistrée » ; un test le pose, parce que
+  l'alternative — l'enregistrer en « refusée » — remplirait la file du
+  gestionnaire de choses qu'il n'a pas à lire.
+- **La référence de la réservation est exclue de son propre contrôle.**
+  Sans quoi décaler d'une nuit entre en collision avec les nuits que la
+  réservation tient déjà.
+- **Les deux dates voyagent ensemble dès que l'une bouge.** Une demande qui
+  ne porterait que la nouvelle arrivée serait acceptée contre l'ancien
+  départ.
+- **Le bloc de facturation ne s'affiche pas sur une réservation refusée ou
+  annulée**, mais reste sur une clôturée : une facture peut se corriger
+  après le séjour, et rien ne se facture sur un dossier qui n'a pas eu lieu.
+- **Le test « le locataire lit ses dates en français » compte au lieu de
+  disparaître.** Le formulaire prérempli met forcément la forme ISO dans le
+  `value` d'un `<input type="date">`, que le navigateur affiche dans la
+  langue du lecteur. L'assertion vérifie donc que chaque date stockée
+  n'apparaît **que** là — ce qu'elle voulait dire depuis le début.
+
+**Divergences avec le document de chantier.** Aucune ; l'ambiguïté du
+document portait sur IT-07, pas ici.
+
+**Reporté.** Rien.
+
+---
+
 ## IT-04 — La vue d'ensemble du gestionnaire
 
 **Livré.**

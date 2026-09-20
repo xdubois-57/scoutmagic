@@ -33,11 +33,16 @@ class ModuleManifestTest extends TestCase
     }
 
     /**
-     * Pinned deliberately: ModuleManager only re-applies schema.sql when the
-     * manifest version is greater than the installed one, so a schema change
-     * without a bump is silently a no-op on every already-enabled install
-     * (AGENTS.md). Editing schema.sql should break this test — the fix is to
-     * bump module.json, which is the whole point.
+     * Pinned deliberately, so that moving the version is a conscious act.
+     *
+     * The rule this pin was written for is gone: `schema.sql` no longer
+     * needs a bump to take effect, because the whole declared schema is
+     * migrated in one pass by whatever deploys the code (AGENTS.md
+     * § Schema, `Core\Database\SchemaFiles`). What is left is the reason
+     * AGENTS.md still gives for bumping — the module changed in a way its
+     * users should see, or its manifest stopped declaring a setting the
+     * previous one did — and this assertion keeps that judgement visible in
+     * a diff instead of letting the number drift.
      *
      * 1.18.0 is a bump with no schema change behind it: the module now
      * names its own receivables on « Paiements attendus »
@@ -46,10 +51,13 @@ class ModuleManifestTest extends TestCase
      * 1.21.0 is another: an asset's rental conditions moved out of the
      * configuration mode and into its own settings section (§22.5), which
      * is a new route and a new screen — something a unit sees.
+     *
+     * 1.22.0 adds a route too: the renter fills in their own billing
+     * coordinates from their tracking page (§22.6).
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.21.0', $this->manifest->version);
+        $this->assertSame('1.22.0', $this->manifest->version);
     }
 
     /**

@@ -485,6 +485,7 @@ class RentalOperationsService
 
     public function requestChange(
         RentalBooking $booking,
+        RentalAsset $asset,
         ChangeRequestOrigin $origin,
         ChangeRequestKind $kind,
         ?string $arrivalDate,
@@ -493,7 +494,8 @@ class RentalOperationsService
         ?int $persons,
         ?PriceQuote $price,
         ?string $message,
-        ?int $actorMemberId = null
+        ?int $actorMemberId = null,
+        ?\DateTimeImmutable $now = null
     ): int {
         if ($booking->status->isFinal()) {
             throw new RentalException(self::finalRefusal($booking->status));
@@ -524,7 +526,7 @@ class RentalOperationsService
             }
         }
 
-        if ($kind === ChangeRequestKind::DATES && ($arrivalDate === null || $departureDate === null)) {
+        if ($kind->affectsAvailability() && ($arrivalDate === null || $departureDate === null)) {
             throw new RentalException('Une demande de changement de dates doit préciser les deux dates.');
         }
 
@@ -540,6 +542,40 @@ class RentalOperationsService
 
         if ($arrivalDate !== null && $departureDate !== null && $departureDate < $arrivalDate) {
             throw new RentalException("La date de départ doit suivre la date d'arrivée.");
+        }
+
+        // **The same rules as the public request form, and the same
+        // messages.** Until now this method checked that the dates parsed,
+        // that they were in order, and nothing else: a renter could ask for
+        // a Tuesday on an asset that only starts weekends, for one night
+        // where three are the minimum, or for eighty people in a hall that
+        // holds sixty — and the request was recorded, queued, and only
+        // refused weeks later when a manager pressed « Accepter » and the
+        // acceptance-time check finally spoke. The wrong person found out,
+        // at the wrong moment.
+        //
+        // The acceptance-time check STAYS. Between a request and an answer
+        // the dates can be taken by somebody else, and only the check
+        // inside the lock sees that. Two checks, two different questions:
+        // "is this askable at all" here, "is it still free" there.
+        if ($kind->affectsAvailability() && $arrivalDate !== null && $departureDate !== null) {
+            $errors = $this->availabilityService->validateRange(
+                $asset,
+                $this->pricingService->loadSettings($asset->id)->billingUnit,
+                DateInput::requireFromStorage($arrivalDate, 'the requested arrival date'),
+                DateInput::requireFromStorage($departureDate, 'the requested departure date'),
+                $units ?? $booking->units,
+                ($now ?? new \DateTimeImmutable())->setTime(0, 0),
+                $persons ?? $booking->estimatedPersons,
+                // The booking's own period is not an obstacle to moving it:
+                // without this, asking to shift by one night collides with
+                // the nights it already holds.
+                $booking->reference
+            );
+
+            if ($errors !== []) {
+                throw new RentalException(implode(' ', $errors));
+            }
         }
 
         $id = $this->changeRequestRepository->create(
@@ -558,8 +594,13 @@ class RentalOperationsService
         $this->bookingAudit->record(
             $booking->id,
             BookingAudit::CHANGE_REQUESTED,
-            $origin->value,
-            $kind->value,
+            // `label()`, not `value`: `Core\Audit` stores what a reader
+            // sees and `partials/audit_timeline.html.twig` never formats a
+            // value, so a `value` here is « renter » on a French page
+            // forever — the lines already written stay as they are, because
+            // a history somebody rewrites proves nothing.
+            $origin->label(),
+            $kind->label(),
             $request?->summary(),
             $actorMemberId
         );
@@ -808,8 +849,8 @@ class RentalOperationsService
         $this->bookingAudit->record(
             $request->bookingId,
             BookingAudit::CHANGE_DECIDED,
-            $request->kind->value,
-            $status->value,
+            $request->kind->label(),
+            $status->label(),
             $request->summary(),
             $actorMemberId
         );

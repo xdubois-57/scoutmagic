@@ -32,14 +32,38 @@ séjour.
 
 ## Demander un changement
 
-D'autres dates, un autre nombre de participants, ou l'annulation : le
-formulaire les transmet aux gestionnaires. **Votre demande ne change rien
-par elle-même** — elle attend leur réponse, et votre réservation reste
-exactement ce qu'elle était en attendant.
+La boîte « Modifier votre demande » est repliée : ouvrez-la d'un clic.
+Elle s'ouvre toute seule quand l'unité vous a fait une proposition qui
+attend votre réponse.
+
+Elle contient vos dates et votre nombre de participants, déjà remplis.
+Corrigez ce qui doit changer — les deux à la fois si besoin —, dites
+pourquoi en une ligne, et envoyez. Vous n'avez plus à choisir un type de
+demande dans une liste : c'est ce que vous modifiez qui le dit.
+
+**Votre demande ne change rien par elle-même** : elle attend la réponse
+des gestionnaires, et votre réservation reste exactement ce qu'elle
+était. En revanche elle est vérifiée tout de suite contre les règles du
+bien — durée minimale, jours d'arrivée autorisés, capacité — et contre
+les dates déjà prises : mieux vaut le savoir maintenant que dans trois
+semaines.
+
+**L'annulation a son propre bouton**, avec une question de confirmation.
+Elle ne libère vos dates que lorsqu'un gestionnaire l'accepte.
 
 Dans l'autre sens, l'unité peut vous proposer d'autres dates. La
 proposition apparaît ici avec deux boutons : accepter l'applique
 immédiatement, refuser la ferme et laisse votre réservation inchangée.
+
+## Vos coordonnées de facturation
+
+Utiles seulement si votre facture doit être établie au nom d'une
+association ou d'une société : raison sociale, adresse, numéro de TVA. Un
+particulier laisse ces champs vides.
+
+C'est à vous de les remplir, depuis cette page — on ne vous les a pas
+demandées au moment de la demande, parce que la plupart des locataires
+n'en ont pas besoin. Les gestionnaires peuvent les corriger de leur côté.
 
 ## Le lien
 

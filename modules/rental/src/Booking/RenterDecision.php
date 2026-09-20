@@ -106,7 +106,14 @@ enum RenterDecision: string
         return match ($this) {
             self::PROPOSED => 'Vous pouvez accepter ou refuser cette proposition depuis votre page de suivi.',
             self::INFO_REQUESTED => 'Vous pouvez nous répondre depuis votre page de suivi.',
-            self::CONFIRMED => 'Vous retrouvez le détail de votre réservation sur votre page de suivi.',
+            // The one place the billing coordinates are ever asked for
+            // (§22.6): no dedicated email, and no reminder about them —
+            // both are written out of the chantier. This sentence, on
+            // the message that already carries the tracking link, is
+            // the whole mechanism.
+            self::CONFIRMED => 'Vous retrouvez le détail de votre réservation sur votre page de suivi — '
+                . 'et si votre facture doit être établie au nom d\'une association ou d\'une société, '
+                . 'vous pouvez y renseigner vos coordonnées de facturation.',
             self::CHANGE_ACCEPTED => 'Vous retrouvez les nouvelles dates sur votre page de suivi.',
             default => null,
         };

@@ -2,7 +2,7 @@
   "id": "rental",
   "name": "Locations",
   "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques, matériel. Calendrier de disponibilité public, demandes en ligne et suivi des réservations.",
-  "version": "1.21.0",
+  "version": "1.22.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -40,6 +40,21 @@
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalRequestController",
       "action": "requestChange",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": "",
+      "breadcrumb": {
+        "label": "Suivi de votre demande",
+        "parents": [
+          "Notre unité"
+        ]
+      }
+    },
+    {
+      "path": "/locations/suivi/{id}/{token}/facturation",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalRequestController",
+      "action": "saveBillingIdentity",
       "menu": "notre_unite",
       "role_min": "public",
       "label": "",

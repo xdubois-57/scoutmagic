@@ -2153,6 +2153,7 @@ class RentalManagementController extends AbstractController
 
             $this->operationsService->requestChange(
                 $booking,
+                $asset,
                 ChangeRequestOrigin::MANAGER,
                 $kind,
                 Support::optionalString($request->getBody('arrival')),
