@@ -95,6 +95,26 @@ enum BookingStatus: string
     }
 
     /**
+     * Whether the request died before it was ever confirmed.
+     *
+     * **Final is not the same question**, and conflating the two is how
+     * « L'action suivante » came to ask for a contract on a refused
+     * booking. A CLOSED rental is final and still has work in it — a
+     * balance outstanding, a security deposit to give back, which is
+     * exactly what two of §6.29's reminders chase. A refused, cancelled or
+     * expired one has none: nothing downstream of the decision will ever
+     * happen, so every later milestone is « sans objet » rather than
+     * outstanding (§6.15).
+     */
+    public function isAbandoned(): bool
+    {
+        return match ($this) {
+            self::REFUSED, self::CANCELLED, self::EXPIRED => true,
+            default => false,
+        };
+    }
+
+    /**
      * Whether a manager still has something to do about it — what "demandes
      * à traiter" counts on the "Mes locations" page.
      */

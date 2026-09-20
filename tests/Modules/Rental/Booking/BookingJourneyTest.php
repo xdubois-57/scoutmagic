@@ -239,6 +239,67 @@ class BookingJourneyTest extends TestCase
         $this->assertSame(BookingMilestones::BALANCE_RECEIVED, BookingJourney::of($milestones)->next()?->key);
     }
 
+    /**
+     * **A dead file has no next action, whatever its modules still supply.**
+     *
+     * « L'action suivante » is the first applicable line that is not done,
+     * and nothing downstream of the decision will ever happen on a request
+     * that was refused, cancelled or left to expire. Without that, the card
+     * asked the manager to send a contract on a booking they had refused —
+     * and the template's « Cette réservation est dans un état définitif »
+     * branch, which only fires when there is no next action, was
+     * unreachable in exactly those cases.
+     *
+     * An expired booking is the sharpest of the three: a lapsed hold is
+     * *why* it expired, so the hold line is applicable-and-not-done and
+     * wins `next()` before the decision is even reached — the page asked
+     * for the dates to be blocked again.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('abandonedStatuses')]
+    public function testAnAbandonedRequestHasNoNextAction(BookingStatus $status): void
+    {
+        $journey = BookingJourney::of($this->milestones(
+            $status,
+            [
+                BookingMilestones::CONTRACT_SENT => false,
+                BookingMilestones::DEPOSIT_RECEIVED => false,
+                BookingMilestones::BALANCE_RECEIVED => false,
+            ],
+            new \DateTimeImmutable('2027-01-05 18:00:00')
+        ));
+
+        $this->assertNull($journey->next(), $status->value);
+    }
+
+    /**
+     * @return array<string, array{BookingStatus}>
+     */
+    public static function abandonedStatuses(): array
+    {
+        return [
+            'refusée' => [BookingStatus::REFUSED],
+            'annulée' => [BookingStatus::CANCELLED],
+            'expirée' => [BookingStatus::EXPIRED],
+        ];
+    }
+
+    /**
+     * **Clôturée n'est pas abandonnée**, and this is the distinction the
+     * fix above turns on. A stay that happened may still owe a balance or
+     * hold a security deposit — two of §6.29's reminders exist to chase
+     * exactly that — so a closed booking keeps its next action while a
+     * refused one has none.
+     */
+    public function testAClosedBookingStillChasesWhatIsOutstanding(): void
+    {
+        $journey = BookingJourney::of($this->milestones(
+            BookingStatus::CLOSED,
+            [BookingMilestones::BALANCE_RECEIVED => false]
+        ));
+
+        $this->assertSame(BookingMilestones::BALANCE_RECEIVED, $journey->next()?->key);
+    }
+
     public function testAClosedBookingHasNothingLeftToDo(): void
     {
         $journey = BookingJourney::of($this->milestones(BookingStatus::CLOSED));

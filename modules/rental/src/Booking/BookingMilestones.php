@@ -66,6 +66,16 @@ final class BookingMilestones
             ),
         ];
 
+        // A request that died before it was ever confirmed will never reach
+        // anything below the decision, so those lines are « sans objet »
+        // rather than outstanding. Said once here because « L'action
+        // suivante » is the first applicable line that is not done: without
+        // it, an expired booking — one whose hold lapsed, by definition —
+        // asked its manager to block the dates again, and a refused one
+        // asked for a contract. Not `isFinal()`: a CLOSED rental is final
+        // and may still owe a balance or hold a security deposit.
+        $abandoned = $booking->status->isAbandoned();
+
         // The two holds are one line, because to the manager they are one
         // fact — "the dates are held until X" — and the wording is what
         // says which kind it is (§6.14).
@@ -73,7 +83,7 @@ final class BookingMilestones
             'hold',
             $booking->holdOrigin?->managerLabel() ?? 'Dates bloquées',
             $booking->holdIsActive($now),
-            $booking->holdUntil !== null,
+            $booking->holdUntil !== null && !$abandoned,
             $booking->holdUntil?->format('d/m/Y à H\hi')
         );
 
@@ -98,9 +108,9 @@ final class BookingMilestones
                 : $booking->status->label()
         );
 
-        $milestones[] = self::extra($extras, self::CONTRACT_SENT, 'Contrat envoyé', $details);
-        $milestones[] = self::extra($extras, self::CONTRACT_ACCEPTED, 'Conditions et contrat acceptés', $details);
-        $milestones[] = self::extra($extras, self::DEPOSIT_RECEIVED, 'Acompte reçu', $details);
+        $milestones[] = self::extra($extras, $abandoned, self::CONTRACT_SENT, 'Contrat envoyé', $details);
+        $milestones[] = self::extra($extras, $abandoned, self::CONTRACT_ACCEPTED, 'Conditions et contrat acceptés', $details);
+        $milestones[] = self::extra($extras, $abandoned, self::DEPOSIT_RECEIVED, 'Acompte reçu', $details);
 
         $milestones[] = new BookingMilestone(
             'confirmed',
@@ -109,28 +119,22 @@ final class BookingMilestones
                 || $booking->status === BookingStatus::CLOSED,
             // A refused, cancelled or expired booking is never going to be
             // confirmed; showing the box at all would suggest otherwise.
-            !in_array(
-                $booking->status,
-                [BookingStatus::REFUSED, BookingStatus::CANCELLED, BookingStatus::EXPIRED],
-                true
-            )
+            !$abandoned
         );
 
-        $milestones[] = self::extra($extras, self::BALANCE_RECEIVED, 'Solde reçu', $details);
-        $milestones[] = self::extra($extras, self::SECURITY_DEPOSIT_RECEIVED, 'Caution reçue', $details);
-        $milestones[] = self::extra($extras, self::ARRIVAL_INVENTORY, "État des lieux d'entrée", $details);
-        $milestones[] = self::extra($extras, self::METER_READINGS, 'Relevés de compteurs', $details);
-        $milestones[] = self::extra($extras, self::DEPARTURE_INVENTORY, 'État des lieux de sortie', $details);
-        $milestones[] = self::extra($extras, self::FINAL_SETTLEMENT, 'Décompte final réglé', $details);
-        $milestones[] = self::extra($extras, self::SECURITY_DEPOSIT_RETURNED, 'Caution restituée', $details);
+        $milestones[] = self::extra($extras, $abandoned, self::BALANCE_RECEIVED, 'Solde reçu', $details);
+        $milestones[] = self::extra($extras, $abandoned, self::SECURITY_DEPOSIT_RECEIVED, 'Caution reçue', $details);
+        $milestones[] = self::extra($extras, $abandoned, self::ARRIVAL_INVENTORY, "État des lieux d'entrée", $details);
+        $milestones[] = self::extra($extras, $abandoned, self::METER_READINGS, 'Relevés de compteurs', $details);
+        $milestones[] = self::extra($extras, $abandoned, self::DEPARTURE_INVENTORY, 'État des lieux de sortie', $details);
+        $milestones[] = self::extra($extras, $abandoned, self::FINAL_SETTLEMENT, 'Décompte final réglé', $details);
+        $milestones[] = self::extra($extras, $abandoned, self::SECURITY_DEPOSIT_RETURNED, 'Caution restituée', $details);
 
         $milestones[] = new BookingMilestone(
             'closed',
             'Location clôturée',
             $booking->status === BookingStatus::CLOSED,
-            $booking->status !== BookingStatus::REFUSED
-                && $booking->status !== BookingStatus::CANCELLED
-                && $booking->status !== BookingStatus::EXPIRED
+            !$abandoned
         );
 
         return $milestones;
@@ -140,13 +144,20 @@ final class BookingMilestones
      * @param array<string, bool> $extras
      * @param array<string, string> $details
      */
-    private static function extra(array $extras, string $key, string $label, array $details = []): BookingMilestone
-    {
+    private static function extra(
+        array $extras,
+        bool $abandoned,
+        string $key,
+        string $label,
+        array $details = []
+    ): BookingMilestone {
         return new BookingMilestone(
             $key,
             $label,
             $extras[$key] ?? false,
-            array_key_exists($key, $extras),
+            // Supplied by its module AND still reachable: see `$abandoned`
+            // where it is computed.
+            array_key_exists($key, $extras) && !$abandoned,
             $details[$key] ?? null
         );
     }
