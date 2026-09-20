@@ -323,6 +323,98 @@ class RentalDocumentServiceTest extends TestCase
         $this->service->saveBookingText($this->createBooking(), DocumentType::PHOTO, '<p>x</p>');
     }
 
+    // ── The repair pass, and the lock (§22.6) ───────────────────────────
+
+    /**
+     * The hazard the editors used to be `<textarea>`s for: a
+     * contenteditable surface splits a run of text across elements as it is
+     * edited, so `{{ prix_total }}` becomes `{{ pri<b>x</b>_total }}` — still
+     * readable to a human, no longer a keyword to the substituter, and only
+     * noticed once a contract has gone out with braces in it.
+     */
+    public function testAKeywordBrokenApartByMarkupIsRepairedOnTheWayIn(): void
+    {
+        $booking = $this->createBooking();
+
+        $unknown = $this->service->saveBookingText(
+            $booking,
+            DocumentType::CONTRACT,
+            '<p>Total : {{ pri<b>x</b>_total }}</p>'
+        );
+
+        $this->assertSame([], $unknown, 'A repaired keyword is not an unknown one.');
+        $this->assertStringContainsString('{{ prix_total }}', $this->service->bookingText($booking, $this->asset(), DocumentType::CONTRACT));
+    }
+
+    public function testARepairedKeywordSubstitutesIntoTheGeneratedDocument(): void
+    {
+        $booking = $this->createBooking();
+        $this->service->saveBookingText($booking, DocumentType::CONTRACT, '<p>{{ locatai<em>re</em>_nom }}</p>');
+
+        $document = $this->service->generate($booking, $this->asset(), DocumentType::CONTRACT, $this->settings());
+
+        $this->assertStringNotContainsString('{{', $this->pdfTextOf($document->id));
+    }
+
+    /**
+     * And prose between braces is left alone: the repair only rewrites a
+     * region once what it would become is a real keyword, so the
+     * « mots-clés non reconnus » warning stays the net it was meant to be.
+     */
+    public function testProseBetweenBracesIsLeftAloneAndStillReported(): void
+    {
+        $booking = $this->createBooking();
+
+        $unknown = $this->service->saveBookingText(
+            $booking,
+            DocumentType::CONTRACT,
+            '<p>{{ prix_ttc }}</p>'
+        );
+
+        $this->assertSame(['prix_ttc'], $unknown);
+    }
+
+    public function testATextIsEditableWhileNothingHasBeenSent(): void
+    {
+        $booking = $this->createBooking();
+        $this->setTemplate('<p>x</p>');
+        $this->service->generate($booking, $this->asset(), DocumentType::CONTRACT, $this->settings());
+
+        $this->assertFalse($this->service->textIsLocked($booking, DocumentType::CONTRACT));
+    }
+
+    /**
+     * Sending is the action that locks (§22.6): the renter holds a copy,
+     * and silently changing what that copy was made from is exactly the
+     * confusion versioning exists to prevent.
+     */
+    public function testSendingLocksTheTextOfThatTypeAndOfThatTypeOnly(): void
+    {
+        $booking = $this->createBooking();
+        $this->setTemplate('<p>x</p>');
+        $document = $this->service->generate($booking, $this->asset(), DocumentType::CONTRACT, $this->settings());
+        $this->service->markSent($document->id, new \DateTimeImmutable());
+
+        $this->assertTrue($this->service->textIsLocked($booking, DocumentType::CONTRACT));
+        $this->assertFalse(
+            $this->service->textIsLocked($booking, DocumentType::INVOICE),
+            'Sending the contract says nothing about the invoice.'
+        );
+    }
+
+    public function testALockedTextIsRefusedOnTheServerNotOnlyHiddenInThePage(): void
+    {
+        $booking = $this->createBooking();
+        $this->setTemplate('<p>x</p>');
+        $document = $this->service->generate($booking, $this->asset(), DocumentType::CONTRACT, $this->settings());
+        $this->service->markSent($document->id, new \DateTimeImmutable());
+
+        $this->expectException(RentalException::class);
+        $this->expectExceptionMessage('n\'est plus modifiable');
+
+        $this->service->saveBookingText($booking, DocumentType::CONTRACT, '<p>Autre chose.</p>');
+    }
+
     // ── Level 3: the PDF ────────────────────────────────────────────────
 
     public function testGeneratingProducesARealPdfRegisteredAsAFile(): void

@@ -187,3 +187,98 @@ traiter.
 **Divergences avec le document de chantier.** Aucune.
 
 **Reporté.** Rien.
+
+---
+
+## IT-06 — Les documents
+
+**Livré.**
+
+- `views/management/document_editor.html.twig` passe au champ de texte riche
+  générique, avec la palette de mots-clés. Il était un `textarea` **exprès**,
+  et le commentaire qui disait pourquoi avait raison.
+- `DocumentKeywords::repairSplitKeywords()` — la passe de réparation d'IT-01,
+  branchée. Appelée **après assainissement et avant substitution**, à
+  l'enregistrement du texte *et* à la génération.
+- `RentalDocumentService::textIsLocked()` et `lockedRefusal()` — l'envoi
+  verrouille ; `saveBookingText()` refuse côté serveur.
+- `RentalDocumentRepository::hasSentDocumentOfType()`.
+- `views/management/_documents.html.twig` : les boutons « Rédiger » deviennent
+  des liens dans le paragraphe d'explication, les actions deviennent des
+  icônes avec `aria-label`, et « Ouvrir » porte `target="_blank"
+  rel="noopener"`.
+- Documentation : `ARCHITECTURE.md` §8.55, `specifications.md` §22.6,
+  `modules/rental/help/gerer-les-locations.md`.
+- Tests : six de plus sur `RentalDocumentServiceTest`, un de plus sur
+  `tests/js/offline-nav.test.js`.
+
+**Le danger est répondu, plus évité.** Une surface `contenteditable` découpe
+un texte entre plusieurs éléments au fil de la frappe, et
+`{{ prix_total }}` devient `{{ pri<b>x</b>_total }}` dès qu'on met en gras un
+mot qui la chevauche. Trois couches : chaque mot-clé du catalogue est rendu
+comme une puce indivisible par le composant générique ; le **serveur** répare
+ce qui passe quand même — un collage, un auteur sans JavaScript ; et
+l'avertissement « mots-clés non reconnus » reste le filet, parce que la
+réparation ne réécrit une zone que lorsque ce qu'elle deviendrait est un vrai
+mot-clé.
+
+**Décisions prises seul.**
+
+- **Ce que « verrouillé » verrouille.** Le chantier dit « un document est
+  modifiable tant qu'il n'a pas été envoyé ». Un PDF n'a jamais été
+  modifiable ; ce qui l'est, c'est le **texte** dont il est fait. Le
+  verrou porte donc sur le texte d'un type, dès qu'un document de ce type est
+  parti — la seule lecture qui donne un sens à « l'envoi est l'action qui
+  verrouille ». Envoyer le contrat ne dit rien de la facture.
+- **Régénérer reste possible** : v2 apparaît à côté de v1, inchangé. Ce que
+  le verrou arrête, c'est que la **source** bouge sous une version déjà lue
+  et peut-être signée.
+- **Le refus est côté serveur**, pas seulement une absence de formulaire :
+  une page qui se contente de cacher un formulaire n'est pas une règle.
+- **La réparation tourne aussi à la génération**, pas seulement à
+  l'enregistrement : un texte stocké avant que la passe existe est toujours
+  là.
+- **Pas de classe `tap-target` sur les boutons-icônes.** Le bloc
+  `pointer: coarse` d'`app.css` couvre déjà `.btn-sm` (44 px, et le centrage
+  d'une icône seule) ; `tap-target` est documenté pour ce qui n'est **pas**
+  un `.btn`. L'ajouter aurait été une seconde règle disant la même chose.
+- **Chaque `aria-label` nomme son document.** « Supprimer » cinq fois dans
+  une colonne ne dit pas à un lecteur d'écran sur quelle ligne il se trouve.
+
+**Divergences avec le document de chantier.**
+
+- **« Les mots-clés rendus en jetons non éditables sont écartés : ils
+  obligeraient à forker le composant générique. »** C'est l'inverse dans ce
+  dépôt, comme relevé dès IT-01 : le composant générique les rend **déjà**
+  ainsi, et les retirer est ce qui coûterait un fork. On prend le composant
+  tel quel.
+- **« L'écran doit le dire au lieu de rester blanc » (hors ligne) existait
+  déjà.** `offline-nav.js` intercepte en phase de capture tout clic sur un
+  lien interne non inscrit à la liste blanche et ouvre le dialogue ;
+  `/files/{id}` n'y est pas, étant `network-only`. Le `target="_blank"` ne
+  change rien à cette interception — le gestionnaire ne regarde pas
+  `target` — et un test Vitest le pose désormais, parce qu'un onglet neuf
+  ouvert sur rien serait exactement l'écran blanc que l'attribut devait
+  éviter.
+
+**Le sujet d'aide a fini par être découpé, et c'est la fusion qui l'a
+imposé.** `gerer-les-locations` couvrait neuf écrans et vivait collé à son
+plafond de 500 mots ; `design.md` §7.11 dit qu'au-delà de 400 ce devrait
+être deux sujets. J'avais d'abord raccourci de la prose existante pour faire
+entrer la section « documents » — comme IT-04 l'avait fait pour la sienne —
+et ouvert l'issue **#401** en recommandant de découper à IT-05. En fusionnant
+`main` (qui portait IT-04), les deux sections se sont additionnées : 559 mots,
+rouge. Un quatrième rabotage aurait commencé à retirer de l'information
+réelle.
+
+`modules/rental/help/locations-documents.md` sort donc du lot : rédaction du
+texte, génération, envoi, et ce que l'envoi verrouille. Son chemin est celui
+de l'éditeur de document, **retiré** de `gerer-les-locations` — aucun
+chevauchement, donc pas besoin de trancher lequel des deux sujets s'ouvre
+pour une page que les deux déclareraient. C'est l'option 2 de #401, appliquée
+à l'itération dont c'est le sujet.
+
+**Reporté.** #401 reste ouverte : `gerer-les-locations` est à 487 mots,
+toujours au-dessus des ~400 de la charte, et couvre encore huit écrans. Le
+découpage restant — un sujet par écran — appartient à IT-05, qui réorganise
+la page d'une réservation.

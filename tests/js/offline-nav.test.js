@@ -479,6 +479,33 @@ describe('offline-nav.js: click interception (layer 1a — links)', () => {
     });
 
     /**
+     * A rental document opens in a new tab (§22.6): `target="_blank"
+     * rel="noopener"`, so that navigating to a PDF in the installed
+     * application does not strand it on a blank screen with no chrome to
+     * come back from.
+     *
+     * `/files/{id}` is network-only in `public/sw.js` (SECURITY §6), so
+     * offline there is nothing to serve — which is deliberate, and which
+     * makes it this dialog's job to SAY so. The interception must therefore
+     * not care about `target`: a new tab showing nothing is exactly the
+     * blank screen the attribute was added to avoid.
+     */
+    it('blocks a target="_blank" file link while offline, so a new tab never opens on nothing', async () => {
+        buildConfig(CORE_WHITELIST);
+        buildDialog();
+        const link = buildLink('/files/42');
+        link.target = '_blank';
+        link.rel = 'noopener';
+        await bootConfirmedOffline();
+
+        const evt = new MouseEvent('click', { bubbles: true, cancelable: true });
+        link.dispatchEvent(evt);
+
+        expect(evt.defaultPrevented).toBe(true);
+        expect(modalInstance.show).toHaveBeenCalled();
+    });
+
+    /**
      * **Issue #353.** An installed iOS application thawed by the OS
      * reports itself offline while the network is perfectly fine. The
      * click must reach the browser untouched — not be cancelled and
