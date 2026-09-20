@@ -437,9 +437,10 @@ class OutboundMailCollector implements SupportCollectorInterface
         }
         arsort($byDomain);
 
+        $plural = $total > 1 ? 's' : '';
         $lines[] = $overall > $total
             ? sprintf('%d adresses suspendues au total, les %d dernières par fournisseur :', $overall, $total)
-            : sprintf('%d adresse%s suspendue%s, par fournisseur :', $total, $total > 1 ? 's' : '', $total > 1 ? 's' : '');
+            : sprintf('%d adresse%s suspendue%s, par fournisseur :', $total, $plural, $plural);
         foreach ($byDomain as $domain => $count) {
             $lines[] = sprintf('%-40s  %d', mb_substr((string) $domain, 0, 40), $count);
         }

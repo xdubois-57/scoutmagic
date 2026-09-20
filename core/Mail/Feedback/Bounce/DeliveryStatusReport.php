@@ -159,7 +159,8 @@ final class DeliveryStatusReport
         // PERMANENT « adresse inexistante » when the failure was a
         // transient connection timeout. Two of those suspend an address,
         // which is exactly the « inventing one » this class rules out.
-        if (preg_match('/(?<![\d.])([245]\.\d{1,3}\.\d{1,3})(?![\d.])/', $fields['diagnostic-code'] ?? '', $found) === 1) {
+        $diagnostic = $fields['diagnostic-code'] ?? '';
+        if (preg_match('/(?<![\d.])([245]\.\d{1,3}\.\d{1,3})(?![\d.])/', $diagnostic, $found) === 1) {
             return $found[1];
         }
 
