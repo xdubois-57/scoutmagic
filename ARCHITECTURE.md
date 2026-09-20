@@ -1981,6 +1981,40 @@ The **only** place `rental` touches money (`specifications.md` §22.4). Everythi
 
 Receivables are raised **at confirmation**, which is when the unit actually expects to be paid, and a Finance failure there is journaled rather than thrown: the confirmation has committed and the manager has been told it worked, so undoing it would be a worse lie than a rental whose payment panel plainly shows no receivable yet. A price change pushes the new total onto the existing receivable; a refusal ("this would drop below what came in") is likewise journaled, because the price change itself is legitimate and what is left is a situation a manager has to look at, not a reason to reject their edit.
 
+### 8.54ter « À traiter », and why a status could not answer it (`Modules\Rental\Booking\BookingAttention`)
+
+**One definition, four readers.** « À traiter » used to be
+`$booking->status->needsAttention()`, written out at four call sites: the
+asset overview's list, the same page's figure above it, the bookings list's
+own filter, and the per-asset badge on « Mes locations ». Four copies of one
+rule is four chances for a tile to say « 2 » over a list of five — and
+widening one of them without the others would have guaranteed it.
+
+**The question it actually answers is « is somebody waiting on this
+booking? »**, and a status can only see one third of that. A *confirmed*
+booking carrying a change request the renter sent yesterday appeared on no
+list at all: its status is `confirmed`, and nothing about a status knows
+what is pending against it. A proposal the unit sent and the renter has not
+answered is the symmetrical case — it waits on somebody too, and the unit is
+the one who has to know it is still waiting, because a proposal nobody
+followed up is how a booking goes quiet for three weeks.
+
+**Every row carries its reasons** (`Booking\AttentionReason`), and that is
+not decoration: while the list was a status filter, the status badge *was*
+the explanation. It is not any more, and a list that grew without saying why
+reads as a list that has broken.
+
+**Pure, and fed in bulk.** `BookingAttention` takes the pending change
+requests already loaded, keyed by booking id;
+`RentalChangeRequestRepository::findPendingForBookings()` reads them in one
+statement. The page it serves already reads every booking it shows in a
+single query (`findAllForAssets()`), and answering a per-booking question
+with a per-booking query is exactly the shape that turns one screen into
+thirty round trips. A final booking is excluded whatever is recorded against
+it: `RentalBookingService` refuses every request still pending the moment a
+booking closes, and a row that survived that must not resurrect a closed
+file on somebody's list.
+
 ### 8.55 Rental documents, contracts and invoices (`Modules\Rental\Document`)
 
 **Three levels, each frozen the moment the next is born** (`specifications.md` §22.6). The asset's template lives in `editable_contents`; the booking takes its **own copy** at the first generation (`rental_booking_document_texts`); the PDF is a rendering of that copy at one instant (`rental_documents` + a `files` row). The middle level is the one that earns its keep: a template reworded in March must not silently change what a renter agreed to in February, and editing one booking's copy must not touch another's.

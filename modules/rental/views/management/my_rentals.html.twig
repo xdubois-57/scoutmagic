@@ -22,20 +22,12 @@
                 <div class="card-body">
                     <h2 class="h5 mb-3">À traiter, tous biens confondus</h2>
                     <div class="list-group list-group-flush">
-                        {% for booking in pending_bookings %}
-                            {% set booking_asset = assets_by_id[booking.assetId] %}
-                            <a href="/mes-locations/{{ booking_asset.slug }}/reservations/{{ booking.id }}"
-                               class="list-group-item list-group-item-action px-0">
-                                <div class="d-flex justify-content-between align-items-center gap-2">
-                                    <span>
-                                        <span class="fw-semibold">{{ booking.reference }}</span>
-                                        <span class="text-body-secondary small d-block">
-                                            {{ booking_asset.name }} · du {{ booking.arrivalDate|date_fr }} au {{ booking.departureDate|date_fr }}
-                                        </span>
-                                    </span>
-                                    {% include '@rental/_status_badge.html.twig' with { status: booking.status } only %}
-                                </div>
-                            </a>
+                        {% for attention in pending_bookings %}
+                            {% include '@rental/management/_attention_row.html.twig' with {
+                                attention: attention,
+                                asset: assets_by_id[attention.booking.assetId],
+                                show_asset_name: true,
+                            } only %}
                         {% endfor %}
                     </div>
                 </div>
