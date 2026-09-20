@@ -515,8 +515,10 @@ réelle de la divergence entre les deux moteurs.
 *Sur le garde livré :*
 
 - `TEST_DB_PORT=1`, base promise et absente → `DatabaseBackedTestsReallyRunTest` → rouge, en nommant l'hôte, le port et le refus du pilote
-- les cinq `TEST_DB_*` retirées et `CI=true`, la régression exacte de §2 → rouge, « TEST_DB_HOST unset, CI set »
+- les cinq `TEST_DB_*` retirées et `CI=true`, la régression exacte de §2 → rouge, « TEST_DB_HOST unset or empty, CI set »
 - les cinq retirées et pas de `CI` — un portable → sauté, avec son motif
+- `TEST_DB_HOST=` exporté vide et pas de `CI` → sauté, comme les vingt-quatre classes qui retombent alors sur `127.0.0.1` ; la revue de la PR #394 a relevé qu'une première version rougissait ici, et elle avait raison
+- `TEST_DB_HOST=` vide, `CI=true`, serveur présent → vert, pour la même raison
 - un `markTestSkipped('Database not available')` posé dans `Core\View\FormatFiltersTest`, qui n'ouvre aucune connexion → rouge, en citant le fichier et le message
 
 *Sur un garde écrit puis retiré (voir plus bas) :*

@@ -62,8 +62,14 @@ final class DatabaseBackedTestsReallyRunTest extends TestCase
      */
     public function testWhereTheEnvironmentPromisesADatabaseOneReallyAnswers(): void
     {
-        $host = getenv('TEST_DB_HOST');
-        if ($host === false && getenv('CI') === false) {
+        // Falsy, not `=== false`, and the difference is not cosmetic: the
+        // twenty-four classes read `getenv('TEST_DB_HOST') ?: '127.0.0.1'`,
+        // so an exported-but-empty TEST_DB_HOST sends them to the default
+        // host and they connect. A guard that treated the same value as a
+        // promise of a server at the empty string would go red where every
+        // one of them is green, which is the opposite of mirroring them.
+        $configuredHost = getenv('TEST_DB_HOST') ?: '';
+        if ($configuredHost === '' && getenv('CI') === false) {
             $this->markTestSkipped(
                 'Neither TEST_DB_HOST nor CI is set: nothing here promised a server, '
                     . 'so the twenty-four database-backed classes are entitled to skip. '
@@ -75,48 +81,44 @@ final class DatabaseBackedTestsReallyRunTest extends TestCase
         // as Tests\Core\Mail\Feedback\Bounce\BounceSendReceiptMysqlTest and
         // its twenty-three neighbours. Reading them differently here would
         // make this guard answer a question none of them asks.
-        $host = $host === false ? '127.0.0.1' : $host;
+        $host = $configuredHost ?: '127.0.0.1';
         $port = (int) (getenv('TEST_DB_PORT') ?: 3306);
         $database = getenv('TEST_DB_NAME') ?: 'test_db';
         $user = getenv('TEST_DB_USER') ?: 'root';
         $password = getenv('TEST_DB_PASSWORD') ?: '';
 
+        // One assertion, and it carries the whole verdict. The engine needs
+        // no assertion of its own: the DSN says `mysql:`, which pdo_sqlite
+        // cannot answer and a missing pdo_mysql cannot reach, so « a server
+        // answered this » already means « MySQL or MariaDB answered this ».
+        $refusal = null;
         try {
-            $pdo = new \PDO(
+            new \PDO(
                 sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4', $host, $port, $database),
                 $user,
                 $password,
                 [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]
             );
         } catch (\Throwable $e) {
-            $this->fail(
-                sprintf(
-                    "No server answered at %s:%d/%s as '%s', and this environment said there would be one "
-                        . "(TEST_DB_HOST %s, CI %s).\n"
-                        . "Every database-backed test is skipping itself right now, and the suite will still "
-                        . "report green: that is the whole reason this test exists.\n"
-                        . 'The driver said: %s',
-                    $host,
-                    $port,
-                    $database,
-                    $user,
-                    getenv('TEST_DB_HOST') === false ? 'unset' : 'set',
-                    getenv('CI') === false ? 'unset' : 'set',
-                    $e->getMessage()
-                )
-            );
+            $refusal = $e->getMessage();
         }
 
-        // Answering is not enough: it has to be the engine those classes
-        // were written for. SQLite is what the rest of the suite runs on
-        // (Tests\DatabaseTestHelper), and it is exactly what they are NOT
-        // testing — docs/quality-pipeline.md § The engine a test actually
-        // runs on.
-        $version = (string) $pdo->query('SELECT VERSION()')->fetchColumn();
-        $this->assertMatchesRegularExpression(
-            '/^\d+\.\d+/',
-            $version,
-            'The server answered but did not say which version it is, so nothing identifies it as MySQL or MariaDB.'
+        $this->assertNull(
+            $refusal,
+            sprintf(
+                "No server answered at %s:%d/%s as '%s', and this environment said there would be one "
+                    . "(TEST_DB_HOST %s, CI %s).\n"
+                    . "Every database-backed test is skipping itself right now, and the suite will still "
+                    . "report green: that is the whole reason this test exists.\n"
+                    . 'The driver said: %s',
+                $host,
+                $port,
+                $database,
+                $user,
+                $configuredHost === '' ? 'unset or empty' : 'set',
+                getenv('CI') === false ? 'unset' : 'set',
+                (string) $refusal
+            )
         );
     }
 
