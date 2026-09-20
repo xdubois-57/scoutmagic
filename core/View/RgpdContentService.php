@@ -1085,7 +1085,10 @@ vers un service d'analyse extérieur, et qu'**aucune adresse de famille** n'y fi
 chaque copie** de la boîte témoin après avoir relevé son dossier d'arrivée, et ne conserve que ce constat ; (e) que
 l'option est **désactivée par défaut** et que, tant qu'elle ne l'est pas, aucune copie ne part nulle part. Le choix du
 relais par fournisseur de messagerie **n'introduit aucun sous-traitant supplémentaire** : ne le présente jamais comme
-tel, puisqu'il ne fait que désigner lequel des relais déjà déclarés est essayé en premier.
+tel, puisqu'il ne fait que désigner lequel des relais déjà déclarés est essayé en premier. Conserve aussi, en section
+3.1, la puce « Résultats des boîtes témoins » : deux jours avant qu'une copie introuvable soit déclarée jamais
+arrivée, puis quatre-vingt-dix jours pour le constat qui en reste. Une durée de conservation retirée de cette section
+est une durée que plus personne ne peut vérifier.
 
 Rappel final — instructions de l'administrateur à intégrer intégralement, point par point (voir règle 18) :
 {$userPrompt}
