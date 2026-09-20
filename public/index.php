@@ -4105,6 +4105,23 @@ $router->addRoute(
     ['label' => 'Rapports DMARC', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
         'ancestors' => [['label' => 'Courrier sortant', 'path' => '/config/courrier-sortant']]],
 );
+// Boîtes témoins (roadmap IT-07).
+$router->addRoute(
+    'GET',
+    '/config/courrier-sortant/temoins',
+    \Core\Http\Controller\OutboundMailController::class,
+    'seeds',
+    'superadmin',
+    ['label' => 'Boîtes témoins', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Courrier sortant', 'path' => '/config/courrier-sortant']]],
+);
+$router->addRoute(
+    'POST',
+    '/config/courrier-sortant/temoins/activation',
+    \Core\Http\Controller\OutboundMailController::class,
+    'toggleSeeds',
+    'superadmin',
+);
 $router->addRoute(
     'POST',
     '/config/courrier-sortant/rebonds/{id}/reprise',
@@ -6719,6 +6736,23 @@ if ($isEnabled('inbound_mail')) {
             )
     );
 
+    // The seed consumer (roadmap IT-07), on the same registry and for the
+    // same reason again — it is what makes « boîtes témoins » appear in
+    // the list of scopes the super-admin answers for, and a box can only
+    // BE a seed box by being granted that scope (D10).
+    //
+    // It is also the one consumer on this site that declares
+    // `Api\PruningConsumerInterface`: a box receiving a copy of every
+    // mailing has to empty itself, or it stops being a measuring
+    // instrument. Its two locks are documented on that interface.
+    $inboundReadConsumers->registerFactory(
+        \Core\Mail\Feedback\Seed\SeedConsumer::CONSUMER_ID,
+        static fn(): \Modules\InboundMail\Api\MessageConsumerInterface =>
+            new \Core\Mail\Feedback\Seed\SeedConsumer(
+                new \Core\Mail\Feedback\Seed\SeedCopyRepository($pdo, $encryptionService)
+            )
+    );
+
     // One-time reprise for installs that stored a message's consumer and
     // business reference in the message's own columns, before
     // inbound_message_links existed. Each of those triplets becomes an
@@ -7021,7 +7055,15 @@ $frontController->registerController(
         // (SECURITY.md §11).
         $inboundMailForOthers === null
             ? null
-            : \Core\Mail\Feedback\Dmarc\KnownSenders::remembered($settingService)
+            : \Core\Mail\Feedback\Dmarc\KnownSenders::remembered($settingService),
+        // The seed mailboxes and their results (roadmap IT-07). The same
+        // object the transport was handed above, so the page shows the
+        // state the sending path actually reads — two instances would be
+        // two answers to « are the copies on ».
+        $inboundMailForOthers === null ? null : $seedMailboxes,
+        $inboundMailForOthers === null
+            ? null
+            : new \Core\Mail\Feedback\Seed\SeedCopyRepository($pdo, $encryptionService)
     )
 );
 

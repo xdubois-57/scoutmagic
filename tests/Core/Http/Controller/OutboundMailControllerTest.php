@@ -49,6 +49,8 @@ class OutboundMailControllerTest extends TestCase
     private \Core\Mail\Probe\MailProbeRepository $mailProbes;
     private \Core\Mail\Feedback\Bounce\BounceStateRepository $bounceStates;
     private \Core\Mail\Feedback\Dmarc\DmarcReportRepository $dmarcReports;
+    private \Core\Mail\Feedback\Seed\SeedMailboxes $seedMailboxes;
+    private \Core\Mail\Feedback\Seed\SeedCopyRepository $seedCopies;
     private OutboundMailController $controller;
     /** @var list<mixed> the arguments $controller was built from */
     private array $controllerArguments = [];
@@ -96,6 +98,18 @@ class OutboundMailControllerTest extends TestCase
 
         $this->settings = $settings;
         self::registerMailIdentitySettings($settings);
+        $settings->register(
+            \Core\Mail\Feedback\Seed\SeedMailboxes::SETTING_ENABLED,
+            '0',
+            'boolean',
+            'Copies témoins',
+            '',
+            null,
+            null,
+            null,
+            false,
+            58
+        );
         // Kept as a list rather than spent on the spot, because the two
         // probe arguments are optional and the sub-page has a whole
         // branch for an installation that did not build them. Dropping
@@ -189,6 +203,15 @@ class OutboundMailControllerTest extends TestCase
             // test that handed the controller a live resolver would be
             // exercising a road nothing travels.
             self::rememberedRelays($settings),
+            // REAL, like the bounce and DMARC pairs: with null the page
+            // answers « indisponible » before reading anything, and every
+            // assertion about what it shows would hold whatever the code
+            // does.
+            $this->seedMailboxes = new \Core\Mail\Feedback\Seed\SeedMailboxes(
+                $this->seedCopies = new \Core\Mail\Feedback\Seed\SeedCopyRepository($this->pdo, $encryption),
+                $settings
+            ),
+            $this->seedCopies,
         ];
         $this->controller = new OutboundMailController(...$this->controllerArguments);
 
@@ -292,6 +315,8 @@ class OutboundMailControllerTest extends TestCase
             'the bounces' => ['GET', '/config/courrier-sortant/rebonds'],
             'lifting a block' => ['POST', '/config/courrier-sortant/rebonds/{id}/reprise'],
             'the DMARC reports' => ['GET', '/config/courrier-sortant/dmarc'],
+            'the seed mailboxes' => ['GET', '/config/courrier-sortant/temoins'],
+            'toggling the seed copies' => ['POST', '/config/courrier-sortant/temoins/activation'],
         ];
     }
 
@@ -560,6 +585,167 @@ class OutboundMailControllerTest extends TestCase
         $this->controller->unblockBounce($stale, ['id' => (string) $id]);
 
         $this->assertSame(1, $this->bounceStates->countBlocked(), 'no block may be lifted on a stale token.');
+    }
+
+    // ── the seed mailboxes (roadmap IT-07) ────────────────────────────
+
+    /**
+     * The page sends the operator to the page that already declares
+     * mailboxes rather than growing a second one — D10's whole point:
+     * « aucun nouveau type de boîte, aucun nouveau concept de
+     * configuration ».
+     */
+    public function testTheSeedsPageSendsTheOperatorToTheInboundMailPage(): void
+    {
+        $response = $this->controller->seeds($this->getRequest(), []);
+        $body = (string) $response->getBody();
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('/config/courrier-entrant', $body);
+        $this->assertStringContainsString('Aucune boîte témoin déclarée', $body);
+    }
+
+    /**
+     * **« Trois à cinq suffisent », et au-delà cela se retourne contre
+     * vous.** The warning is the one thing on this page an operator could
+     * get wrong in the expensive direction: seed boxes never read their
+     * mail, so measuring harder makes the delivery worse.
+     */
+    public function testTooManySeedBoxesRaisesTheWarningThatMoreIsWorse(): void
+    {
+        $controller = $this->controllerWithSeedAddresses([
+            'a@gmail.com', 'b@outlook.com', 'c@yahoo.fr', 'd@proton.me', 'e@orange.fr', 'f@free.fr',
+        ]);
+
+        $body = (string) $controller->seeds($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('Trois à cinq boîtes suffisent', $body);
+        $this->assertStringContainsString('6', $body);
+    }
+
+    /** And a reasonable number raises nothing. */
+    public function testAHandfulOfSeedBoxesRaisesNoWarning(): void
+    {
+        $controller = $this->controllerWithSeedAddresses(['a@gmail.com', 'b@outlook.com']);
+
+        $body = (string) $controller->seeds($this->getRequest(), [])->getBody();
+
+        $this->assertStringNotContainsString('Trois à cinq boîtes suffisent', $body);
+        $this->assertStringContainsString('gmail.com', $body, 'The providers are the results columns.');
+    }
+
+    /**
+     * **The providers, never the addresses.** A seed box is the unit's
+     * own mailbox, and an address on a screen is an address in every
+     * screenshot of it (SECURITY.md §11). « gmail.com » names a company
+     * and is what the results are read by.
+     */
+    public function testThePageNamesProvidersAndNeverAMailboxAddress(): void
+    {
+        $controller = $this->controllerWithSeedAddresses(['temoin-secret@gmail.com']);
+
+        $body = (string) $controller->seeds($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('gmail.com', $body);
+        $this->assertStringNotContainsString('temoin-secret@gmail.com', $body);
+        $this->assertStringNotContainsString('temoin-secret', $body);
+    }
+
+    /** One row per mailing, one cell per provider. */
+    public function testTheResultsShowOneRowPerMailingAndOneCellPerProvider(): void
+    {
+        $now = new \DateTimeImmutable();
+        $this->seedCopies->claim('mass_mail:42', 'a@gmail.com', $now);
+        $this->seedCopies->recordLanding('mass_mail:42', 'a@gmail.com', 'INBOX', $now);
+        $this->seedCopies->claim('mass_mail:42', 'b@outlook.com', $now);
+        $this->seedCopies->recordLanding('mass_mail:42', 'b@outlook.com', 'Junk', $now);
+
+        $controller = $this->controllerWithSeedAddresses(['a@gmail.com', 'b@outlook.com']);
+        $body = (string) $controller->seeds($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('Boîte de réception', $body);
+        $this->assertStringContainsString('Indésirables', $body);
+        // The provider's own folder name, beside the verdict: « Junk » and
+        // « Indésirables » are one verdict and two names, and the name is
+        // what an operator recognises when they go and look.
+        $this->assertStringContainsString('Junk', $body);
+    }
+
+    /**
+     * **The limit the page must state.** A seed box says where ITS copy
+     * landed at ITS provider — not what each family saw, since filing
+     * also depends on what that person has opened and marked before.
+     */
+    public function testThePageSaysWhatASeedBoxCannotTellYou(): void
+    {
+        $body = (string) $this->controller->seeds($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('Ce que ces résultats ne disent pas', $body);
+        $this->assertStringContainsString('deux comptes Gmail', $body);
+    }
+
+    /** Turning the copies on is journalled at `security`, as the roadmap asks. */
+    public function testTurningTheCopiesOnIsJournalledAsASecurityDecision(): void
+    {
+        $response = $this->controller->toggleSeeds($this->formRequest(['enabled' => '1']), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('success', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertTrue($this->seedMailboxes->isEnabled());
+
+        $row = $this->journalRow('mail_seed_boxes_toggled');
+        $this->assertNotNull($row);
+        $this->assertSame('security', $row['level']);
+    }
+
+    public function testTurningThemOffIsJournalledToo(): void
+    {
+        $this->controller->toggleSeeds($this->formRequest(['enabled' => '1']), []);
+        $this->controller->toggleSeeds($this->formRequest(['enabled' => '0']), []);
+
+        $this->assertFalse($this->seedMailboxes->isEnabled());
+    }
+
+    /** A stale token changes nothing. */
+    public function testAStaleTokenDoesNotTurnTheCopiesOn(): void
+    {
+        $_POST = [];
+        $stale = new Request(
+            'POST',
+            '/config/courrier-sortant/temoins/activation',
+            [],
+            ['_csrf_token' => 'périmé', 'enabled' => '1'],
+            [],
+            []
+        );
+
+        $this->controller->toggleSeeds($stale, []);
+
+        $this->assertFalse($this->seedMailboxes->isEnabled());
+    }
+
+    /**
+     * @param list<string> $addresses
+     */
+    private function controllerWithSeedAddresses(array $addresses): OutboundMailController
+    {
+        $inbound = $this->createStub(\Modules\InboundMail\Api\InboundMailInterface::class);
+        $inbound->method('probeAddressesFor')->willReturn($addresses);
+        $this->seedMailboxes->useInboundMail($inbound);
+
+        return $this->controller;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function journalRow(string $eventType): ?array
+    {
+        $statement = $this->pdo->prepare('SELECT * FROM event_log WHERE event_type = ? LIMIT 1');
+        $statement->execute([$eventType]);
+        $row = $statement->fetch(\PDO::FETCH_ASSOC);
+
+        return $row === false ? null : $row;
     }
 
     // ── the DMARC reports (roadmap IT-06) ─────────────────────────────

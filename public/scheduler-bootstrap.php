@@ -434,6 +434,23 @@ function scoutmagicBootstrapScheduler(
                     $journalService
                 ));
 
+                // The seed copies (roadmap IT-07), on BOTH registries for
+                // the same reason as the two above — and here it matters
+                // most of all, because this is the registry the sync runs
+                // against and therefore the only one on which a copy is
+                // ever measured or a seed box ever emptied.
+                //
+                // It is the one consumer that declares
+                // `Api\PruningConsumerInterface`. Registered on the
+                // configuration registry alone it would still appear in
+                // the scope list, boxes could be granted to it, copies
+                // would go out — and nothing would ever read or remove
+                // them. Exactly the shape IT-05 met and the reason
+                // `SchedulerBootstrapTest` counts what is on here.
+                $registry->register(new \Core\Mail\Feedback\Seed\SeedConsumer(
+                    new \Core\Mail\Feedback\Seed\SeedCopyRepository($pdo, $encryptionService)
+                ));
+
                 // Claims only a message whose subject carries a key this
                 // receiver itself issued — the narrowest claim of the lot
                 // (roadmap IT-27). Order is immaterial: every consumer

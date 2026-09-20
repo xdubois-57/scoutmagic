@@ -69,6 +69,19 @@ class OutboundMailController extends AbstractController
 
     public const DMARC_URL = '/config/courrier-sortant/dmarc';
 
+    public const SEEDS_URL = '/config/courrier-sortant/temoins';
+
+    private const SEEDS_UNAVAILABLE = 'Les boîtes témoins demandent le module « Courrier entrant ».';
+
+    /**
+     * The window the results screen reports on.
+     *
+     * Thirty days like the DMARC page, and for the same reason: a unit
+     * sends a few mailings a month, so thirty days is « the recent ones »
+     * without being « all of them ».
+     */
+    private const SEEDS_WINDOW = 'P30D';
+
     private const DMARC_UNAVAILABLE = 'La lecture des rapports DMARC demande le module « Courrier entrant ».';
 
     /**
@@ -152,7 +165,18 @@ class OutboundMailController extends AbstractController
          * reassuring lie this section could tell.
          */
         private ?\Core\Mail\Feedback\Dmarc\DmarcReportRepository $dmarc = null,
-        private ?\Core\Mail\Feedback\Dmarc\KnownSenders $knownSenders = null
+        private ?\Core\Mail\Feedback\Dmarc\KnownSenders $knownSenders = null,
+        /**
+         * The seed mailboxes and their results (roadmap IT-07).
+         *
+         * Nullable on the same grounds as the bounce and DMARC pairs
+         * above: the table is core and always readable, but a site whose
+         * `inbound_mail` module is off has no boxes at all, and a page
+         * offering to measure with nothing to measure into would be a
+         * promise it cannot keep.
+         */
+        private ?\Core\Mail\Feedback\Seed\SeedMailboxes $seedMailboxes = null,
+        private ?\Core\Mail\Feedback\Seed\SeedCopyRepository $seedCopies = null
     ) {
     }
 
@@ -264,6 +288,144 @@ class OutboundMailController extends AbstractController
     public function bounces(Request $request, array $params): Response
     {
         return $this->renderBounces();
+    }
+
+    // ── Boîtes témoins (roadmap IT-07) ────────────────────────────────
+
+    /**
+     * GET .../temoins — where the mailings landed, per provider.
+     *
+     * @param array<string, string> $params
+     */
+    public function seeds(Request $request, array $params): Response
+    {
+        $since = (new \DateTimeImmutable())->sub(new \DateInterval(self::SEEDS_WINDOW));
+        $addresses = $this->seedMailboxes?->addresses() ?? [];
+
+        return $this->render('config/outbound_mail/seeds.html.twig', [
+            'available' => $this->seedMailboxes !== null && $this->seedCopies !== null,
+            'unavailable_reason' => self::SEEDS_UNAVAILABLE,
+            'enabled' => $this->seedMailboxes?->isEnabled() ?? false,
+            // The COUNT and not the addresses. A seed box is the unit's
+            // own, so naming one would tell a reader nothing they need and
+            // put a mailbox address on a screen a screenshot can carry
+            // (SECURITY.md §11). What the operator acts on is « combien »,
+            // and the providers already show up as the result columns.
+            'box_count' => count($addresses),
+            'suggested_maximum' => \Core\Mail\Feedback\Seed\SeedMailboxes::SUGGESTED_MAXIMUM,
+            'providers' => $this->seedProviders($addresses),
+            'runs' => $this->seedRuns($since),
+            'window_days' => 30,
+            'current_path' => self::SEEDS_URL,
+            'inbound_url' => '/config/courrier-entrant',
+        ]);
+    }
+
+    /**
+     * POST .../temoins/activation — the super-admin turns the copies on
+     * or off.
+     *
+     * **Journalled at `security`, which the roadmap asks for by name.**
+     * It is not a cosmetic setting: switching it on starts putting a copy
+     * of every mailing — real members' data — into every declared box, and
+     * switching it off stops a measurement somebody may be relying on.
+     * Both directions are decisions worth being able to date afterwards.
+     *
+     * @param array<string, string> $params
+     */
+    public function toggleSeeds(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, self::SEEDS_URL)) !== null) {
+            return $guard;
+        }
+
+        if ($this->seedMailboxes === null) {
+            FlashMessage::set('error', self::SEEDS_UNAVAILABLE);
+
+            return $this->redirect(self::SEEDS_URL);
+        }
+
+        $wanted = (string) $request->getBody('enabled', '0') === '1';
+        $this->settings->setInternal(
+            \Core\Mail\Feedback\Seed\SeedMailboxes::SETTING_ENABLED,
+            $wanted ? '1' : '0'
+        );
+
+        $this->journal->log(
+            'core',
+            'mail_seed_boxes_toggled',
+            'security',
+            $wanted ? 'Copies vers les boîtes témoins activées' : 'Copies vers les boîtes témoins désactivées',
+            // The count, never the addresses — the same rule the screen
+            // itself follows.
+            ['enabled' => $wanted, 'boxes' => count($this->seedMailboxes->addresses())]
+        );
+
+        FlashMessage::set(
+            'success',
+            $wanted
+                ? 'Les prochains publipostages seront aussi envoyés à vos boîtes témoins.'
+                : 'Les publipostages ne sont plus copiés vers les boîtes témoins.'
+        );
+
+        return $this->redirect(self::SEEDS_URL);
+    }
+
+    /**
+     * The providers the unit is measuring with, deduplicated.
+     *
+     * The columns of the results table, and the one thing about a seed
+     * box that belongs on a screen: « gmail.com » names a company, an
+     * address names a mailbox.
+     *
+     * @param list<string> $addresses
+     *
+     * @return list<string>
+     */
+    private function seedProviders(array $addresses): array
+    {
+        $providers = [];
+        foreach ($addresses as $address) {
+            $providers[\Core\Mail\Feedback\Seed\SeedCopy::providerOf($address)] = true;
+        }
+
+        $names = array_keys($providers);
+        sort($names);
+
+        return $names;
+    }
+
+    /**
+     * One row per mailing, one cell per provider — the shape the roadmap
+     * asks for.
+     *
+     * @return list<array{reference: string, sent_at: string, cells: array<string, array{verdict: string, label: string, badge: string, folder: ?string}>}>
+     */
+    private function seedRuns(\DateTimeImmutable $since): array
+    {
+        $rows = [];
+
+        foreach ($this->seedCopies?->runsSince($since) ?? [] as $reference => $copies) {
+            $cells = [];
+            $sentAt = null;
+            foreach ($copies as $copy) {
+                $sentAt ??= $copy->sentAt;
+                $cells[$copy->provider] = [
+                    'verdict' => $copy->verdict->value,
+                    'label' => $copy->verdict->label(),
+                    'badge' => $copy->verdict->badge(),
+                    'folder' => $copy->landedFolder,
+                ];
+            }
+
+            $rows[] = [
+                'reference' => (string) $reference,
+                'sent_at' => ($sentAt ?? new \DateTimeImmutable())->format('d/m/Y à H:i'),
+                'cells' => $cells,
+            ];
+        }
+
+        return $rows;
     }
 
     /**

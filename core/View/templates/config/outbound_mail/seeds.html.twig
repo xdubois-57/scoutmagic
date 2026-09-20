@@ -1,0 +1,163 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  Courrier sortant › Boîtes témoins (roadmap IT-07).
+
+  Three things this page must not omit:
+
+  - A seed box is an ordinary inbound mailbox (D10). There is no new kind
+    of box to create here, so the page sends the operator to the page that
+    already declares them rather than growing a second one.
+  - Three to five suffice, and MORE IS WORSE. These boxes never read their
+    mail, so past a handful they drag down the engagement the large
+    providers score a sender on — a unit measuring harder would be making
+    its own delivery worse.
+  - A copy carries real members' data into every declared box, which is why
+    the switch is off until somebody turns it on and why the change is
+    journalled at `security`.
+#}
+{% extends 'base.html.twig' %}
+{% block title %}Boîtes témoins — {{ site_name }}{% endblock %}
+{% block content %}
+{% include 'partials/page_header.html.twig' with {
+    title: 'Boîtes témoins',
+    subtitle: "Où vos publipostages atterrissent réellement, fournisseur par fournisseur.",
+} only %}
+
+{% include 'config/outbound_mail/_nav.html.twig' %}
+
+{% if not available %}
+    <div class="alert alert-warning">{{ unavailable_reason }}</div>
+{% else %}
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5">Comment ça marche</h2>
+            <p class="text-body-secondary small">
+                Une boîte témoin est une boîte aux lettres ordinaire de votre unité, que vous déclarez
+                dans <a href="{{ inbound_url }}">Courrier entrant</a> comme les autres, et à laquelle vous
+                ouvrez la portée « {{ 'Courrier sortant — boîtes témoins' }} ». Quand l'option ci-dessous
+                est active, chaque publipostage part aussi vers ces boîtes : le site regarde ensuite dans
+                quel dossier la copie a atterri — réception ou indésirables — puis efface le message.
+            </p>
+            <p class="text-body-secondary small mb-0">
+                Prenez des boîtes chez des fournisseurs différents : c'est la comparaison entre eux qui
+                vous apprend quelque chose, pas le nombre.
+            </p>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5">Vos boîtes témoins</h2>
+            {% if box_count == 0 %}
+                {% include 'partials/empty_state.html.twig' with {
+                    message: 'Aucune boîte témoin déclarée.',
+                    compact: true,
+                } only %}
+                <p class="text-body-secondary small mt-2 mb-0">
+                    Déclarez une boîte dans <a href="{{ inbound_url }}">Courrier entrant</a>, puis ouvrez-lui
+                    la portée « boîtes témoins ». Tant qu'il n'y en a aucune, activer l'option ci-dessous
+                    n'enverra rien nulle part.
+                </p>
+            {% else %}
+                <p class="mb-2">
+                    <strong>{{ box_count }}</strong> boîte(s) déclarée(s)
+                    {% if providers is not empty %}
+                        chez : {{ providers|join(', ') }}
+                    {% endif %}
+                </p>
+                {% if box_count > suggested_maximum %}
+                    <div class="alert alert-warning mb-0">
+                        <strong>Trois à cinq boîtes suffisent, et au-delà cela se retourne contre vous.</strong>
+                        Ces boîtes ne lisent jamais leur courrier, ne répondent jamais et ne cliquent jamais.
+                        Les grands fournisseurs notent un expéditeur sur l'engagement de ses destinataires :
+                        trop de témoins et vous dégradez vous-même la délivrabilité que vous mesurez.
+                    </div>
+                {% endif %}
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5">Copier les publipostages vers ces boîtes</h2>
+            <p class="text-body-secondary small">
+                Une copie contient le message réel, donc les données personnelles qu'il porte. Elle ne part
+                que vers vos propres boîtes, jamais vers un service extérieur.
+            </p>
+            <form method="post" action="{{ current_path }}/activation">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="enabled" value="{{ enabled ? '0' : '1' }}">
+                <button type="submit" class="btn {{ enabled ? 'btn-outline-danger' : 'btn-primary' }}">
+                    {{ enabled ? 'Désactiver les copies' : 'Activer les copies' }}
+                </button>
+                <span class="ms-2 badge {{ enabled ? 'text-bg-success-subtle' : 'text-bg-secondary-subtle' }}">
+                    {{ enabled ? 'Actives' : 'Inactives' }}
+                </span>
+            </form>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5">Résultats, {{ window_days }} derniers jours</h2>
+            {% if runs is empty %}
+                {% include 'partials/empty_state.html.twig' with {
+                    message: 'Aucun publipostage mesuré sur la période.',
+                    compact: true,
+                } only %}
+            {% else %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th scope="col">Envoi</th>
+                                {% for provider in providers %}
+                                    <th scope="col">{{ provider }}</th>
+                                {% endfor %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for run in runs %}
+                                <tr>
+                                    <td>{{ run.sent_at }}</td>
+                                    {% for provider in providers %}
+                                        <td>
+                                            {% if run.cells[provider] is defined %}
+                                                {% set cell = run.cells[provider] %}
+                                                <span class="badge text-bg-{{ cell.badge == 'neutral'
+                                                    ? 'secondary-subtle'
+                                                    : cell.badge ~ '-subtle' }}">{{ cell.label }}</span>
+                                                {% if cell.folder %}
+                                                    <span class="d-block text-body-secondary small">{{ cell.folder }}</span>
+                                                {% endif %}
+                                            {% else %}
+                                                <span class="text-body-secondary">—</span>
+                                            {% endif %}
+                                        </td>
+                                    {% endfor %}
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="alert alert-info">
+        <h2 class="h6">Ce que ces résultats ne disent pas</h2>
+        <p class="mb-0">
+            Une boîte témoin vous dit où <strong>sa</strong> copie a atterri, chez <strong>son</strong>
+            fournisseur. Ce n'est pas la même chose que l'expérience de chaque famille : deux comptes Gmail
+            ne filtrent pas identiquement, parce que le classement dépend aussi de ce que chaque personne a
+            ouvert, répondu ou marqué comme indésirable par le passé. Lisez ces lignes comme une tendance
+            par fournisseur, jamais comme une garantie destinataire par destinataire.
+        </p>
+    </div>
+
+{% endif %}
+{% endblock %}
