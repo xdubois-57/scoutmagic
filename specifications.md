@@ -978,6 +978,10 @@ Keyword substitution happens after the rich text is sanitised, and every substit
 
 **A renter downloads nothing from the site.** "For the renter" is a flag that means *email it to them*, not an access right: their documents reach them by email and only by email.
 
+**Sending is what locks a document.** Its text is editable while nothing of that type has gone out, and read-only afterwards: the renter holds a copy, and changing what that copy was made from behind their back is the confusion versioning exists to prevent. The confirmation on « Envoyer » says so before it happens rather than after. Regenerating is unaffected — v2 still appears beside v1.
+
+**The text is written in rich text, and the keyword hazard is answered rather than avoided.** A contenteditable surface splits a run of text across elements as it is edited, so `{{ prix_total }}` becomes `{{ pri<b>x</b>_total }}` the moment somebody bolds a word that overlaps it. Three layers: each keyword renders as one indivisible chip, the server strips inline markup from inside a `{{ … }}` after sanitising and before substituting, and the "unknown keyword" warning stays the net for what neither caught. **Opening a document opens a new tab**: navigating to a PDF in the installed application would otherwise strand it on a blank screen with no way back, and `/files/{id}` is network-only, so offline the site says there is nothing to serve instead of showing nothing at all.
+
 ### 22.7 The stay
 
 Meter readings are integers in thousandths, taken at arrival and departure; a meter that reads backwards is reported, never guessed at. The inventory checklist is snapshotted into the booking at confirmation, label and all, so editing the asset's list later rewrites no past inventory. "Nobody looked" is a distinct state from "somebody looked and it was fine".
