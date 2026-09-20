@@ -2965,3 +2965,63 @@ Le pied de la page 2 porte déjà les mentions RGPD de la fédération, y compri
 conservation et la destruction après le séjour. **Le site n'écrit rien de plus** : l'avertissement de
 §44.1 vit sur la page web, jamais sur le papier. On ne complète pas un document officiel avec ce qui
 n'en fait pas partie.
+
+### 44.19 La conservation : dix-huit mois sans usage, puis l'oubli
+
+`Modules\OfficialDocuments\Task\PurgeHealthSheetsHandler`, quotidienne, auto-replanifiée sur le patron de
+`Core\Notification\Task\PurgeNotificationsHandler`. Elle efface toute fiche dont `last_used_at` remonte à plus de
+`official_documents_health_sheet_retention_months` — réglage du module, **défaut 18 mois**, donc réinitialisable par
+« Paramètres par défaut » comme le reste.
+
+**Ce que « usage » veut dire est toute la conception.** Le compteur repart sur une mise à jour **et** sur la génération
+d'un document (§44.17). Retélécharger le formulaire de septembre dernier sans rien changer n'est pas un geste passif :
+le parent a ouvert la page, vu les valeurs et décidé de les imprimer. Traiter cela comme un abandon effacerait, une
+fois par an et en silence, des données encore utilisées.
+
+**Purge silencieuse**, comme le chantier le décide : aucune notification, aucun avertissement préalable. L'inverse —
+« votre fiche santé sera effacée dans un mois » — ferait voyager une information médicale dans une boîte aux lettres
+que le site ne maîtrise pas, pour éviter une suppression qu'il suffit d'ouvrir la page pour repousser.
+
+**Rien n'est déchiffré pour en décider** : `last_used_at` est une colonne DATETIME indexée pour elle seule
+(§44.9). Une purge qui aurait dû ouvrir soixante champs de données de santé pour lire une date serait le seul
+traitement de cette installation à passer sur les réponses médicales de toutes les familles en une fois, à quatre
+heures du matin, sans personne pour regarder.
+
+**Chaque ligne est supprimée sous sa propre condition revérifiée.** Choisir les identifiants puis supprimer par
+identifiant seul laisse une fenêtre : une famille qui enregistre sa fiche ou imprime son document entre les deux
+requêtes voit ses données effacées quand même, et le journal enregistre alors une purge pour une fiche qui était en
+usage à l'instant où elle est partie. L'effacement est définitif et la donnée n'est nulle part ailleurs. Le `DELETE`
+porte donc `AND last_used_at < ?` et `rowCount()` dit ce qui est réellement parti.
+
+Délibérément **pas** une transaction avec `SELECT … FOR UPDATE` : celle-ci tiendrait un verrou sur toutes les fiches
+périmées le temps de la passe, et prendrait une portée transactionnelle que le dépôt ne possède pas — son appelant
+peut déjà être dans une transaction, et PDO ne s'imbrique pas. La condition revérifiée donne la même garantie sans
+rien verrouiller.
+
+Les identifiants sont tout de même lus d'abord, et cette moitié-là compte aussi : supprimer sur la seule date
+prendrait des lignes devenues périmées après la lecture, sans les nommer, et une suppression non journalisée est une
+suppression dont aucune famille ne pourra jamais obtenir l'explication.
+
+**Le journal porte l'identifiant du membre et rien d'autre** — même forme que « Tout effacer » (§44.11), et pour la
+même raison : la purge ne doit pas écrire ce qu'elle existe pour détruire. Une passe qui n'efface rien n'écrit rien.
+
+La tâche se replanifie **dans un `finally`** : une exécution qui a échoué ne doit pas être une règle de conservation
+qui s'arrête pour de bon. Et sa **première occurrence est amorcée dans `public/index.php`** — déclarer un gestionnaire
+dans `module.json` apprend au planificateur quelle classe traite quelle clé et n'enfile rien du tout, donc une tâche
+auto-replanifiée que personne n'a jamais enfilée ne se replanifie jamais (ARCHITECTURE.md §8.49).
+
+Le réglage est lu **avec l'identifiant du module**. `SettingService` range un réglage de module dans sa propre portée ;
+le relire sans elle cherche `_core_::…`, ne trouve rien et répond la valeur par défaut, sans erreur nulle part. La clé
+étant préfixée du nom du module, la méprise est facile — c'est exactement ce qui a désactivé silencieusement le code
+d'unité de l'autorisation parentale (issue #433).
+
+### 44.20 Ce que l'aide dit de la conservation — **Décidé**
+
+Le formulaire de la fédération demande d'être complété au début de **chaque année scoute**. Les dix-huit mois du site
+sont donc plus permissifs que ce qu'elle attend : une fiche de dix-sept mois se pré-remplira sans que rien ne signale
+qu'elle a sauté une année.
+
+Le site ne corrige pas cet écart — il n'a pas à imposer le calendrier de la fédération — mais **l'aide le dit**, et le
+parent voit les valeurs à l'écran avant de produire le document. C'est là que se repère une taille qui n'est plus la
+bonne ou un traitement terminé depuis.
+

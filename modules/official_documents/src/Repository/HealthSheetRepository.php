@@ -142,6 +142,88 @@ class HealthSheetRepository
      * « mise à jour le 12 mars » beside a link, which is not a reason to
      * put a child's health data through a cipher.
      */
+    /**
+     * Delete every sheet that has not been used since the cutoff, and
+     * answer whose they were.
+     *
+     * **Nothing is decrypted.** `last_used_at` is a plain DATETIME column
+     * with an index of its own (see `schema.sql`), so the retention purge
+     * decides what to delete without a single sheet going through the
+     * cipher. A purge that had to open sixty fields of health data to read
+     * one date would be the one job on this installation that touches
+     * every family's medical answers in a single pass, at four in the
+     * morning, with nobody watching.
+     *
+     * **Each row is deleted under its own re-checked condition**, and that
+     * is not a detail of style. Selecting the ids and then deleting by id
+     * alone leaves a window: a family that saves the sheet or prints the
+     * document between the two statements has their data erased anyway,
+     * because the delete no longer knows what it was deleting for — and
+     * the journal then records a purge for a sheet that was in active use
+     * at the moment it went. The erasure is permanent and the data is
+     * nowhere else.
+     *
+     * The ids are still read first, and that half also matters both ways:
+     * deleting on the date alone would take rows that went stale after the
+     * read, without naming them, and an unjournalled deletion is one no
+     * family can ever get an answer about.
+     *
+     * @return list<int> the member ids whose sheets were actually removed
+     */
+    public function deleteUnusedSince(\DateTimeImmutable $cutoff): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT member_id FROM official_documents_health_sheets WHERE last_used_at < ?'
+        );
+        $stmt->execute([$cutoff->format('Y-m-d H:i:s')]);
+
+        /** @var list<int> $candidates */
+        $candidates = array_map(intval(...), $stmt->fetchAll(\PDO::FETCH_COLUMN));
+
+        $removed = [];
+        foreach ($candidates as $memberId) {
+            if ($this->deleteIfUnusedSince($memberId, $cutoff)) {
+                $removed[] = $memberId;
+            }
+        }
+
+        return $removed;
+    }
+
+    /**
+     * Delete one sheet **only if it is still unused** at this instant, and
+     * say whether it went.
+     *
+     * The whole retention guarantee lives in this one statement: the
+     * condition that chose the row is re-evaluated by the engine as it
+     * deletes, under the row's own lock. A `touch()` that committed first
+     * makes the row stop matching and it survives; a delete that goes
+     * first simply wins, which is the legitimate outcome of that race.
+     *
+     * A statement per member rather than one `IN (…)` over the lot: these
+     * are rows nobody has opened in eighteen months, so a daily pass has a
+     * handful, and `rowCount()` is then the truth about what actually went
+     * — which is what the journal carries. A single bulk delete would
+     * answer a total, and « une fiche a été effacée » answers no family's
+     * question about their own child.
+     *
+     * Deliberately NOT a transaction with `SELECT … FOR UPDATE`: that
+     * holds a lock on every stale sheet for the length of the pass, and it
+     * takes a transaction scope this repository does not own — its caller
+     * may already be in one, and PDO does not nest. The re-checked
+     * condition gives the same guarantee while holding nothing.
+     */
+    public function deleteIfUnusedSince(int $memberId, \DateTimeImmutable $cutoff): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'DELETE FROM official_documents_health_sheets
+             WHERE member_id = ? AND last_used_at < ?'
+        );
+        $stmt->execute([$memberId, $cutoff->format('Y-m-d H:i:s')]);
+
+        return $stmt->rowCount() > 0;
+    }
+
     public function lastUsedAt(int $memberId): ?\DateTimeImmutable
     {
         $stmt = $this->pdo->prepare(

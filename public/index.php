@@ -6742,6 +6742,27 @@ if ($isEnabled('official_documents')) {
         )
     );
 
+    // The retention purge's FIRST occurrence has to be seeded here:
+    // declaring a handler in module.json only teaches SchedulerRunner which
+    // class handles the key, and a self-rescheduling task nobody ever
+    // queued reschedules itself never (ARCHITECTURE.md §8.49).
+    // Tests\Modules\OfficialDocuments\ModuleSchedulingTest fails if this
+    // drifts from module.json's `scheduled_tasks`.
+    //
+    // `seed()` and NOT `rearm()`, which is the question this call site asks
+    // (ARCHITECTURE.md §8.5): « cette chaîne est-elle vivante » — `pending`
+    // OR `processing`. `rearm()`'s guard sees `pending` only, so a request
+    // landing while the daily pass is `processing` finds nothing and queues
+    // a SECOND chain; this runs on every page load, so that window is hit
+    // regularly. On a purge, a duplicate chain means duplicate delete
+    // passes and duplicate journal entries about a family's health data.
+    $schedulerService->seed(
+        'official_documents',
+        \Modules\OfficialDocuments\Task\PurgeHealthSheetsHandler::TASK_KEY,
+        \Modules\OfficialDocuments\Task\PurgeHealthSheetsHandler::REFERENCE,
+        new DateTimeImmutable()
+    );
+
     $frontController->registerController(
         \Modules\OfficialDocuments\Controller\ParentalAuthorizationController::class,
         new \Modules\OfficialDocuments\Controller\ParentalAuthorizationController(

@@ -333,4 +333,158 @@ final class HealthSheetRepositoryTest extends TestCase
         $this->repository->save($this->memberId, HealthSheet::fromArray(['allergies' => 'Arachides']), self::now());
         $this->assertSame('Arachides', $this->repository->findForMember($this->memberId)?->allergies);
     }
+
+    // --- the retention purge ---
+
+    /**
+     * The purge decides from `last_used_at` alone, over the whole table.
+     *
+     * Named rows back, because the handler journals them: a delete that
+     * answered a count would leave the journal with nothing to carry but
+     * a number, and « une fiche a été effacée » answers no family's
+     * question about their own child.
+     */
+    public function testTheRetentionDeleteAnswersWhoseSheetsItTook(): void
+    {
+        $other = $this->memberId + 1;
+        $this->repository->save($this->memberId, self::sheet(), self::now('2024-01-01 09:00:00'));
+        $this->repository->save($other, self::sheet(), self::now('2026-09-01 09:00:00'));
+
+        $taken = $this->repository->deleteUnusedSince(self::now('2025-03-20 10:00:00'));
+
+        $this->assertSame([$this->memberId], $taken);
+        $this->assertNull($this->repository->findForMember($this->memberId));
+        $this->assertNotNull($this->repository->findForMember($other));
+    }
+
+    /**
+     * Nothing to take is not an error, and must not be a delete with no
+     * WHERE: an empty id list built into an `IN ()` is a syntax error in
+     * MySQL, and the naive fix — skipping the guard — empties the table.
+     */
+    public function testARetentionPassWithNothingToTakeLeavesTheTableAlone(): void
+    {
+        $this->repository->save($this->memberId, self::sheet(), self::now('2026-09-01 09:00:00'));
+
+        $this->assertSame([], $this->repository->deleteUnusedSince(self::now('2025-03-20 10:00:00')));
+        $this->assertNotNull($this->repository->findForMember($this->memberId));
+    }
+
+    /**
+     * A sheet used exactly at the cutoff stays: the comparison is strictly
+     * older-than. Rounding the other way deletes a family's answers a day
+     * early, and there is nowhere to get them back from.
+     */
+    public function testASheetUsedExactlyAtTheCutoffIsKept(): void
+    {
+        $this->repository->save($this->memberId, self::sheet(), self::now('2025-03-20 10:00:00'));
+
+        $this->assertSame([], $this->repository->deleteUnusedSince(self::now('2025-03-20 10:00:00')));
+        $this->assertNotNull($this->repository->findForMember($this->memberId));
+    }
+
+    /**
+     * And the purge reads that date **without decrypting anything** — the
+     * property the indexed plain column exists for. Asserted by breaking
+     * the cipher: a repository that had to open the sheet to find its date
+     * would throw or return nothing here, and this is the only layer where
+     * that difference is visible at all.
+     */
+    public function testTheRetentionDeleteNeverOpensASheet(): void
+    {
+        $this->repository->save($this->memberId, self::sheet(), self::now('2024-01-01 09:00:00'));
+
+        $withTheWrongKey = new HealthSheetRepository(
+            $this->pdo,
+            new EncryptionService(str_repeat('z', 32), str_repeat('y', 32))
+        );
+
+        $this->assertSame(
+            [$this->memberId],
+            $withTheWrongKey->deleteUnusedSince(self::now('2025-03-20 10:00:00')),
+            'The purge could not decide without decrypting, which is exactly what it must never do.'
+        );
+    }
+
+    // --- the race between choosing a sheet and deleting it ---
+
+    /**
+     * **The window that would cost a family their data.**
+     *
+     * The purge reads which sheets are stale, then deletes them. Between
+     * those two moments a family can save the sheet or print the document
+     * — `touch()` is exactly what the download does — and a delete that
+     * matched on `member_id` alone would erase it anyway. Permanently,
+     * with nowhere to recover it from, and with the journal recording a
+     * retention purge for a sheet that was in active use at the instant it
+     * went.
+     *
+     * This replays that interleaving directly rather than hoping to hit it
+     * by timing: the row is chosen while stale, used, and only then
+     * deleted. The delete re-evaluates the condition that chose it, so the
+     * row survives.
+     */
+    public function testASheetUsedAfterBeingChosenButBeforeBeingDeletedSurvives(): void
+    {
+        $cutoff = self::now('2025-03-20 10:00:00');
+        $this->repository->save($this->memberId, self::sheet(), self::now('2024-01-01 09:00:00'));
+
+        // Chosen: at this instant the sheet is stale and the purge would
+        // take it.
+        $this->assertNotNull($this->repository->findForMember($this->memberId));
+
+        // Used: the family downloads their document. This is the write the
+        // purge must lose to.
+        $this->repository->touch($this->memberId, self::now('2026-09-20 08:00:00'));
+
+        $this->assertFalse(
+            $this->repository->deleteIfUnusedSince($this->memberId, $cutoff),
+            'A sheet used between the choice and the deletion was erased anyway.'
+        );
+        $this->assertNotNull($this->repository->findForMember($this->memberId));
+    }
+
+    /**
+     * And the other side of the same statement: a sheet still stale when
+     * the delete runs does go, and says so. Without this, the guard above
+     * would be satisfied by a method that never deletes anything.
+     */
+    public function testASheetStillUnusedWhenTheDeleteRunsIsRemovedAndSaysSo(): void
+    {
+        $this->repository->save($this->memberId, self::sheet(), self::now('2024-01-01 09:00:00'));
+
+        $this->assertTrue(
+            $this->repository->deleteIfUnusedSince($this->memberId, self::now('2025-03-20 10:00:00'))
+        );
+        $this->assertNull($this->repository->findForMember($this->memberId));
+    }
+
+    /**
+     * A sheet that is no longer there — the family pressed « Tout effacer »
+     * first — is not reported as purged. The journal would otherwise claim
+     * the retention took what a parent had already destroyed themselves.
+     */
+    public function testASheetAlreadyGoneIsNotReportedAsPurged(): void
+    {
+        $this->assertFalse(
+            $this->repository->deleteIfUnusedSince($this->memberId, self::now('2025-03-20 10:00:00'))
+        );
+    }
+
+    /**
+     * And the whole pass answers only what it actually removed, so the
+     * journal never names a sheet that survived.
+     */
+    public function testThePassAnswersOnlyWhatItActuallyRemoved(): void
+    {
+        $used = $this->memberId + 1;
+        $this->repository->save($this->memberId, self::sheet(), self::now('2024-01-01 09:00:00'));
+        $this->repository->save($used, self::sheet(), self::now('2024-01-01 09:00:00'));
+        $this->repository->touch($used, self::now('2026-09-20 08:00:00'));
+
+        $taken = $this->repository->deleteUnusedSince(self::now('2025-03-20 10:00:00'));
+
+        $this->assertSame([$this->memberId], $taken);
+        $this->assertNotNull($this->repository->findForMember($used));
+    }
 }

@@ -161,6 +161,62 @@ final class OfficialDocumentsRgpdCoverageTest extends TestCase
     }
 
     /**
+     * **The retention rule, in both documents.**
+     *
+     * A privacy notice that says data is kept and never says for how long
+     * is missing the one fact a family asks about first, and art. 5.1.e is
+     * about exactly that. It also has to say what restarts the clock —
+     * printing counts — because a family that only ever prints would
+     * otherwise read this as « erased in eighteen months whatever I do ».
+     */
+    public function testTheNoticeSaysHowLongTheHealthSheetIsKeptAndWhatRestartsTheClock(): void
+    {
+        $section = self::officialDocumentsSectionOf(self::NOTICE);
+
+        $this->assertStringContainsString('dix-huit mois', $section);
+        // The clock restarts on a print, not only on an edit.
+        $this->assertStringContainsStringIgnoringCase('imprime', $section);
+        // And it is the unit's setting, not a constant of the software.
+        $this->assertStringContainsString('réglage', $section);
+    }
+
+    /**
+     * And that the erasure is silent, which is a promise about what the
+     * site will NOT do: no warning e-mail about a child's medical record.
+     *
+     * In the prompt too, with « n'invente pas » — a model asked to write a
+     * privacy notice will otherwise reach for the reassuring sentence and
+     * describe a notification that does not exist.
+     */
+    public function testBothDocumentsSayTheErasureIsSilentAndFinal(): void
+    {
+        foreach ([self::NOTICE, self::PROMPT] as $path) {
+            $section = self::officialDocumentsSectionOf($path);
+
+            $this->assertStringContainsString('silencieux', $section, $path);
+            $this->assertStringContainsStringIgnoringCase('avertissement préalable', $section, $path);
+        }
+
+        $this->assertStringContainsString(
+            "n'invente pas de notification",
+            self::officialDocumentsSectionOf(self::PROMPT)
+        );
+    }
+
+    /**
+     * The purge writes the member id and nothing else — the same rule as
+     * the « Tout effacer » button, and the notice must not describe one
+     * without the other.
+     */
+    public function testTheNoticeSaysThePurgeIsJournalledWithoutItsContent(): void
+    {
+        $section = self::officialDocumentsSectionOf(self::NOTICE);
+
+        $this->assertStringContainsString('jamais le contenu effacé', $section);
+        $this->assertStringContainsString('identifiant du membre', $section);
+    }
+
+    /**
      * And the health sheet, which IS kept, must say so in the same breath.
      *
      * A privacy notice that described only the half keeping nothing would
