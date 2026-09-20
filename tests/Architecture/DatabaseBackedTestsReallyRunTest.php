@@ -46,7 +46,7 @@ final class DatabaseBackedTestsReallyRunTest extends TestCase
 {
     /**
      * The words that make a skip message a database one. Matched against
-     * the literal passed to `markTestSkipped()`, case-insensitively.
+     * the whole argument text of `markTestSkipped()`, case-insensitively.
      */
     private const DATABASE_WORDS = '/Database|MySQL|MariaDB|TEST_DB_/i';
 
@@ -142,10 +142,9 @@ final class DatabaseBackedTestsReallyRunTest extends TestCase
                 continue;
             }
 
-            preg_match_all("/markTestSkipped\\(\\s*'([^']*)'/", $source, $matches);
-            foreach ($matches[1] as $message) {
-                if (preg_match(self::DATABASE_WORDS, $message) === 1) {
-                    $uncovered[] = substr($path, strlen(dirname(__DIR__, 2)) + 1) . ' — « ' . $message . ' »';
+            foreach ($this->skipArguments($source) as $argument) {
+                if (preg_match(self::DATABASE_WORDS, $argument) === 1) {
+                    $uncovered[] = substr($path, strlen(dirname(__DIR__, 2)) + 1) . ' — « ' . $argument . ' »';
                 }
             }
         }
@@ -167,6 +166,71 @@ final class DatabaseBackedTestsReallyRunTest extends TestCase
     public function testTheScanReadsTheSuiteRatherThanAnEmptyList(): void
     {
         $this->assertGreaterThan(1000, count($this->testFiles()));
+    }
+
+    /**
+     * The whole argument text of every `markTestSkipped()` call, brackets
+     * balanced and string literals stepped over.
+     *
+     * **Not one single-quoted literal.** Reading `'([^\']*)'` after the
+     * opening bracket makes this check depend on a quoting style nothing
+     * in this repository enforces — there is no `php-cs-fixer` and no
+     * `phpcs` configuration — so
+     * `markTestSkipped("Database not available: " . $e->getMessage())`
+     * would pass it in silence, and silence is the single outcome this
+     * class exists to prevent. Taking the argument whole covers double
+     * quotes, concatenation, `sprintf()` and heredocs alike, and
+     * `Tests\Architecture\ScheduledTasksAreTestedTest` shows the
+     * concatenated shape is already in use.
+     *
+     * What it still cannot read is a message assembled into a variable
+     * beforehand: there the words are not in the call at all, and no
+     * amount of text matching will find them. That limit is the reason
+     * the first test above asks the connection rather than trusting this
+     * one — the two cover each other.
+     *
+     * @return list<string>
+     */
+    private function skipArguments(string $source): array
+    {
+        $arguments = [];
+        $needle = 'markTestSkipped(';
+        $offset = 0;
+
+        while (($start = strpos($source, $needle, $offset)) !== false) {
+            $i = $start + strlen($needle);
+            $depth = 1;
+            $quote = null;
+
+            while ($i < strlen($source) && $depth > 0) {
+                $char = $source[$i];
+
+                if ($quote !== null) {
+                    // A bracket inside a message is text, not structure,
+                    // and an escaped quote does not end the literal.
+                    if ($char === '\\') {
+                        $i += 2;
+                        continue;
+                    }
+                    if ($char === $quote) {
+                        $quote = null;
+                    }
+                } elseif ($char === "'" || $char === '"') {
+                    $quote = $char;
+                } elseif ($char === '(') {
+                    $depth++;
+                } elseif ($char === ')') {
+                    $depth--;
+                }
+
+                $i++;
+            }
+
+            $arguments[] = trim(substr($source, $start + strlen($needle), $i - $start - strlen($needle) - 1));
+            $offset = $i;
+        }
+
+        return $arguments;
     }
 
     /**

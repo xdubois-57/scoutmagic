@@ -520,6 +520,9 @@ réelle de la divergence entre les deux moteurs.
 - `TEST_DB_HOST=` exporté vide et pas de `CI` → sauté, comme les vingt-quatre classes qui retombent alors sur `127.0.0.1` ; la revue de la PR #394 a relevé qu'une première version rougissait ici, et elle avait raison
 - `TEST_DB_HOST=` vide, `CI=true`, serveur présent → vert, pour la même raison
 - un `markTestSkipped('Database not available')` posé dans `Core\View\FormatFiltersTest`, qui n'ouvre aucune connexion → rouge, en citant le fichier et le message
+- le même, écrit `markTestSkipped("Database not available: " . __FILE__)` → **VERT** tant que le garde ne lisait qu'un littéral entre apostrophes ; rouge depuis qu'il lit l'argument entier. Constat de la revue de la PR #394, reproduit avant correction
+- le même en `sprintf('No %s server (port %d)', 'MySQL', 3306)` → rouge
+- une parenthèse à l'intérieur du message → l'argument est extrait entier et l'analyse continue
 
 *Sur un garde écrit puis retiré (voir plus bas) :*
 
