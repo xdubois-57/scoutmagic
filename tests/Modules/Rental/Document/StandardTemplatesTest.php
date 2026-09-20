@@ -145,4 +145,22 @@ class StandardTemplatesTest extends TestCase
 
         $this->assertSame($strip($conditions), $strip($sanitized));
     }
+
+    /**
+     * **The shipped text is the binding one, so it may not promise more
+     * than the site does.** A booking keeps `conditions_version` and the
+     * SHA-256 of the text it accepted — never the text itself
+     * (`RentalBookingService::hashAcceptedText()`), and `editable_contents`
+     * has no revision history, so the exact prior wording is unrecoverable
+     * the moment a unit edits its conditions. Saying otherwise to a renter
+     * is a promise nobody can keep.
+     */
+    public function testTheConditionsPromiseAnImprintAndNotACopyOfThemselves(): void
+    {
+        $conditions = StandardTemplates::conditions();
+
+        $this->assertStringContainsString('une empreinte', $conditions);
+        $this->assertStringContainsString('pas une copie du texte', $conditions);
+        $this->assertStringNotContainsString('le texte accepté est conservé', $conditions);
+    }
 }

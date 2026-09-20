@@ -75,8 +75,9 @@ final class StandardTemplates
     {
         return <<<'HTML'
             <p>Ces conditions s'appliquent à toute demande introduite auprès de l'unité.
-            Elles sont acceptées au moment de l'envoi du formulaire, et le texte accepté
-            est conservé tel qu'il était affiché ce jour-là.</p>
+            Elles sont acceptées au moment de l'envoi du formulaire ; le site en conserve
+            alors la version et une empreinte, qui établissent le texte exact affiché ce
+            jour-là — pas une copie du texte lui-même.</p>
 
             <h3>1. Ce qu'une demande engage</h3>
             <p>Une demande n'est pas une réservation. Elle ouvre une conversation : l'unité
