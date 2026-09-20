@@ -121,13 +121,15 @@ format que `docs/chantiers/courrier-sortant.md`.
   qu'il faudra lire `php://input` à la main pour le corps XML d'un
   `PROPFIND` ; `Request::getRawBody()` existe déjà et fait exactement
   cela. IT-03 l'utilisera plutôt que de toucher aux superglobales.
-- **`Core\Member\MemberService` accède directement à PDO.** Le piège
-  décrit par le chantier (« `MemberProfile` ne porte que les fonctions
-  d'une seule année ») est exact et a été évité ; en revanche la couche
-  Service y fait elle-même ses requêtes, contrairement au contrat
-  Controller → Service → Repository d'`ARCHITECTURE.md`. Constat, pas
-  correction : `Core\Contact` respecte le contrat pour sa part et n'a pas
-  élargi la PR à une refonte de `MemberService`.
+- **`Core\Member\MemberService` et `SectionService` accèdent directement
+  à PDO.** Le piège décrit par le chantier (« `MemberProfile` ne porte que
+  les fonctions d'une seule année ») est exact et a été évité ; en
+  revanche ces deux Services préparent eux-mêmes leurs requêtes et
+  déchiffrent eux-mêmes des colonnes, contrairement au contrat
+  Controller → Service → Repository d'`ARCHITECTURE.md` §13 et à
+  `SECURITY.md` §5 (« Only Repositories call `EncryptionService` »).
+  `Core\Contact` respecte le contrat pour sa part, et la refonte est
+  reportée plutôt qu'élargie à cette PR — voir plus bas.
 
 **Reporté.**
 
@@ -137,3 +139,9 @@ format que `docs/chantiers/courrier-sortant.md`.
   n'est faux en production ; c'est un piège dormant, et une issue
   GitHub le décrit avec son test (#409). Les deux routes de cette itération
   l'évitent en n'utilisant pas de point.
+- **La refonte de `MemberService` et `SectionService` en Repository** —
+  issue #413, avec les deux options chiffrées et le test d'architecture
+  qui épinglerait la règle. Rien n'est faux en production : tout est en
+  requête préparée. Ce que cela coûte, c'est un déchiffrement qui a deux
+  foyers au lieu d'un, et une duplication que le docbloc de
+  `MemberFunctionInfo::deduplicate()` constate déjà.
