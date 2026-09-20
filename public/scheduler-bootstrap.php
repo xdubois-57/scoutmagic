@@ -411,7 +411,6 @@ function scoutmagicBootstrapScheduler(
                         // make the protection depend on the telling.
                         $notificationService === null ? null : new \Core\Mail\Feedback\Bounce\MemberBounceNotifier(
                             $notificationService,
-                            new \Core\Member\MemberEmailRepository($pdo, $encryptionService),
                             $userAccountRepo,
                             $encryptionService
                         )

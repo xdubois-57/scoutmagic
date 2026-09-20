@@ -44,7 +44,6 @@ class MemberBounceNotifierTest extends TestCase
 
         $this->notifier = new MemberBounceNotifier(
             $this->capturingNotifications(),
-            $this->memberEmails,
             $this->accounts,
             $this->encryption
         );
@@ -125,20 +124,56 @@ class MemberBounceNotifierTest extends TestCase
     }
 
     /**
-     * A parent with two addresses, one of which starts failing: they are
-     * reached through the other one's account.
+     * **The other address on the same profile belongs to somebody else**,
+     * and telling them was a leak.
+     *
+     * `member_emails` hangs addresses off the CHILD, so a child's profile
+     * routinely carries one address per guardian — and no column says
+     * which belongs to whom. This class used to gather them all, meaning
+     * to catch « one person, two addresses ». What it actually did was
+     * tell the father « Une de tes adresses est suspendue » about the
+     * mother's mailbox: one he does not own, cannot reactivate, and had no
+     * business learning about, between two people the site elsewhere takes
+     * care to keep apart.
+     *
+     * The test that stood here built this exact fixture and asserted the
+     * second account WAS notified — it pinned the defect rather than
+     * catching it, which is the more expensive kind of coverage: it made
+     * the behaviour look deliberate.
      */
-    public function testASiblingAddressOfTheSameMemberCarriesTheNews(): void
+    public function testTheOtherGuardianOnTheSameProfileIsNotToldAboutThisMailbox(): void
     {
         $memberId = $this->createMemberWithAddress('parent@exemple.be');
         $this->memberEmails->create(
             $memberId, 'autre@exemple.be', MemberEmail::SOURCE_MANUAL, MemberEmail::STATUS_VALID, null, null
         );
-        $accountId = $this->createAccount('autre@exemple.be');
+        $this->createAccount('autre@exemple.be');
+
+        $told = $this->notifier->notify($this->state(), false);
+
+        $this->assertSame([], $this->sent, 'only the mailbox that failed is anybody\'s business.');
+        $this->assertFalse(
+            $told,
+            'and false, so BounceService leaves the error un-filed — spending « déjà dit » on the '
+            . 'wrong guardian would cost the real owner the prompt they never got.'
+        );
+    }
+
+    /**
+     * The owner's own account still hears about it, profile-mates or not.
+     */
+    public function testTheAccountOwningTheAddressIsStillToldWhenOthersShareItsProfile(): void
+    {
+        $memberId = $this->createMemberWithAddress('parent@exemple.be');
+        $this->memberEmails->create(
+            $memberId, 'autre@exemple.be', MemberEmail::SOURCE_MANUAL, MemberEmail::STATUS_VALID, null, null
+        );
+        $this->createAccount('autre@exemple.be');
+        $owner = $this->createAccount('parent@exemple.be');
 
         $this->notifier->notify($this->state(), false);
 
-        $this->assertSame([$accountId], $this->sent[0]['accountIds']);
+        $this->assertSame([$owner], $this->sent[0]['accountIds']);
     }
 
     public function testTheBlockingBounceIsItsOwnType(): void

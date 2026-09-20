@@ -8,7 +8,6 @@ declare(strict_types=1);
 
 namespace Core\Mail\Feedback\Bounce;
 
-use Core\Member\MemberEmailRepository;
 use Core\Notification\NotificationService;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
@@ -18,24 +17,36 @@ use Core\Security\UserAccountRepository;
  * IT-05).
  *
  * **A bounce names a mailbox and nobody in particular**, so the work here
- * is going from an address to the accounts that ought to hear about it.
- * Two routes, and the first covers the common case on its own:
+ * is going from an address to the account that owns it — and to that one
+ * only: the account whose sign-in identity **is** that address. A parent's
+ * account is usually the address the unit writes to, so this covers most
+ * bounces.
  *
- * 1. The account whose sign-in identity **is** that address. A parent's
- *    account is usually the address the unit writes to, so this is most
- *    bounces.
- * 2. The accounts of the other valid addresses belonging to the members
- *    who list this one — a parent with two secondary addresses, one of
- *    which has started failing.
+ * **It used to reach further, and that was a leak.** A second route
+ * gathered the other valid addresses of every member profile listing the
+ * bounced one, meaning to catch « one person, two secondary addresses, one
+ * of them failing ». But `member_emails` hangs addresses off the CHILD,
+ * and a child's profile routinely carries one address per guardian, with
+ * no column saying which belongs to whom — the ownership that route needed
+ * is not in the schema and cannot be inferred. So a mother's mailbox
+ * failing told the father « Une de tes adresses est suspendue » about a
+ * mailbox he neither owns nor can act on, between two people the site
+ * elsewhere takes care to keep apart. Worse, it counted: `notify()`
+ * answering true has {@see BounceService} record « déjà dit », so telling
+ * the wrong guardian could spend the notification the right one never got.
+ * The roadmap had already ruled out the same shape one step downstream —
+ * « `dispatch()` enverrait vers toutes les adresses actives du membre » —
+ * and this was that hazard coming back in through the recipient list.
  *
- * **The gap, stated rather than papered over**: a member whose account is
- * their Desk address and whose *secondary* address bounces is reached by
- * neither route, because the Desk address lives in `member_years` and is
- * always supplied by the caller rather than looked up here. They are not
- * left uninformed — the reason and the button wait on their own address
- * page, and the super-admin sees the block on the Courrier sortant page —
- * but they are not prompted. Closing it would mean threading a Desk
- * lookup through this class for a case the address page already answers.
+ * **The gap, stated rather than papered over**: an address that belongs to
+ * nobody who can sign in is not prompted, and neither is a member whose
+ * account is their Desk address and whose *secondary* address bounces —
+ * the Desk address lives in `member_years` and is always supplied by the
+ * caller rather than looked up here. Neither is left uninformed: the
+ * reason and the button wait on their own address page, and the
+ * super-admin sees the block on the Courrier sortant page. Answering false
+ * for them is what keeps the error un-filed, so the prompt is still
+ * available the day a route to them exists.
  *
  * Nothing here ever puts the address in a notification: the member has
  * one line per address on their own page and can see which is which,
@@ -49,7 +60,6 @@ class MemberBounceNotifier implements BounceNotifier
 
     public function __construct(
         private NotificationService $notifications,
-        private MemberEmailRepository $memberEmails,
         private UserAccountRepository $accounts,
         private EncryptionService $encryption
     ) {
@@ -80,19 +90,10 @@ class MemberBounceNotifier implements BounceNotifier
      */
     private function recipientsFor(string $email): array
     {
-        $blindIndex = $this->blindIndex($email);
-
-        $memberIds = $this->memberEmails->findMemberIdsByValidBlindIndex($blindIndex);
-
-        // Grouped by member id, so two loops rather than one.
-        $indexes = [$blindIndex];
-        foreach ($this->memberEmails->findValidByMemberIds($memberIds) as $rowsForMember) {
-            foreach ($rowsForMember as $row) {
-                $indexes[] = $this->blindIndex($row->email);
-            }
-        }
-
-        $accountIds = $this->accounts->findIdsByBlindIndexes($indexes);
+        // This address and no other. Widening the lookup to the addresses
+        // sharing a member profile with it is what leaked one guardian's
+        // mailbox to the other — see the class docblock.
+        $accountIds = $this->accounts->findIdsByBlindIndexes([$this->blindIndex($email)]);
 
         $recipients = [];
         foreach (array_values(array_unique($accountIds)) as $accountId) {

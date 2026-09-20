@@ -1723,6 +1723,38 @@ sans lui, l'attestation repasse à `Sent` et le bandeau repasse à
 `success`. `schema.sql` du module gagne la cinquième valeur et
 `module.json` passe en 1.5.0, dans le même changement.
 
+### La notification qui partait chez le mauvais parent
+
+Trouvée par la relecture sur le tour suivant, et c'est la même leçon que la
+précédente sous un autre angle : **un second chemin de résolution
+ratissait tout le profil.**
+
+Il rassemblait les autres adresses valides de chaque membre portant
+l'adresse en échec, pour attraper « une personne, deux adresses, dont une
+qui tombe ». Mais `member_emails` accroche les adresses à l'**enfant**, et
+le profil d'un enfant porte couramment une adresse par parent — sans
+aucune colonne disant laquelle appartient à qui. L'appartenance dont ce
+chemin avait besoin n'est pas dans le schéma et ne s'y déduit pas.
+
+Conséquence : la boîte de la mère tombe, et le père reçoit « Une de tes
+adresses est suspendue … réactivez l'adresse ci-dessous » à propos d'une
+boîte qu'il ne possède pas, ne peut pas réactiver, et n'avait pas à
+connaître — entre deux personnes que le site prend soin de séparer
+ailleurs. Et ça **comptait** : `notify()` qui répond `true` fait écrire
+« déjà dit » par `BounceService`, donc prévenir le mauvais parent pouvait
+dépenser l'alerte que le bon n'a jamais reçue.
+
+La roadmap avait déjà écarté la même forme un cran plus bas — « `dispatch()`
+enverrait vers **toutes** les adresses actives du membre » — et c'est ce
+danger-là qui revenait par la liste des destinataires.
+
+**Le test en place épinglait le défaut au lieu de l'attraper.**
+`testASiblingAddressOfTheSameMemberCarriesTheNews` construisait exactement
+cette situation à deux adresses valides sur un profil et vérifiait que le
+second compte *était* prévenu. C'est la couverture la plus coûteuse qui
+soit : elle faisait passer le comportement pour délibéré. Elle est
+remplacée par son contraire, vérifié en cassant le correctif.
+
 ### Écarts et limites, assumés
 
 **La preuve d'envoi réduit la falsification, elle ne la supprime pas.** La
@@ -1760,12 +1792,16 @@ chantier protège. Implémenté tel que spécifié ; `FAILURES_BEFORE_BLOCK` et
 la condition de sévérité sont les deux points à toucher si l'on veut
 changer cela.
 
-**Le notifieur ne joint pas tout le monde.** Un membre dont le compte est
-son adresse Desk et dont une adresse *secondaire* rebondit n'est atteint
-par aucun des deux chemins de résolution : l'adresse Desk vit dans
-`member_years` et est toujours fournie par l'appelant. Cette personne n'est
-pas laissée sans rien — la raison et le bouton l'attendent sur sa page — mais
-elle n'est pas alertée.
+**Le notifieur ne joint pas tout le monde**, et c'est maintenant un choix
+plutôt qu'une conséquence. Il ne s'adresse qu'au compte dont l'identité de
+connexion **est** l'adresse qui a rebondi. Une adresse qui n'appartient à
+personne qui se connecte n'est donc pas alertée, et un membre dont le
+compte est son adresse Desk et dont une adresse *secondaire* rebondit non
+plus — l'adresse Desk vit dans `member_years` et est toujours fournie par
+l'appelant. Aucun des deux n'est laissé sans rien : la raison et le bouton
+les attendent sur leur page, et le super-admin voit le blocage de son côté.
+Répondre `false` pour eux est ce qui laisse l'erreur non classée, donc
+l'alerte reste disponible le jour où un chemin existe.
 
 **Les statistiques par domaine ne comptent que les refus.** La roadmap
 demande « envoyés et refusés » ; compter les envois par domaine

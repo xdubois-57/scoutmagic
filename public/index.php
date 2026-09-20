@@ -6626,7 +6626,6 @@ if ($isEnabled('inbound_mail')) {
                     $journalService,
                     new \Core\Mail\Feedback\Bounce\MemberBounceNotifier(
                         $notificationService,
-                        new \Core\Member\MemberEmailRepository($pdo, $encryptionService),
                         new \Core\Security\UserAccountRepository($pdo, $encryptionService),
                         $encryptionService
                     )
