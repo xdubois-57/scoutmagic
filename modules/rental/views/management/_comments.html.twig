@@ -1,0 +1,42 @@
+{#
+  The managers' own notes on one booking (§6.6), a box of « Le dossier ».
+
+  Lifted out of booking.html.twig when that page was reorganised into folded
+  boxes; nothing in it changed. It sits inside the box's own card, so it
+  carries no card and no heading of its own.
+
+  Requires `asset`, `booking` and `comments`.
+#}
+<div class="card-body pt-0">
+                <p class="text-body-secondary small">
+                    Visibles des seuls gestionnaires. Ils n'apparaissent jamais sur la page de suivi du locataire.
+                </p>
+
+                {% if comments is empty %}
+                    {% include 'partials/empty_state.html.twig' with {
+                        message: 'Aucun commentaire.',
+                        compact: true,
+                    } only %}
+                {% else %}
+                    <ul class="list-unstyled">
+                        {% for comment in comments %}
+                            <li class="border-bottom py-2">
+                                <div class="small text-body-secondary">
+                                    {{ comment.author_name ?: 'Auteur inconnu' }} —
+                                    {{ comment.created_at|datetime_fr }}
+                                </div>
+                                {{ comment.body|nl2br }}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+
+                <form method="post" action="/mes-locations/commentaire">
+                    {{ csrf_field()|raw }}
+                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                    <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                    <label class="form-label" for="comment-body">Ajouter un commentaire</label>
+                    <textarea class="form-control mb-2" id="comment-body" name="body" rows="3"></textarea>
+                    <button type="submit" class="btn btn-sm btn-outline-secondary">Enregistrer</button>
+                </form>
+</div>

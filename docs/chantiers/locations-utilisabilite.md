@@ -190,6 +190,106 @@ traiter.
 
 ---
 
+## IT-05 — La page d'une réservation
+
+**Livré.**
+
+- `Booking\BookingPhase` — les cinq phases, et à quelle phase appartient
+  chaque jalon. Un jalon dont personne n'a décidé la phase répond `null`
+  plutôt qu'une supposition : `BookingJourneyTest` échoue dessus, la page le
+  range quand même en fin de parcours. Une ligne qui disparaît se lirait
+  comme du travail que personne n'a fait.
+- `Booking\BookingBox` — les huit boîtes du dossier, leur libellé et
+  l'ancre que vise le parcours. Et `forMilestone()`, qui dit où se règle un
+  jalon : c'est la même table qui sert à « L'action suivante » et au lien
+  d'une phase, donc elles ne peuvent pas désigner deux endroits différents.
+- `Booking\BookingJourney` et `Booking\JourneyPhase` — la mise en scène,
+  pure, dérivée d'une dérivation : elle prend ce que
+  `BookingMilestones::for()` a déjà calculé et n'ajoute aucun fait.
+- Les gabarits : `booking.html.twig` réécrit en quatre temps,
+  `_dossier_header.html.twig` (l'en-tête d'une boîte repliée),
+  `_transitions.html.twig`, et `_price`, `_changes`, `_comments` sortis du
+  gabarit de page — trois cartes qui y étaient écrites en clair et qui
+  devaient devenir des corps de boîte comme les trois autres.
+- Documentation : `ARCHITECTURE.md` §8.53, `specifications.md` §22.5, et le
+  nouveau sujet d'aide `modules/rental/help/locations-reservation.md`.
+- Tests : `BookingJourneyTest` (20), cinq de plus sur
+  `RentalManagementControllerTest`, le scénario Playwright du cycle de vie
+  mis à jour.
+
+**Le jalon que le chantier nomme et que le dépôt n'avait pas.** Le document
+décrit la phase 1 comme « reçue, dates bloquées, **décision à prendre** ».
+Les deux premières existaient ; la troisième, non. Or « Demande reçue » se
+coche quand la demande *arrive*, pas quand quelqu'un l'a regardée : sur une
+demande que personne n'avait traitée, le premier jalon applicable non fait
+était « Contrat envoyé », et « L'action suivante » réclamait donc un contrat
+sur un dossier dont personne n'avait encore dit oui.
+
+D'où `decision`, cochée exactement quand `BookingTransition` n'offre plus
+« Confirmée ». C'est une définition empruntée, pas une seconde liste de
+statuts « en délibéré » qui dériverait de la première. Une proposition
+envoyée n'est pas une décision prise : le locataire peut encore refuser, et
+confirmer reste permis.
+
+**Décisions prises seul.**
+
+- **Les boutons de statut descendent dans leur phase, et « L'action
+  suivante » remonte ceux qui la concernent.** Le chantier veut les deux ;
+  pris à la lettre, le second rend le premier dangereux, parce qu'un bouton
+  affiché deux fois sur une page laisse deviner lequel compte.
+  `BookingJourney::liftedTransitions()` tranche en amont du gabarit : ce qui
+  est remonté n'est plus rendu en bas. Un test le pose en comptant les
+  occurrences dans le HTML, pas en lisant le code.
+- **Annuler n'est pas une façon de terminer.** Sur une réservation
+  confirmée, `allowedFrom()` offre « Clôturée » et « Annulée » ensemble. Seul
+  « Clôturée » remonte : c'est le dernier jalon du parcours. « Annulée » reste
+  dans « La demande », qui est la phase où l'on répond à la demande.
+- **Le pli d'une boîte est en dehors de son enveloppe de rafraîchissement.**
+  `data-booking-panel` est *dans* le `.collapse`, et le chiffre de l'en-tête
+  porte sa propre enveloppe. Encaisser un paiement re-rend le corps et le
+  chiffre en laissant la boîte ouverte à la ligne qu'on lisait ; re-rendre la
+  carte entière l'aurait repliée sous les doigts du gestionnaire. Le scénario
+  Playwright n'ouvre « Documents » qu'une fois, avant quatre actions : c'est
+  ce qui surveille la régression.
+- **Les phases, elles, se replient au rafraîchissement, et c'est voulu.**
+  Une action qui fait avancer le dossier change la phase en cours ; le rendu
+  frais ouvre la nouvelle. Ce n'est pas une place perdue, c'est la réponse.
+- **Le parcours et « L'action suivante » visent la boîte où le travail se
+  fait, pas la boîte de la phase.** Une phase dont le premier jalon en
+  souffrance est l'acompte renvoie vers Paiements même si elle s'appelle
+  « L'accord ». Une phase terminée renvoie quand même vers la boîte où sa
+  dernière preuve est classée.
+- **« Coordonnées de facturation » reste dans la boîte Documents.** Un
+  numéro de TVA sonne « Paiements », mais rien ne se paie depuis là : la
+  boîte qu'on ouvre pour faire une facture est celle qui doit contenir ce que
+  la facture dit. Déplacé, c'eût été un choix de conception que le chantier
+  ne tranche pas.
+- **Le séjour est une ligne du dossier, pas une boîte.** C'est une page à
+  part ; sa ligne porte une flèche au lieu d'un chevron, ce qui est la seule
+  façon honnête de dire qu'un clic quitte la page.
+- **Le sujet d'aide a été découpé, comme l'issue #401 le recommandait pour
+  cette itération.** `gerer-les-locations` couvrait neuf écrans à son plafond
+  de 500 mots ; `locations-reservation` prend le chemin
+  `/mes-locations/*/reservations/*` et le lui retire — aucun chevauchement,
+  donc pas de « lequel des deux s'ouvre ? » à trancher.
+
+**Divergences avec le document de chantier.**
+
+- **Treize jalons, dit le chantier ; il y en avait quatorze**, et il y en a
+  quinze depuis cette itération (voir plus haut). Le regroupement est écrit
+  sur la *clé* du jalon, jamais sur sa position dans la liste : §6.15 pose
+  que chaque itération ultérieure remplit une ligne de plus, et un
+  regroupement par index aurait silencieusement re-classé tous les jalons
+  situés après celui qu'on insère.
+- **La carte « Blocage des dates » ne disparaît pas, elle descend.** Le
+  chantier ne parle que de la carte « État ». L'option bloque les dates *de
+  cette demande* ; la laisser seule, en carte, au milieu de boîtes repliées
+  aurait été la dernière carte dépliée de la page sans raison.
+
+**Reporté.** Rien.
+
+---
+
 ## IT-06 — Les documents
 
 **Livré.**

@@ -1,0 +1,50 @@
+{#
+  The status buttons of one stretch of the journey (§6.15).
+
+  The « État » card that used to carry all of them at once is gone: a badge
+  answering the same question as the milestones below it, two screens apart,
+  is what the reorganisation set out to stop. Each button now sits where its
+  decision belongs — Booking\BookingPhase::ofTransition() says where — and
+  « L'action suivante » lifts the ones it is about back to the top of the
+  page, so the button a manager needs is never only behind a fold.
+
+  Every transition the renter hears about asks first, and the dialog carries
+  the free-text box the manager's word goes in (base.html.twig's
+  data-confirm-note, handled in /assets/js/confirm.js). Which ones those are
+  comes from Booking\RenterDecision::forStatus(), never re-derived here — a
+  status added to that enum must not need this template edited to stop being
+  silent.
+
+  The rest — « en cours d'examen », a closure — send nothing and ask
+  nothing: they are bookkeeping, and a dialog in front of bookkeeping is a
+  dialog nobody reads.
+
+  Requires `asset`, `booking`, `transitions` and `renter_decisions`.
+#}
+<div class="d-flex flex-wrap gap-2">
+    {% for target in transitions %}
+        {% set decision = renter_decisions[target.value]|default(null) %}
+        <form method="post" action="/mes-locations/statut" class="d-inline"
+              {% if decision %}
+                  data-confirm="{{ decision.question }}"
+                  data-confirm-label="{{ target.label }}"
+                  data-confirm-note="{{ decision.note_label }}"
+                  data-confirm-note-name="message"
+              {% elseif target.value in ['refused', 'cancelled'] %}
+                  data-confirm="Confirmer le passage à « {{ target.label }} » ? Les dates seront libérées."
+              {% endif %}>
+            {{ csrf_field()|raw }}
+            <input type="hidden" name="asset_id" value="{{ asset.id }}">
+            <input type="hidden" name="booking_id" value="{{ booking.id }}">
+            <input type="hidden" name="status" value="{{ target.value }}">
+            <button type="submit"
+                    class="btn btn-sm {{ target.value == 'confirmed' ? 'btn-primary' : 'btn-outline-secondary' }}">
+                {{ target.label }}
+            </button>
+        </form>
+    {% endfor %}
+</div>
+<p class="text-body-secondary small mb-0 mt-2">
+    Le locataire est prévenu par email d'une confirmation, d'un refus,
+    d'une annulation, d'une proposition ou d'une demande de précision.
+</p>
