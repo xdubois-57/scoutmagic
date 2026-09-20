@@ -393,7 +393,7 @@ le périmètre annoncé d'IT-02, pas un report.
 ### Livré
 
 - `Core\Http\Controller\TextPageConfigController` — l'écran dans
-  Configuration › colonne « Site », sept routes toutes `superadmin`.
+  Configuration › colonne « Site », huit routes toutes `superadmin`.
 - `config/text_pages/index.html.twig` — la liste, montée sur le
   `list_editor` partagé.
 - `config/text_pages/form.html.twig` — l'ajout et la modification.
@@ -408,7 +408,7 @@ le périmètre annoncé d'IT-02, pas un report.
 
 ### Décisions prises en autonomie
 
-**Le contrôleur ne vérifie aucun rôle, et un test le lit.** Les sept
+**Le contrôleur ne vérifie aucun rôle, et un test le lit.** Les huit
 routes sont déclarées `superadmin` et le garde RBAC tourne avant toute
 méthode. `hasAccess`, `RbacGuard` et `Role::` sont interdits dans la
 classe, comme ils le sont déjà dans `TextPageController` : une seconde
@@ -445,6 +445,48 @@ pages, pas comment en lire une.
 le cinquième. Renommer une page ne change ni qui la lit, ni son adresse,
 ni son existence ; la journaliser reviendrait à tenir l'historique
 éditorial d'un texte que le site ne versionne pas.
+
+### Quatre défauts réels trouvés en revue
+
+La première version de l'écran a été relue et quatre choses en sont
+sorties, toutes justes.
+
+**L'écran entier était inerte.** Le `list_editor` dessine la poignée de
+glissement, l'interrupteur et la corbeille ; c'est `list-editor.js` qui
+les branche, et `base.html.twig` ne charge ni lui ni `sortable.js`. Le
+gabarit ne déclarait aucun `{% block scripts %}` : les trois points
+d'entrée `/ordre`, `/activation` et `/suppression` répondaient
+parfaitement, et aucun bouton de la page ne les appelait. Rien dans la
+suite ne l'aurait vu — un test de gabarit vérifie maintenant que les deux
+scripts sont bien là.
+
+**Un glisser-déposer traversant une section ne pouvait pas être honoré.**
+`sort_order` est un rang **dans** un menu : `TextPageMenuProvider`
+ordonne à l'intérieur de chaque `menu_id` et `maxSortOrder()` est borné à
+un menu. Une liste unique plate laissait poser une page au-dessus d'une
+page d'une autre section, postait un 0..n-1 global, et la ligne
+retournait à sa place au rechargement. L'écran a donc **une liste
+ordonnable par section**, et `reorder()` calcule les rangs par `menu_id`
+plutôt que sur un compteur unique — correct même pour une requête
+bricolée qui mélangerait les sections.
+
+**Activer ou supprimer une page inexistante fabriquait une ligne de
+journal.** `UPDATE … WHERE id = ?` sur une ligne absente réussit en
+silence : l'écran répondait « fait » et le journal enregistrait
+l'activation d'une page qui n'a jamais existé — une entrée inventée dans
+la piste d'audit que cette itération ajoute précisément pour auditer.
+`setActive()` et `delete()` refusent désormais un identifiant inconnu,
+comme `update()` le faisait déjà ; c'était une incohérence, pas un choix.
+
+**Et le raisonnement sur la journalisation était faux à moitié.** « Rien
+n'est journalisé à la modification » tenait pour un renommage — qui ne
+change ni le lecteur, ni l'adresse, ni l'existence. Mais le même
+formulaire déplace une page de section, et **la section est le contrôle
+d'accès** : `roleMin()` en dérive le plancher de la route. Le formulaire
+pouvait donc sortir une page de Configuration et la publier sur
+l'internet ouvert, sans une ligne nulle part, alors que la masquer était
+journalisée deux fois. Un déplacement de section est maintenant
+journalisé au niveau `security`, un renommage continue de ne rien écrire.
 
 ### Divergences constatées
 

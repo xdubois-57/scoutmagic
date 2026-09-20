@@ -51,11 +51,27 @@ class TextPageConfigController extends AbstractController
      */
     public function index(Request $request, array $params): Response
     {
+        // Grouped by section, because the order shown is a rank INSIDE a
+        // section: one flat sortable list would let a drag across a
+        // boundary post an order that reload cannot honour.
+        $bySection = [];
+        foreach (MenuBuilder::menuIds() as $menuId) {
+            $bySection[$menuId] = [
+                'id' => $menuId,
+                'label' => MenuBuilder::labelFor($menuId),
+                'pages' => [],
+            ];
+        }
+
+        foreach ($this->pages->listAll() as $page) {
+            if (!isset($bySection[$page->menuId])) {
+                continue;
+            }
+            $bySection[$page->menuId]['pages'][] = $this->describe($page);
+        }
+
         return $this->render('config/text_pages/index.html.twig', [
-            'pages' => array_map(
-                fn(TextPage $page): array => $this->describe($page),
-                $this->pages->listAll()
-            ),
+            'sections' => array_values($bySection),
         ]);
     }
 
@@ -145,6 +161,8 @@ class TextPageConfigController extends AbstractController
             return $guard;
         }
 
+        $before = $this->pages->findById($id);
+
         try {
             $this->pages->update(
                 $id,
@@ -157,6 +175,27 @@ class TextPageConfigController extends AbstractController
             FlashMessage::set('error', $e->getMessage());
 
             return $this->redirect('/config/pages-de-texte/' . $id);
+        }
+
+        // **A section change is an audience change, and it is journaled.**
+        // Renaming a page changes neither who reads it, nor its address,
+        // nor its existence — which is why a rename writes nothing. But
+        // this same form can move a page out of Configuration and into
+        // « Notre unité », and that is the whole access-control decision
+        // for it: `TextPage::roleMin()` derives the route's floor from
+        // the section. Hiding a page is already journaled twice over; a
+        // move that publishes one to the open internet cannot be the
+        // silent operation.
+        $after = $this->pages->findById($id);
+        if ($before !== null && $after !== null && $before->menuId !== $after->menuId) {
+            $this->journal->log(
+                'core',
+                'text_page_moved',
+                'security',
+                'Page de texte déplacée de section',
+                ['text_page_id' => $id, 'from_menu' => $before->menuId, 'to_menu' => $after->menuId],
+                AuthSession::getUserAccountId()
+            );
         }
 
         FlashMessage::set('success', 'Page modifiée.');
@@ -247,7 +286,12 @@ class TextPageConfigController extends AbstractController
         }
 
         $id = (int) ($data['id'] ?? 0);
-        $this->pages->delete($id);
+
+        try {
+            $this->pages->delete($id);
+        } catch (TextPageException $e) {
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 400);
+        }
 
         $this->journal->log(
             'core',

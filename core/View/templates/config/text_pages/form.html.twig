@@ -80,6 +80,8 @@
             <a class="btn btn-outline-secondary" href="/config/pages-de-texte">Annuler</a>
         </div>
     </form>
+{% endblock %}
 
-    <script src="{{ asset('/assets/js/text-page-form.js') }}" defer></script>
+{% block scripts %}
+<script src="{{ asset('/assets/js/text-page-form.js') }}" defer></script>
 {% endblock %}
