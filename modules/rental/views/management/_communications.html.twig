@@ -18,11 +18,15 @@
 
   Requires `asset`, `booking`, `messages`, `message_propositions`,
   `message_documents` and `move_targets`.
+
+  A box of « Le dossier » since booking.html.twig was reorganised: it sits
+  inside the box's own card, so it carries no card and no heading of its
+  own. It is also the only box that is not always there — `inbound_mail`
+  off or no mailbox enabled and the box does not render at all, which is
+  what the caller decides.
 #}
-<div class="card mb-4" id="communications">
-    <div class="card-body">
-        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
-            <h2 class="h5 mb-0">Courrier</h2>
+<div class="card-body pt-0">
+        <div class="d-flex flex-wrap justify-content-end align-items-center gap-2 mb-2">
             <form method="post" action="/mes-locations/message/relancer">
                 {{ csrf_field()|raw }}
                 <input type="hidden" name="asset_id" value="{{ asset.id }}">
@@ -40,7 +44,7 @@
         </p>
 
         {% if message_propositions is not empty %}
-            <h3 class="h6 mt-3">Propositions à confirmer</h3>
+            <h4 class="h6 mt-3">Propositions à confirmer</h4>
             {% for row in message_propositions %}
                 <div class="border border-warning rounded p-3 mb-3">
                     <div class="d-flex flex-wrap justify-content-between gap-2">
@@ -190,4 +194,3 @@
             {% endfor %}
         {% endif %}
     </div>
-</div>

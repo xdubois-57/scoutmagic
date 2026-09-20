@@ -7,11 +7,19 @@
   asset, which is why it carries everything the public surfaces never do:
   the renter's identity, the internal comments, the full history.
 
-  The milestone checklist is DERIVED from the booking's own records —
-  nothing on it is stored, so it can never drift from what the page below it
-  shows. A line still renders greyed when it belongs to something this
-  installation cannot do at all (no security deposit configured, the stay
-  module off): an unreachable box reads as outstanding work.
+  **Read top to bottom, in four movements.** What the rental is, the one
+  thing to do next, where the rental has got to, and then the file itself.
+  Everything on the page was already here; what changed is that it no
+  longer arrives all at once. The boxes of « Le dossier » are folded, each
+  line carrying the figure that answers the question it would have been
+  opened for — « 317,50 € dus » saves the click it describes.
+
+  The journey and the checklist are ONE derivation (Booking\BookingJourney
+  stages what Booking\BookingMilestones computed), so the five stretches and
+  the fifteen lines can never tell different stories. A line still renders
+  greyed when it belongs to something this installation cannot do at all (no
+  security deposit configured, the stay module off): an unreachable box
+  reads as outstanding work.
 
   **Every panel here is refreshable.** Each region that an action can change
   sits inside an always-present `data-booking-panel` wrapper — always
@@ -21,6 +29,15 @@
   from a fresh render of this same template, which is what makes pressing
   « Envoyer » tick « Contrat envoyé » without a page load — and what keeps
   the two from ever disagreeing, since there is still exactly one renderer.
+
+  **A box's fold is deliberately OUTSIDE its wrapper.** The `.collapse` and
+  the button that toggles it belong to the card; only the body and the
+  figure are swapped. Cashing a payment therefore leaves the Paiements box
+  open at the line you were reading, where re-rendering the card around it
+  would have folded the box under your hands. The journey's own stretches
+  are the exception and it is the right one: an action that moves the
+  booking on moves which stretch is current, and the fresh render opening
+  the new one is the answer, not a lost place.
 #}
 {% block content %}
     <div class="page-medium" data-rental-booking>
@@ -36,42 +53,19 @@
 
         {% include '@rental/management/_nav.html.twig' %}
 
-        {# ── Milestones ────────────────────────────────────────────── #}
-        <div data-booking-panel="milestones">
-        <div class="card mb-4">
-            <div class="card-body">
-                <h2 class="h5 mb-3">Où en est cette location</h2>
-                <ul class="list-unstyled mb-0">
-                    {% for milestone in milestones %}
-                        <li class="mb-1 {{ milestone.isApplicable ? '' : 'text-body-secondary opacity-50' }}">
-                            {% if not milestone.isApplicable %}
-                                <i class="bi bi-dash-square" aria-hidden="true"></i>
-                                <span class="visually-hidden">Sans objet :</span>
-                            {% elseif milestone.isDone %}
-                                <i class="bi bi-check-square" aria-hidden="true"></i>
-                                <span class="visually-hidden">Fait :</span>
-                            {% else %}
-                                <i class="bi bi-square" aria-hidden="true"></i>
-                                <span class="visually-hidden">À faire :</span>
-                            {% endif %}
-                            {{ milestone.label }}
-                            {% if milestone.detail %}
-                                <span class="text-body-secondary small">— {{ milestone.detail }}</span>
-                            {% endif %}
-                        </li>
-                    {% endfor %}
-                </ul>
-            </div>
-        </div>
-        </div>
-
-        {# ── Renter ────────────────────────────────────────────────── #}
+        {# ── 1. Les détails de la location ─────────────────────────── #}
+        {#
+          Who, what, when, how much — and the status, which used to have a
+          card of its own two screens down. Two cards answering « où en est
+          cette réservation ? » differently is precisely what this page was
+          reorganised to stop.
+        #}
         <div data-booking-panel="renter">
         <div class="card mb-4">
             <div class="card-body">
-                <h2 class="h5 mb-3">Le locataire</h2>
+                <h2 class="h5 mb-3">Les détails de la location</h2>
                 <dl class="row mb-0">
-                    <dt class="col-sm-4">Nom</dt>
+                    <dt class="col-sm-4">Locataire</dt>
                     <dd class="col-sm-8">{{ booking.renterName }}</dd>
                     <dt class="col-sm-4">Email</dt>
                     <dd class="col-sm-8"><a href="mailto:{{ booking.renterEmail }}">{{ booking.renterEmail }}</a></dd>
@@ -83,14 +77,30 @@
                         <dt class="col-sm-4">Organisation</dt>
                         <dd class="col-sm-8">{{ booking.renterOrganisation }}</dd>
                     {% endif %}
-                    {% if booking.estimatedPersons %}
-                        <dt class="col-sm-4">Participants annoncés</dt>
-                        <dd class="col-sm-8">{{ booking.estimatedPersons }}</dd>
-                    {% endif %}
                     {% if booking.purpose %}
                         <dt class="col-sm-4">Objet</dt>
                         <dd class="col-sm-8">{{ booking.purpose }}</dd>
                     {% endif %}
+                    <dt class="col-sm-4">Dates</dt>
+                    <dd class="col-sm-8">
+                        du {{ booking.arrivalDate|date_fr }} au {{ booking.departureDate|date_fr }}
+                    </dd>
+                    {% if booking.estimatedPersons %}
+                        <dt class="col-sm-4">Participants annoncés</dt>
+                        <dd class="col-sm-8">{{ booking.estimatedPersons }}</dd>
+                    {% endif %}
+                    <dt class="col-sm-4">Total</dt>
+                    <dd class="col-sm-8">
+                        {{ quote.totalCents|money_cents }}
+                        {% if payment.available and payment.enabled %}
+                            <span class="text-body-secondary small d-block">
+                                {{ payment.received_cents|money_cents }} reçus
+                                {%- if payment.remaining_cents > 0 %}, {{ payment.remaining_cents|money_cents }} dus{% endif %}
+                            </span>
+                        {% endif %}
+                    </dd>
+                    <dt class="col-sm-4">Statut</dt>
+                    <dd class="col-sm-8">{% include '@rental/_status_badge.html.twig' with { status: booking.status } only %}</dd>
                     {% if booking.renterComment %}
                         <dt class="col-sm-4">Message</dt>
                         <dd class="col-sm-8">{{ booking.renterComment|nl2br }}</dd>
@@ -117,413 +127,358 @@
         </div>
         </div>
 
-        {# ── Lifecycle ─────────────────────────────────────────────── #}
-        <div data-booking-panel="lifecycle">
-        <div class="card mb-4">
-            <div class="card-body">
-                <h2 class="h5 mb-3">État</h2>
-                <p class="mb-3">{% include '@rental/_status_badge.html.twig' with { status: booking.status } only %}</p>
+        {# ── 2. L'action suivante ──────────────────────────────────── #}
+        {#
+          One card, the first applicable milestone that is not done, and its
+          way in. Nothing else — a second suggestion here would put the
+          manager back to choosing, which is the job this card exists to do
+          for them.
 
-                {% if allowed_transitions is empty %}
+          Its button is a LINK to the box where the thing is settled, except
+          for the milestones whose button is a status transition: those are
+          rendered here in full, because sending somebody to a phase to
+          press « Confirmée » when the button could be under their thumb is
+          a link pretending to be an action.
+        #}
+        <div data-booking-panel="next-step">
+        <div class="card border-primary mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-2">L'action suivante</h2>
+                {% if journey.next %}
+                    <p class="mb-2">
+                        <span class="fw-semibold">{{ journey.next.label }}</span>
+                        {% if journey.next.detail %}
+                            <span class="text-body-secondary small d-block">{{ journey.next.detail }}</span>
+                        {% endif %}
+                    </p>
+                    {% if journey.liftedTransitions is not empty %}
+                        {% include '@rental/management/_transitions.html.twig' with {
+                            asset: asset, booking: booking,
+                            transitions: journey.liftedTransitions, renter_decisions: renter_decisions,
+                        } only %}
+                    {% elseif journey.nextBox %}
+                        <a class="btn btn-primary"
+                           href="{{ journey.nextBox.isPage ? stay_url : '#' ~ journey.nextBox.anchor }}">
+                            Ouvrir « {{ journey.nextBox.label }} »
+                        </a>
+                    {% else %}
+                        <p class="text-body-secondary small mb-0">
+                            Rien à presser ici : cette étape se règle plus bas, dans « Où en est cette location ».
+                        </p>
+                    {% endif %}
+                {% elseif booking.status.isFinal %}
                     <p class="text-body-secondary mb-0">
                         Cette réservation est dans un état définitif : elle ne peut plus changer.
                         Une nouvelle demande est nécessaire.
                     </p>
                 {% else %}
-                    {#
-                      Every transition the renter hears about asks first, and
-                      the dialog carries the free-text box the manager's word
-                      goes in (base.html.twig's data-confirm-note, handled in
-                      /assets/js/confirm.js). Which ones those are comes from
-                      Booking\RenterDecision::forStatus(), never re-derived
-                      here — a status added to that enum must not need this
-                      template edited to stop being silent.
-
-                      The rest — « en cours d'examen », a closure — send
-                      nothing and ask nothing: they are bookkeeping, and a
-                      dialog in front of bookkeeping is a dialog nobody reads.
-                    #}
-                    <div class="d-flex flex-wrap gap-2">
-                        {% for target in allowed_transitions %}
-                            {% set decision = renter_decisions[target.value]|default(null) %}
-                            <form method="post" action="/mes-locations/statut" class="d-inline"
-                                  {% if decision %}
-                                      data-confirm="{{ decision.question }}"
-                                      data-confirm-label="{{ target.label }}"
-                                      data-confirm-note="{{ decision.note_label }}"
-                                      data-confirm-note-name="message"
-                                  {% elseif target.value in ['refused', 'cancelled'] %}
-                                      data-confirm="Confirmer le passage à « {{ target.label }} » ? Les dates seront libérées."
-                                  {% endif %}>
-                                {{ csrf_field()|raw }}
-                                <input type="hidden" name="asset_id" value="{{ asset.id }}">
-                                <input type="hidden" name="booking_id" value="{{ booking.id }}">
-                                <input type="hidden" name="status" value="{{ target.value }}">
-                                <button type="submit"
-                                        class="btn btn-sm {{ target.value == 'confirmed' ? 'btn-primary' : 'btn-outline-secondary' }}">
-                                    {{ target.label }}
-                                </button>
-                            </form>
-                        {% endfor %}
-                    </div>
-                    <p class="text-body-secondary small mb-0 mt-2">
-                        Le locataire est prévenu par email d'une confirmation, d'un refus,
-                        d'une annulation, d'une proposition ou d'une demande de précision.
+                    <p class="text-body-secondary mb-0">
+                        Rien n'attend de vous sur cette location.
                     </p>
                 {% endif %}
             </div>
         </div>
         </div>
 
-        {# ── Manager's option (§6.14) ──────────────────────────────── #}
-        <div data-booking-panel="hold">
-        {% if not booking.status.isFinal %}
-            <div class="card mb-4">
-                <div class="card-body">
-                    <h2 class="h5 mb-2">Blocage des dates</h2>
-                    <p class="text-body-secondary small">
-                        Une option engage l'unité jusqu'à l'échéance. Si elle passe sans confirmation,
-                        la réservation devient expirée et les dates se libèrent.
-                    </p>
-                    <form method="post" action="/mes-locations/option" class="row g-2 align-items-end">
-                        {{ csrf_field()|raw }}
-                        <input type="hidden" name="asset_id" value="{{ asset.id }}">
-                        <input type="hidden" name="booking_id" value="{{ booking.id }}">
-                        <div class="col-12 col-sm-7">
-                            {% include 'partials/form_field.html.twig' with {
-                                field_id: 'option-until', field_name: 'until', type: 'datetime-local',
-                                label: 'Option jusqu\'au',
-                                value: booking.holdUntil ? booking.holdUntil|date('Y-m-d\\TH:i') : '',
-                            } only %}
+        {# ── 3. Où en est cette location ───────────────────────────── #}
+        {#
+          The fifteen milestones in five stretches, the current one open.
+          Fifteen ticked boxes in a column are a list; five named stretches
+          with one of them open are a position.
+
+          A stretch's own decisions live inside it: the status buttons
+          Booking\BookingPhase::ofTransition() files there, and the option
+          form, which is how « La demande » holds its dates. The « État »
+          card that used to carry all of them is gone — its badge is in the
+          details above, and its buttons were never a state.
+        #}
+        <div data-booking-panel="milestones">
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Où en est cette location</h2>
+                {% for phase in journey.phases %}
+                    {% set phase_id = 'phase-' ~ phase.key %}
+                    <div class="border-bottom">
+                        <h3 class="mb-0">
+                            <button type="button"
+                                    class="btn w-100 d-flex align-items-center gap-2 px-0 py-2 text-start{{ phase.isCurrent ? '' : ' collapsed' }}"
+                                    data-bs-toggle="collapse" data-bs-target="#{{ phase_id }}"
+                                    aria-expanded="{{ phase.isCurrent ? 'true' : 'false' }}" aria-controls="{{ phase_id }}">
+                                <span class="fw-semibold flex-grow-1">{{ phase.label }}</span>
+                                <span class="text-body-secondary small">{{ phase.summary }}</span>
+                                {% if phase.transitions is not empty %}
+                                    <span class="badge text-bg-secondary">
+                                        {{ phase.transitions|length }} décision{{ phase.transitions|length > 1 ? 's' : '' }}
+                                    </span>
+                                {% endif %}
+                                <i class="bi bi-chevron-down text-body-tertiary" aria-hidden="true"></i>
+                            </button>
+                        </h3>
+                        <div class="collapse{{ phase.isCurrent ? ' show' }}" id="{{ phase_id }}">
+                            <div class="pb-3">
+                                <p class="text-body-secondary small">{{ phase.description }}</p>
+                                <ul class="list-unstyled mb-0">
+                                    {% for milestone in phase.milestones %}
+                                        <li class="mb-1 {{ milestone.isApplicable ? '' : 'text-body-secondary opacity-50' }}">
+                                            {% if not milestone.isApplicable %}
+                                                <i class="bi bi-dash-square" aria-hidden="true"></i>
+                                                <span class="visually-hidden">Sans objet :</span>
+                                            {% elseif milestone.isDone %}
+                                                <i class="bi bi-check-square" aria-hidden="true"></i>
+                                                <span class="visually-hidden">Fait :</span>
+                                            {% else %}
+                                                <i class="bi bi-square" aria-hidden="true"></i>
+                                                <span class="visually-hidden">À faire :</span>
+                                            {% endif %}
+                                            {{ milestone.label }}
+                                            {% if milestone.detail %}
+                                                <span class="text-body-secondary small">— {{ milestone.detail }}</span>
+                                            {% endif %}
+                                        </li>
+                                    {% endfor %}
+                                </ul>
+
+                                {% if phase.transitions is not empty %}
+                                    <div class="mt-3">
+                                        {% include '@rental/management/_transitions.html.twig' with {
+                                            asset: asset, booking: booking,
+                                            transitions: phase.transitions, renter_decisions: renter_decisions,
+                                        } only %}
+                                    </div>
+                                {% endif %}
+
+                                {% if phase.key == 'request' %}
+                                    {# The option lives with the request it holds the dates for. #}
+                                    <div data-booking-panel="hold">
+                                    {% if not booking.status.isFinal %}
+                                        <form method="post" action="/mes-locations/option" class="row g-2 align-items-end mt-3">
+                                            {{ csrf_field()|raw }}
+                                            <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                            <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                            <div class="col-12 col-sm-7">
+                                                {% include 'partials/form_field.html.twig' with {
+                                                    field_id: 'option-until', field_name: 'until', type: 'datetime-local',
+                                                    label: 'Option jusqu\'au',
+                                                    value: booking.holdUntil ? booking.holdUntil|date('Y-m-d\\TH:i') : '',
+                                                } only %}
+                                            </div>
+                                            <div class="col-12 col-sm-5">
+                                                <button type="submit" class="btn btn-outline-secondary w-100">Enregistrer l'option</button>
+                                            </div>
+                                            {# Under the row, not under the field — see
+                                               design.md §7.6: `align-items-end` aligns the
+                                               bottoms of the columns, not their controls. #}
+                                            <p class="form-text col-12 mb-0">
+                                                Une option engage l'unité jusqu'à l'échéance : si elle passe sans
+                                                confirmation, la réservation devient expirée et les dates se libèrent.
+                                                Laisser vide et enregistrer lève le blocage.
+                                            </p>
+                                        </form>
+                                    {% endif %}
+                                    </div>
+                                {% endif %}
+
+                                {% if phase.box %}
+                                    <p class="mb-0 mt-3">
+                                        <a href="{{ phase.box.isPage ? stay_url : '#' ~ phase.box.anchor }}">
+                                            Voir « {{ phase.box.label }} »
+                                        </a>
+                                    </p>
+                                {% endif %}
+                            </div>
                         </div>
-                        <div class="col-12 col-sm-5">
-                            <button type="submit" class="btn btn-outline-secondary w-100">Enregistrer l'option</button>
-                        </div>
-                        {# Under the row, not under the field — see
-                           design.md §7.6: `align-items-end` aligns the
-                           bottoms of the columns, not their controls. #}
-                        <p class="form-text col-12 mb-0">Laisser vide et enregistrer lève le blocage.</p>
-                    </form>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+        </div>
+
+        {# ── 4. Le dossier ─────────────────────────────────────────── #}
+        {#
+          The boxes, folded. `public/assets/js/collapse-anchor.js` opens the
+          one a fragment names, which is what makes the journey's « Voir
+          "Paiements" » a working link rather than a scroll to a closed card.
+        #}
+        <h2 class="h5 mb-2">Le dossier</h2>
+        <p class="text-body-secondary small">
+            Tout ce que la location a produit. Chaque boîte s'ouvre d'un clic ; le chiffre
+            à côté de son nom dit ce qu'elle contient.
+        </p>
+
+        <div class="card mb-3" id="{{ boxes.price.anchor }}">
+            {% embed '@rental/management/_dossier_header.html.twig' with {
+                box: boxes.price, target_id: boxes.price.bodyAnchor, quote: quote,
+            } only %}
+                {% block figure %}
+                    <span class="text-body-secondary small" data-booking-panel="price-figure">
+                        {{ quote.totalCents|money_cents }}
+                    </span>
+                {% endblock %}
+            {% endembed %}
+            <div class="collapse" id="{{ boxes.price.bodyAnchor }}">
+                <div data-booking-panel="price">
+                    {% include '@rental/management/_price.html.twig' %}
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-3" id="{{ boxes.payment.anchor }}">
+            {% embed '@rental/management/_dossier_header.html.twig' with {
+                box: boxes.payment, target_id: boxes.payment.bodyAnchor, payment: payment,
+            } only %}
+                {% block figure %}
+                    <span class="text-body-secondary small" data-booking-panel="payment-figure">
+                        {% if not payment.available %}
+                            Suivi hors ScoutMagic
+                        {% elseif not payment.enabled %}
+                            Non activés
+                        {% elseif payment.remaining_cents > 0 %}
+                            {{ payment.remaining_cents|money_cents }} dus
+                        {% else %}
+                            Soldé
+                        {% endif %}
+                    </span>
+                {% endblock %}
+            {% endembed %}
+            <div class="collapse" id="{{ boxes.payment.bodyAnchor }}">
+                <div data-booking-panel="payment">
+                    {% include '@rental/management/_payment.html.twig' %}
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-3" id="{{ boxes.documents.anchor }}">
+            {% embed '@rental/management/_dossier_header.html.twig' with {
+                box: boxes.documents, target_id: boxes.documents.bodyAnchor, documents: documents,
+            } only %}
+                {% block figure %}
+                    <span class="text-body-secondary small" data-booking-panel="documents-figure">
+                        {{ documents is empty
+                            ? 'Aucun document'
+                            : documents|length ~ ' document' ~ (documents|length > 1 ? 's' : '') }}
+                    </span>
+                {% endblock %}
+            {% endembed %}
+            <div class="collapse" id="{{ boxes.documents.bodyAnchor }}">
+                <div data-booking-panel="documents">
+                    {% include '@rental/management/_documents.html.twig' %}
+                </div>
+            </div>
+        </div>
+
+        {#
+          Courrier is the one box that is not always there. Unlike every
+          other region on this page, what decides it — `inbound_mail`
+          enabled, a mailbox configured — is not something a button here can
+          change, so its presence is fixed for the life of the page and the
+          refresh never has to match a wrapper against a card that has come
+          or gone. A box that could only ever be empty is noise (§7.7).
+        #}
+        {% if communications_available %}
+            <div class="card mb-3" id="{{ boxes.mail.anchor }}">
+                {% embed '@rental/management/_dossier_header.html.twig' with {
+                    box: boxes.mail, target_id: boxes.mail.bodyAnchor, messages: messages,
+                } only %}
+                    {% block figure %}
+                        <span class="text-body-secondary small" data-booking-panel="communications-figure">
+                            {{ messages is empty
+                                ? 'Aucun message'
+                                : messages|length ~ ' message' ~ (messages|length > 1 ? 's' : '') }}
+                        </span>
+                    {% endblock %}
+                {% endembed %}
+                <div class="collapse" id="{{ boxes.mail.bodyAnchor }}">
+                    <div data-booking-panel="communications">
+                        {% include '@rental/management/_communications.html.twig' %}
+                    </div>
                 </div>
             </div>
         {% endif %}
-        </div>
 
-        {# ── Price (§6.12) ─────────────────────────────────────────── #}
-        <div data-booking-panel="price">
-        <div class="card mb-4">
-            <div class="card-body">
-                <h2 class="h5 mb-2">Prix</h2>
-                {% if booking.status.value == 'confirmed' %}
-                    <output class="alert alert-warning d-block">
-                        <strong>Cette réservation est confirmée.</strong> Modifier le prix maintenant :
-                        <ul class="mb-0">
-                            <li>le contrat sera à régénérer en nouvelle version ;</li>
-                            <li>la créance sera mise à jour ;</li>
-                            <li>le changement est visible immédiatement du locataire ;</li>
-                            <li>les paiements déjà reçus ne sont pas touchés — seul le solde change,
-                                et un trop-perçu est possible si le nouveau total passe sous le montant encaissé.</li>
-                        </ul>
-                    </output>
-                {% endif %}
-
-                <div class="table-responsive">
-                    <table class="table table-sm align-middle mb-2">
-                        <thead>
-                            <tr>
-                                <th scope="col">Ligne</th>
-                                <th scope="col" class="text-end">Quantité</th>
-                                <th scope="col" class="text-end">Montant</th>
-                                <th scope="col"><span class="visually-hidden">Actions</span></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for line in quote.lines %}
-                                <tr>
-                                    <td>
-                                        {{ line.label }}
-                                        {% if line.isManual %}
-                                            <span class="badge text-bg-info ms-1"
-                                                  title="Cette ligne ne sera plus recalculée">Modifiée à la main</span>
-                                        {% endif %}
-                                        {% if line.isInformational %}
-                                            <span class="text-body-secondary small d-block">
-                                                Facturé sur relevé — hors total
-                                            </span>
-                                        {% endif %}
-                                    </td>
-                                    <td class="text-end">{{ line.quantity }}</td>
-                                    <td class="text-end">{{ line.amountCents|money_cents }}</td>
-                                    <td class="text-end">
-                                        <form method="post" action="/mes-locations/ligne" class="d-inline"
-                                              data-confirm="Supprimer la ligne « {{ line.label }} » ?">
-                                            {{ csrf_field()|raw }}
-                                            <input type="hidden" name="asset_id" value="{{ asset.id }}">
-                                            <input type="hidden" name="booking_id" value="{{ booking.id }}">
-                                            <input type="hidden" name="line_action" value="remove">
-                                            <input type="hidden" name="index" value="{{ loop.index0 }}">
-                                            <button type="submit" class="btn btn-sm btn-outline-danger">
-                                                Supprimer
-                                            </button>
-                                        </form>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td colspan="4" class="pt-0">
-                                        <form method="post" action="/mes-locations/ligne" class="row g-2 align-items-end">
-                                            {{ csrf_field()|raw }}
-                                            <input type="hidden" name="asset_id" value="{{ asset.id }}">
-                                            <input type="hidden" name="booking_id" value="{{ booking.id }}">
-                                            <input type="hidden" name="line_action" value="edit">
-                                            <input type="hidden" name="index" value="{{ loop.index0 }}">
-                                            <div class="col-12 col-md-5">
-                                                <label class="form-label visually-hidden" for="label-{{ loop.index0 }}">Libellé</label>
-                                                <input type="text" class="form-control form-control-sm"
-                                                       id="label-{{ loop.index0 }}" name="label" value="{{ line.label }}">
-                                            </div>
-                                            <div class="col-6 col-md-2">
-                                                <label class="form-label visually-hidden" for="qty-{{ loop.index0 }}">Quantité</label>
-                                                <input type="number" inputmode="numeric" min="1" class="form-control form-control-sm"
-                                                       id="qty-{{ loop.index0 }}" name="quantity" value="{{ line.quantity }}">
-                                            </div>
-                                            <div class="col-6 col-md-3">
-                                                <label class="form-label visually-hidden" for="amount-{{ loop.index0 }}">Montant</label>
-                                                <input type="text" class="form-control form-control-sm"
-                                                       id="amount-{{ loop.index0 }}" name="amount"
-                                                       value="{{ (line.amountCents / 100)|number_format(2, ',', '') }}"
-                                                       inputmode="decimal">
-                                            </div>
-                                            <div class="col-12 col-md-2">
-                                                <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Modifier</button>
-                                            </div>
-                                        </form>
-                                    </td>
-                                </tr>
-                            {% endfor %}
-                        </tbody>
-                        <tfoot>
-                            <tr class="fw-semibold">
-                                <td colspan="2">Total</td>
-                                <td class="text-end">{{ quote.totalCents|money_cents }}</td>
-                                <td></td>
-                            </tr>
-                        </tfoot>
-                    </table>
-                </div>
-
-                <form method="post" action="/mes-locations/ligne" class="row g-2 align-items-end mb-3">
-                    {{ csrf_field()|raw }}
-                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
-                    <input type="hidden" name="booking_id" value="{{ booking.id }}">
-                    <input type="hidden" name="line_action" value="add">
-                    <div class="col-12 col-md-5">
-                        <label class="form-label" for="new-label">Nouvelle ligne</label>
-                        <input type="text" class="form-control form-control-sm" id="new-label" name="label"
-                               placeholder="Remise exceptionnelle">
-                    </div>
-                    <div class="col-6 col-md-2">
-                        <label class="form-label" for="new-quantity">Quantité</label>
-                        <input type="number" inputmode="numeric" min="1" class="form-control form-control-sm" id="new-quantity"
-                               name="quantity" value="1">
-                    </div>
-                    <div class="col-6 col-md-3">
-                        <label class="form-label" for="new-amount">Montant</label>
-                        <input type="text" class="form-control form-control-sm" id="new-amount" name="amount"
-                               inputmode="decimal" placeholder="-50,00">
-                    </div>
-                    <div class="col-12 col-md-2">
-                        <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Ajouter</button>
-                    </div>
-                </form>
-
-                <form method="post" action="/mes-locations/ligne">
-                    {{ csrf_field()|raw }}
-                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
-                    <input type="hidden" name="booking_id" value="{{ booking.id }}">
-                    <input type="hidden" name="line_action" value="recalculate">
-                    <button type="submit" class="btn btn-sm btn-outline-secondary">
-                        Recalculer les lignes automatiques
-                    </button>
-                    <span class="form-text d-block">
-                        Reprend le tarif en vigueur pour les lignes automatiques. Les lignes modifiées
-                        à la main sont conservées telles quelles.
+        {% set pending_changes = change_requests|filter(c => c.isPending)|length %}
+        <div class="card mb-3" id="{{ boxes.changes.anchor }}">
+            {% embed '@rental/management/_dossier_header.html.twig' with {
+                box: boxes.changes, target_id: boxes.changes.bodyAnchor,
+                change_requests: change_requests, pending_changes: pending_changes,
+            } only %}
+                {% block figure %}
+                    <span class="text-body-secondary small" data-booking-panel="changes-figure">
+                        {% if pending_changes > 0 %}
+                            <span class="badge text-bg-warning">{{ pending_changes }} en attente</span>
+                        {% elseif change_requests is empty %}
+                            Aucune demande
+                        {% else %}
+                            {{ change_requests|length }} demande{{ change_requests|length > 1 ? 's' : '' }}
+                        {% endif %}
                     </span>
-                </form>
+                {% endblock %}
+            {% endembed %}
+            <div class="collapse" id="{{ boxes.changes.bodyAnchor }}">
+                <div data-booking-panel="changes">
+                    {% include '@rental/management/_changes.html.twig' %}
+                </div>
             </div>
         </div>
-        </div>
 
-        <div class="card mb-4">
-            <div class="card-body d-flex justify-content-between align-items-center gap-2">
+        {#
+          The stay is a page of its own, so its line is a link rather than a
+          fold — the only one in the list, and it says so by carrying an
+          arrow instead of a chevron.
+        #}
+        <div class="card mb-3" id="{{ boxes.stay.anchor }}">
+            <a class="card-body d-flex justify-content-between align-items-center gap-2 text-decoration-none"
+               href="{{ stay_url }}">
                 <span>
-                    <span class="fw-semibold">Séjour</span>
+                    <span class="h6 mb-0">{{ boxes.stay.label }}</span>
                     <span class="text-body-secondary small d-block">
                         Relevés de compteurs, état des lieux, incidents et décompte final.
                     </span>
                 </span>
-                <a href="/mes-locations/{{ asset.slug }}/reservations/{{ booking.id }}/sejour"
-                   class="btn btn-outline-secondary">Ouvrir</a>
+                <i class="bi bi-box-arrow-up-right text-body-tertiary" aria-hidden="true"></i>
+            </a>
+        </div>
+
+        <div class="card mb-3" id="{{ boxes.comments.anchor }}">
+            {% embed '@rental/management/_dossier_header.html.twig' with {
+                box: boxes.comments, target_id: boxes.comments.bodyAnchor, comments: comments,
+            } only %}
+                {% block figure %}
+                    <span class="text-body-secondary small" data-booking-panel="comments-figure">
+                        {{ comments is empty
+                            ? 'Aucun commentaire'
+                            : comments|length ~ ' commentaire' ~ (comments|length > 1 ? 's' : '') }}
+                    </span>
+                {% endblock %}
+            {% endembed %}
+            <div class="collapse" id="{{ boxes.comments.bodyAnchor }}">
+                <div data-booking-panel="comments">
+                    {% include '@rental/management/_comments.html.twig' %}
+                </div>
             </div>
         </div>
 
-        <div data-booking-panel="payment">
-            {% include '@rental/management/_payment.html.twig' %}
-        </div>
-
-        <div data-booking-panel="documents">
-            {% include '@rental/management/_documents.html.twig' %}
-        </div>
-
-        <div data-booking-panel="communications">
-            {% if communications_available %}
-                {% include '@rental/management/_communications.html.twig' %}
-            {% endif %}
-        </div>
-
-        {# ── Change requests (§6.16) ───────────────────────────────── #}
-        <div data-booking-panel="changes">
-        <div class="card mb-4">
-            <div class="card-body">
-                <h2 class="h5 mb-2">Demandes et propositions</h2>
-                <p class="text-body-secondary small">
-                    Une demande ne modifie jamais la réservation d'elle-même : elle attend une décision.
-                </p>
-
-                {% if change_requests is empty %}
-                    {% include 'partials/empty_state.html.twig' with {
-                        message: 'Aucune demande.',
-                        compact: true,
-                    } only %}
-                {% else %}
-                    <ul class="list-unstyled">
-                        {% for change in change_requests %}
-                            <li class="border-bottom py-2">
-                                <div class="d-flex justify-content-between align-items-start gap-2">
-                                    <span>
-                                        <span class="fw-semibold">{{ change.origin.label }}</span> —
-                                        {{ change.kind.label }}
-                                        <span class="text-body-secondary small d-block">{{ change.summary }}</span>
-                                        {% if change.message %}
-                                            <span class="small d-block">{{ change.message|nl2br }}</span>
-                                        {% endif %}
-                                    </span>
-                                    {% include 'partials/status_badge.html.twig' with { status: change.status.value, label: change.status.label } only %}
-                                </div>
-                                {% if change.isPending and change.origin.value == 'renter' %}
-                                    <div class="d-flex gap-2 mt-2">
-                                        <form method="post" action="/mes-locations/demande"
-                                              data-confirm="Accepter cette demande ? Elle sera appliquée à la réservation, et le locataire en sera informé."
-                                              data-confirm-label="Accepter"
-                                              data-confirm-note="Un mot au locataire (facultatif)"
-                                              data-confirm-note-name="message">
-                                            {{ csrf_field()|raw }}
-                                            <input type="hidden" name="asset_id" value="{{ asset.id }}">
-                                            <input type="hidden" name="booking_id" value="{{ booking.id }}">
-                                            <input type="hidden" name="request_id" value="{{ change.id }}">
-                                            <input type="hidden" name="decision" value="accept">
-                                            <button type="submit" class="btn btn-sm btn-outline-secondary">Accepter</button>
-                                        </form>
-                                        <form method="post" action="/mes-locations/demande"
-                                              data-confirm="Refuser cette demande ? La réservation reste inchangée, et le locataire en sera informé."
-                                              data-confirm-label="Refuser"
-                                              data-confirm-note="Dire pourquoi, si vous le souhaitez (facultatif)"
-                                              data-confirm-note-name="message">
-                                            {{ csrf_field()|raw }}
-                                            <input type="hidden" name="asset_id" value="{{ asset.id }}">
-                                            <input type="hidden" name="booking_id" value="{{ booking.id }}">
-                                            <input type="hidden" name="request_id" value="{{ change.id }}">
-                                            <input type="hidden" name="decision" value="refuse">
-                                            <button type="submit" class="btn btn-sm btn-outline-danger">Refuser</button>
-                                        </form>
-                                    </div>
-                                {% endif %}
-                            </li>
-                        {% endfor %}
-                    </ul>
-                {% endif %}
-
-                {% if not booking.status.isFinal %}
-                    <form method="post" action="/mes-locations/proposition" class="row g-2 align-items-end mt-2">
-                        {{ csrf_field()|raw }}
-                        <input type="hidden" name="asset_id" value="{{ asset.id }}">
-                        <input type="hidden" name="booking_id" value="{{ booking.id }}">
-                        <input type="hidden" name="kind" value="dates">
-                        <div class="col-6 col-md-3">
-                            <label class="form-label" for="propose-arrival">Proposer du</label>
-                            <input type="date" class="form-control form-control-sm" id="propose-arrival" name="arrival">
-                        </div>
-                        <div class="col-6 col-md-3">
-                            <label class="form-label" for="propose-departure">au</label>
-                            <input type="date" class="form-control form-control-sm" id="propose-departure" name="departure">
-                        </div>
-                        <div class="col-12 col-md-4">
-                            <label class="form-label" for="propose-message">Message au locataire</label>
-                            <input type="text" class="form-control form-control-sm" id="propose-message" name="message"
-                                   aria-describedby="propose-message-help">
-                            <div class="form-text" id="propose-message-help">Envoyé avec la proposition.</div>
-                        </div>
-                        <div class="col-12 col-md-2">
-                            <button type="submit" class="btn btn-sm btn-outline-secondary w-100">Proposer</button>
-                        </div>
-                    </form>
-                {% endif %}
+        <div class="card mb-3" id="{{ boxes.history.anchor }}">
+            {% embed '@rental/management/_dossier_header.html.twig' with {
+                box: boxes.history, target_id: boxes.history.bodyAnchor, audit_page: audit_page,
+            } only %}
+                {% block figure %}
+                    <span class="text-body-secondary small" data-booking-panel="history-figure">
+                        {{ audit_page.total }} modification{{ audit_page.total > 1 ? 's' : '' }}
+                    </span>
+                {% endblock %}
+            {% endembed %}
+            <div class="collapse" id="{{ boxes.history.bodyAnchor }}">
+                <div data-booking-panel="history">
+                    <div class="card-body pt-0">
+                        {% include 'partials/audit_timeline.html.twig' with {
+                            entity_type: 'rental_booking',
+                            entity_id: booking.id,
+                            audit_page: audit_page,
+                            labels: audit_labels,
+                        } only %}
+                    </div>
+                </div>
             </div>
-        </div>
-        </div>
-
-        {# ── Internal comments (§6.6) ──────────────────────────────── #}
-        <div data-booking-panel="comments">
-        <div class="card mb-4">
-            <div class="card-body">
-                <h2 class="h5 mb-2">Commentaires internes</h2>
-                <p class="text-body-secondary small">
-                    Visibles des seuls gestionnaires. Ils n'apparaissent jamais sur la page de suivi du locataire.
-                </p>
-
-                {% if comments is empty %}
-                    {% include 'partials/empty_state.html.twig' with {
-                        message: 'Aucun commentaire.',
-                        compact: true,
-                    } only %}
-                {% else %}
-                    <ul class="list-unstyled">
-                        {% for comment in comments %}
-                            <li class="border-bottom py-2">
-                                <div class="small text-body-secondary">
-                                    {{ comment.author_name ?: 'Auteur inconnu' }} —
-                                    {{ comment.created_at|datetime_fr }}
-                                </div>
-                                {{ comment.body|nl2br }}
-                            </li>
-                        {% endfor %}
-                    </ul>
-                {% endif %}
-
-                <form method="post" action="/mes-locations/commentaire">
-                    {{ csrf_field()|raw }}
-                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
-                    <input type="hidden" name="booking_id" value="{{ booking.id }}">
-                    <label class="form-label" for="comment-body">Ajouter un commentaire</label>
-                    <textarea class="form-control mb-2" id="comment-body" name="body" rows="3"></textarea>
-                    <button type="submit" class="btn btn-sm btn-outline-secondary">Enregistrer</button>
-                </form>
-            </div>
-        </div>
-        </div>
-
-        {# ── History (§6.15) ───────────────────────────────────────── #}
-        <div data-booking-panel="history">
-        <div class="card">
-            <div class="card-body">
-                <h2 class="h5 mb-2">Historique</h2>
-                {% include 'partials/audit_timeline.html.twig' with {
-                    entity_type: 'rental_booking',
-                    entity_id: booking.id,
-                    audit_page: audit_page,
-                    labels: audit_labels,
-                } only %}
-            </div>
-        </div>
         </div>
     </div>
 {% endblock %}
@@ -531,6 +486,9 @@
 {% block scripts %}
     {# Turns every form above into a fetch, then re-renders the panels. #}
     <script src="{{ asset('/assets/js/rental-booking.js') }}" defer></script>
+    {# Opens the box a fragment names — « Voir "Paiements" » above, and any
+       link sent from elsewhere into this page. #}
+    <script src="{{ asset('/assets/js/collapse-anchor.js') }}" defer></script>
     <script src="{{ asset('/assets/js/drop-zone.js') }}" defer></script>
     {# Names the file that was picked: the zone's input is visually hidden,
        so a zone that says nothing looks the same before and after a drop. #}
