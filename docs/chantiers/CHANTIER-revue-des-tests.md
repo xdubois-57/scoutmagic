@@ -418,4 +418,85 @@ Une entrée par itération, ajoutée par la PR de fin d'itération (§0.4).
 **Non vérifiable, et pourquoi** : …
 ```
 
-_(vide — la première itération l'ouvre)_
+### Itération 1 — Les tests qui ne peuvent pas échouer — 2026-09-20
+
+**Périmètre parcouru** : les trois populations que §1 donne pour certaines
+(les `assertTrue(true)` littéraux, les deux fichiers dits sans assertion) ;
+puis, sur l'ensemble des 1 179 fichiers, quatre recherches : les méthodes
+dont toutes les assertions sont de forme, les `try/catch` qui avalent
+l'échec attendu sans `fail()`, les noms promettant un refus, et les
+messages d'assertion écrits en français. Enfin l'échantillon de mutation
+imposé : un test par module, 23 modules.
+
+**Mutations tentées** :
+
+*L'échantillon imposé — une méthode centrale par module, remplacée par un
+retour constant, suite du module rejouée, mutation annulée. Les 23 sont
+rouges :*
+
+- `attestations/Service/BatchDistributionService::sendSlice → true` → `tests/Modules/Attestations` → rouge
+- `banner/Service/BannerService::getRandomBannerHtml → null` → `tests/Modules/Banner` → rouge
+- `calendar/Service/CalendarEventService::getViewableCalendars → []` → `tests/Modules/Calendar` → rouge
+- `camps/Service/CampService::validate → []` → `tests/Modules/Camps` → rouge
+- `fees/Service/HouseholdTariffService::differenceCents → 0` → `tests/Modules/Fees` → rouge
+- `finance/Service/FinanceService::isAccountVisibleTo → true` → `tests/Modules/Finance` → rouge
+- `gallery/Service/AlbumService::findVisibleForMember → []` → `tests/Modules/Gallery` → rouge
+- `groups/Service/GroupAccessService::canRead → true` → `tests/Modules/Groups` → rouge
+- `inbound_mail/Service/InboundMailService::findForReference → []` → `tests/Modules/InboundMail` → rouge
+- `leadership/Service/ObligationsService::candidates → []` → `tests/Modules/Leadership` → rouge
+- `llm_connector/Service/LlmConnectorService::isTierAvailable → true` → `tests/Modules/LlmConnector` → rouge
+- `mass_mail/Service/ListAddressService::findActiveForList → []` → `tests/Modules/MassMail` → rouge
+- `member_stats/Service/MemberStatsService::getStatistics → []` → `tests/Modules/MemberStats` → rouge
+- `news/Service/ArticleService::canView → true` → `tests/Modules/News` → rouge
+- `presences/Service/PresenceAuthorizationService::maySeeSection → true` → `tests/Modules/Presences` → rouge
+- `registration/Service/ForecastService::countDeparturesForYear → 0` → `tests/Modules/Registration` → rouge
+- `rental/Service/RentalBookingService::findByTrackingToken → null` → `tests/Modules/Rental` → rouge
+- `retro/Service/BoardService::isUnitChief → true` → `tests/Modules/Retro` → rouge
+- `sos_staff/Service/OnCallService::resolveTargetForDate → null` → `tests/Modules/SosStaff` → rouge
+- `support_dashboard/Service/StatisticsIntakeService::receive → succès constant` → `tests/Modules/SupportDashboard` → rouge
+- `test_tools/Service/MailSandboxService::armed → false` → `tests/Modules/TestTools` → rouge
+- `trombinoscope/Service/TrombinoscopeService::getResponsable → null` → `tests/Modules/Trombinoscope` → rouge
+- `usage_stats/Service/UsageStatsService::resolveMonth → '2000-01'` → `tests/Modules/UsageStats` → rouge
+
+*Les deux fichiers que §1 annonçait « sans une seule assertion » :*
+
+- `camps/Mail/CampsMailNotifier` : garde « aucun destinataire » retiré de `proposed()` → `CampsMailNotifierTest` → rouge
+- `camps/Mail/CampsMailNotifier` : `url` de `stayCreated()` remplacée par `/chefs/camps` → `CampsMailNotifierTest` → rouge
+- `finance/Mail/FinanceMailNotifier` : année scoute ignorée dans la résolution des trésoriers → `FinanceMailNotifierTest` → rouge
+- `finance/Mail/FinanceMailNotifier` : garde « aucun destinataire » retiré → `FinanceMailNotifierTest` → rouge
+
+*Les renforcements, chacun prouvé vert avant / rouge après :*
+
+- `core/File/FileRepository::findById` privé de son `WHERE id = ?` → `StoredFileCleanerTest` (deux no-op) → **VERT avant renforcement**, rouge après
+- `modules/groups/src/Service/RateLimitService` : `>= $limit` remplacé par `>= PHP_INT_MAX` → `Groups\Service\RateLimitServiceTest` → 1 rouge sur 6 avant, 3 sur 6 après
+- `modules/finance/src/Service/ImportService::verifyIban` ne refuse plus → `testDeletesTemporaryFileEvenOnFailure` → **VERT avant**, rouge après
+- `modules/sos_staff/src/Service/RedirectService` : le refus « aucun fournisseur » rend au lieu de lever → `testApplySendsAdminAlertEmailOnFailure` → **VERT avant**, rouge après
+- `core/Help/Assistant/AssistantService::ask` avale l'`LlmException` du fournisseur → `testAFailedCallStillSpendsItsAllowance` → **VERT avant**, rouge après
+- `modules/retro/src/Controller/RetroChiefController::close` clôture le tableau **puis** rend son 403 → `testCloseForbiddenBelowChiefEvenIfCreateThresholdIsLower` → **VERT**, et non corrigé ici (issue #387)
+
+**Corrigé dans cette PR** :
+
+- Les 25 `assertTrue(true)` littéraux ont disparu — §1 en annonçait 20, il y en avait 25. Chacun remplacé par une assertion sur l'état observable après l'appel : la ligne et les octets du voisin survivent à un `delete(null)` (`StoredFileCleanerTest`), aucun tableau n'est créé pour un événement supprimé (`AutoCreateRetroHandlerTest`), aucun autre tableau n'est clôturé ni journalisé (`AutoCloseHandlerTest`), le média voisin reste `pending` (`ProcessPhotoHandlerTest`, `ProcessVideoHandlerTest`), l'album en migration n'est pas déplacé (`MigrateAlbumStorageHandlerTest`), le document voisin reste `pending` (`CompressSectionDocumentHandlerTest`), aucune variante n'est dérivée d'un autre fichier (`ImageVariantServiceTest`), les créances de finance sont intactes (`RentalPaymentServiceTest`), les actions autorisées sont aussi *enregistrées* (`Retro\Service\RateLimitServiceTest`), l'appel vide est le seul émis (`ObjectStorageBackendTest`), le voisin reste sur le partage (`WebDavBackendTest`), rien n'est supprimé ailleurs ni créé pour le préfixe absent (`LocalStorageBackendTest`), la requête `DELETE` a bien été émise malgré le 404 (`GoogleDriveClientTest`).
+- Trois cas n'avaient pas d'état observable et ont été retournés autrement : `DiskBudgetTest::testAWriteThatFitsIsAccepted` affirme désormais sa propre prémisse (la place disponible dépasse l'écriture plus la marge) ; `VolumeInventoryTest` oppose au silence sur le NAS le refus, sur le volume primaire, de la même écriture ; `TwigCacheFreshnessTest` n'a plus de retour anticipé — la liste des gabarits périmés est vide dans les deux cas, et la seule assertion reste vraie.
+- `PdfCompressorTest` : la branche `if/else` qui acceptait les deux résultats est devenue une assertion unique sur le contrat (« `null`, ou un PDF valide plus petit »), doublée du nettoyage du répertoire temporaire (`SECURITY.md` §5).
+- `CsrfGuardCoverageTest` : la branche qui validait les quatre contrôleurs exemptés sur parole vérifie maintenant la prémisse de l'exemption — un POST exempté de jeton CSRF ne peut être qu'à `role_min: public`, une route derrière un rôle ayant une session, donc un jeton à lier.
+- Cinq `try/catch` qui avalaient l'échec attendu affirment désormais que l'échec a bien eu lieu (`Groups\Service\RateLimitServiceTest` ×2, `Finance\Service\ImportServiceTest`, `SosStaff\Service\RedirectServiceTest`, `Core\Help\Assistant\AssistantServiceTest`) — les cinq sont prouvés ci-dessus.
+- Deux messages d'assertion en français traduits dans `WebDavBackendTest`, fichier que cette PR modifiait déjà.
+
+**Issues ouvertes** :
+
+- #387 — quinze tests de refus sur route d'écriture n'attestent que du code HTTP ; une écriture faite avant le refus passe inaperçue (constat établi par mutation sur `RetroChiefController::close()`).
+- #388 — quarante-trois messages d'assertion en français dans dix-neuf fichiers, et rien qui tienne le compte.
+
+**Vérifié et tenu** :
+
+- **Les deux fichiers « sans une seule assertion » ont des assertions.** `CampsMailNotifierTest` et `FinanceMailNotifierTest` vérifient par attentes de doublure (`expects($this->once())->method('dispatch')->with(…, $this->callback(…))`), que PHPUnit compte comme assertions : « OK (6 tests, 18 assertions) ». Les quatre mutations ci-dessus les rendent rouges. Le relevé de §1 était mécanique — il cherchait `$this->assert…` et une attente s'écrit `$mock->expects(…)`. Les deux notificateurs sont solides ; ne pas les rouvrir.
+- **Les assertions « de forme » ne sont pas le gisement annoncé.** 137 méthodes n'ont que des `assertNotNull`/`assertIsArray`/`assertInstanceOf`/`assertNotEmpty`. La plus dense, `Finance\File\FinanceAccountOwnershipCheckerTest` (7), les emploie par paires `assertNotNull`/`assertNull` autour de `FileAccessGuard::check()` : le verdict d'accès *est* la valeur, et la mutation `FinanceService::isAccountVisibleTo → true` de l'échantillon est rouge. Le critère « toutes les assertions sont de forme » produit surtout des faux positifs ; une itération ultérieure qui voudrait y revenir devra partir d'autre chose.
+- **Les `try/catch` sans `fail()` : 24 sites, 19 tiennent.** Dans ces 19, la disparition de l'exception se voit ailleurs — aucune entrée de journal à lire (`MailFailureJournalTest`), un envoi compté au lieu de zéro (`MailTransportSeamTest`, `MailProbeSenderTest`), un disjoncteur resté fermé (`MailTransportChainTest`), un `$caught`/`$failed` déjà affirmé (`StoredFileReaderTest`, `ErrorHandlerTest`, `Groups…::testPostingPastTheLimitIsRefusedWithATypedException`). Deux autres sont volontairement tolérants et le disent : les purges de `usage_stats` et de `support_dashboard` vérifient qu'un échec ne coûte pas le réarmement, et un handler qui cesserait de lever ne les invaliderait pas.
+- **Suite complète verte après les renforcements** : 18 551 tests, 67 899 assertions, 3 sautés, 0 échec ; `vendor/bin/phpstan analyse` : aucune erreur. Aucun fichier de production n'est modifié par cette PR.
+
+**Non vérifiable, et pourquoi** :
+
+- **Les 14 autres tests de #387.** Un seul (`RetroChiefController::close()`) a été mué. La mutation qui prouverait les autres n'est pas la même d'un contrôleur à l'autre — sur `MemberEmailAddressController::add()`, par exemple, la vérification d'appartenance *produit* l'identifiant qui sert à écrire, si bien que « refuser après avoir écrit » ne s'exprime pas en une ligne. Chacun demande son propre montage.
+- **La moitié MySQL.** Tout ce qui précède a tourné sur la MariaDB du conteneur (`CLAUDE.md` § This container) ; le verdict du job `test` sur MySQL 8 n'est connu qu'en CI.
+- **Le nombre réel de sauts.** La suite complète n'a sauté que 3 tests ici, là où le dépôt porte 75 `markTestSkipped`. L'écart est l'objet de l'itération 2 ; il n'est pas mesurable depuis ce seul environnement.
