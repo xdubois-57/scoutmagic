@@ -229,7 +229,8 @@ final class DomainRouting
     }
 
     /**
-     * Every enabled relay of the mailing lane, in the operator's order.
+     * Every enabled relay of the mailing lane a domain could be routed
+     * TO, in the operator's order.
      *
      * Configuration, not runtime: a relay out of quota or behind an open
      * breaker is still in this list, because this answers « where could
@@ -238,6 +239,22 @@ final class DomainRouting
      * asks it per message and would give a different answer ten minutes
      * later — an unstable answer is not something to put on a screen or
      * to write into a setting.
+     *
+     * **The local send is excluded, and leaving it in was a real defect.**
+     * `TransportSeeder::layDownChains()` appends `MailProvider::LOCAL_ID`
+     * to EVERY lane, enabled, the mailing lane included — its own comment
+     * says a unit that would rather not send from the server disables that
+     * entry by hand. So the ordinary installation, with one relay, had a
+     * chain of two, the « only one relay » guard below never fired, and
+     * the alternative offered for a struggling provider was the server's
+     * own unauthenticated `mail()`. That is not a remedy, it is the worst
+     * transport this site has: no relay reputation, no DKIM from a
+     * warmed-up domain, and the one most likely to be filtered. With the
+     * automatic switch on, a provider already filtering a unit's mail
+     * would have been moved there unattended.
+     *
+     * Routing a domain somewhere worse is not routing, so « nowhere to
+     * route to » is the honest answer and the screen already says it.
      *
      * @return list<MailProvider>
      */
@@ -267,6 +284,13 @@ final class DomainRouting
                 continue;
             }
 
+            // Never the local send — see the docblock: it is seeded
+            // enabled into every lane, so it would silently be the
+            // alternative on the commonest installation of all.
+            if ($entry->providerId === MailProvider::LOCAL_ID) {
+                continue;
+            }
+
             $provider = $providers[$entry->providerId] ?? null;
             if ($provider !== null) {
                 $chain[] = $provider;
@@ -292,6 +316,14 @@ final class DomainRouting
             if ($provider->id === $providerId) {
                 return $provider->name;
             }
+        }
+
+        // The local send is deliberately absent from the chain above, so
+        // it is named here rather than reported as deleted — a decision
+        // written before that exclusion existed still has to read as what
+        // it is.
+        if ($providerId === MailProvider::LOCAL_ID) {
+            return MailProvider::LOCAL_NAME;
         }
 
         return 'relais nº ' . $providerId . ' (supprimé)';

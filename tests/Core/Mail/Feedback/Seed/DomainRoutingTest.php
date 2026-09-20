@@ -15,6 +15,7 @@ use Core\Mail\Feedback\Seed\SeedCopyRepository;
 use Core\Mail\Transport\DomainPreferences;
 use Core\Mail\Transport\LaneChainRepository;
 use Core\Mail\Transport\MailLane;
+use Core\Mail\Transport\MailProvider;
 use Core\Mail\Transport\MailProviderDirectory;
 use Core\Mail\Transport\MailProviderRepository;
 use Core\Mail\Transport\ProviderConnections;
@@ -101,6 +102,25 @@ class DomainRoutingTest extends TestCase
                 $this->settings
             )
         );
+    }
+
+    /**
+     * The local send, on the mailing lane, enabled — **as every real
+     * installation has it.**
+     *
+     * `TransportSeeder::layDownChains()` appends `MailProvider::LOCAL_ID`
+     * to every lane, enabled, the mailing lane included. A fixture
+     * without it is not a smaller installation, it is one that does not
+     * exist — and the omission is what let « a unit with one relay has no
+     * alternative » pass while production offered the server's own
+     * `mail()` as the alternative.
+     */
+    private function localSend(int $position = 99): void
+    {
+        $entry = $this->pdo->prepare(
+            'INSERT INTO mail_lane_entries (lane, provider_id, position, is_enabled) VALUES (?, ?, ?, 1)'
+        );
+        $entry->execute([MailLane::Bulk->value, MailProvider::LOCAL_ID, $position]);
     }
 
     /** One relay on the mailing lane, at the given position. */
@@ -260,6 +280,9 @@ class DomainRoutingTest extends TestCase
     public function testWithASingleRelayThereIsNoAlternativeAndApplyingDoesNothing(): void
     {
         $this->relay('Brevo', 1);
+        // The installation as it really is: the local send sits on the
+        // mailing lane too, seeded enabled.
+        $this->localSend();
         $routing = $this->routingWithChain();
 
         $this->assertNull($routing->alternativeFor('gmail.com'));
@@ -396,5 +419,63 @@ class DomainRoutingTest extends TestCase
         $this->assertNull($reading['routed_to']);
         $this->assertNull($reading['alternative']);
         $this->assertNull($display->apply('gmail.com'));
+    }
+
+    /**
+     * **The local send is never an alternative**, and this is the case
+     * the first version got wrong in the direction that matters.
+     *
+     * `TransportSeeder` puts `Envoi local` on every lane, enabled, so the
+     * commonest installation — one relay — had a mailing chain of two.
+     * The « only one relay » guard never fired, and what a struggling
+     * provider was offered was the server's own unauthenticated `mail()`:
+     * no relay reputation, no warmed-up sending domain, the transport
+     * most likely to be filtered of all. Routing a domain somewhere worse
+     * is not routing.
+     *
+     * With the automatic switch on, that move happened unattended.
+     */
+    public function testTheLocalSendIsNeverOfferedAsAnAlternative(): void
+    {
+        $this->relay('Brevo', 1);
+        $this->localSend();
+
+        $routing = $this->routingWithChain();
+
+        $this->assertSame([], array_map(
+            static fn(MailProvider $provider): int => $provider->id,
+            array_filter(
+                $routing->bulkChain(),
+                static fn(MailProvider $provider): bool => $provider->id === MailProvider::LOCAL_ID
+            )
+        ), 'the local send is not somewhere to route a struggling provider to.');
+
+        $this->assertNull($routing->alternativeFor('gmail.com'));
+        $this->assertNull($routing->apply('gmail.com'));
+        $this->assertSame([], $this->preferences->all());
+    }
+
+    /** And with two real relays beside it, the alternative is the real one. */
+    public function testWithTwoRealRelaysTheLocalSendIsStillSkipped(): void
+    {
+        $this->relay('Brevo', 1);
+        $this->localSend(2);
+        $this->relay('OVH', 3);
+
+        $this->assertSame('OVH', $this->routingWithChain()->alternativeFor('gmail.com')?->name);
+    }
+
+    /**
+     * A decision that names the local send — written before it was
+     * excluded — reads as what it is rather than as a deleted relay.
+     */
+    public function testADecisionNamingTheLocalSendIsStillReadable(): void
+    {
+        $this->relay('Brevo', 1);
+        $this->localSend();
+        $this->preferences->prefer('gmail.com', MailProvider::LOCAL_ID);
+        $this->record('t@gmail.com', 'INBOX', 1);
+
+        $this->assertSame(MailProvider::LOCAL_NAME, $this->readingFor('gmail.com')['routed_to']);
     }
 }
