@@ -4521,6 +4521,75 @@ That second verdict used to read « oui, sans reprise » — it told an administ
 
 **Google Drive is attachable to a gallery, with two consequences said at the moment of choosing.** Each photograph is an authenticated API call made by this site — Drive hands nothing to the visitor directly, so every image travels through PHP on every view. And the deliberately narrow `drive.file` grant means the site sees only the files it put there itself, so photographs already in the folder stay invisible. Both are information rather than refusals (a Drive holds photographs perfectly well), and both are shown only when a Drive location exists.
 
+### 8.114 One `{{ … }}` engine, two catalogues (`Core\Template`)
+
+Two modules substituted `{{ … }}` with the same four rules and nothing in
+common. `Modules\MassMail\Service\MergeRenderer` personalises a
+publipostage, where a token names a column header of an uploaded
+spreadsheet — « Prénom 1 » — free text chosen by whoever built the file.
+`Modules\Rental\Document\DocumentKeywords` fills a contract or an
+invoice from a closed, declared list — `prix_total`. Both substituted
+**after** sanitizing, both **always** escaped the value, both left an
+unrecognised token **visible**, and one of them had learned, the hard way,
+to rescue a token the sanitizer had percent-encoded. Four rules, two
+copies, and no way for a fix to one to reach the other.
+
+`Core\Template\TokenEngine` holds all four, and `TokenSyntax` is why it
+can: **what may sit between the braces is a parameter, not a constant.**
+`TokenSyntax::freeText()` matches a column header, accents and spaces
+included, and carries the `u` modifier it has always needed;
+`TokenSyntax::identifiers()` matches `[a-z0-9_]+` and nothing else, and the
+narrowness is load-bearing — a syntax that accepted anything between braces
+would make "unknown keyword" reporting useless, since every stray `{{` in a
+contract's prose would become a candidate. Neither is more correct than the
+other; they are two vocabularies, and the engine never decides between
+them.
+
+**The percent-encoded rescue is recognition, not a fix.** A token that ends
+up inside an `href` or a `src` comes back as `%7B%7BQR%201%7D%7D`: the
+rich-text sanitizer parses the body with `DOMDocument`, which URL-encodes
+every URI attribute on the way out. Left alone the variable never
+substitutes and the recipient gets a broken link, silently. It is decoded
+here rather than "fixed" in the sanitizer, whose encoding is correct for
+every other URL it handles.
+
+**The repair pass is the piece that was missing, and it is what lets a
+document editor be rich text at all.** A `contenteditable` surface splits a
+run of text across elements as it is edited, so `{{ prix_total }}` becomes
+`{{ pri<b>x</b>_total }}` the moment somebody bolds a word that overlaps
+it — still readable to a human, no longer a keyword to anything that
+substitutes, and noticed only once a contract has gone out with visible
+braces in it. That hazard is why those editors were `<textarea>`s.
+`repairTokensSplitByMarkup()` removes inline markup from between the
+braces, and welds back a brace pair a caret was parked inside — but **only
+once what the region would become spells a real token's name**. Prose that
+happens to sit between braces survives untouched, block boundaries are
+never welded (a `{{` in one paragraph and a `}}` in the next is two stray
+braces, not a broken token), and the author's spacing is left alone. The
+existing "mots-clés non reconnus" warning therefore stays the net it was
+meant to be: when the repair declines, it shows on screen rather than in a
+signed contract.
+
+**Order of operations, and it is not negotiable**: sanitize → decode →
+repair → substitute. Sanitizing last would run a sanitizer over a document
+that already carries renter-supplied values, and a sanitizer decides what
+markup is allowed, never whether a value should have been markup at all.
+Decoding and repairing after substitution would have nothing left to
+rescue.
+
+**What stays with each module is its catalogue**, plus — for the
+publipostage only — the `{{#Colonne}} … {{/Colonne}}` sections, which mean
+nothing outside a mail merge and whose bodies vary in LENGTH per row rather
+than in value. `Core\Template\TokenCatalogue` types the closed kind: a
+declared keyword → French description map that answers `has()` and renders
+the `{keyword, placeholder, description}` palette
+`partials/rich_text_form_field.html.twig` reads as its `placeholders`
+argument. Handing that partial a catalogue is the whole wiring of a
+variable palette. A spreadsheet's column headers are deliberately **not**
+one — they are data, different for every mailing, and the publipostage
+inserts them through its own control (`modules/mass_mail/views/partials/
+_variable_toolbar.html.twig`) for that reason.
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php
