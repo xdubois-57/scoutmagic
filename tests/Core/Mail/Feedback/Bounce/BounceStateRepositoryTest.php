@@ -419,6 +419,49 @@ class BounceStateRepositoryTest extends TestCase
         $this->assertSame(0, $this->countRows());
     }
 
+    /**
+     * **A report answering a send from two years ago answers nothing.**
+     * The gate used to read « has the site EVER written here », which is
+     * true of every address the unit has ever mailed — so one forged
+     * report was admitted on a receipt of any age, and only the second
+     * had to be timed against real traffic.
+     *
+     * It does not make forgery impossible (the journal records what
+     * remains), but the attacker now has to wait for a send rather than
+     * pick any address the unit once wrote to.
+     */
+    public function testAReportAnsweringALongForgottenSendIsRefused(): void
+    {
+        DatabaseTestHelper::markAddressOnFile($this->pdo, 'parent@exemple.be');
+        $this->states->recordSend('parent@exemple.be', $this->now('2024-01-01 09:00:00'));
+
+        $refused = $this->states->record(
+            'parent@exemple.be',
+            BounceCategory::NoSuchAddress,
+            BounceSeverity::Permanent,
+            '5.1.1',
+            $this->now('2026-09-19 09:00:00')
+        );
+
+        $this->assertNull($refused);
+        $this->assertSame(0, $this->countRows());
+    }
+
+    /** And a send last week is still what a report today answers. */
+    public function testAReportAnsweringARecentSendIsStillAccepted(): void
+    {
+        DatabaseTestHelper::markAddressOnFile($this->pdo, 'parent@exemple.be');
+        $this->states->recordSend('parent@exemple.be', $this->now('2026-09-12 09:00:00'));
+
+        $this->assertNotNull($this->states->record(
+            'parent@exemple.be',
+            BounceCategory::NoSuchAddress,
+            BounceSeverity::Permanent,
+            '5.1.1',
+            $this->now('2026-09-19 09:00:00')
+        ));
+    }
+
     public function testASendIsRememberedEvenWhenNothingBounces(): void
     {
         DatabaseTestHelper::markAddressOnFile($this->pdo, 'bonne@exemple.be');

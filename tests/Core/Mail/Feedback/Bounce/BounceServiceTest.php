@@ -54,9 +54,11 @@ class BounceServiceTest extends TestCase
                 {
                 }
 
-                public function notify(BounceState $state, bool $blocking): void
+                public function notify(BounceState $state, bool $blocking): bool
                 {
                     $this->told[] = ['email' => $state->email, 'blocking' => $blocking];
+
+                    return true;
                 }
             }
         );
@@ -317,7 +319,7 @@ class BounceServiceTest extends TestCase
             $this->states,
             null,
             new class implements BounceNotifier {
-                public function notify(BounceState $state, bool $blocking): void
+                public function notify(BounceState $state, bool $blocking): bool
                 {
                     throw new \RuntimeException('le centre de notifications est indisponible');
                 }
@@ -343,7 +345,7 @@ class BounceServiceTest extends TestCase
             $this->states,
             null,
             new class implements BounceNotifier {
-                public function notify(BounceState $state, bool $blocking): void
+                public function notify(BounceState $state, bool $blocking): bool
                 {
                     throw new \RuntimeException('le centre de notifications est indisponible');
                 }
@@ -434,5 +436,36 @@ class BounceServiceTest extends TestCase
         $this->bounce('5.1.1');
 
         $this->assertCount($told + 1, $this->told);
+    }
+
+    /**
+     * **Nobody to tell is not « déjà dit ».** `MemberBounceNotifier`
+     * returns early when the address maps to no account — the ordinary
+     * case for a parent's secondary address with no login — and marking
+     * the code regardless would file the error against a silence. The day
+     * that person does get an account, this error class would stay quiet
+     * for ever.
+     */
+    public function testAnErrorNobodyCouldBeToldAboutIsStillWorthTelling(): void
+    {
+        $silent = new BounceService(
+            $this->states,
+            null,
+            new class implements BounceNotifier {
+                public function notify(BounceState $state, bool $blocking): bool
+                {
+                    return false;
+                }
+            }
+        );
+
+        \Tests\DatabaseTestHelper::markAddressOnFile($this->pdo, 'parent@exemple.be');
+        $this->states->recordSend('parent@exemple.be', $this->clock = $this->clock->modify('+1 hour'));
+        $silent->record($this->report('4.2.2'), $this->clock = $this->clock->modify('+1 minute'));
+
+        $this->assertTrue(
+            $this->states->find('parent@exemple.be')?->isNewError('4.2.2'),
+            'an error nobody could be told about must still be news.'
+        );
     }
 }

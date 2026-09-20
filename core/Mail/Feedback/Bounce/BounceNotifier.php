@@ -27,6 +27,13 @@ interface BounceNotifier
      *                       « un message n'est pas arrivé » and « cette
      *                       adresse ne reçoit plus rien » ask for
      *                       different actions
+     *
+     * @return bool whether somebody was actually told. **False is not a
+     *              failure** — it is the ordinary case of an address the
+     *              site holds but that belongs to nobody who can sign in,
+     *              a parent's secondary address without a login among
+     *              them. The caller needs to know, because « déjà dit »
+     *              must never be recorded against a silence.
      */
-    public function notify(BounceState $state, bool $blocking): void;
+    public function notify(BounceState $state, bool $blocking): bool;
 }

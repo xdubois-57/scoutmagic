@@ -4348,6 +4348,12 @@ and never asked anything: the feature inert with no symptom but silence.
 `Tests\Core\Scheduler\SchedulerBootstrapTest` builds that registry and
 counts its consumers, which is what actually pins it.
 
+*The receipt also has an expiry* (`RECEIPT_MAX_AGE`, one month). A real
+delivery-status report follows its message by minutes, so a report naming
+a send from two years ago answers nothing. Without it the gate read « has
+the site EVER written here », true of every address the unit has ever
+mailed — the first forged report was admitted on a receipt of any age.
+
 *The receipt narrows the forgery, it does not close it.* It says « the
 site wrote here recently », not « this report answers that message ». The
 honest send-bounce-send-bounce sequence is deliberately allowed, and

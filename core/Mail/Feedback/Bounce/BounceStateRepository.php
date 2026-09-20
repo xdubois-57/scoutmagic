@@ -34,6 +34,17 @@ class BounceStateRepository
     /** How many rows the screens list before asking for a narrower question. */
     public const RECENT_LIMIT = 100;
 
+    /**
+     * How old a send may be and still be what a bounce report answers.
+     *
+     * One month, generous on purpose: a delivery-status report follows
+     * its message by minutes, and the mailbox poll adds at most a day
+     * (`SyncMailboxesHandler::MAX_INTERVAL_MINUTES`). The slack is there
+     * so a genuinely delayed report is never thrown away — erring long
+     * costs a slightly wider window, erring short discards real bounces.
+     */
+    public const RECEIPT_MAX_AGE = 'P1M';
+
     public function __construct(private PDO $pdo, private EncryptionService $encryption)
     {
     }
@@ -109,6 +120,22 @@ class BounceStateRepository
         // send re-opens the door for exactly one answer.
         $lastSendAt = $this->lastSendAt($email);
         if ($lastSendAt === null) {
+            return null;
+        }
+
+        // **And the send has to be recent enough to be what this report
+        // answers.** A real delivery-status report follows its message by
+        // minutes and reaches us within one mailbox poll after that; a
+        // report naming a send from two years ago answers nothing.
+        //
+        // Without this the gate read « has the site EVER written here »,
+        // which is true of every member address the unit has ever mailed
+        // — so a first forged report was admitted on a receipt of any
+        // age. The window does not make forgery impossible (see the
+        // limits in the chantier journal), but it narrows it from « any
+        // address ever mailed » to « one mailed within the last month »,
+        // which has to be waited for rather than chosen.
+        if ($lastSendAt->add(new \DateInterval(self::RECEIPT_MAX_AGE)) < $now) {
             return null;
         }
 

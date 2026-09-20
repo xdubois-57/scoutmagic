@@ -55,11 +55,15 @@ class MemberBounceNotifier implements BounceNotifier
     ) {
     }
 
-    public function notify(BounceState $state, bool $blocking): void
+    public function notify(BounceState $state, bool $blocking): bool
     {
         $recipients = $this->recipientsFor($state->email);
         if ($recipients === []) {
-            return;
+            // Nobody to tell — an address the site holds that belongs to
+            // no account, which is the ordinary case for a parent's
+            // secondary address with no login. Saying so matters: the
+            // caller must not file this error as « déjà dit ».
+            return false;
         }
 
         $this->notifications->dispatch(
@@ -67,6 +71,8 @@ class MemberBounceNotifier implements BounceNotifier
             $recipients,
             $blocking ? $this->blockedPayload($state) : $this->temporaryPayload($state)
         );
+
+        return true;
     }
 
     /**

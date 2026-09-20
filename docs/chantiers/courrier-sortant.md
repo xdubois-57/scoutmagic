@@ -1688,6 +1688,14 @@ après un envoi réel, d'attendre le courrier ordinaire suivant, et d'en
 déposer un second. Un rapport refusé ne laisse aucune trace, donc l'essai
 ne coûte rien.
 
+La preuve a aussi une **durée de validité** (`RECEIPT_MAX_AGE`, un mois) :
+un vrai avis de non-remise suit son message de quelques minutes, et un
+rapport désignant un envoi d'il y a deux ans ne répond à rien. Sans elle,
+la garde disait « le site a-t-il déjà écrit ici », ce qui est vrai de
+toute adresse que l'unité a jamais écrite : le premier faux rapport
+passait sur une preuve de n'importe quel âge, et seul le second demandait
+d'être synchronisé.
+
 Ce qui est fermé : l'attaque sans compte et sans interaction, où deux faux
 rapports suffisaient contre **n'importe quelle** adresse. Ce qui reste
 demande de synchroniser avec les envois réels du site vers cette

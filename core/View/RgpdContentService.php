@@ -556,7 +556,7 @@ de celle-ci, afin qu'un logiciel de messagerie puisse l'afficher — cette adres
 nom, le montant ni l'évènement, et aucune page publique du billet n'existe
 11. **Cookies** : Section 8 doit référencer la page /cookies pour consulter la liste et gérer les préférences, pas de
 tableau dans le RGPD
-12. **Sécurité technique** : Garder détails précis (AES-256-CBC, bcrypt, CSP, RBAC, 6 rôles, WebAuthn, PHPStan niveau 6)
+12. **Sécurité technique** : Garder détails précis (AES-256-GCM, bcrypt, CSP, RBAC, 6 rôles, WebAuthn, PHPStan niveau 6)
 13. **Conservation 5 ans** : Mention obligatoire "5 ans après départ membre" pour archivage
 14. **Base légale** : Chaque traitement doit avoir sa base légale (art. 6 RGPD)
 15. **Transferts hors UE** : Si Anthropic ou hébergeur hors UE, mentionner SCC (art. 46.2.c RGPD)

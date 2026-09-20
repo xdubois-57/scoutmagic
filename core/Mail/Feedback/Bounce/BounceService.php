@@ -215,7 +215,15 @@ class BounceService
         }
 
         try {
-            $this->notifier->notify($state, $blocking);
+            if (!$this->notifier->notify($state, $blocking)) {
+                // Nobody was told — no account maps to this address, the
+                // ordinary case for a parent's secondary address with no
+                // login. Marking it would file the error as « déjà dit »
+                // against a silence, and the day that person does get an
+                // account this error class would stay quiet for ever.
+                return;
+            }
+
             // **Only once the telling succeeded.** Marking it regardless
             // would record an error as « déjà dit » that nobody was ever
             // told, and every later bounce carrying that code would take
