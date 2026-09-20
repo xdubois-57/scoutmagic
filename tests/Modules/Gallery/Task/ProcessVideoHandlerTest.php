@@ -99,8 +99,16 @@ class ProcessVideoHandlerTest extends TestCase
 
     public function testIsANoOpWhenTheMediaRowDoesNotExist(): void
     {
+        // A video deleted between the queueing and the run: no other
+        // media row is transcoded, failed or logged in its place.
+        $untouched = $this->createPendingVideo();
+
         (new ProcessVideoHandler())->handle(['media_id' => 999999], $this->buildContext());
-        $this->assertTrue(true);
+
+        $this->assertSame(Media::STATUS_PENDING, $this->mediaRepository->findById($untouched)->processingStatus);
+        $this->assertSame(0, (int) $this->pdo->query(
+            "SELECT COUNT(*) FROM event_log WHERE event_type = 'video_processing_failed'"
+        )->fetchColumn());
     }
 
     public function testMarksFailedWithoutFfmpegAvailable(): void

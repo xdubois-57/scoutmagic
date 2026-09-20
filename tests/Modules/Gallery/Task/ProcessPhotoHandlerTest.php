@@ -152,8 +152,15 @@ class ProcessPhotoHandlerTest extends TestCase
 
     public function testIsANoOpWhenTheMediaRowDoesNotExist(): void
     {
+        // A photo deleted between the queueing and the run: no other
+        // media row is processed in its place, and nothing is written.
+        $fileId = $this->createOriginalFile();
+        $untouched = $this->mediaRepository->create($this->albumId, Media::TYPE_PHOTO, $fileId, 0, 'test.jpg');
+
         (new ProcessPhotoHandler())->handle(['media_id' => 999999], $this->buildContext());
-        $this->assertTrue(true);
+
+        $this->assertSame(Media::STATUS_PENDING, $this->mediaRepository->findById($untouched)->processingStatus);
+        $this->assertFileDoesNotExist($this->storagePath . '/gallery/' . $this->albumId . '/thumb_' . $untouched . '.jpg');
     }
 
     /**

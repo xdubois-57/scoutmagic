@@ -85,16 +85,21 @@ final class WebDavBackendTest extends TestCase
 
         $backend->delete('12/med_3.jpg');
 
-        $this->assertSame([], $this->share->files, 'le fichier est resté sur le partage');
+        $this->assertSame([], $this->share->files, 'the file is still on the share');
         $this->assertFalse($backend->exists('12/med_3.jpg'));
     }
 
     /** A key that is not there is a success: the desired end state is reached. */
     public function testDeletingSomethingThatIsNotThereIsNotAFailure(): void
     {
-        $this->backend()->delete('12/jamais-ecrit.jpg');
+        $backend = $this->backend();
+        $backend->put('12/med_3.jpg', 'x', 'image/jpeg');
 
-        $this->assertTrue(true, 'la suppression a levé sur une clé absente');
+        $backend->delete('12/never-written.jpg');
+
+        // The neighbour is still there: « not found » is answered by
+        // doing nothing, never by clearing the share.
+        $this->assertSame(['/dav/scoutmagic/12/med_3.jpg'], array_keys($this->share->files));
     }
 
     public function testTheShareSaysHowMuchRoomIsLeft(): void

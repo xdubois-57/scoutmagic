@@ -60,9 +60,10 @@ class CsrfGuardCoverageTest extends TestCase
 
     /**
      * One case per module controller that declares at least one POST
-     * route in its manifest.
+     * route in its manifest, with the `role_min` of every POST route it
+     * declares — which is what an exemption's premise is checked against.
      *
-     * @return array<string, array{0: string, 1: string, 2: string}>
+     * @return array<string, array{0: string, 1: string, 2: string, 3: string[]}>
      */
     public static function controllersAcceptingAPost(): array
     {
@@ -87,21 +88,46 @@ class CsrfGuardCoverageTest extends TestCase
                     continue;
                 }
 
-                $cases[$moduleId . ' / ' . $short] = [$moduleId, $short, $path];
+                $key = $moduleId . ' / ' . $short;
+                $roleMins = $cases[$key][3] ?? [];
+                $roleMins[] = (string) ($route['role_min'] ?? '');
+                $cases[$key] = [$moduleId, $short, $path, array_values(array_unique($roleMins))];
             }
         }
 
         return $cases;
     }
 
+    /**
+     * @param string[] $postRoleMins
+     */
     #[\PHPUnit\Framework\Attributes\DataProvider('controllersAcceptingAPost')]
     public function testAControllerThatAcceptsAPostGuardsAgainstCsrf(
         string $moduleId,
         string $controller,
-        string $path
+        string $path,
+        array $postRoleMins
     ): void {
         if (isset(self::AUTHENTICATED_WITHOUT_A_SESSION[$controller])) {
-            $this->assertTrue(true, $controller . ': ' . self::AUTHENTICATED_WITHOUT_A_SESSION[$controller]);
+            // The exemption's own premise, asserted rather than taken on
+            // the allowlist's word: what replaces the guard is a token the
+            // caller carries, which only holds where no session is
+            // involved at all. A POST the RBAC guard gates by role has a
+            // session, so it has a CSRF token to bind — and belongs on no
+            // allowlist.
+            $this->assertSame(
+                ['public'],
+                $postRoleMins,
+                sprintf(
+                    '%s (%s) is allowlisted as « %s », but declares a POST at role_min « %s ». A route behind a '
+                        . 'role has a session: guard it, or take it off AUTHENTICATED_WITHOUT_A_SESSION and '
+                        . 'SECURITY.md § 4.',
+                    $controller,
+                    $moduleId,
+                    self::AUTHENTICATED_WITHOUT_A_SESSION[$controller],
+                    implode(', ', $postRoleMins)
+                )
+            );
 
             return;
         }

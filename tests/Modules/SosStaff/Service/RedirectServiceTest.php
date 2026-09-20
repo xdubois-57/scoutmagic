@@ -216,8 +216,9 @@ class RedirectServiceTest extends TestCase
 
         try {
             $this->service()->apply(1, null, 100);
-        } catch (SosException $e) {
-            // Expected — assertions are on the mail mock above.
+            self::fail('Expected a SosException: there is no active provider.');
+        } catch (SosException) {
+            // Expected — the alert itself is asserted on the mail mock above.
         }
     }
 

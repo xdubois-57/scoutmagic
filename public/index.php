@@ -10558,7 +10558,10 @@ if ($isEnabled('rental')) {
             // bookings AND the aggregates a purge left behind.
             new \Modules\Rental\Service\RentalStatisticsService(
                 $rentalBookingRepository,
-                new \Modules\Rental\Repository\RentalAggregateRepository($pdo)
+                new \Modules\Rental\Repository\RentalAggregateRepository($pdo),
+                // « À traiter » counts what waits on somebody, not what a
+                // status happens to say (§22.5).
+                $rentalChangeRequestRepository
             ),
             // Only « Régénérer le lien de suivi » reaches it.
             $rentalBookingService

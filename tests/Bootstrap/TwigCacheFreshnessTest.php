@@ -34,27 +34,26 @@ class TwigCacheFreshnessTest extends TestCase
             'phpunit.xml must bootstrap tests/bootstrap.php, not vendor/autoload.php directly'
         );
 
+        // No cache directory at all means nothing rendered a template on
+        // this run (a --filter run, typically): the list below is empty
+        // and the single assertion still holds, rather than an early
+        // return standing in for a verdict.
         $cacheRoot = dirname(__DIR__, 2) . '/storage/temp/twig_cache';
-        if (!is_dir($cacheRoot)) {
-            // Nothing rendered a template yet, or nothing ever does on this
-            // run (--filter). Either way there is no stale copy to find.
-            $this->assertTrue(true);
-
-            return;
-        }
-
         $stale = [];
-        $entries = new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator($cacheRoot, \FilesystemIterator::SKIP_DOTS)
-        );
 
-        foreach ($entries as $entry) {
-            /** @var \SplFileInfo $entry */
-            // A one-second grace: filemtime() has whole-second resolution,
-            // so a template compiled in the same second the bootstrap ran
-            // can legitimately stamp one second earlier.
-            if ($entry->isFile() && $entry->getMTime() < SCOUTMAGIC_TEST_BOOTSTRAP_AT - 1) {
-                $stale[] = $entry->getPathname();
+        if (is_dir($cacheRoot)) {
+            $entries = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($cacheRoot, \FilesystemIterator::SKIP_DOTS)
+            );
+
+            foreach ($entries as $entry) {
+                /** @var \SplFileInfo $entry */
+                // A one-second grace: filemtime() has whole-second resolution,
+                // so a template compiled in the same second the bootstrap ran
+                // can legitimately stamp one second earlier.
+                if ($entry->isFile() && $entry->getMTime() < SCOUTMAGIC_TEST_BOOTSTRAP_AT - 1) {
+                    $stale[] = $entry->getPathname();
+                }
             }
         }
 

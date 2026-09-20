@@ -133,15 +133,28 @@ class CompressSectionDocumentHandlerTest extends TestCase
 
     public function testUnknownDocumentIdIsANoOp(): void
     {
+        // A document deleted between the queueing and the run: no other
+        // document is compressed or marked in its place.
+        $untouched = $this->createDocument('application/pdf', '%PDF-1.4 ' . str_repeat('x', 1000));
+
         (new CompressSectionDocumentHandler())->handle(['section_document_id' => 999999], $this->context);
-        // No exception — nothing to assert beyond "didn't crash".
-        $this->assertTrue(true);
+
+        $this->assertSame(
+            SectionDocument::COMPRESSION_PENDING,
+            $this->documentRepository->findById($untouched->id)->compressionStatus
+        );
     }
 
     public function testZeroOrMissingDocumentIdIsANoOp(): void
     {
+        $untouched = $this->createDocument('application/pdf', '%PDF-1.4 ' . str_repeat('x', 1000));
+
         (new CompressSectionDocumentHandler())->handle([], $this->context);
-        $this->assertTrue(true);
+
+        $this->assertSame(
+            SectionDocument::COMPRESSION_PENDING,
+            $this->documentRepository->findById($untouched->id)->compressionStatus
+        );
     }
 
     public function testDisabledSettingSkipsWithoutCompressing(): void
