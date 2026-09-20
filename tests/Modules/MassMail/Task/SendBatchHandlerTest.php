@@ -164,6 +164,127 @@ class SendBatchHandlerTest extends TestCase
         $this->assertSame(0, (int) $stmt->fetchColumn());
     }
 
+    /**
+     * **A receipt is not worth a mailing.**
+     *
+     * The bounce receipt is stamped after the copy has left and after
+     * `recordSendSuccess()` is committed, and the only handler around
+     * that loop catches `MailException`. So anything else thrown while
+     * stamping — a `DecryptionException` on a row encrypted under a
+     * rotated key, a `\ValueError` from a stored category that is no
+     * longer a case, a `\PDOException` — escaped the loop outright.
+     * `rescheduleIfPendingRemain()` never ran, and nothing else
+     * reschedules a failed `send_batch`: every recipient still pending
+     * stayed pending until somebody noticed and restarted the mailing by
+     * hand.
+     *
+     * The missing table below stands in for that whole family: what
+     * matters is that the failure is unrelated to the send that has
+     * already succeeded.
+     */
+    public function testAReceiptThatCannotBeStampedDoesNotStrandTheRestOfTheMailing(): void
+    {
+        // `recordSend()` is called with `vouchedFor: true` here, so it
+        // skips the `isOnFile()` lookup and goes straight to stamping —
+        // which is the write this removes the ground from under.
+        $this->pdo->exec('DROP TABLE mail_send_receipts');
+
+        $mailService = $this->createMock(MailService::class);
+        $mailService->expects($this->exactly(2))->method('send');
+
+        $handler = new SendBatchHandler();
+        $handler->handle([], $this->buildContext($mailService));
+
+        $counts = $this->recipientRepository->countGroupedByStatus($this->emailId);
+        $this->assertSame(2, $counts['sent'], 'both copies left, so both are sent whatever the receipt did.');
+        $this->assertSame(1, $counts['pending']);
+
+        $stmt = $this->pdo->query(
+            "SELECT COUNT(*) FROM scheduled_actions WHERE module_id = 'mass_mail' "
+            . "AND task_key = 'send_batch' AND status = 'pending'"
+        );
+        $this->assertSame(
+            1,
+            (int) $stmt->fetchColumn(),
+            'the next batch is still scheduled — without it the last recipient waits for a human.'
+        );
+    }
+
+    /**
+     * **The mailing has to vouch for its own recipients**, and it did not.
+     *
+     * `MailService::send()`'s suppression gate is conditioned entirely on
+     * `$vouchesForRecipient`, and the parameter's own docblock names the
+     * three call sites that should set it: « une notification à un membre,
+     * un document envoyé à la personne qu'il concerne, un publipostage ».
+     * The first two passed `true`. The mailing — the third — did not, so
+     * the live gate never fired for mass mail at all.
+     *
+     * The freeze filters blocked addresses once, when the mailing is
+     * queued. A batch then drains over a cadence spanning hours, and an
+     * address blocked DURING that run — typically by bouncing an earlier
+     * batch of this very mailing — kept receiving every later batch, the
+     * only remaining check being that stale snapshot.
+     */
+    public function testEveryCopyVouchesForItsRecipientSoTheLiveGateApplies(): void
+    {
+        $seen = [];
+        $mailService = $this->createMock(MailService::class);
+        $mailService->method('send')->willReturnCallback(
+            function (
+                string $to,
+                string $subject,
+                string $bodyHtml,
+                string $bodyText = '',
+                ?string $replyTo = null,
+                array $attachments = [],
+                ?string $fromAddressOverride = null,
+                ?string $fromNameOverride = null,
+                array $extraHeaders = [],
+                \Core\Mail\MailPurpose $purpose = \Core\Mail\MailPurpose::Ordinary,
+                bool $vouchesForRecipient = false
+            ) use (&$seen): void {
+                $seen[] = $vouchesForRecipient;
+            }
+        );
+
+        $handler = new SendBatchHandler();
+        $handler->handle([], $this->buildContext($mailService));
+
+        $this->assertNotSame([], $seen);
+        $this->assertSame(
+            array_fill(0, count($seen), true),
+            $seen,
+            'a copy that does not vouch walks straight past the suppression gate.'
+        );
+    }
+
+    /**
+     * And when that gate does fire mid-run, the tracking page keeps one
+     * vocabulary: the same sentence the freeze writes for an address
+     * already blocked when the mailing was queued. The exception's own
+     * message is written for the MEMBER — it names their address page —
+     * and this column is read by staff.
+     */
+    public function testAnAddressBlockedMidRunIsRecordedInThePagesOwnWords(): void
+    {
+        $mailService = $this->createMock(MailService::class);
+        $mailService->method('send')
+            ->willThrowException(\Core\Mail\SuppressedRecipientException::blocked());
+
+        $handler = new SendBatchHandler();
+        $handler->handle([], $this->buildContext($mailService));
+
+        $recipients = $this->recipientRepository->findByEmailId($this->emailId);
+        $errored = array_values(array_filter($recipients, fn(Recipient $r) => $r->status === Recipient::STATUS_ERROR));
+        $this->assertNotEmpty($errored);
+
+        foreach ($errored as $recipient) {
+            $this->assertSame('Adresse suspendue après des refus répétés', $recipient->errorMessage);
+            $this->assertStringNotContainsString('@test.be', (string) $recipient->errorMessage);
+        }
+    }
+
     public function testMailExceptionMarksRecipientAsErrorWithoutLeakingAddress(): void
     {
         $mailService = $this->createMock(MailService::class);

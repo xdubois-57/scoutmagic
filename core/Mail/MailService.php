@@ -70,7 +70,21 @@ class MailService
          * happened, loudly, the first time this one went in next to the
          * other addresses where it reads better.
          */
-        private string $replyAddress = ''
+        private string $replyAddress = '',
+        /**
+         * The send receipts (roadmap IT-05), and **last for the same
+         * reason `$replyAddress` is**: several call sites build this
+         * service positionally.
+         *
+         * The repository rather than `Bounce\BounceService`, because
+         * stamping a receipt needs no notifier — and a notifier would
+         * drag `NotificationService` in, which is built with a
+         * MailService of its own.
+         *
+         * Null is a site with no bounce handling; nothing is recorded and
+         * nothing breaks.
+         */
+        private ?Feedback\Bounce\BounceStateRepository $sendReceipts = null
     ) {
     }
 
@@ -148,7 +162,11 @@ class MailService
      * @param MailPurpose $purpose What this message is, for DELIVERY purposes only, and nothing else: the
      *                             transport is the only thing that reads it, and the default transport ignores
      *                             it. Left at `Ordinary` by all but one call site — see MailPurpose.
-     * @throws MailException on failure
+     * @throws SuppressedRecipientException when the recipient is a
+     *                                      suspended address this send
+     *                                      vouches for — nothing left,
+     *                                      and deliberately so
+     * @throws MailException                on failure
      */
     public function send(
         string $to,
@@ -160,8 +178,84 @@ class MailService
         ?string $fromAddressOverride = null,
         ?string $fromNameOverride = null,
         array $extraHeaders = [],
-        MailPurpose $purpose = MailPurpose::Ordinary
+        MailPurpose $purpose = MailPurpose::Ordinary,
+        /**
+         * Did the SITE choose this recipient, or was it handed one?
+         *
+         * **False by default, and that direction is the whole point.** A
+         * bounce receipt is what lets a report naming an address be
+         * believed, so a caller that has never heard of the rule must not
+         * mint one. Forgotten here, a send records nothing and at worst a
+         * bounce goes unnoticed; forgotten the other way round it hands
+         * somebody a way to have an address cut off.
+         *
+         * The first attempt defaulted to true and was wrong in four
+         * places at once — a public form, a registration twin, a claimed
+         * secondary address, and the deferred-mail queue, which replays a
+         * message without carrying any of this.
+         *
+         * True belongs to the paths that write to a correspondent the
+         * site picked from its own records: a notification to a member, a
+         * document sent to the person it concerns, a mailing.
+         */
+        bool $vouchesForRecipient = false
     ): void {
+        // **A blocked address is one the site has stopped writing to, and
+        // that has to be true of every message it sends of its own
+        // accord** — not of mailings alone, which is where the rule was
+        // first enforced and where it stayed. A notification or a mailed
+        // document landing in a mailbox the member was just told had been
+        // suspended makes the promise false and the notice confusing.
+        //
+        // Gated on the same `$vouchesForRecipient` as the receipt, and
+        // deliberately: it marks exactly the sends where the SITE chose
+        // the correspondent. Authentication mail does not vouch and is
+        // therefore never suppressed — a magic link or a password reset
+        // is the one thing a person is waiting for at that moment, and
+        // withholding it over a bounce two months old would lock them out
+        // of the site instead of protecting its reputation (D9).
+        //
+        // **It throws rather than returning**, because a void method that
+        // returns normally says « parti » in every language a caller
+        // speaks. Returning here had the attestations batch recording
+        // `DeliveryState::Sent` — never retried — and the member page
+        // flashing « Document renvoyé par e-mail » for a message nobody
+        // received. {@see SuppressedRecipientException} for the rest.
+        //
+        // **Asking the question must not be able to break the send.** This
+        // runs before the `try` below, so an unguarded `find()` — a query
+        // plus a `decrypt()` — threw a raw `PDOException` or a decryption
+        // failure straight out of a method whose whole contract is
+        // `MailException`. `NotificationMailer` catches only that, and its
+        // own caller `NotificationService::deliverPendingEmails()` catches
+        // nothing, so one corrupt row would abort the entire delivery loop
+        // rather than cost one message.
+        //
+        // **And it fails OPEN, unlike the receipt below.** The two are not
+        // symmetrical: a receipt not written costs a future bounce its
+        // proof, while a suppression not applied costs one message to an
+        // address that may be suspended. Withholding a document or a
+        // notification from somebody because a database read failed is the
+        // worse of the two, and it is the same judgement D9 already makes
+        // about mail people are waiting for. Reputation is what this gate
+        // protects, and reputation survives one message; a member who
+        // never receives their attestation has no way to know they should
+        // ask for it.
+        $blocked = false;
+
+        try {
+            $blocked = $vouchesForRecipient && $this->sendReceipts?->find($to)?->isBlocked() === true;
+        } catch (\Throwable) {
+            // Deliberately silent, like the receipt: the journal is reached
+            // through the same database that just refused.
+        }
+
+        if ($blocked) {
+            $this->journalSuppressedToBlockedAddress();
+
+            throw SuppressedRecipientException::blocked();
+        }
+
         $mail = new PHPMailer(true);
 
         try {
@@ -244,6 +338,41 @@ class MailService
             // above stays here so a captured message is byte-for-byte the
             // message that would have gone out.
             $this->transport->deliver($mail, $purpose);
+
+            // **The one place the site knows it wrote to somebody.** A
+            // bounce is only credited to an address a message actually
+            // went to (Feedback\Bounce\BounceStateRepository::record()),
+            // and this is the single point every message passes through —
+            // the confirmation of a freshly typed address as much as a
+            // mailing. Wired anywhere narrower, the most likely real
+            // bounce of all, a typo caught on its very first send, would
+            // be the one the site threw away.
+            //
+            // After `deliver()` and not before: a relay that refused the
+            // message wrote nothing, and a deferred one has not written
+            // yet. `recordSend()` also settles the PREVIOUS send, which
+            // is why it is this call and not `stampReceipt()`.
+            //
+            // **Two independent conditions, and forgetting either
+            // fails safe.** The caller says whether the site chose this
+            // recipient (`$vouchesForRecipient`, false unless stated),
+            // and `recordSend()` separately refuses an address the site
+            // does not already hold.
+            //
+            // Neither alone is enough. Asking only the address lets an
+            // attacker aim a send AT an address that is on file — claim a
+            // member's confirmed address as an unconfirmed secondary of
+            // their own, or simply post it into a public form — and the
+            // receipt is minted for the victim all the same.
+            try {
+                if ($vouchesForRecipient) {
+                    $this->sendReceipts?->recordSend($to, new \DateTimeImmutable());
+                }
+            } catch (\Throwable) {
+                // Deliberately silent: there is nobody to tell who could
+                // act on it, and the journal is reached through the same
+                // database that just refused.
+            }
         } catch (Transport\LaneExhaustedException $e) {
             // A lane with nothing left is not a refusal: nobody has said
             // no to this message, the road is simply shut. So it is kept
@@ -278,7 +407,8 @@ class MailService
                 $attachments,
                 $fromAddressOverride,
                 $fromNameOverride,
-                $extraHeaders
+                $extraHeaders,
+                $vouchesForRecipient
             );
 
             if ($payload !== null && $this->deferred?->defer($e->lane, $purpose, $payload, $reason) === true) {
@@ -412,6 +542,7 @@ class MailService
      *     to: string, subject: string, bodyHtml: string, bodyText: string,
      *     replyTo: ?string, fromAddressOverride: ?string, fromNameOverride: ?string,
      *     extraHeaders: array<string, string>,
+     *     vouchesForRecipient: bool,
      *     attachments: array<int, array{name: string, content: string}>
      * }|null
      */
@@ -424,7 +555,8 @@ class MailService
         array $attachments,
         ?string $fromAddressOverride,
         ?string $fromNameOverride,
-        array $extraHeaders
+        array $extraHeaders,
+        bool $vouchesForRecipient
     ): ?array {
         $bytes = 0;
         foreach ($attachments as $attachment) {
@@ -458,6 +590,15 @@ class MailService
             'fromAddressOverride' => $fromAddressOverride,
             'fromNameOverride' => $fromNameOverride,
             'extraHeaders' => $extraHeaders,
+            // **Carried, because the queue outlives the decision.** The
+            // suppression gate at the top of `send()` reads this flag, and
+            // a replay that did not carry it read « false » — « the site
+            // never chose this recipient » — for a notification the site
+            // very much chose. A message deferred while the address was
+            // fine and drained after it was blocked went out anyway, to
+            // somebody who had just been told the site had stopped writing
+            // to them. A drain re-reads the gate with the right answer.
+            'vouchesForRecipient' => $vouchesForRecipient,
             'attachments' => $carried,
         ];
     }
@@ -470,6 +611,28 @@ class MailService
      * next to the ones that are. What makes it worth recording at all is
      * that a deferral is invisible to whoever triggered it.
      */
+    /**
+     * A message the site chose not to send, written down at `info`.
+     *
+     * Not an error — nothing went wrong, the address is suspended and
+     * that is the feature working. But it is invisible to whoever
+     * triggered it, which is the same reason a deferral is recorded.
+     * No address, per SECURITY.md §11.
+     */
+    private function journalSuppressedToBlockedAddress(): void
+    {
+        try {
+            $this->journal?->log(
+                'core',
+                'mail_suppressed_blocked_address',
+                'info',
+                'Message non envoyé : adresse suspendue après des refus répétés'
+            );
+        } catch (\Throwable) {
+            // The message is withheld either way.
+        }
+    }
+
     private function journalDeferral(Transport\MailLane $lane, string $reason): void
     {
         try {

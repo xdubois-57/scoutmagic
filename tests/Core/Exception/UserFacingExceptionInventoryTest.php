@@ -45,6 +45,7 @@ final class UserFacingExceptionInventoryTest extends TestCase
         \Core\Image\ImageDimensionException::class,
         \Core\Import\ImportException::class,
         \Core\Import\RosterReplacementRefusedException::class,
+        \Core\Mail\SuppressedRecipientException::class,
         \Core\Maintenance\BackupException::class,
         \Core\Maintenance\UpdateException::class,
         \Core\Member\Duplicate\MergeException::class,

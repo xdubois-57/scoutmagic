@@ -261,16 +261,24 @@ class SchedulerBootstrapTest extends TestCase
         $consumers = (new \ReflectionProperty(\Modules\InboundMail\Service\MessageConsumerRegistry::class, 'consumers'))
             ->getValue($registry);
 
-        $this->assertCount(3, $consumers);
+        $this->assertCount(4, $consumers);
         // The core's own round trip is registered unconditionally — it
         // belongs to the core, not to a module, so there is no module id
         // to test for (roadmap IT-03). It claims nothing, so its position
         // is immaterial.
         $this->assertInstanceOf(\Core\Mail\Feedback\ReturnPathConsumer::class, $consumers[0]);
-        $this->assertInstanceOf(\Modules\Rental\Mail\RentalMessageConsumer::class, $consumers[1]);
+        // The bounces (roadmap IT-05), unconditional and position-
+        // immaterial for the same two reasons: core rather than module,
+        // and `nothing()` rather than a claim. **This registry is the
+        // one that matters** — the web one in public/index.php only
+        // tells the mailbox screen which scopes exist, so a consumer
+        // present there and absent here is offered, ticked, and never
+        // asked anything.
+        $this->assertInstanceOf(\Core\Mail\Feedback\Bounce\BounceConsumer::class, $consumers[1]);
+        $this->assertInstanceOf(\Modules\Rental\Mail\RentalMessageConsumer::class, $consumers[2]);
         // Last, and load-bearing: first-claim-wins, and a dedicated camps
         // mailbox claims everything it is offered.
-        $this->assertInstanceOf(\Modules\Camps\Mail\CampsMessageConsumer::class, $consumers[2]);
+        $this->assertInstanceOf(\Modules\Camps\Mail\CampsMessageConsumer::class, $consumers[3]);
     }
 
     public function testTheSyncFactoryIsNotRegisteredWhenInboundMailIsDisabled(): void

@@ -10,6 +10,8 @@ namespace Core\Member;
 
 use Core\Config\ScoutYearService;
 use Core\Journal\JournalService;
+use Core\Mail\Feedback\Bounce\BounceService;
+use Core\Mail\Feedback\Bounce\BounceState;
 use Core\Mail\MailException;
 use Core\Mail\MailService;
 use Core\Mail\Template\EmailTemplateRenderer;
@@ -43,8 +45,93 @@ class MemberEmailService
         private ScoutYearService $scoutYearService,
         private string $baseUrl,
         private string $siteName,
-        private EmailDomainValidator $emailDomainValidator = new EmailDomainValidator()
+        private EmailDomainValidator $emailDomainValidator = new EmailDomainValidator(),
+        /**
+         * What the site knows about addresses that bounce (roadmap
+         * IT-05).
+         *
+         * Nullable because the bounce table is core but the thing that
+         * fills it is a consumer of `inbound_mail` (D2): an installation
+         * without that module never records a bounce, and must go on
+         * resolving addresses exactly as it always did. Null therefore
+         * means « rien n'a jamais rebondi », which is the correct answer
+         * there, never a silent failure.
+         */
+        private ?BounceService $bounces = null
     ) {
+    }
+
+    /**
+     * What is known about this address's failures, or null when it has
+     * never bounced — which is the overwhelming majority of them.
+     *
+     * **Answered only for an address the member has PROVEN is theirs**
+     * (`controlIsProven()`). A `mail_bounce_states` row is keyed by the
+     * address's blind index and belongs to the mailbox, not to the row
+     * that reaches it, so an unconfirmed row naming somebody else's
+     * address would otherwise report that address's bounce category and
+     * dates on the wrong person's page.
+     */
+    public function bounceFor(MemberEmail $row): ?BounceState
+    {
+        if (!$this->controlIsProven($row)) {
+            return null;
+        }
+
+        return $this->bounces?->stateFor($row->email);
+    }
+
+    /**
+     * The member lifts a block the SITE placed (D19).
+     *
+     * **Not a fourth status, and not a contradiction of `isOwnMember()`.**
+     * A block on bounce is the site's decision, so the person it
+     * inconveniences may undo it; the three values of `status` record the
+     * member's own decisions and are untouched here. The ownership guard
+     * is the existing one, unchanged: this reaches nothing a member could
+     * not already reach.
+     *
+     * Unblocking through one child's profile clears the mailbox
+     * everywhere, because there is one mailbox and one state — see the
+     * `mail_bounce_states` table comment.
+     *
+     * @return bool whether a block was actually lifted. False is the
+     *              ordinary outcome of a double-submit, a stale tab, or a
+     *              super-admin having got there first — and the caller has
+     *              to know, because « Adresse réactivée » over a no-op is a
+     *              success message about nothing. The admin path
+     *              ({@see \Core\Http\Controller\OutboundMailController
+     *              ::unblockBounce()}) already answered this question; this
+     *              one threw the answer away.
+     */
+    public function unblockBounce(int $memberId, int $emailId, ?string $deskEmail = null): bool
+    {
+        // **Id 0 is the Desk address, and it has no row yet.**
+        // `virtualDeskRow()` synthesises one with `id: 0` whenever the
+        // member has never unsubscribed or reactivated their Desk
+        // address — which is most members — so that is the id the page
+        // posts back, and `findById(0)` finds nothing. Refusing here
+        // would deny self-service on the very address most likely to be
+        // the one that bounced.
+        //
+        // The Desk address is supplied by the caller, exactly as
+        // `listForMember()` and `resolveValidAddressesForMassMail()`
+        // already take it: this service never looks it up, and taking it
+        // on trust from the page would let a member name somebody else's.
+        $email = $emailId === 0
+            ? $this->requireOwnDeskEmail($memberId, $deskEmail)
+            : $this->requireProvenOwnRow($memberId, $emailId)->email;
+
+        if ($this->bounces === null) {
+            return false;
+        }
+
+        $state = $this->bounces->stateFor($email);
+        if ($state === null) {
+            return false;
+        }
+
+        return $this->bounces->unblock($state->id, true);
     }
 
     /**
@@ -309,6 +396,62 @@ class MemberEmailService
      */
     public function resolveValidAddressesForMassMail(int $memberId, ?string $deskEmail): array
     {
+        // **The point of the whole chantier, in one filter.** An address
+        // the far end has refused twice is an address every further
+        // message damages the unit's reputation with — and the member has
+        // been told, and can lift it themselves. Filtered here rather than
+        // in the caller so that no future sender can forget to.
+        return array_values(array_filter(
+            $this->sendableRowsForMassMail($memberId, $deskEmail),
+            fn(MemberEmail $row): bool => !($this->bounces?->isBlocked($row->email) ?? false)
+        ));
+    }
+
+    /**
+     * Whether this member HAS addresses and every one of them is currently
+     * blocked for bounces.
+     *
+     * **Asked only when the list above comes back empty**, and it exists
+     * because « vide » has two causes that need opposite things from a
+     * chef d'unité. The mass-mail freeze reported both as « Adresse
+     * invalide », which sends somebody hunting for a typo in an address
+     * that is perfectly well formed and worked until last month — when
+     * what they need is the Rebonds page.
+     *
+     * The distinction became load-bearing the moment
+     * {@see \Core\Mail\Feedback\Bounce\BounceStateRepository} learned to
+     * recognise Desk addresses: before that a Desk-only member could never
+     * be blocked, so this case could not arise. It can now, and it is the
+     * commonest shape of member on the site.
+     *
+     * False when the member has no address at all — that is the OTHER
+     * cause, and it keeps its own wording.
+     */
+    public function everyAddressIsBlockedForMassMail(int $memberId, ?string $deskEmail): bool
+    {
+        $rows = $this->sendableRowsForMassMail($memberId, $deskEmail);
+        if ($rows === []) {
+            return false;
+        }
+
+        foreach ($rows as $row) {
+            if (!($this->bounces?->isBlocked($row->email) ?? false)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Every address a mailing could use for this member, BEFORE the bounce
+     * filter — the Desk address (lazily given its override row) and the
+     * valid secondary ones.
+     *
+     * @return MemberEmail[]
+     */
+    private function sendableRowsForMassMail(int $memberId, ?string $deskEmail): array
+    {
         $addresses = [];
 
         if ($deskEmail !== null && $deskEmail !== '') {
@@ -550,6 +693,22 @@ class MemberEmailService
         }
     }
 
+    /**
+     * The member's own Desk address, for the one id that has no row.
+     *
+     * The address comes from the caller — the controller reads it off the
+     * member's profile — so « la sienne » is established by the profile
+     * lookup and not by anything the browser sent.
+     */
+    private function requireOwnDeskEmail(int $memberId, ?string $deskEmail): string
+    {
+        if ($deskEmail === null || trim($deskEmail) === '') {
+            throw new MemberEmailException('Adresse introuvable.');
+        }
+
+        return $deskEmail;
+    }
+
     private function requireOwnRow(int $memberId, int $emailId): MemberEmail
     {
         $row = $this->repository->findById($emailId);
@@ -557,5 +716,48 @@ class MemberEmailService
             throw new MemberEmailException('Adresse introuvable.');
         }
         return $row;
+    }
+
+    /**
+     * Ownership AND proof of control, for the two calls that read or
+     * write state belonging to the mailbox rather than to the row.
+     *
+     * `requireOwnRow()` alone is the right guard for « renvoyer »,
+     * « supprimer » and « réactiver », which touch nothing outside the
+     * member's own row. It is NOT enough here: `addEmail()` accepts any
+     * syntactically valid address as a `pending` row — deliberately, it
+     * is the very act of claiming one — and the unique index is per
+     * member, so naming an address that already belongs to somebody else
+     * succeeds. Without this second test, that unproven claim would lift
+     * a block the site placed on the real owner's failing mailbox, and
+     * the site would resume writing to an address that refuses it.
+     */
+    private function requireProvenOwnRow(int $memberId, int $emailId): MemberEmail
+    {
+        $row = $this->requireOwnRow($memberId, $emailId);
+        if (!$this->controlIsProven($row)) {
+            // Deliberately the same wording as an id that belongs to
+            // nobody: « confirmez d'abord cette adresse » would answer,
+            // to whoever asked, that the address exists elsewhere on the
+            // site and is currently suspended.
+            throw new MemberEmailException('Adresse introuvable.');
+        }
+
+        return $row;
+    }
+
+    /**
+     * Has this member shown they can read this mailbox?
+     *
+     * Two ways, and only two. A Desk-sourced row was imported from the
+     * registry rather than typed in here, so the address is Desk's word
+     * and not the member's claim. Any other row counts once its
+     * confirmation link has been followed — `confirmedAt`, not
+     * `isValid()`: an address the member later unsubscribed was proven
+     * all the same, and they may still lift a block on it.
+     */
+    private function controlIsProven(MemberEmail $row): bool
+    {
+        return $row->isDeskSourced() || $row->confirmedAt !== null;
     }
 }

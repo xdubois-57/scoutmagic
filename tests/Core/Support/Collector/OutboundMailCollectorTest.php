@@ -57,6 +57,7 @@ class OutboundMailCollectorTest extends TestCase
     private DeferredMailRepository $deferred;
     private ReturnProbeRepository $returnProbes;
     private \Core\Mail\Probe\MailProbeRepository $mailProbes;
+    private \Core\Mail\Feedback\Bounce\BounceStateRepository $bounceStates;
     private ?InboundMailInterface $inboundMail = null;
 
     /** @var array<string, string> */
@@ -74,6 +75,7 @@ class OutboundMailCollectorTest extends TestCase
         $this->deferred = new DeferredMailRepository($this->pdo, $encryption);
         $this->returnProbes = new ReturnProbeRepository($this->pdo, $encryption);
         $this->mailProbes = new \Core\Mail\Probe\MailProbeRepository($this->pdo, $encryption);
+        $this->bounceStates = new \Core\Mail\Feedback\Bounce\BounceStateRepository($this->pdo, $encryption);
 
         $this->projectRoot = sys_get_temp_dir() . '/scoutmagic-outbound-' . bin2hex(random_bytes(6));
         $this->storagePath = $this->projectRoot . '/storage';
@@ -349,6 +351,45 @@ class OutboundMailCollectorTest extends TestCase
     }
 
     /**
+     * **The domain and the count, never the address** (roadmap IT-05).
+     * This file goes to a third party and is kept far longer than the
+     * screen it mirrors, while « onze adresses suspendues chez le même
+     * fournisseur » is the shape somebody helping needs — and says
+     * nothing about any one family.
+     */
+    public function testTheArchiveCountsSuspendedAddressesByProviderAndNamesNone(): void
+    {
+        $now = new \DateTimeImmutable('2026-09-19 10:00:00');
+        foreach (['un@gmail.com', 'deux@gmail.com', 'trois@exemple.be'] as $email) {
+            // Vouched for: these fixtures stand in for addresses the unit
+            // writes to, and `recordSend()` stamps a receipt only for one
+            // the site holds on file.
+            $this->bounceStates->recordSend($email, $now->modify('-1 hour'), true);
+            $state = $this->bounceStates->record(
+                $email,
+                \Core\Mail\Feedback\Bounce\BounceCategory::NoSuchAddress,
+                \Core\Mail\Feedback\Bounce\BounceSeverity::Permanent,
+                '5.1.1',
+                $now
+            );
+            self::assertNotNull($state);
+            $this->bounceStates->block($state->id, $now);
+        }
+
+        $report = $this->collect();
+
+        $this->assertStringContainsString('── Adresses suspendues sur rebond', $report);
+        $this->assertStringContainsString('gmail.com', $report);
+        $this->assertStringNotContainsString('un@gmail.com', $report);
+        $this->assertStringNotContainsString('trois@exemple.be', $report);
+    }
+
+    public function testTheArchiveSaysSoWhenNothingIsSuspended(): void
+    {
+        $this->assertStringContainsString('aucune adresse suspendue', $this->collect());
+    }
+
+    /**
      * An installation whose composition root built no probe repository:
      * the archive simply has no probe section, rather than a section
      * announcing itself and then saying nothing, and certainly rather
@@ -583,7 +624,8 @@ class OutboundMailCollectorTest extends TestCase
             $this->settings,
             $this->returnProbes,
             $this->inboundMail,
-            $withProbes ? $this->mailProbes : null
+            $withProbes ? $this->mailProbes : null,
+            $this->bounceStates
         );
 
         $archivePath = $this->storagePath . '/temp/outbound-' . bin2hex(random_bytes(6)) . '.zip';

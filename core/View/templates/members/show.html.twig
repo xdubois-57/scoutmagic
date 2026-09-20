@@ -330,6 +330,26 @@
                                     {% elseif row.status == 'inactive' %}
                                         <div class="small text-body-secondary">Désinscrit(e) des emails groupés le {{ row.deactivatedAt|french_date }}</div>
                                     {% endif %}
+                                    {#
+                                      Roadmap IT-05. The reason in ordinary
+                                      French and the gesture that goes with
+                                      it — never « 550 5.1.1 recipient
+                                      rejected », which means nothing to a
+                                      parent and quotes their own address
+                                      back at them.
+                                    #}
+                                    {% set bounce = member_email_bounces[row.id] ?? null %}
+                                    {% if bounce %}
+                                        <div class="small mt-1 {{ bounce.blocked ? 'text-danger' : 'text-warning-emphasis' }}">
+                                            <i class="bi {{ bounce.blocked ? 'bi-x-octagon' : 'bi-exclamation-triangle' }}" aria-hidden="true"></i>
+                                            {% if bounce.blocked %}
+                                                Suspendue depuis le {{ bounce.since|french_date }} — nous n'écrivons plus à cette adresse.
+                                            {% else %}
+                                                Un message n'a pas pu être remis le {{ bounce.since|french_date }}.
+                                            {% endif %}
+                                            <span class="d-block text-body-secondary">{{ bounce.label }}. {{ bounce.guidance }}{% if bounce.blocked and bounce.reactivation_hint %} {{ bounce.reactivation_hint }}{% endif %}</span>
+                                        </div>
+                                    {% endif %}
                                 </div>
                                 <div class="d-flex flex-wrap gap-2">
                                     {% if row.status == 'pending' %}
@@ -347,10 +367,30 @@
                                             <button type="submit" class="btn btn-sm btn-outline-primary">Réactiver</button>
                                         </form>
                                     {% endif %}
+                                    {#
+                                      Lifting a block the SITE placed, which
+                                      is a different decision from
+                                      « Réactiver » above — that one undoes
+                                      the member's own unsubscribe (D19). A
+                                      single button doing both would let a
+                                      parent silently undo their unsubscribe
+                                      while meaning to empty their mailbox.
+                                    #}
+                                    {% if bounce and bounce.blocked %}
+                                        <form method="post" action="/members/{{ member.memberYearId }}/emails/{{ row.id }}/bounce-unblock">
+                                            {{ csrf_field()|raw }}
+                                            <button type="submit" class="btn btn-sm btn-outline-primary">Réessayer cette adresse</button>
+                                        </form>
+                                    {% endif %}
                                     {% if row.source != 'desk' %}
                                         <form method="post" action="/members/{{ member.memberYearId }}/emails/{{ row.id }}/delete" data-confirm="{% if row.status == 'pending' %}Annuler l'ajout de cette adresse email ?{% else %}Supprimer cette adresse email ?{% endif %}">
                                             {{ csrf_field()|raw }}
-                                            <button type="submit" class="btn btn-sm btn-outline-danger">{% if row.status == 'pending' %}Annuler{% else %}Supprimer{% endif %}</button>
+                                            {# An icon, like everywhere else on this site (roadmap IT-05). #}
+                                            <button type="submit" class="btn btn-sm btn-outline-danger"
+                                                    aria-label="{% if row.status == 'pending' %}Annuler l'ajout de cette adresse{% else %}Supprimer cette adresse{% endif %}"
+                                                    title="{% if row.status == 'pending' %}Annuler l'ajout{% else %}Supprimer{% endif %}">
+                                                <i class="bi {% if row.status == 'pending' %}bi-x-lg{% else %}bi-trash{% endif %}" aria-hidden="true"></i>
+                                            </button>
                                         </form>
                                     {% endif %}
                                 </div>

@@ -189,7 +189,7 @@ class SqlParserTest extends TestCase
         $schemaPath = dirname(__DIR__, 3) . '/schema/core.sql';
         $tables = $this->parser->parseFile($schemaPath);
 
-        $this->assertCount(59, $tables);
+        $this->assertCount(61, $tables);
 
         $tableNames = array_map(fn($t) => $t->name, $tables);
         $this->assertContains('sent_email_claims', $tableNames);
@@ -205,6 +205,10 @@ class SqlParserTest extends TestCase
         // And the round trip that says whether what comes back reaches
         // anybody (roadmap IT-03).
         $this->assertContains('mail_return_probes', $tableNames);
+        // Named as well as counted: a rename paired with any other table
+        // addition keeps the total at 61 and would slip through (IT-05).
+        $this->assertContains('mail_bounce_states', $tableNames);
+        $this->assertContains('mail_send_receipts', $tableNames);
         $this->assertContains('operational_alerts', $tableNames);
         // Declared destinations for bytes (Core\Storage\Location) — in
         // core, not in the gallery that was only its first consumer.

@@ -98,7 +98,9 @@ class OutboundMailCollector implements SupportCollectorInterface
          * on the wire while it is being assembled, so what it gets is the
          * table and not the sender.
          */
-        private ?MailProbeRepository $probes = null
+        private ?MailProbeRepository $probes = null,
+        /** The bounce state (roadmap IT-05). */
+        private ?\Core\Mail\Feedback\Bounce\BounceStateRepository $bounces = null
     ) {
     }
 
@@ -173,6 +175,10 @@ class OutboundMailCollector implements SupportCollectorInterface
         }
 
         foreach ($this->probeLines() as $line) {
+            $lines[] = $line;
+        }
+
+        foreach ($this->bounceLines() as $line) {
             $lines[] = $line;
         }
 
@@ -376,6 +382,67 @@ class OutboundMailCollector implements SupportCollectorInterface
                 $probe !== null ? ', envoyé le ' . $probe->sentAt->format('Y-m-d H:i') : '',
                 $probe?->receivedAt !== null ? ', revenu le ' . $probe->receivedAt->format('Y-m-d H:i') : ''
             );
+        }
+
+        $lines[] = '';
+
+        return $lines;
+    }
+
+    /**
+     * How many addresses have stopped being written to, and at which
+     * providers — never WHICH addresses (roadmap IT-05).
+     *
+     * **The domain and the count, and that is the whole section.** This
+     * file goes to a third party and is kept far longer than the screen
+     * it mirrors, so an address has no business in it — while « douze
+     * adresses suspendues, onze chez le même fournisseur » is exactly the
+     * shape somebody helping needs, and says nothing about any one
+     * family.
+     *
+     * @return list<string>
+     */
+    private function bounceLines(): array
+    {
+        if ($this->bounces === null) {
+            return [];
+        }
+
+        try {
+            // Both figures from the SAME bounded set. `countBlocked()`
+            // counts every block while `blocked()` returns the newest
+            // hundred, so pairing them made the heading claim a total the
+            // rows below did not account for.
+            $blocked = $this->bounces->blocked();
+            $total = count($blocked);
+            $overall = $this->bounces->countBlocked();
+        } catch (\Throwable) {
+            return [];
+        }
+
+        $lines = ['── Adresses suspendues sur rebond ──────────────────────────'];
+
+        if ($blocked === []) {
+            $lines[] = 'aucune adresse suspendue';
+            $lines[] = '';
+
+            return $lines;
+        }
+
+        $byDomain = [];
+        foreach ($blocked as $state) {
+            $at = strrpos($state->email, '@');
+            $domain = $at === false ? '(inconnu)' : substr($state->email, $at + 1);
+            $byDomain[$domain] = ($byDomain[$domain] ?? 0) + 1;
+        }
+        arsort($byDomain);
+
+        $plural = $total > 1 ? 's' : '';
+        $lines[] = $overall > $total
+            ? sprintf('%d adresses suspendues au total, les %d dernières par fournisseur :', $overall, $total)
+            : sprintf('%d adresse%s suspendue%s, par fournisseur :', $total, $plural, $plural);
+        foreach ($byDomain as $domain => $count) {
+            $lines[] = sprintf('%-40s  %d', mb_substr((string) $domain, 0, 40), $count);
         }
 
         $lines[] = '';

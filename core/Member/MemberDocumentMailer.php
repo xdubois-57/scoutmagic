@@ -68,7 +68,8 @@ class MemberDocumentMailer
                 $this->htmlBody($title, $unitName),
                 $this->textBody($title, $unitName),
                 null,
-                [['path' => $path, 'name' => $this->attachmentName($title)]]
+                [['path' => $path, 'name' => $this->attachmentName($title)]],
+                vouchesForRecipient: true
             );
         } finally {
             @unlink($path);

@@ -1,0 +1,131 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  Courrier sortant › Rebonds (roadmap IT-05).
+
+  The one sentence this page must not omit is at the bottom: bounce
+  handling is blind to spam filing. Providers almost never refuse — they
+  accept and move the message silently — so an empty page here means
+  « rien n'a été refusé », never « tout arrive ». That is the most
+  expensive confusion in this whole chantier, which is why it is on the
+  screen and not only in the help topic.
+#}
+{% extends 'base.html.twig' %}
+{% block title %}Rebonds — {{ site_name }}{% endblock %}
+{% block content %}
+{% include 'partials/page_header.html.twig' with {
+    title: 'Rebonds',
+    subtitle: "Les adresses qui refusent nos messages, et ce qu'on peut y faire.",
+} only %}
+
+{% include 'config/outbound_mail/_nav.html.twig' %}
+
+{% if not available %}
+    <div class="alert alert-warning">{{ unavailable_reason }}</div>
+{% else %}
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5">Adresses suspendues</h2>
+            {% if blocked is empty %}
+                <p class="text-body-secondary small mb-0">
+                    Aucune adresse suspendue. Après deux refus définitifs, une adresse cesse d'être écrite
+                    et apparaît ici.
+                </p>
+            {% else %}
+                <p class="text-body-secondary small">
+                    Ces adresses ont refusé nos messages à deux reprises au moins. Nous ne leur écrivons plus —
+                    c'est ce qui protège l'acheminement du courrier de toute l'unité.
+                </p>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th scope="col">Adresse</th>
+                                <th scope="col">Raison</th>
+                                <th scope="col">Échecs</th>
+                                <th scope="col">Depuis</th>
+                                <th scope="col"><span class="visually-hidden">Action</span></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in blocked %}
+                                <tr>
+                                    <td class="text-break">{{ row.email }}</td>
+                                    <td>
+                                        {{ row.category }}
+                                        <span class="d-block text-body-secondary small">{{ row.guidance }}</span>
+                                    </td>
+                                    <td>{{ row.failures }}</td>
+                                    <td class="text-nowrap">{{ row.since }}</td>
+                                    <td class="text-end">
+                                        <form method="post" action="{{ unblock_url|replace({'{id}': row.id}) }}">
+                                            {{ csrf_field()|raw }}
+                                            <button type="submit" class="btn btn-sm btn-outline-primary">
+                                                Remettre en service
+                                            </button>
+                                        </form>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <p class="text-body-secondary small mt-3 mb-0">
+                    La personne concernée peut aussi le faire elle-même depuis la page de ses adresses, où la
+                    raison lui est expliquée. Vous le faites ici parce que beaucoup de parents ne se connectent
+                    jamais. Dans les deux cas le compteur repart de zéro.
+                </p>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if domains is not empty %}
+        <div class="card mb-3">
+            <div class="card-body">
+                <h2 class="h5">Par fournisseur du destinataire</h2>
+                <p class="text-body-secondary small">
+                    Une adresse qui échoue, c'est la boîte d'une famille. Dix chez le même fournisseur, c'est
+                    ce fournisseur qui refuse votre unité — et cela se répare sur la page
+                    <a href="/config/courrier-sortant/authentification">Authentification</a>, pas une adresse
+                    à la fois.
+                </p>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th scope="col">Domaine</th>
+                                <th scope="col">Adresses refusées</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in domains %}
+                                <tr>
+                                    <td>{{ row.domain }}</td>
+                                    <td>{{ row.refused }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5">Ce que cette page ne voit pas</h2>
+            <p class="text-body-secondary small mb-0">
+                Un rebond est un refus <strong>explicite</strong> du serveur destinataire. Or les grands
+                fournisseurs ne refusent presque jamais : ils acceptent le message et le déplacent
+                silencieusement dans les indésirables. Une page vide ici veut donc dire « rien n'a été refusé »,
+                et jamais « tout arrive ». Pour savoir où vos messages atterrissent vraiment, il faut en envoyer
+                un et aller regarder — c'est la page <a href="/config/courrier-sortant/sonde">Sonde</a>.
+            </p>
+        </div>
+    </div>
+
+{% endif %}
+{% endblock %}

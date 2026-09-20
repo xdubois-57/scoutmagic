@@ -731,6 +731,27 @@ class DatabaseTestHelper
             verdict_at TEXT
         )');
 
+        $pdo->exec('CREATE TABLE mail_bounce_states (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email_encrypted TEXT NOT NULL,
+            email_blind_index TEXT NOT NULL UNIQUE,
+            category TEXT NOT NULL,
+            severity TEXT NOT NULL,
+            status_code TEXT NOT NULL,
+            failures INTEGER NOT NULL DEFAULT 0,
+            first_seen_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            blocked_at TEXT,
+            notified_code TEXT,
+            settling_since TEXT
+        )');
+
+        $pdo->exec('CREATE TABLE mail_send_receipts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email_blind_index TEXT NOT NULL UNIQUE,
+            last_send_at TEXT NOT NULL
+        )');
+
         $pdo->exec('CREATE TABLE human_check_rate_limits (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             ip_hash TEXT NOT NULL,
@@ -830,5 +851,64 @@ class DatabaseTestHelper
         )');
 
         return $pdo;
+    }
+
+    /**
+     * Put an address on the site's books, the way a bounce receipt now
+     * requires before it will vouch for one.
+     *
+     * `BounceStateRepository::recordSend()` stamps a receipt only for an
+     * address the site already holds — a confirmed `member_emails` row or
+     * a `user_accounts` row — because an address a visitor merely handed
+     * it must not vouch for itself. A fixture that sends to an address
+     * nobody has ever heard of is therefore testing the refusal, which is
+     * rarely what it means to test.
+     */
+    /**
+     * The Desk address, which lives in `member_years` and nowhere else —
+     * the commonest address on a real site, and the one belonging to the
+     * parent who never signs in.
+     */
+    public static function markDeskAddressOnFile(\PDO $pdo, string $email): void
+    {
+        $encryption = new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $blindIndex = $encryption->blindIndex(
+            \Core\Security\EncryptionService::normalizeEmailForIndex($email),
+            'email'
+        );
+
+        $pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK-BOUNCE')");
+        $memberId = (int) $pdo->lastInsertId();
+
+        $pdo->prepare(
+            'INSERT INTO member_years
+                (member_id, scout_year_id, first_name_encrypted, last_name_encrypted,
+                 email_encrypted, email_blind_index)
+             VALUES (?, 1, ?, ?, ?, ?)'
+        )->execute([
+            $memberId,
+            $encryption->encrypt('Parent'),
+            $encryption->encrypt('Exemple'),
+            $encryption->encrypt($email),
+            $blindIndex,
+        ]);
+    }
+
+    public static function markAddressOnFile(\PDO $pdo, string $email): void
+    {
+        $encryption = new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $blindIndex = $encryption->blindIndex(
+            \Core\Security\EncryptionService::normalizeEmailForIndex($email),
+            'email'
+        );
+
+        $existing = $pdo->prepare('SELECT 1 FROM user_accounts WHERE email_blind_index = ?');
+        $existing->execute([$blindIndex]);
+        if ($existing->fetchColumn() !== false) {
+            return;
+        }
+
+        $pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)')
+            ->execute([$encryption->encrypt($email, 'user_accounts.email'), $blindIndex]);
     }
 }

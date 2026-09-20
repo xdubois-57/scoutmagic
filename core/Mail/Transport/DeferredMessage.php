@@ -32,6 +32,7 @@ final class DeferredMessage
      *     fromAddressOverride: ?string,
      *     fromNameOverride: ?string,
      *     extraHeaders: array<string, string>,
+     *     vouchesForRecipient?: bool,
      *     attachments: array<int, array{name: string, content: string}>
      * } $payload
      */

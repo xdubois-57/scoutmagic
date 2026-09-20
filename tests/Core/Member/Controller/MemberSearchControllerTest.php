@@ -158,7 +158,11 @@ class MemberSearchControllerTest extends TestCase
                     'EX',
                     new \Core\Mail\DkimManager($this->storageRoot),
                     's1',
-                    transport: $this->mailTransport
+                    transport: $this->mailTransport,
+                    // Wired here because `public/index.php` wires it: a
+                    // `MailService` without it never suppresses, and a test
+                    // built on one would pass whatever the suppression does.
+                    sendReceipts: new \Core\Mail\Feedback\Bounce\BounceStateRepository($this->pdo, $this->enc)
                 ),
                 $this->fileStorage,
                 $this->storageRoot
@@ -931,6 +935,69 @@ class MemberSearchControllerTest extends TestCase
             0,
             (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'member_document_resent'")->fetchColumn()
         );
+    }
+
+    /**
+     * **The flash a chef d'unité reads has to be true**, and for a while
+     * it was the opposite of true.
+     *
+     * Suppression returned from a `void` method, so the controller saw a
+     * success, journalled `member_document_resent` and flashed « Document
+     * renvoyé par e-mail » — for a message the site had deliberately not
+     * sent. The generic failure message would be wrong in the other
+     * direction: « Vérifiez l'adresse du membre, puis réessayez » points
+     * at an address that is fine and advises a retry that will be
+     * suppressed exactly the same way.
+     *
+     * The sentence names no address, because it reaches a screen
+     * (SECURITY.md §11), and it names the member's own page as well as
+     * « Rebonds »: this route floors at `admin` and « Rebonds » is
+     * `superadmin`, so the obvious advice is advice half the readers
+     * cannot follow.
+     */
+    public function testAResendToASuspendedAddressSaysWhyAndSendsNothing(): void
+    {
+        [$memberYearId, $documentId] = $this->seedMemberWithDocument();
+        $this->suspend('jean@ex.be');
+
+        $response = $this->resend($memberYearId, $documentId);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame([], $this->mailTransport->delivered, 'a suspended address must stop receiving.');
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertNotNull($flash);
+        $this->assertSame('error', $flash['type'], 'a message nobody received is not a success.');
+        $this->assertStringContainsString('suspendue', $flash['message']);
+        $this->assertStringNotContainsString('jean@ex.be', $flash['message']);
+        $this->assertStringNotContainsString('réessayez', $flash['message'], 'retrying cannot work here.');
+
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query(
+                "SELECT COUNT(*) FROM event_log WHERE event_type = 'member_document_resent'"
+            )->fetchColumn(),
+            'nothing left, so nothing is journalled as having left.'
+        );
+    }
+
+    /** The address is on file, was written to, bounced twice, and is blocked. */
+    private function suspend(string $email): void
+    {
+        $states = new \Core\Mail\Feedback\Bounce\BounceStateRepository($this->pdo, $this->enc);
+        $t = new \DateTimeImmutable('2026-03-01 09:00:00');
+
+        \Tests\DatabaseTestHelper::markAddressOnFile($this->pdo, $email);
+        $states->recordSend($email, $t);
+        $state = $states->record(
+            $email,
+            \Core\Mail\Feedback\Bounce\BounceCategory::NoSuchAddress,
+            \Core\Mail\Feedback\Bounce\BounceSeverity::Permanent,
+            '5.1.1',
+            $t->modify('+1 minute')
+        );
+        self::assertNotNull($state);
+        $states->block($state->id, $t->modify('+2 minutes'));
     }
 
     /**

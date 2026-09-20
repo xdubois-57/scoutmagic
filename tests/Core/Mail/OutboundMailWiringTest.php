@@ -264,4 +264,193 @@ class OutboundMailWiringTest extends TestCase
             'A support package must never be able to send a probe while it is being assembled.'
         );
     }
+
+    // ── the bounces are wired, both halves (roadmap IT-05) ────────────
+
+    /**
+     * **The half that records, and it takes TWO registrations — the same
+     * two `testTheCoreConsumerIsRegisteredOnBothConsumerRegistries`
+     * pins for the return-path consumer.** The web registry in
+     * public/index.php is what the mailbox configuration screen reads,
+     * so a consumer missing from it can never be granted a box. The one
+     * built in public/scheduler-bootstrap.php is what the sync pass
+     * calls `analyze()` against, so a consumer missing from THAT is
+     * offered on screen, ticked, and then asked nothing — the whole
+     * feature inert with no symptom but silence.
+     */
+    public function testTheBounceConsumerIsRegisteredOnBothConsumerRegistries(): void
+    {
+        $web = self::source('public/index.php');
+
+        $this->assertStringContainsString(
+            '\Core\Mail\Feedback\Bounce\BounceConsumer::CONSUMER_ID',
+            $web,
+            'Without this registration the superadmin can never grant a box to the bounce consumer.'
+        );
+        $this->assertStringContainsString('new \Core\Mail\Feedback\Bounce\BounceConsumer(', $web);
+
+        $this->assertStringContainsString(
+            'new \Core\Mail\Feedback\Bounce\BounceConsumer(',
+            self::source('public/scheduler-bootstrap.php'),
+            'The sync pass never asks the bounce consumer, so no bounce is ever recorded.'
+        );
+    }
+
+    /**
+     * **The half that says « we wrote here », and it is the one every
+     * message passes through.** A bounce counts only for an address the
+     * site can show it wrote to, so the receipt is what makes any bounce
+     * admissible at all. Stamped anywhere narrower than
+     * `Core\Mail\MailService::send()` — in the mailing task alone, as it
+     * first was — an installation without that module could never block
+     * anything while its Rebonds page went on promising it would, and
+     * the likeliest real bounce of the lot, a freshly mistyped address
+     * refused on its very first confirmation mail, would be the one the
+     * site threw away.
+     *
+     * Both entry points, because `public/cron.php` builds its own and a
+     * receipt missing there means every scheduled mailing is invisible to
+     * the bounce rule.
+     */
+    public function testEveryEntryPointHandsTheMailFactoryItsSendReceipts(): void
+    {
+        foreach (['public/index.php', 'public/cron.php'] as $entryPoint) {
+            $source = self::source($entryPoint);
+
+            $position = strpos($source, 'MailServiceFactory::create(');
+            $this->assertNotFalse($position, $entryPoint . ' must build the mail service from the factory.');
+
+            $this->assertStringContainsString(
+                'new \Core\Mail\Feedback\Bounce\BounceStateRepository(',
+                substr($source, $position, 900),
+                $entryPoint . ' builds a MailService that notes no send, so no bounce is ever believed.'
+            );
+        }
+    }
+
+    /**
+     * And the service actually stamps one. A dependency it accepts and
+     * never calls is the same absence, one layer further in.
+     */
+    public function testTheMailServiceStampsAReceiptOnAMessageThatLeft(): void
+    {
+        $this->assertStringContainsString(
+            '$this->sendReceipts?->recordSend(',
+            self::source('core/Mail/MailService.php'),
+            'MailService takes the receipts and never writes one.'
+        );
+    }
+
+    /**
+     * **A receipt takes two independent conditions, and forgetting
+     * either fails safe.** The caller says the site chose this recipient,
+     * defaulting to no; `recordSend()` separately refuses an address the
+     * site does not hold.
+     *
+     * Neither alone survived review. A caller-side flag defaulting to
+     * yes was missed by a public form, a registration twin, a claimed
+     * secondary address and the deferred-mail queue. The address-side
+     * check alone lets an attacker aim a send at an address that IS on
+     * file — `member_emails` is unique per member, so a member can claim
+     * another's confirmed address — and the receipt is minted for the
+     * victim.
+     */
+    public function testAReceiptTakesBothTheCallersWordAndTheAddressesOwn(): void
+    {
+        $this->assertStringContainsString(
+            'bool $vouchesForRecipient = false',
+            self::source('core/Mail/MailService.php'),
+            'the caller-side half must default to NO, or every caller that forgets it mints a receipt.'
+        );
+
+        $this->assertStringContainsString(
+            'private function isOnFile(string $email): bool',
+            self::source('core/Mail/Feedback/Bounce/BounceStateRepository.php'),
+            'without this lookup every send vouches for its own recipient.'
+        );
+    }
+
+    /**
+     * And the consumer the SCHEDULER builds is given a notifier too.
+     * Only that one ever runs `analyze()`, so a notifier present on the
+     * web side alone would tell nobody anything: the block would land
+     * and the member would simply find the unit gone quiet.
+     */
+    public function testTheSchedulerSideBounceConsumerCanAlsoTellSomebody(): void
+    {
+        $this->assertStringContainsString(
+            'new \Core\Mail\Feedback\Bounce\MemberBounceNotifier(',
+            self::source('public/scheduler-bootstrap.php')
+        );
+    }
+
+    /**
+     * The consumer is given a notifier. Without one the bounce is
+     * recorded and the member is never told — the block still happens,
+     * and to them the unit has simply gone quiet.
+     */
+    public function testTheBounceConsumerCanActuallyTellSomebody(): void
+    {
+        $this->assertStringContainsString(
+            'new \Core\Mail\Feedback\Bounce\MemberBounceNotifier(',
+            self::source('public/index.php')
+        );
+    }
+
+    /**
+     * **The half that reads, and it is deliberately NOT inside the
+     * `inbound_mail` branch.** The bounce table is core, and « cette
+     * adresse est-elle suspendue » has to answer correctly on every
+     * installation. Built inside the module branch, a site without the
+     * module would resolve blocked addresses for every mailing and go on
+     * writing to them — which is the exact failure this whole chantier
+     * exists to end.
+     */
+    public function testTheAddressResolverIsGivenTheBounceState(): void
+    {
+        $source = self::source('public/index.php');
+
+        $position = strpos($source, 'new \Core\Member\MemberEmailService(');
+        $this->assertNotFalse($position, 'MemberEmailService must be built in the composition root.');
+
+        $construction = substr($source, $position, 1400);
+
+        $this->assertStringContainsString(
+            'new \Core\Mail\Feedback\Bounce\BounceService(',
+            $construction,
+            'Without this, a blocked address is resolved for every mailing exactly as before.'
+        );
+    }
+
+    /**
+     * **And the SECOND composition root of the same class**, which had
+     * gone without it.
+     *
+     * `Modules\MassMail\Task\SendBatchHandler` builds its own
+     * `MemberEmailService`. Nothing on that path resolves addresses today
+     * — the freeze happens in the web request — so the omission cost
+     * nothing yet, and that is exactly why it would have survived: a null
+     * there answers « jamais rebondi » silently, and the day anything on
+     * the scheduler path asks, it gets the wrong answer with no failure
+     * anywhere.
+     *
+     * Two roots for one class is the shape this chantier kept tripping
+     * over. One of them being right is not the same as the wiring being
+     * right.
+     */
+    public function testTheSchedulersOwnAddressResolverIsGivenItToo(): void
+    {
+        $source = self::source('modules/mass_mail/src/Task/SendBatchHandler.php');
+
+        $position = strpos($source, 'new \Core\Member\MemberEmailService(');
+        $this->assertNotFalse($position, 'the scheduler builds its own, so it has to be found here.');
+
+        $construction = substr($source, $position, 1400);
+
+        $this->assertStringContainsString(
+            'new \Core\Mail\Feedback\Bounce\BounceService(',
+            $construction,
+            'the two roots of one class must answer « suspendue ? » the same way.'
+        );
+    }
 }

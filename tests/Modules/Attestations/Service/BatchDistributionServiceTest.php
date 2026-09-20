@@ -240,6 +240,45 @@ class BatchDistributionServiceTest extends TestCase
         $this->assertSame([], $this->mailer->sentByAddress);
     }
 
+    /**
+     * **A message the site declined to send is not a message that was
+     * sent**, and for a while it was recorded as one.
+     *
+     * `MailService::send()` answered a suspended address by returning from
+     * a `void` method, which reads as success at every call site. This
+     * loop then wrote `DeliveryState::Sent` — settled, never retried — so
+     * a family on a bounce-blocked address had an attestation marked
+     * « Envoyée » for ever, and the journal carries no address to find
+     * them by afterwards (SECURITY.md §11). Nothing short of reading the
+     * mail server's logs would have surfaced it.
+     *
+     * `Suppressed` rather than `Failed`, too: « Envoi refusé » would send
+     * a chef d'unité after the family's mail server, which is working.
+     */
+    public function testASendTheSiteSuppressedIsNotRecordedAsSent(): void
+    {
+        $this->mailer->suppressFor = 'meunier@example.org';
+
+        $this->service->sendSlice($this->batchId, 'Unité de test');
+
+        $line = $this->lines->findById($this->lineIds['sacha']);
+        $this->assertNotNull($line);
+        $this->assertSame(
+            DeliveryState::Suppressed,
+            $line->deliveryState,
+            'a suppressed send recorded as Sent is a family who never gets their document.'
+        );
+        $this->assertNull($line->sentAt, 'nothing left, so nothing was sent at any moment.');
+
+        // Settled all the same: the slice must not loop for ever on it.
+        $this->assertTrue($line->deliveryState->isSettled());
+
+        // And the family whose address is fine is unaffected.
+        $margaux = $this->lines->findById($this->lineIds['margaux']);
+        $this->assertNotNull($margaux);
+        $this->assertSame(DeliveryState::Sent, $margaux->deliveryState);
+    }
+
     public function testTheSliceReportsWhetherWorkRemains(): void
     {
         $this->assertTrue($this->service->sendSlice($this->batchId, 'Unité de test'));
@@ -408,6 +447,13 @@ class RecordingDocumentMailer extends MemberDocumentMailer
 
     public ?string $failFor = null;
 
+    /**
+     * The address the site itself declines to write to. Separate from
+     * `$failFor` because the two must not end up in the same state — which
+     * is the whole point of the test that uses it.
+     */
+    public ?string $suppressFor = null;
+
     public function __construct(EncryptedFileStorageService $fileStorage, string $storagePath)
     {
         parent::__construct(
@@ -420,6 +466,10 @@ class RecordingDocumentMailer extends MemberDocumentMailer
 
     public function send(string $title, int $fileId, string $toAddress, string $unitName): void
     {
+        if ($this->suppressFor === $toAddress) {
+            throw \Core\Mail\SuppressedRecipientException::blocked();
+        }
+
         if ($this->failFor === $toAddress) {
             throw new \RuntimeException('SMTP said no.');
         }

@@ -87,11 +87,39 @@ class MemberPageService
         // resendConfirmation() itself.
         $memberEmails = $isSelf ? $this->memberEmailService->listForMember($profile->memberId, $profile->email) : [];
         $resendCooldownMinutes = [];
+        // What the site knows about each address's failures, keyed by row
+        // id and absent for the addresses that work — which is nearly all
+        // of them, so the page says nothing at all about those (roadmap
+        // IT-05).
+        $bounces = [];
         foreach ($memberEmails as $memberEmail) {
             if ($memberEmail->isPending()) {
                 $resendCooldownMinutes[
                     $memberEmail->id
                 ] = $this->memberEmailService->resendCooldownRemainingMinutes($memberEmail);
+            }
+
+            $bounce = $this->memberEmailService->bounceFor($memberEmail);
+            if ($bounce !== null) {
+                $bounces[$memberEmail->id] = [
+                    'blocked' => $bounce->isBlocked(),
+                    // The category and the gesture, never the remote
+                    // server's own sentence: it quotes the address back and
+                    // means nothing to a parent (SECURITY.md §11).
+                    'label' => $bounce->category->label(),
+                    'guidance' => $bounce->category->guidance(),
+                    // Only where the button is: see BounceCategory.
+                    'reactivation_hint' => $bounce->category->reactivationHint(),
+                    // **`blockedAt` when there is one, and that is not the
+                    // same date.** `last_seen_at` moves with every bounce
+                    // the address goes on producing — including after it
+                    // was blocked, since the module's list path can still
+                    // reach one — while `blocked_at` is written once. Read
+                    // from `last_seen_at`, « Suspendue depuis le … » would
+                    // show today to somebody blocked months ago. The
+                    // super-admin page already falls back the same way.
+                    'since' => $bounce->blockedAt ?? $bounce->lastSeenAt,
+                ];
             }
         }
 
@@ -112,6 +140,7 @@ class MemberPageService
                 : [],
             'member_emails' => $memberEmails,
             'member_email_resend_cooldown_minutes' => $resendCooldownMinutes,
+            'member_email_bounces' => $bounces,
             'gallery_albums' => $this->getGalleryAlbums($profile),
             'trombinoscope_enabled' => $this->hooks?->getOptional(SectionResponsableProvider::class) !== null,
             'calendar_enabled' => $this->calendarEventLookup !== null,

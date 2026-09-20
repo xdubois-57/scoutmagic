@@ -11,6 +11,7 @@ namespace Modules\Attestations\Service;
 use Core\Config\AppClock;
 use Core\Journal\JournalService;
 use Core\Member\MemberAccountResolver;
+use Core\Mail\SuppressedRecipientException;
 use Core\Member\MemberDocumentMailer;
 use Core\Notification\NotificationService;
 use Modules\Attestations\Repository\BatchLineRepository;
@@ -89,6 +90,7 @@ class BatchDistributionService
         $sent = 0;
         $failed = 0;
         $unreachable = 0;
+        $suppressed = 0;
 
         foreach ($pending as $line) {
             $address = $line->memberId !== null ? ($addresses[$line->memberId] ?? null) : null;
@@ -106,6 +108,14 @@ class BatchDistributionService
                 $this->mailer->send($batch->label, $line->fileId, $address, $unitName);
                 $this->lines->recordDelivery($line->id, DeliveryState::Sent, AppClock::now()->format('Y-m-d H:i:s'));
                 $sent++;
+            } catch (SuppressedRecipientException) {
+                // The site declined to write, because this address is
+                // suspended after repeated bounces. Recorded apart from
+                // `Failed` on purpose: « Envoi refusé » would send a chef
+                // d'unité after the family's mail server, which is fine —
+                // what is needed is the « Rebonds » page.
+                $this->lines->recordDelivery($line->id, DeliveryState::Suppressed, null);
+                $suppressed++;
             } catch (\Throwable $e) {
                 // Never retried, and the reason is above. The exception's
                 // own text is a library's and may name the recipient, so
@@ -120,16 +130,18 @@ class BatchDistributionService
             'attestation_slice_sent',
             $failed > 0 ? 'warning' : 'info',
             sprintf(
-                'Lot %d : %d envoyée(s), %d sans adresse, %d refusée(s).',
+                'Lot %d : %d envoyée(s), %d sans adresse, %d adresse(s) suspendue(s), %d refusée(s).',
                 $batchId,
                 $sent,
                 $unreachable,
+                $suppressed,
                 $failed
             ),
             [
                 'batch_id' => $batchId,
                 'sent_count' => $sent,
                 'no_address_count' => $unreachable,
+                'suppressed_count' => $suppressed,
                 'failed_count' => $failed,
             ]
         );

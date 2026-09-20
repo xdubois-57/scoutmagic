@@ -228,7 +228,8 @@ final class SupportPackageFactory
             // tested and what came of it, and must not be able to send
             // one. What travels is the road and the verdict — never the
             // destination, which is a person.
-            new \Core\Mail\Probe\MailProbeRepository($pdo, $context->encryption)
+            new \Core\Mail\Probe\MailProbeRepository($pdo, $context->encryption),
+            new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $context->encryption)
         );
     }
 

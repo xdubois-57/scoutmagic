@@ -47,6 +47,7 @@ class OutboundMailControllerTest extends TestCase
     private LaneChainRepository $chains;
     private \Core\Mail\DkimManager $dkim;
     private \Core\Mail\Probe\MailProbeRepository $mailProbes;
+    private \Core\Mail\Feedback\Bounce\BounceStateRepository $bounceStates;
     private OutboundMailController $controller;
     /** @var list<mixed> the arguments $controller was built from */
     private array $controllerArguments = [];
@@ -167,6 +168,14 @@ class OutboundMailControllerTest extends TestCase
                 new JournalService(new JournalRepository($this->pdo))
             ),
             $this->mailProbes,
+            // REAL bounce dependencies, not null: with null every bounce
+            // action returns « le suivi des rebonds demande le module »
+            // before touching anything, and a test asserting on the page
+            // would pass whatever the code does.
+            new \Core\Mail\Feedback\Bounce\BounceService(
+                $this->bounceStates = new \Core\Mail\Feedback\Bounce\BounceStateRepository($this->pdo, $encryption)
+            ),
+            $this->bounceStates,
         ];
         $this->controller = new OutboundMailController(...$this->controllerArguments);
 
@@ -229,6 +238,8 @@ class OutboundMailControllerTest extends TestCase
             'the probe' => ['GET', '/config/courrier-sortant/sonde'],
             'sending a probe' => ['POST', '/config/courrier-sortant/sonde/envoi'],
             'recording a verdict' => ['POST', '/config/courrier-sortant/sonde/verdict'],
+            'the bounces' => ['GET', '/config/courrier-sortant/rebonds'],
+            'lifting a block' => ['POST', '/config/courrier-sortant/rebonds/{id}/reprise'],
         ];
     }
 
@@ -376,6 +387,136 @@ class OutboundMailControllerTest extends TestCase
                 "provider_id « {$value} » must be refused, never resolved to the local send."
             );
         }
+    }
+
+    /**
+     * The same controller with some optional dependencies left out, BY
+     * NAME.
+     *
+     * The earlier spelling was `array_slice($args, 0, -2)`, which meant
+     * « drop the probe pair » until IT-05 appended two more arguments —
+     * at which point the same expression silently started dropping the
+     * bounce pair instead, and the probe test went on passing while
+     * testing something else. Positions move; names do not.
+     */
+    private function controllerWithout(string ...$omitted): OutboundMailController
+    {
+        // Offsets counted from the END, so appending another optional
+        // dependency cannot shift them.
+        $offsets = ['probes' => -4, 'probeHistory' => -3, 'bounces' => -2, 'bounceHistory' => -1];
+
+        $arguments = $this->controllerArguments;
+        foreach ($omitted as $name) {
+            self::assertArrayHasKey($name, $offsets, "Unknown optional dependency '{$name}'.");
+            $arguments[count($arguments) + $offsets[$name]] = null;
+        }
+
+        return new OutboundMailController(...$arguments);
+    }
+
+    // ── the bounces, end to end (roadmap IT-05) ───────────────────────
+
+    private function blockOne(string $email = 'parent@exemple.be'): int
+    {
+        $now = new \DateTimeImmutable('2026-09-19 10:00:00');
+        // Vouched for: these fixtures stand in for addresses the unit
+        // writes to, and `recordSend()` stamps a receipt only for one
+        // the site holds on file.
+        $this->bounceStates->recordSend($email, $now->modify('-1 hour'), true);
+        $state = $this->bounceStates->record(
+            $email,
+            \Core\Mail\Feedback\Bounce\BounceCategory::NoSuchAddress,
+            \Core\Mail\Feedback\Bounce\BounceSeverity::Permanent,
+            '5.1.1',
+            $now
+        );
+        self::assertNotNull($state);
+        $this->bounceStates->block($state->id, $now);
+
+        return $state->id;
+    }
+
+    public function testTheBouncePageSaysWhatItCannotSee(): void
+    {
+        $response = $this->controller->bounces($this->getRequest(), []);
+        $body = (string) $response->getBody();
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('Aucune adresse suspendue', $body);
+        // The most expensive confusion of the whole chantier, and it is
+        // on the screen rather than only in the help topic.
+        $this->assertStringContainsString('Ce que cette page ne voit pas', $body);
+        $this->assertStringContainsString('ne refusent presque jamais', $body);
+    }
+
+    public function testASuspendedAddressIsListedWithItsReasonAndItsProvider(): void
+    {
+        $this->blockOne();
+
+        $body = (string) $this->controller->bounces($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('parent@exemple.be', $body);
+        $this->assertStringContainsString(
+            \Core\Mail\Feedback\Bounce\BounceCategory::NoSuchAddress->label(),
+            $body
+        );
+        $this->assertStringContainsString('exemple.be', $body);
+    }
+
+    public function testTheSuperAdminLiftsABlockAndTheAddressLeavesTheList(): void
+    {
+        $id = $this->blockOne();
+
+        $response = $this->controller->unblockBounce($this->formRequest([]), ['id' => (string) $id]);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('success', $flash['type'] ?? null);
+        $this->assertSame(0, $this->bounceStates->countBlocked());
+    }
+
+    /** A stale link must not report a success about nothing. */
+    public function testLiftingABlockThatIsGoneIsReportedAsAnError(): void
+    {
+        $this->controller->unblockBounce($this->formRequest([]), ['id' => '4242']);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+    }
+
+    public function testAStaleTokenRefusesToLiftABlock(): void
+    {
+        $id = $this->blockOne();
+        $_POST = [];
+
+        $stale = new Request(
+            'POST',
+            '/config/courrier-sortant/rebonds/' . $id . '/reprise',
+            [],
+            ['_csrf_token' => 'périmé'],
+            [],
+            []
+        );
+
+        $this->controller->unblockBounce($stale, ['id' => (string) $id]);
+
+        $this->assertSame(1, $this->bounceStates->countBlocked(), 'no block may be lifted on a stale token.');
+    }
+
+    /**
+     * An installation without `inbound_mail`: the page says so rather
+     * than showing an empty list that promises a feature nothing fills.
+     */
+    public function testAnInstallationWithoutTheInboundModuleSaysSo(): void
+    {
+        $withoutBounces = $this->controllerWithout('bounces', 'bounceHistory');
+
+        $body = (string) $withoutBounces->bounces($this->getRequest(), [])->getBody();
+        $this->assertStringContainsString('Courrier entrant', $body);
+
+        $response = $withoutBounces->unblockBounce($this->formRequest([]), ['id' => '1']);
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
     }
 
     // ── the probe, end to end (roadmap IT-04) ─────────────────────────
@@ -550,7 +691,7 @@ class OutboundMailControllerTest extends TestCase
      */
     public function testAnInstallationWithoutTheProbeSaysSoOnAllThreeRoutes(): void
     {
-        $withoutProbe = new OutboundMailController(...array_slice($this->controllerArguments, 0, -2));
+        $withoutProbe = $this->controllerWithout('probes', 'probeHistory');
 
         $body = (string) $withoutProbe->probe($this->getRequest(), [])->getBody();
         $this->assertStringContainsString('La sonde n’est pas disponible', $body);

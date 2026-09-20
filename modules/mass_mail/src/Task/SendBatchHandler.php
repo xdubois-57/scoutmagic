@@ -187,9 +187,67 @@ class SendBatchHandler implements TaskHandlerInterface
                         'List-Unsubscribe' => '<' . $unsubscribeUrl . '>',
                         'List-Unsubscribe-Post' => 'List-Unsubscribe=One-Click',
                     ],
-                    \Core\Mail\MailPurpose::Bulk
+                    \Core\Mail\MailPurpose::Bulk,
+                    // **The mailing vouches, and the docblock of this
+                    // parameter always said it should** — « une
+                    // notification à un membre, un document envoyé à la
+                    // personne qu'il concerne, un publipostage ». The
+                    // other two passed `true`; this one, the mailing
+                    // itself, did not, so the live suppression gate never
+                    // fired for mass mail at all.
+                    //
+                    // The freeze filters blocked addresses once, when the
+                    // mailing is queued. But a batch drains over a cadence
+                    // that spans hours, and an address that gets blocked
+                    // DURING that run — typically by bouncing an earlier
+                    // batch of this very mailing — kept receiving every
+                    // later batch, because the only remaining check was
+                    // that stale snapshot. Precisely the addresses the
+                    // site had just decided to stop writing to.
+                    vouchesForRecipient: true
                 );
                 $recipientRepository->recordSendSuccess($recipient->id);
+                // **The module vouches for its own list addresses**
+                // (roadmap IT-05). `Core\Mail\MailService::send()` stamps
+                // a bounce receipt by itself, but only for an address the
+                // CORE already holds — a confirmed `member_emails` row or
+                // a `user_accounts` row — because an address the site was
+                // merely handed must not vouch for itself.
+                //
+                // A custom mailing-list address is neither, and it lives
+                // in a table this module owns, which core cannot read
+                // (§7.5). It is also not something a visitor typed: a
+                // staff member entered it. So the module says so here,
+                // for its own recipients, and nothing else has to know
+                // the rule.
+                //
+                // Harmless for a member recipient, whose receipt core
+                // stamped a moment ago: one address is one receipt, and
+                // the settling clock is set by the first send after a
+                // bounce and left alone by the rest.
+                //
+                // **Guarded exactly like its twin** in
+                // `Core\Mail\MailService::send()`, and here it matters
+                // more. The copy has already left and
+                // `recordSendSuccess()` is committed; the only handler
+                // around this loop catches `MailException`, so anything
+                // else — a `DecryptionException` on a row encrypted under
+                // a rotated key, a `\ValueError` from a stored category
+                // that is no longer a case, a `\PDOException` — would
+                // escape the loop entirely. `rescheduleIfPendingRemain()`
+                // never runs then, and nothing else reschedules a failed
+                // `send_batch`: every remaining recipient stays `pending`
+                // until somebody notices and restarts the mailing by
+                // hand. A receipt is not worth a mailing.
+                try {
+                    (new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $context->encryption))
+                        ->recordSend($recipient->emailAddress, new \DateTimeImmutable(), true);
+                } catch (\Throwable) {
+                    // Deliberately silent, for the same reason the twin
+                    // gives: there is nobody to tell who could act on it,
+                    // and the journal is reached through the same database
+                    // that just refused.
+                }
                 // One line per copy that actually left — see
                 // Service\MassMailService::journalRecipientSent(). The
                 // batch summary below stays, but it answers a different
@@ -205,6 +263,20 @@ class SendBatchHandler implements TaskHandlerInterface
                     $email->listType === Email::LIST_TYPE_MAIL_MERGE
                         && $mergeRenderer->containsToken($email->subject)
                 );
+            } catch (\Core\Mail\SuppressedRecipientException) {
+                // Caught ahead of the general case so the tracking page
+                // keeps one vocabulary: the freeze writes this same
+                // sentence for an address already blocked when the mailing
+                // was queued, and this is the same situation noticed a few
+                // batches later. The exception's own message is written
+                // for the MEMBER — it names their address page — and this
+                // column is read by staff.
+                $recipientRepository->recordSendFailure(
+                    $recipient->id,
+                    'Adresse suspendue après des refus répétés'
+                );
+                $errorCount++;
+                continue;
             } catch (MailException $e) {
                 // $e->getMessage() is a transport-level error (SMTP
                 // response, connection failure) built from PHPMailer's
@@ -424,7 +496,18 @@ class SendBatchHandler implements TaskHandlerInterface
             $memberService,
             $scoutYearService,
             (string) $context->settings->get('base_url'),
-            (string) ($context->settings->get('site_name') ?: 'Unité scoute')
+            (string) ($context->settings->get('site_name') ?: 'Unité scoute'),
+            new \Core\Member\EmailDomainValidator(),
+            // **Wired here as well as in `public/index.php`**, so the two
+            // composition roots of this class answer « cette adresse
+            // est-elle suspendue » the same way. Nothing on THIS path
+            // resolves addresses today — the freeze happens in the web
+            // request — but a null here would be a silent « jamais
+            // rebondi » the day something does, and that is exactly the
+            // shape of hole this iteration kept finding.
+            new \Core\Mail\Feedback\Bounce\BounceService(
+                new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $context->encryption)
+            )
         );
 
         return new MassMailService(
@@ -459,7 +542,12 @@ class SendBatchHandler implements TaskHandlerInterface
             new AudienceRepository($pdo, $context->encryption),
             new \Modules\MassMail\Repository\MemberResolutionRepository($pdo, $context->encryption),
             new SuppressedAddressRepository($pdo),
-            new MergeRenderer()
+            new MergeRenderer(),
+            // Bounce state (roadmap IT-05): a blocked address must not be
+            // written to through a custom list either.
+            new \Core\Mail\Feedback\Bounce\BounceService(
+                new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $context->encryption)
+            )
         );
     }
 }

@@ -43,6 +43,17 @@ class DrainDeferredMailHandler implements TaskHandlerInterface
     public const TASK_KEY = 'drain_deferred_mail';
     public const REFERENCE = 'queue';
 
+    /**
+     * The outcome of a replay the site declined to make, told apart from
+     * every other reason by {@see trySend()} at the catch site rather than
+     * by reading its words — `MailFailure::classify()` reads SMTP
+     * transcripts, and this is not one.
+     *
+     * Doubles as the sentence the Relance screen shows, which is why it
+     * reads as French rather than as a code.
+     */
+    private const SUPPRESSED = 'adresse suspendue — le site a cessé de lui écrire';
+
     private const INTERVAL_SECONDS = 300;
 
     /**
@@ -94,6 +105,16 @@ class DrainDeferredMailHandler implements TaskHandlerInterface
             $reason = $this->trySend($message, $repository, $context);
             if ($reason === null) {
                 $sent++;
+            } elseif ($reason === self::SUPPRESSED) {
+                // **Not a failure, and not something to retry.** The site
+                // declined to write to a suspended address, and every
+                // later pass would decline identically until somebody
+                // lifts the suspension — so walking the ladder would spend
+                // a day's attempts learning what is already known.
+                // Abandoned rather than deleted, so the Relance screen can
+                // say why this one never left.
+                $repository->abandon($message->id, $message->attempts + 1, self::SUPPRESSED);
+                $abandoned++;
             } else {
                 $abandoned += $this->settleFailure($message, $repository, $queue, $reason) ? 1 : 0;
             }
@@ -154,8 +175,22 @@ class DrainDeferredMailHandler implements TaskHandlerInterface
                 $payload['fromAddressOverride'],
                 $payload['fromNameOverride'],
                 $payload['extraHeaders'],
-                $message->purpose
+                $message->purpose,
+                // **The flag has to survive the queue.** Without it every
+                // replay read « false » — « the site did not choose this
+                // recipient » — and walked straight past the suppression
+                // gate. A notification deferred while the address was
+                // still fine, and drained after two permanent bounces had
+                // blocked it, went out all the same: to somebody the site
+                // had just told it had stopped writing to them. Absent on
+                // a row queued before this key existed, and false is the
+                // right reading there: an authentication mail wrongly
+                // suppressed locks somebody out of the site, which is the
+                // worse of the two mistakes (D9).
+                $payload['vouchesForRecipient'] ?? false
             );
+        } catch (\Core\Mail\SuppressedRecipientException) {
+            return self::SUPPRESSED;
         } catch (\Throwable $e) {
             return MailErrorRedaction::withoutAddresses($e->getMessage());
         } finally {

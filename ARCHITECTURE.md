@@ -4172,6 +4172,207 @@ the instrument becomes the cause of what it measures. There is no task
 handler, and `Tests\Core\Mail\Probe\MailProbeSenderTest` fails if one
 appears.
 
+**Bounces** (`Core\Mail\Feedback\Bounce`, roadmap IT-05). A
+`message/delivery-status` (RFC 3464) arriving in a watched mailbox is read
+by `BounceConsumer` — the core implementing `Modules\InboundMail\Api`'s
+contract, built only when the module is on (D2), like `ReturnPathConsumer`
+above.
+
+*One row per address, never per profile.* `mail_bounce_states` is keyed by
+the address's blind index under the SHARED `'email'` purpose, because it is
+compared against `member_emails` to find who owns a bounced mailbox. A
+parent's address sits on every one of their children's profiles, so
+recording per profile would let « bloquée » be true on one screen and false
+on another for a single mailbox — the same reasoning
+`MemberEmailService::unsubscribe()` already applies.
+`mass_mail_list_addresses` keeps its own domain-separated purpose, so the
+module never matches indexes across the boundary: it asks the core with the
+plaintext address it holds at send time.
+
+*The state lives beside `member_emails.status`, never inside it* (D19).
+Those three values record decisions the MEMBER made; a block is the SITE's.
+From that follows the access rule: a super-admin may lift a block the site
+placed, and still cannot reactivate an address a parent switched off.
+
+*Only what the far end said, in four categories.* `BounceCategory` is
+mapped from the RFC 3463 enhanced status code, never from the server's
+prose, and the diagnostic text is read for the code it hides and then
+dropped — it quotes the address back and is written by a stranger's
+software (SECURITY.md §11). Nothing downstream can show it: it is not a
+property of `DeliveryStatusReport`.
+
+*A bounce counts only when a message has gone out since the last bounce
+that counted, and the check is in the REPOSITORY.* A watched mailbox is by
+design one anybody can write to, and a delivery-status report is written by
+whoever sent it — so shape is not provenance. A parser recognises a form and
+has no way to establish an origin; a guard there would only look like one.
+`mail_send_receipts` answers the question that settles it, holding a blind
+index and a date and **never the address itself**; `BounceStateRepository::
+record()` returns null unless a receipt exists AND is more recent than the
+state's `last_seen_at`.
+
+That one sentence does the work of four separate guards:
+
+- An address the site never wrote to has no receipt, so nothing about it
+  can ever be recorded. Without this, two forged reports naming any
+  member's address would cut it off site-wide and notify them.
+- One message carrying the same failed recipient twice — two
+  blank-line-separated groups, which costs an attacker one paragraph —
+  counts once. `FAILURES_BEFORE_BLOCK = 2` means two separate events, and
+  a naive count turned it into a one-message rule.
+- The same message read twice counts once.
+  `Modules\InboundMail\Service\MailboxSyncService` calls `analyzeAll()`
+  **before** its Message-ID check, deliberately, because a re-read is
+  expected after a UIDVALIDITY reset or when a message lands in two
+  watched folders — so a genuine bounce read twice would otherwise block
+  an address in half the failures it should take.
+- And an old receipt authorises exactly one report rather than an endless
+  supply, so knowing one address the unit has ever mailed is not a way in.
+
+What it deliberately does not refuse is the sequence the feature exists
+for: send, bounce, send, bounce, blocked. Each send re-opens the door for
+exactly one answer.
+
+*A receipt is stamped only when two independent conditions hold, and
+forgetting either fails safe.* The caller states that the site CHOSE this
+recipient (`send()`'s `$vouchesForRecipient`, **false unless said**), and
+`recordSend()` separately refuses an address the site does not already
+hold.
+
+Neither alone is enough, and both were tried. Asking only the caller, with
+a default of « yes », was wrong in four places at once — a public form, a
+registration twin, a claimed secondary address, and the deferred-mail
+queue, which replays a message carrying none of it. Asking only the
+address lets an attacker aim a send AT an address that is on file: claim a
+member's confirmed address as an unconfirmed secondary of one's own (the
+unique index on `member_emails` is per member) or simply type it into a
+public form, and the receipt is minted for the victim all the same.
+
+False by default is the direction that matters. Forgotten, a send records
+nothing and at worst a bounce goes unnoticed; forgotten the other way it
+hands somebody a way to have an address cut off. The paths that say true
+are the ones writing to a correspondent the site picked from its own
+records: a notification to a member, a document sent to the person it
+concerns, a mailing.
+
+*And the address must be one the site already holds, which is asked of the
+ADDRESS rather than of the caller.*
+`recordSend()` looks for a confirmed `member_emails` row or a
+`user_accounts` row — the two places an address earns its way into before
+the site writes to it of its own accord. `status = 'valid'` and not merely
+present, because `addEmail()` accepts any syntactically valid address as a
+`pending` row from any signed-in member: that is what claiming an address
+IS, and a claim is not proof.
+
+Without that, minting a receipt is a way in. Claim a victim's address,
+deliver a forged report, delete and re-claim, deliver a second, and it is
+cut off site-wide — and several public forms mail a visitor-supplied
+address with no account at all. **This was first written as a
+`$countsAsProofOfSend` parameter on `send()`, defaulting to « yes ».** A
+security default that fails open, which 42 call sites had to remember and
+which the deferred-mail queue dropped on replay, since it neither carries
+the flag in its payload nor passes it back. Derived from the address, a
+caller that has never heard of the rule cannot break it.
+
+Nothing real is lost by refusing the rest: an address the site does not
+hold is one it will not write to again either, so a bounce recorded
+against it protects no send that was ever going to happen. Confirming an
+address is itself proof the mailbox reads, and from then on every send to
+it stamps normally.
+
+The one address that cannot be derived this way is a custom mailing-list
+address: it belongs to a module's table, which the core cannot read
+(§7.5), and it was entered by a staff member rather than typed by a
+visitor. So `Modules\MassMail\Task\SendBatchHandler` vouches for its own
+recipients explicitly, at its own send, and nothing else has to know.
+
+*The stamping itself lives in `Core\Mail\MailService::send()`*, the one
+point every message on the site passes through, right after
+`transport->deliver()` returns — a refused message wrote nothing, and a
+deferred one has not written yet. Stamped in the mailing task alone, as it
+first was, an installation without `mass_mail` could never block anything
+while its Rebonds page went on promising it would.
+
+*The receipt upsert asks whether the row exists rather than reading
+`rowCount()`.* This application does not set `PDO::MYSQL_ATTR_FOUND_ROWS`,
+so MySQL counts rows CHANGED rather than matched — the hazard
+`Core\Config\SettingRepository::replaceIfUnchanged()` documents for
+itself. `last_send_at` is a `DATETIME`, and two messages to one address
+inside one second are routine, since siblings share a parent's mailbox and
+a batch walks them back to back. The identical second write answers 0, an
+UPDATE-then-INSERT falls through to the INSERT, and the unique index
+raises a `PDOException` that the send loop — which catches `MailException`
+only — would carry out of a half-finished mailing.
+
+*A send cannot settle itself, and neither can the next one.* Handing a
+message to a relay proves nothing, and the bounce for that very send lands
+seconds later — so clearing the counter on acceptance would wipe it before
+every bounce and no address would ever be blocked. But judging a send by
+the one that follows it is wrong too, in two directions at once. Two
+messages in one batch (siblings share a parent's mailbox, and the batch
+walks them back to back) would settle each other seconds apart, deleting
+the row and its `failures` at every mailing. And an address written to
+more often than the grace period would never settle at all, because no two
+consecutive sends are ever far enough apart — one stale failure would sit
+there for ever and make the next unrelated bounce a second strike rather
+than a first.
+
+The question is how long ONE send has been quiet, so the answer is stored
+on the row: `settling_since` is set by the first send after the last
+bounce, left alone by the sends that follow, and cleared by any new
+bounce, which is the answer the clock was waiting for. Once
+`BounceState::SETTLING_PERIOD` has run — two days, because the far end
+answers and that answer then waits for the mailbox poll, up to
+`SyncMailboxesHandler::MAX_INTERVAL_MINUTES` — the address has shown it
+works and the row is dropped. A send never lifts a block, though:
+`recordSend()` returns early on a blocked state, so only the member or the
+super-admin ever undoes one.
+
+*Reaching a bounce state needs proof of control, not ownership of a row.*
+`addEmail()` accepts any syntactically valid address as a `pending` row —
+that is what claiming an address is — and `member_emails`'s unique index is
+per member, so naming somebody else's succeeds. Since the state is keyed by
+the address, `MemberEmailService::bounceFor()` and `unblockBounce()` require
+the row to be Desk-sourced or confirmed; otherwise one member would read
+another's bounce category and dates, and could lift the block protecting
+the unit from a mailbox that refuses it. The refusal borrows the wording of
+an unknown address, because naming the real reason would confirm to whoever
+asked that the address is known here and suspended.
+
+*Two registries, and the scheduler's is the one that works.*
+`BounceConsumer` is registered both in `public/index.php` — which is only
+what the mailbox configuration screen reads to know a scope exists — and in
+`public/scheduler-bootstrap.php`, which is what `SyncMailboxesHandler`
+calls `analyze()` against. On the first alone the scope is offered, ticked,
+and never asked anything: the feature inert with no symptom but silence.
+`Tests\Core\Scheduler\SchedulerBootstrapTest` builds that registry and
+counts its consumers, which is what actually pins it.
+
+*The receipt also has an expiry* (`RECEIPT_MAX_AGE`, one month). A real
+delivery-status report follows its message by minutes, so a report naming
+a send from two years ago answers nothing. Without it the gate read « has
+the site EVER written here », true of every address the unit has ever
+mailed — the first forged report was admitted on a receipt of any age.
+
+*The receipt narrows the forgery, it does not close it.* It says « the
+site wrote here recently », not « this report answers that message ». The
+honest send-bounce-send-bounce sequence is deliberately allowed, and
+nothing distinguishes a forged report arriving in the same window — so
+against an address the site mails routinely, one forged report after a
+genuine send, then a second after the next ordinary message, still
+reaches the threshold. What is closed is the version needing no account
+and no timing, where two reports blocked ANY address. Exact per-message
+correlation is what `ReturnPathConsumer` gets from a key it issues
+itself; it needs VERP, which member mail rules out on deployability
+grounds. The remainder is an accepted risk, written down rather than
+implied.
+
+*And it is blind to spam filing.* A bounce is an explicit refusal; the
+large providers accept and move the message silently instead. An empty
+Rebonds page means « nothing was refused », never « everything arrives » —
+which is why that sentence is on the screen and not only in the help topic,
+and why the manual probe above exists at all.
+
 ### 8.107 Storage locations (`Core\Storage\Location`)
 
 **One declared destination for bytes, and every consumer picks one.** The same idea used to be written twice, with two incompatible models: the gallery had `gallery_storage_locations` — N rows, a `StorageBackendInterface`, a cached health column — while the off-site backup had a dozen flat `SettingService` keys, a `RemoteBackupTarget` interface and a `remote_backup_last_error` setting. A single destination in flat settings on one side, N destinations in a table on the other. The second form is the right one, and this is it, generalised. **Both halves have now arrived**: the gallery moved here in IT-01 and the off-site backup in IT-05, which is where `RemoteBackupTarget` disappeared and a Drive folder became a location like any other (§8.104).

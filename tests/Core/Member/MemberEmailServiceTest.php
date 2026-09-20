@@ -14,6 +14,10 @@ use Core\Member\EmailDomainValidator;
 use Core\Member\MemberEmail;
 use Core\Member\MemberEmailException;
 use Core\Member\MemberEmailRepository;
+use Core\Mail\Feedback\Bounce\BounceCategory;
+use Core\Mail\Feedback\Bounce\BounceService;
+use Core\Mail\Feedback\Bounce\BounceSeverity;
+use Core\Mail\Feedback\Bounce\BounceStateRepository;
 use Core\Member\MemberEmailService;
 use Core\Member\MemberService;
 use Core\Member\SectionService;
@@ -32,6 +36,7 @@ class MemberEmailServiceTest extends TestCase
     private EncryptionService $encryption;
     private MemberEmailRepository $repository;
     private MemberEmailService $service;
+    private BounceStateRepository $bounceStates;
     private MailService&\PHPUnit\Framework\MockObject\MockObject $mailService;
     private int $memberId;
     private int $lastRowId = 0;
@@ -67,7 +72,12 @@ class MemberEmailServiceTest extends TestCase
             new ScoutYearService($this->pdo),
             'https://example.test',
             'Test Unité',
-            $alwaysValidDomain
+            $alwaysValidDomain,
+            // A REAL bounce service over the same database, not null.
+            // With null every bounce question answers « jamais rebondi »
+            // before touching anything, and a test asserting « l'adresse
+            // bloquée est exclue » would pass whatever the code does.
+            new BounceService($this->bounceStates = new BounceStateRepository($this->pdo, $this->encryption))
         );
 
         $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK1')");
@@ -521,6 +531,252 @@ class MemberEmailServiceTest extends TestCase
         $this->assertCount(2, $rows);
         $this->assertSame(MemberEmail::SOURCE_DESK, $rows[0]->source);
         $this->assertSame('manual@example.com', $rows[1]->email);
+    }
+
+    // ── addresses that bounce (roadmap IT-05) ─────────────────────────
+
+    private function blockAddress(string $email): int
+    {
+        $now = new \DateTimeImmutable('2026-09-19 10:00:00');
+        // The unit wrote to this address first — a bounce for one it
+        // never wrote to is refused (see `mail_send_receipts`) — and the
+        // address is one the site holds, since a receipt is stamped for
+        // no other kind.
+        DatabaseTestHelper::markAddressOnFile($this->pdo, $email);
+        $this->bounceStates->recordSend($email, $now->modify('-1 hour'));
+        $state = $this->bounceStates->record(
+            $email,
+            BounceCategory::NoSuchAddress,
+            BounceSeverity::Permanent,
+            '5.1.1',
+            $now
+        );
+        self::assertNotNull($state);
+        $this->bounceStates->block($state->id, $now);
+
+        return $state->id;
+    }
+
+    /**
+     * **The point of the whole chantier, in one assertion.** An address
+     * the far end has refused twice is one every further message damages
+     * the unit's reputation with, so it stops being resolved for a
+     * mailing — while staying `valid`, because the member never asked for
+     * anything to change (D19).
+     */
+    public function testABlockedAddressIsNotResolvedForAMailing(): void
+    {
+        $this->repository->create(
+            $this->memberId, 'rebond@example.com', MemberEmail::SOURCE_MANUAL, MemberEmail::STATUS_VALID, null, null
+        );
+        $this->blockAddress('rebond@example.com');
+
+        $addresses = $this->service->resolveValidAddressesForMassMail($this->memberId, null);
+
+        $this->assertSame(
+            [],
+            array_map(static fn(MemberEmail $row): string => $row->email, $addresses)
+        );
+    }
+
+    public function testTheOtherAddressesOfTheSameMemberAreUnaffected(): void
+    {
+        $this->repository->create(
+            $this->memberId, 'rebond@example.com', MemberEmail::SOURCE_MANUAL, MemberEmail::STATUS_VALID, null, null
+        );
+        $this->repository->create(
+            $this->memberId, 'bonne@example.com', MemberEmail::SOURCE_MANUAL, MemberEmail::STATUS_VALID, null, null
+        );
+        $this->blockAddress('rebond@example.com');
+
+        $addresses = $this->service->resolveValidAddressesForMassMail($this->memberId, null);
+
+        $this->assertSame(
+            ['bonne@example.com'],
+            array_map(static fn(MemberEmail $row): string => $row->email, $addresses)
+        );
+    }
+
+    /**
+     * A block is the SITE's decision and leaves `status` alone — the
+     * three values of that column record the member's decisions, and
+     * folding an automatic block into them would lose the why (D19).
+     */
+    public function testABlockedAddressKeepsTheStatusTheMemberChose(): void
+    {
+        $id = $this->repository->create(
+            $this->memberId, 'rebond@example.com', MemberEmail::SOURCE_MANUAL, MemberEmail::STATUS_VALID, null, null
+        );
+        $this->blockAddress('rebond@example.com');
+
+        $this->assertSame(MemberEmail::STATUS_VALID, $this->repository->findById($id)?->status);
+    }
+
+    public function testTheMemberSeesWhyTheirAddressStopped(): void
+    {
+        $id = $this->repository->create(
+            $this->memberId, 'rebond@example.com', MemberEmail::SOURCE_MANUAL, MemberEmail::STATUS_VALID, null, null
+        );
+        $this->blockAddress('rebond@example.com');
+
+        $row = $this->repository->findById($id);
+        $this->assertNotNull($row);
+
+        $state = $this->service->bounceFor($row);
+        $this->assertSame(BounceCategory::NoSuchAddress, $state?->category);
+        $this->assertTrue($state?->isBlocked());
+    }
+
+    public function testAnAddressThatNeverBouncedSaysNothingAtAll(): void
+    {
+        $id = $this->repository->create(
+            $this->memberId, 'bonne@example.com', MemberEmail::SOURCE_MANUAL, MemberEmail::STATUS_VALID, null, null
+        );
+        $row = $this->repository->findById($id);
+        $this->assertNotNull($row);
+
+        $this->assertNull($this->service->bounceFor($row));
+    }
+
+    /** D19: the site placed this block, so the person it inconveniences may lift it. */
+    public function testTheMemberLiftsTheBlockAndIsWrittenToAgain(): void
+    {
+        $id = $this->repository->create(
+            $this->memberId, 'rebond@example.com', MemberEmail::SOURCE_MANUAL, MemberEmail::STATUS_VALID, null, null
+        );
+        $this->blockAddress('rebond@example.com');
+
+        $this->assertTrue($this->service->unblockBounce($this->memberId, $id));
+
+        $addresses = $this->service->resolveValidAddressesForMassMail($this->memberId, null);
+        $this->assertSame(
+            ['rebond@example.com'],
+            array_map(static fn(MemberEmail $row): string => $row->email, $addresses)
+        );
+    }
+
+    /**
+     * **Lifting nothing answers false**, so the page can say so instead of
+     * reporting a success over a no-op.
+     *
+     * Every way of getting here is ordinary: a double-submit, a
+     * back-button resubmit (the CSRF token is not consumed on use), a
+     * second guardian's stale tab, or a super-admin who lifted the block
+     * first. The admin path already asked this question of
+     * `BounceService::unblock()`; this one used to discard the answer and
+     * flash « Adresse réactivée » regardless.
+     */
+    public function testLiftingABlockThatIsNoLongerThereAnswersFalse(): void
+    {
+        $id = $this->repository->create(
+            $this->memberId, 'rebond@example.com', MemberEmail::SOURCE_MANUAL, MemberEmail::STATUS_VALID, null, null
+        );
+        $this->blockAddress('rebond@example.com');
+
+        $this->assertTrue($this->service->unblockBounce($this->memberId, $id), 'the first one lifts it.');
+        $this->assertFalse(
+            $this->service->unblockBounce($this->memberId, $id),
+            'and the second has nothing left to lift.'
+        );
+    }
+
+    /**
+     * An address that never bounced has no state at all — a direct POST,
+     * or a row whose bounce was forgotten when a message got through.
+     */
+    public function testLiftingABlockOnAnAddressThatNeverBouncedAnswersFalse(): void
+    {
+        $id = $this->repository->create(
+            $this->memberId, 'jamais@example.com', MemberEmail::SOURCE_MANUAL, MemberEmail::STATUS_VALID, null, null
+        );
+
+        $this->assertFalse($this->service->unblockBounce($this->memberId, $id));
+    }
+
+    /**
+     * The existing ownership guard, unchanged: this reaches nothing a
+     * member could not already reach. A second member's address is
+     * refused even though the block itself belongs to no member in
+     * particular.
+     */
+    public function testAMemberCannotLiftTheBlockOnSomebodyElsesAddress(): void
+    {
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK2')");
+        $otherMemberId = (int) $this->pdo->lastInsertId();
+        $id = $this->repository->create(
+            $otherMemberId, 'autre@example.com', MemberEmail::SOURCE_MANUAL, MemberEmail::STATUS_VALID, null, null
+        );
+        $this->blockAddress('autre@example.com');
+
+        $this->expectException(\Core\Member\MemberEmailException::class);
+        $this->service->unblockBounce($this->memberId, $id);
+    }
+
+    /**
+     * **Ownership is not control.** `addEmail()` accepts any
+     * syntactically valid address as a `pending` row — that is what
+     * claiming an address IS — and the unique index on `member_emails`
+     * is per member, so naming one that already belongs to somebody else
+     * succeeds. The bounce state, though, is keyed by the address's
+     * blind index and belongs to the mailbox: were it answered here, one
+     * member would read another's bounce category and dates off their
+     * own page, having proven nothing.
+     */
+    public function testAnUnconfirmedClaimOnSomebodyElsesAddressIsToldNothingAboutIt(): void
+    {
+        $this->addPendingRowAndCaptureToken('voisin@example.com');
+        $this->blockAddress('voisin@example.com');
+
+        $row = $this->repository->findById($this->lastRowId);
+        $this->assertNotNull($row);
+        $this->assertTrue($row->isPending());
+
+        $this->assertNull($this->service->bounceFor($row));
+    }
+
+    /**
+     * And the same claim cannot LIFT that block — the half that matters,
+     * since lifting it puts the unit back to writing at a mailbox that
+     * refuses it, which is the reputation damage this whole chantier
+     * exists to stop.
+     */
+    public function testAnUnconfirmedClaimCannotLiftTheBlockOnThatAddress(): void
+    {
+        $this->addPendingRowAndCaptureToken('voisin@example.com');
+        $this->blockAddress('voisin@example.com');
+
+        try {
+            $this->service->unblockBounce($this->memberId, $this->lastRowId);
+            $this->fail('An unconfirmed row must not reach the bounce state of the address it names.');
+        } catch (\Core\Member\MemberEmailException $e) {
+            // Deliberately indistinguishable from an id belonging to
+            // nobody: naming the real reason would confirm, to whoever
+            // asked, that the address is known here and suspended.
+            $this->assertSame('Adresse introuvable.', $e->getMessage());
+        }
+
+        $this->assertTrue($this->bounceStates->find('voisin@example.com')?->isBlocked());
+    }
+
+    /**
+     * The other side of that guard, and the reason it tests `confirmedAt`
+     * rather than the status: once the link has been followed the member
+     * has shown they read this mailbox, and self-service works exactly as
+     * before.
+     */
+    public function testConfirmingTheAddressGivesTheMemberTheirButtonBack(): void
+    {
+        $rawToken = $this->addPendingRowAndCaptureToken('voisin@example.com');
+        $this->blockAddress('voisin@example.com');
+        $this->assertTrue($this->service->confirmEmail($this->lastRowId, $rawToken));
+
+        $row = $this->repository->findById($this->lastRowId);
+        $this->assertNotNull($row);
+        $this->assertNotNull($this->service->bounceFor($row));
+
+        $this->service->unblockBounce($this->memberId, $this->lastRowId);
+
+        $this->assertFalse($this->bounceStates->find('voisin@example.com')?->isBlocked());
     }
 
     /**

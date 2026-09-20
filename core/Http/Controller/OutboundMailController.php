@@ -61,6 +61,12 @@ class OutboundMailController extends AbstractController
     public const AUTHENTICATION_URL = '/config/courrier-sortant/authentification';
     public const PROVIDERS_URL = '/config/courrier-sortant/fournisseurs';
 
+    public const BOUNCES_URL = '/config/courrier-sortant/rebonds';
+    public const BOUNCE_UNBLOCK_URL = '/config/courrier-sortant/rebonds/{id}/reprise';
+
+    /** Said the same way wherever the bounce page cannot run at all. */
+    private const BOUNCES_UNAVAILABLE = 'Le suivi des rebonds demande le module « Courrier entrant ».';
+
     public const PROBE_URL = '/config/courrier-sortant/sonde';
     public const PROBE_SEND_URL = '/config/courrier-sortant/sonde/envoi';
     public const PROBE_VERDICT_URL = '/config/courrier-sortant/sonde/verdict';
@@ -98,8 +104,136 @@ class OutboundMailController extends AbstractController
          * `$returns` takes towards a missing `inbound_mail`.
          */
         private ?MailProbeSender $probes = null,
-        private ?MailProbeRepository $probeHistory = null
+        private ?MailProbeRepository $probeHistory = null,
+        /**
+         * The bounce state (roadmap IT-05).
+         *
+         * Nullable like the probe above, and for a related but distinct
+         * reason: the table is core and always readable, but a site whose
+         * `inbound_mail` module is off never records a bounce, so a page
+         * listing them would be a permanently empty screen promising a
+         * feature that cannot work. Null makes the sub-page say so.
+         */
+        private ?\Core\Mail\Feedback\Bounce\BounceService $bounces = null,
+        private ?\Core\Mail\Feedback\Bounce\BounceStateRepository $bounceHistory = null
     ) {
+    }
+
+    /**
+     * GET /config/courrier-sortant/rebonds — which addresses refuse this
+     * unit's mail, and what the unit can do about it (roadmap IT-05).
+     *
+     * @param array<string, string> $params
+     */
+    public function bounces(Request $request, array $params): Response
+    {
+        return $this->renderBounces();
+    }
+
+    /**
+     * POST .../rebonds/{id}/reprise — the super-admin lifts a block.
+     *
+     * **Legitimate for exactly the reason D19 gives**: the site placed
+     * this block, so the site may lift it. It is emphatically NOT a way
+     * round `MemberEmailService::isOwnMember()` — a super-admin still
+     * cannot reactivate an address a parent switched off, which is the
+     * parent's decision and stays theirs. Necessary in practice, because
+     * a great many parents never sign in.
+     *
+     * @param array<string, string> $params
+     */
+    public function unblockBounce(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, self::BOUNCES_URL)) !== null) {
+            return $guard;
+        }
+
+        if ($this->bounces === null) {
+            FlashMessage::set('error', self::BOUNCES_UNAVAILABLE);
+
+            return $this->redirect(self::BOUNCES_URL);
+        }
+
+        if (!$this->bounces->unblock((int) ($params['id'] ?? 0), false)) {
+            FlashMessage::set('error', 'Cette adresse n’est plus dans la liste.');
+
+            return $this->redirect(self::BOUNCES_URL);
+        }
+
+        FlashMessage::set(
+            'success',
+            'Adresse remise en service. Si elle refuse à nouveau nos messages, elle sera suspendue de nouveau.'
+        );
+
+        return $this->redirect(self::BOUNCES_URL);
+    }
+
+    private function renderBounces(): Response
+    {
+        return $this->render('config/outbound_mail/bounces.html.twig', [
+            'available' => $this->bounces !== null,
+            'unavailable_reason' => self::BOUNCES_UNAVAILABLE,
+            'blocked' => $this->bounceLines($this->bounceHistory?->blocked() ?? []),
+            'domains' => $this->bounceDomains(),
+            'unblock_url' => self::BOUNCE_UNBLOCK_URL,
+            'current_path' => self::BOUNCES_URL,
+        ]);
+    }
+
+    /**
+     * @param list<\Core\Mail\Feedback\Bounce\BounceState> $states
+     * @return list<array<string, mixed>>
+     */
+    private function bounceLines(array $states): array
+    {
+        $lines = [];
+        foreach ($states as $state) {
+            $lines[] = [
+                'id' => $state->id,
+                // The address IS shown here, and only here: a super-admin
+                // lifting a block has to know which one they are lifting,
+                // and this screen is behind the highest role the site has.
+                // It stays out of the journal, the notifications and the
+                // support archive all the same (SECURITY.md §11).
+                'email' => $state->email,
+                'category' => $state->category->label(),
+                'guidance' => $state->category->guidance(),
+                'failures' => $state->failures,
+                'since' => $state->blockedAt?->format('d/m/Y') ?? $state->lastSeenAt->format('d/m/Y'),
+            ];
+        }
+
+        return $lines;
+    }
+
+    /**
+     * Refusals per recipient domain, which is the shape a pattern shows
+     * up in: one address failing is a family's mailbox, ten at the same
+     * provider is that provider refusing this unit.
+     *
+     * @return list<array{domain: string, refused: int}>
+     */
+    private function bounceDomains(): array
+    {
+        $counts = [];
+        foreach ($this->bounceHistory?->blocked() ?? [] as $state) {
+            $at = strrpos($state->email, '@');
+            if ($at === false) {
+                continue;
+            }
+
+            $domain = substr($state->email, $at + 1);
+            $counts[$domain] = ($counts[$domain] ?? 0) + 1;
+        }
+
+        arsort($counts);
+
+        $rows = [];
+        foreach ($counts as $domain => $refused) {
+            $rows[] = ['domain' => (string) $domain, 'refused' => $refused];
+        }
+
+        return $rows;
     }
 
 

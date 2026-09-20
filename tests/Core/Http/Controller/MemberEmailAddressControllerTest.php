@@ -212,6 +212,131 @@ class MemberEmailAddressControllerTest extends TestCase
         $this->assertSame(302, $response->getStatusCode());
     }
 
+    // ── lifting a block the site placed (roadmap IT-05, D19) ─────────
+
+    /**
+     * The route half of AGENTS.md's conjunctive rule: an action nobody
+     * can reach is an action that does not exist, and the route table
+     * lives in a procedural bootstrap no unit test loads — so it is read
+     * at source, the same technique as
+     * `Tests\Core\Mail\OutboundMailWiringTest`.
+     *
+     * `identified` and not `admin`: the whole point is that the person
+     * inconvenienced can act, and the controller re-checks self-access on
+     * every call regardless of what the route says.
+     */
+    public function testTheUnblockRouteIsRegisteredForTheMemberThemselves(): void
+    {
+        $source = file_get_contents(dirname(__DIR__, 4) . '/public/index.php');
+        self::assertNotFalse($source);
+
+        $position = strpos($source, "'/members/{id}/emails/{email_id}/bounce-unblock'");
+        $this->assertNotFalse($position, 'The unblock action must be reachable.');
+
+        $declaration = substr($source, $position, 260);
+        $this->assertStringContainsString("'unblockBounce'", $declaration);
+        $this->assertStringContainsString("'identified'", $declaration);
+    }
+
+    public function testUnblockBounceIsForbiddenWhenNotLinkedToThisMemberYear(): void
+    {
+        $token = $this->startSessionWithCsrfToken();
+        $this->memberService->method('canAccess')->willReturn(false);
+        $this->memberEmailService->expects($this->never())->method('unblockBounce');
+
+        $response = $this->controller->unblockBounce(
+            new Request('POST', '/members/1/emails/5/bounce-unblock', [], ['_csrf_token' => $token], [], []),
+            ['id' => '1', 'email_id' => '5']
+        );
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    public function testUnblockBounceSucceedsForTheMemberThemselves(): void
+    {
+        $token = $this->startSessionWithCsrfToken();
+        $this->memberService->method('canAccess')->willReturn(true);
+        $this->memberService->method('getMemberProfile')->willReturn($this->makeProfile(42));
+        $this->memberEmailService->expects($this->once())->method('unblockBounce')
+            ->with(42, 5)->willReturn(true);
+
+        $response = $this->controller->unblockBounce(
+            new Request('POST', '/members/1/emails/5/bounce-unblock', [], ['_csrf_token' => $token], [], []),
+            ['id' => '1', 'email_id' => '5']
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/members/1', $response->getHeaders()['Location'] ?? null);
+        $this->assertSame('success', \Core\Http\FlashMessage::get()['type'] ?? null);
+    }
+
+    /**
+     * **A no-op is said out loud**, as the admin path already said it.
+     *
+     * `unblockBounce()` returned `void` and the controller flashed
+     * « Adresse réactivée » whatever happened — so a double-submit, a
+     * back-button resubmit, a second guardian's stale tab, or a
+     * super-admin who lifted the block first all reported a success over
+     * nothing. None of those needs any bad intent to reach: the CSRF token
+     * is not consumed on use.
+     */
+    public function testUnblockBounceSaysSoWhenThereWasNothingToLift(): void
+    {
+        $token = $this->startSessionWithCsrfToken();
+        $this->memberService->method('canAccess')->willReturn(true);
+        $this->memberService->method('getMemberProfile')->willReturn($this->makeProfile(42));
+        $this->memberEmailService->expects($this->once())->method('unblockBounce')
+            ->with(42, 5)->willReturn(false);
+
+        $response = $this->controller->unblockBounce(
+            new Request('POST', '/members/1/emails/5/bounce-unblock', [], ['_csrf_token' => $token], [], []),
+            ['id' => '1', 'email_id' => '5']
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertNotNull($flash);
+        $this->assertSame('error', $flash['type'], 'nothing was lifted, so this is not a success.');
+        $this->assertStringNotContainsString('réactivée', $flash['message']);
+    }
+
+    public function testUnblockBounceRejectsAStaleCsrfTokenWithoutCallingTheService(): void
+    {
+        $this->startSessionWithCsrfToken();
+        $this->memberService->method('canAccess')->willReturn(true);
+        $this->memberService->method('getMemberProfile')->willReturn($this->makeProfile(42));
+        $this->memberEmailService->expects($this->never())->method('unblockBounce');
+
+        $response = $this->controller->unblockBounce(
+            new Request('POST', '/members/1/emails/5/bounce-unblock', [], ['_csrf_token' => 'périmé'], [], []),
+            ['id' => '1', 'email_id' => '5']
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+    }
+
+    /**
+     * **Two buttons, two decisions.** `reactivate` undoes the member's own
+     * « je ne veux plus rien recevoir ici »; this undoes a block the site
+     * placed after bounces. One action doing both would let a parent
+     * silently undo their unsubscribe while meaning to empty their
+     * mailbox (D19).
+     */
+    public function testLiftingABlockNeverReactivatesAnAddressTheMemberSwitchedOff(): void
+    {
+        $token = $this->startSessionWithCsrfToken();
+        $this->memberService->method('canAccess')->willReturn(true);
+        $this->memberService->method('getMemberProfile')->willReturn($this->makeProfile(42));
+        $this->memberEmailService->expects($this->never())->method('reactivateEmail');
+        $this->memberEmailService->expects($this->once())->method('unblockBounce');
+
+        $this->controller->unblockBounce(
+            new Request('POST', '/members/1/emails/5/bounce-unblock', [], ['_csrf_token' => $token], [], []),
+            ['id' => '1', 'email_id' => '5']
+        );
+    }
+
     public function testAddReturns403WhenTheMemberYearDoesNotExist(): void
     {
         $token = $this->startSessionWithCsrfToken();

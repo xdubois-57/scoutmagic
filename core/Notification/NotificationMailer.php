@@ -104,9 +104,21 @@ class NotificationMailer
                 to: $to,
                 subject: $discretion ? self::DISCRETION_SUBJECT : $record->title,
                 bodyHtml: $email->bodyHtml,
-                bodyText: $email->bodyText
+                bodyText: $email->bodyText,
+                // The site picked this recipient: a notification goes to
+                // the account it belongs to, at the address that account
+                // is registered under. Nobody outside can aim it. So a
+                // bounce coming back from here is worth believing
+                // (roadmap IT-05).
+                vouchesForRecipient: true
             );
         } catch (MailException) {
+            // `SuppressedRecipientException` is a `MailException`, so a
+            // suspended address lands here and answers false — which is
+            // the true answer: nobody was written to. There is nothing to
+            // tell apart at this level, because the caller's only question
+            // is whether the e-mail channel carried this notification, and
+            // it did not.
             return false;
         }
 

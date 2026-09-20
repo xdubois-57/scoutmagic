@@ -1405,3 +1405,678 @@ faut » de « rien n'entre jamais dedans ».
   `RET-` d'IT-03) ; ce qui manque est le lecteur de `delivery-status`,
   qui est le sujet d'IT-05.
 
+---
+
+## IT-05 — Les rebonds
+
+### Livré
+
+Un rebond (`message/delivery-status`, RFC 3464) arrivant dans une boîte du
+courrier entrant est lu, attribué à l'adresse qui a échoué, compté, et au
+deuxième échec définitif l'adresse cesse d'être écrite. La personne
+concernée est prévenue, voit la raison en français ordinaire sur sa page
+d'adresses, et peut remettre son adresse en service elle-même. Le
+super-admin dispose d'une page « Rebonds » pour la même levée, parce que
+beaucoup de parents ne se connectent jamais.
+
+### Décisions structurantes
+
+**Une ligne par adresse, pas par fiche.** L'adresse d'un parent figure sur
+la fiche de chacun de ses enfants ; sans cela « bloquée » serait vrai sur
+un écran et faux sur un autre, pour une seule boîte aux lettres. C'est le
+raisonnement que `MemberEmailService::unsubscribe()` applique déjà.
+
+**À côté de `status`, jamais dedans** (D19). Les trois valeurs de cette
+colonne enregistrent des décisions du **membre** ; le blocage est une
+décision du **site**. De là découle la règle d'accès : un super-admin peut
+lever un blocage qu'il n'a pas posé lui-même, et ne peut toujours pas
+réactiver une adresse qu'un parent a éteinte.
+
+**L'index aveugle partagé, et pourquoi.** `EncryptionService::blindIndex()`
+pose la règle : les index comparés entre tables partagent un usage. Celui
+des rebonds est comparé à `member_emails`. En face,
+`mass_mail_list_addresses` garde son usage séparé — donc le module ne
+compare jamais d'index à travers la frontière, il interroge le cœur avec
+l'adresse en clair qu'il tient déjà.
+
+### Ce que les tests ont trouvé
+
+**Un « envoi réussi » qui aurait désarmé tous les blocages du site.**
+`recordSuccess()` effaçait l'état quand le relais acceptait le message. Or
+un relais qui accepte ne prouve rien, et le rebond de cet envoi-là arrive
+trente secondes plus tard : le compteur aurait été vidé avant chaque
+rebond, jamais deux échecs, jamais un blocage — et silencieusement, puisque
+aucun test de la règle de blocage n'envoie quoi que ce soit. « Réussi » ne
+peut vouloir dire qu'une chose : n'a produit aucun rebond. Ce n'est
+connaissable qu'après coup, donc chaque envoi juge le précédent
+(`last_send_at`). Le décalage d'un envoi est inhérent, pas un raccourci.
+
+**Et ce même `recordSend()` n'avait aucun appelant en production**,
+découvert en construisant les statistiques par domaine. Toute la logique de
+règlement était morte. Câblée dans `SendBatchHandler`, le seul endroit du
+site où un message est confirmé remis à un relais pour une adresse nommée.
+
+**Une garde inatteignable, la même qu'en IT-04.** Le service testait « seul
+un définitif bloque » ; en le cassant, rien ne tombait, parce que seul le
+dépôt incrémente le compteur. Retirée.
+
+**Deux faits d'`inbound_mail` que rien n'écrivait**, vérifiés plutôt que
+supposés et désormais épinglés : la partie `message/delivery-status` arrive
+dans le corps texte (elle n'a ni nom de fichier ni `Content-Disposition`),
+et le drapeau « automatique » de `BulkMailDetector` ne filtre ni le
+stockage ni l'analyse. Les casser rendrait le site aveugle aux rebonds sans
+qu'aucun test ne rougisse.
+
+### Ce que la relecture a trouvé
+
+**N'importe qui pouvait faire suspendre l'adresse de n'importe quel
+membre.** Les deux relecteurs l'ont vu indépendamment. Une boîte surveillée
+est, par construction, une boîte où le monde entier peut écrire ; le
+consommateur lisait tout corps ayant la forme d'un `multipart/report` et
+rien ne rattachait ce rapport à un envoi du site. Deux faux rapports
+nommant l'adresse d'un parent la coupaient du site et déclenchaient la
+notification qui va avec, sans qu'un seul message soit jamais parti.
+
+La frontière est posée dans le **dépôt** plutôt que dans l'analyseur : un
+analyseur reconnaît une forme, il n'a aucun moyen d'établir une provenance,
+et l'y mettre aurait donné une garde qui a seulement l'air d'en être une.
+
+La première version de cette garde demandait « avons-nous déjà écrit à
+cette adresse ? ». Les relecteurs ont montré, en trois angles distincts,
+que c'était trop faible. La règle est donc devenue une phrase :
+**un rapport ne compte que si un message est parti depuis le dernier
+rapport qui a compté.** Un rebond est une réponse, et une réponse demande
+une question plus récente que la réponse précédente. Une table
+`mail_send_receipts` retient, par index aveugle et **sans jamais stocker
+l'adresse**, la date du dernier envoi vers chaque destinataire ; `record()`
+compare cette date au `last_seen_at` de l'état.
+
+Cette phrase remplace quatre gardes :
+
+- une adresse à qui le site n'a jamais écrit n'a aucune preuve, donc rien
+  ne peut jamais être enregistré à son sujet ;
+- **un seul message nommant deux fois le même destinataire compte une
+  fois.** Deux paragraphes séparés par une ligne vide coûtent une ligne à
+  écrire, et suffisaient à atteindre le seuil de deux échecs d'un coup :
+  la règle « deux événements distincts » était devenue « un message » ;
+- **le même message relu compte une fois.** `MailboxSyncService` appelle
+  `analyzeAll()` **avant** son contrôle de Message-ID — délibérément, son
+  propre commentaire dit qu'une relecture est attendue après une remise à
+  zéro d'UIDVALIDITY ou quand un message tombe dans deux dossiers
+  surveillés. Un vrai rebond relu bloquait donc en moitié moins d'échecs
+  qu'il n'en faut ;
+- et **une vieille preuve d'envoi n'autorise qu'un seul rapport**, pas une
+  provision sans fin. Sinon, connaître une adresse à qui l'unité a écrit
+  un jour — n'importe quel parent, n'importe quel publipostage — suffisait
+  à forcer le blocage message après message.
+
+Ce qu'elle ne refuse pas, et c'est tout l'enjeu : envoi, rebond, envoi,
+rebond, blocage. Chaque envoi rouvre la porte pour exactement une réponse.
+
+**Et la preuve d'envoi est posée dans `MailService::send()`**, le seul
+point par lequel tout message passe. Posée dans la tâche de publipostage
+seule, comme au premier jet, une installation sans le module `mass_mail`
+n'aurait jamais rien pu bloquer pendant que sa page Rebonds promettait le
+contraire — et le rebond le plus probable qui soit, une adresse fraîchement
+mal tapée refusée dès son courriel de confirmation, était précisément celui
+que le site jetait.
+
+**Un `rowCount()` qui aurait fait tomber un publipostage en plein milieu.**
+L'upsert de la preuve lisait `rowCount()` pour savoir si la ligne existait.
+Sans `PDO::MYSQL_ATTR_FOUND_ROWS`, que ce site ne pose pas, MySQL compte
+les lignes *modifiées* et non les lignes trouvées — le piège que
+`SettingRepository::replaceIfUnchanged()` documente déjà pour lui-même.
+`last_send_at` est un `DATETIME` : deux messages à la même adresse dans la
+même seconde sont la règle, pas l'exception, puisque des frères et sœurs
+partagent la boîte d'un parent et qu'un lot les parcourt à la suite. La
+seconde écriture est identique, `rowCount()` répond 0, l'INSERT part et
+l'index unique lève une `PDOException` que la boucle d'envoi — qui ne
+rattrape que `MailException` — aurait emportée hors du lot, à moitié
+distribué. L'existence est donc demandée, jamais déduite.
+
+**Et ce défaut-là était invisible à toute la suite.** SQLite, sur lequel
+tourne la quasi-totalité des tests, rapporte les lignes *trouvées* qu'un
+UPDATE ait changé quelque chose ou non : l'upsert fautif y est correct.
+`#[Group('database')]` ne suffit pas non plus — le groupe sert à
+sélectionner les tests dans le job CI, il ne bascule aucune connexion. Un
+test n'atteint MySQL que s'il ouvre lui-même une connexion depuis
+`TEST_DB_*`, comme le font `MigrationRunnerTest` ou `SchemaIntrospectorTest`.
+D'où `BounceSendReceiptMysqlTest`, qui se connecte pour de bon, se
+*skippe* sans serveur, et commence par vérifier sa propre prémisse : que
+ce moteur-ci rapporte bien les lignes modifiées. Cassé-vérifié, il
+reproduit exactement l'erreur annoncée (`Duplicate entry … for key
+'idx_msr_blind'`).
+
+**Une date d'écran qui vieillissait à l'envers.** La page du membre
+affichait « Suspendue depuis le … » à partir de `last_seen_at`, qui avance
+à chaque refus — y compris après le blocage, puisque le chemin « adresse
+de liste » du module peut encore écrire à une adresse bloquée. `blocked_at`
+est écrit une fois. Quelqu'un coupé en mars lisait donc « depuis
+aujourd'hui », tous les jours, et contredisait la page du super-admin qui,
+elle, retombait déjà sur le bon champ. `MemberPageServiceTest` n'avait
+aucune couverture des rebonds : c'est pour cela que rien ne l'avait dit.
+
+**Un envoi qui se jugeait lui-même propre avant d'en avoir eu le temps.**
+Le commentaire disait déjà « un envoi doit avoir eu le temps de ne pas
+rebondir » ; le code ne vérifiait que l'ordre des dates, jamais le délai.
+Or un rebond n'est pas refusé à la porte : le serveur d'en face répond, et
+cette réponse attend ensuite le relevé de la boîte, jusqu'à une journée
+entière (`MAX_INTERVAL_MINUTES` = 1440). Deux messages vers la même boîte
+avant le relevé suivant — deux frères et sœurs partageant l'adresse d'un
+parent, résolus dans un même lot, c'est-à-dire précisément le cas pour
+lequel cette fonctionnalité existe — et le second déclarait le premier
+propre, effaçant la ligne et son compteur. À chaque lot. Le second échec
+n'arrivait donc jamais et rien n'était jamais bloqué.
+Le test existant ne pouvait pas le voir : son montage bloquait l'adresse
+d'abord, donc `recordSend()` sortait au garde `isBlocked()` avant même
+d'examiner le règlement.
+
+**Et le premier correctif posait la mauvaise question.** Une fenêtre de
+grâce comparée à l'écart entre deux envois consécutifs n'est pas « depuis
+combien de temps cet envoi se tait-il ? » : `lastSendAt()` ne retient que
+le dernier envoi, donc sur une cadence quotidienne — du courrier
+transactionnel, pas une campagne — deux envois ne sont jamais séparés de
+deux jours et rien ne se règle **jamais**. Un échec ancien restait alors
+sur la ligne indéfiniment, et le rebond suivant, sans rapport et des mois
+plus tard, comptait pour un second au lieu d'un premier : l'adresse était
+bloquée. Le commentaire qui disait « se tromper en long ne fait que
+retarder un oubli » était donc faux pour cette cadence : il l'empêchait.
+
+L'horloge appartient à l'envoi qui l'a lancée, pas à l'intervalle entre
+deux : `settling_since` est posé par le premier envoi qui suit le dernier
+rebond, laissé tel quel par les suivants, et effacé par tout nouveau
+rebond — qui est précisément la réponse que l'horloge attendait. La
+colonne n'a coûté aucune migration : la table naît dans cette même PR.
+
+**Et la preuve d'envoi pouvait être fabriquée par la victime d'à côté.**
+`addEmail()` accepte n'importe quelle adresse comme ligne `pending` —
+c'est ce qu'est revendiquer une adresse — et la confirmation qui suit
+partait par le même `send()` qui pose les preuves. Le verrou tombait donc
+de « aucun compte nécessaire » à « n'importe quel compte » : revendiquer
+l'adresse d'un tiers, déposer un faux rapport, supprimer et revendiquer,
+déposer un second, et l'adresse était coupée pour tout le site. Le premier correctif a
+ajouté à `send()` un drapeau `countsAsProofOfSend`, faux pour cette
+confirmation — et c'était la mauvaise forme deux fois : **une valeur par
+défaut de sécurité qui échoue en mode ouvert**, que 42 sites d'appel
+devaient penser à poser, et que la file des messages différés perdait au
+rejeu puisqu'elle ne la transporte pas. Le relecteur a trouvé les deux :
+le jumeau du module `registration`, et trois formulaires publics où un
+visiteur anonyme suffisait.
+
+Poser la question à l'**adresse** seule ne suffisait pas non plus, et le
+relecteur l'a montré au tour suivant : l'index unique de `member_emails`
+étant par membre, un membre peut revendiquer l'adresse **confirmée d'un
+autre** comme sa propre ligne `pending`, et la confirmation part alors
+vers la victime — dont l'adresse, elle, est bel et bien « sur les
+livres ». Un formulaire public suffit tout autant.
+
+Il faut donc les deux, et **oublier l'une ou l'autre échoue du bon
+côté** : l'appelant déclare que le site a *choisi* ce destinataire
+(`vouchesForRecipient`, **faux tant qu'on ne dit rien**), et `recordSend()`
+refuse séparément une adresse que le site ne détient pas. Oubliée, la
+déclaration ne coûte qu'un rebond non remarqué ; c'est l'inverse qui
+donnait à quelqu'un le moyen de faire couper une adresse. Le rejeu différé
+se referme tout seul, puisqu'il ne transporte rien et que ne rien
+transporter vaut désormais « non ». Rien de réel n'est perdu : une adresse que
+le site ne détient pas est une adresse à laquelle il n'écrira pas non
+plus, donc un rebond enregistré contre elle ne protège aucun envoi à
+venir. La seule qui échappe à la déduction est l'adresse d'une liste de
+diffusion, qui vit dans la table d'un module et qu'un membre du staff a
+saisie : ce module s'en porte garant lui-même, à son propre envoi.
+
+**Lever un blocage qui n'existe pas remettait le compteur à zéro.**
+`unblock()` écrivait sur `WHERE id = ?` sans exiger que l'adresse soit
+bloquée, là où `block()` se garde déjà par la condition miroir. Le bouton
+« Réessayer » ne s'affiche que pour une adresse bloquée, mais le bouton
+n'est pas la garde : un POST direct — onglet périmé, double soumission, ou
+quelqu'un qui essaie — atteignait une adresse à un seul échec et effaçait
+son compteur. Répété après chaque rebond, le second échec n'arrivait
+jamais : l'unité continuait d'écrire à une boîte morte, sans rien sur aucun
+écran pour le dire.
+
+**Et un rebond de plus sur une adresse déjà bloquée envoyait le message
+doux.** `$blocking` est l'instant où le blocage est posé, donc faux pour
+tous les rebonds suivants ; un échec portant un code *différent* passait
+alors le test « déjà dit » et envoyait « un message n'a pas pu être remis
+… réactivez l'adresse ci-dessous » à quelqu'un dont l'adresse était en
+réalité suspendue pour tout le site — en écrasant au passage
+`notified_code`, ce qui rendait l'erreur d'origine à nouveau « neuve ». Une
+adresse bloquée n'a plus rien à dire : le membre a déjà été prévenu, et
+c'est l'état courant jusqu'à ce que lui ou le super-admin le lève.
+
+**Et la branche « adresse suspendue » du publipostage n'avait aucun test.**
+C'est le seul trou que le filtre côté membre ne peut pas couvrir, puisque
+`resolveValidAddressesForMassMail()` ne voit jamais une adresse de liste.
+Deux tests dans `ListAddressFlowTest`, cassés-vérifiés.
+
+**Le consommateur n'était inscrit que sur un registre sur deux**, et pas
+celui qui travaille. Celui de `public/index.php` dit à l'écran de
+configuration quelles portées existent ; celui de
+`public/scheduler-bootstrap.php` est celui contre lequel la passe de
+synchronisation appelle `analyze()`. Un super-admin pouvait donc cocher
+« Rebonds » sur une boîte et aucun rebond n'aurait jamais été enregistré —
+toute l'itération inerte, sans autre symptôme que le silence. C'est la
+cinquième fois de ce chantier que la même leçon revient sous un autre
+visage : **une dépendance optionnelle ajoutée à une classe est une
+dépendance absente de la racine de composition tant qu'un test ne dit pas
+le contraire.** Le test qui l'épingle désormais est celui qui construit
+réellement le registre de l'ordonnanceur et compte ses consommateurs, pas
+celui qui lit le texte source.
+
+**Posséder une ligne n'est pas prouver qu'on lit la boîte.** `addEmail()`
+accepte n'importe quelle adresse syntaxiquement valide comme ligne
+`pending` — c'est précisément ce qu'est *revendiquer* une adresse — et
+l'index unique est par membre, donc nommer l'adresse d'un autre réussit. Or
+l'état de rebond est indexé sur l'adresse, pas sur la ligne : cette
+revendication non prouvée affichait la catégorie et les dates de rebond du
+voisin, et surtout **levait** le blocage posé sur sa boîte défaillante.
+`bounceFor()` et `unblockBounce()` exigent maintenant une preuve de
+contrôle — ligne importée de Desk, ou lien de confirmation suivi. Le refus
+emprunte le mot d'une adresse inconnue (« Adresse introuvable. ») : nommer
+la vraie raison confirmerait à qui demande que l'adresse est connue ici et
+suspendue.
+
+### Le silence qui se faisait passer pour un envoi
+
+Trouvé par la relecture Claude, sur le dernier tour, et c'est le défaut le
+plus coûteux de l'itération : **la suppression revenait d'une méthode
+`void`.**
+
+`MailService::send()` répondait à une adresse suspendue en retournant
+normalement. Or c'est exactement ce que fait un envoi réussi — un `void`
+qui revient sans lever veut dire « parti » chez tous les appelants. Trois
+d'entre eux le lisaient ainsi :
+
+- `BatchDistributionService` (attestations) inscrivait `DeliveryState::Sent`,
+  un état *réglé* qu'il ne réessaie jamais. Une famille sur une adresse
+  suspendue gardait donc une attestation marquée « Envoyée » pour
+  toujours — et le journal de suppression ne porte aucune adresse
+  (SECURITY.md §11), donc rien n'aurait permis de la retrouver après coup.
+- La fiche membre affichait « Document renvoyé par e-mail » et journalisait
+  `member_document_resent`, pour un message que le site avait délibérément
+  retenu.
+- `NotificationMailer` renvoyait `true`, donc le canal e-mail d'une
+  notification était consigné comme porté.
+
+Le correctif est un signal, pas une vérification recopiée chez chaque
+appelant : `Core\Mail\SuppressedRecipientException`, sous-classe de
+`MailException`. Un appelant qui ne connaît que les échecs d'envoi fait
+déjà ce qu'il faut — `NotificationMailer` attrape `MailException` et répond
+`false`, ce qui est vrai. Un appelant qui a mieux à dire attrape la
+sous-classe : les attestations inscrivent un `DeliveryState::Suppressed`
+neuf, et la fiche membre affiche la phrase de l'exception.
+
+**`Suppressed` à côté de `Failed`, et pas dedans.** « Envoi refusé » enverrait
+un chef d'unité chez le fournisseur de la famille, qui fonctionne très
+bien ; ce qu'il faut, c'est lever la suspension. C'est la même raison qui
+avait déjà séparé `NoAddress` de `Failed`.
+
+**La phrase nomme les deux sorties**, parce que son lecteur n'a peut-être
+ni l'une ni l'autre : le seul écran qui l'affiche — le renvoi d'un document
+depuis la fiche membre — a un plancher `admin`, alors que « Rebonds » est
+`superadmin`. Renvoyer un admin vers une page qu'il ne peut pas ouvrir
+aurait été pire que se taire, donc la page d'adresses du membre est citée
+à côté.
+
+Les deux tests de non-régression ont été vérifiés en cassant le correctif :
+sans lui, l'attestation repasse à `Sent` et le bandeau repasse à
+`success`. `schema.sql` du module gagne la cinquième valeur et
+`module.json` passe en 1.5.0, dans le même changement.
+
+### La notification qui partait chez le mauvais parent
+
+Trouvée par la relecture sur le tour suivant, et c'est la même leçon que la
+précédente sous un autre angle : **un second chemin de résolution
+ratissait tout le profil.**
+
+Il rassemblait les autres adresses valides de chaque membre portant
+l'adresse en échec, pour attraper « une personne, deux adresses, dont une
+qui tombe ». Mais `member_emails` accroche les adresses à l'**enfant**, et
+le profil d'un enfant porte couramment une adresse par parent — sans
+aucune colonne disant laquelle appartient à qui. L'appartenance dont ce
+chemin avait besoin n'est pas dans le schéma et ne s'y déduit pas.
+
+Conséquence : la boîte de la mère tombe, et le père reçoit « Une de tes
+adresses est suspendue … réactivez l'adresse ci-dessous » à propos d'une
+boîte qu'il ne possède pas, ne peut pas réactiver, et n'avait pas à
+connaître — entre deux personnes que le site prend soin de séparer
+ailleurs. Et ça **comptait** : `notify()` qui répond `true` fait écrire
+« déjà dit » par `BounceService`, donc prévenir le mauvais parent pouvait
+dépenser l'alerte que le bon n'a jamais reçue.
+
+La roadmap avait déjà écarté la même forme un cran plus bas — « `dispatch()`
+enverrait vers **toutes** les adresses actives du membre » — et c'est ce
+danger-là qui revenait par la liste des destinataires.
+
+**Le test en place épinglait le défaut au lieu de l'attraper.**
+`testASiblingAddressOfTheSameMemberCarriesTheNews` construisait exactement
+cette situation à deux adresses valides sur un profil et vérifiait que le
+second compte *était* prévenu. C'est la couverture la plus coûteuse qui
+soit : elle faisait passer le comportement pour délibéré. Elle est
+remplacée par son contraire, vérifié en cassant le correctif.
+
+### Deux phrases qui mentaient, dans le même tour de relecture
+
+**« Réactivez l'adresse ci-dessous », sans rien en dessous.** Trois des
+quatre catégories terminaient leur conseil ainsi, alors que le bouton qui
+réactive ne s'affiche qu'une fois l'adresse bloquée. Un premier échec
+définitif — et *tous* les échecs temporaires, qui par construction ne
+bloquent jamais puisque seul `Permanent` incrémente le compteur —
+désignaient donc un bouton absent de la page. La même phrase partait aussi
+dans la notification non bloquante, dont la charge porte `'url' => null` et
+se lit sur un écran verrouillé : là, « ci-dessous » ne nomme rien du tout.
+
+`guidance()` ne dit plus que ce qui est vrai dans tous les cas ;
+l'invitation vit dans `reactivationHint()`, affichée uniquement à côté du
+bouton. `null` pour `Unreachable`, et ce n'est pas un oubli : rien de ce
+que le membre fait ne répare le serveur injoignable de son fournisseur, et
+l'inviter à réessayer serait l'inviter à échouer une seconde fois.
+
+**« Adresse réactivée » pour un non-événement.** `unblockBounce()` côté
+membre renvoyait `void` et le contrôleur affichait le succès quoi qu'il
+arrive, alors que le chemin super-admin, lui, lisait déjà le booléen de
+`BounceService::unblock()` et disait « Cette adresse n'est plus dans la
+liste » le cas échéant. Aucune mauvaise intention n'est nécessaire pour y
+arriver : un double-clic, un retour arrière (le jeton CSRF n'est pas
+consommé à l'usage), l'onglet resté ouvert du second parent, ou un
+super-admin passé avant. Le service renvoie maintenant `bool` et le
+contrôleur dit l'un ou l'autre.
+
+**Au passage, un test instable sans rapport.**
+`PostControllerTest::testCreateAcceptsExactlyFourMedia` (module Groupes)
+tirait quatre `random_int(1000, 9999)` pour ses identifiants de média,
+contre un `UNIQUE (post_id, gallery_media_id)` bien réel : environ une
+exécution sur mille cinq cents échouait, dans un module qui n'avait rien
+changé. C'est ce tirage qui a cassé une passe locale de cette PR. Les
+identifiants sont maintenant comptés plutôt que tirés — distincts par
+construction. Correction hors périmètre, assumée et signalée ici plutôt
+que glissée sans le dire : la laisser en place, c'était livrer sciemment
+un test qui casse la CI de temps en temps.
+
+### Le reçu qui pouvait emporter tout un publipostage
+
+Dernière trouvaille de la relecture, et la plus chère si elle était
+passée. Le tampon de reçu ajouté dans `SendBatchHandler` n'était pas
+protégé, alors que son jumeau dans `MailService::send()` l'est —
+`try { … } catch (\Throwable) {}`, avec le commentaire qui explique
+pourquoi ce silence est voulu.
+
+Ici, le tampon tombe **après** le départ de la copie et après le
+`recordSendSuccess()` déjà écrit, et le seul `catch` autour de la boucle
+attrape `MailException`. Tout le reste s'échappait donc : une
+`DecryptionException` sur une ligne chiffrée avec une clé tournée, un
+`\ValueError` sur une catégorie stockée qui n'est plus un cas, une
+`\PDOException`. Et comme `rescheduleIfPendingRemain()` ne tourne
+qu'après la boucle, et que rien d'autre ne replanifie un `send_batch` en
+échec, **tous les destinataires restants restaient `pending`** jusqu'à ce
+qu'un humain s'en aperçoive et relance l'envoi à la main.
+
+Un reçu ne vaut pas un publipostage : même garde que le jumeau, même
+raison. Le test retire la table `mail_send_receipts` sous les pieds du
+tampon — ce qui représente toute la famille, l'essentiel étant que la
+panne n'ait rien à voir avec l'envoi qui vient de réussir — et vérifie
+que les deux copies restent `sent` et que le lot suivant est bien
+replanifié. Vérifié en retirant la garde : la `PDOException` s'échappe.
+
+### Deux fois où la suppression s'ouvrait au lieu de se fermer
+
+La garde de suppression est branchée sur `$vouchesForRecipient`, et deux
+chemins la contournaient — dans les deux cas en **échouant ouvert**, ce
+qui est le mauvais sens pour une garde.
+
+**La file des messages différés perdait le drapeau.**
+`DrainDeferredMailHandler::trySend()` reconstruit l'appel depuis la charge
+stockée, laquelle ne portait pas `vouchesForRecipient`. Chaque rejeu
+lisait donc « false » — « le site n'a pas choisi ce destinataire » — pour
+une notification que le site avait très exactement choisie. Un message
+différé alors que l'adresse allait bien, puis drainé après deux refus
+définitifs qui l'ont bloquée, partait quand même : vers quelqu'un à qui
+l'on venait d'annoncer que le site avait cessé de lui écrire. La charge
+porte maintenant le drapeau. Sur une ligne mise en file avant l'existence
+de la clé, `?? false` s'applique, et c'est le bon sens de lecture ici :
+un courrier d'authentification supprimé à tort enferme quelqu'un dehors,
+ce qui est la pire des deux erreurs (D9).
+
+Un rejeu supprimé est **abandonné**, pas réessayé : tous les passages
+suivants décideraient à l'identique tant que la suspension tient, et
+l'échelle de réessai dépenserait une journée à réapprendre la même chose.
+Abandonné plutôt que supprimé, pour que l'écran Relance puisse dire
+pourquoi il n'est jamais parti.
+
+**Et le publipostage passait par l'autre porte.** `freezeMergeRecipients()`
+ne vérifiait que `isSuppressed()`, jamais `isBlocked()`, alors que son
+voisin `freezeListAddressRecipient()` fait les deux. Or une ligne
+d'audience sans « Tiers » porte une adresse brute —
+`AudienceImportService` en écrit une dès qu'une ligne importée a une
+colonne « Email » sans correspondance — et rien d'autre ne la filtre : la
+branche membre passe par `resolveValidAddressesForMassMail()`, qui écarte
+bien les adresses bloquées mais seulement pour les lignes qui ONT un
+membre, et la garde de `MailService::send()` ne se déclenche pas puisque
+les destinataires de fusion ne se portent pas garants. Une adresse
+suspendue après deux refus définitifs continuait donc d'être écrite par
+une campagne de fusion : exactement le « continue d'être écrite par une
+liste » que la vérification voisine existe pour fermer.
+
+**Le test est écrit dans `ListAddressFlowTest`, pas dans
+`MassMailServiceTest`**, et c'est délibéré : cette dernière construit son
+`MassMailService` sans `BounceStateRepository`, donc
+`$this->bounces?->isBlocked()` y court-circuite et le test passerait quoi
+que fasse le gel. C'est la cinquième fois de ce chantier qu'une
+dépendance optionnelle absente d'une racine de composition rend une
+couverture creuse ; ici elle a été vue avant d'écrire le test plutôt
+qu'après.
+
+### L'adresse Desk n'était pas « connue du site »
+
+Le plus grave du lot, et le dernier trouvé : `isOnFile()` n'interrogeait
+que `member_emails` en `valid` et `user_accounts`. Or **l'adresse Desk vit
+dans `member_years` et nulle part ailleurs**. Un membre n'obtient une
+ligne `member_emails` que tardivement, à sa désinscription, et elle est
+alors `inactive` et non `valid` ; un parent qui ne se connecte jamais n'a
+pas non plus de ligne `user_accounts`.
+
+Donc l'adresse la plus courante du site — celle que porte le listing de la
+fédération, celle à laquelle `MemberDocumentMailer` envoie une attestation
+— n'était pas « connue du site » au sens de cette méthode. Aucune preuve
+d'envoi n'était tamponnée pour elle. Et comme `record()` exige une preuve,
+**tous ses rebonds étaient écartés en silence** : le site aurait continué
+d'écrire indéfiniment à une boîte morte, ce qui est exactement le dommage
+de réputation que cette itération existe pour empêcher. L'itération était
+aveugle à la population qu'elle vise.
+
+La branche manquante se justifie sur le fond, ce n'est pas une rustine : une
+adresse Desk vient du listing, jamais d'un visiteur qui l'a tapée, donc
+c'est précisément « une adresse que le site détient déjà ». L'index
+aveugle est directement comparable — `member_years` et `user_accounts`
+partagent l'unique finalité `'email'`, ce dont `UserAccountRepository`
+dépend déjà en joignant les deux colonnes l'une à l'autre.
+
+**L'autre correctif proposé par la relecture a été écarté** : faire suivre
+`$vouchesForRecipient` jusqu'au `$vouchedFor` de `recordSend()` aurait
+rétabli la forme « déclarée » que cette classe a mis trois itérations à
+supprimer — une valeur de sécurité qui dépend de la mémoire de
+quarante-deux appelants. La question reste posée à l'adresse.
+
+Le test assert la FIN de la chaîne — un rebond d'une adresse Desk est cru
+— et non `isOnFile()` : ce qui compte n'est pas quelles tables sont
+consultées, mais qu'un vrai rebond d'un vrai membre soit cru.
+Vérifié en retirant la troisième branche.
+
+### Poser la question pouvait casser l'envoi
+
+Même famille que le reçu du publipostage, de l'autre côté de la méthode.
+La garde de suppression interroge `find()` — une requête plus un
+`decrypt()` — et elle tourne **avant** le `try` qui convertit tout en
+`MailException`. Une panne passagère de base, ou une ligne chiffrée avec
+une clé tournée, lançait donc une `PDOException` brute hors d'une méthode
+dont tout le contrat est `MailException`. Or `NotificationMailer`
+n'attrape que celle-là, et son appelant
+`NotificationService::deliverPendingEmails()` n'attrape rien : une seule
+ligne abîmée interrompait toute la boucle de distribution au lieu de
+coûter un message.
+
+**Et elle échoue ouvert, contrairement au reçu.** Les deux ne sont pas
+symétriques : un reçu non écrit coûte sa preuve à un futur rebond, une
+suppression non appliquée coûte un message vers une adresse peut-être
+suspendue. Retenir le document de quelqu'un parce qu'une lecture a échoué
+est la pire des deux erreurs, et c'est le jugement que D9 porte déjà sur
+le courrier qu'on attend. C'est la réputation que cette garde protège, et
+la réputation survit à un message ; un membre qui ne reçoit jamais son
+attestation n'a aucun moyen de savoir qu'il devrait la réclamer.
+
+### « Adresse invalide » pour une adresse parfaitement valide
+
+Quand toutes les adresses d'un membre sont bloquées,
+`resolveValidAddressesForMassMail()` renvoie `[]` — et le gel lisait ce
+vide comme « ce membre n'a pas d'adresse », inscrivant « Adresse
+invalide » sur la page de suivi et dans le journal. Un chef d'unité part
+alors chercher une faute de frappe dans une adresse parfaitement bien
+formée, qui fonctionnait le mois dernier, au lieu d'aller lever la
+suspension sur la page Rebonds. Les deux causes de « vide » demandent le
+contraire l'une de l'autre, et le même fichier disait déjà « suspendue »
+sur ses autres chemins.
+
+Le cas est devenu **atteignable par le correctif précédent** : tant que
+`isOnFile()` ignorait `member_years`, un membre à adresse Desk seule ne
+pouvait jamais être bloqué. C'est maintenant la forme la plus courante de
+membre sur le site.
+
+`everyAddressIsBlockedForMassMail()` répond à la question que les deux
+appelants posaient sans le savoir. Elle renvoie `false` quand le membre
+n'a aucune adresse : c'est l'autre cause, et elle garde ses mots.
+
+**Et, trouvée en écrivant le test : la sixième dépendance optionnelle
+absente d'une racine de composition.** `SendBatchHandler` construit son
+*propre* `MemberEmailService`, sans le service de rebonds — là où
+`public/index.php` le câble. Rien sur ce chemin ne résout d'adresses
+aujourd'hui (le gel a lieu dans la requête web), donc l'omission ne
+coûtait rien encore ; c'est précisément pourquoi elle aurait survécu. Un
+`null` y répond « jamais rebondi » en silence, et le jour où quelque
+chose demande sur le chemin du planificateur, la mauvaise réponse
+n'échoue nulle part. Les deux racines sont câblées, et
+`OutboundMailWiringTest` épingle désormais la seconde comme il épinglait
+déjà la première : qu'une racine soit juste ne veut pas dire que le
+câblage l'est.
+
+Le montage de test avait la même lacune, ce qui aurait rendu le nouveau
+test creux — il est passé au premier essai pour cette raison, avant
+câblage, ce qui est le signal qu'il fallait lire.
+
+### Le publipostage ne se portait pas garant de ses propres destinataires
+
+La garde de suppression de `MailService::send()` est entièrement
+conditionnée à `$vouchesForRecipient`. Or la documentation de ce
+paramètre nomme elle-même les trois appels qui doivent le poser : « une
+notification à un membre, un document envoyé à la personne qu'il
+concerne, **un publipostage** ». Les deux premiers passaient `true`. Le
+troisième — l'envoi de masse lui-même — ne le passait pas, donc la garde
+vivante ne s'est jamais déclenchée pour le courrier de masse.
+
+Le gel filtre bien les adresses bloquées, mais **une seule fois**, au
+moment de la mise en file. Un lot se vide ensuite sur une cadence qui
+s'étale sur des heures, et une adresse bloquée *pendant* ce parcours —
+typiquement parce qu'elle a fait rebondir un lot précédent du même
+publipostage — continuait de recevoir tous les lots suivants, le seul
+contrôle restant étant cet instantané périmé. Exactement les adresses que
+le site venait de décider de ne plus écrire.
+
+Correction d'un argument. Le refus qui en découle est attrapé avant le
+cas général pour que la page de suivi garde un seul vocabulaire :
+« Adresse suspendue après des refus répétés », la phrase que le gel écrit
+déjà pour une adresse bloquée avant l'envoi. Le message de l'exception,
+lui, est écrit pour le **membre** — il nomme sa page d'adresses — et
+cette colonne est lue par le staff.
+
+**Une erreur de ma part en chemin**, notée parce qu'elle dit quelque
+chose : j'ai d'abord incrémenté un `$failedCount` qui n'existe pas, le
+compteur réel étant `$errorCount`. Relue avant exécution, donc sans
+conséquence — mais c'est le genre de détail qu'une garde de sécurité
+ajoutée à la hâte emporte avec elle.
+
+### Une bombe à retardement dans les tests
+
+`BounceConsumerTest` tamponnait sa preuve d'envoi à une date littérale
+(`2026-09-19 08:00:00`), alors que le chemin testé **ne fige pas son
+horloge** : `BounceConsumer::analyze()` appelle `BounceService::record()`
+sans `$now`, donc le dépôt compare cette preuve à l'horloge réelle et
+refuse tout reçu plus vieux que `RECEIPT_MAX_AGE`, soit un mois.
+
+À partir du 19 octobre 2026, sans la moindre modification de code, cinq
+tests de cette classe se seraient mis à échouer. Et le sixième —
+`testAForgedBounceForAnAddressWeNeverWroteToIsRefused` — aurait continué
+de **passer pour la mauvaise raison** : il aurait épinglé la garde d'âge
+au lieu de la règle « pas de preuve, pas de rebond » qu'il existe pour
+protéger. C'est la même leçon que le test qui épinglait le défaut du
+notifieur, sous une autre forme : un test qui change discrètement ce
+qu'il prouve est pire qu'un test qui casse.
+
+La preuve est maintenant relative (`-1 hour`), et le commentaire dit
+pourquoi, pour que personne ne la « range » en date littérale plus tard.
+
+Vérifié en simulant la date d'expiration : cinq échecs, exactement les
+cinq annoncés, et le sixième vert. Le reste de la suite a été relu pour
+le même motif — partout ailleurs les deux côtés de la comparaison sont
+figés ensemble (`$t` puis `$t->modify('+1 minute')`), et
+`BounceSendReceiptMysqlTest` n'appelle jamais `record()`. Cette classe
+était la seule.
+
+### Écarts et limites, assumés
+
+**La preuve d'envoi réduit la falsification, elle ne la supprime pas.** La
+preuve dit « le site a écrit ici récemment », pas « ce rapport répond à ce
+message-là ». La séquence honnête — envoi, rebond, envoi, rebond — est
+délibérément autorisée, et rien ne distingue un faux rapport arrivant dans
+la même fenêtre. Contre l'adresse d'un membre à qui le site écrit
+régulièrement, il reste donc possible de déposer un faux rapport juste
+après un envoi réel, d'attendre le courrier ordinaire suivant, et d'en
+déposer un second. Un rapport refusé ne laisse aucune trace, donc l'essai
+ne coûte rien.
+
+La preuve a aussi une **durée de validité** (`RECEIPT_MAX_AGE`, un mois) :
+un vrai avis de non-remise suit son message de quelques minutes, et un
+rapport désignant un envoi d'il y a deux ans ne répond à rien. Sans elle,
+la garde disait « le site a-t-il déjà écrit ici », ce qui est vrai de
+toute adresse que l'unité a jamais écrite : le premier faux rapport
+passait sur une preuve de n'importe quel âge, et seul le second demandait
+d'être synchronisé.
+
+Ce qui est fermé : l'attaque sans compte et sans interaction, où deux faux
+rapports suffisaient contre **n'importe quelle** adresse. Ce qui reste
+demande de synchroniser avec les envois réels du site vers cette
+adresse-là. La corrélation exacte par message existe — c'est ce que fait
+`ReturnPathConsumer` avec une clé qu'il émet lui-même — mais elle suppose
+VERP, écarté pour le courrier des membres sur des critères de
+déployabilité (D-transport). Le risque résiduel est donc assumé, et il est
+écrit ici plutôt que sous-entendu.
+
+
+**Seul un échec définitif bloque**, comme le demande la roadmap.
+Conséquence : une boîte pleine depuis six mois rebondit en temporaire
+indéfiniment et continue d'être écrite — exactement la réputation que ce
+chantier protège. Implémenté tel que spécifié ; `FAILURES_BEFORE_BLOCK` et
+la condition de sévérité sont les deux points à toucher si l'on veut
+changer cela.
+
+**Le notifieur ne joint pas tout le monde**, et c'est maintenant un choix
+plutôt qu'une conséquence. Il ne s'adresse qu'au compte dont l'identité de
+connexion **est** l'adresse qui a rebondi. Une adresse qui n'appartient à
+personne qui se connecte n'est donc pas alertée, et un membre dont le
+compte est son adresse Desk et dont une adresse *secondaire* rebondit non
+plus — l'adresse Desk vit dans `member_years` et est toujours fournie par
+l'appelant. Aucun des deux n'est laissé sans rien : la raison et le bouton
+les attendent sur leur page, et le super-admin voit le blocage de son côté.
+Répondre `false` pour eux est ce qui laisse l'erreur non classée, donc
+l'alerte reste disponible le jour où un chemin existe.
+
+**Les statistiques par domaine ne comptent que les refus.** La roadmap
+demande « envoyés et refusés » ; compter les envois par domaine
+destinataire demanderait une table de compteurs que rien d'autre ne
+justifie aujourd'hui. Le refus par domaine répond déjà à la question qui
+compte — une adresse qui échoue est une famille, dix chez le même
+fournisseur est ce fournisseur qui refuse l'unité.
+
+### Reporté
+
+- Le rattachement d'un rebond à une sonde précise reste possible
+  (`MailProbeSender::codeIn()`), et reste sans intérêt tant que personne ne
+  le demande.

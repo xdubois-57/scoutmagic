@@ -2187,7 +2187,13 @@ $mailService = MailServiceFactory::create(
     $dkimManager,
     $mailTransportChain,
     $journalService,
-    $deferredMailQueue
+    $deferredMailQueue,
+    // The send receipts (roadmap IT-05). Passed here because THIS is
+    // where the one MailService every page uses is built: a bounce is
+    // only credited to an address the site can show it wrote to, so an
+    // unwired factory would make the whole of IT-05 record nothing —
+    // silently, the way a missing optional dependency always does.
+    new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $encryptionService)
 );
 
 // Automatic e-mails (Core\Mail\Template, ARCHITECTURE.md §8.7bis).
@@ -2474,7 +2480,18 @@ $memberEmailService = new \Core\Member\MemberEmailService(
     $memberService,
     $scoutYearService,
     (string) $settingService->get('base_url'),
-    (string) ($settingService->get('site_name') ?: 'Unité scoute')
+    (string) ($settingService->get('site_name') ?: 'Unité scoute'),
+    new \Core\Member\EmailDomainValidator(),
+    // Bounce state (roadmap IT-05). Wired unconditionally, and NOT inside
+    // the `inbound_mail` branch: the table is core, and what this reads it
+    // for — « cette adresse est-elle suspendue » — must answer correctly
+    // on every installation. What FILLS the table is the module's
+    // consumer, so without the module nothing ever bounces and every
+    // answer here is « non », which is true rather than degraded.
+    new \Core\Mail\Feedback\Bounce\BounceService(
+        new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $encryptionService),
+        $journalService
+    )
 );
 
 // Scout year resolution (public / staff / session-preview priority)
@@ -4017,6 +4034,26 @@ $router->addRoute(
     'recordProbeVerdict',
     'superadmin',
 );
+// Rebonds (roadmap IT-05).
+$router->addRoute(
+    'GET',
+    '/config/courrier-sortant/rebonds',
+    \Core\Http\Controller\OutboundMailController::class,
+    'bounces',
+    'superadmin',
+    // Without a label the breadcrumb stops at the home icon and
+    // `HelpPageLinkResolver` skips the route, so the help topic written
+    // for this exact path gets no link from it.
+    ['label' => 'Rebonds', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Courrier sortant', 'path' => '/config/courrier-sortant']]],
+);
+$router->addRoute(
+    'POST',
+    '/config/courrier-sortant/rebonds/{id}/reprise',
+    \Core\Http\Controller\OutboundMailController::class,
+    'unblockBounce',
+    'superadmin',
+);
 $router->addRoute(
     'POST',
     '/config/courrier-sortant/relance',
@@ -4275,6 +4312,16 @@ $router->addRoute(
     '/members/{id}/emails/{email_id}/delete',
     \Core\Http\Controller\MemberEmailAddressController::class,
     'delete',
+    'identified',
+);
+// Lifting a block the SITE placed after bounces (roadmap IT-05, D19) —
+// its own route rather than a flag on `reactivate`, because the two undo
+// decisions taken by two different people.
+$router->addRoute(
+    'POST',
+    '/members/{id}/emails/{email_id}/bounce-unblock',
+    \Core\Http\Controller\MemberEmailAddressController::class,
+    'unblockBounce',
     'identified',
 );
 // The confirmation link's target — public, unauthenticated, same reasoning
@@ -6568,6 +6615,25 @@ if ($isEnabled('inbound_mail')) {
             )
     );
 
+    // The bounce consumer (roadmap IT-05), registered on the same
+    // registry and for the same reason: a consumer absent from it can
+    // never be granted the scope it needs, silently.
+    $inboundReadConsumers->registerFactory(
+        \Core\Mail\Feedback\Bounce\BounceConsumer::CONSUMER_ID,
+        static fn(): \Modules\InboundMail\Api\MessageConsumerInterface =>
+            new \Core\Mail\Feedback\Bounce\BounceConsumer(
+                new \Core\Mail\Feedback\Bounce\BounceService(
+                    new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $encryptionService),
+                    $journalService,
+                    new \Core\Mail\Feedback\Bounce\MemberBounceNotifier(
+                        $notificationService,
+                        new \Core\Security\UserAccountRepository($pdo, $encryptionService),
+                        $encryptionService
+                    )
+                )
+            )
+    );
+
     // One-time reprise for installs that stored a message's consumer and
     // business reference in the message's own columns, before
     // inbound_message_links existed. Each of those triplets becomes an
@@ -6842,7 +6908,20 @@ $frontController->registerController(
             $journalService,
             $sendCounterRepository
         ),
-        $mailProbeRepository
+        $mailProbeRepository,
+        // Bounces (roadmap IT-05). Built only when `inbound_mail` is on:
+        // the table is always readable, but a site that records no bounce
+        // must not be offered a screen promising a feature that cannot
+        // work — it says so instead (D2). That is the opposite choice
+        // from MemberEmailService above, which asks « cette adresse
+        // est-elle suspendue » and must answer everywhere.
+        $inboundMailForOthers === null ? null : new \Core\Mail\Feedback\Bounce\BounceService(
+            new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $encryptionService),
+            $journalService
+        ),
+        $inboundMailForOthers === null
+            ? null
+            : new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $encryptionService)
     )
 );
 
@@ -7606,7 +7685,12 @@ if ($isEnabled('mass_mail')) {
         $massMailAudienceRepo,
         $massMailResolutionRepo,
         $massMailSuppressedRepo,
-        $massMailMergeRenderer
+        $massMailMergeRenderer,
+        // Bounce state (roadmap IT-05): a blocked address must not be
+        // written to through a custom list either.
+        new \Core\Mail\Feedback\Bounce\BounceService(
+            new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $encryptionService)
+        )
     );
 
     $massMailDraftForOthers = new \Modules\MassMail\Service\MergeDraftService(
@@ -9798,7 +9882,12 @@ if ($isEnabled('registration')) {
             new \Modules\MassMail\Repository\AudienceRepository($pdo, $encryptionService),
             new \Modules\MassMail\Repository\MemberResolutionRepository($pdo, $encryptionService),
             new \Modules\MassMail\Repository\SuppressedAddressRepository($pdo),
-            new \Modules\MassMail\Service\MergeRenderer()
+            new \Modules\MassMail\Service\MergeRenderer(),
+            // Bounce state (roadmap IT-05): a blocked address must not be
+            // written to through a custom list either.
+            new \Core\Mail\Feedback\Bounce\BounceService(
+                new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $encryptionService)
+            )
         );
         $frontController->registerController(
             \Modules\MassMail\Controller\MassMailController::class,
