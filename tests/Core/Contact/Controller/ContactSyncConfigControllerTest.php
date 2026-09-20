@@ -52,13 +52,18 @@ class ContactSyncConfigControllerTest extends TestCase
             false
         );
 
+        $accounts = new UserAccountRepository($this->pdo, $enc);
+
+        // The account repository is wired here, not left null: naming each
+        // device's owner is part of what this page shows, and a service
+        // built without it would never exercise that path.
         $this->service = new DeviceCredentialService(
             new DeviceCredentialRepository($this->pdo),
             $settings,
-            new JournalService(new JournalRepository($this->pdo))
+            new JournalService(new JournalRepository($this->pdo)),
+            $accounts
         );
 
-        $accounts = new UserAccountRepository($this->pdo, $enc);
         $this->ownerAccountId = $accounts->create('chef@example.org')->id;
         $superAdminId = $accounts->create('super@example.org', true)->id;
 
@@ -110,6 +115,28 @@ class ContactSyncConfigControllerTest extends TestCase
             ->getBody();
 
         $this->assertSame('active 1 1', $body);
+    }
+
+    /**
+     * The owner's name comes from the service, in one query for the whole
+     * page, and an account that never filled its profile in is named by
+     * its id rather than by an empty string.
+     */
+    public function testEachDeviceIsNamedWithItsOwner(): void
+    {
+        $this->service->create($this->ownerAccountId, 'Téléphone du chef', $this->ownerAccountId);
+
+        $owners = $this->service->listAllWithOwners()['owners'];
+
+        $this->assertSame(['Compte ' . $this->ownerAccountId], array_values($owners));
+
+        (new UserAccountRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))))
+            ->updateProfile($this->ownerAccountId, 'Camille', 'Dupont');
+
+        $this->assertSame(
+            ['Camille Dupont'],
+            array_values($this->service->listAllWithOwners()['owners'])
+        );
     }
 
     public function testTheCutOutIsFlippedBothWaysAndSaysSoOnThePage(): void

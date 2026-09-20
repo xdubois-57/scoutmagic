@@ -101,7 +101,8 @@ class DeviceAuthenticatorTest extends TestCase
     {
         $this->pdo->exec("INSERT INTO age_branches (desk_code, label) VALUES ('LOUV', 'Louveteaux')");
         $branchId = (int) $this->pdo->lastInsertId();
-        $this->pdo->exec("INSERT INTO sections (age_branch_id, desk_code, name) VALUES ($branchId, 'LOUV1', 'Les Loups')");
+        $stmt = $this->pdo->prepare('INSERT INTO sections (age_branch_id, desk_code, name) VALUES (?, ?, ?)');
+        $stmt->execute([$branchId, 'LOUV1', 'Les Loups']);
         $sectionId = (int) $this->pdo->lastInsertId();
         $stmt = $this->pdo->prepare('INSERT INTO functions (desk_code, label, role) VALUES (?, ?, ?)');
         $stmt->execute(['FN-' . $role, 'Fonction ' . $role, $role]);

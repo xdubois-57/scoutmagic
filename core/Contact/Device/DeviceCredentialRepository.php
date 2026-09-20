@@ -36,8 +36,16 @@ class DeviceCredentialRepository
         return hash('sha256', $secret);
     }
 
-    public function create(int $userAccountId, string $label, string $secret): int
+    /**
+     * Returns the credential it just wrote, built from the values that
+     * were written rather than read back: the caller is holding the one
+     * cleartext copy of the secret there will ever be, and a re-read is
+     * one more statement that can fail between the insert and the screen.
+     */
+    public function create(int $userAccountId, string $label, string $secret): DeviceCredential
     {
+        $createdAt = new \DateTimeImmutable();
+
         $stmt = $this->pdo->prepare(
             'INSERT INTO device_credentials (user_account_id, label, secret_hash, created_at)
              VALUES (?, ?, ?, ?)'
@@ -46,10 +54,17 @@ class DeviceCredentialRepository
             $userAccountId,
             $label,
             self::hashSecret($secret),
-            (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+            $createdAt->format('Y-m-d H:i:s'),
         ]);
 
-        return (int) $this->pdo->lastInsertId();
+        return new DeviceCredential(
+            id: (int) $this->pdo->lastInsertId(),
+            userAccountId: $userAccountId,
+            label: $label,
+            createdAt: $createdAt,
+            lastSyncAt: null,
+            revokedAt: null,
+        );
     }
 
     /**
@@ -115,13 +130,18 @@ class DeviceCredentialRepository
      */
     public function findAll(): array
     {
-        $stmt = $this->pdo->query(
+        // Prepared like every other statement in this repository, although
+        // it carries no parameter: "every SQL statement is prepared" is
+        // the rule, and a query() here is the exception a later edit adds
+        // a value to.
+        $stmt = $this->pdo->prepare(
             'SELECT * FROM device_credentials ORDER BY (revoked_at IS NOT NULL), id DESC'
         );
+        $stmt->execute();
 
         return array_map(
             fn(array $row): DeviceCredential => $this->hydrate($row),
-            $stmt === false ? [] : $stmt->fetchAll(\PDO::FETCH_ASSOC)
+            $stmt->fetchAll(\PDO::FETCH_ASSOC)
         );
     }
 
@@ -172,7 +192,15 @@ class DeviceCredentialRepository
             id: (int) $row['id'],
             userAccountId: (int) $row['user_account_id'],
             label: (string) $row['label'],
-            createdAt: DateInput::fromStorage((string) $row['created_at']) ?? new \DateTimeImmutable(),
+            // NOT NULL in the schema, so it is read with requireFromStorage():
+            // a value that will not parse is storage corruption, and
+            // answering `now` would make an old credential look newly
+            // created and hide the corruption at the same time. The two
+            // nullable columns below keep the forgiving reader.
+            createdAt: DateInput::requireFromStorage(
+                (string) $row['created_at'],
+                'device_credentials.created_at'
+            ),
             lastSyncAt: DateInput::fromStorage($row['last_sync_at'] !== null ? (string) $row['last_sync_at'] : null),
             revokedAt: DateInput::fromStorage($row['revoked_at'] !== null ? (string) $row['revoked_at'] : null),
         );

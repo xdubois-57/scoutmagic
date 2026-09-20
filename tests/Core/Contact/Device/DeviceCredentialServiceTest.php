@@ -73,9 +73,19 @@ class DeviceCredentialServiceTest extends TestCase
 
         $this->assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $created->secret);
 
+        // Three literal statements rather than one built from a table
+        // name: composing SQL from a variable is the shape that becomes a
+        // defect the day the variable stops being a literal, and a test
+        // is not exempt from the rule it exists to protect.
         $dump = '';
-        foreach (['device_credentials', 'event_log', 'settings'] as $table) {
-            foreach ($this->pdo->query("SELECT * FROM {$table}")->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+        foreach ([
+            'SELECT * FROM device_credentials',
+            'SELECT * FROM event_log',
+            'SELECT * FROM settings',
+        ] as $sql) {
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute();
+            foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
                 $dump .= json_encode($row);
             }
         }

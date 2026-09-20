@@ -632,7 +632,7 @@ $settingService->register(
     'Nom complet de l\'unité, affiché dans le header et le titre du site.'
 );
 // The site-wide cut-out for contact synchronisation (Core\Contact\Device,
-// ARCHITECTURE.md §8.116). Default '1': it is a cut-out, not an opt-in —
+// ARCHITECTURE.md §8.117). Default '1': it is a cut-out, not an opt-in —
 // nothing synchronises until an administrator has registered a device
 // anyway. Not editable from the generic Paramètres page: a bare checkbox
 // there would say nothing about what it stops, and
@@ -3933,7 +3933,7 @@ $router->addRoute('POST', '/account/passkey/register', AccountController::class,
 $router->addRoute('POST', '/account/passkey/delete', AccountController::class, 'passkeyDelete', 'identified');
 $router->addRoute('POST', '/account/photo/delete', AccountController::class, 'deletePhoto', 'identified');
 // « Appareils synchronisés » (Core\Contact\Device, ARCHITECTURE.md
-// §8.116). `role_min: admin` and not `identified` like the rest of Mon
+// §8.117). `role_min: admin` and not `identified` like the rest of Mon
 // compte: the address book these credentials open is the staff's, and
 // DeviceAuthenticator refuses anything below that floor on every single
 // request anyway — a page offering to register a device that would never
@@ -4951,7 +4951,7 @@ $router->addRoute(
 );
 
 // Synchronisation des contacts (Core\Contact\Device, ARCHITECTURE.md
-// §8.116) — the site-wide cut-out and every device of every account.
+// §8.117) — the site-wide cut-out and every device of every account.
 // `superadmin`, like every other page of the Configuration menu.
 $router->addRoute(
     'GET',
@@ -5931,14 +5931,16 @@ $frontController->registerController(
     )
 );
 // Contact synchronisation: the credentials an address-book client
-// authenticates with (Core\Contact\Device, ARCHITECTURE.md §8.116). One
+// authenticates with (Core\Contact\Device, ARCHITECTURE.md §8.117). One
 // service, three surfaces — the owner's page under Mon compte, the
 // superadmin's cut-out under Configuration, and (from IT-03) the CardDAV
 // routes' own authenticator.
 $deviceCredentialService = new \Core\Contact\Device\DeviceCredentialService(
     new \Core\Contact\Device\DeviceCredentialRepository($pdo),
     $settingService,
-    $journalService
+    $journalService,
+    // Only to name each device's owner on the superadmin's page.
+    $userAccountRepo
 );
 $frontController->registerController(
     \Core\Contact\Controller\DeviceCredentialController::class,
@@ -5948,8 +5950,7 @@ $frontController->registerController(
     \Core\Contact\Controller\ContactSyncConfigController::class,
     new \Core\Contact\Controller\ContactSyncConfigController(
         $twig,
-        $deviceCredentialService,
-        $userAccountRepo
+        $deviceCredentialService
     )
 );
 $frontController->registerController(

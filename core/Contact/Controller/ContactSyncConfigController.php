@@ -14,7 +14,6 @@ use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Security\AuthSession;
-use Core\Security\UserAccountRepository;
 use Twig\Environment;
 
 /**
@@ -32,8 +31,7 @@ class ContactSyncConfigController extends AbstractController
 {
     public function __construct(
         protected Environment $twig,
-        private DeviceCredentialService $service,
-        private UserAccountRepository $userAccountRepository
+        private DeviceCredentialService $service
     ) {
     }
 
@@ -44,13 +42,10 @@ class ContactSyncConfigController extends AbstractController
      */
     public function index(Request $request, array $params): Response
     {
-        $credentials = $this->service->listAll();
-        $owners = $this->userAccountRepository->findNamesByIds(
-            array_values(array_unique(array_map(
-                static fn($credential): int => $credential->userAccountId,
-                $credentials
-            )))
-        );
+        // One collaborator, not two: the owner names come from the same
+        // service as the credentials (`ARCHITECTURE.md` § Layered MVC),
+        // which is also what keeps them to one query for the whole page.
+        ['credentials' => $credentials, 'owners' => $owners] = $this->service->listAllWithOwners();
 
         return $this->render('config/contact_sync.html.twig', [
             'credentials' => $credentials,

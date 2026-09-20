@@ -150,8 +150,10 @@ format que `docs/chantiers/courrier-sortant.md`.
 
 ## IT-02 — Les identifiants d'appareil
 
-Aucun effet visible sans IT-03, et entièrement testable seule : c'est le
-socle d'authentification de la synchronisation.
+Les deux écrans existent et se visitent dès cette itération ; ce qui
+n'arrive pas avant IT-03, c'est la synchronisation elle-même — rien ne
+lit encore le carnet d'adresses. Entièrement testable seule : c'est le
+socle d'authentification.
 
 **Livré.**
 
@@ -178,7 +180,7 @@ socle d'authentification de la synchronisation.
   `device_credential_revoked`, `device_credential_auth_failed`,
   `contact_sync_enabled` / `_disabled`. Jamais une synchronisation
   réussie.
-- Documentation : `ARCHITECTURE.md` §8.116, `SECURITY.md` §2,
+- Documentation : `ARCHITECTURE.md` §8.117, `SECURITY.md` §2,
   `specifications.md` §4.5 et le tableau de Mon compte,
   `core/View/rgpd_default.html` §2.13, et les sujets d'aide
   `docs/help/appareils-synchronises.md` et

@@ -57,7 +57,7 @@ class DeviceCredentialRepositoryTest extends TestCase
 
     public function testASecretMatchesItsOwnCredentialAndNothingElse(): void
     {
-        $id = $this->repository->create($this->accountId, 'Téléphone', 'right');
+        $id = $this->repository->create($this->accountId, 'Téléphone', 'right')->id;
         $this->repository->create($this->accountId, 'Ordinateur', 'other');
 
         $this->assertSame($id, $this->repository->findLiveMatching($this->accountId, 'right')?->id);
@@ -79,7 +79,7 @@ class DeviceCredentialRepositoryTest extends TestCase
 
     public function testARevokedCredentialStopsMatchingAtOnce(): void
     {
-        $id = $this->repository->create($this->accountId, 'Téléphone', 'secret');
+        $id = $this->repository->create($this->accountId, 'Téléphone', 'secret')->id;
         $this->assertNotNull($this->repository->findLiveMatching($this->accountId, 'secret'));
 
         $this->repository->revoke($id);
@@ -93,7 +93,7 @@ class DeviceCredentialRepositoryTest extends TestCase
      */
     public function testRevokingKeepsTheRowAndIsIdempotent(): void
     {
-        $id = $this->repository->create($this->accountId, 'Téléphone', 'secret');
+        $id = $this->repository->create($this->accountId, 'Téléphone', 'secret')->id;
 
         $this->repository->revoke($id);
         $first = $this->repository->findById($id)?->revokedAt;
@@ -105,7 +105,7 @@ class DeviceCredentialRepositoryTest extends TestCase
 
     public function testACredentialIsCreatedHavingNeverSynchronised(): void
     {
-        $id = $this->repository->create($this->accountId, 'Téléphone', 'secret');
+        $id = $this->repository->create($this->accountId, 'Téléphone', 'secret')->id;
         $credential = $this->repository->findById($id);
 
         $this->assertNotNull($credential);
@@ -119,9 +119,9 @@ class DeviceCredentialRepositoryTest extends TestCase
 
     public function testACredentialListsOnlyItsOwnAccountAndLiveOnesFirst(): void
     {
-        $revoked = $this->repository->create($this->accountId, 'Ancien', 'a');
+        $revoked = $this->repository->create($this->accountId, 'Ancien', 'a')->id;
         $this->repository->revoke($revoked);
-        $live = $this->repository->create($this->accountId, 'Actuel', 'b');
+        $live = $this->repository->create($this->accountId, 'Actuel', 'b')->id;
         $this->repository->create($this->otherAccountId, 'Ailleurs', 'c');
 
         $mine = $this->repository->findAllForAccount($this->accountId);

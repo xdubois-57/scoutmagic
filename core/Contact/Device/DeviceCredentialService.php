@@ -10,6 +10,7 @@ namespace Core\Contact\Device;
 
 use Core\Config\SettingService;
 use Core\Journal\JournalService;
+use Core\Security\UserAccountRepository;
 
 /**
  * Creating, listing and revoking the credentials an address-book client
@@ -44,7 +45,14 @@ class DeviceCredentialService
     public function __construct(
         private DeviceCredentialRepository $repository,
         private SettingService $settingService,
-        private JournalService $journalService
+        private JournalService $journalService,
+        /**
+         * Only to name the owner of each device on the superadmin's page.
+         * Trailing and optional like every other late collaborator in
+         * this codebase: without it the page names accounts by their id,
+         * which is honest rather than broken.
+         */
+        private ?UserAccountRepository $userAccountRepository = null
     ) {
     }
 
@@ -86,6 +94,43 @@ class DeviceCredentialService
     }
 
     /**
+     * Every credential of every account, each paired with its owner's
+     * name — what the superadmin's page renders, assembled here so the
+     * controller asks one collaborator instead of joining two
+     * (`ARCHITECTURE.md` § Layered MVC).
+     *
+     * The names are resolved in ONE query for the whole page, never one
+     * per credential, and only the two name columns are decrypted: an
+     * address is never read on this path.
+     *
+     * @return array{credentials: list<DeviceCredential>, owners: array<int, string>}
+     */
+    public function listAllWithOwners(): array
+    {
+        $credentials = $this->repository->findAll();
+
+        if ($this->userAccountRepository === null || $credentials === []) {
+            return ['credentials' => $credentials, 'owners' => []];
+        }
+
+        $names = $this->userAccountRepository->findNamesByIds(array_values(array_unique(array_map(
+            static fn(DeviceCredential $credential): int => $credential->userAccountId,
+            $credentials
+        ))));
+
+        $owners = [];
+        foreach ($names as $accountId => $name) {
+            $display = trim(((string) ($name['first_name'] ?? '')) . ' ' . ((string) ($name['last_name'] ?? '')));
+            // An account that has never filled its profile in is named by
+            // its id rather than by an empty string, so every row of the
+            // page says whose device it is.
+            $owners[$accountId] = $display !== '' ? $display : 'Compte ' . $accountId;
+        }
+
+        return ['credentials' => $credentials, 'owners' => $owners];
+    }
+
+    /**
      * The credential $id, but only when it belongs to $userAccountId —
      * null for anything else, so a caller cannot tell "not yours" from
      * "does not exist" and cannot enumerate other people's devices.
@@ -117,26 +162,26 @@ class DeviceCredentialService
     public function create(int $userAccountId, string $label, ?int $actorAccountId): NewDeviceCredential
     {
         $secret = bin2hex(random_bytes(32));
-        $id = $this->repository->create($userAccountId, $this->normaliseLabel($label), $secret);
+        $created = $this->repository->create($userAccountId, $this->normaliseLabel($label), $secret);
 
+        // **The secret is handed back before anything else is attempted.**
+        // It exists in exactly one place and cannot be recovered, so the
+        // row is created and returned in one step — no re-read that could
+        // fail, and no work between the insert and the value the caller
+        // needs. The journal entry comes after, because an audit line that
+        // failed to write is a gap in the journal; a secret lost between
+        // the insert and the response is a credential nobody can ever use,
+        // occupying one of this account's slots forever.
         $this->journalService->log(
             'core',
             'device_credential_created',
             'security',
             'Identifiant d\'appareil créé pour la synchronisation des contacts',
-            ['credential_id' => $id, 'user_account_id' => $userAccountId],
+            ['credential_id' => $created->id, 'user_account_id' => $userAccountId],
             $actorAccountId
         );
 
-        $credential = $this->repository->findById($id);
-        if ($credential === null) {
-            // Unreachable in practice: the row was inserted a statement
-            // ago. Stated rather than assumed, because the alternative is
-            // a null dereference on the one path that holds a secret.
-            throw new \RuntimeException('Device credential vanished immediately after being created.');
-        }
-
-        return new NewDeviceCredential($credential, $secret);
+        return new NewDeviceCredential($created, $secret);
     }
 
     /**

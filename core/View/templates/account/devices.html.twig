@@ -85,7 +85,8 @@
                             </div>
                         </div>
                         {% if not credential.isRevoked %}
-                            <form method="post" action="/account/devices/{{ credential.id }}/revoke">
+                            <form method="post" action="/account/devices/{{ credential.id }}/revoke"
+                                  data-confirm="Révoquer « {{ credential.label }} » ? Il ne pourra plus se synchroniser, et la copie déjà descendue restera sur l'appareil.">
                                 {{ csrf_field()|raw }}
                                 <button type="submit" class="btn btn-sm btn-outline-danger"
                                         aria-label="Révoquer {{ credential.label }}">
