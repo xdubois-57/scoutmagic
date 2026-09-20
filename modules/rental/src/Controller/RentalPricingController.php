@@ -283,8 +283,20 @@ class RentalPricingController extends AbstractController
      * tick « J'accepte les conditions de location » over an empty block.
      *
      * A « réinitialiser » posts the standard body back, exactly like the
-     * template page: one write path, no second route, and the reset is
-     * auditable as the ordinary edit it is.
+     * template page: one route rather than two, and the reset is auditable
+     * as the ordinary edit it is.
+     *
+     * **This is the managers' write path, not the only one.** The generic
+     * `POST /api/editable-content` is keyed by nothing and still reaches
+     * this content like any other, so a superadmin in configuration mode
+     * can write a blank body to it and this guard will not see it. That is
+     * survivable, and deliberately not fixed with a registry of protected
+     * keys in core: what a renter is shown is decided on the way OUT, by
+     * `AssetConditions::textFor()`, which reads a blank body as "nobody has
+     * written any" and serves the shipped standard. The acceptance hash is
+     * taken from that same value, so the checkbox can never stand over
+     * nothing however the row was written. What this guard adds is that a
+     * manager cannot destroy their own wording by accident.
      *
      * The rich text is sanitized on the way in by `EditableContentService`
      * itself (SECURITY.md §7).

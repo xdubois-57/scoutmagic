@@ -193,9 +193,18 @@ celle qui loue le local.
   inter-modules du module. Un `null` afficherait le texte standard par-dessus
   les conditions d'une unité, ce qui se lit comme une modification qui n'a pas
   été enregistrée.
-- **Les conditions ne peuvent pas être vidées.** Un texte vide remettrait la
-  case à cocher au-dessus de rien, c'est-à-dire exactement le défaut qu'on
-  corrige. L'enregistrement est refusé et l'ancien texte reste.
+- **Un gestionnaire ne peut pas vider les conditions.** Un texte vide
+  remettrait la case à cocher au-dessus de rien, c'est-à-dire exactement le
+  défaut qu'on corrige. L'enregistrement est refusé et l'ancien texte reste.
+  C'est bien la route des gestionnaires qui est gardée, et non la seule qui
+  existe : `POST /api/editable-content` n'est indexée par aucune clé et
+  atteint ce contenu comme n'importe quel autre, donc un superadmin en mode
+  configuration peut y écrire du vide sans passer par ce garde-fou. Ce qui
+  tient la garantie est la sortie, pas l'entrée — `AssetConditions::
+  textFor()` lit un corps vide comme « personne n'en a écrit » et sert le
+  standard, et l'empreinte d'acceptation est prise sur cette même valeur.
+  La case ne peut donc pas se retrouver au-dessus de rien, quelle que soit
+  la porte par laquelle la ligne a été écrite.
 - **Un texte fait uniquement d'espaces retombe sur le standard.** C'est ce
   qu'un gestionnaire laisse derrière lui en vidant l'éditeur, et le traiter
   comme un texte rouvrirait le même trou par une autre porte.

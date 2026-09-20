@@ -143,4 +143,30 @@ class AssetConditionsTest extends TestCase
     {
         $this->assertFalse(AssetConditions::isStandard('<p>Le local est rendu balayé.</p>'));
     }
+
+    /**
+     * **The guarantee is carried on the way out, not on the way in.**
+     *
+     * `RentalPricingController::saveConditions()` is the managers' write
+     * path, not the only one: `POST /api/editable-content` is keyed by
+     * nothing, so a superadmin in configuration mode reaches this content
+     * like any other and can write a blank body straight past that guard.
+     *
+     * This writes exactly what that endpoint would — `set()` on the key,
+     * no rental code in the way — and asserts that what a renter is shown
+     * is still a complete text. The checkbox cannot stand over nothing
+     * however the row was written, which is the property worth having; a
+     * registry of protected keys in core would only defend the one door
+     * that already has a lock.
+     */
+    public function testAConditionsRowBlankedOutsideTheModuleStillReadsAsTheStandard(): void
+    {
+        $this->store->set(AssetConditions::key(42), '<p>Le local est rendu balayé.</p>', 'rich_text', 1);
+
+        // The generic admin endpoint, doing the one thing the module's own
+        // route refuses.
+        $this->store->set(AssetConditions::key(42), '<p>&nbsp;</p>', 'rich_text', 1);
+
+        $this->assertSame(StandardTemplates::conditions(), AssetConditions::textFor($this->store, 42));
+    }
 }
