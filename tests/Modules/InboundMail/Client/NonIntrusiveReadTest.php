@@ -86,17 +86,15 @@ class NonIntrusiveReadTest extends TestCase
 
     public function testTheImapClientOpensFoldersReadOnly(): void
     {
-        $source = self::imapClientSource();
-
         // EXAMINE is the read-only open; SELECT sets \Recent on some
         // servers, which is already a modification.
-        $this->assertStringContainsString('->examine()', $source);
-        $this->assertStringNotContainsString('->select()', $source);
+        $this->assertStringContainsString('->examine()', self::imapClientSource());
+        $this->assertStringNotContainsString('->select()', self::readingSource());
     }
 
     public function testTheImapClientNeverCallsAWriteOperation(): void
     {
-        $source = self::imapClientSource();
+        $source = self::readingSource();
 
         foreach (['->setFlag(', '->addFlag(', '->delete(', '->move(', '->copy(', '->expunge(', '->appendMessage('] as $call) {
             $this->assertStringNotContainsString(
@@ -105,6 +103,64 @@ class NonIntrusiveReadTest extends TestCase
                 'The IMAP client must never write to the remote mailbox: found ' . $call
             );
         }
+    }
+
+    // ── the one named exception, and its confinement (roadmap IT-07) ────
+
+    /**
+     * **The reading half of this client is still read-only, and the two
+     * tests above now prove it of everything except one method.**
+     *
+     * IT-07 needs a seed mailbox emptied: a box that receives a copy of
+     * every mailing is a measuring instrument, and an instrument that
+     * never resets stops working. That is a real write to somebody's
+     * mailbox, and pretending otherwise would be worse than doing it —
+     * so `deleteMessage()` exists, declared through a second interface,
+     * and everything else stays as it was.
+     *
+     * This test is what stops that exception from spreading. It reads the
+     * source ABOVE `deleteMessage()` for the two tests above, and here it
+     * pins that the write verbs appear in that method and nowhere else.
+     * Loosening the two tests instead — dropping `->delete(` from the
+     * forbidden list — would have retired the guarantee for the whole
+     * class in order to permit one method.
+     */
+    public function testEveryWriteVerbLivesInTheOnePrunningMethod(): void
+    {
+        $source = self::imapClientSource();
+        $reading = self::readingSource();
+
+        $this->assertNotSame($source, $reading, 'deleteMessage() must exist to be confined.');
+
+        foreach (['->select()', '->delete('] as $call) {
+            $this->assertStringContainsString($call, $source, 'Expected in deleteMessage().');
+            $this->assertStringNotContainsString($call, $reading, $call . ' escaped deleteMessage().');
+        }
+    }
+
+    /**
+     * And the deletion is reachable only by asking for it: the reading
+     * contract must not have grown the method, or every consumer would
+     * have it.
+     */
+    public function testTheReadingContractStillHasNoDeleteMethod(): void
+    {
+        $this->assertNotContains('deleteMessage', self::interfaceMethods());
+    }
+
+    /**
+     * The source of everything that is NOT the pruning method.
+     *
+     * Split on the method's own signature, so a second write method added
+     * later falls on the reading side and fails the tests above — which is
+     * the point: this file permits ONE exception, not a category.
+     */
+    private static function readingSource(): string
+    {
+        $source = self::imapClientSource();
+        $at = strpos($source, 'public function deleteMessage(');
+
+        return $at === false ? $source : substr($source, 0, $at);
     }
 
     public function testCertificateValidationIsOnAndHasNoOffSwitch(): void

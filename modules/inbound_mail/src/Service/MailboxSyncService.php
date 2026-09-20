@@ -16,12 +16,14 @@ use Modules\InboundMail\Api\CandidateAttachment;
 use Modules\InboundMail\Api\CandidateMessage;
 use Modules\InboundMail\Api\MessageConsumerInterface;
 use Modules\InboundMail\Api\MessagePayload;
+use Modules\InboundMail\Api\PruningConsumerInterface;
 use Modules\InboundMail\Api\MessageLink;
 use Modules\InboundMail\Api\MessageRetentionPreference;
 use Modules\InboundMail\Client\FetchedAttachment;
 use Modules\InboundMail\Client\FetchedMessage;
 use Modules\InboundMail\Client\IncomingMailboxClientInterface;
 use Modules\InboundMail\Client\MailboxConnectionException;
+use Modules\InboundMail\Client\PruningMailboxClientInterface;
 use Modules\InboundMail\Mailbox\Mailbox;
 use Modules\InboundMail\Repository\InboundMailboxRepository;
 use Modules\InboundMail\Repository\InboundMessageRepository;
@@ -181,7 +183,7 @@ class MailboxSyncService
 
                 foreach ($client->fetchSince($folder, $cursor->lastUid, self::BATCH_SIZE) as $message) {
                     $seen++;
-                    if ($this->store($mailbox, $message, $consumers)) {
+                    if ($this->store($mailbox, $message, $consumers, $client)) {
                         $stored++;
                     }
 
@@ -224,8 +226,12 @@ class MailboxSyncService
      *   the ones `Service\MailboxScopeService` allows on this box
      * @return bool whether anything was written
      */
-    private function store(Mailbox $mailbox, FetchedMessage $message, array $consumers): bool
-    {
+    private function store(
+        Mailbox $mailbox,
+        FetchedMessage $message,
+        array $consumers,
+        IncomingMailboxClientInterface $client
+    ): bool {
         $candidate = new CandidateMessage(
             mailboxId: $mailbox->id,
             subject: $message->subject,
@@ -298,6 +304,32 @@ class MailboxSyncService
                 )
                 : []
         );
+
+        // **The second lock on deletion** (roadmap IT-07), and it is held
+        // here rather than in the client because this is the only place
+        // that knows WHO claimed the message.
+        //
+        // Both halves must be present: the consumer has to have declared
+        // `Api\PruningConsumerInterface` and said yes about this very
+        // message, and the client has to implement
+        // `Client\PruningMailboxClientInterface`. Neither alone removes
+        // anything, which is what keeps the reading contract's promise —
+        // « no vocabulary for touching somebody's mail » — true for every
+        // consumer but the one that asked.
+        //
+        // **And what bounds it is the scope**, not a claim. A consumer is
+        // only ever offered messages from the boxes the super-admin opened
+        // to it, so « what may I delete » has the same answer as « what may
+        // I read » — which is the question the scope screen already asks,
+        // in the operator's own words. Requiring a CLAIM instead would
+        // have made this inert: a seed consumer claims nothing on purpose,
+        // since a claim means an association and an association would keep
+        // a full copy of every mailing, one per seed box.
+        //
+        // After the analysis and never before: a message dropped before
+        // its verdict was written is a measurement lost with no way to
+        // take it again.
+        $this->pruneIfAsked($client, $message, $candidate, $consumers);
 
         // The message may already be in this box — after a UIDVALIDITY
         // reset made the folder be re-read, or because it arrived in two
@@ -537,6 +569,55 @@ class MailboxSyncService
         }
 
         return $attachments;
+    }
+
+    /**
+     * Remove the message from the box, if a consumer that claimed it asked
+     * for that and the client can do it (roadmap IT-07).
+     *
+     * **A consumer may only ever be asked about a box it was opened to.**
+     * That is the containment, and it is the scope mechanism doing it
+     * rather than a second rule: this method is reached with the
+     * consumers of THIS mailbox, so « what may I delete » has the same
+     * answer as « what may I read ». A seed box is a box like any other,
+     * and a consumer that answers no — which is every consumer but one —
+     * leaves a human reply landing in one exactly where it is.
+     *
+     * A client that cannot prune is not an error. Most cannot, on purpose:
+     * `FakeMailboxClient` does not, and neither will any future client
+     * that has no business writing. Silence here is the feature.
+     *
+     * @param list<MessageConsumerInterface> $consumers
+     */
+    private function pruneIfAsked(
+        IncomingMailboxClientInterface $client,
+        FetchedMessage $message,
+        CandidateMessage $candidate,
+        array $consumers
+    ): void {
+        if (!$client instanceof PruningMailboxClientInterface) {
+            return;
+        }
+
+        foreach ($consumers as $consumer) {
+            if (!$consumer instanceof PruningConsumerInterface) {
+                continue;
+            }
+
+            try {
+                if (!$consumer->shouldPruneAfterAnalysis($candidate)) {
+                    continue;
+                }
+
+                $client->deleteMessage($message->folder, $message->uid);
+            } catch (\Throwable) {
+                // Housekeeping never costs the sync its mail.
+            }
+
+            // One consumer's yes is enough, and asking the rest about a
+            // message that is gone would be asking about nothing.
+            return;
+        }
     }
 
     /**

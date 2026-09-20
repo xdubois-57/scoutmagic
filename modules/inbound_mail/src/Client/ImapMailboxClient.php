@@ -29,13 +29,23 @@ use Webklex\PHPIMAP\Message;
  * essentially every shared host ScoutMagic targets (§7.3). See
  * ARCHITECTURE.md §1 for the dependency's entry.
  *
- * **Nothing here writes to the remote mailbox** (§7.5). Bodies are fetched
- * with `FT_PEEK` via `leaveUnread()`, so reading a message does not mark it
- * `\Seen` — a unit whose treasurer works through an unread inbox must not
- * find it emptied by a background task. `SETS_NOTHING` below pins the
- * consequence in a form a test can assert.
+ * **Nothing here writes to the remote mailbox** (§7.5), with exactly one
+ * named exception below. Bodies are fetched with `FT_PEEK` via
+ * `leaveUnread()`, so reading a message does not mark it `\Seen` — a unit
+ * whose treasurer works through an unread inbox must not find it emptied
+ * by a background task. `SETS_NOTHING` below pins the consequence in a
+ * form a test can assert.
+ *
+ * **The exception is `deleteMessage()`**, and it is declared through a
+ * second interface rather than added to the reading one
+ * ({@see PruningMailboxClientInterface} for why). It removes a message
+ * only when a consumer has declared
+ * {@see \Modules\InboundMail\Api\PruningConsumerInterface} AND answered
+ * yes about that message — two locks, of which this class is one.
+ * `MailboxSyncService` is what holds the other, and no path here reaches
+ * this method on its own.
  */
-class ImapMailboxClient implements IncomingMailboxClientInterface
+class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailboxClientInterface
 {
     /**
      * The fetch option every body read here uses. Named rather than
@@ -374,5 +384,45 @@ class ImapMailboxClient implements IncomingMailboxClientInterface
         $separator = strrpos($class, '\\');
 
         return $separator === false ? $class : substr($class, $separator + 1);
+    }
+
+    /**
+     * Remove one message, by UID (roadmap IT-07).
+     *
+     * **`SELECT` and not `EXAMINE` here, and only here.** Every other
+     * folder open in this class is the read-only form on purpose; a
+     * deletion cannot be, since a folder opened read-only refuses the flag
+     * at the protocol level. That is the boundary this method crosses, it
+     * crosses it for one consumer's own measuring boxes, and it says so
+     * rather than letting a reader assume the class is uniformly safe.
+     *
+     * The delete is expunged straight away rather than left as a `\Deleted`
+     * flag: a flagged message still occupies the box and still comes back
+     * on the next fetch, so a seed box would fill up exactly as if nothing
+     * had happened — while looking, to anybody opening it, as though the
+     * site had rifled through their mail and left it marked.
+     *
+     * Never throws. A copy that could not be removed has still been
+     * measured, and losing the sync over housekeeping would cost the unit
+     * its mail to save it some disk.
+     */
+    public function deleteMessage(string $folder, int $uid): bool
+    {
+        try {
+            $imapFolder = $this->requireFolder($folder);
+            $imapFolder->select();
+
+            $message = $imapFolder->query()->leaveUnread()->whereUid($uid)->limit(1)->get()->first();
+            if (!$message instanceof Message) {
+                // Already gone — which is the outcome the caller wanted.
+                return true;
+            }
+
+            $message->delete(true);
+
+            return true;
+        } catch (\Throwable) {
+            return false;
+        }
     }
 }
