@@ -100,7 +100,9 @@ class OutboundMailCollector implements SupportCollectorInterface
          */
         private ?MailProbeRepository $probes = null,
         /** The bounce state (roadmap IT-05). */
-        private ?\Core\Mail\Feedback\Bounce\BounceStateRepository $bounces = null
+        private ?\Core\Mail\Feedback\Bounce\BounceStateRepository $bounces = null,
+        /** The DMARC reports (roadmap IT-06), read-only like the rest. */
+        private ?\Core\Mail\Feedback\Dmarc\DmarcReportRepository $dmarc = null
     ) {
     }
 
@@ -179,6 +181,10 @@ class OutboundMailCollector implements SupportCollectorInterface
         }
 
         foreach ($this->bounceLines() as $line) {
+            $lines[] = $line;
+        }
+
+        foreach ($this->dmarcLines() as $line) {
             $lines[] = $line;
         }
 
@@ -445,6 +451,72 @@ class OutboundMailCollector implements SupportCollectorInterface
             $lines[] = sprintf('%-40s  %d', mb_substr((string) $domain, 0, 40), $count);
         }
 
+        $lines[] = '';
+
+        return $lines;
+    }
+
+    /**
+     * Who has been sending in this unit's name, as counters (roadmap
+     * IT-06).
+     *
+     * **The source addresses are the one thing this section does NOT
+     * carry**, and the reasoning is the bounce section's exactly: this
+     * archive goes to a third party and outlives the screen it reflects.
+     * An aggregate report names no person by construction, but a sending
+     * server's address is still infrastructure somebody could act on, and
+     * the figure that answers a support question is « combien de sources
+     * inconnues réussissent à s'authentifier », never which.
+     *
+     * @return list<string>
+     */
+    private function dmarcLines(): array
+    {
+        if ($this->dmarc === null) {
+            return [];
+        }
+
+        try {
+            $since = (new \DateTimeImmutable())->sub(new \DateInterval('P30D'));
+            $sources = $this->dmarc->sourcesSince($since);
+            $reports = $this->dmarc->reportsSince($since);
+        } catch (\Throwable) {
+            return [];
+        }
+
+        $lines = ['── Rapports DMARC, 30 derniers jours ───────────────────────'];
+
+        if ($sources === []) {
+            $lines[] = 'aucun rapport reçu';
+            $lines[] = '';
+
+            return $lines;
+        }
+
+        $messages = 0;
+        $authenticated = 0;
+        foreach ($sources as $source) {
+            $messages += $source['messages'];
+            $authenticated += $source['authenticated'];
+        }
+
+        $reporters = [];
+        $policies = [];
+        foreach ($reports as $report) {
+            $reporters[$report['organisation']] = true;
+            $policies[$report['policy']] = true;
+        }
+
+        $lines[] = sprintf('rapports           %d', count($reports));
+        $lines[] = sprintf('fournisseurs       %d', count($reporters));
+        $lines[] = sprintf('politiques vues    %s', implode(', ', array_keys($policies)) ?: '—');
+        $lines[] = sprintf('sources distinctes %d', count($sources));
+        $lines[] = sprintf('messages           %d', $messages);
+        $lines[] = sprintf(
+            'authentifiés       %d (%d%%)',
+            $authenticated,
+            $messages > 0 ? (int) round($authenticated * 100 / $messages) : 0
+        );
         $lines[] = '';
 
         return $lines;

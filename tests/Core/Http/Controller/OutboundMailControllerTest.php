@@ -48,6 +48,7 @@ class OutboundMailControllerTest extends TestCase
     private \Core\Mail\DkimManager $dkim;
     private \Core\Mail\Probe\MailProbeRepository $mailProbes;
     private \Core\Mail\Feedback\Bounce\BounceStateRepository $bounceStates;
+    private \Core\Mail\Feedback\Dmarc\DmarcReportRepository $dmarcReports;
     private OutboundMailController $controller;
     /** @var list<mixed> the arguments $controller was built from */
     private array $controllerArguments = [];
@@ -176,6 +177,30 @@ class OutboundMailControllerTest extends TestCase
                 $this->bounceStates = new \Core\Mail\Feedback\Bounce\BounceStateRepository($this->pdo, $encryption)
             ),
             $this->bounceStates,
+            // REAL, for the same reason as the bounce pair above: with
+            // null the sub-page answers « indisponible » before reading
+            // anything, and every assertion about what it shows would
+            // hold whatever the code does.
+            $this->dmarcReports = new \Core\Mail\Feedback\Dmarc\DmarcReportRepository($this->pdo),
+            // A resolver that answers from a table rather than from DNS:
+            // the real one calls `dns_get_record()`, which would make the
+            // suite depend on a resolver and hang when one does not
+            // answer — the same reason `$dns` above is a fake.
+            new \Core\Mail\Feedback\Dmarc\KnownSenders(
+                [new \Core\Mail\Transport\MailProvider(
+                    id: 77,
+                    name: 'Brevo',
+                    host: 'smtp-relay.brevo.test',
+                    port: 587,
+                    username: '',
+                    dailyQuota: null,
+                    batchSize: 50,
+                    batchIntervalMinutes: 10
+                )],
+                static fn(string $host): array => $host === 'smtp-relay.brevo.test'
+                    ? ['198.51.100.7']
+                    : []
+            ),
         ];
         $this->controller = new OutboundMailController(...$this->controllerArguments);
 
@@ -240,6 +265,7 @@ class OutboundMailControllerTest extends TestCase
             'recording a verdict' => ['POST', '/config/courrier-sortant/sonde/verdict'],
             'the bounces' => ['GET', '/config/courrier-sortant/rebonds'],
             'lifting a block' => ['POST', '/config/courrier-sortant/rebonds/{id}/reprise'],
+            'the DMARC reports' => ['GET', '/config/courrier-sortant/dmarc'],
         ];
     }
 
@@ -401,14 +427,21 @@ class OutboundMailControllerTest extends TestCase
      */
     private function controllerWithout(string ...$omitted): OutboundMailController
     {
-        // Offsets counted from the END, so appending another optional
-        // dependency cannot shift them.
-        $offsets = ['probes' => -4, 'probeHistory' => -3, 'bounces' => -2, 'bounceHistory' => -1];
+        // **Positions read off the constructor itself**, not written
+        // down here. The previous version counted from the END on the
+        // grounds that appending could not shift it — which is exactly
+        // backwards, and IT-06 appending two dependencies is what showed
+        // it: every offset moved by two and nothing said so. Reflection
+        // cannot drift, because it is asking the thing itself.
+        $positions = [];
+        foreach ((new \ReflectionMethod(OutboundMailController::class, '__construct'))->getParameters() as $p) {
+            $positions[$p->getName()] = $p->getPosition();
+        }
 
         $arguments = $this->controllerArguments;
         foreach ($omitted as $name) {
-            self::assertArrayHasKey($name, $offsets, "Unknown optional dependency '{$name}'.");
-            $arguments[count($arguments) + $offsets[$name]] = null;
+            self::assertArrayHasKey($name, $positions, "Unknown constructor dependency '{$name}'.");
+            $arguments[$positions[$name]] = null;
         }
 
         return new OutboundMailController(...$arguments);
@@ -501,6 +534,113 @@ class OutboundMailControllerTest extends TestCase
         $this->controller->unblockBounce($stale, ['id' => (string) $id]);
 
         $this->assertSame(1, $this->bounceStates->countBlocked(), 'no block may be lifted on a stale token.');
+    }
+
+    // ── the DMARC reports (roadmap IT-06) ─────────────────────────────
+
+    /**
+     * @param list<array{0: string, 1: int, 2: bool}> $sources address, messages, authenticated
+     */
+    private function recordDmarcReport(string $organisation, string $reportId, array $sources): void
+    {
+        $now = new \DateTimeImmutable();
+        $records = [];
+        foreach ($sources as [$ip, $count, $passed]) {
+            $records[] = new \Core\Mail\Feedback\Dmarc\DmarcRecord($ip, $count, 'none', $passed, false, 'unite.be');
+        }
+
+        self::assertTrue($this->dmarcReports->record(
+            new \Core\Mail\Feedback\Dmarc\DmarcReport(
+                $organisation,
+                $reportId,
+                'unite.be',
+                $now->modify('-2 days'),
+                $now->modify('-1 day'),
+                'none',
+                $records
+            ),
+            $now
+        ), 'The fixture must actually reach the tables the page reads.');
+    }
+
+    /**
+     * The empty page is not a blank one: it says why no report has
+     * arrived, because « rien » here means « votre DNS ne demande rien »
+     * far more often than « personne n'envoie en votre nom ».
+     */
+    public function testTheDmarcPageSaysWhyNothingHasArrived(): void
+    {
+        $response = $this->controller->dmarc($this->getRequest(), []);
+        $body = (string) $response->getBody();
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('Aucun rapport reçu', $body);
+        $this->assertStringContainsString('rua', $body, 'The DNS tag that asks for the reports.');
+        // The page's sibling sentence to the Rebonds one, on the screen
+        // rather than only in the help topic.
+        $this->assertStringContainsString('authentifié', $body);
+        $this->assertStringContainsString('lu', $body);
+    }
+
+    /**
+     * A relay of the unit's own is named, so the volunteer reads
+     * « Brevo » rather than an address that answers no question.
+     */
+    public function testAKnownRelayIsShownUnderItsProviderName(): void
+    {
+        $this->recordDmarcReport('google.com', 'r-1', [['198.51.100.7', 120, true]]);
+
+        $body = (string) $this->controller->dmarc($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('Brevo', $body);
+        $this->assertStringContainsString('google.com', $body, 'Who reported.');
+        $this->assertStringContainsString('120', $body);
+        $this->assertStringNotContainsString('smtp-relay.brevo.test', $body, 'A relay host is infrastructure.');
+        // No warning: a source we recognise needs no investigation.
+        $this->assertStringNotContainsString('Un outil oublié', $body);
+    }
+
+    /**
+     * **The one thing this screen exists to prevent.** An unrecognised
+     * source that AUTHENTICATES is almost always a forgotten tool of the
+     * unit's own, and moving to `p=reject` without finding it rejects
+     * precisely those messages. The warning is therefore tied to
+     * « inconnue ET qui réussit », not to « inconnue ».
+     */
+    public function testAnUnknownSourceThatAuthenticatesRaisesTheWarningBeforeReject(): void
+    {
+        $this->recordDmarcReport('google.com', 'r-2', [['203.0.113.42', 40, true]]);
+
+        $body = (string) $this->controller->dmarc($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('Un outil oublié', $body);
+        $this->assertStringContainsString('p=reject', $body);
+    }
+
+    /**
+     * And the other side of that same condition: an unknown source whose
+     * messages all FAIL is a spoof being stopped, which is the system
+     * working. A warning there would cry wolf on every page, and the
+     * volunteer would stop reading the one that matters.
+     */
+    public function testAnUnknownSourceThatFailsRaisesNoWarning(): void
+    {
+        $this->recordDmarcReport('google.com', 'r-3', [['203.0.113.99', 40, false]]);
+
+        $body = (string) $this->controller->dmarc($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('203.0.113.99', $body, 'It is still listed.');
+        $this->assertStringNotContainsString('Un outil oublié', $body);
+    }
+
+    public function testAnInstallationWithoutTheDmarcTablesSaysSoRatherThanShowingAnEmptyPage(): void
+    {
+        $body = (string) $this->controllerWithout('dmarc', 'knownSenders')
+            ->dmarc($this->getRequest(), [])
+            ->getBody();
+
+        $this->assertStringContainsString('demande le module', $body);
+        $this->assertStringNotContainsString('Aucun rapport reçu', $body, 'Silence must not read as « personne ».');
     }
 
     /**

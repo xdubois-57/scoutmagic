@@ -58,6 +58,7 @@ class OutboundMailCollectorTest extends TestCase
     private ReturnProbeRepository $returnProbes;
     private \Core\Mail\Probe\MailProbeRepository $mailProbes;
     private \Core\Mail\Feedback\Bounce\BounceStateRepository $bounceStates;
+    private \Core\Mail\Feedback\Dmarc\DmarcReportRepository $dmarcReports;
     private ?InboundMailInterface $inboundMail = null;
 
     /** @var array<string, string> */
@@ -76,6 +77,7 @@ class OutboundMailCollectorTest extends TestCase
         $this->returnProbes = new ReturnProbeRepository($this->pdo, $encryption);
         $this->mailProbes = new \Core\Mail\Probe\MailProbeRepository($this->pdo, $encryption);
         $this->bounceStates = new \Core\Mail\Feedback\Bounce\BounceStateRepository($this->pdo, $encryption);
+        $this->dmarcReports = new \Core\Mail\Feedback\Dmarc\DmarcReportRepository($this->pdo);
 
         $this->projectRoot = sys_get_temp_dir() . '/scoutmagic-outbound-' . bin2hex(random_bytes(6));
         $this->storagePath = $this->projectRoot . '/storage';
@@ -390,6 +392,59 @@ class OutboundMailCollectorTest extends TestCase
     }
 
     /**
+     * **Counters, never a source address** (roadmap IT-06).
+     *
+     * The reasoning is the bounce section's exactly, and it is worth
+     * repeating because the instinct pulls the other way: a source list
+     * is precisely what somebody diagnosing a DMARC problem wants, and
+     * precisely what this file must not carry. The archive goes to a
+     * third party and outlives the screen it mirrors, whereas « quatre
+     * sources, dont 12 % non authentifiées » keeps every diagnostic shape
+     * while pointing at nobody. The addresses stay on the screen, which
+     * `superadmin` opens and nobody else keeps.
+     *
+     * The fixture's addresses are distinctive on purpose: an edit that
+     * starts printing them fails here rather than shipping quietly.
+     */
+    public function testTheArchiveCountsDmarcTrafficAndNamesNoSource(): void
+    {
+        $now = new \DateTimeImmutable();
+        $this->recordDmarcReport(
+            'google.com',
+            'rapport-1',
+            $now,
+            [
+                ['198.51.100.7', 120, true],
+                ['203.0.113.42', 30, false],
+            ]
+        );
+        $this->recordDmarcReport('Yahoo', 'rapport-2', $now, [['198.51.100.7', 50, true]]);
+
+        $report = $this->collect();
+
+        $this->assertStringContainsString('── Rapports DMARC, 30 derniers jours', $report);
+        $this->assertStringContainsString('rapports           2', $report);
+        $this->assertStringContainsString('fournisseurs       2', $report);
+        $this->assertStringContainsString('sources distinctes 2', $report);
+        $this->assertStringContainsString('messages           200', $report);
+        // 170 of 200 — the percentage is the figure somebody reads first,
+        // so it is computed here rather than left to the reader.
+        $this->assertStringContainsString('authentifiés       170 (85%)', $report);
+        $this->assertStringContainsString('quarantine', $report, 'The policy the reporters saw.');
+
+        $this->assertStringNotContainsString('198.51.100.7', $report);
+        $this->assertStringNotContainsString('203.0.113.42', $report);
+    }
+
+    public function testTheArchiveSaysSoWhenNoDmarcReportHasArrived(): void
+    {
+        $report = $this->collect();
+
+        $this->assertStringContainsString('── Rapports DMARC, 30 derniers jours', $report);
+        $this->assertStringContainsString('aucun rapport reçu', $report);
+    }
+
+    /**
      * An installation whose composition root built no probe repository:
      * the archive simply has no probe section, rather than a section
      * announcing itself and then saying nothing, and certainly rather
@@ -611,6 +666,42 @@ class OutboundMailCollectorTest extends TestCase
         return $id;
     }
 
+    /**
+     * @param list<array{0: string, 1: int, 2: bool}> $sources address, messages, authenticated
+     */
+    private function recordDmarcReport(
+        string $organisation,
+        string $reportId,
+        \DateTimeImmutable $now,
+        array $sources
+    ): void {
+        $records = [];
+        foreach ($sources as [$ip, $count, $passed]) {
+            $records[] = new \Core\Mail\Feedback\Dmarc\DmarcRecord(
+                $ip,
+                $count,
+                'none',
+                $passed,
+                false,
+                'exemple.be'
+            );
+        }
+
+        $written = $this->dmarcReports->record(
+            new \Core\Mail\Feedback\Dmarc\DmarcReport(
+                $organisation,
+                $reportId,
+                'exemple.be',
+                $now->modify('-2 days'),
+                $now->modify('-1 day'),
+                'quarantine',
+                $records
+            ),
+            $now
+        );
+        self::assertTrue($written, 'The fixture must actually reach the tables it is read from.');
+    }
+
     private function collect(bool $withProbes = true): string
     {
         $connections = new ProviderConnections($this->secrets);
@@ -625,7 +716,8 @@ class OutboundMailCollectorTest extends TestCase
             $this->returnProbes,
             $this->inboundMail,
             $withProbes ? $this->mailProbes : null,
-            $this->bounceStates
+            $this->bounceStates,
+            $this->dmarcReports
         );
 
         $archivePath = $this->storagePath . '/temp/outbound-' . bin2hex(random_bytes(6)) . '.zip';
