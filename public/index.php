@@ -709,6 +709,24 @@ $settingService->register(
     false,
     56
 );
+// Which addresses the unit's own relays answered on, so the « Rapports
+// DMARC » page can name a provider instead of printing an IP nobody can
+// place — and can do it without blocking on a resolver, which is the one
+// thing those screens must not do: they are opened when mail is already
+// broken. Written by the same « Vérifier les enregistrements » action as
+// the reading above, never by hand — hence editable: false.
+$settingService->register(
+    \Core\Mail\Feedback\Dmarc\KnownSenders::SETTING_KEY,
+    '',
+    'text',
+    'Adresses des relais, dernière résolution',
+    'Adresses IP auxquelles répondaient les relais d\'envoi lors de la dernière vérification DNS, avec sa date.',
+    null,
+    null,
+    null,
+    false,
+    57
+);
 $settingService->register(
     'dkim_selector',
     's2026',
@@ -4047,6 +4065,19 @@ $router->addRoute(
     ['label' => 'Rebonds', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
         'ancestors' => [['label' => 'Courrier sortant', 'path' => '/config/courrier-sortant']]],
 );
+// Rapports DMARC (roadmap IT-06).
+$router->addRoute(
+    'GET',
+    '/config/courrier-sortant/dmarc',
+    \Core\Http\Controller\OutboundMailController::class,
+    'dmarc',
+    'superadmin',
+    // Without a label the breadcrumb stops at the home icon and
+    // `HelpPageLinkResolver` skips the route, so the help topic written
+    // for this exact path gets no link from it.
+    ['label' => 'Rapports DMARC', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)],
+        'ancestors' => [['label' => 'Courrier sortant', 'path' => '/config/courrier-sortant']]],
+);
 $router->addRoute(
     'POST',
     '/config/courrier-sortant/rebonds/{id}/reprise',
@@ -6634,6 +6665,22 @@ if ($isEnabled('inbound_mail')) {
             )
     );
 
+    // The DMARC consumer (roadmap IT-06), on the same registry and for
+    // the same reason. This one also reads an attachment's bytes through
+    // `Api\PayloadConsumerInterface` — the narrow door a machine feed
+    // needs, since `AttachmentPolicy` rightly refuses archives and
+    // `CandidateAttachment` carries no bytes.
+    $inboundReadConsumers->registerFactory(
+        \Core\Mail\Feedback\Dmarc\DmarcConsumer::CONSUMER_ID,
+        static fn(): \Modules\InboundMail\Api\MessageConsumerInterface =>
+            new \Core\Mail\Feedback\Dmarc\DmarcConsumer(
+                new \Core\Mail\Feedback\Dmarc\DmarcReportParser(),
+                new \Core\Mail\Feedback\Dmarc\DmarcReportRepository($pdo),
+                new \Core\Mail\Feedback\Dmarc\BoundedArchive(),
+                $journalService
+            )
+    );
+
     // One-time reprise for installs that stored a message's consumer and
     // business reference in the message's own columns, before
     // inbound_message_links existed. Each of those triplets becomes an
@@ -6921,7 +6968,22 @@ $frontController->registerController(
         ),
         $inboundMailForOthers === null
             ? null
-            : new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $encryptionService)
+            : new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $encryptionService),
+        // DMARC reports (roadmap IT-06), on the same terms and for the
+        // same reason: a site that receives no report must not be shown a
+        // permanently empty page saying « personne n'envoie en votre nom »,
+        // which would be the most reassuring lie this section could tell.
+        $inboundMailForOthers === null ? null : new \Core\Mail\Feedback\Dmarc\DmarcReportRepository($pdo),
+        // The relays this unit sends through, as the last DNS check
+        // resolved them — READ, never resolved here. A lookup on this path
+        // would block the page on a resolver, which is the one thing the
+        // outbound-mail screens must not do (see the class, and
+        // `Core\Mail\DnsCheckMemory` before it). Names only: a relay
+        // hostname is infrastructure and stays off the screen
+        // (SECURITY.md §11).
+        $inboundMailForOthers === null
+            ? null
+            : \Core\Mail\Feedback\Dmarc\KnownSenders::remembered($settingService)
     )
 );
 

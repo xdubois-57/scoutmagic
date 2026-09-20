@@ -67,6 +67,32 @@ class OutboundMailController extends AbstractController
     /** Said the same way wherever the bounce page cannot run at all. */
     private const BOUNCES_UNAVAILABLE = 'Le suivi des rebonds demande le module « Courrier entrant ».';
 
+    public const DMARC_URL = '/config/courrier-sortant/dmarc';
+
+    private const DMARC_UNAVAILABLE = 'La lecture des rapports DMARC demande le module « Courrier entrant ».';
+
+    /**
+     * The window the screen reports on.
+     *
+     * Thirty days rather than « everything »: a source that stopped
+     * sending three months ago is not a question anybody still has, and a
+     * page that keeps answering it makes the one source that started
+     * yesterday harder to see.
+     */
+    private const DMARC_WINDOW = 'P30D';
+
+    /**
+     * How many rows each table draws.
+     *
+     * A cap on the DRAWING, and on nothing else: a table of ten thousand
+     * rows is not a screen, while a total or a verdict built on the rows
+     * that fit is simply wrong. Both come from uncapped queries instead
+     * ({@see \Core\Mail\Feedback\Dmarc\DmarcReportRepository::totalsSince()}),
+     * and the page says when it is showing fewer than there are.
+     */
+    private const DMARC_SOURCES_SHOWN = 200;
+    private const DMARC_REPORTS_SHOWN = 50;
+
     public const PROBE_URL = '/config/courrier-sortant/sonde';
     public const PROBE_SEND_URL = '/config/courrier-sortant/sonde/envoi';
     public const PROBE_VERDICT_URL = '/config/courrier-sortant/sonde/verdict';
@@ -115,8 +141,118 @@ class OutboundMailController extends AbstractController
          * feature that cannot work. Null makes the sub-page say so.
          */
         private ?\Core\Mail\Feedback\Bounce\BounceService $bounces = null,
-        private ?\Core\Mail\Feedback\Bounce\BounceStateRepository $bounceHistory = null
+        private ?\Core\Mail\Feedback\Bounce\BounceStateRepository $bounceHistory = null,
+        /**
+         * The DMARC reports (roadmap IT-06).
+         *
+         * Nullable on the same grounds as the bounce state: the tables are
+         * core and always readable, but a site whose `inbound_mail` module
+         * is off never receives a report, and a permanently empty page
+         * saying « personne n'envoie en votre nom » would be the most
+         * reassuring lie this section could tell.
+         */
+        private ?\Core\Mail\Feedback\Dmarc\DmarcReportRepository $dmarc = null,
+        private ?\Core\Mail\Feedback\Dmarc\KnownSenders $knownSenders = null
     ) {
+    }
+
+    /**
+     * GET /config/courrier-sortant/dmarc — who sends in this unit's name,
+     * and whether it authenticates (roadmap IT-06).
+     *
+     * @param array<string, string> $params
+     */
+    public function dmarc(Request $request, array $params): Response
+    {
+        $since = (new \DateTimeImmutable())->sub(new \DateInterval(self::DMARC_WINDOW));
+        $totals = $this->dmarc?->totalsSince($since) ?? [];
+
+        return $this->render('config/outbound_mail/dmarc.html.twig', [
+            'available' => $this->dmarc !== null,
+            'unavailable_reason' => self::DMARC_UNAVAILABLE,
+            'sources' => $this->dmarcSources($since),
+            'reports' => $this->dmarc?->reportsSince($since, self::DMARC_REPORTS_SHOWN) ?? [],
+            // **The counts come from the database, never from the rows
+            // above**, which are capped for the table's sake. A page that
+            // said « 200 sources » because it had drawn 200 rows would be
+            // wrong in the one direction nobody checks.
+            'total_sources' => $totals['sources'] ?? 0,
+            'total_reports' => $totals['reports'] ?? 0,
+            'shown_sources' => self::DMARC_SOURCES_SHOWN,
+            'shown_reports' => self::DMARC_REPORTS_SHOWN,
+            // Likewise: the warning is computed over every authenticating
+            // source, not over the ones that fit.
+            'unknown_authenticating' => $this->unknownAuthenticatingCount($since),
+            'relays_resolved' => $this->knownSenders !== null && !$this->knownSenders->isEmpty(),
+            'window_days' => 30,
+            'current_path' => self::DMARC_URL,
+        ]);
+    }
+
+    /**
+     * How many addresses the site cannot place are getting mail through.
+     *
+     * **Counted over every authenticating source**, which is the whole
+     * reason this is not read off the table: the sentence it raises is
+     * worth saying only if it cannot be missed, and one forgotten tool
+     * sending forty messages sorts below two hundred noisier senders and
+     * would vanish from the verdict along with its row.
+     *
+     * The repository streams them, so this counts without ever holding the
+     * list — a ceiling here would put the same failure back, one order of
+     * magnitude further away.
+     */
+    private function unknownAuthenticatingCount(\DateTimeImmutable $since): int
+    {
+        $unknown = 0;
+
+        foreach ($this->dmarc?->authenticatingSourcesSince($since) ?? [] as $sourceIp) {
+            if ($this->knownSenders?->nameFor($sourceIp) === null) {
+                $unknown++;
+            }
+        }
+
+        return $unknown;
+    }
+
+    /**
+     * One line per sending address, with the two things a volunteer can
+     * act on: is it ours, and did it authenticate.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function dmarcSources(\DateTimeImmutable $since): array
+    {
+        $lines = [];
+
+        foreach ($this->dmarc?->sourcesSince($since, self::DMARC_SOURCES_SHOWN) ?? [] as $source) {
+            $messages = $source['messages'];
+            $authenticated = $source['authenticated'];
+            $provider = $this->knownSenders?->nameFor($source['source_ip']);
+
+            $lines[] = [
+                // The sending SERVER's address, which is infrastructure
+                // and names nobody — the whole reason an aggregate report
+                // settles the RGPD question (D12).
+                'source_ip' => $source['source_ip'],
+                'provider' => $provider,
+                'is_own' => $provider !== null,
+                'messages' => $messages,
+                'authenticated' => $authenticated,
+                'failed' => $messages - $authenticated,
+                'reporters' => $source['reporters'],
+                // **The warning that avoids the classic trap.** An unknown
+                // source that authenticates is almost always a forgotten
+                // tool of the unit's own — an old registration platform, a
+                // newsletter service, somebody's mailbox configured with
+                // the unit's address — far more often than a spoof. It has
+                // to be identified BEFORE moving to `p=reject`, or those
+                // messages are rejected too.
+                'needs_attention' => $provider === null && $authenticated > 0,
+            ];
+        }
+
+        return $lines;
     }
 
     /**
@@ -1257,6 +1393,27 @@ class OutboundMailController extends AbstractController
                     : $this->dns->checkDmarc($dkimDomain, $identity->dmarcReportAddress()),
             ]
         );
+
+        // **The relays are resolved here and nowhere else** (roadmap
+        // IT-06). This action is where the site is allowed to block on a
+        // resolver — behind a button, behind a CSRF token, with somebody
+        // watching — and the « Rapports DMARC » page then renders the
+        // answer instead of taking it. Taking it on that page's render was
+        // the first version, and it put two blocking lookups per relay in
+        // front of a screen people open when mail is already broken.
+        try {
+            \Core\Mail\Feedback\Dmarc\KnownSenders::refresh(
+                $this->settings,
+                array_values($this->directory->relays())
+            );
+        } catch (\Throwable) {
+            // Silent, and deliberately not a `forget()`: the reading this
+            // would drop still places the relays correctly, and losing it
+            // turns « votre relais » into « autre » on the next page — the
+            // mislabelling that matters. The SPF/DKIM/DMARC reading above
+            // is what the operator pressed the button for; this rides
+            // along with it and must not be able to spoil it.
+        }
 
         return $this->redirect(self::AUTHENTICATION_URL);
     }

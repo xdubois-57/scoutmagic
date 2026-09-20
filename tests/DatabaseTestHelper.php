@@ -752,6 +752,28 @@ class DatabaseTestHelper
             last_send_at TEXT NOT NULL
         )');
 
+        $pdo->exec('CREATE TABLE mail_dmarc_reports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            organisation TEXT NOT NULL,
+            report_id TEXT NOT NULL,
+            domain TEXT NOT NULL,
+            period_begin TEXT NOT NULL,
+            period_end TEXT NOT NULL,
+            policy TEXT NOT NULL,
+            received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (organisation, report_id)
+        )');
+
+        $pdo->exec('CREATE TABLE mail_dmarc_sources (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            dmarc_report_id INTEGER NOT NULL,
+            source_ip TEXT NOT NULL,
+            message_count INTEGER NOT NULL,
+            authenticated_count INTEGER NOT NULL,
+            disposition TEXT NOT NULL,
+            FOREIGN KEY (dmarc_report_id) REFERENCES mail_dmarc_reports(id) ON DELETE CASCADE
+        )');
+
         $pdo->exec('CREATE TABLE human_check_rate_limits (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             ip_hash TEXT NOT NULL,

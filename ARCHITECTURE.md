@@ -4373,6 +4373,114 @@ Rebonds page means « nothing was refused », never « everything arrives » —
 which is why that sentence is on the screen and not only in the help topic,
 and why the manual probe above exists at all.
 
+**The aggregate reports** (`Core\Mail\Feedback\Dmarc`, roadmap IT-06).
+A provider receiving mail that claims this unit's domain writes a daily
+RFC 7489 aggregate report and posts it to the address the `rua=` tag
+publishes. `DmarcConsumer` reads them out of the same watched mailboxes
+the bounces come from, and the Rapports DMARC screen answers one
+question: **who sends in this unit's name, and does it authenticate.**
+
+*A narrow, declared door for machine payloads, because the attachment
+policy could not open* (the iteration's one architectural divergence).
+The roadmap assumed `Modules\InboundMail`'s `AttachmentPolicy` could hand
+a report over. It cannot, and both reasons are deliberate: it refuses
+archives outright, and `CandidateAttachment` carries no bytes at all.
+Widening an allowlist that protects every mailbox, for one consumer, is
+the wrong trade. So `Api\PayloadConsumerInterface` is a second, opt-in
+contract beside `Api\MessageConsumerInterface` (§7.5): a consumer
+declares the mime types it wants and **its own** byte ceiling,
+`MessageConsumerRegistry::analyzeAllPayloads()` hands it only what
+matches, and **a payload over the ceiling is refused, never truncated** —
+half an archive is not a smaller archive. Nothing is stored; the bytes
+exist for the length of one analysis.
+
+*Opening a stranger's archive is the dangerous part, and the ceiling has
+to be on the OUTPUT.* `BoundedArchive` caps entries, per-entry bytes and
+total bytes, and inflates gzip through a `zlib.inflate` **stream filter**
+read in chunks. The first implementation bounded the INPUT — 32 KB of
+compressed data at a time into `inflate_add()` — which is not a bound at
+all: 32 KB of compressed zeroes expands to some 32 MB inside a single
+call, before any check of ours runs. `BoundedArchiveTest` pins the
+difference with `memory_reset_peak_usage()`, and a naive `gzdecode()`
+fails it at 84 MB where the input-bounded version fails at 34 MB. `zip`
+is handled behind `class_exists(\ZipArchive::class)`, since `composer.json`
+declares no `ext-*` requirement and shared hosting may not have it.
+
+*`DTD` refused, network off, unparseable sources dropped.*
+`DmarcReportParser` rejects anything containing `<!DOCTYPE` before
+`simplexml_load_string()` sees it (`LIBXML_NONET | LIBXML_NOCDATA`), caps
+records, and drops any source failing `filter_var(…, FILTER_VALIDATE_IP)`.
+The file is written by somebody else's software and is the one input here
+this site did not produce.
+
+*Either SPF or DKIM, which is DMARC's own rule* (RFC 7489 §6.6.2). A
+screen demanding both would show a unit's own relay as failing while
+every message it sends arrives perfectly well.
+
+*The warning is « unknown AND authenticating », never « unknown ».* An
+unrecognised source whose messages **pass** is almost always a forgotten
+tool of the unit's own — an old registration platform, a newsletter
+service, somebody's mailbox configured with the unit's address — and
+moving to `p=reject` without finding it rejects precisely those messages,
+which is learned weeks later from the person receiving nothing. An
+unrecognised source whose messages all fail is a spoof being stopped,
+and a warning there would cry wolf on every page.
+
+*`KnownSenders` renders a remembered reading and never a lookup*, which
+is the rule §8.106's own `DnsCheckMemory` had already written down for
+these screens and which the first version of this class broke: two
+blocking `dns_get_record()` calls per relay, in front of the page people
+open when mail is already broken. The resolution happens in the
+« Vérifier les enregistrements » action — the one place here allowed to
+block on a resolver — and the page reads what it stored. A resolution
+that fails, or that nobody has taken yet, puts the source in « autres »,
+which is the safe side: wrong that way costs ten minutes, wrong the other
+way labels an unknown sender « votre relais » and nobody looks again. A
+and AAAA both, because a relay reached over IPv6 would otherwise be
+« autres » for ever. Addresses are compared as `inet_pton` bytes, since
+`2001:db8::1` and its expanded spelling are one machine and a reporter
+has no reason to write it the way a resolver does. The host itself never
+reaches a screen (SECURITY.md §11); the provider's name does.
+
+*The caps are on the DRAWING, and on nothing else.* `sourcesSince()` and
+`reportsSince()` feed tables and are limited; every count and the one
+warning come from uncapped queries (`totalsSince()`, and
+`authenticatingSourcesSince()`, which is **streamed** so the count never
+holds the list and no ceiling can quietly drop the one row that matters). Reading a capped list as the whole truth
+made the support archive undercount and — worse — computed « somebody
+unknown is authenticating » over the two hundred rows that fit, so one
+forgotten tool sending forty messages fell off the table and took the
+only sentence naming it along.
+
+*A period is a fact about the past, and `purgeBefore()` cuts on its end*,
+so the parser refuses an end before its begin and an end beyond our clock
+plus two days. Without that, a report a stranger stamps for 2099 outlives
+every retention rule the site has and sits in each thirty-day window for
+good.
+
+*`record()` re-throws everything that is not the losing race.* Both used
+to answer `false`, so a database refusing writes was indistinguishable
+from an ordinary re-read: no journal line, no exception for the registry
+to record, and a broken installation that looked like a quiet sync. The
+duplicate is identified by the driver's own code (1062 / 19 / 7), never
+by SQLSTATE `23000` alone, which covers a foreign key just as well.
+
+*Ninety days, cut on `period_end`.* `Task\PurgeDmarcReportsHandler`
+self-rearms like `PurgeSendCountersHandler`. Cutting on arrival would
+delete a report posted days after the window it describes, for being old
+the moment it landed.
+
+*The support archive carries the counters and no source address.* Same
+reasoning as the bounce section: the archive goes to a third party and
+outlives the screen it mirrors, while « quatre sources, dont 12 % non
+authentifiées » keeps the diagnostic shape and names nobody.
+
+*And these reports name no recipient, which is not an omission of ours.*
+RFC 7489 aggregate reports carry counters and source addresses only —
+never a recipient, a subject or a body. That is what settles the personal
+-data question (RGPD §2.10) and what separates them from forensic
+reports, which this site neither requests nor accepts (D12).
+
 ### 8.107 Storage locations (`Core\Storage\Location`)
 
 **One declared destination for bytes, and every consumer picks one.** The same idea used to be written twice, with two incompatible models: the gallery had `gallery_storage_locations` — N rows, a `StorageBackendInterface`, a cached health column — while the off-site backup had a dozen flat `SettingService` keys, a `RemoteBackupTarget` interface and a `remote_backup_last_error` setting. A single destination in flat settings on one side, N destinations in a table on the other. The second form is the right one, and this is it, generalised. **Both halves have now arrived**: the gallery moved here in IT-01 and the off-site backup in IT-05, which is where `RemoteBackupTarget` disappeared and a Drive folder became a location like any other (§8.104).

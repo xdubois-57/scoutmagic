@@ -100,7 +100,9 @@ class OutboundMailCollector implements SupportCollectorInterface
          */
         private ?MailProbeRepository $probes = null,
         /** The bounce state (roadmap IT-05). */
-        private ?\Core\Mail\Feedback\Bounce\BounceStateRepository $bounces = null
+        private ?\Core\Mail\Feedback\Bounce\BounceStateRepository $bounces = null,
+        /** The DMARC reports (roadmap IT-06), read-only like the rest. */
+        private ?\Core\Mail\Feedback\Dmarc\DmarcReportRepository $dmarc = null
     ) {
     }
 
@@ -179,6 +181,10 @@ class OutboundMailCollector implements SupportCollectorInterface
         }
 
         foreach ($this->bounceLines() as $line) {
+            $lines[] = $line;
+        }
+
+        foreach ($this->dmarcLines() as $line) {
             $lines[] = $line;
         }
 
@@ -445,6 +451,67 @@ class OutboundMailCollector implements SupportCollectorInterface
             $lines[] = sprintf('%-40s  %d', mb_substr((string) $domain, 0, 40), $count);
         }
 
+        $lines[] = '';
+
+        return $lines;
+    }
+
+    /**
+     * Who has been sending in this unit's name, as counters (roadmap
+     * IT-06).
+     *
+     * **The source addresses are the one thing this section does NOT
+     * carry**, and the reasoning is the bounce section's exactly: this
+     * archive goes to a third party and outlives the screen it reflects.
+     * An aggregate report names no person by construction, but a sending
+     * server's address is still infrastructure somebody could act on, and
+     * the figure that answers a support question is « combien de sources
+     * inconnues réussissent à s'authentifier », never which.
+     *
+     * @return list<string>
+     */
+    private function dmarcLines(): array
+    {
+        if ($this->dmarc === null) {
+            return [];
+        }
+
+        try {
+            $since = (new \DateTimeImmutable())->sub(new \DateInterval('P30D'));
+            // **Aggregates, never the screens' capped lists.** Counting
+            // the rows a table happens to draw was the first version, and
+            // it would have had this archive report « 200 sources » to a
+            // third party helping with a problem, from an installation
+            // that had a thousand. A wrong figure is worse than none,
+            // because a wrong figure gets acted on.
+            $totals = $this->dmarc->totalsSince($since);
+            $policies = $this->dmarc->policiesSince($since);
+        } catch (\Throwable) {
+            return [];
+        }
+
+        $lines = ['── Rapports DMARC, 30 derniers jours ───────────────────────'];
+
+        if ($totals['reports'] === 0) {
+            $lines[] = 'aucun rapport reçu';
+            $lines[] = '';
+
+            return $lines;
+        }
+
+        $messages = $totals['messages'];
+        $authenticated = $totals['authenticated'];
+
+        $lines[] = sprintf('rapports           %d', $totals['reports']);
+        $lines[] = sprintf('fournisseurs       %d', $totals['reporters']);
+        $lines[] = sprintf('politiques vues    %s', implode(', ', $policies) ?: '—');
+        $lines[] = sprintf('sources distinctes %d', $totals['sources']);
+        $lines[] = sprintf('messages           %d', $messages);
+        $lines[] = sprintf(
+            'authentifiés       %d (%d%%)',
+            $authenticated,
+            $messages > 0 ? (int) round($authenticated * 100 / $messages) : 0
+        );
         $lines[] = '';
 
         return $lines;
