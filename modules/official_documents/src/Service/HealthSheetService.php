@@ -103,6 +103,43 @@ class HealthSheetService
     }
 
     /**
+     * The retention purge: forget every sheet no family has touched since
+     * the cutoff.
+     *
+     * Journaled one entry per member, carrying **the member id and nothing
+     * else** — the same shape as `clear()`, and for the same reason. A
+     * family asking why their child's sheet is empty deserves an answer,
+     * and « la conservation l'a effacée le 3 mars » is one; anything about
+     * what the sheet contained would be the purge writing down the health
+     * data it exists to destroy.
+     *
+     * Silent towards the family, per the chantier: no notification, no
+     * warning beforehand. The journal is the site's own record, not a
+     * message to anybody.
+     *
+     * @return list<int> the member ids whose sheets were removed
+     */
+    public function purgeUnusedSince(\DateTimeImmutable $cutoff, int $retentionMonths): array
+    {
+        $memberIds = $this->repository->deleteUnusedSince($cutoff);
+
+        foreach ($memberIds as $memberId) {
+            $this->journal?->log(
+                self::JOURNAL_CATEGORY,
+                'health_sheet_purged',
+                'info',
+                'Fiche santé effacée par la conservation après ' . $retentionMonths . ' mois sans usage',
+                // The id, and nothing else. Never a field name, never a
+                // count of what was in it, never a date of birth.
+                ['member_id' => $memberId],
+                null
+            );
+        }
+
+        return $memberIds;
+    }
+
+    /**
      * Say that this sheet is still in use — called when a document is
      * generated from it (IT-04), which postpones the retention purge
      * exactly as retyping it would.

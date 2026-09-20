@@ -142,6 +142,47 @@ class HealthSheetRepository
      * « mise à jour le 12 mars » beside a link, which is not a reason to
      * put a child's health data through a cipher.
      */
+    /**
+     * Delete every sheet that has not been used since the cutoff, and
+     * answer whose they were.
+     *
+     * **Nothing is decrypted.** `last_used_at` is a plain DATETIME column
+     * with an index of its own (see `schema.sql`), so the retention purge
+     * decides what to delete without a single sheet going through the
+     * cipher. A purge that had to open sixty fields of health data to read
+     * one date would be the one job on this installation that touches
+     * every family's medical answers in a single pass, at four in the
+     * morning, with nobody watching.
+     *
+     * The ids are read BEFORE the delete, and that is the only way round
+     * that works: afterwards there is nothing left to name, and the
+     * journal entry the chantier asks for — the member id and nothing else
+     * — would have nothing to carry.
+     *
+     * @return list<int> the member ids whose sheets were removed
+     */
+    public function deleteUnusedSince(\DateTimeImmutable $cutoff): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT member_id FROM official_documents_health_sheets WHERE last_used_at < ?'
+        );
+        $stmt->execute([$cutoff->format('Y-m-d H:i:s')]);
+
+        /** @var list<int> $memberIds */
+        $memberIds = array_map(intval(...), $stmt->fetchAll(\PDO::FETCH_COLUMN));
+        if ($memberIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($memberIds), '?'));
+        $delete = $this->pdo->prepare(
+            'DELETE FROM official_documents_health_sheets WHERE member_id IN (' . $placeholders . ')'
+        );
+        $delete->execute($memberIds);
+
+        return $memberIds;
+    }
+
     public function lastUsedAt(int $memberId): ?\DateTimeImmutable
     {
         $stmt = $this->pdo->prepare(

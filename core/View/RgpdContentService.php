@@ -1068,11 +1068,16 @@ part** : ces valeurs ne vivent que le temps de la requête ; (c bis) que la **fi
 c'est son intérêt, saisie une fois et réutilisée — qu'elle est **chiffrée au repos**, que tout y est facultatif, que la
 famille peut **tout effacer** définitivement d'un bouton, et qu'**aucun animateur, aucun chef d'unité et aucun
 administrateur n'y a accès depuis le site** : le seul chemin vers l'unité est le papier imprimé et signé. Ne présente
-jamais le module comme ne conservant rien — c'était vrai de la seule autorisation parentale ; (d) que le PDF produit
+jamais le module comme ne conservant rien — c'était vrai de la seule autorisation parentale ; (c ter) que la fiche
+santé est **effacée automatiquement après dix-huit mois sans usage** (durée réglable par l'unité), que le compteur
+repart aussi bien sur une modification que sur une **impression** du document, et que cet effacement est
+**définitif et silencieux** — pas de corbeille, pas d'avertissement préalable, aucun message envoyé à la famille ;
+n'invente pas de notification de conservation ; (d) que le PDF produit
 **ne touche jamais le disque** et n'est conservé en aucune copie ;
 (e) que l'accès est réservé aux comptes liés à ce membre, revérifié à chaque action, **sans exception pour un chef
 d'unité ni pour un administrateur**, la seule voie pour un administrateur étant la substitution temporaire de membre,
-visible à l'écran tant qu'elle dure ; (f) que le journal ne porte ni valeur saisie, ni nom, ni contenu de document. Ce
+visible à l'écran tant qu'elle dure ; (f) que le journal ne porte ni valeur saisie, ni nom, ni contenu de document — l'effacement d'une fiche santé y est
+noté, qu'il vienne du bouton ou de la conservation, avec le seul identifiant du membre. Ce
 module n'introduit **aucun sous-traitant** et ne fait **aucun appel à une IA** : ne l'ajoute ni en section 4 ni en
 section 5.2.
 

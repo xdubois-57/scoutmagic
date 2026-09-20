@@ -6742,6 +6742,19 @@ if ($isEnabled('official_documents')) {
         )
     );
 
+    // The retention purge's FIRST occurrence has to be seeded here:
+    // declaring a handler in module.json only teaches SchedulerRunner which
+    // class handles the key, and a self-rescheduling task nobody ever
+    // queued reschedules itself never (ARCHITECTURE.md §8.49).
+    // Tests\Modules\OfficialDocuments\ModuleSchedulingTest fails if this
+    // drifts from module.json's `scheduled_tasks`.
+    $schedulerService->rearm(
+        'official_documents',
+        \Modules\OfficialDocuments\Task\PurgeHealthSheetsHandler::TASK_KEY,
+        \Modules\OfficialDocuments\Task\PurgeHealthSheetsHandler::REFERENCE,
+        new DateTimeImmutable()
+    );
+
     $frontController->registerController(
         \Modules\OfficialDocuments\Controller\ParentalAuthorizationController::class,
         new \Modules\OfficialDocuments\Controller\ParentalAuthorizationController(
