@@ -223,4 +223,37 @@ class SeedCopyRepositoryTest extends TestCase
         $this->assertSame('gmail.com', SeedCopy::providerOf('Temoin@Gmail.COM'));
         $this->assertSame('inconnu', SeedCopy::providerOf('pas-une-adresse'));
     }
+
+    /**
+     * **A stored moment is read through `DateInput`, never through the
+     * raw constructor.**
+     *
+     * The constructor has two failure modes and the second is the one
+     * that matters: it throws on a malformed string — one bad row and the
+     * page is a 500 — and it answers *now* for an empty one. A copy that
+     * silently claimed to have been sent today would re-enter every
+     * thirty-day window for ever and never be purged, so a corrupt row
+     * would quietly become a permanent one.
+     *
+     * `Tests\Security\StoredDateReadingRatchetTest` holds the rule across
+     * the whole site; this holds what the rule buys here.
+     */
+    public function testACopyWhoseStoredMomentIsEmptyIsRefusedRatherThanDatedToday(): void
+    {
+        $this->copies->claim('envoi', 'temoin@gmail.com', new \DateTimeImmutable('-40 days'));
+        $statement = $this->pdo->prepare("UPDATE mail_seed_copies SET sent_at = '' WHERE run_reference = ?");
+        $statement->execute(['envoi']);
+
+        $this->expectException(\RuntimeException::class);
+
+        $this->copies->forRun('envoi');
+    }
+
+    /** And a landing nobody has recorded stays null rather than becoming now. */
+    public function testACopyWithNoLandingYetHasNoRecordedMoment(): void
+    {
+        $this->copies->claim('envoi', 'temoin@gmail.com', new \DateTimeImmutable('-1 hour'));
+
+        $this->assertNull($this->copies->forRun('envoi')[0]->recordedAt);
+    }
 }

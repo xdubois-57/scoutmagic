@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Mail\Feedback\Seed;
 
 use Core\Security\EncryptionService;
+use Core\Service\DateInput;
 
 /**
  * Where the seed copies are kept (roadmap IT-07).
@@ -255,10 +256,17 @@ class SeedCopyRepository
                 (string) $row['run_reference'],
                 $this->encryption->decrypt((string) $row['seed_address_encrypted'], self::CONTEXT),
                 (string) $row['provider'],
-                new \DateTimeImmutable((string) $row['sent_at']),
+                // **Never the raw constructor on a stored moment.** It
+                // throws on a malformed string — one bad row and the page
+                // is a 500 — and, worse, answers *now* for an empty one,
+                // so a copy would silently claim to have been sent today
+                // and re-enter every thirty-day window for ever.
+                // `sent_at` is `NOT NULL`, hence the `require` form;
+                // `recorded_at` is null until a landing is found.
+                DateInput::requireFromStorage((string) $row['sent_at'], 'mail_seed_copies.sent_at'),
                 SeedVerdict::from((string) $row['verdict']),
                 $row['landed_folder'] === null ? null : (string) $row['landed_folder'],
-                $row['recorded_at'] === null ? null : new \DateTimeImmutable((string) $row['recorded_at'])
+                DateInput::fromStorage($row['recorded_at'] === null ? null : (string) $row['recorded_at'])
             );
         }
 
