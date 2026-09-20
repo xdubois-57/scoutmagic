@@ -283,6 +283,27 @@
                     {% endif %}
                 </div>
             </section>
+            {# « Ajouter à mes contacts » — the member's contact card, as a
+               QR code to scan and as a .vcf to download. Offered HERE and
+               nowhere else on the site: on the trombinoscope the same
+               button would give every identified member a way to collect
+               the staff's contact details one by one. Both channels are
+               offered together, with no device detection — see
+               Core\Contact. #}
+            <section class="card mb-3">
+                <div class="card-header d-flex align-items-center gap-2">
+                    <i class="bi bi-person-vcard" aria-hidden="true"></i>
+                    <h2 class="h6 mb-0">Ajouter à mes contacts</h2>
+                </div>
+                <div class="card-body">
+                    <p class="text-body-secondary small mb-2">
+                        Sa fiche de contact, à scanner avec un téléphone ou à télécharger.
+                    </p>
+                    <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#contact-card-modal">
+                        <i class="bi bi-person-vcard" aria-hidden="true"></i> Ajouter à mes contacts
+                    </button>
+                </div>
+            </section>
         </div>
 
         <div class="col-12 col-lg-6">
@@ -662,6 +683,46 @@
             </ul>
         {% endif %}
     </section>
+
+{# The dialog states, in one sentence, what the card contains and for which
+   scout year — so nobody scans a QR code without knowing what lands in
+   their phone. It promises nothing about what happens next: `UID` and
+   `REV` help a client recognise the same person later, some honour them
+   and others file a second entry by name, so no wording here may suggest
+   the card updates itself in somebody's address book.
+
+   The <img> carries data-member-year-id and ships with NO src:
+   public/assets/js/member-search.js sets it when the dialog is first
+   opened, so a card is only ever rendered — and journaled — for a dialog
+   somebody actually opened. #}
+{% embed 'partials/modal.html.twig' with {
+    id: 'contact-card-modal',
+    title: 'Ajouter à mes contacts',
+    member_year_id: member.memberYearId,
+    year_label: year_label,
+} only %}
+    {% block body %}
+        <p class="small text-body-secondary">
+            La fiche reprend le nom, le totem, la section et la fonction de l'année
+            {{ year_label }}, les adresses e-mail et postales, les deux numéros de
+            téléphone, la photo et l'historique des fonctions.
+        </p>
+        <div class="text-center mb-3">
+            <img id="contact-card-qr" alt="Code QR de la fiche de contact"
+                 data-member-year-id="{{ member_year_id }}"
+                 class="img-fluid" style="max-width:260px;" width="260" height="260" decoding="async">
+        </div>
+        <p class="small text-body-secondary mb-0">
+            Scannez le code avec l'appareil photo du téléphone, ou téléchargez le fichier.
+        </p>
+    {% endblock %}
+    {% block footer %}
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Fermer</button>
+        <a class="btn btn-primary" href="/admin/members/{{ member_year_id }}/contact-vcard">
+            <i class="bi bi-download" aria-hidden="true"></i> Télécharger le fichier
+        </a>
+    {% endblock %}
+{% endembed %}
 </div>
 {% endblock %}
 

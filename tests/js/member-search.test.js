@@ -60,7 +60,15 @@ const MEMBER_PAGE = `
         </div>
     </div>`;
 
-const PAGE = EXPORT_FORM + MEMBER_PAGE;
+/** The « Ajouter à mes contacts » dialog of admin/members/show.html.twig. */
+const CONTACT_CARD_DIALOG = `
+    <div class="modal fade" id="contact-card-modal" tabindex="-1">
+        <div class="modal-body">
+            <img id="contact-card-qr" alt="Code QR de la fiche de contact" data-member-year-id="101">
+        </div>
+    </div>`;
+
+const PAGE = EXPORT_FORM + MEMBER_PAGE + CONTACT_CARD_DIALOG;
 
 /** The site-wide envelope for a JSON answer the server really sent. */
 function jsonResponse(body, status = 200) {
@@ -388,6 +396,51 @@ describe('member-search.js', () => {
 
             await vi.waitFor(() => expect(window.ScoutMagicToast.show)
                 .toHaveBeenCalledWith('Erreur réseau.', { variant: 'error' }));
+        });
+    });
+
+    describe('contact card QR code', () => {
+        /**
+         * The <img> ships with no src precisely so the server never
+         * renders — and never journals — a contact card for a member page
+         * somebody merely looked at.
+         */
+        it('leaves the image blank until the dialog is opened', async () => {
+            await boot();
+
+            expect(el('contact-card-qr').getAttribute('src')).toBeNull();
+        });
+
+        it('points the image at the member\'s QR route when the dialog opens', async () => {
+            await boot();
+            el('contact-card-modal').dispatchEvent(new Event('show.bs.modal'));
+
+            expect(el('contact-card-qr').getAttribute('src')).toBe('/admin/members/101/contact-qr');
+        });
+
+        /** Reopening the dialog must not re-fetch a card already shown. */
+        it('sets the source once and never again', async () => {
+            await boot();
+            const dialog = el('contact-card-modal');
+            dialog.dispatchEvent(new Event('show.bs.modal'));
+            el('contact-card-qr').dataset.memberYearId = '999';
+            dialog.dispatchEvent(new Event('show.bs.modal'));
+
+            expect(el('contact-card-qr').getAttribute('src')).toBe('/admin/members/101/contact-qr');
+        });
+
+        /**
+         * The identifier is a row id parsed as a positive integer, never a
+         * member value — a template that rendered something else builds no
+         * URL at all rather than a wrong one.
+         */
+        it('builds no source at all from an identifier that is not a positive integer', async () => {
+            document.body.innerHTML = PAGE;
+            el('contact-card-qr').dataset.memberYearId = '../../etc/passwd';
+            await boot();
+            el('contact-card-modal').dispatchEvent(new Event('show.bs.modal'));
+
+            expect(el('contact-card-qr').getAttribute('src')).toBeNull();
         });
     });
 

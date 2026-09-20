@@ -126,44 +126,13 @@ class StaffPhotoEmbedder
     }
 
     /**
-     * Decode, centre-crop to a square, resize, flatten onto white, encode
-     * as JPEG. The flattening matters: the `thumb` derivative preserves
-     * alpha, and JPEG has none — without an explicit white ground a
-     * transparent corner comes out black.
+     * Delegates to {@see \Core\Photo\SquareJpegEncoder}, which holds the
+     * one implementation of this gesture — a contact card's vCard needs
+     * exactly the same small square JPEG, for the same reason (it cannot
+     * carry a URL either).
      */
     private function toSquareJpeg(string $bytes): ?string
     {
-        $source = @imagecreatefromstring($bytes);
-        if ($source === false) {
-            return null;
-        }
-
-        $width = imagesx($source);
-        $height = imagesy($source);
-        $crop = min($width, $height);
-
-        $canvas = imagecreatetruecolor(self::SIDE, self::SIDE);
-        $white = imagecolorallocate($canvas, 255, 255, 255);
-        imagefilledrectangle($canvas, 0, 0, self::SIDE, self::SIDE, $white);
-        imagecopyresampled(
-            $canvas,
-            $source,
-            0,
-            0,
-            (int) round(($width - $crop) / 2),
-            (int) round(($height - $crop) / 2),
-            self::SIDE,
-            self::SIDE,
-            $crop,
-            $crop
-        );
-        imagedestroy($source);
-
-        ob_start();
-        imagejpeg($canvas, null, self::QUALITY);
-        $encoded = ob_get_clean();
-        imagedestroy($canvas);
-
-        return $encoded === false || $encoded === '' ? null : $encoded;
+        return \Core\Photo\SquareJpegEncoder::encode($bytes, self::SIDE, self::QUALITY);
     }
 }

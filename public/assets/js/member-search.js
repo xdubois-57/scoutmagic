@@ -216,4 +216,38 @@
             });
         })();
     }
+    // « Ajouter à mes contacts » — the QR code of a member's contact card.
+    //
+    // The <img> ships with no src and gets one the first time the dialog is
+    // actually opened. That is the whole point: the source is a route that
+    // renders the card server-side and journals the export, so letting the
+    // browser fetch it on every page load would produce a QR code — and a
+    // journal entry — for every member page anybody merely looked at.
+    //
+    // The URL is built from a member_year row id parsed as a positive
+    // integer, never from a member value; the src is set once and the
+    // handler is then inert, so a dialog reopened does not re-fetch.
+    (function () {
+        var dialog = document.getElementById('contact-card-modal');
+        if (!dialog) {
+            return;
+        }
+
+        var image = /** @type {HTMLImageElement|null} */ (document.getElementById('contact-card-qr'));
+        if (!image) {
+            return;
+        }
+
+        var memberYearId = parseInt(image.dataset.memberYearId || '', 10);
+        if (!memberYearId || memberYearId <= 0) {
+            return;
+        }
+
+        dialog.addEventListener('show.bs.modal', function () {
+            if (image.getAttribute('src')) {
+                return;
+            }
+            image.setAttribute('src', '/admin/members/' + memberYearId + '/contact-qr');
+        });
+    })();
 })();
