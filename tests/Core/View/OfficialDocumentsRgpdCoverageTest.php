@@ -45,6 +45,37 @@ final class OfficialDocumentsRgpdCoverageTest extends TestCase
     }
 
     /**
+     * Only this module's own words, cut out of a document that runs to
+     * several hundred paragraphs.
+     *
+     * Searching the whole file would be a test that cannot fail: « signée »,
+     * « chef d'unité » and « aucun sous-traitant » all appear in the
+     * Attestations section a few lines above, so deleting the official
+     * documents paragraph outright would leave every assertion green. What
+     * this pins is that the sentence is in the section a reader looking for
+     * THIS module would land on.
+     */
+    private static function officialDocumentsSectionOf(string $path): string
+    {
+        $content = self::read($path);
+        [$start, $end] = $path === self::NOTICE
+            ? ['<h4>Module Documents officiels</h4>', '<h4>Module Trombinoscope</h4>']
+            : ['33bis. **Module Documents officiels', "\n\n34. **Assistant d'aide"];
+
+        $from = strpos($content, $start);
+        self::assertNotFalse($from, $path . ' : la section « Documents officiels » a disparu.');
+
+        $to = strpos($content, $end, $from);
+        self::assertNotFalse($to, $path . ' : la borne de fin de section a bougé, ce test ne délimite plus rien.');
+
+        // Whitespace collapsed: both files wrap their prose, so « un chef
+        // d'unité » is split across two lines in the prompt and across none
+        // in the notice. Where a paragraph happens to break is not one of
+        // the facts this test is about.
+        return (string) preg_replace('/\s+/u', ' ', substr($content, $from, $to - $from));
+    }
+
+    /**
      * The facts a family reads, which therefore belong in BOTH documents.
      *
      * @return array<string, array{string}>
@@ -65,7 +96,7 @@ final class OfficialDocumentsRgpdCoverageTest extends TestCase
         foreach ([self::NOTICE, self::PROMPT] as $path) {
             $this->assertStringContainsStringIgnoringCase(
                 $needle,
-                self::read($path),
+                self::officialDocumentsSectionOf($path),
                 $path . ' ne dit plus cela des documents officiels, et une famille qui le lit en saurait '
                 . 'moins que ce qui arrive réellement à ses données.'
             );
@@ -104,7 +135,7 @@ final class OfficialDocumentsRgpdCoverageTest extends TestCase
         $this->assertStringContainsString('signé', MemberDocumentsSummaryService::WARNING);
         $this->assertStringContainsString(
             'Seule la version signée sur papier a une valeur',
-            self::read(self::NOTICE)
+            self::officialDocumentsSectionOf(self::NOTICE)
         );
     }
 
@@ -115,9 +146,9 @@ final class OfficialDocumentsRgpdCoverageTest extends TestCase
      */
     public function testTheNoticeSaysNothingIsKept(): void
     {
-        $notice = self::read(self::NOTICE);
+        $section = self::officialDocumentsSectionOf(self::NOTICE);
 
-        $this->assertStringContainsString('sans jamais toucher le disque', $notice);
-        $this->assertStringContainsString('Rien de ce que le parent tape n\'est enregistré', $notice);
+        $this->assertStringContainsString('sans jamais toucher le disque', $section);
+        $this->assertStringContainsString('Rien de ce que le parent tape n\'est enregistré', $section);
     }
 }
