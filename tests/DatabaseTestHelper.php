@@ -864,6 +864,36 @@ class DatabaseTestHelper
      * nobody has ever heard of is therefore testing the refusal, which is
      * rarely what it means to test.
      */
+    /**
+     * The Desk address, which lives in `member_years` and nowhere else —
+     * the commonest address on a real site, and the one belonging to the
+     * parent who never signs in.
+     */
+    public static function markDeskAddressOnFile(\PDO $pdo, string $email): void
+    {
+        $encryption = new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $blindIndex = $encryption->blindIndex(
+            \Core\Security\EncryptionService::normalizeEmailForIndex($email),
+            'email'
+        );
+
+        $pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK-BOUNCE')");
+        $memberId = (int) $pdo->lastInsertId();
+
+        $pdo->prepare(
+            'INSERT INTO member_years
+                (member_id, scout_year_id, first_name_encrypted, last_name_encrypted,
+                 email_encrypted, email_blind_index)
+             VALUES (?, 1, ?, ?, ?, ?)'
+        )->execute([
+            $memberId,
+            $encryption->encrypt('Parent'),
+            $encryption->encrypt('Exemple'),
+            $encryption->encrypt($email),
+            $blindIndex,
+        ]);
+    }
+
     public static function markAddressOnFile(\PDO $pdo, string $email): void
     {
         $encryption = new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32));

@@ -1866,6 +1866,42 @@ dépendance optionnelle absente d'une racine de composition rend une
 couverture creuse ; ici elle a été vue avant d'écrire le test plutôt
 qu'après.
 
+### L'adresse Desk n'était pas « connue du site »
+
+Le plus grave du lot, et le dernier trouvé : `isOnFile()` n'interrogeait
+que `member_emails` en `valid` et `user_accounts`. Or **l'adresse Desk vit
+dans `member_years` et nulle part ailleurs**. Un membre n'obtient une
+ligne `member_emails` que tardivement, à sa désinscription, et elle est
+alors `inactive` et non `valid` ; un parent qui ne se connecte jamais n'a
+pas non plus de ligne `user_accounts`.
+
+Donc l'adresse la plus courante du site — celle que porte le listing de la
+fédération, celle à laquelle `MemberDocumentMailer` envoie une attestation
+— n'était pas « connue du site » au sens de cette méthode. Aucune preuve
+d'envoi n'était tamponnée pour elle. Et comme `record()` exige une preuve,
+**tous ses rebonds étaient écartés en silence** : le site aurait continué
+d'écrire indéfiniment à une boîte morte, ce qui est exactement le dommage
+de réputation que cette itération existe pour empêcher. L'itération était
+aveugle à la population qu'elle vise.
+
+La branche manquante se justifie sur le fond, ce n'est pas une rustine : une
+adresse Desk vient du listing, jamais d'un visiteur qui l'a tapée, donc
+c'est précisément « une adresse que le site détient déjà ». L'index
+aveugle est directement comparable — `member_years` et `user_accounts`
+partagent l'unique finalité `'email'`, ce dont `UserAccountRepository`
+dépend déjà en joignant les deux colonnes l'une à l'autre.
+
+**L'autre correctif proposé par la relecture a été écarté** : faire suivre
+`$vouchesForRecipient` jusqu'au `$vouchedFor` de `recordSend()` aurait
+rétabli la forme « déclarée » que cette classe a mis trois itérations à
+supprimer — une valeur de sécurité qui dépend de la mémoire de
+quarante-deux appelants. La question reste posée à l'adresse.
+
+Le test assert la FIN de la chaîne — un rebond d'une adresse Desk est cru
+— et non `isOnFile()` : ce qui compte n'est pas quelles tables sont
+consultées, mais qu'un vrai rebond d'un vrai membre soit cru.
+Vérifié en retirant la troisième branche.
+
 ### Écarts et limites, assumés
 
 **La preuve d'envoi réduit la falsification, elle ne la supprime pas.** La

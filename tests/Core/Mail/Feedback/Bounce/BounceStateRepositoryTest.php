@@ -227,6 +227,52 @@ class BounceStateRepositoryTest extends TestCase
      * Without the comparison, this send would wipe a count of two and the
      * address would start again from nothing at every mailing.
      */
+    /**
+     * **The Desk address is on file, and for a while this class said it
+     * was not — which made the whole iteration blind to most of the site.**
+     *
+     * A Desk address lives in `member_years` and nowhere else: a member
+     * gets a `member_emails` row only lazily, once they unsubscribe, and
+     * then it is `inactive` rather than `valid`; a parent who never signs
+     * in has no `user_accounts` row either. `isOnFile()` asked those two
+     * tables only, so no receipt was minted for the commonest address on
+     * the site — and `record()` requires a receipt, so every bounce that
+     * address ever produced was dropped in silence. The site would have
+     * gone on writing to a dead mailbox for ever.
+     *
+     * The assertion is deliberately the END of that chain rather than
+     * `isOnFile()` itself: what matters is not which tables are consulted
+     * but that a real bounce from a real member is believed.
+     */
+    public function testABounceFromADeskOnlyAddressIsBelieved(): void
+    {
+        $t = $this->now('2026-09-15 09:00:00');
+        DatabaseTestHelper::markDeskAddressOnFile($this->pdo, 'parent@exemple.be');
+
+        // Exactly what `MemberDocumentMailer` does: the site mails an
+        // attestation to the roster's address, vouching for nothing —
+        // the receipt has to be earned by the address being on file.
+        $this->states->recordSend('parent@exemple.be', $t);
+
+        $this->assertNotNull(
+            $this->states->lastSendAt('parent@exemple.be'),
+            'a Desk address is one the site holds, so writing to it mints a receipt.'
+        );
+
+        $state = $this->states->record(
+            'parent@exemple.be',
+            BounceCategory::NoSuchAddress,
+            BounceSeverity::Permanent,
+            '5.1.1',
+            $t->modify('+1 minute')
+        );
+
+        $this->assertNotNull(
+            $state,
+            'and the bounce answering it is believed — without this the address never gets blocked.'
+        );
+    }
+
     public function testASendThatArrivedBeforeTheLastBounceSettlesNothing(): void
     {
         $t = $this->now('2026-09-15 09:00:00');

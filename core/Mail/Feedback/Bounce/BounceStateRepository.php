@@ -354,15 +354,38 @@ class BounceStateRepository
             self::BLIND_INDEX_PURPOSE
         );
 
+        // **`member_years` is the third arm, and leaving it out made this
+        // whole feature blind to the people it exists for.**
+        //
+        // The Desk address lives there and nowhere else: a member only
+        // gets a `member_emails` row lazily, once they unsubscribe, and
+        // then it is `inactive` rather than `valid`. A parent who never
+        // signs in has no `user_accounts` row either. So the commonest
+        // address on the site — the one the federation's roster carries,
+        // the one `MemberDocumentMailer` mails an attestation to — was not
+        // « on file » by this test, no receipt was minted for it, and
+        // `record()` then dropped every bounce it ever produced. The site
+        // would have gone on writing to a dead mailbox for ever, which is
+        // precisely the reputation damage this iteration exists to stop.
+        //
+        // It belongs here on the merits, not as a patch: a Desk address is
+        // imported from the roster, never typed by a visitor, so it is
+        // exactly the « address the site already holds » this method asks
+        // about. The blind index is directly comparable — `member_years`
+        // and `user_accounts` share the one `'email'` purpose, which
+        // `Core\Security\UserAccountRepository` already relies on by
+        // joining the two columns to each other.
         $statement = $this->pdo->prepare(
             "SELECT 1
                FROM member_emails
               WHERE email_blind_index = ? AND status = 'valid'
               UNION ALL
              SELECT 1 FROM user_accounts WHERE email_blind_index = ?
+              UNION ALL
+             SELECT 1 FROM member_years WHERE email_blind_index = ?
               LIMIT 1"
         );
-        $statement->execute([$blindIndex, $blindIndex]);
+        $statement->execute([$blindIndex, $blindIndex, $blindIndex]);
 
         return $statement->fetchColumn() !== false;
     }
