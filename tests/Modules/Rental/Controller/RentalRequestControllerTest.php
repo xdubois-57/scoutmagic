@@ -1403,7 +1403,7 @@ class RentalRequestControllerTest extends TestCase
         [$bookingId, $token] = $this->submitAndTrack();
 
         $this->postToTracking('requestChange', $bookingId, $token, [
-            'demande' => 'annulation',
+            'action' => 'cancel',
         ]);
 
         $requests = $this->changeRequestRepository->findForBooking($bookingId);

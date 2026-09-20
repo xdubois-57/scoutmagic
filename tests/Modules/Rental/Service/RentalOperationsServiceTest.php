@@ -1271,6 +1271,66 @@ class RentalOperationsServiceTest extends TestCase
     }
 
     /**
+     * **A stay already under way still takes a head-count change.**
+     *
+     * The first fix for the capacity gap ran the whole range validation on
+     * the booking's own dates, which answers about the dates too: an
+     * arrival in the past is « Cette date est déjà passée » — true, and
+     * beside the point on a request that never touched them. A group that
+     * grew by two on the Tuesday of its own stay is an ordinary thing to
+     * ask.
+     */
+    public function testAHeadCountChangeIsTakenOnAStayThatHasAlreadyBegun(): void
+    {
+        $booking = $this->createBooking(arrival: '2027-07-01', departure: '2027-07-10');
+
+        $this->service->requestChange(
+            $booking,
+            $this->asset(),
+            ChangeRequestOrigin::RENTER,
+            ChangeRequestKind::PERSONS,
+            null,
+            null,
+            null,
+            22,
+            null,
+            null,
+            null,
+            // The Tuesday of their own stay.
+            new \DateTimeImmutable('2027-07-06 09:00:00')
+        );
+
+        $this->assertCount(1, $this->changeRequestRepository->findForBooking($booking->id));
+    }
+
+    /**
+     * And the asset's rules being tightened after the booking was made is
+     * not the renter's problem either: a minimum of five nights arriving
+     * after a three-night booking must not block them from saying they
+     * will be two more.
+     */
+    public function testTighteningTheAssetsRulesDoesNotBlockAHeadCountChange(): void
+    {
+        $booking = $this->createBooking();
+        $this->availabilityService->saveConstraints($this->assetId, 5, 0, 14, 0, [1], null, 0);
+
+        $this->service->requestChange(
+            $booking,
+            $this->asset(),
+            ChangeRequestOrigin::RENTER,
+            ChangeRequestKind::PERSONS,
+            null,
+            null,
+            null,
+            22,
+            null,
+            null
+        );
+
+        $this->assertCount(1, $this->changeRequestRepository->findForBooking($booking->id));
+    }
+
+    /**
      * **A manager is not held to the public form's rules**, and the three
      * that are editorial rather than physical are exactly the ones
      * `RentalAvailabilityService::isRangeFree()` already exempts them from

@@ -302,7 +302,7 @@
                               data-confirm-note="Dire pourquoi, si vous le souhaitez (facultatif)"
                               data-confirm-note-name="message">
                             {{ csrf_field()|raw }}
-                            <input type="hidden" name="demande" value="annulation">
+                            <input type="hidden" name="action" value="cancel">
                             <button type="submit" class="btn btn-sm btn-outline-danger">
                                 Demander l'annulation
                             </button>

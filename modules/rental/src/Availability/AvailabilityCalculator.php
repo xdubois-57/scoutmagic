@@ -214,6 +214,27 @@ class AvailabilityCalculator
     }
 
     /**
+     * Whether this many people fit — the one rule of `validateRange()` that
+     * is about the group rather than about the dates.
+     *
+     * Its own method so it can be asked **alone**. A change request that
+     * touches only the head count has to be held to the asset's capacity,
+     * but re-running the whole range validation on dates nobody touched
+     * refuses a stay already under way with « Cette date est déjà passée »
+     * — an answer to a question that was never asked.
+     *
+     * @return string[] User-facing French reasons; empty means it fits.
+     */
+    public function validatePersons(?int $persons, BookingConstraints $constraints): array
+    {
+        if ($persons !== null && $constraints->maxPersons !== null && $persons > $constraints->maxPersons) {
+            return [sprintf('La capacité maximum est de %d personnes.', $constraints->maxPersons)];
+        }
+
+        return [];
+    }
+
+    /**
      * Full validation of a requested range: constraints first, then
      * availability.
      *
@@ -286,9 +307,7 @@ class AvailabilityCalculator
             $errors[] = 'Une location ne peut pas commencer ce jour de la semaine.';
         }
 
-        if ($persons !== null && $constraints->maxPersons !== null && $persons > $constraints->maxPersons) {
-            $errors[] = sprintf('La capacité maximum est de %d personnes.', $constraints->maxPersons);
-        }
+        $errors = array_merge($errors, $this->validatePersons($persons, $constraints));
 
         if ($units < 1) {
             $errors[] = 'La quantité demandée doit valoir au moins 1.';

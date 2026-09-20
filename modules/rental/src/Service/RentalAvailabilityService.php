@@ -215,6 +215,47 @@ class RentalAvailabilityService
     }
 
     /**
+     * Whether this many people fit in this asset, as one user-facing
+     * sentence or none.
+     *
+     * **What a head-count change asks, and all it asks.** Validating the
+     * whole range instead would answer about the dates too — and a stay
+     * already under way has an arrival in the past, so it would come back
+     * « Cette date est déjà passée » for a question about the group.
+     *
+     * @return string[]
+     */
+    public function validatePersons(RentalAsset $asset, ?int $persons): array
+    {
+        return $this->calculator->validatePersons($persons, $this->constraintsWithCapacity($asset));
+    }
+
+    /**
+     * The asset's constraints, with its own capacity as the ceiling when no
+     * explicit booking maximum is configured: an operator who filled in
+     * "60 places" has already said what the hall holds, and making them
+     * repeat it in a second field is how the two end up disagreeing.
+     */
+    private function constraintsWithCapacity(RentalAsset $asset): BookingConstraints
+    {
+        $constraints = $this->constraintsFor($asset->id);
+
+        if ($constraints->maxPersons !== null || $asset->capacity === null) {
+            return $constraints;
+        }
+
+        return new BookingConstraints(
+            minNights: $constraints->minNights,
+            maxNights: $constraints->maxNights,
+            minNoticeDays: $constraints->minNoticeDays,
+            maxHorizonDays: $constraints->maxHorizonDays,
+            allowedArrivalWeekdays: $constraints->allowedArrivalWeekdays,
+            maxPersons: $asset->capacity,
+            bufferNights: $constraints->bufferNights
+        );
+    }
+
+    /**
      * Validates a requested range against both the constraints and real
      * availability.
      *

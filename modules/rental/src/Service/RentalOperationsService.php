@@ -577,18 +577,13 @@ class RentalOperationsService
         //   many words). `$publicFormRules` drops exactly those three and
         //   keeps the physical ones.
         $movesDates = $arrivalDate !== null && $departureDate !== null;
-        if ($movesDates || $persons !== null) {
-            $errors = $this->availabilityService->validateRange(
+
+        $errors = $movesDates
+            ? $this->availabilityService->validateRange(
                 $asset,
                 $this->pricingService->loadSettings($asset->id)->billingUnit,
-                DateInput::requireFromStorage(
-                    $movesDates ? $arrivalDate : $booking->arrivalDate,
-                    'the requested arrival date'
-                ),
-                DateInput::requireFromStorage(
-                    $movesDates ? $departureDate : $booking->departureDate,
-                    'the requested departure date'
-                ),
+                DateInput::requireFromStorage($arrivalDate, 'the requested arrival date'),
+                DateInput::requireFromStorage($departureDate, 'the requested departure date'),
                 $units ?? $booking->units,
                 ($now ?? new \DateTimeImmutable())->setTime(0, 0),
                 $persons ?? $booking->estimatedPersons,
@@ -596,16 +591,19 @@ class RentalOperationsService
                 // without this, asking to shift by one night collides with
                 // the nights it already holds.
                 $booking->reference,
-                // Dates the renter did not touch are not theirs to be
-                // refused over either: a booking made in March is inside
-                // its own notice window by July, and a head-count change
-                // must not fail on that.
-                $origin === ChangeRequestOrigin::RENTER && $movesDates
-            );
+                $origin === ChangeRequestOrigin::RENTER
+            )
+            // **Only the question being asked.** Re-running the whole range
+            // validation on dates nobody touched answers about the dates
+            // too, and a stay already under way has an arrival in the past
+            // — so a head-count change on it came back « Cette date est
+            // déjà passée », which is true and beside the point. The
+            // occupancy cannot have moved either, the period being the one
+            // the booking already holds.
+            : $this->availabilityService->validatePersons($asset, $persons);
 
-            if ($errors !== []) {
-                throw new RentalException(implode(' ', $errors));
-            }
+        if ($errors !== []) {
+            throw new RentalException(implode(' ', $errors));
         }
 
         $id = $this->changeRequestRepository->create(

@@ -413,7 +413,7 @@ class RentalRequestController extends AbstractController
         // from the confirmation dialog (`data-confirm-note`), and it is
         // optional — a renter who has decided must not be held up by a
         // text field.
-        if ($request->getBody('demande') === 'annulation') {
+        if ($request->getBody('action') === 'cancel') {
             return $this->recordChange(
                 $booking,
                 $asset,
