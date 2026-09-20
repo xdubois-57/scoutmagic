@@ -31,8 +31,16 @@ class TextPageControllerTest extends TestCase
     protected function setUp(): void
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
-        $this->service = new TextPageService(new TextPageRepository($this->pdo));
-        $this->editable = new EditableContentService(new EditableContentRepository($this->pdo));
+
+        // Wired exactly as public/index.php wires it — the service knows
+        // the content repository, so creating a page claims its content
+        // key. A service built without it renders the same pages while
+        // skipping that claim entirely, which is precisely where an empty
+        // body would hide: the placeholder below would still appear, for
+        // the wrong reason.
+        $content = new EditableContentRepository($this->pdo);
+        $this->service = new TextPageService(new TextPageRepository($this->pdo), $content);
+        $this->editable = new EditableContentService($content);
 
         $twig = TwigFactory::create(dirname(__DIR__, 3) . '/core/View/templates', true);
         $twig->addGlobal('site_name', 'Test Unité');

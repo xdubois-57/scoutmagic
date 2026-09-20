@@ -9,6 +9,7 @@ use Core\Page\TextPageRepository;
 use Core\Page\TextPageService;
 use Core\Security\Role;
 use Core\View\EditableContentRepository;
+use Core\View\EditableContentService;
 use Core\View\MenuBuilder;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -137,7 +138,32 @@ class TextPageContentAuthorizerTest extends TestCase
 
         $row = $this->content->findByKey($page->contentKey());
         $this->assertNotNull($row);
-        $this->assertSame('', $row['content_value']);
+        $this->assertNull(
+            $row['content_value'],
+            'The claimed row must hold NULL, not an empty string: an empty string is a value, '
+            . 'and EditableContentService::get() would serve it instead of the page template\'s default.'
+        );
+    }
+
+    /**
+     * **A page created through the production wiring still shows its
+     * placeholder.** The row now always exists, so « no row » stopped being
+     * what makes the default text render — what makes it render is that
+     * the row holds NULL. Claiming the key with an empty string would
+     * hand every new page a blank screen, and no test that builds the
+     * service without its content repository would ever notice, because
+     * that wiring never claims the key at all.
+     */
+    public function testAFreshPageStillRendersItsDefaultText(): void
+    {
+        $page = $this->service->create('ASBL', 'Notre ASBL', MenuBuilder::MENU_CONFIGURATION, 'site');
+
+        $content = new EditableContentService($this->content);
+
+        $this->assertSame(
+            '<p>Cette page n\'a pas encore de contenu.</p>',
+            $content->get($page->contentKey(), '<p>Cette page n\'a pas encore de contenu.</p>')
+        );
     }
 
     /**

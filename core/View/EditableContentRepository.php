@@ -75,12 +75,20 @@ class EditableContentRepository
      * the key exists unclaimed** — the window in which somebody who may
      * not read the page could be the first to write its body, and in
      * which {@see ownerPageIdForKey()} would have nothing to answer.
+     *
+     * **`NULL`, not `''`.** The two look alike here and are not:
+     * {@see EditableContentService::get()} falls back to the caller's
+     * default with `??`, which answers to `NULL` and not to an empty
+     * string. Claiming the key with `''` would therefore hand every
+     * freshly created page an empty body instead of the « Cette page n'a
+     * pas encore de contenu » its template passes — the blank screen that
+     * default exists to prevent, on the one page guaranteed to hit it.
      */
     public function createOwnedBy(string $key, int $textPageId): void
     {
         $stmt = $this->pdo->prepare(
             'INSERT INTO editable_contents (content_key, content_type, content_value, text_page_id, modified_at) '
-            . "VALUES (?, 'rich_text', '', ?, ?)"
+            . "VALUES (?, 'rich_text', NULL, ?, ?)"
         );
         $stmt->execute([$key, $textPageId, self::now()]);
     }

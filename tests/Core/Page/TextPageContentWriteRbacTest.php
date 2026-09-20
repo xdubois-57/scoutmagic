@@ -96,10 +96,9 @@ class TextPageContentWriteRbacTest extends TestCase
         $response = $this->writeAs('admin', $page->contentKey());
 
         $this->assertSame(403, $response->getStatusCode());
-        // The row exists from the moment the page does, empty and owned;
-        // what matters is that the refused write left it empty.
-        $this->assertSame(
-            '',
+        // The row exists from the moment the page does, owned and holding
+        // NULL; what matters is that the refused write left it that way.
+        $this->assertNull(
             $this->editable->get($page->contentKey()),
             'nothing may have been written'
         );

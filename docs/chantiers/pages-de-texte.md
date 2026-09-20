@@ -287,7 +287,25 @@ ligne — ce que l'existence de la fonctionnalité lui dit déjà — et rien su
 laquelle : le refus ne nomme ni le titre, ni l'adresse, ni la section. Un
 test le tient.
 
-**Deux tests ne pouvaient pas échouer.****Deux tests ne pouvaient pas échouer.** Le dépôt venait précisément de
+**Et le piège que cette ligne créée d'avance a tendu.** La relecture l'a
+vu avant la mise en service : réclamer la clé avec une chaîne vide plutôt
+qu'avec `NULL` rendait toute page neuve blanche. `EditableContentService::get()`
+retombe sur le défaut de l'appelant avec `??`, qui répond à `NULL` et pas
+à `''` — donc le « Cette page n'a pas encore de contenu » que le gabarit
+passe ne pouvait plus jamais s'afficher, sur la seule page dont c'est
+l'état garanti à la seconde où elle existe. Ce que la conception a changé,
+c'est **ce qui fait apparaître ce défaut** : ce n'était plus l'absence de
+ligne, c'était le `NULL` dans la ligne.
+
+Aucun test ne l'a vu non plus, et pour une raison qui vaut d'être notée :
+`TextPageControllerTest` construisait `TextPageService` **sans** son
+dépôt de contenu. La page s'y affichait donc avec son texte par défaut
+pour la bonne vieille raison — aucune ligne — et le câblage de production,
+celui qui en crée une, n'était exercé nulle part sur le chemin de rendu.
+Le test est recâblé comme `public/index.php` câble, et un second vérifie
+directement que la ligne réclamée porte `NULL`.
+
+**Deux tests ne pouvaient pas échouer.** Le dépôt venait précisément de
 livrer « Les tests qui ne peuvent pas échouer » (#389), et la relecture a
 cité cette itération. `assertTrue($required->hasAccess($required))`
 comparait un rôle à lui-même : il n'affirmait que la réflexivité de
