@@ -53,7 +53,7 @@ Pour que ça ne revienne pas par accident :
   cœur, les entrées de menu juste après le calcul du surlignage, et le
   contrôleur pré-construit.
 - `ARCHITECTURE.md` §8.115.
-- 55 tests dans `tests/Core/Page/`, plus la table dans
+- 59 tests dans `tests/Core/Page/`, plus la table dans
   `tests/DatabaseTestHelper.php`.
 
 ### Décisions prises seul
@@ -258,6 +258,37 @@ aussi.
 n'avait aucune conséquence de sécurité avant cette itération : elle
 devient exploitable parce que c'est ici qu'apparaît la première clé dont
 le plancher de lecture dépasse `admin`, donc c'est ici qu'elle se ferme.
+
+**Un troisième tour, et l'inversion de la règle.** Le repli couvrait la
+casse, les accents et les espaces de fin, et il était encore trop
+étroit. `TextNormalizerService::fold()` utilise `Normalizer::FORM_D` —
+décomposition canonique — et non `FORM_KD` : un chiffre pleine chasse
+comme `７` (U+FF17) traverse NFD intact, n'est pas une marque combinante,
+et se fait donc **supprimer** par la réduction finale au lieu d'être
+replié. `fold('page_content_７')` rend « page content » sans chiffre : la
+clé cessait de ressembler à celle d'une page, l'authorizer s'abstenait,
+et la base — pour qui `７` vaut `7` — faisait atterrir l'écriture sur la
+vraie ligne. Un trait d'union conditionnel glissé entre deux chiffres de
+l'identifiant fait la même chose.
+
+Deux tentatives de modéliser la collation, deux manques, deux
+réouvertures complètes de la faille. La règle est donc **inversée**, et
+c'est la forme qui ne dépend plus de deviner juste :
+
+1. **La seule orthographe canonique** est honorée, avec le rôle de la
+   page. C'est la seule que l'application écrit jamais.
+2. **Tout ce qui peut se lire comme une clé de page est refusé**, quel
+   que soit l'identifiant qu'il semble désigner. Une orthographe non
+   canonique n'est jamais légitime : rien dans ce site n'en produit.
+3. **Le reste** garde le plancher du point d'entrée.
+
+Le test du point 2 est volontairement grossier — réduire la clé à ses
+seules lettres et chiffres et regarder si elle ouvre sur l'espace de noms
+des pages. Grossier est le bon sens ici : refuser une clé qui n'aurait
+jamais pu entrer en collision ne coûte rien à personne, s'abstenir sur
+une qui le peut coûte l'élévation. Et ça dégrade bien là où `intl`
+manque : un caractère non normalisable est supprimé, donc la clé tombe
+dans le cas 2 plutôt que dans le cas 3.
 
 **Le correctif structurel qui en découle.** Les deux portes passent par
 `EditableContentService::set()`. Le garde y est donc posé aussi, comme

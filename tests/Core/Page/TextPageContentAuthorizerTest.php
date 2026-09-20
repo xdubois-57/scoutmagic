@@ -111,7 +111,7 @@ class TextPageContentAuthorizerTest extends TestCase
      * endpoint's own `admin` floor, and let the write land on the real
      * row anyway.
      */
-    public function testAKeyInAnotherCaseIsStillThePagesKey(): void
+    public function testAKeyInAnotherCaseIsStillGuarded(): void
     {
         $page = $this->service->create('ASBL', 'Notre ASBL', MenuBuilder::MENU_CONFIGURATION, 'site');
         $id = $page->id;
@@ -125,7 +125,7 @@ class TextPageContentAuthorizerTest extends TestCase
      * The same, with accents — `utf8mb4_unicode_ci` is accent-insensitive
      * too, so `/i` alone would not have been enough.
      */
-    public function testAnAccentedSpellingIsStillThePagesKey(): void
+    public function testAnAccentedSpellingIsStillGuarded(): void
     {
         $page = $this->service->create('ASBL', 'Notre ASBL', MenuBuilder::MENU_CONFIGURATION, 'site');
 
@@ -139,13 +139,92 @@ class TextPageContentAuthorizerTest extends TestCase
     }
 
     /**
+     * **A fullwidth digit, which is the spelling that broke the second
+     * attempt.**
+     *
+     * `utf8mb4_unicode_ci` equates `７` (U+FF17) with `7`, so the write
+     * lands on the real row. A rule built on folding missed it for a
+     * reason worth remembering: `Normalizer::FORM_D` is canonical
+     * decomposition, not compatibility decomposition, so the fullwidth
+     * digit survives unchanged and is then **deleted** rather than
+     * folded — the key stopped looking like a page's altogether and the
+     * authorizer abstained.
+     *
+     * The rule is inverted now: anything that reduces into the page
+     * namespace is refused, whatever id it appears to name.
+     */
+    public function testAFullwidthDigitDoesNotEscapeTheNamespace(): void
+    {
+        $page = $this->service->create('ASBL', 'Notre ASBL', MenuBuilder::MENU_CONFIGURATION, 'site');
+        self::assertSame(1, $page->id, 'this test spells the id out by hand');
+
+        $this->assertSame('superadmin', $this->authorizer->roleMinForKey("page_content_\u{FF17}"));
+        $this->assertSame('superadmin', $this->authorizer->roleMinForKey("page_content_\u{FF11}"));
+    }
+
+    /**
+     * A primary-ignorable character dropped between the digits of an id
+     * — a soft hyphen here — which the database ignores outright.
+     */
+    public function testAnIgnorableCharacterInsideTheIdDoesNotEscapeEither(): void
+    {
+        $this->service->create('ASBL', 'Notre ASBL', MenuBuilder::MENU_CONFIGURATION, 'site');
+
+        $this->assertSame('superadmin', $this->authorizer->roleMinForKey("page_content_1\u{00AD}2"));
+        $this->assertSame('superadmin', $this->authorizer->roleMinForKey("page\u{00AD}_content_1"));
+    }
+
+    /**
+     * A malformed key that still opens the namespace is refused, not
+     * ignored — `page_content_` with no id, or with something that is
+     * not one.
+     *
+     * Under the inverted rule these need no special case: they claim the
+     * namespace, so they are refused like any other non-canonical
+     * spelling.
+     */
+    public function testAMalformedKeyInTheNamespaceIsRefused(): void
+    {
+        foreach (['page_content_', 'page_content_x', 'page_content_1a'] as $key) {
+            $this->assertSame('superadmin', $this->authorizer->roleMinForKey($key), $key);
+        }
+    }
+
+    /**
+     * Only the canonical spelling resolves a page; every other spelling
+     * is refused outright rather than resolved to an id.
+     *
+     * That is the whole inversion. Two attempts at modelling the
+     * collation were both too narrow, and each miss reopened the
+     * escalation. Nothing in this site ever writes a non-canonical
+     * spelling, so refusing them all costs nothing legitimate.
+     */
+    public function testOnlyTheCanonicalSpellingEverResolvesAPage(): void
+    {
+        $page = $this->service->create('ASBL', 'Notre ASBL', MenuBuilder::MENU_NOTRE_UNITE, null);
+
+        // « Notre unité » is read by everyone, so the canonical key
+        // resolves to `public` — the page's own floor.
+        $this->assertSame('public', $this->authorizer->roleMinForKey($page->contentKey()));
+
+        // The same page, spelled otherwise: refused, not resolved.
+        foreach (['Page_Content_', 'pagé_content_', 'PAGE_CONTENT_'] as $spelling) {
+            $this->assertSame(
+                'superadmin',
+                $this->authorizer->roleMinForKey($spelling . $page->id),
+                $spelling
+            );
+        }
+    }
+
+    /**
      * Trailing whitespace is guarded too, and for a reason beyond case
      * and accents: `utf8mb4_unicode_ci` is a PAD SPACE collation, so
      * MySQL's `=` ignores trailing spaces entirely —
      * `'page_content_1 '` and `'page_content_1'` are the same row to the
      * database.
      */
-    public function testATrailingSpaceIsStillThePagesKey(): void
+    public function testATrailingSpaceIsStillGuarded(): void
     {
         $page = $this->service->create('ASBL', 'Notre ASBL', MenuBuilder::MENU_CONFIGURATION, 'site');
 
@@ -164,11 +243,10 @@ class TextPageContentAuthorizerTest extends TestCase
             'section.BALA.text',
             'banner_content_3',
             'registration_intro',
-            // Near misses: the shape has to match exactly.
-            'page_content_',
-            'page_content_x',
-            'page_content_1a',
+            // A key that merely CONTAINS the words elsewhere is not
+            // claiming the namespace: the reduction has to OPEN with it.
             'xpage_content_1',
+            'my_page_contents',
         ];
 
         foreach ($untouched as $key) {
