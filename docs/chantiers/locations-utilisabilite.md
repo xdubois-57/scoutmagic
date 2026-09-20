@@ -378,7 +378,45 @@ chevauchement, donc pas besoin de trancher lequel des deux sujets s'ouvre
 pour une page que les deux déclareraient. C'est l'option 2 de #401, appliquée
 à l'itération dont c'est le sujet.
 
-**Reporté.** #401 reste ouverte : `gerer-les-locations` est à 487 mots,
-toujours au-dessus des ~400 de la charte, et couvre encore huit écrans. Le
-découpage restant — un sujet par écran — appartient à IT-05, qui réorganise
-la page d'une réservation.
+**Quatre choses trouvées en revue, et corrigées ici.**
+
+- **Le verrou avait un trou : supprimer le document envoyé le rouvrait.**
+  `textIsLocked()` demande si un document de ce type porte un `sent_at` ;
+  supprimer le seul contrat parti rendait donc son texte source modifiable
+  à nouveau, alors que le locataire tient toujours le PDF qui en est issu.
+  Un document qui est parti ne se supprime plus — même raison que
+  `claimNextVersion()`, qui ne réattribue jamais un numéro de version parce
+  que « la v2 est peut-être déjà partie par email ». Le refus est côté
+  serveur ; la page se contente de ne plus proposer ce qui serait refusé.
+- **Le français ne s'assemble pas.** « Facture » est féminin, et la phrase
+  de refus construite autour de `$type->label()` donnait « Le facture qu'il
+  a reçu doit rester celui qu'il a reçu » — sur la bannière de l'éditeur
+  comme dans le message qui refuse l'enregistrement, qu'une facture atteint
+  exactement comme un contrat. Deux phrases écrites en toutes lettres.
+- **Les puces de mots-clés s'affichaient sans style.** `.doc-keyword` n'est
+  défini que dans `components.css`, que `base.html.twig` ne charge
+  délibérément pas ; `templates.html.twig` l'ajoute pour cette raison et
+  l'éditeur de document ne le faisait pas. L'aide de cette même page
+  promettait « en bleu ».
+- **Un test qui ne pouvait pas échouer.** L'assertion « le PDF généré ne
+  contient pas `{{` » lisait les **octets** du fichier : dompdf compresse
+  ses flux, si bien que la chaîne en est absente que le mot-clé ait été
+  substitué ou non — et tout autant s'il avait été supprimé. Elle lit
+  désormais la couche de texte (`Core\File\PdfTextExtractor`) et exige
+  « Jeanne Martin ».
+
+**Reporté.** Deux choses.
+
+- **#401** reste ouverte : `gerer-les-locations` est à 487 mots, toujours
+  au-dessus des ~400 de la charte, et couvre encore huit écrans. Le
+  découpage restant — un sujet par écran — appartient à IT-05, qui
+  réorganise la page d'une réservation.
+- **La course entre enregistrer le texte et envoyer le document** (#405).
+  `saveBookingText()` vérifie le verrou, puis écrit ; `sendDocument()`
+  envoie le PDF existant et n'appelle `markSent()` qu'après. Entre les
+  deux, un enregistrement passe le contrôle et modifie la source pendant
+  que l'envoi est en cours. La fenêtre est de quelques millisecondes et
+  demande deux gestionnaires à la fois ; la fermer demande de rendre la
+  transition durable — une colonne sur `rental_booking_document_texts` —
+  donc une modification de `schema.sql`, que le chantier réserve à IT-07,
+  et qui ferait du verrou un drapeau stocké là où tout le module dérive.
