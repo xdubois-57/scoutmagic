@@ -130,3 +130,60 @@ une modification de câblage pour rien.
   interdit.
 
 **Reporté.** Rien.
+
+---
+
+## IT-04 — La vue d'ensemble du gestionnaire
+
+**Livré.**
+
+- `Booking\BookingAttention` — la définition unique de « À traiter » pour
+  tout le module, pure et sans base : elle reçoit les demandes en attente
+  déjà chargées, groupées par réservation.
+- `Booking\AttentionReason` — les trois raisons, avec leur libellé.
+- `RentalChangeRequestRepository::findPendingForBookings()` — tout ce qui
+  est en attente sur plusieurs réservations, en **une** requête, groupé par
+  réservation.
+- `management/_attention_row.html.twig` — la ligne, partagée par la vue
+  d'ensemble et par « Mes locations ».
+- Documentation : `ARCHITECTURE.md` §8.54ter, `specifications.md` §22.5,
+  `modules/rental/help/gerer-les-locations.md`.
+- Tests : `BookingAttentionTest` (11), `RentalChangeRequestRepositoryTest`
+  (7), quatre de plus sur `RentalManagementControllerTest`.
+
+**Le constat, et il était plus large que la liste.** `overview()` filtrait
+sur `$b->status->needsAttention()`, c'est-à-dire sur le statut seul. Une
+réservation confirmée portant une demande de modification en attente
+n'apparaissait donc nulle part — alors que c'est exactement une chose à
+traiter.
+
+**Décisions prises seul.**
+
+- **Les quatre lecteurs, pas les deux que le chantier nomme.** Le chantier
+  demande que la liste et le compteur suivent la même définition. La même
+  condition était écrite à **quatre** endroits : la liste de la vue
+  d'ensemble, le chiffre au-dessus d'elle, le filtre « À traiter » de la
+  liste des réservations, et la pastille par bien sur « Mes locations ».
+  N'en élargir que deux aurait garanti la contradiction que l'itération
+  corrige, un écran plus loin. Les quatre passent par
+  `BookingAttention`.
+- **La tuile s'appelle « À traiter », plus « Demandes en attente ».** Deux
+  noms pour un même ensemble, l'un au-dessus de l'autre, laissaient le
+  lecteur deviner s'ils comptaient la même chose. Ils la comptent.
+- **Une réservation finale n'y revient jamais**, quoi qu'il reste
+  d'enregistré contre elle. `RentalBookingService` refuse toute demande
+  encore en attente au moment où une réservation se clôt ; une ligne qui
+  aurait survécu à ça ne doit pas ressusciter un dossier clos sur la liste
+  de quelqu'un.
+- **Le filtre de la liste des réservations ne charge les demandes que
+  lorsqu'il en a besoin** — `statut=a_traiter` et rien d'autre. Les autres
+  filtres ne paient pas une requête pour une question qu'ils ne posent pas.
+- **`RentalChangeRequestRepository` est nullable dans
+  `RentalStatisticsService`.** Les tests de rétention construisent ce
+  service pour les deux autres chiffres ; un `null` y ramène le compte au
+  statut seul, c'est-à-dire à l'ancienne réponse, plus étroite mais pas
+  fausse.
+
+**Divergences avec le document de chantier.** Aucune.
+
+**Reporté.** Rien.

@@ -53,10 +53,15 @@
               the live bookings AND the anonymous aggregates a purge left
               behind — otherwise the year's revenue would drop to zero on the
               morning the purge ran, and nobody would know why.
+
+              The first tile is named like the list right below it, and
+              counted from the same source (Booking\BookingAttention):
+              « Demandes en attente » over a list called « À traiter » left
+              the reader to work out whether the two meant one thing.
             #}
             {% include 'partials/stat_tiles.html.twig' with {
                 tiles: [
-                    { label: 'Demandes en attente', value: statistics.pending, icon: 'bi-hourglass-split', tone: 'warning' },
+                    { label: 'À traiter', value: statistics.pending, icon: 'bi-hourglass-split', tone: 'warning' },
                     { label: 'Jours loués cette année', value: statistics.occupied_days, icon: 'bi-calendar-check', tone: 'primary' },
                     { label: "Revenu de l'année", value: statistics.revenue_cents|money_cents, icon: 'bi-cash-coin', tone: 'success' },
                 ],
@@ -74,19 +79,11 @@
                     } only %}
                 {% else %}
                     <div class="list-group list-group-flush">
-                        {% for booking in needs_attention %}
-                            <a href="/mes-locations/{{ asset.slug }}/reservations/{{ booking.id }}"
-                               class="list-group-item list-group-item-action px-0">
-                                <div class="d-flex justify-content-between align-items-center gap-2">
-                                    <span>
-                                        <span class="fw-semibold">{{ booking.reference }}</span>
-                                        <span class="text-body-secondary small d-block">
-                                            du {{ booking.arrivalDate|date_fr }} au {{ booking.departureDate|date_fr }}
-                                        </span>
-                                    </span>
-                                    {% include '@rental/_status_badge.html.twig' with { status: booking.status } only %}
-                                </div>
-                            </a>
+                        {% for attention in needs_attention %}
+                            {% include '@rental/management/_attention_row.html.twig' with {
+                                attention: attention,
+                                asset: asset,
+                            } only %}
                         {% endfor %}
                     </div>
                 {% endif %}
