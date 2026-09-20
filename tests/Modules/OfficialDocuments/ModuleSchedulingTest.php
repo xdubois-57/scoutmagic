@@ -103,15 +103,35 @@ final class ModuleSchedulingTest extends TestCase
     }
 
     /**
-     * Seeded only when there is no occurrence yet — otherwise every page
-     * load of the site would queue another copy. `SchedulerService::rearm()`
-     * is that guard.
+     * Seeded only when the chain is not already alive — and through
+     * `seed()`, never `rearm()`.
+     *
+     * **The difference is what the two guards look at** (ARCHITECTURE.md
+     * §8.5). `rearm()` asks « is a successor already queued » and sees
+     * `pending` rows only; `seed()` asks « is this chain alive », which is
+     * `pending` OR `processing`. This call runs on every page load, so a
+     * request landing while the daily pass is `processing` finds nothing
+     * under `rearm()` and queues a second chain — the documented cause of
+     * a reference installation reaching 24 896 « tâche planifiée terminée »
+     * entries in forty-eight hours.
+     *
+     * On THIS task a duplicate chain is not merely noise: two passes
+     * deleting health sheets means two journal entries about the same
+     * family's data, for one erasure.
+     *
+     * `Tests\Architecture\ChainSeedingInvariantTest` pins the same rule for
+     * a service's `bootstrap()`, and does not reach an inline seed in the
+     * composition root — which is why this assertion is here.
      */
-    public function testSeedingIsConditionalOnThereBeingNoOccurrenceYet(): void
+    public function testSeedingAsksWhetherTheChainIsAliveRatherThanMerelyQueued(): void
     {
-        $this->assertStringContainsString(
+        $block = $this->moduleBlockOfTheCompositionRoot();
+
+        $this->assertStringContainsString('$schedulerService->seed(', $block);
+        $this->assertStringNotContainsString(
             '$schedulerService->rearm(',
-            $this->moduleBlockOfTheCompositionRoot()
+            $block,
+            'A seed through rearm() queues a second chain whenever the pass is running.'
         );
     }
 
