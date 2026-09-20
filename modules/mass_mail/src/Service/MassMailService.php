@@ -830,14 +830,13 @@ class MassMailService
             $addresses = $this->memberEmailService->resolveValidAddressesForMassMail($member['member_id'], $deskEmail);
 
             if ($addresses === []) {
-                // **« Vide » a deux causes, et elles demandent le
-                // contraire l'une de l'autre.** An address that is merely
-                // suspended is well formed and worked until it stopped:
-                // reporting it as « invalide » sends a chef d'unité
-                // hunting for a typo that is not there, when what they
-                // need is the Rebonds page. The raw-address paths below
-                // already say « suspendue » — this one said « invalide »
-                // for both.
+                // **Empty has two causes, and they call for opposite
+                // things.** An address that is merely suspended is well
+                // formed and worked until it stopped: reporting it as
+                // « Adresse invalide » sends a chef d'unité hunting for a
+                // typo that is not there, when what they need is the
+                // Rebonds page. The raw-address paths below already say
+                // « suspendue » — this one said « invalide » for both.
                 $reason = $this->memberEmailService->everyAddressIsBlockedForMassMail(
                     $member['member_id'],
                     $deskEmail
