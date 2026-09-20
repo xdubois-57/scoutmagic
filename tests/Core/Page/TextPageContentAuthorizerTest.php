@@ -17,7 +17,7 @@ use Tests\DatabaseTestHelper;
 
 /**
  * A free-text page's body is written at the page's own role, never at
- * the write endpoint's (SECURITY.md §3, ARCHITECTURE.md §8.115).
+ * the write endpoint's (SECURITY.md §3, ARCHITECTURE.md §8.116).
  *
  * @group database
  */

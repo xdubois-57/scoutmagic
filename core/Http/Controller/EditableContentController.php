@@ -37,7 +37,7 @@ class EditableContentController extends AbstractController
      * admin could also read. A free-text page filed in the Configuration
      * menu is read at `superadmin` while its body is written here, so
      * without this an admin refused the page could still rewrite what a
-     * superadmin reads (ARCHITECTURE.md §8.115).
+     * superadmin reads (ARCHITECTURE.md §8.116).
      *
      * The decision itself lives in
      * {@see EditableContentService::roleMinToWrite()}, which resolves the

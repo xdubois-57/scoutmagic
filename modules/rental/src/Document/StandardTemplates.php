@@ -9,8 +9,9 @@ declare(strict_types=1);
 namespace Modules\Rental\Document;
 
 /**
- * A ready-to-use contract and invoice for a Belgian scout unit letting out
- * its own premises, offered as a starting point on the template page.
+ * A ready-to-use contract, invoice and set of rental conditions for a
+ * Belgian scout unit letting out its own premises, offered as a starting
+ * point on the template and settings pages.
  *
  * **Why ship one at all.** An empty editor asks a volunteer to write a
  * rental contract from nothing, which in practice means either no contract
@@ -34,6 +35,15 @@ namespace Modules\Rental\Document;
  * Every placeholder used below is on DocumentKeywords' closed list — which
  * StandardTemplatesTest asserts, so a keyword renamed there can never leave
  * these two shipping with braces in them.
+ *
+ * **The conditions are the third text and the odd one out**: they are not a
+ * DocumentType, they carry no placeholder at all, and they are read by a
+ * visitor who has no booking yet — so there is nothing to substitute into
+ * them. They ship here anyway, for the reason the other two do: an asset
+ * whose managers never wrote any used to show a visitor an empty
+ * « Conditions de location » block above a mandatory « J'accepte les
+ * conditions de location » tick-box, and the acceptance hash then attested
+ * to nothing at all (Document\AssetConditions).
  */
 final class StandardTemplates
 {
@@ -51,6 +61,94 @@ final class StandardTemplates
             DocumentType::INVOICE => self::invoice(),
             default => null,
         };
+    }
+
+    /**
+     * The conditions a renter accepts on the public request form.
+     *
+     * Not legal advice, and the page that shows it says so — same standing
+     * as the contract above, and for the same reason: a unit lets under its
+     * own conditions, and the whole point of the editor is that this text is
+     * edited.
+     */
+    public static function conditions(): string
+    {
+        return <<<'HTML'
+            <p>Ces conditions s'appliquent à toute demande introduite auprès de l'unité.
+            Elles sont acceptées au moment de l'envoi du formulaire ; le site en conserve
+            alors la version et une empreinte, qui établissent le texte exact affiché ce
+            jour-là — pas une copie du texte lui-même.</p>
+
+            <h3>1. Ce qu'une demande engage</h3>
+            <p>Une demande n'est pas une réservation. Elle ouvre une conversation : l'unité
+            la confirme ou la refuse, et rien n'est réservé tant qu'elle ne l'a pas
+            confirmée. Les dates sont toutefois bloquées le temps que l'unité réponde, afin
+            que deux demandes ne se croisent pas.</p>
+
+            <h3>2. Prix, acompte et solde</h3>
+            <p>Le prix annoncé lors de la demande est une estimation calculée sur les
+            informations fournies. Le prix convenu est celui qui figure sur la convention de
+            location ; c'est lui qui fait foi.</p>
+            <p>Un acompte peut être demandé pour confirmer la réservation. Le solde est dû
+            avant l'arrivée, sauf accord écrit différent. Les paiements se font par virement,
+            avec la communication indiquée — jamais en espèces sans reçu.</p>
+
+            <h3>3. Caution</h3>
+            <p>Une caution peut être demandée avant l'arrivée. Elle n'est pas un acompte :
+            elle ne s'impute pas sur le prix de la location et est restituée après le séjour,
+            déduction faite des dégâts constatés, du nettoyage non fait et des consommations
+            non réglées. Le décompte est communiqué par écrit.</p>
+
+            <h3>4. Annulation</h3>
+            <p>Une annulation se signale sans délai, par écrit. Ce qui reste dû après une
+            annulation dépend du moment où elle intervient et des frais déjà engagés ;
+            l'unité en informe le locataire par écrit. L'acompte peut rester acquis à
+            l'unité.</p>
+            <p>L'unité peut annuler une réservation en cas de force majeure, d'occupation
+            prioritaire liée à ses propres activités annoncée suffisamment tôt, ou de
+            non-paiement. Les sommes déjà versées sont alors remboursées.</p>
+
+            <h3>5. Occupation des lieux</h3>
+            <p>Le bien est occupé par le groupe annoncé, pour l'objet annoncé et pour la
+            durée convenue. La capacité maximale d'accueil ne peut être dépassée, encadrants
+            et intendance compris. La sous-location et la cession de la réservation sont
+            interdites.</p>
+            <p>Le locataire désigne une personne majeure responsable, présente pendant toute
+            la durée du séjour et joignable par l'unité.</p>
+
+            <h3>6. État des lieux, nettoyage et clés</h3>
+            <p>Un état des lieux est établi à l'arrivée et au départ, contradictoirement
+            lorsque c'est possible. Les relevés de compteurs sont pris aux mêmes moments et
+            les consommations sont facturées après le séjour.</p>
+            <p>Le bien est rendu propre, rangé et vidé de ses déchets, dans l'état où il a
+            été reçu. Les clés sont restituées selon les modalités convenues ; une clé perdue
+            est facturée au prix du remplacement de la serrure lorsque celui-ci s'impose.</p>
+
+            <h3>7. Sécurité et voisinage</h3>
+            <p>Les feux ouverts ne sont autorisés qu'aux emplacements prévus et en respectant
+            les interdictions communales en vigueur. Il est interdit de fumer à l'intérieur
+            des bâtiments. Les issues de secours, les extincteurs et les chemins d'accès
+            restent dégagés en permanence.</p>
+            <p>Le calme est respecté, en particulier la nuit. Un trouble répété du voisinage
+            peut mettre fin au séjour sans remboursement.</p>
+
+            <h3>8. Responsabilité et assurance</h3>
+            <p>Le locataire est responsable des dommages causés au bien, à son équipement et
+            à ses abords pendant toute la durée du séjour, quel qu'en soit l'auteur. Il est
+            tenu d'être couvert par une assurance en responsabilité civile et, le cas
+            échéant, par l'assurance de son mouvement de jeunesse.</p>
+            <p>L'unité n'est pas responsable des vols, des pertes ni des dommages aux biens
+            personnels des occupants.</p>
+
+            <h3>9. Données personnelles</h3>
+            <p>Les informations transmises servent à traiter la demande, établir les
+            documents et joindre le locataire. Elles ne sont communiquées à personne d'autre
+            et sont conservées le temps prévu par la politique de confidentialité du site.</p>
+
+            <h3>10. Droit applicable</h3>
+            <p>La présente location est soumise au droit belge. En cas de différend, les
+            parties cherchent d'abord une solution amiable.</p>
+            HTML;
     }
 
     public static function contract(): string

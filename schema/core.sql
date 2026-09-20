@@ -131,7 +131,7 @@ CREATE TABLE password_reset_tokens (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- One row per free-text page a superadmin has added to a menu (issue #368,
--- ARCHITECTURE.md §8.115). A page is a menu name, a title and a place in a
+-- ARCHITECTURE.md §8.116). A page is a menu name, a title and a place in a
 -- menu; its TEXT is not here. The text lives in `editable_contents` under
 -- the key `page_content_{id}` and is written through the site's ordinary
 -- configuration-mode editing, exactly like the home page's intro — which
@@ -195,7 +195,7 @@ CREATE TABLE editable_contents (
     -- home page and nothing can delete it or restrict it. A free-text
     -- page's body is different — it belongs to a row in `text_pages`,
     -- which carries its own audience and can be deleted (issue #368,
-    -- ARCHITECTURE.md §8.115).
+    -- ARCHITECTURE.md §8.116).
     --
     -- **The column exists so that ownership is a fact rather than a
     -- spelling.** The alternative — reading the owner back out of

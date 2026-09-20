@@ -166,8 +166,8 @@ class RentalBookingServiceTest extends TestCase
             1,
             20,
             null,
-            ['name' => 'Marie Dupont', 'email' => 'marie@example.org', 'phone' => null,
-             'organisation' => null, 'purpose' => null, 'comment' => null],
+            ['name' => 'Marie Dupont', 'email' => 'marie@example.org', 'phone' => '0470 12 34 56',
+             'organisation' => null, 'purpose' => 'Week-end de section', 'comment' => null],
             null,
             ['conditions_version' => '2027-01', 'conditions_text' => 'x',
              'privacy_version' => '2027-01', 'privacy_text' => 'y'],
@@ -196,8 +196,8 @@ class RentalBookingServiceTest extends TestCase
                 1,
                 20,
                 null,
-                ['name' => 'Marie Dupont', 'email' => 'marie@example.org', 'phone' => null,
-                 'organisation' => null, 'purpose' => null, 'comment' => null],
+                ['name' => 'Marie Dupont', 'email' => 'marie@example.org', 'phone' => '0470 12 34 56',
+                 'organisation' => null, 'purpose' => 'Week-end de section', 'comment' => null],
                 null,
                 ['conditions_version' => '2027-01', 'conditions_text' => 'x',
                  'privacy_version' => '2027-01', 'privacy_text' => 'y'],
@@ -345,20 +345,55 @@ class RentalBookingServiceTest extends TestCase
         $this->assertSame('Nous arriverons vers 18 h.', $reloaded->renterComment);
     }
 
+    /**
+     * Only two of the four are optional since §22.5 — the phone and the
+     * purpose are required, and their own tests below say so.
+     */
     public function testOptionalRenterFieldsStayNullRatherThanEncryptedEmptyStrings(): void
     {
         $booking = $this->submit(['renter' => [
-            'phone' => null,
             'organisation' => '   ',
-            'purpose' => '',
             'comment' => null,
         ]])['booking'];
 
         $reloaded = $this->repository->findById($booking->id);
-        $this->assertNull($reloaded?->renterPhone);
         $this->assertNull($reloaded?->renterOrganisation);
-        $this->assertNull($reloaded?->purpose);
         $this->assertNull($reloaded?->renterComment);
+    }
+
+    /**
+     * Phone and purpose are required, and required HERE (§22.5): a
+     * `required` attribute in the browser is a convenience for the visitor,
+     * never a guarantee to the unit. A manager answering a request needs a
+     * number to call and needs to know what the hall is for.
+     */
+    public function testAMissingPhoneIsRefused(): void
+    {
+        $this->expectException(RentalException::class);
+        $this->expectExceptionMessage('Votre téléphone est obligatoire.');
+
+        $this->submit(['renter' => ['phone' => '   ']]);
+    }
+
+    public function testAMissingPurposeIsRefused(): void
+    {
+        $this->expectException(RentalException::class);
+        $this->expectExceptionMessage("L'objet de la location est obligatoire.");
+
+        $this->submit(['renter' => ['purpose' => '']]);
+    }
+
+    /**
+     * And the organisation is deliberately NOT one of them: a family
+     * letting the hall for a communion has none, and making it mandatory
+     * only makes them invent an answer (the chantier's own « Écarté,
+     * explicitement »).
+     */
+    public function testAMissingOrganisationIsAccepted(): void
+    {
+        $booking = $this->submit(['renter' => ['organisation' => null]])['booking'];
+
+        $this->assertNull($this->repository->findById($booking->id)?->renterOrganisation);
     }
 
     public function testTheEmailBlindIndexIgnoresCaseAndSurroundingSpace(): void

@@ -15,7 +15,10 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Security\HtmlSanitizer;
+use Core\View\EditableContentService;
 use Core\Service\IntegerInput;
+use Modules\Rental\Document\AssetConditions;
 use Modules\Rental\Payment\DepositMode;
 use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Pricing\PricingSettings;
@@ -56,6 +59,12 @@ class RentalPricingController extends AbstractController
         private RentalAuthorizationService $authorizationService,
         private RentalAssetRepository $assetRepository,
         private ScoutYearResolver $scoutYearResolver,
+        /**
+         * The asset's rental conditions live in the generic
+         * editable-content store (Document\AssetConditions), which is what
+         * sanitizes them on the way in.
+         */
+        private EditableContentService $editableContentService,
         /**
          * Optional (§6.19): null on an installation without the Finance
          * module, where the payments block explains that instead of
@@ -259,6 +268,80 @@ class RentalPricingController extends AbstractController
             );
 
             return 'Les règles de réservation ont été enregistrées.';
+        });
+    }
+
+    /**
+     * POST /mes-locations/{slug}/reglages/conditions — the text a renter
+     * ticks on the public request form (§22.5).
+     *
+     * **Here rather than in the configuration mode**, which is where it used
+     * to be edited: that mode belongs to a superadmin, while the conditions
+     * a hall is let under are the business of the people who let it. An
+     * asset whose managers could not write its conditions is how so many
+     * ended up with none at all — and the request form still made a visitor
+     * tick « J'accepte les conditions de location » over an empty block.
+     *
+     * A « réinitialiser » posts the standard body back, exactly like the
+     * template page: one route rather than two, and the reset is auditable
+     * as the ordinary edit it is.
+     *
+     * **This is the managers' write path, not the only one.** The generic
+     * `POST /api/editable-content` is keyed by nothing and still reaches
+     * this content like any other, so a superadmin in configuration mode
+     * can write a blank body to it and this guard will not see it. That is
+     * survivable, and deliberately not fixed with a registry of protected
+     * keys in core: what a renter is shown is decided on the way OUT, by
+     * `AssetConditions::textFor()`, which reads a blank body as "nobody has
+     * written any" and serves the shipped standard. The acceptance hash is
+     * taken from that same value, so the checkbox can never stand over
+     * nothing however the row was written. What this guard adds is that a
+     * manager cannot destroy their own wording by accident.
+     *
+     * The rich text is sanitized on the way in by `EditableContentService`
+     * itself (SECURITY.md §7).
+     *
+     * @param array<string, string> $params
+     */
+    public function saveConditions(Request $request, array $params): Response
+    {
+        return $this->guarded($request, $params, 'conditions', function (RentalAsset $asset) use ($request): string {
+            // **Sanitised before it is judged**, because the guard has to
+            // rule on what will be STORED, not on what was sent. The
+            // sanitiser drops an `<img>` whose `src` failed the scheme
+            // check — which is exactly what a pasted screenshot is, a
+            // `data:` URL — and removes `<script>`/`<style>`/`<form>` tag
+            // AND contents, where `strip_tags()` inside `isBlank()` keeps
+            // the inner text. Judging the raw body let both through: the
+            // page reported « enregistrées », the row held `<p></p>`, and
+            // `AssetConditions::textFor()` quietly served the shipped
+            // standard text over it — the very silence this iteration
+            // exists to end.
+            //
+            // Sanitising here and handing the result to `set()` costs one
+            // idempotent second pass and keeps ONE write path, which a
+            // write-then-roll-back would not.
+            $body = (new HtmlSanitizer())->sanitize((string) $request->getBody('conditions', ''));
+
+            // `AssetConditions::isBlank()` rather than `trim()`: a
+            // rich-text surface hands back `<p>&nbsp;</p>` for a paragraph
+            // somebody emptied, which is a non-empty string carrying a tag
+            // and rendering as nothing at all.
+            if (AssetConditions::isBlank($body)) {
+                throw new RentalException(
+                    'Les conditions de location ne peuvent pas être vides : '
+                    . 'un locataire doit les accepter avant d\'envoyer sa demande.'
+                );
+            }
+
+            $this->editableContentService->set(
+                AssetConditions::key($asset->id),
+                $body,
+                'rich_text',
+                AuthSession::getUserAccountId() ?? 0
+            );
+
+            return 'Les conditions de location ont été enregistrées.';
         });
     }
 

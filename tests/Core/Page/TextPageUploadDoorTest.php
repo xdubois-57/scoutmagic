@@ -26,7 +26,7 @@ use Tests\DatabaseTestHelper;
  * `ConfigurationMode::isActive()` alone, which means `admin`, and that
  * was the whole answer for as long as every editable key sat on a page
  * an admin could also read. A free-text page filed in the Configuration
- * menu is read at `superadmin` (ARCHITECTURE.md §8.115): the gap is
+ * menu is read at `superadmin` (ARCHITECTURE.md §8.116): the gap is
  * newly reachable because of this feature, so it is this feature's to
  * close.
  *

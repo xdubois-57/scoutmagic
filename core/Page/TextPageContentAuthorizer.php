@@ -12,7 +12,7 @@ use Core\View\EditableContentAuthorizer;
 
 /**
  * A free-text page's body is written at the page's OWN role, not at the
- * write endpoint's (ARCHITECTURE.md §8.115, SECURITY.md §3).
+ * write endpoint's (ARCHITECTURE.md §8.116, SECURITY.md §3).
  *
  * `POST /api/editable-content` is `role_min: admin`. A page filed in the
  * Configuration menu is read at `superadmin`. Without this, an `admin`

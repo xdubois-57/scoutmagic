@@ -2033,6 +2033,8 @@ file on somebody's list.
 
 **The hazard both editors are built around**: a contenteditable surface happily splits a run of text across elements as it is edited, so `{{ prix_total }}` can silently become `{{ pri<b>x</b>_total }}` — still readable to a human, no longer a keyword to the substituter, and only noticed once a contract goes out with braces in it. Both used to be plain HTML textareas for exactly that reason. They are the generic rich-text form field now (`partials/rich_text_form_field.html.twig`), which **answers** the hazard rather than avoiding it, on three levels: every keyword of the closed list renders as one `contenteditable="false"` chip the browser treats as a single indivisible character; the **server repairs** what survives anyway — a paste, an author with no JavaScript — after sanitizing and before substitution (§8.114, `DocumentKeywords::repairSplitKeywords()`); and the « mots-clés non reconnus » warning stays the net, because the repair only rewrites a region once what it would become is a real keyword. Repaired at save time AND at generation, since a text stored before the repair existed is still out there.
 
+**The conditions a renter accepts are the third shipped text** (`Document\AssetConditions`, `StandardTemplates::conditions()`, `specifications.md` §22.5) and they follow the same three-level shape for the same reason. They live in `editable_contents` under `rental_asset_{id}_conditions` — the key the public page has always read, so nothing is migrated — and the shipped standard body is what is in force while that entry is blank. What changed is **who writes it and from where**: the asset's managers, from that asset's own settings page, rather than the configuration mode on the asset's *public* page, which needs a superadmin. That mismatch is why so many assets had no conditions at all while the request form still made a visitor tick a mandatory « J'accepte les conditions de location » over an empty block — the renter accepted nothing and `conditions_hash` attested to it faithfully. The text now can never be empty: a blank or whitespace-only save is refused, and an empty stored entry falls back to the standard.
+
 **Sending is what makes a document read-only** (`specifications.md` §22.6). Until a document of a type has gone out, its text is a draft a manager may rework freely; afterwards the renter holds a copy, and silently changing what that copy was made from is precisely the confusion versioning exists to prevent. `RentalDocumentService::textIsLocked()` decides it from `rental_documents.sent_at` — any version, not just the latest — the editor renders the text without offering to edit it, and `saveBookingText()` refuses on the server, because a page that merely hides a form is not a rule. The confirmation on « Envoyer » says so before it happens: a button that quietly makes a page read-only is a button nobody expects. Regenerating still never overwrites — what the lock stops is the SOURCE moving under a version that has already been read and possibly signed.
 
 **`is_for_renter` is an email flag, not an access right** (`specifications.md` §22.6). An external renter downloads nothing from this site: they have no account, and the tracking token is a capability for *their own page*, not a file credential. Their contract and invoice reach them by email and only by email; a lost email is resent by a manager, which is why resending is a first-class action. Wiring the token into file access would be a new exception to SECURITY.md §6 for the sake of saving one click, and there is a test asserting the tracking page carries no download link at all.
@@ -4740,7 +4742,72 @@ one — they are data, different for every mailing, and the publipostage
 inserts them through its own control (`modules/mass_mail/views/partials/
 _variable_toolbar.html.twig`) for that reason.
 
-### 8.115 Free-text pages, and the one route born from a database row (`Core\Page`)
+### 8.115 The contact card of one member (`Core\Contact`)
+
+« Ajouter à mes contacts », on a member's admin page
+(`/admin/members/{id}`, `role_min: admin`) and nowhere else on the site.
+Two payloads of ONE card: a QR code a phone's camera turns into a contact
+straight from the viewfinder, and a `text/vcard` download. Both are always
+offered together — there is **no device detection**, because a browser's
+idea of what it is running on has never been reliable enough to take a
+choice away from somebody.
+
+**One definition of the contents, one renderer.** `ContactCardService`
+assembles a `ContactCard`; `VCardBuilder` renders it as vCard 3.0.
+`VCardVariant` is the only thing that makes the two payloads differ, and it
+can do exactly two things: drop the portrait, and cut the affiliation
+history to five lines. So a field cannot say one thing in the QR code and
+another in the file — the failure mode of two builders, which is what this
+shape exists to make impossible. Version 3.0 rather than 4.0 is a
+compatibility fact, not a preference: iOS and the stock Android address
+book both read 3.0 and both have historically mangled 4.0.
+
+**What a card carries**: `FN` (the full name, never the totem alone — a
+contact filed as « Loutre Rieuse » is one nobody finds), `N`, `NICKNAME`,
+`ORG` (the unit then the section), `TITLE`, every e-mail address (Desk's
+first, then the confirmed ones the member configured), the two Desk
+telephone numbers **unlabelled**, every postal address, a `NOTE` holding
+the current scout year and one line per year of affiliations, a `UID`
+derived from `members.id` and a `REV` — the last two identical in both
+variants, so a client that honours them recognises the same person rather
+than filing them twice. `PHOTO` is in the file and in CardDAV only.
+
+**What it never carries, and cannot**: the handicap, the supplementary
+insurance, the gender, the date of birth, the Desk identifier, the patrol,
+the formation level, the two communication consents. None of them is a
+property of `ContactCard`, so adding one would be a deliberate edit rather
+than a field slipping through. The **handicap is health data** and sits one
+line away from the telephone numbers inside the same
+`Core\Member\MemberProfile`; `Tests\Core\Contact\VCardBuilderTest` and
+`ContactCardServiceTest` both assert it never comes out.
+
+**The history is one query.** `Core\Member\MemberProfile` is a snapshot of
+a single `member_years` row and carries only that year's functions, so a
+history rebuilt from it would cost one full hydration — and one AES
+decryption of every personal column — per scout year.
+`Repository\ContactCardRepository` reads every year of a member in one
+statement and decrypts nothing: a function label, a section name and a year
+label are all in clear. The section is resolved through the `sections` row,
+so a section renamed in Configuration reads under its new name for past
+years too, and `sections.desk_code` is never a fallback.
+
+`REV` comes from the same repository, and it is the aggregate of every
+event that COULD have moved a card — the annual row's creation, the imports
+covering its years, the member's portrait and configured addresses. There
+is no `updated_at` to read: a Desk import rewrites `member_years` in place.
+It therefore over-reports rather than under-reports, which is the safe
+direction, and it touches no encrypted column — the property IT-03's
+`getctag` will need to answer a client that polls every few minutes.
+
+**Nothing is written to disk** (`SECURITY.md` §5), and the QR code is built
+with `endroid/qr-code`, already a justified dependency (posters, the SEPA
+payment QR) — never an external QR service, which would be handed a
+minor's name, telephone number and home address.
+
+Each served card is journaled at `security` level with **the member's
+identifier and nothing else**.
+
+### 8.116 Free-text pages, and the one route born from a database row (`Core\Page`)
 
 A superadmin adds a page — the ASBL's description, the Bulle Safe —
 chooses which menu it appears in, names it twice (short in the menu,
@@ -4863,7 +4930,6 @@ whose text belongs to nobody is not.
 Explicitly **not** in scope: free-text pages do not join
 `Core\Offline\OfflineWhitelist`. That list is a static server-side
 declaration, and wiring it to a database table is a subject of its own.
-
 
 ## 9. Installation / bootstrap
 

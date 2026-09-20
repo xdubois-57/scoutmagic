@@ -194,7 +194,7 @@ class SqlParserTest extends TestCase
         $tableNames = array_map(fn($t) => $t->name, $tables);
         $this->assertContains('sent_email_claims', $tableNames);
         // Free-text pages, the one table a route is born from
-        // (ARCHITECTURE.md §8.115).
+        // (ARCHITECTURE.md §8.116).
         $this->assertContains('text_pages', $tableNames);
         // A location's safety copy on another (ARCHITECTURE.md §8.110).
         $this->assertContains('storage_protections', $tableNames);

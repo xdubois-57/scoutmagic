@@ -2311,7 +2311,7 @@ $posterPdfService = new PosterPdfService();
 $cookieConsentService = new CookieConsentService();
 
 // Free-text pages a superadmin has added to a menu (issue #368,
-// ARCHITECTURE.md §8.115). Its repository comes first because the
+// ARCHITECTURE.md §8.116). Its repository comes first because the
 // editable-content service is handed an authorizer built on it: a page's
 // body is written at the PAGE's role, not at the role of whichever
 // endpoint carries the write (SECURITY.md §3).
@@ -4708,6 +4708,29 @@ $router->addRoute(
     'admin',
 );
 $router->addRoute('POST', '/admin/members/{id}/temporary-access', TemporaryMemberController::class, 'add', 'admin');
+// « Ajouter à mes contacts » on a member's page: the vCard file and the QR
+// code of the same card (Core\Contact, ARCHITECTURE.md §8.115). Same
+// `admin` floor as the page that offers them — the button exists nowhere
+// else, and neither does the data.
+//
+// No dot in either path on purpose: Router::matchPath() interpolates a
+// route pattern straight into a regex without escaping it, so a literal
+// `.` would match any character. The file's name is carried by
+// Content-Disposition, which is what a browser reads anyway.
+$router->addRoute(
+    'GET',
+    '/admin/members/{id}/contact-vcard',
+    \Core\Contact\Controller\MemberContactController::class,
+    'vcard',
+    'admin',
+);
+$router->addRoute(
+    'GET',
+    '/admin/members/{id}/contact-qr',
+    \Core\Contact\Controller\MemberContactController::class,
+    'qrCode',
+    'admin',
+);
 $router->addRoute(
     'GET',
     '/admin/scout-year',
@@ -5111,7 +5134,7 @@ $router->addRoute('POST', '/config/functions/branch-url', FunctionsController::c
 // free-text page registers its own concrete path carrying the role floor
 // of the menu it was filed in, so the RBAC guard — which runs before any
 // controller — is the primary protection, exactly as it is for every
-// route declared above (SECURITY.md §3, ARCHITECTURE.md §2 and §8.115).
+// route declared above (SECURITY.md §3, ARCHITECTURE.md §2 and §8.116).
 // A single `/pages/{slug}` at `role_min: public` with the check moved
 // into the controller would have violated both.
 //
@@ -5980,7 +6003,7 @@ $photoIngestionService = new \Core\Photo\PhotoIngestionService(
 // The fourth argument is the same question the editable-content endpoint
 // asks: `context=editable_image` writes `editable_contents` under a
 // client-chosen key, so this is a second door onto the same table and it
-// has to refuse what that one refuses (ARCHITECTURE.md §8.115). The
+// has to refuse what that one refuses (ARCHITECTURE.md §8.116). The
 // service decides; this only lets the upload say no in its own shape.
 $uploadController = new UploadController(
     $twig,
@@ -10313,6 +10336,10 @@ if ($isEnabled('rental')) {
             $rentalAuthorizationService,
             $rentalAssetRepository,
             $scoutYearResolver,
+            // The conditions a renter ticks live in the generic
+            // editable-content store, which sanitizes them on the way in
+            // (Modules\Rental\Document\AssetConditions, §22.5).
+            $editableContentService,
             $rentalPaymentService
         )
     );
@@ -10325,7 +10352,10 @@ if ($isEnabled('rental')) {
             $scoutYearResolver,
             $rentalAvailabilityService,
             $rentalPricingService,
-            new \Core\View\MonthGrid\DayStateGridBuilder()
+            new \Core\View\MonthGrid\DayStateGridBuilder(),
+            // Read-only: the public asset page RENDERS the conditions, and
+            // no longer offers to edit them in place (§22.5).
+            $editableContentService
         )
     );
     // Documents: contracts, invoices and whatever a manager attaches
@@ -10514,6 +10544,8 @@ if ($isEnabled('rental')) {
             $rentalPricingService,
             $memberService,
             new \Core\View\MonthGrid\DayStateGridBuilder(),
+            // The asset's rental conditions, shown on its settings page.
+            $editableContentService,
             $rentalPaymentService,
             $rentalDocumentService,
             $rentalBookingMailService,
@@ -10925,6 +10957,31 @@ $frontController->registerController(
         // behind it both ask, so the buttons are never offered where saving
         // would answer 403.
         $sectionStaffAuthorizationService
+    )
+);
+
+// The contact card of one member (ARCHITECTURE.md §8.115) — the « Ajouter
+// à mes contacts » button of the page registered just above, and nothing
+// else on the site: same `admin` floor, same page, same two routes.
+$frontController->registerController(
+    \Core\Contact\Controller\MemberContactController::class,
+    new \Core\Contact\Controller\MemberContactController(
+        $twig,
+        $memberService,
+        new \Core\Contact\ContactCardService(
+            new \Core\Contact\Repository\ContactCardRepository($connection),
+            $settingService,
+            $memberEmailRepository,
+            new \Core\Contact\ContactPhotoResolver(
+                $memberPhotoService,
+                $fileRepository,
+                $imageVariantService,
+                $storagePath
+            )
+        ),
+        new \Core\Contact\VCardBuilder(),
+        new \Core\Contact\ContactQrCodeBuilder(),
+        $journalService
     )
 );
 

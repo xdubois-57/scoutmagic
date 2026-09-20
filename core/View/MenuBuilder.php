@@ -232,7 +232,7 @@ class MenuBuilder
      * Public for one caller, and the reason is worth stating because this
      * is the only place a menu's floor is allowed to leave this class as a
      * value rather than as a filtered list. A free-text page (`text_pages`,
-     * ARCHITECTURE.md §8.115) takes its `role_min` from the menu it was
+     * ARCHITECTURE.md §8.116) takes its `role_min` from the menu it was
      * filed in — choosing the section IS choosing who reads it — and that
      * floor becomes the `role_min` of a real route, checked by the RBAC
      * guard before any controller runs. Without this accessor the five

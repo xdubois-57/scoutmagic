@@ -13,9 +13,11 @@ use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Security\AuthSession;
+use Core\View\EditableContentService;
 use Core\Service\DateInput;
 use Core\View\MonthGrid\DayState;
 use Core\View\MonthGrid\DayStateGridBuilder;
+use Modules\Rental\Document\AssetConditions;
 use Modules\Rental\Pricing\PricingRequest;
 use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalAssetRepository;
@@ -57,7 +59,13 @@ class RentalPublicController extends AbstractController
         private ScoutYearResolver $scoutYearResolver,
         private RentalAvailabilityService $availabilityService,
         private RentalPricingService $pricingService,
-        private DayStateGridBuilder $gridBuilder
+        private DayStateGridBuilder $gridBuilder,
+        /**
+         * Read-only here: the conditions block below is RENDERED from the
+         * store, never edited from this page any more (§22.5,
+         * Document\AssetConditions).
+         */
+        private EditableContentService $editableContentService
     ) {
         parent::__construct($twig);
     }
@@ -130,6 +138,15 @@ class RentalPublicController extends AbstractController
                     'breadcrumb_current' => $asset->name,
                     'constraints' => $constraints,
                     'editable_prefix' => 'rental_asset_' . $asset->id,
+                    // The conditions in force — the asset's own wording, or
+                    // the standard Belgian body the module ships. Rendered
+                    // rather than `editable()`: they are the asset's
+                    // managers' text now, edited from the asset's settings
+                    // page, and the configuration mode is not their door.
+                    'conditions_html' => AssetConditions::textFor(
+                        $this->editableContentService,
+                        $asset->id
+                    ),
                 ]
             )
         );

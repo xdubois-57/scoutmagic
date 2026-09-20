@@ -25,7 +25,7 @@ use Twig\Loader\ArrayLoader;
  * `POST /api/editable-content` is `role_min: admin`. A free-text page
  * filed in the Configuration menu is read at `superadmin`, so its body
  * is the first content on this site whose read floor exceeds its write
- * floor (ARCHITECTURE.md §8.115). This asks the real controller.
+ * floor (ARCHITECTURE.md §8.116). This asks the real controller.
  *
  * @group database
  */

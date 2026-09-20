@@ -14,7 +14,7 @@ use Core\View\MenuBuilder;
 
 /**
  * **The one place in this codebase where a route is born from a database
- * row** (ARCHITECTURE.md §8.115). Everything else the router knows is
+ * row** (ARCHITECTURE.md §8.116). Everything else the router knows is
  * declared in `public/index.php` or in a module manifest, and that is
  * worth stating rather than discovering.
  *

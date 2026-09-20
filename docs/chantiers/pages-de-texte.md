@@ -52,7 +52,7 @@ Pour que ça ne revienne pas par accident :
   services cœur, l'enregistrement des routes à la fin du bloc de routes
   cœur, les entrées de menu juste après le calcul du surlignage, et le
   contrôleur pré-construit.
-- `ARCHITECTURE.md` §8.115.
+- `ARCHITECTURE.md` §8.116.
 - 54 tests dans `tests/Core/Page/`, plus la table dans
   `tests/DatabaseTestHelper.php`.
 
@@ -112,10 +112,15 @@ adresse.
 
 ### Écarts entre le document et le dépôt
 
-**§8.114 était pris.** Le chantier demande de documenter les routes
-enregistrées au démarrage dans `ARCHITECTURE.md` §8 ; la première section
-libre est **§8.115**, §8.114 étant déjà `Core\Template`. Toutes les
-références dans le code pointent §8.115.
+**Le numéro de section a bougé deux fois.** Le chantier demande de
+documenter les routes enregistrées au démarrage dans `ARCHITECTURE.md` §8.
+La première section libre était §8.115, §8.114 étant déjà `Core\Template` ;
+puis `main` a livré §8.115 (`Core\Contact`, la carte de visite d'un
+membre) pendant que cette itération était en revue. La section des pages
+de texte est donc **§8.116**, et toutes les références dans le code y
+pointent. C'est le genre de collision qu'une numérotation manuelle produit
+quand deux chantiers avancent en parallèle : elle se voit au conflit de
+fusion, pas avant.
 
 **Le garde « pas de base, pas de route » est moins exposé que le chantier
 ne le suppose, et il a été écrit quand même.** Dans `public/index.php`,

@@ -21,7 +21,7 @@ namespace Core\View;
  * home page, contact, sections, a module's public view. Admin-writable
  * and admin-or-below-readable always matched, so one floor covered both.
  *
- * Free-text pages broke that coincidence (ARCHITECTURE.md §8.115). A page
+ * Free-text pages broke that coincidence (ARCHITECTURE.md §8.116). A page
  * filed in the Configuration menu is read at `superadmin` while its text
  * is written through the same `admin` endpoint: **the first content on
  * this site whose read floor exceeds its write floor.**

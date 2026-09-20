@@ -1,18 +1,19 @@
 ---
 id: locations-reglages
 title: Les réglages d'un bien
-summary: Ce qu'un visiteur peut demander, ce que ça coûte, et ce qui est attendu à l'avance.
+summary: Ce qu'un visiteur peut demander, ce que ça coûte, ce qui est attendu à l'avance et sous quelles conditions.
 category: Espace membres
 role_min: identified
 discovery: 3
 question: Comment fixer le prix de location d'un local ?
 question: Comment imposer une durée minimum de réservation ?
 question: Comment demander une caution sur une location ?
+question: Où écrire les conditions de location d'un bien ?
 paths: /mes-locations/*/reglages
 related: gerer-les-locations, config-locations, locations-conformite
 ---
 
-Trois sections, trois questions différentes. Chacune se lit d'un coup
+Quatre sections, quatre questions différentes. Chacune se lit d'un coup
 d'œil et s'ouvre pour être modifiée : le bouton « Modifier » de la carte
 ouvre le formulaire correspondant.
 
@@ -49,6 +50,21 @@ location.
 Le compte bancaire sur lequel les virements sont attendus ne se choisit
 pas ici : il est fixé par le Staff d'Unité, parce que la liste des
 comptes porte les IBAN de l'unité.
+
+## Conditions de location
+
+Le texte que le locataire lit — et accepte — avant d'envoyer sa demande.
+Il s'affiche aussi sur la page publique du bien.
+
+Tant que vous ne l'avez pas écrit, ce sont les **conditions standard**
+fournies avec le site qui s'appliquent : un point de départ à relire et à
+adapter, pas un avis juridique. Vous les modifiez en texte riche ici même,
+et « Revenir aux conditions standard » remet le texte d'origine.
+
+À chaque demande, le site enregistre la **version** des conditions et une
+**empreinte** du texte exact qui était à l'écran — pas une copie du texte.
+Réécrire vos conditions produit une autre empreinte : ce qu'un locataire a
+accepté ne peut donc pas être remplacé en silence par autre chose.
 
 > Modifier ces réglages ne change **aucune réservation existante** : le
 > prix annoncé est figé au moment de la demande, et le prix convenu au

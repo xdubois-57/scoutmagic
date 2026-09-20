@@ -120,7 +120,7 @@ class TextPageService
         // Not an optimisation: it is what closes the window in which the
         // content key exists but belongs to nobody. Authorization for a
         // write is read off `editable_contents.text_page_id`
-        // (ARCHITECTURE.md §8.115), so a key with no owner would have
+        // (ARCHITECTURE.md §8.116), so a key with no owner would have
         // nothing to answer for it — and whoever wrote first would decide
         // what a page they may not even read says.
         //

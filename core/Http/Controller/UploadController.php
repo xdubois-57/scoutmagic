@@ -273,7 +273,7 @@ class UploadController extends AbstractController
         // whole answer for as long as every editable key sat on a page an
         // admin could also read. A free-text page filed in the
         // Configuration menu is read at `superadmin`
-        // (ARCHITECTURE.md §8.115), so this door has to ask the same
+        // (ARCHITECTURE.md §8.116), so this door has to ask the same
         // question the other one does, or an admin could overwrite a
         // page's body here that they are refused there.
         //

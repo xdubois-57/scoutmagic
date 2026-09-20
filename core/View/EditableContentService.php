@@ -51,7 +51,7 @@ class EditableContentService
      * complete as the list of endpoints somebody remembered: free-text
      * pages made this table's first content whose read floor exceeds the
      * `admin` floor of the endpoints writing it (ARCHITECTURE.md
-     * §8.115), and the gap turned out to be reachable through
+     * §8.116), and the gap turned out to be reachable through
      * `POST /upload` with `context=editable_image` as well. Everything
      * funnels through {@see set()}, so a new entry point added later
      * fails closed rather than quietly reopening it.

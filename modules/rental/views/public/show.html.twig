@@ -105,10 +105,20 @@
             </div>
         </div>
 
+        {#
+          Rendered, not `editable()` (§22.5). The conditions are the text a
+          renter ticks on the request form and whose hash proves what was
+          accepted — so they belong to the asset's MANAGERS, who edit them in
+          rich text from the asset's settings page. Left in the configuration
+          mode they were a superadmin's to write, which is why so many assets
+          had none: the one person able to fix it was not the one letting the
+          hall. Never empty either — Document\AssetConditions falls back to
+          the standard Belgian body the module ships.
+        #}
         <div class="card">
             <div class="card-body">
-                <h2 class="h5 mb-3">Conditions</h2>
-                {{ editable(editable_prefix ~ '_conditions', '<p>Conditions à connaître avant d\'introduire une demande.</p>')|raw }}
+                <h2 class="h5 mb-3">Conditions de location</h2>
+                <div class="rich-text">{{ conditions_html|raw }}</div>
             </div>
         </div>
     </div>

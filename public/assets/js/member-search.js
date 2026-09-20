@@ -216,4 +216,50 @@
             });
         })();
     }
+    // « Ajouter à mes contacts » — the QR code of a member's contact card.
+    //
+    // The <img> ships with no src and gets one the first time the dialog is
+    // actually opened. That is the whole point: the source is a route that
+    // renders the card server-side and journals the export, so letting the
+    // browser fetch it on every page load would produce a QR code — and a
+    // journal entry — for every member page anybody merely looked at.
+    //
+    // The URL is built from a member_year row id parsed as a positive
+    // integer, never from a member value; the src is set once and the
+    // handler is then inert, so a dialog reopened does not re-fetch.
+    (function () {
+        var dialog = document.getElementById('contact-card-modal');
+        if (!dialog) {
+            return;
+        }
+
+        var image = /** @type {HTMLImageElement|null} */ (document.getElementById('contact-card-qr'));
+        if (!image) {
+            return;
+        }
+
+        var memberYearId = parseInt(image.dataset.memberYearId || '', 10);
+        if (!memberYearId || memberYearId <= 0) {
+            return;
+        }
+
+        // A browser handed a non-image answer draws a broken icon and
+        // says nothing: the server's own French refusal — a card too long
+        // for a symbol — travels in a response body nothing here reads,
+        // because this route is only ever an <img> source. So the failure
+        // is answered on screen instead, by a sentence that is true
+        // whatever the cause and names the same way out in every case.
+        image.addEventListener('error', function () {
+            image.classList.add('d-none');
+            document.getElementById('contact-card-qr-hint')?.classList.add('d-none');
+            document.getElementById('contact-card-qr-error')?.classList.remove('d-none');
+        });
+
+        dialog.addEventListener('show.bs.modal', function () {
+            if (image.getAttribute('src')) {
+                return;
+            }
+            image.setAttribute('src', '/admin/members/' + memberYearId + '/contact-qr');
+        });
+    })();
 })();
