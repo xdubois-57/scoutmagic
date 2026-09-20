@@ -1133,6 +1133,29 @@ class OutboundMailControllerTest extends TestCase
         $controller->routeSeeds($this->formRequest(['domain' => 'gmail.com']), []);
         $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
         $this->assertSame([], $this->mailPreferences->all(), 'and nothing was routed.');
+
+        // **The fourth route, which used to fall through.** Its guard was
+        // a nullsafe chain rather than an early return, so « no module »
+        // reached the blind-box test as « zero blind boxes » — « nothing
+        // wrong » — and the switch armed itself on an installation that
+        // measures nothing at all.
+        $controller->toggleRouting($this->formRequest(['enabled' => '1']), []);
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertSame(
+            '0',
+            (string) ($this->settings->get(\Core\Mail\Feedback\Seed\DomainRouting::SETTING_AUTOMATIC) ?? '0'),
+            'and the automatism is still off.'
+        );
+        // **And it says the right thing.** « Aucune boîte témoin ne peut
+        // mesurer » sends the reader to « Courrier entrant » to declare
+        // boxes they cannot declare: the module is off, which is a
+        // different answer and the one its two siblings give.
+        $this->assertStringContainsString(
+            'demandent le module',
+            (string) ($flash['message'] ?? ''),
+            'the switch answered « no seed box » where the truth is « no module ».'
+        );
     }
 
     /**

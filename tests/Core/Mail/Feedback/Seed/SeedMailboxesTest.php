@@ -48,6 +48,13 @@ class SeedMailboxesTest extends TestCase
     {
         $stub = $this->createStub(InboundMailInterface::class);
         $stub->method('watchedFoldersFor')->willReturn($folders);
+        // The addresses answer about the same boxes — the module keeps
+        // the two in step, and so must the fixture, or the gate below
+        // would be judged on a state production cannot produce.
+        $stub->method('probeAddressesFor')->willReturn(array_map(
+            static fn (int $index): string => 'temoin' . $index . '@gmail.com',
+            array_keys($folders)
+        ));
 
         return $this->seedMailboxes($stub);
     }
@@ -122,9 +129,62 @@ class SeedMailboxesTest extends TestCase
      */
     public function testAModuleThatThrowsRaisesNoWarning(): void
     {
+        $this->assertSame(0, $this->seedMailboxes($this->brokenModule())->boxesBlindToSpam());
+    }
+
+    // ── the gate, where the same leniency is wrong ────────────────────
+
+    public function testAUnitWatchingItsJunkFoldersMayArmTheAutomatism(): void
+    {
+        $this->assertTrue($this->boxesWatching([['INBOX', 'Junk']])->measuresSpamReliably());
+    }
+
+    public function testABlindBoxRefusesIt(): void
+    {
+        $this->assertFalse($this->boxesWatching([['INBOX', 'Junk'], ['INBOX']])->measuresSpamReliably());
+    }
+
+    /**
+     * **No box at all refuses it too**, and this is what the counter
+     * alone could not say: `boxesBlindToSpam()` returns zero for « every
+     * box is fine » and for « there is no box », and a gate reading that
+     * figure armed an unattended automatism before a single mailing had
+     * been measured.
+     */
+    public function testNoBoxAtAllRefusesIt(): void
+    {
+        $this->assertFalse($this->boxesWatching([])->measuresSpamReliably());
+        $this->assertSame(0, $this->boxesWatching([])->boxesBlindToSpam(), 'the figure that misled the gate.');
+    }
+
+    /**
+     * **And « I cannot answer » refuses it as well.** A module that
+     * throws is « nothing to report » for the screen above and must be
+     * « no » here: the same leniency, on a gate, arms the automatism on
+     * evidence nobody could read.
+     */
+    public function testAModuleThatCannotAnswerRefusesIt(): void
+    {
+        $this->assertFalse($this->seedMailboxes($this->brokenModule())->measuresSpamReliably());
+    }
+
+    /** No module at all is no boxes, which is no measurement. */
+    public function testWithoutTheModuleTheAutomatismIsRefused(): void
+    {
+        $this->assertFalse($this->seedMailboxes(null)->measuresSpamReliably());
+    }
+
+    /**
+     * A module answering the addresses but not the folders: the halves
+     * disagree, so the gate refuses rather than trusting the half that
+     * came back.
+     */
+    private function brokenModule(): InboundMailInterface
+    {
         $stub = $this->createStub(InboundMailInterface::class);
+        $stub->method('probeAddressesFor')->willReturn(['temoin@gmail.com']);
         $stub->method('watchedFoldersFor')->willThrowException(new \RuntimeException('imap down'));
 
-        $this->assertSame(0, $this->seedMailboxes($stub)->boxesBlindToSpam());
+        return $stub;
     }
 }

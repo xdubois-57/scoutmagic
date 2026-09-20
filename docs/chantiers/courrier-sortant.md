@@ -2542,6 +2542,17 @@ mais la configuration bouge ensuite et c'est le balayage qui agit. Le
 renoncement est journalisé plutôt que silencieux, sinon personne ne peut
 dater le jour où le site a cessé d'appliquer.
 
+Et le même garde **échouait encore ouvert** de deux manières qu'un
+second passage a trouvées : `toggleRouting()` était la seule des quatre
+routes témoins sans retour anticipé sur « module absent », donc une
+chaîne `?->` lisait « pas de module » comme « rien d'anormal » ; et
+`boxesBlindToSpam()`, qui attrape ses erreurs et rend zéro, servait à la
+fois d'affichage et de garde — « je ne sais pas répondre » y devenait
+« tout va bien ». Les deux usages sont maintenant séparés : la lecture
+des dossiers rend `null` quand elle échoue, l'écran continue de lire
+zéro, et le garde refuse. **Une leniency juste sur un écran est fausse
+sur une porte.**
+
 ### Reporté
 
 - **Rapprocher un fournisseur de messagerie d'un domaine destinataire

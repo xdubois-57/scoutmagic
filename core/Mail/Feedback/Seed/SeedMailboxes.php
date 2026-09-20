@@ -204,9 +204,8 @@ final class SeedMailboxes
      */
     public function boxesBlindToSpam(): int
     {
-        try {
-            $watched = $this->module()?->watchedFoldersFor(self::CONSUMER_ID) ?? [];
-        } catch (\Throwable) {
+        $watched = $this->watchedFolders();
+        if ($watched === null) {
             return 0;
         }
 
@@ -226,6 +225,27 @@ final class SeedMailboxes
         }
 
         return $blind;
+    }
+
+    /**
+     * What each seed box is read in, or **null when the question could
+     * not be answered**.
+     *
+     * The distinction is the whole reason this is separate: a module
+     * that cannot answer is « nothing to report » on a screen and
+     * « refuse » on a gate, and one method returning `0` for both would
+     * have the gate read a failure as a clean bill of health. `[]` is
+     * « no boxes », which is an answer; `null` is « I do not know ».
+     *
+     * @return list<list<string>>|null
+     */
+    private function watchedFolders(): ?array
+    {
+        try {
+            return $this->module()?->watchedFoldersFor(self::CONSUMER_ID) ?? [];
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**
@@ -249,7 +269,19 @@ final class SeedMailboxes
      */
     public function measuresSpamReliably(): bool
     {
-        return $this->addresses() !== [] && $this->boxesBlindToSpam() === 0;
+        $watched = $this->watchedFolders();
+
+        // **« I cannot answer » is « no », here and nowhere else.**
+        // `boxesBlindToSpam()` reads a module failure as zero blind
+        // boxes, which is right for a screen — a warning raised by a
+        // hiccup teaches its reader to ignore the warning — and exactly
+        // wrong for a gate, where the same leniency arms an unattended
+        // automatism on evidence nobody could read.
+        if ($watched === null || $watched === [] || $this->addresses() === []) {
+            return false;
+        }
+
+        return $this->boxesBlindToSpam() === 0;
     }
 
     /**

@@ -489,6 +489,17 @@ class OutboundMailController extends AbstractController
             return $guard;
         }
 
+        // **Unavailable like its two siblings**, rather than falling
+        // through to a nullsafe chain that would read « no module » as
+        // « nothing wrong ». `toggleSeeds()` and `routeSeeds()` refuse
+        // here; this one did not, so on an installation without
+        // `inbound_mail` the switch armed itself silently.
+        if ($this->seedMailboxes === null || $this->routing === null) {
+            FlashMessage::set('error', self::SEEDS_UNAVAILABLE);
+
+            return $this->redirect(self::SEEDS_URL);
+        }
+
         $wanted = (string) $request->getBody('enabled', '0') === '1';
 
         // **An automatism may not be armed on a measurement that cannot
@@ -501,8 +512,8 @@ class OutboundMailController extends AbstractController
         // the screen already warns, and a switch that takes a decision no
         // one will re-read afterwards is the one place where a warning is
         // not enough. Turning it OFF is always allowed.
-        if ($wanted && !($this->seedMailboxes?->measuresSpamReliably() ?? false)) {
-            $blind = $this->seedMailboxes?->boxesBlindToSpam() ?? 0;
+        if ($wanted && !$this->seedMailboxes->measuresSpamReliably()) {
+            $blind = $this->seedMailboxes->boxesBlindToSpam();
             FlashMessage::set(
                 'error',
                 $blind > 0
