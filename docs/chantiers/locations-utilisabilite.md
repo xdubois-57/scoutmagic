@@ -261,9 +261,24 @@ mot-clé.
   ouvert sur rien serait exactement l'écran blanc que l'attribut devait
   éviter.
 
-**Reporté.** Le sujet d'aide `gerer-les-locations` vit collé à son plafond de
-500 mots alors qu'il couvre neuf écrans : `design.md` §7.11 dit qu'au-delà de
-400 ce devrait être deux sujets. IT-04 comme IT-06 ont dû raccourcir de la
-prose existante pour faire entrer leur propre section. Issue **#401**, avec
-la recommandation de le découper au moment d'IT-05, qui réorganise justement
+**Le sujet d'aide a fini par être découpé, et c'est la fusion qui l'a
+imposé.** `gerer-les-locations` couvrait neuf écrans et vivait collé à son
+plafond de 500 mots ; `design.md` §7.11 dit qu'au-delà de 400 ce devrait
+être deux sujets. J'avais d'abord raccourci de la prose existante pour faire
+entrer la section « documents » — comme IT-04 l'avait fait pour la sienne —
+et ouvert l'issue **#401** en recommandant de découper à IT-05. En fusionnant
+`main` (qui portait IT-04), les deux sections se sont additionnées : 559 mots,
+rouge. Un quatrième rabotage aurait commencé à retirer de l'information
+réelle.
+
+`modules/rental/help/locations-documents.md` sort donc du lot : rédaction du
+texte, génération, envoi, et ce que l'envoi verrouille. Son chemin est celui
+de l'éditeur de document, **retiré** de `gerer-les-locations` — aucun
+chevauchement, donc pas besoin de trancher lequel des deux sujets s'ouvre
+pour une page que les deux déclareraient. C'est l'option 2 de #401, appliquée
+à l'itération dont c'est le sujet.
+
+**Reporté.** #401 reste ouverte : `gerer-les-locations` est à 487 mots,
+toujours au-dessus des ~400 de la charte, et couvre encore huit écrans. Le
+découpage restant — un sujet par écran — appartient à IT-05, qui réorganise
 la page d'une réservation.

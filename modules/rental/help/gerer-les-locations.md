@@ -5,11 +5,10 @@ summary: Les réservations, les paiements, les documents et le séjour.
 category: Espace membres
 role_min: identified
 question: Comment traiter une demande de location reçue ?
-question: Comment envoyer le contrat de location au locataire ?
 question: Comment savoir si un locataire a payé son acompte ?
 question: Pourquoi une réservation confirmée apparaît-elle dans « À traiter » ?
-paths: /mes-locations, /mes-locations/*, /mes-locations/*/calendrier, /mes-locations/*/gabarits, /mes-locations/*/reservations, /mes-locations/*/reservations/*, /mes-locations/*/reservations/*/sejour, /mes-locations/*/reservations/*/document/*
-related: locations, locations-courrier, config-locations, courrier-entrant, locations-reglages, locations-conformite
+paths: /mes-locations, /mes-locations/*, /mes-locations/*/calendrier, /mes-locations/*/gabarits, /mes-locations/*/reservations, /mes-locations/*/reservations/*, /mes-locations/*/reservations/*/sejour
+related: locations, locations-documents, locations-courrier, config-locations, courrier-entrant, locations-reglages, locations-conformite
 ---
 
 « Mes locations » est l'espace des gestionnaires : les personnes
@@ -53,25 +52,20 @@ communication structurée ; la caution a la sienne et sa restitution se
 note à la main. Le décompte final ajoute ses lignes sans réécrire le
 prix convenu.
 
-## Contrat et facture
+## Les documents
 
-Le texte se rédige dans les **gabarits du bien** ; la boîte Documents y
-renvoie. Générer en produit un PDF, chaque génération créant une version
-de plus sans écraser la précédente — une version signée reste intacte.
+Les actions de la table sont des icônes, leur infobulle nomme le
+document. « Ouvrir » s'ouvre dans un nouvel onglet — sans quoi le PDF
+remplace l'écran de l'application installée sans moyen d'en revenir.
+Hors ligne, un document ne se consulte pas : le site le dit.
 
-**« Envoyer » verrouille** : ensuite le texte passe en lecture seule, le
-locataire en ayant une copie qui ne doit pas changer dans son dos. La
-confirmation vous le dit avant. Il ne télécharge jamais rien du site.
-
-Les actions sont des icônes, leur infobulle nomme le document.
-« Ouvrir » s'ouvre dans un nouvel onglet — sans quoi le PDF remplace
-l'écran de l'application installée sans moyen d'en revenir. Hors ligne,
-un document ne se consulte pas : le site le dit.
+Rédiger, générer et envoyer un contrat ou une facture — et ce que
+l'envoi verrouille — sont décrits dans « Le contrat et la facture d'une
+réservation ».
 
 ## Le courrier reçu
 
-Décrit dans « Le courrier d'une réservation » : les e-mails rattachés,
-les propositions à confirmer, et ce que « Détacher » fait exactement.
+Voir « Le courrier d'une réservation ».
 
 ## Le séjour
 
@@ -81,6 +75,5 @@ facture sans qu'un gestionnaire tranche : ajouter au décompte, retenir
 sur la caution, ou ne pas facturer. Cette page ne fonctionne qu'en
 ligne : sur place sans réseau, photographiez, saisissez au retour.
 
-Les réglages du bien — règles de réservation, tarifs, acompte,
-gabarits, échéances de conformité — vivent dans les onglets du bien,
-et ne changent jamais une réservation déjà existante.
+Les réglages du bien vivent dans ses propres onglets, et ne changent
+jamais une réservation déjà existante.
