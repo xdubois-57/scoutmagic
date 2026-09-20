@@ -420,11 +420,17 @@ bien dire le jour même.
 **Reporté.**
 
 - **#405** reste ouverte : la course entre `saveBookingText()` et
-  `sendDocument()`. Le chantier réservait à IT-07 la modification de
-  `schema.sql` qui la fermerait, mais fermer cette fenêtre demande de rendre
-  l'envoi durable — une colonne de transition sur
-  `rental_booking_document_texts` — donc de faire du verrou un drapeau
-  stocké là où tout le module dérive. Ce n'est pas un choix à faire en
-  passant, dans l'itération des rappels.
+  `sendDocument()`. L'issue recommandait de la fermer **ici**, IT-07 étant
+  l'itération qui touche `schema.sql` — et en la relisant avec le code sous
+  les yeux, cette recommandation est fausse. La colonne qu'elle propose
+  serait écrite là où `markSent()` l'est déjà,
+  `RentalManagementController::sendDocument()` ligne 1183, c'est-à-dire
+  **après** l'appel qui poste l'email ligne 1175 : la fenêtre resterait
+  exactement où elle est. Ce qui la ferme n'est pas une colonne mais le
+  choix du moment où l'envoi prend le verrou — avant l'email, au risque
+  d'un texte gelé sur un envoi qui a échoué, ou après, en gardant la
+  fenêtre. C'est un arbitrage visible par l'utilisateur, pas une ligne de
+  schéma, et il n'a pas sa place en passant dans l'itération des rappels.
+  L'issue a été corrigée en ce sens.
 - **#401** : après le découpage d'IT-05, `gerer-les-locations` est à 381
   mots, sous les ~400 de la charte. L'issue peut être close.
