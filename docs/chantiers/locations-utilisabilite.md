@@ -130,3 +130,102 @@ une modification de câblage pour rien.
   interdit.
 
 **Reporté.** Rien.
+
+---
+
+## IT-02 — Le formulaire public de demande
+
+**Livré.**
+
+- **Deux exemples**, là où le chantier les demande :
+  `placeholder: 'Week-end de section'` sur l'objet de la location,
+  `placeholder: 'Unité du Petit Ry SV025'` sur l'organisation — plus une
+  aide sous l'organisation qui dit qu'elle est facultative, et une sous le
+  téléphone qui dit à quoi il sert.
+- **Téléphone et objet de la location obligatoires**, côté client *et* côté
+  serveur. Côté serveur dans `RentalBookingService::createFromPublicRequest()`,
+  à côté du nom et de l'adresse email, qui y étaient déjà : c'est la porte
+  unique par laquelle passe une demande publique.
+- **L'organisation reste facultative**, et un test le pose explicitement pour
+  que ça ne revienne pas par accident.
+- **Les conditions de location à trois niveaux** :
+  `StandardTemplates::conditions()` livre un texte belge complet — dix
+  sections, de « ce qu'une demande engage » au droit applicable ;
+  `Document\AssetConditions` décide lequel des deux est en vigueur ; une
+  section « Conditions de location » sur les réglages du bien l'édite en
+  texte riche, avec un « Revenir aux conditions standard ».
+- La page publique du bien **affiche** les conditions au lieu de les offrir
+  en `editable()`, et le formulaire de demande les montre **toujours**.
+- Route `POST /mes-locations/{slug}/reglages/conditions` →
+  `RentalPricingController::saveConditions()`, `version` du module montée de
+  1.20.0 à 1.21.0.
+- Documentation : `specifications.md` §22.5, `modules/rental/help/locations-demande.md`,
+  `modules/rental/help/locations-reglages.md`.
+- Tests : `tests/Modules/Rental/Document/AssetConditionsTest.php` (7),
+  trois tests de plus sur `StandardTemplatesTest`, huit sur
+  `RentalRequestControllerTest`, quatre sur `RentalRbacTest` dont la
+  frontière de rôle de la nouvelle route.
+
+**Le défaut réel, et il était pire que « pas documenté ».** Le texte des
+conditions est un contenu `editable()` par bien, et **rien n'était livré**.
+Tant que personne ne l'avait écrit, le formulaire n'affichait aucune
+condition — mais présentait quand même la case « J'accepte les conditions de
+location », obligatoire. Le locataire acceptait le vide, et
+`conditions_hash` en attestait fidèlement : un mécanisme de preuve
+fonctionnant parfaitement au-dessus de rien. Et la seule porte pour écrire ce
+texte était le mode configuration sur la page **publique** du bien, qui
+demande un superadmin : la seule personne capable de corriger n'était pas
+celle qui loue le local.
+
+**Décisions prises seul.**
+
+- **La clé de stockage ne change pas.** Les conditions restent l'entrée
+  `rental_asset_{id}_conditions` du magasin de contenu éditable générique :
+  toute unité qui avait déjà écrit les siennes les garde, et il n'y a rien à
+  migrer. Ce qui change, c'est qui a le droit d'écrire et depuis où.
+- **Pas de nouveau service.** `AssetConditions` est statique et reçoit le
+  magasin en argument. Un service aurait voulu dire un paramètre de
+  constructeur dans trois contrôleurs et deux racines de composition, pour
+  une classe sans état.
+- **`EditableContentService` devient une dépendance *obligatoire*** de
+  `RentalManagementController`, `RentalPricingController` et
+  `RentalPublicController`, et non pas une nullable comme les dépendances
+  inter-modules du module. Un `null` afficherait le texte standard par-dessus
+  les conditions d'une unité, ce qui se lit comme une modification qui n'a pas
+  été enregistrée.
+- **Les conditions ne peuvent pas être vidées.** Un texte vide remettrait la
+  case à cocher au-dessus de rien, c'est-à-dire exactement le défaut qu'on
+  corrige. L'enregistrement est refusé et l'ancien texte reste.
+- **Un texte fait uniquement d'espaces retombe sur le standard.** C'est ce
+  qu'un gestionnaire laisse derrière lui en vidant l'éditeur, et le traiter
+  comme un texte rouvrirait le même trou par une autre porte.
+- **« Réinitialiser » repasse par la même route**, en postant le texte
+  standard — le précédent de la page Gabarits. Une route de moins, et la
+  réinitialisation est traçable comme l'édition qu'elle est.
+- **La section s'édite dans un dialogue**, comme les trois autres de la page
+  (`design.md` §1.9) : la page des réglages n'a aucun bouton primaire à elle,
+  et un éditeur ouvert en permanence en aurait introduit un.
+- **Le texte standard ne porte aucun jeton `{{ … }}`**, et un test l'exige :
+  il est lu par un visiteur qui n'a pas encore de réservation, donc rien ne
+  pourrait y être substitué — des accolades y seraient pires que dans un
+  contrat.
+
+**Divergences avec le document de chantier.**
+
+- **L'issue #357 demandait aussi l'organisation obligatoire ; le chantier
+  l'écarte, et c'est le chantier qui fait autorité.** Signalé ici parce que
+  les deux documents sont dans le dépôt et se contredisent sur ce point.
+- **Le chantier dit « `Document\StandardTemplates`, même précédent ».**
+  `StandardTemplates` n'expose jusqu'ici que des corps de `DocumentType` via
+  `forType()`. Les conditions n'en sont pas un et n'en deviennent pas un :
+  elles y rejoignent le contrat et la facture comme troisième texte livré,
+  avec leur propre méthode et un docbloc qui dit pourquoi elles sont
+  l'exception.
+- **`ARCHITECTURE.md` §8.55 décrivait une réalité que le code contredisait
+  déjà** : « The editors are plain HTML textareas, not the rich-text modal ».
+  C'est faux depuis que la page Gabarits est passée au champ de texte riche
+  générique — seul l'éditeur de la copie d'une réservation est encore un
+  `textarea`. Corrigé ici, puisque c'est ici qu'on l'a vu ; IT-06 finira le
+  travail en s'occupant du second éditeur.
+
+**Reporté.** Rien.

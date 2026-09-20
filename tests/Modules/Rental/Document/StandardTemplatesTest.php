@@ -14,7 +14,7 @@ use Modules\Rental\Document\StandardTemplates;
 use PHPUnit\Framework\TestCase;
 
 /**
- * The two bodies ScoutMagic ships as a starting point.
+ * The three bodies ScoutMagic ships as a starting point.
  *
  * The assertion that matters most is the first one: a keyword renamed in
  * DocumentKeywords must never leave these two shipping with literal braces
@@ -93,5 +93,56 @@ class StandardTemplatesTest extends TestCase
                 $this->assertNull($standard, $type->value . ' is uploaded, not generated.');
             }
         }
+    }
+
+    // ── The conditions (§22.5) ──────────────────────────────────────────
+
+    /**
+     * The odd one out: not a DocumentType, and read by a visitor who has no
+     * booking yet — so there is nothing to substitute into it. A stray
+     * `{{ … }}` would therefore reach a renter as literal braces with
+     * nothing to replace them, which is worse here than in a contract.
+     */
+    public function testTheConditionsCarryNoPlaceholderAtAll(): void
+    {
+        $this->assertStringNotContainsString('{{', StandardTemplates::conditions());
+    }
+
+    public function testTheConditionsSayTheThingsALettingHasToSay(): void
+    {
+        // Not a wording test — the text is meant to be edited. These are the
+        // subjects a renter has to have been told about before ticking a box
+        // that the site then hashes as proof.
+        $conditions = StandardTemplates::conditions();
+
+        foreach ([
+            'acompte',
+            'caution',
+            'annulation',
+            'état des lieux',
+            'assurance',
+            'capacité maximale',
+            'droit belge',
+        ] as $subject) {
+            $this->assertStringContainsString(
+                $subject,
+                mb_strtolower($conditions),
+                'The shipped conditions must cover: ' . $subject
+            );
+        }
+    }
+
+    public function testTheConditionsSurviveTheSanitizerUnchanged(): void
+    {
+        // They are stored and re-rendered through Core\Security\HtmlSanitizer
+        // like any other rich text. A tag it strips would mean the shipped
+        // body and the stored one differ, and « réinitialiser » would never
+        // read as standard again.
+        $conditions = StandardTemplates::conditions();
+        $sanitized = (new \Core\Security\HtmlSanitizer())->sanitize($conditions);
+
+        $strip = static fn(string $html): string => (string) preg_replace('/\s+/u', '', $html);
+
+        $this->assertSame($strip($conditions), $strip($sanitized));
     }
 }

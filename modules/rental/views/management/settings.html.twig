@@ -14,6 +14,10 @@
 
   Anchors rather than tabs, like the page they came from: every section still
   renders, so Ctrl-F and a printed page keep working.
+
+  Four blocks since §22.5: the conditions a renter accepts joined them, and
+  they belong here rather than in the configuration mode, where only a
+  superadmin could write them.
 #}
 {% block content %}
     <div class="page-wide">
@@ -42,6 +46,7 @@
                 <a class="btn btn-sm btn-outline-secondary" href="#regles">Règles de réservation</a>
                 <a class="btn btn-sm btn-outline-secondary" href="#tarification">Tarification</a>
                 <a class="btn btn-sm btn-outline-secondary" href="#paiements">Acompte, solde et caution</a>
+                <a class="btn btn-sm btn-outline-secondary" href="#conditions">Conditions de location</a>
             </div>
         </nav>
 
@@ -50,6 +55,8 @@
         {% include '@rental/management/_pricing.html.twig' %}
 
         {% include '@rental/management/_payments.html.twig' %}
+
+        {% include '@rental/management/_conditions.html.twig' %}
     </div>
 {% endblock %}
 
@@ -61,4 +68,9 @@
        opens the one a link names — « ce bien n'a encore aucun tarif »
        points straight at #tarification-edit (design.md §1.9). #}
     <script src="{{ asset('/assets/js/section-editor.js') }}" defer></script>
+    {# The conditions editor. type="module" — the file uses `export`, and a
+       classic script tag rejects it with a SyntaxError before a line of it
+       runs. The shared toolbar wiring it calls (rich-text-link.js) is
+       already loaded by base.html.twig for every page. #}
+    <script type="module" src="{{ asset('/assets/js/rich-text-form-field.js') }}"></script>
 {% endblock %}

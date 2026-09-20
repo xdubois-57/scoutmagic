@@ -10213,6 +10213,10 @@ if ($isEnabled('rental')) {
             $rentalAuthorizationService,
             $rentalAssetRepository,
             $scoutYearResolver,
+            // The conditions a renter ticks live in the generic
+            // editable-content store, which sanitizes them on the way in
+            // (Modules\Rental\Document\AssetConditions, §22.5).
+            $editableContentService,
             $rentalPaymentService
         )
     );
@@ -10225,7 +10229,10 @@ if ($isEnabled('rental')) {
             $scoutYearResolver,
             $rentalAvailabilityService,
             $rentalPricingService,
-            new \Core\View\MonthGrid\DayStateGridBuilder()
+            new \Core\View\MonthGrid\DayStateGridBuilder(),
+            // Read-only: the public asset page RENDERS the conditions, and
+            // no longer offers to edit them in place (§22.5).
+            $editableContentService
         )
     );
     // Documents: contracts, invoices and whatever a manager attaches
@@ -10414,6 +10421,8 @@ if ($isEnabled('rental')) {
             $rentalPricingService,
             $memberService,
             new \Core\View\MonthGrid\DayStateGridBuilder(),
+            // The asset's rental conditions, shown on its settings page.
+            $editableContentService,
             $rentalPaymentService,
             $rentalDocumentService,
             $rentalBookingMailService,

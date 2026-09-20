@@ -42,10 +42,14 @@ class ModuleManifestTest extends TestCase
      * 1.18.0 is a bump with no schema change behind it: the module now
      * names its own receivables on « Paiements attendus »
      * (Finance\RentalReceivableDescriber), which is something a unit sees.
+     *
+     * 1.21.0 is another: an asset's rental conditions moved out of the
+     * configuration mode and into its own settings section (§22.5), which
+     * is a new route and a new screen — something a unit sees.
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.20.0', $this->manifest->version);
+        $this->assertSame('1.21.0', $this->manifest->version);
     }
 
     /**
@@ -93,6 +97,7 @@ class ModuleManifestTest extends TestCase
             '/mes-locations/{slug}/reglages/frais',
             '/mes-locations/{slug}/reglages/frais-supprimer',
             '/mes-locations/{slug}/reglages/paiements',
+            '/mes-locations/{slug}/reglages/conditions',
             '/admin/locations/compte',
             '/admin/locations/create',
             '/admin/locations/general',

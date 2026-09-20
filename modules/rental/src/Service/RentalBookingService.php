@@ -71,7 +71,8 @@ class RentalBookingService implements OccupancyProvider
      *     organisation: ?string,
      *     purpose: ?string,
      *     comment: ?string
-     * } $renter
+     * } $renter `phone` and `purpose` are required and refused when blank;
+     *   `organisation` and `comment` are genuinely optional.
      * @param array{
      *     conditions_version: ?string,
      *     conditions_text: ?string,
@@ -96,6 +97,8 @@ class RentalBookingService implements OccupancyProvider
     ): array {
         $name = trim($renter['name']);
         $email = trim($renter['email']);
+        $phone = trim((string) ($renter['phone'] ?? ''));
+        $purpose = trim((string) ($renter['purpose'] ?? ''));
 
         if ($name === '') {
             throw new RentalException('Votre nom est obligatoire.');
@@ -103,6 +106,25 @@ class RentalBookingService implements OccupancyProvider
 
         if ($email === '' || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
             throw new RentalException('Une adresse email valide est obligatoire.');
+        }
+
+        // Required as of §22.5, and required HERE rather than only in the
+        // browser: a `required` attribute is a convenience for the visitor,
+        // never a guarantee to the unit. A manager answering a request needs
+        // a number to call when an arrival goes wrong, and needs to know
+        // what the hall is being used for before saying yes — a request
+        // giving neither costs the first two e-mails of every file.
+        //
+        // The organisation is deliberately NOT one of these: a family
+        // letting the hall for a communion has none, and making it
+        // mandatory only makes them invent an answer (§22.5, and the
+        // chantier's own « Écarté, explicitement »).
+        if ($phone === '') {
+            throw new RentalException('Votre téléphone est obligatoire.');
+        }
+
+        if ($purpose === '') {
+            throw new RentalException("L'objet de la location est obligatoire.");
         }
 
         // Both boxes are required, and the second is deliberately NOT framed
@@ -129,9 +151,9 @@ class RentalBookingService implements OccupancyProvider
             [
                 'name' => $name,
                 'email' => $email,
-                'phone' => $renter['phone'] ?? null,
+                'phone' => $phone,
                 'organisation' => $renter['organisation'] ?? null,
-                'purpose' => $renter['purpose'] ?? null,
+                'purpose' => $purpose,
                 'comment' => $renter['comment'] ?? null,
             ],
             $estimatedPrice,

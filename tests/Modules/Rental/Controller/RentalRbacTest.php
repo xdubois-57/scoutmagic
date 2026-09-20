@@ -191,7 +191,8 @@ class RentalRbacTest extends TestCase
             $availabilityService,
             $pricingService,
             $memberService,
-            new DayStateGridBuilder()
+            new DayStateGridBuilder(),
+            new \Core\View\EditableContentService(new \Core\View\EditableContentRepository($this->pdo))
         );
         $this->publicController = new RentalPublicController(
             $this->twig,
@@ -200,7 +201,8 @@ class RentalRbacTest extends TestCase
             $scoutYearResolver,
             $availabilityService,
             $pricingService,
-            new DayStateGridBuilder()
+            new DayStateGridBuilder(),
+            new \Core\View\EditableContentService(new \Core\View\EditableContentRepository($this->pdo))
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -320,14 +322,16 @@ class RentalRbacTest extends TestCase
     }
 
     /** POST one of the settings page's write actions. */
-    private function dispatchSettingsWrite(string $slug, string $suffix, string $action): Response
+    /** @param array<string, mixed> $body */
+    private function dispatchSettingsWrite(string $slug, string $suffix, string $action, array $body = []): Response
     {
         return $this->dispatchPost(
             '/mes-locations/{slug}/reglages/' . $suffix,
             '/mes-locations/' . $slug . '/reglages/' . $suffix,
             \Modules\Rental\Controller\RentalPricingController::class,
             $action,
-            'identified'
+            'identified',
+            $body
         );
     }
 
@@ -365,7 +369,8 @@ class RentalRbacTest extends TestCase
                     $this->availabilityServiceFor(),
                     $this->authorizationService,
                     $this->assetRepository,
-                    $this->scoutYearResolver
+                    $this->scoutYearResolver,
+                    new \Core\View\EditableContentService(new \Core\View\EditableContentRepository($this->pdo))
                 ),
             default => $this->publicController,
         };
@@ -943,7 +948,17 @@ class RentalRbacTest extends TestCase
         // The current tariff, as text, in French money.
         $this->assertStringContainsString('125,50 €', $body);
 
-        foreach (['#tarification-edit', '#regles-edit', '#grille-edit', '#periode-add', '#categorie-add', '#frais-add'] as $target) {
+        foreach ([
+            '#tarification-edit',
+            '#regles-edit',
+            '#grille-edit',
+            '#periode-add',
+            '#categorie-add',
+            '#frais-add',
+            // The conditions a renter ticks moved here from the
+            // configuration mode (§22.5) and read as a card like the rest.
+            '#conditions-edit',
+        ] as $target) {
             $this->assertStringContainsString('data-bs-target="' . $target . '"', $body, $target);
         }
 
@@ -956,13 +971,14 @@ class RentalRbacTest extends TestCase
             'reglages/periode' => 'period-form',
             'reglages/categorie' => 'category-form',
             'reglages/frais' => 'fee-form',
+            'reglages/conditions' => 'conditions-form',
         ] as $action => $formId) {
             $this->assertStringContainsString('action="/mes-locations/local/' . $action . '" id="' . $formId . '"', $body, $action);
             $this->assertStringContainsString('form="' . $formId . '"', $body, $formId);
         }
 
         // And every dialog is one section-editor.js knows about.
-        $this->assertSame(6, substr_count($body, 'data-section-editor'), $body);
+        $this->assertSame(7, substr_count($body, 'data-section-editor'), $body);
     }
 
     public function testTheSettingsPageShowsNoPrimaryOfItsOwn(): void
@@ -1081,7 +1097,83 @@ class RentalRbacTest extends TestCase
             'frais' => ['frais', 'addFee'],
             'frais supprimé' => ['frais-supprimer', 'deleteFee'],
             'paiements' => ['paiements', 'savePayments'],
+            'conditions' => ['conditions', 'saveConditions'],
         ];
+    }
+
+    // ── The conditions a renter ticks (§22.5) ───────────────────────────
+
+    /**
+     * The settings page shows the text that is actually in force, which is
+     * the shipped standard while nobody has written any — and says so.
+     * Before §22.5 the conditions were generic editable content written in
+     * the CONFIGURATION mode on the asset's public page, which needs a
+     * superadmin: the one person able to write them was not the one letting
+     * the hall, and the request form made a visitor tick « J'accepte les
+     * conditions de location » over an empty block.
+     */
+    public function testTheSettingsPageShowsTheStandardConditionsWhileNobodyWroteAny(): void
+    {
+        $this->createAsset('Local', 'local');
+        $this->loginAsManagerOf('local');
+
+        $body = (string) $this->dispatchSettings('local')->getBody();
+
+        $this->assertStringContainsString('Conditions de location', $body);
+        $this->assertStringContainsString('conditions standard', $body);
+        $this->assertStringContainsString('Ces conditions s\'appliquent à toute demande', $body);
+    }
+
+    public function testAManagerWritesTheConditionsFromTheSettingsPage(): void
+    {
+        $this->createAsset('Local', 'local');
+        $this->loginAsManagerOf('local');
+
+        $this->dispatchSettingsWrite('local', 'conditions', 'saveConditions', [
+            'conditions' => '<p>Le local est rendu balayé.</p>',
+        ]);
+
+        $this->assertStringContainsString(
+            'Le local est rendu balayé.',
+            (string) $this->dispatchSettings('local')->getBody()
+        );
+    }
+
+    /**
+     * Emptying the editor would put the tick-box back over nothing, which
+     * is the exact defect §22.5 exists to close. Refused, and the previous
+     * text stays.
+     */
+    public function testTheConditionsCannotBeEmptied(): void
+    {
+        $this->createAsset('Local', 'local');
+        $this->loginAsManagerOf('local');
+
+        $this->dispatchSettingsWrite('local', 'conditions', 'saveConditions', [
+            'conditions' => '<p>Le local est rendu balayé.</p>',
+        ]);
+        $this->dispatchSettingsWrite('local', 'conditions', 'saveConditions', ['conditions' => '<p>  </p>']);
+
+        $this->assertStringContainsString(
+            'Le local est rendu balayé.',
+            (string) $this->dispatchSettings('local')->getBody()
+        );
+    }
+
+    /**
+     * The public page RENDERS the conditions and no longer offers to edit
+     * them in place: that door was the configuration mode's, which belongs
+     * to a superadmin rather than to the people who let the hall (§22.5).
+     */
+    public function testThePublicAssetPageShowsTheConditionsWithoutOfferingToEditThem(): void
+    {
+        $this->createAsset('Local', 'local');
+
+        $body = (string) $this->dispatchPublicAsset('local')->getBody();
+
+        $this->assertStringContainsString('Conditions de location', $body);
+        $this->assertStringContainsString('Ces conditions s\'appliquent à toute demande', $body);
+        $this->assertStringNotContainsString('data-key="rental_asset_', $body);
     }
 
     public function testTheManageButtonIsShownToAManager(): void

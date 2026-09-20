@@ -236,6 +236,7 @@ class RentalManagementControllerTest extends TestCase
             $this->pricingService,
             $memberService,
             new DayStateGridBuilder(),
+            new \Core\View\EditableContentService(new \Core\View\EditableContentRepository($this->pdo)),
             $this->paymentService,
             $this->documentService,
             $this->recordingMailService(),

@@ -15,7 +15,9 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\View\EditableContentService;
 use Core\Service\IntegerInput;
+use Modules\Rental\Document\AssetConditions;
 use Modules\Rental\Payment\DepositMode;
 use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Pricing\PricingSettings;
@@ -56,6 +58,12 @@ class RentalPricingController extends AbstractController
         private RentalAuthorizationService $authorizationService,
         private RentalAssetRepository $assetRepository,
         private ScoutYearResolver $scoutYearResolver,
+        /**
+         * The asset's rental conditions live in the generic
+         * editable-content store (Document\AssetConditions), which is what
+         * sanitizes them on the way in.
+         */
+        private EditableContentService $editableContentService,
         /**
          * Optional (§6.19): null on an installation without the Finance
          * module, where the payments block explains that instead of
@@ -259,6 +267,49 @@ class RentalPricingController extends AbstractController
             );
 
             return 'Les règles de réservation ont été enregistrées.';
+        });
+    }
+
+    /**
+     * POST /mes-locations/{slug}/reglages/conditions — the text a renter
+     * ticks on the public request form (§22.5).
+     *
+     * **Here rather than in the configuration mode**, which is where it used
+     * to be edited: that mode belongs to a superadmin, while the conditions
+     * a hall is let under are the business of the people who let it. An
+     * asset whose managers could not write its conditions is how so many
+     * ended up with none at all — and the request form still made a visitor
+     * tick « J'accepte les conditions de location » over an empty block.
+     *
+     * A « réinitialiser » posts the standard body back, exactly like the
+     * template page: one write path, no second route, and the reset is
+     * auditable as the ordinary edit it is.
+     *
+     * The rich text is sanitized on the way in by `EditableContentService`
+     * itself (SECURITY.md §7).
+     *
+     * @param array<string, string> $params
+     */
+    public function saveConditions(Request $request, array $params): Response
+    {
+        return $this->guarded($request, $params, 'conditions', function (RentalAsset $asset) use ($request): string {
+            $body = (string) $request->getBody('conditions', '');
+
+            if (trim(strip_tags($body)) === '') {
+                throw new RentalException(
+                    'Les conditions de location ne peuvent pas être vides : '
+                    . 'un locataire doit les accepter avant d\'envoyer sa demande.'
+                );
+            }
+
+            $this->editableContentService->set(
+                AssetConditions::key($asset->id),
+                $body,
+                'rich_text',
+                AuthSession::getUserAccountId() ?? 0
+            );
+
+            return 'Les conditions de location ont été enregistrées.';
         });
     }
 

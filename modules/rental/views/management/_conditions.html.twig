@@ -1,0 +1,109 @@
+{#
+  "Conditions de location" — the text a renter ticks on the public request
+  form, and whose hash proves afterwards what they accepted (§22.5).
+
+  **Here, and no longer in the configuration mode.** It used to be generic
+  editable content edited in place on the asset's PUBLIC page, which needs a
+  superadmin — so the one person able to write it was not the one letting the
+  hall, and most assets had none. The request form still showed the mandatory
+  « J'accepte les conditions de location » tick-box over an empty block: the
+  renter accepted nothing, and the acceptance hash attested to it faithfully.
+
+  Never empty now: Document\AssetConditions falls back to the standard Belgian
+  body the module ships, so this card always shows the text that is actually
+  in force.
+
+  A READ card and a dialog, like every other block of this page (design.md
+  §1.9).
+
+  Requires `asset`, `conditions_html`, `conditions_are_standard` and
+  `standard_conditions`.
+#}
+<div class="card mb-4" id="conditions">
+    <div class="card-body">
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-1">
+            <h2 class="h5 mb-0">Conditions de location</h2>
+            <button type="button" class="btn btn-sm btn-outline-secondary"
+                    data-bs-toggle="modal" data-bs-target="#conditions-edit">
+                <i class="bi bi-pencil" aria-hidden="true"></i>
+                Modifier
+            </button>
+        </div>
+        <p class="text-body-secondary small mb-3">
+            Ce texte s'affiche sur la page publique du bien et sur le formulaire de demande, où
+            le locataire doit l'accepter. Le site conserve le texte <strong>tel qu'il a été
+            montré</strong> à chaque demande : le modifier ne change rien à ce qu'un locataire
+            a déjà accepté.
+        </p>
+
+        {% if conditions_are_standard %}
+            <div class="alert alert-info">
+                <p class="mb-0">
+                    Ce sont actuellement les <strong>conditions standard</strong> fournies par
+                    ScoutMagic pour la location d'un bien scout en Belgique&nbsp;: un point de
+                    départ à relire et à adapter, pas un avis juridique. Tant que vous ne les
+                    modifiez pas, c'est ce texte-là qui est présenté aux locataires.
+                </p>
+            </div>
+        {% endif %}
+
+        <div class="border rounded-3 p-3 bg-body-tertiary rich-text"
+             style="max-height: 18rem; overflow-y: auto;">{{ conditions_html|raw }}</div>
+    </div>
+</div>
+
+{# Outside the card: a modal nested in one inherits its stacking context,
+   and Bootstrap's backdrop then renders above the dialog it is meant to
+   sit behind. #}
+{% embed 'partials/modal.html.twig' with {
+    id: 'conditions-edit',
+    title: 'Conditions de location',
+    section_editor: true,
+    size: 'xl',
+    asset: asset,
+    conditions_html: conditions_html,
+    conditions_are_standard: conditions_are_standard,
+    standard_conditions: standard_conditions,
+} only %}
+    {% block body %}
+        {% if not conditions_are_standard %}
+            <div class="alert alert-light border">
+                <p class="mb-2 small">
+                    Ces conditions ont été personnalisées. Vous pouvez revenir aux conditions
+                    standard fournies par ScoutMagic — le texte ci-dessous sera alors
+                    entièrement remplacé.
+                </p>
+                <details>
+                    <summary class="small">Voir les conditions standard avant de réinitialiser</summary>
+                    <div class="border rounded-3 p-3 mt-2 bg-body rich-text">{{ standard_conditions|raw }}</div>
+                </details>
+                <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/conditions" class="mt-2"
+                      data-confirm="Revenir aux conditions standard ? Le texte que vous avez écrit sera perdu. Les demandes déjà reçues gardent le texte qu'elles ont accepté.">
+                    {{ csrf_field()|raw }}
+                    <input type="hidden" name="conditions" value="{{ standard_conditions }}">
+                    <button type="submit" class="btn btn-sm btn-outline-danger">
+                        Revenir aux conditions standard
+                    </button>
+                </form>
+            </div>
+        {% endif %}
+
+        <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/conditions" id="conditions-form">
+            {{ csrf_field()|raw }}
+
+            {% include 'partials/rich_text_form_field.html.twig' with {
+                field_id: 'conditions-body',
+                field_name: 'conditions',
+                value: conditions_html,
+                label: 'Texte des conditions',
+                help: 'Mettez en forme le texte comme ailleurs sur le site. Il ne peut pas être vide :
+                       un locataire doit pouvoir accepter quelque chose.',
+                rows_height: '24rem',
+            } %}
+        </form>
+    {% endblock %}
+    {% block footer %}
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+        <button type="submit" form="conditions-form" class="btn btn-primary">Enregistrer les conditions</button>
+    {% endblock %}
+{% endembed %}

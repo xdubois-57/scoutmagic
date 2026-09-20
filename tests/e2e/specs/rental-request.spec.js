@@ -178,6 +178,11 @@ test.describe('Rentals', () => {
         await renter.locator('input[name="persons"]').fill('35');
         await renter.locator('input[name="name"]').fill('Jeanne Martin');
         await renter.locator('input[name="email"]').fill('jeanne.martin@example.be');
+        // The phone and the purpose are required since §22.5; the
+        // organisation is deliberately not, and this scenario fills it
+        // because a movement letting a hall is the ordinary case.
+        await renter.locator('input[name="phone"]').fill('0470 12 34 56');
+        await renter.locator('input[name="purpose"]').fill('Week-end de section');
         await renter.locator('input[name="organisation"]').fill('Les Scouts de Nulle Part');
 
         // Both are required, and both are an acknowledgement rather than a

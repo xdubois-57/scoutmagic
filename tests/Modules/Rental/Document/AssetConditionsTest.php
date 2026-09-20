@@ -1,0 +1,95 @@
+<?php
+/**
+ * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+ */
+
+declare(strict_types=1);
+
+namespace Tests\Modules\Rental\Document;
+
+use Core\View\EditableContentRepository;
+use Core\View\EditableContentService;
+use Modules\Rental\Document\AssetConditions;
+use Modules\Rental\Document\StandardTemplates;
+use PHPUnit\Framework\TestCase;
+use Tests\DatabaseTestHelper;
+
+/**
+ * The conditions a renter ticks on the public request form (§22.5).
+ *
+ * The first test is the one that matters: the tick-box is mandatory, and
+ * until §22.5 an asset whose managers had written nothing showed it over an
+ * empty block. The renter accepted nothing, and `conditions_hash` attested
+ * to it faithfully.
+ *
+ * @group database
+ */
+#[\PHPUnit\Framework\Attributes\Group('database')]
+class AssetConditionsTest extends TestCase
+{
+    private \PDO $pdo;
+    private EditableContentService $store;
+
+    protected function setUp(): void
+    {
+        $this->pdo = DatabaseTestHelper::createTestDatabase();
+        $this->store = new EditableContentService(new EditableContentRepository($this->pdo));
+    }
+
+    public function testAnAssetThatWroteNothingStillHasCompleteConditions(): void
+    {
+        $text = AssetConditions::textFor($this->store, 42);
+
+        $this->assertNotSame('', trim($text));
+        $this->assertSame(StandardTemplates::conditions(), $text);
+    }
+
+    public function testTheUnitsOwnWordingTakesOver(): void
+    {
+        $this->store->set(AssetConditions::key(42), '<p>Le local est rendu balayé.</p>', 'rich_text', 1);
+
+        $this->assertSame('<p>Le local est rendu balayé.</p>', AssetConditions::textFor($this->store, 42));
+    }
+
+    /**
+     * Whitespace only is not a text. It is what a manager leaves behind by
+     * emptying the editor, and treating it as one would put the tick-box
+     * back over nothing.
+     */
+    public function testAWhitespaceOnlyTextFallsBackToTheStandard(): void
+    {
+        $this->store->set(AssetConditions::key(42), '   ', 'rich_text', 1);
+
+        $this->assertSame(StandardTemplates::conditions(), AssetConditions::textFor($this->store, 42));
+    }
+
+    public function testConditionsArePerAsset(): void
+    {
+        $this->store->set(AssetConditions::key(42), '<p>Celles du local.</p>', 'rich_text', 1);
+
+        $this->assertSame('<p>Celles du local.</p>', AssetConditions::textFor($this->store, 42));
+        $this->assertSame(StandardTemplates::conditions(), AssetConditions::textFor($this->store, 43));
+    }
+
+    /**
+     * The key is the one the public page has always read, so a unit that
+     * already wrote its conditions keeps them and nothing is migrated.
+     */
+    public function testTheStorageKeyIsUnchanged(): void
+    {
+        $this->assertSame('rental_asset_42_conditions', AssetConditions::key(42));
+    }
+
+    public function testTheStandardIsRecognisedAsSuchEvenAfterTheSanitizerReflowedIt(): void
+    {
+        $this->store->set(AssetConditions::key(42), StandardTemplates::conditions(), 'rich_text', 1);
+
+        $this->assertTrue(AssetConditions::isStandard(AssetConditions::textFor($this->store, 42)));
+    }
+
+    public function testACustomisedTextIsNotTheStandard(): void
+    {
+        $this->assertFalse(AssetConditions::isStandard('<p>Le local est rendu balayé.</p>'));
+    }
+}

@@ -533,6 +533,10 @@ async function requestTheHall(browser) {
         await page.locator('input[name="persons"]').fill('28');
         await page.locator('input[name="name"]').fill('Sophie Delvaux');
         await page.locator('input[name="email"]').fill('sophie.delvaux@example.be');
+        // Required since §22.5, in the browser as well as on the server:
+        // without them the form simply does not submit.
+        await page.locator('input[name="phone"]').fill('0470 12 34 56');
+        await page.locator('input[name="purpose"]').fill('Week-end de section');
         await page.locator('input[name="accept_conditions"]').check();
         await page.locator('input[name="accept_privacy"]').check();
 

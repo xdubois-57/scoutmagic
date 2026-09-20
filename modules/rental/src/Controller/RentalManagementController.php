@@ -19,6 +19,7 @@ use Core\Http\Response;
 use Core\Member\MemberService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\View\EditableContentService;
 use Core\Service\DateInput;
 use Core\Service\IntegerInput;
 use Core\View\MonthGrid\DayState;
@@ -35,6 +36,7 @@ use Modules\Rental\Booking\MilestoneEvidence;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Booking\RenterDecision;
 use Modules\Rental\Calendar\PublishFrom;
+use Modules\Rental\Document\AssetConditions;
 use Modules\Rental\Document\DocumentKeywords;
 use Modules\Rental\Document\DocumentType;
 use Modules\Rental\Document\StandardTemplates;
@@ -151,6 +153,14 @@ class RentalManagementController extends AbstractController
         private MemberService $memberService,
         private DayStateGridBuilder $gridBuilder,
         /**
+         * The asset's rental conditions (§22.5) live in the generic
+         * editable-content store, and the settings page reads them.
+         * Required rather than nullable, deliberately: a null would render
+         * the shipped standard text over a unit's own conditions, which
+         * reads as an edit that did not save.
+         */
+        private EditableContentService $editableContentService,
+        /**
          * Optional (§6.19): null on an installation without the Finance
          * module, where the payment panel says so rather than rendering a
          * dead section.
@@ -261,6 +271,14 @@ class RentalManagementController extends AbstractController
                 $this->scoutYearId()
             ),
             'deposit_modes' => DepositMode::all(),
+            // The conditions a renter ticks (§22.5). Never empty: the
+            // shipped standard Belgian body is the default, and the card
+            // says which of the two regimes is in force.
+            'conditions_html' => AssetConditions::textFor($this->editableContentService, $asset->id),
+            'conditions_are_standard' => AssetConditions::isStandard(
+                AssetConditions::textFor($this->editableContentService, $asset->id)
+            ),
+            'standard_conditions' => StandardTemplates::conditions(),
             'csrf_token' => CsrfGuard::generateToken(),
             'current_path' => '/mes-locations/' . $asset->slug . '/reglages',
         ]);
