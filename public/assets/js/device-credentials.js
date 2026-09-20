@@ -47,6 +47,25 @@
         }
     }
 
+    /**
+     * What the error box says when the request came back without a
+     * secret: the server's own wording when it sent one, a network line
+     * when the request never reached it, and a generic French sentence
+     * otherwise — never a status code, which tells a reader nothing.
+     *
+     * @param {{ok: boolean, status: number, data: any}} res
+     * @returns {string}
+     */
+    function failureMessage(res) {
+        if (res.status === 0) {
+            return 'Erreur réseau.';
+        }
+
+        return typeof res.data?.error === 'string'
+            ? res.data.error
+            : 'Impossible d\'enregistrer cet appareil.';
+    }
+
     addButton.addEventListener('click', function () {
         clearError();
         addButton.disabled = true;
@@ -54,13 +73,7 @@
         api.postJson('/api/account/devices', { label: labelInput ? labelInput.value : '' })
             .then(function (res) {
                 if (!res.data?.success || typeof res.data.secret !== 'string') {
-                    showError(
-                        res.status === 0
-                            ? 'Erreur réseau.'
-                            : (typeof res.data?.error === 'string'
-                                ? res.data.error
-                                : 'Impossible d\'enregistrer cet appareil.')
-                    );
+                    showError(failureMessage(res));
                     addButton.disabled = false;
                     return;
                 }
