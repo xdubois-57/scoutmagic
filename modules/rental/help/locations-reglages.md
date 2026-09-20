@@ -8,20 +8,20 @@ discovery: 3
 question: Comment fixer le prix de location d'un local ?
 question: Comment imposer une durée minimum de réservation ?
 question: Comment demander une caution sur une location ?
+question: Comment changer le délai d'un rappel sur un bien ?
 paths: /mes-locations/*/reglages
 related: gerer-les-locations, config-locations, locations-conformite
 ---
 
-Trois sections, trois questions différentes. Chacune se lit d'un coup
+Quatre sections, quatre questions différentes. Chacune se lit d'un coup
 d'œil et s'ouvre pour être modifiée : le bouton « Modifier » de la carte
 ouvre le formulaire correspondant.
 
 ## Règles de réservation
 
-Ce qu'un visiteur a le droit de **demander** : une durée minimum et
-maximum, un préavis, un horizon au-delà duquel c'est trop tôt, une
-capacité et un battement après chaque location. Vous pouvez aussi
-n'autoriser l'arrivée que certains jours.
+Ce qu'un visiteur a le droit de **demander** : durée minimum et maximum,
+préavis, horizon au-delà duquel c'est trop tôt, capacité, battement après
+chaque location, jours d'arrivée autorisés.
 
 Une règle laissée à zéro ne s'applique pas. Et une règle n'est pas une
 occupation : un jour à l'intérieur du préavis reste libre, il s'affiche
@@ -49,6 +49,16 @@ location.
 Le compte bancaire sur lequel les virements sont attendus ne se choisit
 pas ici : il est fixé par le Staff d'Unité, parce que la liste des
 comptes porte les IBAN de l'unité.
+
+## Rappels
+
+Une ligne par rappel : un nombre de jours et une case « Actif ».
+
+Un champ vide **reprend la valeur de l'unité**, affichée juste en
+dessous — c'est le nombre qui s'appliquera. **0** veut dire « le jour
+même ». Vide ne veut donc jamais dire « jamais » : pour supprimer un
+rappel sur ce bien, décochez la case. C'est ce qu'on fait sur une
+remorque, qui n'a ni état des lieux ni caution.
 
 > Modifier ces réglages ne change **aucune réservation existante** : le
 > prix annoncé est figé au moment de la demande, et le prix convenu au

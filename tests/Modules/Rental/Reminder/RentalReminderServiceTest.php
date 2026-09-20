@@ -401,6 +401,102 @@ class RentalReminderServiceTest extends TestCase
         $this->assertTrue($this->reminderRepository->claim('booking', $booking->id, ReminderKind::CONTRACT_MISSING, $today));
     }
 
+    // ── …unless it is worth asking again (IT-07) ────────────────────────
+
+    /**
+     * Money that has not arrived is worth asking about a second time: the
+     * answer can change between two Mondays. The cadence lives in the
+     * claim's WHERE clause rather than in a loosened unique index — that
+     * index is matched by NAME and never dropped, so redefining it would
+     * have changed nothing at all on an installed site.
+     */
+    public function testAnUnpaidDepositIsChasedAgainAfterTheCadenceHasPassed(): void
+    {
+        $booking = $this->createBooking();
+
+        $this->assertTrue($this->reminderRepository->claim(
+            'booking',
+            $booking->id,
+            ReminderKind::DEPOSIT_MISSING,
+            new \DateTimeImmutable('2027-06-01'),
+            7
+        ));
+
+        $this->assertTrue($this->reminderRepository->claim(
+            'booking',
+            $booking->id,
+            ReminderKind::DEPOSIT_MISSING,
+            new \DateTimeImmutable('2027-06-08'),
+            7
+        ));
+    }
+
+    public function testTheSameReminderIsStillRefusedBeforeTheCadenceHasPassed(): void
+    {
+        $booking = $this->createBooking();
+
+        $this->reminderRepository->claim(
+            'booking',
+            $booking->id,
+            ReminderKind::DEPOSIT_MISSING,
+            new \DateTimeImmutable('2027-06-01'),
+            7
+        );
+
+        $this->assertFalse($this->reminderRepository->claim(
+            'booking',
+            $booking->id,
+            ReminderKind::DEPOSIT_MISSING,
+            new \DateTimeImmutable('2027-06-05'),
+            7
+        ));
+    }
+
+    /**
+     * Carried forward, never duplicated: a table growing one row per send
+     * is a table `RentalRetentionService` then has to purge, and the unique
+     * index is what stops two overlapping ticks both sending.
+     */
+    public function testARepeatedReminderCarriesItsRowForwardRatherThanAddingOne(): void
+    {
+        $booking = $this->createBooking();
+
+        $this->reminderRepository->claim('booking', $booking->id, ReminderKind::DEPOSIT_MISSING, new \DateTimeImmutable('2027-06-01'), 7);
+        $this->reminderRepository->claim('booking', $booking->id, ReminderKind::DEPOSIT_MISSING, new \DateTimeImmutable('2027-06-08'), 7);
+
+        $stmt = $this->pdo->prepare(
+            'SELECT sent_on FROM rental_reminders_sent
+             WHERE subject_type = ? AND subject_id = ? AND reminder_key = ?'
+        );
+        $stmt->execute(['booking', $booking->id, ReminderKind::DEPOSIT_MISSING->value]);
+        $rows = $stmt->fetchAll(\PDO::FETCH_COLUMN);
+
+        $this->assertSame(['2027-06-08'], $rows);
+    }
+
+    /**
+     * An inventory nobody recorded will still be true next week, and saying
+     * it every Monday teaches the unit to ignore the whole channel — which
+     * is worse than not reminding at all (§6.29).
+     */
+    public function testAReminderWithNoCadenceIsStillSaidOnlyOnce(): void
+    {
+        $booking = $this->createBooking();
+
+        $this->assertTrue($this->reminderRepository->claim(
+            'booking',
+            $booking->id,
+            ReminderKind::ARRIVAL_INVENTORY,
+            new \DateTimeImmutable('2027-06-01')
+        ));
+        $this->assertFalse($this->reminderRepository->claim(
+            'booking',
+            $booking->id,
+            ReminderKind::ARRIVAL_INVENTORY,
+            new \DateTimeImmutable('2027-08-01')
+        ));
+    }
+
     // ── The compliance register (§6.33) ─────────────────────────────────
 
     public function testAnExpiringRegisterEntryReachesTheAssetsManagers(): void

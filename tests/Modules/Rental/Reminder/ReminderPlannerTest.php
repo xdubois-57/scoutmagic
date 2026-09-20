@@ -12,6 +12,7 @@ use Modules\Rental\Compliance\ComplianceItem;
 use Modules\Rental\Reminder\DueReminder;
 use Modules\Rental\Reminder\ReminderKind;
 use Modules\Rental\Reminder\ReminderPlanner;
+use Modules\Rental\Reminder\ReminderSchedule;
 use Modules\Rental\Repository\RentalAsset;
 use PHPUnit\Framework\TestCase;
 
@@ -135,7 +136,8 @@ class ReminderPlannerTest extends TestCase
         bool $arrivalInventory = true,
         bool $departureInventory = true,
         bool $hasContract = true,
-        bool $hasSettlement = true
+        bool $hasSettlement = true,
+        ?ReminderSchedule $schedule = null
     ): array {
         return $this->planner->forBooking(
             $booking,
@@ -144,7 +146,118 @@ class ReminderPlannerTest extends TestCase
             ['arrival' => $arrivalInventory, 'departure' => $departureInventory],
             $hasContract,
             $hasSettlement,
-            new \DateTimeImmutable($today)
+            new \DateTimeImmutable($today),
+            $schedule
+        );
+    }
+
+    // ── What the asset's own schedule changes (IT-07) ────────────────────
+
+    /**
+     * The shipped behaviour is what an installation that never opened the
+     * screen still gets, and every other test in this file asserts it
+     * without saying so. This one says it.
+     */
+    public function testNoScheduleAtAllIsTheShippedBehaviour(): void
+    {
+        $booking = $this->booking(BookingStatus::RECEIVED, receivedAt: '2027-01-01 10:00:00');
+
+        $this->assertContains(
+            ReminderKind::UNANSWERED_REQUEST->value,
+            self::kinds($this->plan($booking, '2027-01-05'))
+        );
+    }
+
+    public function testAnAssetMayWaitLongerBeforeChasingAnUnansweredRequest(): void
+    {
+        $booking = $this->booking(BookingStatus::RECEIVED, receivedAt: '2027-01-01 10:00:00');
+        $schedule = ReminderSchedule::of([], [
+            ReminderKind::UNANSWERED_REQUEST->value => ['days' => 10, 'active' => true],
+        ]);
+
+        // Day four: due on the shipped three days, not yet on ten.
+        $this->assertNotContains(
+            ReminderKind::UNANSWERED_REQUEST->value,
+            self::kinds($this->plan($booking, '2027-01-05', schedule: $schedule))
+        );
+        $this->assertContains(
+            ReminderKind::UNANSWERED_REQUEST->value,
+            self::kinds($this->plan($booking, '2027-01-12', schedule: $schedule))
+        );
+    }
+
+    /**
+     * A remorque has neither an inventory nor a security deposit, and those
+     * reminders on it are guaranteed noise. Switched off, the reminder is
+     * never due at all — not emitted and filtered later.
+     */
+    public function testAReminderSwitchedOffIsNeverDue(): void
+    {
+        $booking = $this->booking(BookingStatus::CONFIRMED, '2027-07-01', '2027-07-04');
+        $schedule = ReminderSchedule::of([], [
+            ReminderKind::ARRIVAL_INVENTORY->value => ['days' => null, 'active' => false],
+        ]);
+
+        $this->assertNotContains(
+            ReminderKind::ARRIVAL_INVENTORY->value,
+            self::kinds($this->plan(
+                $booking,
+                '2027-07-02 09:00:00',
+                arrivalInventory: false,
+                schedule: $schedule
+            ))
+        );
+
+        // And it IS due with the same inputs when nobody switched it off.
+        $this->assertContains(
+            ReminderKind::ARRIVAL_INVENTORY->value,
+            self::kinds($this->plan($booking, '2027-07-02 09:00:00', arrivalInventory: false))
+        );
+    }
+
+    /**
+     * The unit's default applies where the asset says nothing, and the
+     * asset's value wins where it does — the whole point of the three
+     * levels being ordered.
+     */
+    public function testTheAssetsValueWinsOverTheUnitsDefault(): void
+    {
+        $booking = $this->booking(BookingStatus::RECEIVED, receivedAt: '2027-01-01 10:00:00');
+
+        $unitOnly = ReminderSchedule::of([ReminderKind::UNANSWERED_REQUEST->value => 10], []);
+        $this->assertNotContains(
+            ReminderKind::UNANSWERED_REQUEST->value,
+            self::kinds($this->plan($booking, '2027-01-05', schedule: $unitOnly))
+        );
+
+        $assetWins = ReminderSchedule::of(
+            [ReminderKind::UNANSWERED_REQUEST->value => 10],
+            [ReminderKind::UNANSWERED_REQUEST->value => ['days' => 2, 'active' => true]]
+        );
+        $this->assertContains(
+            ReminderKind::UNANSWERED_REQUEST->value,
+            self::kinds($this->plan($booking, '2027-01-05', schedule: $assetWins))
+        );
+    }
+
+    /**
+     * The chantier's rule for the three money reminders: chased weekly
+     * while the answer can still change something, and silent once the
+     * renters have moved in. The same sentence repeated after arrival is a
+     * channel teaching the unit to ignore it.
+     */
+    public function testAnUnpaidDepositStopsBeingChasedOnceTheStayHasBegun(): void
+    {
+        $booking = $this->booking(BookingStatus::CONFIRMED, '2027-07-01', '2027-07-04');
+        $payment = $this->payment(['deposit_due_date' => '2027-06-01', 'deposit_received' => false]);
+
+        $this->assertContains(
+            ReminderKind::DEPOSIT_MISSING->value,
+            self::kinds($this->plan($booking, '2027-06-20 09:00:00', $payment))
+        );
+        $this->assertNotContains(
+            ReminderKind::DEPOSIT_MISSING->value,
+            self::kinds($this->plan($booking, '2027-07-02 09:00:00', $payment))
         );
     }
 

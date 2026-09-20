@@ -18,8 +18,10 @@ use Core\Security\CsrfGuard;
 use Core\Service\IntegerInput;
 use Modules\Rental\Payment\DepositMode;
 use Modules\Rental\Payment\PaymentSettings;
+use Modules\Rental\Reminder\ReminderKind;
 use Modules\Rental\Pricing\PricingSettings;
 use Modules\Rental\Repository\RentalAsset;
+use Modules\Rental\Repository\RentalAssetReminderRepository;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Service\RentalAuthorizationService;
 use Modules\Rental\Service\RentalAvailabilityService;
@@ -61,7 +63,14 @@ class RentalPricingController extends AbstractController
          * module, where the payments block explains that instead of
          * offering a picker with nothing in it.
          */
-        private ?RentalPaymentService $paymentService = null
+        private ?RentalPaymentService $paymentService = null,
+        /**
+         * The « Rappels » section (§6.29). Nullable so the controller stays
+         * constructible in tests that do not reach that action; the module
+         * always wires one, and `saveReminders()` refuses in French rather
+         * than writing nowhere.
+         */
+        private ?RentalAssetReminderRepository $assetReminderRepository = null
     ) {
         parent::__construct($twig);
     }
@@ -304,6 +313,50 @@ class RentalPricingController extends AbstractController
             );
 
             return 'Configuration des paiements enregistrée.';
+        });
+    }
+
+    /**
+     * POST /mes-locations/{slug}/reglages/rappels — what this asset changes
+     * about its reminders (§6.29).
+     *
+     * **An empty delay means "take the unit's default", never "never".**
+     * Twelve fields on every asset are twelve fields nobody fills in, so a
+     * blank one has to keep working; switching a reminder off is the
+     * checkbox's job. Folding the two into one number field is how 0 — the
+     * day itself — and "never" end up one typo apart.
+     *
+     * Only the differences are stored, and a line that says nothing at all
+     * deletes its row rather than storing "no change"
+     * (`RentalAssetReminderRepository::save()`).
+     *
+     * @param array<string, string> $params
+     */
+    public function saveReminders(Request $request, array $params): Response
+    {
+        return $this->guarded($request, $params, 'rappels', function (RentalAsset $asset) use ($request): string {
+            if ($this->assetReminderRepository === null) {
+                throw new RentalException('Les rappels ne sont pas disponibles.');
+            }
+
+            foreach (ReminderKind::cases() as $kind) {
+                $raw = $request->getBody('days_' . $kind->value);
+                $days = is_string($raw) && trim($raw) !== '' && is_numeric(trim($raw))
+                    ? max(0, (int) trim($raw))
+                    : null;
+
+                $this->assetReminderRepository->save(
+                    $asset->id,
+                    $kind,
+                    $days,
+                    // An unchecked box posts nothing at all, which is
+                    // exactly how a checkbox says "off" — so absence is the
+                    // signal here, not a missing field to fall back on.
+                    $request->getBody('active_' . $kind->value) !== null
+                );
+            }
+
+            return 'Les rappels de ce bien ont été enregistrés.';
         });
     }
 

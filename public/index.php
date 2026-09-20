@@ -10104,6 +10104,7 @@ if ($isEnabled('rental')) {
     // indistinguishable, because an Occupancy carries nothing to tell them
     // apart by.
     $rentalBookingRepository = new \Modules\Rental\Repository\RentalBookingRepository($pdo, $encryptionService);
+    $rentalAssetReminderRepository = new \Modules\Rental\Repository\RentalAssetReminderRepository($pdo);
     $rentalChangeRequestRepository = new \Modules\Rental\Repository\RentalChangeRequestRepository(
         $pdo,
         $encryptionService
@@ -10213,7 +10214,9 @@ if ($isEnabled('rental')) {
             $rentalAuthorizationService,
             $rentalAssetRepository,
             $scoutYearResolver,
-            $rentalPaymentService
+            $rentalPaymentService,
+            // The « Rappels » section of the asset's settings (§6.29).
+            $rentalAssetReminderRepository
         )
     );
     $frontController->registerController(
@@ -10438,7 +10441,11 @@ if ($isEnabled('rental')) {
                 $rentalChangeRequestRepository
             ),
             // Only « Régénérer le lien de suivi » reaches it.
-            $rentalBookingService
+            $rentalBookingService,
+            // The « Rappels » section reads both: the asset's own overrides
+            // and the unit's defaults it falls back to (§6.29).
+            $rentalAssetReminderRepository,
+            $settingService
         )
     );
     $frontController->registerController(

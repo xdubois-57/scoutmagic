@@ -11,6 +11,7 @@ namespace Modules\Rental\Controller;
 use Core\Audit\AuditService;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\File\UploadException;
+use Core\Config\SettingService;
 use Core\File\UploadHandler;
 use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
@@ -41,8 +42,11 @@ use Modules\Rental\Document\DocumentType;
 use Modules\Rental\Document\StandardTemplates;
 use Modules\Rental\Payment\DepositMode;
 use Modules\Rental\Payment\PaymentSettings;
+use Modules\Rental\Reminder\ReminderKind;
+use Modules\Rental\Reminder\ReminderSchedule;
 use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalAssetRepository;
+use Modules\Rental\Repository\RentalAssetReminderRepository;
 use Modules\Rental\Repository\RentalBookingCommentRepository;
 use Modules\Rental\Repository\RentalBookingRepository;
 use Modules\Rental\Repository\RentalChangeRequestRepository;
@@ -195,7 +199,15 @@ class RentalManagementController extends AbstractController
          * where the journal entry is written. Nullable so the controller
          * stays constructible in the tests that do not reach that action.
          */
-        private ?RentalBookingService $bookingService = null
+        private ?RentalBookingService $bookingService = null,
+        /**
+         * The « Rappels » section of the settings screen (§6.29) and
+         * nothing else. Null simply renders every reminder at the unit's
+         * default, which is what an installation that has never opened the
+         * section behaves like.
+         */
+        private ?RentalAssetReminderRepository $assetReminderRepository = null,
+        private ?SettingService $settingService = null
     ) {
         parent::__construct($twig);
     }
@@ -262,6 +274,11 @@ class RentalManagementController extends AbstractController
                 $this->scoutYearId()
             ),
             'deposit_modes' => DepositMode::all(),
+            // The « Rappels » section (§6.29): one line per reminder with
+            // the value in force, and the unit's default written under an
+            // empty field so the number a manager reads is the number that
+            // would actually apply.
+            'reminders' => $this->reminderRows($asset->id),
             'csrf_token' => CsrfGuard::generateToken(),
             'current_path' => '/mes-locations/' . $asset->slug . '/reglages',
         ]);
@@ -2469,6 +2486,52 @@ class RentalManagementController extends AbstractController
         }
 
         return (int) trim($value);
+    }
+
+    /**
+     * One row per reminder for the « Rappels » section of the settings
+     * screen (§6.29).
+     *
+     * @return list<array{key: string, label: string, days: int|null, default_days: int, active: bool, repeats: bool}>
+     */
+    private function reminderRows(int $assetId): array
+    {
+        $overrides = $this->assetReminderRepository?->findForAsset($assetId) ?? [];
+        $schedule = ReminderSchedule::of($this->unitReminderDefaults(), $overrides);
+
+        $rows = [];
+        foreach (ReminderKind::cases() as $kind) {
+            $rows[] = [
+                'key' => $kind->value,
+                'label' => $kind->label(),
+                // The asset's OWN value, or null — never the resolved one.
+                // Pre-filling the inherited number is how a screen ends up
+                // freezing a default the day somebody presses « Enregistrer »
+                // without changing anything.
+                'days' => $schedule->isOverridden($kind) ? $schedule->daysFor($kind) : null,
+                'default_days' => $schedule->defaultDaysFor($kind),
+                'active' => $schedule->isActive($kind),
+                'repeats' => $kind->repeatAfterDays($schedule->daysFor($kind)) !== null,
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @return array<string, int>
+     */
+    private function unitReminderDefaults(): array
+    {
+        $defaults = [];
+        foreach (ReminderKind::cases() as $kind) {
+            $stored = $this->settingService?->get($kind->settingKey());
+            if (is_string($stored) && trim($stored) !== '' && is_numeric(trim($stored))) {
+                $defaults[$kind->value] = max(0, (int) trim($stored));
+            }
+        }
+
+        return $defaults;
     }
 
     /**

@@ -423,6 +423,16 @@ class RentalTestHelper
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE (subject_type, subject_id, reminder_key)
         )');
+
+        $pdo->exec('CREATE TABLE rental_asset_reminders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            asset_id INTEGER NOT NULL,
+            reminder_key TEXT NOT NULL,
+            delay_days INTEGER,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            updated_at TEXT NOT NULL,
+            UNIQUE (asset_id, reminder_key)
+        )');
     }
 
     public static function insertMember(\PDO $pdo, string $deskId): int

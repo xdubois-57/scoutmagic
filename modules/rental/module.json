@@ -734,6 +734,15 @@
       "label": ""
     },
     {
+      "path": "/mes-locations/{slug}/reglages/rappels",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalPricingController",
+      "action": "saveReminders",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
       "path": "/locations/{slug}/demande",
       "method": "GET",
       "controller": "Modules\\Rental\\Controller\\RentalRequestController",

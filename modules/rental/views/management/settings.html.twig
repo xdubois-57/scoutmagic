@@ -42,6 +42,7 @@
                 <a class="btn btn-sm btn-outline-secondary" href="#regles">Règles de réservation</a>
                 <a class="btn btn-sm btn-outline-secondary" href="#tarification">Tarification</a>
                 <a class="btn btn-sm btn-outline-secondary" href="#paiements">Acompte, solde et caution</a>
+                <a class="btn btn-sm btn-outline-secondary" href="#rappels">Rappels</a>
             </div>
         </nav>
 
@@ -50,6 +51,8 @@
         {% include '@rental/management/_pricing.html.twig' %}
 
         {% include '@rental/management/_payments.html.twig' %}
+
+        {% include '@rental/management/_reminders.html.twig' %}
     </div>
 {% endblock %}
 
