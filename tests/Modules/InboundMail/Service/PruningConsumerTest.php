@@ -209,4 +209,64 @@ class PruningConsumerTest extends TestCase
 
         return (int) $statement->fetchColumn();
     }
+
+    /**
+     * **A pruned message is never written down either**, and this is the
+     * half of the promise that was missing.
+     *
+     * `store()` keeps the body unless a CLAIMANT asks otherwise, and
+     * `anyWants()` answers its default — `true` — on an empty claimant
+     * list. A seed consumer claims nothing on purpose, so the full
+     * mailing was written to `inbound_messages` on every seed copy and
+     * sat there until the ordinary retention purge, long after the remote
+     * copy had been deleted. The privacy notice this iteration wrote
+     * promises the opposite in as many words: « ne conservant ensuite que
+     * ce constat — un nom de fournisseur, un dossier, une date ».
+     *
+     * It is also the only coherent reading of the prune: the message is
+     * gone from the mailbox, so a stored row points at nothing and could
+     * never be re-read.
+     */
+    public function testAPrunedMessageIsNotStoredLocallyEither(): void
+    {
+        $this->registry->register($this->pruningConsumer(true));
+
+        $this->syncWith(new PruningFakeMailboxClient());
+
+        $this->assertSame(
+            0,
+            $this->countMessages(),
+            'the copy was removed from the mailbox and kept in the database — the worst of both.'
+        );
+    }
+
+    /** A message nobody pruned is stored exactly as it always was. */
+    public function testAMessageThatWasNotPrunedIsStillStored(): void
+    {
+        $this->registry->register($this->pruningConsumer(false));
+
+        $this->syncWith(new PruningFakeMailboxClient());
+
+        $this->assertSame(1, $this->countMessages());
+    }
+
+    /**
+     * **A delete the server refused does not count as pruned.** The
+     * caller skips storing on a yes, so answering yes for a delete that
+     * did not happen would lose the message from both places at once.
+     */
+    public function testAMessageWhoseDeletionFailedIsStillStored(): void
+    {
+        $this->registry->register($this->pruningConsumer(true));
+        $client = new PruningFakeMailboxClient();
+        $client->refuseDeletion = true;
+
+        $this->syncWith($client);
+
+        $this->assertSame(
+            1,
+            $this->countMessages(),
+            'the message is still in the mailbox, so it is still the sync\'s to record.'
+        );
+    }
 }

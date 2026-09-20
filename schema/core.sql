@@ -1972,11 +1972,16 @@ CREATE TABLE IF NOT EXISTS mail_seed_copies (
     -- rather than a person.
     provider VARCHAR(255) NOT NULL,
     sent_at DATETIME NOT NULL,
-    -- 'pending' until the copy is found, then 'inbox', 'spam' or 'missing'.
-    -- 'missing' is set by the sweep, never by an arrival, and it is a third
-    -- state rather than a failure: a copy nobody has seen YET and a copy
-    -- that never came are different answers, and only time tells them
-    -- apart.
+    -- 'pending' until the copy is found, then 'inbox', 'spam' or
+    -- 'elsewhere'; 'missing' is set by the sweep, never by an arrival.
+    -- 'missing' is a third state rather than a failure: a copy nobody has
+    -- seen YET and a copy that never came are different answers, and only
+    -- time tells them apart.
+    -- 'elsewhere' is a copy that DID arrive, in a folder the site cannot
+    -- name — 'Quarantaine', 'Bulk', something the unit created. It exists
+    -- because leaving those at 'pending' had the sweep declare an arrival
+    -- « jamais arrivé » two days later, beside the very folder it was
+    -- found in.
     verdict VARCHAR(12) NOT NULL DEFAULT 'pending',
     -- The folder the copy actually landed in, as the provider names it.
     -- Kept beside the verdict rather than instead of it: 'Junk',

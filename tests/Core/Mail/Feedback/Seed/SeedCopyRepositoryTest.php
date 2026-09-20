@@ -256,4 +256,99 @@ class SeedCopyRepositoryTest extends TestCase
 
         $this->assertNull($this->copies->forRun('envoi')[0]->recordedAt);
     }
+
+    // ── the header is checked, never believed ─────────────────────────
+
+    /**
+     * **A stamp this installation made is the only one it accepts.**
+     *
+     * A run reference is `mass_mail:<id>`, a plain auto-increment, and a
+     * seed box is an ordinary mailbox whose address anyone may learn — so
+     * a bare reference on the header is something a stranger can guess
+     * and send. They would land in whichever folder they chose and have
+     * the site record that as a real mailing's verdict, first-writer-wins
+     * against the copy still in flight.
+     */
+    public function testAStampRoundTripsAndAForgedOneIsRefused(): void
+    {
+        $stamp = $this->copies->stamp('mass_mail:42');
+
+        $this->assertSame('mass_mail:42', $this->copies->referenceFromStamp($stamp));
+
+        foreach (
+            [
+                'mass_mail:42',
+                'mass_mail:42.',
+                'mass_mail:42.' . str_repeat('0', 32),
+                'mass_mail:43.' . substr($stamp, strrpos($stamp, '.') + 1),
+                '.' . substr($stamp, strrpos($stamp, '.') + 1),
+                '',
+            ] as $forged
+        ) {
+            $this->assertNull(
+                $this->copies->referenceFromStamp($forged),
+                var_export($forged, true) . ' is not a stamp this installation produced.'
+            );
+        }
+    }
+
+    /** Two installations do not accept each other's stamps. */
+    public function testAStampFromAnotherInstallationIsRefused(): void
+    {
+        $elsewhere = new SeedCopyRepository(
+            $this->pdo,
+            new EncryptionService(str_repeat('c', 32), str_repeat('d', 32))
+        );
+
+        $this->assertNull($this->copies->referenceFromStamp($elsewhere->stamp('mass_mail:42')));
+    }
+
+    /** A reference containing a dot survives the round trip. */
+    public function testAReferenceWithADotIsReadBackWhole(): void
+    {
+        $stamp = $this->copies->stamp('mass_mail:v1.2:7');
+
+        $this->assertSame('mass_mail:v1.2:7', $this->copies->referenceFromStamp($stamp));
+    }
+
+    // ── a copy that arrived is never « jamais arrivé » ────────────────
+
+    /**
+     * **The sweep may not overwrite a landing it can see.**
+     *
+     * Belt to the braces of `SeedVerdict::fromFolder()` no longer
+     * answering `Pending` for a named folder: a row whose `recorded_at`
+     * is set is a copy that demonstrably arrived, and the sweep has no
+     * business calling it « jamais arrivé » — the gravest badge the
+     * screen has — however its verdict column happens to read.
+     */
+    public function testASweepNeverGivesUpOnACopyWhoseLandingWasRecorded(): void
+    {
+        $sent = new \DateTimeImmutable('-10 days');
+        $this->copies->claim('envoi', 'temoin@gmail.com', $sent);
+        // A row that landed and, for whatever reason, still reads
+        // `pending` — the exact state the old `fromFolder()` produced.
+        $statement = $this->pdo->prepare(
+            "UPDATE mail_seed_copies SET landed_folder = 'Quarantaine', recorded_at = ? WHERE run_reference = ?"
+        );
+        $statement->execute([$sent->format('Y-m-d H:i:s'), 'envoi']);
+
+        $this->copies->markMissingBefore(new \DateTimeImmutable('-2 days'));
+
+        $this->assertNotSame(
+            SeedVerdict::Missing,
+            $this->copies->forRun('envoi')[0]->verdict,
+            'a copy that was found is not a copy that never came.'
+        );
+    }
+
+    /** And one nobody ever saw still is given up on. */
+    public function testASweepStillGivesUpOnACopyNobodyEverSaw(): void
+    {
+        $this->copies->claim('envoi', 'temoin@gmail.com', new \DateTimeImmutable('-10 days'));
+
+        $this->copies->markMissingBefore(new \DateTimeImmutable('-2 days'));
+
+        $this->assertSame(SeedVerdict::Missing, $this->copies->forRun('envoi')[0]->verdict);
+    }
 }

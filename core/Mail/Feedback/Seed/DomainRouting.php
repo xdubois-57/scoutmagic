@@ -105,7 +105,8 @@ final class DomainRouting
      * different answers and the second is the one that needs acting on.
      *
      * @return list<array{provider: string, runs: int, inbox: int, spam: int, missing: int,
-     *     enough: bool, troubled: bool, routed_to: ?string, alternative: ?string, verdict: string}>
+     *     elsewhere: int, enough: bool, troubled: bool, routed_to: ?string, alternative: ?string,
+     *     verdict: string}>
      */
     public function readings(\DateTimeImmutable $since): array
     {
@@ -115,7 +116,13 @@ final class DomainRouting
             // Answered copies only: a `pending` one is not evidence yet,
             // and counting it either way would make the ratio move as the
             // sweep runs rather than as delivery changes.
-            $answered = $row['inbox'] + $row['spam'] + $row['missing'];
+            // `elsewhere` counts as answered — the copy arrived, we saw
+            // it — but never as trouble below: a folder the site could
+            // not classify is not evidence that a provider is filtering,
+            // and routing a whole domain away on it would be exactly the
+            // noise D13 refuses. It is on the screen, with its folder
+            // name, for a person to judge.
+            $answered = $row['inbox'] + $row['spam'] + $row['missing'] + $row['elsewhere'];
             // **The sample is the number of MAILINGS**, never the number
             // of copies: five boxes at one provider on one mailing are one
             // observation repeated five times, and counting them as five
@@ -137,6 +144,7 @@ final class DomainRouting
                 'inbox' => $row['inbox'],
                 'spam' => $row['spam'],
                 'missing' => $row['missing'],
+                'elsewhere' => $row['elsewhere'],
                 'enough' => $enough,
                 'troubled' => $troubled,
                 // What is decided today, and what applying would decide

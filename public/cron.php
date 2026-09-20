@@ -454,7 +454,12 @@ scoutmagicBootstrapScheduler(
     $userAccountRepo,
     dirname(__DIR__) . '/storage',
     $notificationService,
-    $mailProviderDirectory
+    $mailProviderDirectory,
+    // **The line whose absence made the whole of IT-07 inert here.** This
+    // is the entry point that runs mailings, so this is the object graph
+    // that emits the copies; without the module behind it,
+    // `addresses()` answers « none » and nothing is ever measured.
+    $seedMailboxes
 );
 
 // Migrate the whole declared schema, before anything else runs.

@@ -85,7 +85,15 @@ final class SeedConsumer implements MessageConsumerInterface, PruningConsumerInt
      */
     public function analyze(CandidateMessage $message): AnalysisResult
     {
-        $run = self::runReferenceIn($message->rawHeaders ?? '');
+        // **Cleared first, every time.** One instance serves a whole sync
+        // pass, so a value left over from the previous message would be
+        // this consumer's answer about a message it never looked at —
+        // and messages with no `Message-ID` header all carry the same
+        // empty string, so « stale » there means « the wrong message
+        // deleted », not merely a wrong answer.
+        $this->recognised = null;
+
+        $run = $this->runReferenceIn($message->rawHeaders ?? '');
         if ($run === null || $message->folder === null) {
             return AnalysisResult::nothing();
         }
@@ -97,13 +105,25 @@ final class SeedConsumer implements MessageConsumerInterface, PruningConsumerInt
                 continue;
             }
 
-            $this->copies->recordLanding($run, $copy->address, $message->folder, new \DateTimeImmutable());
+            // **Only a landing that was actually WRITTEN earns the
+            // deletion.** `recordLanding()` answers false when the pair
+            // already has a verdict, and the first version discarded that
+            // answer and set the field regardless — so a second arrival,
+            // or a replay, was deleted on the strength of a row somebody
+            // else's message had filled in.
+            $recorded = $this->copies->recordLanding(
+                $run,
+                $copy->address,
+                $message->folder,
+                new \DateTimeImmutable()
+            );
 
-            // **Remembered, so that the pruning answer is about a message
-            // this consumer actually recorded** and never about one it
-            // merely saw. That is the whole of its standing to have a
-            // message deleted.
-            $this->recognised = $message->messageId;
+            // An empty `Message-ID` identifies nothing, so it may not
+            // stand in for « this exact message »: every message without
+            // the header would otherwise match every other one.
+            if ($recorded && $message->messageId !== '') {
+                $this->recognised = $message->messageId;
+            }
 
             break;
         }
@@ -190,15 +210,31 @@ final class SeedConsumer implements MessageConsumerInterface, PruningConsumerInt
      * was put there rather than in the subject because the subject is the
      * measurement ({@see SeedMailboxes::HEADER}).
      */
-    private static function runReferenceIn(string $rawHeaders): ?string
+    private function runReferenceIn(string $rawHeaders): ?string
     {
         if ($rawHeaders === '') {
             return null;
         }
 
         $pattern = '/^' . preg_quote(SeedMailboxes::HEADER, '/') . ':\s*(\S+)\s*$/mi';
+        if (preg_match($pattern, $rawHeaders, $matches) !== 1) {
+            return null;
+        }
 
-        return preg_match($pattern, $rawHeaders, $matches) === 1 ? $matches[1] : null;
+        // **The header is checked, not believed.** A run reference is
+        // `mass_mail:<id>` — a plain auto-increment — and a seed box is
+        // an ordinary mailbox whose address anyone may learn, so anybody
+        // able to send mail to one could otherwise stamp a guessed
+        // reference, land wherever they chose, and have the site record
+        // that as a real mailing's verdict. `recordLanding()`'s
+        // `verdict = 'pending'` guard makes it first-writer-wins, so the
+        // forgery would simply need to arrive before the real copy is
+        // polled — and with automatic routing on, enough of them move a
+        // provider's traffic on fabricated evidence.
+        //
+        // The tag is keyed by this installation's own secret, so only the
+        // site can produce one.
+        return $this->copies->referenceFromStamp($matches[1]);
     }
 
     /**

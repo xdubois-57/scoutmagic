@@ -329,7 +329,26 @@ class MailboxSyncService
         // After the analysis and never before: a message dropped before
         // its verdict was written is a measurement lost with no way to
         // take it again.
-        $this->pruneIfAsked($client, $message, $candidate, $consumers);
+        // **A pruned message is never written down either**, and that is
+        // not an optimisation.
+        //
+        // `store()` keeps the body unless a CLAIMANT asks otherwise
+        // (`anyWants($claimants, …, default: true)` answers the default on
+        // an empty list), and a seed consumer claims nothing on purpose —
+        // so the full mailing, attachments included, would land in
+        // `inbound_messages` on every seed copy and sit there until the
+        // ordinary retention purge, long after the remote copy was
+        // deleted. That flatly contradicts what the privacy notice this
+        // iteration wrote promises: « ne conservant ensuite que ce
+        // constat — un nom de fournisseur, un dossier, une date ».
+        //
+        // Returning here is also the only coherent reading of the prune:
+        // the message is gone from the mailbox, so a stored row would
+        // point at nothing, could never be re-read, and would only ever
+        // be a copy of a mailing the unit already has.
+        if ($this->pruneIfAsked($client, $message, $candidate, $consumers)) {
+            return false;
+        }
 
         // The message may already be in this box — after a UIDVALIDITY
         // reset made the folder be re-read, or because it arrived in two
@@ -588,15 +607,18 @@ class MailboxSyncService
      * that has no business writing. Silence here is the feature.
      *
      * @param list<MessageConsumerInterface> $consumers
+     *
+     * @return bool whether the message was removed, so the caller knows
+     *              not to write down a message that no longer exists
      */
     private function pruneIfAsked(
         IncomingMailboxClientInterface $client,
         FetchedMessage $message,
         CandidateMessage $candidate,
         array $consumers
-    ): void {
+    ): bool {
         if (!$client instanceof PruningMailboxClientInterface) {
-            return;
+            return false;
         }
 
         foreach ($consumers as $consumer) {
@@ -609,15 +631,22 @@ class MailboxSyncService
                     continue;
                 }
 
-                $client->deleteMessage($message->folder, $message->uid);
+                // **Only a delete that actually succeeded says so.** The
+                // caller skips storing on a true, so answering yes for a
+                // delete the server refused would lose the message from
+                // both places at once.
+                $removed = $client->deleteMessage($message->folder, $message->uid);
             } catch (\Throwable) {
                 // Housekeeping never costs the sync its mail.
+                $removed = false;
             }
 
             // One consumer's yes is enough, and asking the rest about a
             // message that is gone would be asking about nothing.
-            return;
+            return $removed;
         }
+
+        return false;
     }
 
     /**

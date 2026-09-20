@@ -521,7 +521,22 @@ class MailService
         ?string $fromAddressOverride,
         ?string $fromNameOverride
     ): void {
-        $seeds = $this->seedMailboxes?->claimFor($runReference, new \DateTimeImmutable()) ?? [];
+        if ($this->seedMailboxes === null) {
+            return;
+        }
+
+        $seeds = $this->seedMailboxes->claimFor($runReference, new \DateTimeImmutable());
+        if ($seeds === []) {
+            return;
+        }
+
+        // **Keyed, not the bare reference.** A run reference is
+        // `mass_mail:<id>`, a plain auto-increment, and a seed box is an
+        // ordinary mailbox whose address anyone may learn — so a bare
+        // reference on this header is something a stranger can forge to
+        // have the site record a verdict of their choosing. See
+        // {@see Feedback\Seed\SeedCopyRepository::stamp()}.
+        $stamp = $this->seedMailboxes->stampFor($runReference);
 
         foreach ($seeds as $address) {
             try {
@@ -534,7 +549,7 @@ class MailService
                     [],
                     $fromAddressOverride,
                     $fromNameOverride,
-                    [Feedback\Seed\SeedMailboxes::HEADER => $runReference],
+                    [Feedback\Seed\SeedMailboxes::HEADER => $stamp],
                     MailPurpose::Bulk,
                     // The site did not choose this correspondent from its
                     // records — it is the unit's own diagnostic box. No

@@ -177,6 +177,7 @@
                                 <th scope="col" class="text-end">Réception</th>
                                 <th scope="col" class="text-end">Indésirables</th>
                                 <th scope="col" class="text-end">Jamais arrivés</th>
+                                <th scope="col" class="text-end">Dossier inconnu</th>
                                 <th scope="col">Constat</th>
                                 <th scope="col">Relais</th>
                             </tr>
@@ -197,6 +198,10 @@
                                             <span class="text-danger">{{ reading.missing }}</span>
                                         {% else %}0{% endif %}
                                     </td>
+                                    {# Arrived, but in a folder the site cannot name. Neither a
+                                       delivery nor a rejection: the table above shows the folder's
+                                       own name, and a person judges it. #}
+                                    <td class="text-end">{{ reading.elsewhere }}</td>
                                     <td>
                                         {% if reading.troubled %}
                                             <span class="badge text-bg-warning-subtle">{{ reading.verdict }}</span>

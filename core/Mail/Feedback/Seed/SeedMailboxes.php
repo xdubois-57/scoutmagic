@@ -76,6 +76,41 @@ final class SeedMailboxes
     }
 
     /**
+     * Asked for the module the first time somebody needs it.
+     *
+     * @var (\Closure(): ?InboundMailInterface)|null
+     */
+    private ?\Closure $inboundMailResolver = null;
+
+    /**
+     * The module, however it was wired — handed over, or resolved now.
+     *
+     * A resolver that throws is « no module », for the same reason
+     * `addresses()` swallows one: this whole feature is a diagnostic, and
+     * a diagnostic may not cost anybody their mail. The answer is kept
+     * either way, so a mailing of four hundred resolves once.
+     */
+    private function module(): ?InboundMailInterface
+    {
+        if ($this->inboundMail !== null || $this->inboundMailResolver === null) {
+            return $this->inboundMail;
+        }
+
+        $resolver = $this->inboundMailResolver;
+        // Cleared first: a resolver that throws must not be retried on
+        // every message of the mailing that follows.
+        $this->inboundMailResolver = null;
+
+        try {
+            $this->inboundMail = $resolver();
+        } catch (\Throwable) {
+            $this->inboundMail = null;
+        }
+
+        return $this->inboundMail;
+    }
+
+    /**
      * Hand this the module once it exists.
      *
      * **The mutable-registry shape §7.6 describes**, and for the reason
@@ -95,6 +130,30 @@ final class SeedMailboxes
         $this->inboundMail = $inboundMail;
     }
 
+    /**
+     * The same wiring, said as « ask for it when you need it ».
+     *
+     * **This exists because `cron.php` cannot use the eager form, and
+     * `cron.php` is the entry point that actually sends mailings.**
+     * `public/index.php` has a built `InboundMailInterface` in a variable
+     * by the time its module block runs; the scheduler builds its
+     * capabilities lazily, on purpose — constructing the inbound graph on
+     * every cron pass that has no mail to read is exactly what that
+     * laziness avoids. Handing over a resolver instead of an instance
+     * keeps both.
+     *
+     * Resolved once and remembered, so a mailing of four hundred asks the
+     * registry once rather than four hundred times. A resolver that
+     * throws is « no module », never a failed mailing: the measurement is
+     * worth less than the message it measures.
+     *
+     * @param \Closure(): ?InboundMailInterface $resolver
+     */
+    public function resolveInboundMailWith(\Closure $resolver): void
+    {
+        $this->inboundMailResolver = $resolver;
+    }
+
     public function isEnabled(): bool
     {
         return (string) ($this->settings->get(self::SETTING_ENABLED) ?? '0') === '1';
@@ -110,13 +169,26 @@ final class SeedMailboxes
     public function addresses(): array
     {
         try {
-            return $this->inboundMail?->probeAddressesFor(self::CONSUMER_ID) ?? [];
+            return $this->module()?->probeAddressesFor(self::CONSUMER_ID) ?? [];
         } catch (\Throwable) {
             // A module that cannot answer is « no boxes », never a broken
             // mailing: this is a diagnostic, and a diagnostic may not cost
             // anybody their mail.
             return [];
         }
+    }
+
+    /**
+     * What the header on a copy of this run must carry.
+     *
+     * A keyed tag rather than the bare reference, because a reference is
+     * `mass_mail:<id>` and a seed box is an ordinary, non-secret mailbox
+     * — see {@see SeedCopyRepository::stamp()} for what forging one would
+     * buy an attacker.
+     */
+    public function stampFor(string $runReference): string
+    {
+        return $this->copies->stamp($runReference);
     }
 
     /**

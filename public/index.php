@@ -3549,7 +3549,12 @@ scoutmagicBootstrapScheduler(
     $userAccountRepo,
     $storagePath,
     $notificationService,
-    $mailProviderDirectory
+    $mailProviderDirectory,
+    // Passed here as well as wired eagerly further down, so the two
+    // composition roots are symmetric: an entry point that forgets the
+    // eager call still gets a working feature, which is the shape
+    // `cron.php` did not have.
+    $seedMailboxes
 );
 
 // Bootstrap the recurring automatic backup — Task\AutoBackupHandler

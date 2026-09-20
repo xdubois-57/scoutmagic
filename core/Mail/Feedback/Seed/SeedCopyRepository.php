@@ -30,6 +30,13 @@ class SeedCopyRepository
      */
     private const BLIND_INDEX_PURPOSE = 'seed_mailbox';
 
+    /**
+     * Its own purpose again, and for the same reason: what tags a run
+     * reference on a header is never compared with what indexes an
+     * address, so the two keys stay separate.
+     */
+    private const STAMP_PURPOSE = 'seed_run_stamp';
+
     public function __construct(private \PDO $pdo, private EncryptionService $encryption)
     {
     }
@@ -125,8 +132,18 @@ class SeedCopyRepository
      */
     public function markMissingBefore(\DateTimeImmutable $cut): int
     {
+        // **`recorded_at IS NULL` is the guard that matters**, and it is
+        // belt to the braces of `SeedVerdict::fromFolder()` never
+        // answering `Pending` for a folder it was actually told. A row
+        // whose landing WAS written down is a copy that demonstrably
+        // arrived; flipping it to « jamais arrivé » because its verdict
+        // happened to read `pending` is how this screen showed the
+        // gravest badge it has beside the folder name the copy was found
+        // in — and fed that fabricated `missing` to the routing.
         $statement = $this->pdo->prepare(
-            'UPDATE mail_seed_copies SET verdict = ?, recorded_at = ? WHERE verdict = ? AND sent_at < ?'
+            'UPDATE mail_seed_copies
+                SET verdict = ?, recorded_at = ?
+              WHERE verdict = ? AND recorded_at IS NULL AND sent_at < ?'
         );
         $statement->execute([
             SeedVerdict::Missing->value,
@@ -163,14 +180,27 @@ class SeedCopyRepository
      */
     public function runsSince(\DateTimeImmutable $since, int $limit = 50): array
     {
+        // **The inner query is wrapped in a derived table, and that is not
+        // a style choice.** MySQL refuses `LIMIT` directly inside
+        // `IN (SELECT …)` — « This version of MySQL doesn't yet support
+        // 'LIMIT & IN/ALL/ANY/SOME subquery' », error 1235 — while SQLite
+        // and MariaDB both accept it. So the first version passed every
+        // local run and both database jobs, and would have thrown a
+        // `PDOException` the first time this page was opened on the one
+        // engine a production site is most likely to be running. The
+        // extra `SELECT` around it is what makes the subquery a derived
+        // table, which MySQL does allow.
         $statement = $this->pdo->prepare(
             'SELECT * FROM mail_seed_copies
               WHERE run_reference IN (
-                    SELECT run_reference FROM mail_seed_copies
-                     WHERE sent_at >= :since
-                     GROUP BY run_reference
-                     ORDER BY MAX(sent_at) DESC
-                     LIMIT :limit
+                    SELECT run_reference FROM (
+                        SELECT run_reference, MAX(sent_at) AS latest_sent_at
+                          FROM mail_seed_copies
+                         WHERE sent_at >= :since
+                         GROUP BY run_reference
+                         ORDER BY latest_sent_at DESC
+                         LIMIT :limit
+                    ) AS recent_runs
               )
               ORDER BY sent_at DESC, provider ASC, id ASC'
         );
@@ -201,7 +231,8 @@ class SeedCopyRepository
      * D13 exists to refuse, and which a test caught this method claiming
      * to guard against while it did not.
      *
-     * @return list<array{provider: string, runs: int, inbox: int, spam: int, missing: int, pending: int}>
+     * @return list<array{provider: string, runs: int, inbox: int, spam: int, missing: int,
+     *     elsewhere: int, pending: int}>
      */
     public function tallyByProviderSince(\DateTimeImmutable $since): array
     {
@@ -211,6 +242,7 @@ class SeedCopyRepository
                     SUM(CASE WHEN verdict = \'inbox\'   THEN 1 ELSE 0 END) AS inbox,
                     SUM(CASE WHEN verdict = \'spam\'    THEN 1 ELSE 0 END) AS spam,
                     SUM(CASE WHEN verdict = \'missing\' THEN 1 ELSE 0 END) AS missing,
+                    SUM(CASE WHEN verdict = \'elsewhere\' THEN 1 ELSE 0 END) AS elsewhere,
                     SUM(CASE WHEN verdict = \'pending\' THEN 1 ELSE 0 END) AS pending
                FROM mail_seed_copies
               WHERE sent_at >= :since
@@ -228,6 +260,7 @@ class SeedCopyRepository
                 'inbox' => (int) $row['inbox'],
                 'spam' => (int) $row['spam'],
                 'missing' => (int) $row['missing'],
+                'elsewhere' => (int) $row['elsewhere'],
                 'pending' => (int) $row['pending'],
             ];
         }
@@ -271,6 +304,59 @@ class SeedCopyRepository
         }
 
         return $copies;
+    }
+
+    /**
+     * The value the header actually carries: the run reference plus a
+     * keyed tag of it.
+     *
+     * **A bare run reference on that header is forgeable, and the boxes
+     * are not secret.** A reference is `mass_mail:<id>` — a plain
+     * auto-increment — and a seed box is an ordinary mailbox whose
+     * address anyone may learn. Without this, anybody able to send mail
+     * to one could stamp `X-ScoutMagic-Seed: mass_mail:7`, land in
+     * whichever folder they like, and have the site record that verdict
+     * for a real mailing: `recordLanding()`'s `verdict = 'pending'` guard
+     * makes it first-writer-wins, and the forgery arrives before the real
+     * copy is polled. With automatic routing on, enough of those move a
+     * whole provider's traffic on fabricated evidence.
+     *
+     * The tag is `EncryptionService::blindIndex()` under its own purpose,
+     * so it is keyed by this installation's secret and cannot be computed
+     * by anybody who does not hold it. Truncated to 32 hex characters:
+     * 128 bits, which is not brute-forceable, and a header that stays a
+     * header.
+     */
+    public function stamp(string $runReference): string
+    {
+        return $runReference . '.' . substr(
+            $this->encryption->blindIndex($runReference, self::STAMP_PURPOSE),
+            0,
+            32
+        );
+    }
+
+    /**
+     * The run reference a stamp vouches for, or null when it vouches for
+     * nothing.
+     *
+     * Compared with `hash_equals()`: a timing oracle on this would let
+     * somebody recover a valid tag one character at a time, and the
+     * comparison costs nothing.
+     */
+    public function referenceFromStamp(string $stamp): ?string
+    {
+        // From the LAST dot: a run reference may contain one, and
+        // splitting from the first would hand the tag a truncated
+        // reference to vouch for.
+        $cut = strrpos($stamp, '.');
+        if ($cut === false || $cut === 0) {
+            return null;
+        }
+
+        $reference = substr($stamp, 0, $cut);
+
+        return hash_equals($this->stamp($reference), $stamp) ? $reference : null;
     }
 
     private function blindIndex(string $address): string

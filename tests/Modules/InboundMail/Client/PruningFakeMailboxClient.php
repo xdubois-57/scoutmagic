@@ -25,8 +25,21 @@ final class PruningFakeMailboxClient extends FakeMailboxClient implements Prunin
     /** @var list<array{folder: string, uid: int}> */
     public array $deleted = [];
 
+    /**
+     * A server that refuses the delete.
+     *
+     * The real client answers false on any failure, and the sync reads
+     * that answer to decide whether the message is still its to record —
+     * so « asked and refused » has to be reachable from a test.
+     */
+    public bool $refuseDeletion = false;
+
     public function deleteMessage(string $folder, int $uid): bool
     {
+        if ($this->refuseDeletion) {
+            return false;
+        }
+
         $this->deleted[] = ['folder' => $folder, 'uid' => $uid];
 
         return true;

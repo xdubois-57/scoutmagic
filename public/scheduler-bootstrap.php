@@ -84,7 +84,22 @@ function scoutmagicBootstrapScheduler(
      * wires a context, in which case the mailing falls back to the local
      * send's prudent cadence.
      */
-    ?\Core\Mail\Transport\MailProviderDirectory $mailProviderDirectory = null
+    ?\Core\Mail\Transport\MailProviderDirectory $mailProviderDirectory = null,
+    /**
+     * The seed mailboxes of the `MailService` this caller just built
+     * (roadmap IT-07), so they learn where to ask.
+     *
+     * **Wired HERE rather than in each entry point, and that is the bug
+     * this parameter closes.** `public/index.php` called
+     * `useInboundMail()` itself; `public/cron.php` built the object with
+     * a comment promising the same « further down » and never did it —
+     * and `cron.php` is the only entry point that ever runs a mailing.
+     * The feature was therefore wired, green, configurable, switched on
+     * in the interface, and emitted not one copy on a real installation.
+     * §8.17's lesson exactly: two composition roots wiring the same graph
+     * is how one of them silently stops.
+     */
+    ?\Core\Mail\Feedback\Seed\SeedMailboxes $seedMailboxes = null
 ): \Core\Scheduler\TaskContext {
     $pdo = $connection->getPdo();
 
@@ -101,6 +116,19 @@ function scoutmagicBootstrapScheduler(
     // every resolve). Factories are hand-written constructions, exactly
     // like the composition roots' own wiring — deferred, never auto-wired.
     $capabilities = new \Core\Scheduler\TaskCapabilities($moduleManager);
+
+    // A resolver rather than an instance: the capability below is built
+    // lazily on purpose — constructing the inbound graph on every cron
+    // pass that has no mail to read is what that laziness avoids — and
+    // resolving it eagerly here to hand over an instance would undo it
+    // for every installation, including the ones with the copies off.
+    $seedMailboxes?->resolveInboundMailWith(
+        static function () use ($capabilities): ?\Modules\InboundMail\Api\InboundMailInterface {
+            $module = $capabilities->resolve(\Modules\InboundMail\Api\InboundMailInterface::class);
+
+            return $module instanceof \Modules\InboundMail\Api\InboundMailInterface ? $module : null;
+        }
+    );
 
     $capabilities->register(
         \Modules\LlmConnector\Api\LlmConnectorInterface::class,

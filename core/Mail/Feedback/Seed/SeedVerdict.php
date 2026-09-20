@@ -30,6 +30,24 @@ enum SeedVerdict: string
     case Spam = 'spam';
     case Missing = 'missing';
 
+    /**
+     * Arrived, in a folder this list cannot name.
+     *
+     * **It exists because `Pending` was standing in for it, and that was
+     * a lie with teeth.** A provider may file a copy in « Quarantaine »,
+     * « Bulk », or a folder somebody created — none of which is the
+     * inbox and none of which is on the junk list. The verdict stayed
+     * `pending`, the message was pruned, and two days later the sweep
+     * flipped that row to `Missing`: the gravest badge on the screen,
+     * « Jamais arrivé », beside the very folder name the copy had
+     * demonstrably landed in. And that fabricated `missing` fed the
+     * routing's own counters.
+     *
+     * So a copy that arrived is never `Pending` again. What we cannot
+     * classify we say we cannot classify, and show the folder next to it.
+     */
+    case Elsewhere = 'elsewhere';
+
     /** What the screen says, in ordinary French. */
     public function label(): string
     {
@@ -38,6 +56,7 @@ enum SeedVerdict: string
             self::Inbox => 'Boîte de réception',
             self::Spam => 'Indésirables',
             self::Missing => 'Jamais arrivé',
+            self::Elsewhere => 'Arrivé, dossier inconnu',
         };
     }
 
@@ -56,6 +75,11 @@ enum SeedVerdict: string
             self::Inbox => 'success',
             self::Spam => 'warning',
             self::Missing => 'danger',
+            // Neutral, not a warning: we do not know that anything is
+            // wrong, and a colour claiming otherwise on a folder the unit
+            // created itself would train its reader to ignore the ones
+            // that mean something.
+            self::Elsewhere => 'neutral',
         };
     }
 
@@ -66,8 +90,15 @@ enum SeedVerdict: string
      * and providers name the same shelf differently — « Junk » at Google,
      * « Indésirables » at OVH, « Spam » nearly everywhere else, « Bulk
      * Mail » on older servers. The list is a best effort and says so: an
-     * unrecognised folder reads as `Inbox` only when it IS the inbox, and
-     * otherwise stays `Pending` rather than being guessed either way.
+     * unrecognised folder reads as `Inbox` only when it IS the inbox.
+     *
+     * **A named folder is never `Pending`.** `Pending` means « sent, not
+     * found yet », and it is the state the sweep turns into « jamais
+     * arrivé » after two days — so returning it for a copy we have just
+     * found would have the site declare an arrival a permanent failure.
+     * A folder we cannot classify is `Elsewhere`, which is the honest
+     * answer and the one the screen can show a folder name beside. Only
+     * « the relay did not say » is still `Pending`.
      */
     public static function fromFolder(?string $folder): self
     {
@@ -86,6 +117,6 @@ enum SeedVerdict: string
             }
         }
 
-        return $normalised === 'inbox' || $leaf === 'inbox' ? self::Inbox : self::Pending;
+        return $normalised === 'inbox' || $leaf === 'inbox' ? self::Inbox : self::Elsewhere;
     }
 }
