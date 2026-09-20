@@ -413,4 +413,59 @@ class MailTransportSeamTest extends TestCase
 
         $this->assertNull($receipts->lastSendAt('parent@exemple.be'));
     }
+
+    private function blockedAddress(\PDO $pdo, string $email): void
+    {
+        $states = $this->receiptsOver($pdo);
+        $t = new \DateTimeImmutable('2026-03-01 09:00:00');
+        $this->addressOnFile($pdo, $email);
+        $states->recordSend($email, $t);
+        $state = $states->record(
+            $email,
+            \Core\Mail\Feedback\Bounce\BounceCategory::NoSuchAddress,
+            \Core\Mail\Feedback\Bounce\BounceSeverity::Permanent,
+            '5.1.1',
+            $t->modify('+1 minute')
+        );
+        self::assertNotNull($state);
+        $states->block($state->id, $t->modify('+2 minutes'));
+    }
+
+    /**
+     * **« L'adresse cesse d'être écrite » has to mean every message the
+     * site sends of its own accord**, not mailings alone — which is
+     * where the rule was first enforced and where it stayed. A
+     * notification or a mailed document arriving in a mailbox the member
+     * was just told had been suspended makes the promise false.
+     */
+    public function testTheSiteStopsWritingToABlockedAddressOnItsOwnAccount(): void
+    {
+        $pdo = \Tests\DatabaseTestHelper::createTestDatabase();
+        $this->blockedAddress($pdo, 'rebond@exemple.be');
+
+        $transport = $this->recordingTransport();
+        $this->serviceWithReceipts($transport, $this->receiptsOver($pdo))
+            ->send('rebond@exemple.be', 'Sujet', '<p>x</p>', 'x', vouchesForRecipient: true);
+
+        $this->assertSame(0, $transport->calls, 'a suspended address must stop receiving.');
+    }
+
+    /**
+     * **But authentication mail still goes.** A magic link or a password
+     * reset is the one thing somebody is waiting for at that moment, and
+     * withholding it over a bounce two months old locks them out of the
+     * site rather than protecting its reputation (D9). Those sends do not
+     * vouch for their recipient, which is the same line the receipt uses.
+     */
+    public function testAMessageSomebodyIsWaitingForStillReachesABlockedAddress(): void
+    {
+        $pdo = \Tests\DatabaseTestHelper::createTestDatabase();
+        $this->blockedAddress($pdo, 'rebond@exemple.be');
+
+        $transport = $this->recordingTransport();
+        $this->serviceWithReceipts($transport, $this->receiptsOver($pdo))
+            ->send('rebond@exemple.be', 'Connexion', '<p>x</p>', 'x');
+
+        $this->assertSame(1, $transport->calls, 'a sign-in link is not a mailing.');
+    }
 }

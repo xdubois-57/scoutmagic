@@ -206,8 +206,16 @@ class BounceService
             return;
         }
 
+        if ($this->notifier === null) {
+            // **Nothing was told, so nothing is marked.** `?->` would
+            // no-op quietly and `markNotified()` below would then record
+            // an error as « déjà dit » to nobody — and the day a notifier
+            // is wired in, that error class would stay silent for ever.
+            return;
+        }
+
         try {
-            $this->notifier?->notify($state, $blocking);
+            $this->notifier->notify($state, $blocking);
             // **Only once the telling succeeded.** Marking it regardless
             // would record an error as « déjà dit » that nobody was ever
             // told, and every later bounce carrying that code would take

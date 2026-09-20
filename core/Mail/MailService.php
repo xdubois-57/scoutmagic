@@ -196,6 +196,26 @@ class MailService
          */
         bool $vouchesForRecipient = false
     ): void {
+        // **A blocked address is one the site has stopped writing to, and
+        // that has to be true of every message it sends of its own
+        // accord** — not of mailings alone, which is where the rule was
+        // first enforced and where it stayed. A notification or a mailed
+        // document landing in a mailbox the member was just told had been
+        // suspended makes the promise false and the notice confusing.
+        //
+        // Gated on the same `$vouchesForRecipient` as the receipt, and
+        // deliberately: it marks exactly the sends where the SITE chose
+        // the correspondent. Authentication mail does not vouch and is
+        // therefore never suppressed — a magic link or a password reset
+        // is the one thing a person is waiting for at that moment, and
+        // withholding it over a bounce two months old would lock them out
+        // of the site instead of protecting its reputation (D9).
+        if ($vouchesForRecipient && $this->sendReceipts?->find($to)?->isBlocked() === true) {
+            $this->journalSuppressedToBlockedAddress();
+
+            return;
+        }
+
         $mail = new PHPMailer(true);
 
         try {
@@ -539,6 +559,28 @@ class MailService
      * next to the ones that are. What makes it worth recording at all is
      * that a deferral is invisible to whoever triggered it.
      */
+    /**
+     * A message the site chose not to send, written down at `info`.
+     *
+     * Not an error — nothing went wrong, the address is suspended and
+     * that is the feature working. But it is invisible to whoever
+     * triggered it, which is the same reason a deferral is recorded.
+     * No address, per SECURITY.md §11.
+     */
+    private function journalSuppressedToBlockedAddress(): void
+    {
+        try {
+            $this->journal?->log(
+                'core',
+                'mail_suppressed_blocked_address',
+                'info',
+                'Message non envoyé : adresse suspendue après des refus répétés'
+            );
+        } catch (\Throwable) {
+            // The message is withheld either way.
+        }
+    }
+
     private function journalDeferral(Transport\MailLane $lane, string $reason): void
     {
         try {

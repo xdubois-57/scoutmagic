@@ -4348,6 +4348,19 @@ and never asked anything: the feature inert with no symptom but silence.
 `Tests\Core\Scheduler\SchedulerBootstrapTest` builds that registry and
 counts its consumers, which is what actually pins it.
 
+*The receipt narrows the forgery, it does not close it.* It says « the
+site wrote here recently », not « this report answers that message ». The
+honest send-bounce-send-bounce sequence is deliberately allowed, and
+nothing distinguishes a forged report arriving in the same window — so
+against an address the site mails routinely, one forged report after a
+genuine send, then a second after the next ordinary message, still
+reaches the threshold. What is closed is the version needing no account
+and no timing, where two reports blocked ANY address. Exact per-message
+correlation is what `ReturnPathConsumer` gets from a key it issues
+itself; it needs VERP, which member mail rules out on deployability
+grounds. The remainder is an accepted risk, written down rather than
+implied.
+
 *And it is blind to spam filing.* A bounce is an explicit refusal; the
 large providers accept and move the message silently instead. An empty
 Rebonds page means « nothing was refused », never « everything arrives » —

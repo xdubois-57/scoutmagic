@@ -1678,6 +1678,26 @@ suspendue.
 
 ### Écarts et limites, assumés
 
+**La preuve d'envoi réduit la falsification, elle ne la supprime pas.** La
+preuve dit « le site a écrit ici récemment », pas « ce rapport répond à ce
+message-là ». La séquence honnête — envoi, rebond, envoi, rebond — est
+délibérément autorisée, et rien ne distingue un faux rapport arrivant dans
+la même fenêtre. Contre l'adresse d'un membre à qui le site écrit
+régulièrement, il reste donc possible de déposer un faux rapport juste
+après un envoi réel, d'attendre le courrier ordinaire suivant, et d'en
+déposer un second. Un rapport refusé ne laisse aucune trace, donc l'essai
+ne coûte rien.
+
+Ce qui est fermé : l'attaque sans compte et sans interaction, où deux faux
+rapports suffisaient contre **n'importe quelle** adresse. Ce qui reste
+demande de synchroniser avec les envois réels du site vers cette
+adresse-là. La corrélation exacte par message existe — c'est ce que fait
+`ReturnPathConsumer` avec une clé qu'il émet lui-même — mais elle suppose
+VERP, écarté pour le courrier des membres sur des critères de
+déployabilité (D-transport). Le risque résiduel est donc assumé, et il est
+écrit ici plutôt que sous-entendu.
+
+
 **Seul un échec définitif bloque**, comme le demande la roadmap.
 Conséquence : une boîte pleine depuis six mois rebondit en temporaire
 indéfiniment et continue d'être écrite — exactement la réputation que ce
