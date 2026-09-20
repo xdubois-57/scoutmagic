@@ -18,44 +18,44 @@ confondus.
 
 ## Traiter une demande
 
-Chaque réservation a sa fiche : le parcours du dossier (jalons
-calculés d'après les faits — rien à cocher : envoyer le contrat coche
-« Contrat envoyé », terminer un état des lieux coche le sien, et une
-ligne grisée « sans objet » signale ce qui n'a pas lieu d'être ici,
-comme une caution non demandée), l'état, le prix, les paiements, les
-documents et l'historique. Les boutons de la page agissent sans
-recharger : la fiche se met à jour d'elle-même, jalons compris, et un
-message confirme chaque action. Les boutons d'état font
-avancer le dossier — confirmer, refuser, demander des informations,
-proposer autre chose — et ceux qui écrivent au locataire vous laissent
-ajouter un mot. Poser une **option** bloque les dates jusqu'à une
-échéance : dépassée, la réservation expire et libère les dates toute
-seule.
+Chaque réservation a sa fiche : le parcours du dossier, l'état, le prix,
+les paiements, les documents et l'historique. Les jalons se cochent
+d'après les faits — envoyer le contrat coche « Contrat envoyé » — et une
+ligne grisée signale ce qui est sans objet ici, comme une caution non
+demandée. Les boutons agissent sans recharger, et ceux qui écrivent au
+locataire vous laissent ajouter un mot. Poser une **option** bloque les
+dates jusqu'à une échéance : dépassée, la réservation expire et libère
+les dates toute seule.
 
 Le **lien de suivi** du locataire n'est affiché nulle part, pas même
-pour vous : le posséder suffit pour ouvrir le dossier. Il ne se
-retrouve donc pas, il se remplace — « Régénérer le lien de suivi », sur
-la fiche du locataire, en envoie un nouveau par email et désactive
-l'ancien sur-le-champ. C'est la réponse à un lien perdu comme à un lien
+pour vous : le posséder suffit pour ouvrir le dossier. Il ne se retrouve
+donc pas, il se remplace — « Régénérer le lien de suivi » en envoie un
+nouveau et désactive l'ancien sur-le-champ, qu'il ait été perdu ou
 transmis à la mauvaise personne.
 
 ## Le prix et les paiements
 
-L'estimation faite par le visiteur reste figée ; le prix **convenu**
-se construit sur la fiche, ligne par ligne — une ligne retouchée à la
-main n'est plus jamais recalculée. Avec le module Finances, l'acompte
-et le solde se pointent automatiquement grâce à la communication
-structurée ; la caution a la sienne, séparée, et sa restitution se
-note à la main. Le décompte final, après séjour, ajoute ses lignes
-sans jamais réécrire le prix convenu.
+L'estimation du visiteur reste figée ; le prix **convenu** se construit
+sur la fiche, ligne par ligne — une ligne retouchée à la main n'est plus
+recalculée. Avec Finances, l'acompte et le solde se pointent grâce à la
+communication structurée ; la caution a la sienne et sa restitution se
+note à la main. Le décompte final ajoute ses lignes sans réécrire le
+prix convenu.
 
 ## Contrat et facture
 
-« Générer le contrat » ou « la facture » produit un PDF depuis le
-gabarit du bien ; chaque génération crée une nouvelle version, sans
-écraser la précédente — une version signée reste intacte. « Envoyer »
-l'expédie au locataire : celui-ci ne télécharge jamais rien depuis le
-site.
+Le texte se rédige dans les **gabarits du bien** ; la boîte Documents y
+renvoie. Générer en produit un PDF, chaque génération créant une version
+de plus sans écraser la précédente — une version signée reste intacte.
+
+**« Envoyer » verrouille** : ensuite le texte passe en lecture seule, le
+locataire en ayant une copie qui ne doit pas changer dans son dos. La
+confirmation vous le dit avant. Il ne télécharge jamais rien du site.
+
+Les actions sont des icônes, leur infobulle nomme le document.
+« Ouvrir » s'ouvre dans un nouvel onglet — sans quoi le PDF remplace
+l'écran de l'application installée sans moyen d'en revenir. Hors ligne,
+un document ne se consulte pas : le site le dit.
 
 ## Le courrier reçu
 

@@ -156,6 +156,30 @@ class RentalDocumentRepository implements AttachedFileRepository
         return $next;
     }
 
+    /**
+     * Whether a document of this type has already gone out to the renter.
+     *
+     * What « en lecture seule » is decided from (§22.6): the text a
+     * contract was made from stops being editable once that contract has
+     * been sent, because the renter holds a copy and silently changing what
+     * it was made from is precisely the confusion versioning exists to
+     * prevent.
+     *
+     * Any version counts, not just the latest: v1 sent and v2 regenerated
+     * still means the renter has something.
+     */
+    public function hasSentDocumentOfType(int $bookingId, DocumentType $type): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT 1 FROM rental_documents
+             WHERE booking_id = ? AND document_type = ? AND sent_at IS NOT NULL
+             LIMIT 1'
+        );
+        $stmt->execute([$bookingId, $type->value]);
+
+        return $stmt->fetchColumn() !== false;
+    }
+
     public function markSent(int $id, \DateTimeImmutable $sentAt): void
     {
         $stmt = $this->pdo->prepare('UPDATE rental_documents SET sent_at = ? WHERE id = ?');

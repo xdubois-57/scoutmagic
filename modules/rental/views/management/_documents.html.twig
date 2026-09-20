@@ -12,19 +12,40 @@
   - A generated document is never overwritten. Regenerating adds v2 beside
     v1, because v1 may already be signed.
 
+  **The actions are icons** (§22.6), each carrying an `aria-label` naming
+  the document it acts on — « Supprimer » five times in a column tells a
+  screen-reader user nothing about which row they are on. The 44px comfort
+  target is `app.css`'s `pointer: coarse` block, which already covers
+  `.btn-sm` and centres an icon-only one; never an inline `min-height`
+  (design.md §7.2).
+
   Requires `asset`, `booking`, `documents` and `uploadable_types`.
 #}
 <div class="card mb-4">
     <div class="card-body">
         <h2 class="h5 mb-2">Documents</h2>
+        {#
+          Two sentences, and the second carries the links that used to be
+          buttons (§22.6). « Rédiger le contrat » and « Rédiger la facture »
+          sat beside « Générer » as equals, which read as two ways of doing
+          one thing; the text is written in the asset's templates, and this
+          page's job is to produce and send.
+        #}
         <p class="text-body-secondary small">
             Le locataire ne télécharge rien depuis le site : ses documents lui parviennent
             uniquement par email. En cas d'email perdu, renvoyez-le.
         </p>
+        <p class="text-body-secondary small">
+            Le texte se rédige dans
+            <a href="/mes-locations/{{ asset.slug }}/gabarits">les gabarits du bien</a>. Pour cette
+            réservation seulement, ajustez
+            <a href="/mes-locations/{{ asset.slug }}/reservations/{{ booking.id }}/document/contract">le
+            texte du contrat</a> ou
+            <a href="/mes-locations/{{ asset.slug }}/reservations/{{ booking.id }}/document/invoice">celui
+            de la facture</a> avant de générer.
+        </p>
 
         <div class="d-flex flex-wrap gap-2 mb-3">
-            <a href="/mes-locations/{{ asset.slug }}/reservations/{{ booking.id }}/document/contract"
-               class="btn btn-sm btn-outline-secondary">Rédiger le contrat</a>
             <form method="post" action="/mes-locations/document-generer" class="d-inline">
                 {{ csrf_field()|raw }}
                 <input type="hidden" name="asset_id" value="{{ asset.id }}">
@@ -32,8 +53,6 @@
                 <input type="hidden" name="document_type" value="contract">
                 <button type="submit" class="btn btn-sm btn-outline-secondary">Générer le contrat</button>
             </form>
-            <a href="/mes-locations/{{ asset.slug }}/reservations/{{ booking.id }}/document/invoice"
-               class="btn btn-sm btn-outline-secondary">Rédiger la facture</a>
             <form method="post" action="/mes-locations/document-generer" class="d-inline">
                 {{ csrf_field()|raw }}
                 <input type="hidden" name="asset_id" value="{{ asset.id }}">
@@ -83,16 +102,45 @@
                                 </td>
                                 <td class="text-end">
                                     <div class="d-flex flex-wrap gap-1 justify-content-end">
+                                        {#
+                                          target="_blank" rel="noopener", like
+                                          chefs/staffs.html.twig and
+                                          members/show.html.twig already do
+                                          (§22.6). Without it, navigating to a
+                                          PDF in the installed application
+                                          leaves it on a blank screen with no
+                                          chrome to come back from — the same
+                                          defect on the contract and on the
+                                          invoice, since it is one link.
+                                        #}
                                         <a href="{{ file_url(document.fileId) }}"
-                                           class="btn btn-sm btn-outline-secondary">Ouvrir</a>
+                                           target="_blank" rel="noopener"
+                                           class="btn btn-sm btn-outline-secondary"
+                                           title="Ouvrir « {{ document.label }} » dans un nouvel onglet"
+                                           aria-label="Ouvrir « {{ document.label }} » dans un nouvel onglet">
+                                            <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i>
+                                        </a>
                                         {% if document.isForRenter %}
-                                            <form method="post" action="/mes-locations/document-envoyer" class="d-inline">
+                                            {#
+                                              Sending is the action that LOCKS
+                                              the text (§22.6), so the
+                                              confirmation says so before it
+                                              happens rather than after.
+                                            #}
+                                            <form method="post" action="/mes-locations/document-envoyer" class="d-inline"
+                                                  {% if not document.hasBeenSent and document.type.isGenerated %}
+                                                      data-confirm="Envoyer « {{ document.label }} » au locataire par email ? Le texte de ce document ne sera plus modifiable ensuite."
+                                                      data-confirm-label="Envoyer"
+                                                  {% endif %}>
                                                 {{ csrf_field()|raw }}
                                                 <input type="hidden" name="asset_id" value="{{ asset.id }}">
                                                 <input type="hidden" name="booking_id" value="{{ booking.id }}">
                                                 <input type="hidden" name="document_id" value="{{ document.id }}">
-                                                <button type="submit" class="btn btn-sm btn-outline-secondary">
-                                                    {{ document.hasBeenSent ? 'Renvoyer' : 'Envoyer' }}
+                                                <button type="submit" class="btn btn-sm btn-outline-secondary"
+                                                        title="{{ document.hasBeenSent ? 'Renvoyer' : 'Envoyer' }} « {{ document.label }} » au locataire"
+                                                        aria-label="{{ document.hasBeenSent ? 'Renvoyer' : 'Envoyer' }} « {{ document.label }} » au locataire">
+                                                    <i class="bi {{ document.hasBeenSent ? 'bi-arrow-repeat' : 'bi-send' }}"
+                                                       aria-hidden="true"></i>
                                                 </button>
                                             </form>
                                         {% endif %}
@@ -131,8 +179,10 @@
                                                         Destiné au locataire
                                                     </label>
                                                 </div>
-                                                <button type="submit" class="btn btn-sm btn-outline-secondary">
-                                                    Reclasser
+                                                <button type="submit" class="btn btn-sm btn-outline-secondary"
+                                                        title="Reclasser « {{ document.label }} »"
+                                                        aria-label="Reclasser « {{ document.label }} »">
+                                                    <i class="bi bi-tag" aria-hidden="true"></i>
                                                 </button>
                                             </form>
                                         {% endif %}
@@ -142,7 +192,11 @@
                                             <input type="hidden" name="asset_id" value="{{ asset.id }}">
                                             <input type="hidden" name="booking_id" value="{{ booking.id }}">
                                             <input type="hidden" name="document_id" value="{{ document.id }}">
-                                            <button type="submit" class="btn btn-sm btn-outline-danger">Supprimer</button>
+                                            <button type="submit" class="btn btn-sm btn-outline-danger"
+                                                    title="Supprimer « {{ document.label }} »"
+                                                    aria-label="Supprimer « {{ document.label }} »">
+                                                <i class="bi bi-trash" aria-hidden="true"></i>
+                                            </button>
                                         </form>
                                     </div>
                                 </td>
