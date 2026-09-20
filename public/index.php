@@ -6423,7 +6423,27 @@ if ($isEnabled('official_documents')) {
         $settingService,
         $moduleHooks
     );
-    $memberOfficialDocumentsProvider = new \Modules\OfficialDocuments\Service\MemberDocumentsSummaryService();
+    // The health sheet's one storage path. Encryption lives in the
+    // Repository and nowhere else (specifications.md §44), so this is the
+    // only place the encryption service reaches it.
+    $healthSheetService = new \Modules\OfficialDocuments\Service\HealthSheetService(
+        new \Modules\OfficialDocuments\Repository\HealthSheetRepository($pdo, $encryptionService),
+        $journalService
+    );
+    $officialDocumentsAccess = new \Modules\OfficialDocuments\Security\OwnMemberOnly($memberService);
+
+    $memberOfficialDocumentsProvider = new \Modules\OfficialDocuments\Service\MemberDocumentsSummaryService(
+        $healthSheetService
+    );
+
+    $frontController->registerController(
+        \Modules\OfficialDocuments\Controller\HealthSheetController::class,
+        new \Modules\OfficialDocuments\Controller\HealthSheetController(
+            $twig,
+            $officialDocumentsAccess,
+            $healthSheetService
+        )
+    );
 
     $frontController->registerController(
         \Modules\OfficialDocuments\Controller\ParentalAuthorizationController::class,
