@@ -197,6 +197,10 @@ class OutboundMailController extends AbstractController
      * worth saying only if it cannot be missed, and one forgotten tool
      * sending forty messages sorts below two hundred noisier senders and
      * would vanish from the verdict along with its row.
+     *
+     * The repository streams them, so this counts without ever holding the
+     * list — a ceiling here would put the same failure back, one order of
+     * magnitude further away.
      */
     private function unknownAuthenticatingCount(\DateTimeImmutable $since): int
     {

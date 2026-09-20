@@ -2286,6 +2286,18 @@ qui est borné, c'est la **sortie accumulée**, pas le transitoire du
 filtre — propriété parfaitement suffisante, mais ce n'est pas celle qui
 était écrite.
 
+**Et le plafond que j'avais posé pour corriger le plafond.** Ma première
+correction a déplacé la limite du calcul de l'avertissement de deux cents
+à cinq mille — ce qui est le même défaut à un ordre de grandeur près. Au
+delà, les lignes qui survivent sont celles qui se trient en premier, donc
+l'unique expéditeur non reconnu au milieu du trafic d'un domaine usurpé
+est précisément celui qui peut tomber, et l'avertissement disparaît là où
+il servait le plus. Il a fallu un second tour de relecture pour le voir.
+La requête est maintenant **diffusée ligne à ligne et sans plafond** : le
+compteur avance sans jamais détenir la liste, et ce qui borne l'ensemble
+est la purge à quatre-vingt-dix jours — une borne réelle plutôt
+qu'inventée.
+
 **Une trouvaille m'a fait trouver un défaut de plus**, en écrivant son
 test. `json_decode` transforme une clé de tableau entièrement numérique
 en entier : les adresses étant stockées en hexadécimal, `33440101` —

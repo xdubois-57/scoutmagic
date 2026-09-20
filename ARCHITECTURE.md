@@ -4444,8 +4444,9 @@ reaches a screen (SECURITY.md §11); the provider's name does.
 
 *The caps are on the DRAWING, and on nothing else.* `sourcesSince()` and
 `reportsSince()` feed tables and are limited; every count and the one
-warning come from uncapped queries (`totalsSince()`,
-`authenticatingSourcesSince()`). Reading a capped list as the whole truth
+warning come from uncapped queries (`totalsSince()`, and
+`authenticatingSourcesSince()`, which is **streamed** so the count never
+holds the list and no ceiling can quietly drop the one row that matters). Reading a capped list as the whole truth
 made the support archive undercount and — worse — computed « somebody
 unknown is authenticating » over the two hundred rows that fit, so one
 forgotten tool sending forty messages fell off the table and took the

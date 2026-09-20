@@ -298,9 +298,38 @@ class DmarcReportRepositoryTest extends TestCase
         $now = new \DateTimeImmutable();
         $this->reports->record($this->report(), $now);
 
-        $authenticating = $this->reports->authenticatingSourcesSince($now->modify('-30 days'));
+        $authenticating = iterator_to_array($this->reports->authenticatingSourcesSince($now->modify('-30 days')));
 
         $this->assertSame(['185.12.80.100'], $authenticating);
+    }
+
+    /**
+     * **No ceiling on the warning's input, and this is what pins it.**
+     *
+     * The first fix moved the cap from two hundred to five thousand, which
+     * is the same defect one order of magnitude away: past the cap the
+     * surviving rows are whichever sorted first, so the single
+     * unrecognised sender in a spoofed domain's traffic is exactly the row
+     * that can fall off — and the warning vanishes where it was most
+     * needed. A second review round caught that. The query is now
+     * streamed and uncapped, and this asserts the count rather than the
+     * ordering, since a `LIMIT` of any size fails it.
+     */
+    public function testEveryAuthenticatingSourceIsYieldedHoweverManyThereAre(): void
+    {
+        $now = new \DateTimeImmutable();
+        $records = [];
+        for ($i = 0; $i < 300; $i++) {
+            $records[] = new DmarcRecord('198.51.' . intdiv($i, 250) . '.' . ($i % 250), 5, 'none', true, false, 'unite.be');
+        }
+        $this->reports->record(
+            new DmarcReport('google.com', 'gros', 'unite.be', $now->modify('-2 days'), $now->modify('-1 day'), 'none', $records),
+            $now
+        );
+
+        $yielded = iterator_to_array($this->reports->authenticatingSourcesSince($now->modify('-30 days')));
+
+        $this->assertCount(300, $yielded);
     }
 
     /** A limit is bound, not concatenated — and it still limits. */

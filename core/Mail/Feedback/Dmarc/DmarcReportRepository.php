@@ -303,14 +303,26 @@ class DmarcReportRepository
      * forgotten tool sending forty messages sorts below two hundred noisy
      * ones and disappears from the verdict along with the row.
      *
+     * **Streamed, and with no ceiling at all** — the second half of that
+     * same lesson, and it took a second round of review to see it. A
+     * ceiling of five thousand is still a ceiling: past it the rows that
+     * survive are whichever ones sorted first, so the one unrecognised
+     * sender in a spoofed domain's traffic can be the row that falls off,
+     * and the warning disappears exactly where it was most needed. The
+     * ceiling had only moved the failure somewhere harder to notice.
+     *
+     * Rows are yielded one at a time rather than collected, so nothing
+     * here grows with the result: the caller counts as it goes and never
+     * holds the list. What bounds this in practice is the ninety-day
+     * purge, which is the honest bound rather than an invented one.
+     *
      * Only the authenticating addresses, because a source whose messages
      * all fail raises nothing — so the set is far smaller than « every
-     * source », and the ceiling here is a guard against absurdity rather
-     * than a page size.
+     * source » to begin with.
      *
-     * @return list<string>
+     * @return \Generator<int, string>
      */
-    public function authenticatingSourcesSince(\DateTimeImmutable $since, int $limit = 5000): array
+    public function authenticatingSourcesSince(\DateTimeImmutable $since): \Generator
     {
         $statement = $this->pdo->prepare(
             'SELECT s.source_ip AS source_ip
@@ -319,17 +331,14 @@ class DmarcReportRepository
               WHERE r.period_end >= :since
               GROUP BY s.source_ip
              HAVING SUM(s.authenticated_count) > 0
-              ORDER BY s.source_ip ASC
-              LIMIT :limit'
+              ORDER BY s.source_ip ASC'
         );
         $statement->bindValue(':since', $since->format('Y-m-d H:i:s'));
-        $statement->bindValue(':limit', max(1, $limit), \PDO::PARAM_INT);
         $statement->execute();
 
-        return array_map(
-            static fn(mixed $address): string => (string) $address,
-            $statement->fetchAll(\PDO::FETCH_COLUMN) ?: []
-        );
+        while (($address = $statement->fetchColumn()) !== false) {
+            yield (string) $address;
+        }
     }
 
     /**
