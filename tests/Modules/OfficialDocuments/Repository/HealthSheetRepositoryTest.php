@@ -117,7 +117,7 @@ final class HealthSheetRepositoryTest extends TestCase
             'doctor_last_name' => 'Lhoëst',
             'allergies' => "Arachides, œufs, et l'iode",
             'conditions' => ['asthma' => true],
-            'swimming_level' => '25m',
+            'swimming_level' => 'fair',
         ]);
     }
 
@@ -160,7 +160,7 @@ final class HealthSheetRepositoryTest extends TestCase
         $this->assertSame("Arachides, œufs, et l'iode", $back->allergies);
         $this->assertSame('Lhoëst', $back->doctorLastName);
         $this->assertTrue($back->conditions['asthma']);
-        $this->assertSame('25m', $back->swimmingLevel);
+        $this->assertSame('fair', $back->swimmingLevel);
     }
 
     // --- one row per member, replaced in place ---

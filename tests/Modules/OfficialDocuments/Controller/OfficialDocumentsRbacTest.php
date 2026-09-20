@@ -23,6 +23,7 @@ use Modules\OfficialDocuments\Controller\HealthSheetController;
 use Modules\OfficialDocuments\Controller\ParentalAuthorizationController;
 use Modules\OfficialDocuments\Repository\HealthSheetRepository;
 use Modules\OfficialDocuments\Security\OwnMemberOnly;
+use Modules\OfficialDocuments\Service\HealthSheetPdfService;
 use Modules\OfficialDocuments\Service\HealthSheetService;
 use Modules\OfficialDocuments\Pdf\TemplateLibrary;
 use Modules\OfficialDocuments\Service\ParentalAuthorizationPdfService;
@@ -153,21 +154,63 @@ final class OfficialDocumentsRbacTest extends TestCase
         string $controller,
         string $action
     ): void {
-        if ($method === 'POST') {
-            // A POST without a CSRF token is refused by the controller for a
-            // different reason entirely, which would say nothing about the
-            // guard. The GET routes carry this one.
-            $this->assertSame('identified', $roleMin);
-
-            return;
-        }
-
         AuthSession::login(1, 'parent@example.be', 'identified');
 
-        $response = $this->frontController($path, $method, $roleMin, $controller, $action)
-            ->handle(new Request($method, self::urlFor($path), [], [], [], []));
+        // A POST is dispatched WITH a valid CSRF token rather than skipped.
+        // This branch used to assert `role_min` and return, on the grounds
+        // that a token-less POST is refused for a reason that says nothing
+        // about the guard — true, and it left every writing route, the
+        // document download included, with no proof that a legitimate
+        // request reaches its controller at all. A routing typo or a CSRF
+        // wiring mistake would have passed.
+        $body = [];
+        if ($method === 'POST') {
+            $body['_csrf_token'] = self::csrfToken();
+        }
 
-        $this->assertSame(200, $response->getStatusCode(), $method . ' ' . $path);
+        $response = $this->frontController($path, $method, $roleMin, $controller, $action)
+            ->handle(new Request($method, self::urlFor($path), [], $body, [], []));
+
+        // What this test is about: the guard did not stand in the way. The
+        // exact answer belongs to each route — a save redirects, a document
+        // comes back as bytes — and the per-controller suites assert those.
+        $this->assertNotSame(403, $response->getStatusCode(), $method . ' ' . $path);
+        $this->assertNotSame(
+            '/login',
+            $response->getHeaders()['Location'] ?? null,
+            $method . ' ' . $path . ' : renvoyé à la connexion alors que le compte est identifié.'
+        );
+
+        if ($method === 'GET') {
+            $this->assertSame(200, $response->getStatusCode(), $method . ' ' . $path);
+        }
+
+        // And the health sheet really hands back a document, through the
+        // router rather than through a direct call to the controller —
+        // which is the whole reason this branch stopped skipping POSTs.
+        //
+        // Only this one: the parental authorization needs dates the parent
+        // types, so an empty body legitimately re-renders its form instead.
+        // The health sheet has no required input at all — every field is
+        // optional — so an empty request is a complete request, and a
+        // document is the only honest answer to it.
+        if ($method === 'POST' && str_ends_with($path, '/fiche-sante/pdf')) {
+            $this->assertSame(200, $response->getStatusCode(), $path);
+            $this->assertStringStartsWith('%PDF-', $response->getBody(), $path);
+            $this->assertSame('application/pdf', $response->getHeaders()['Content-Type'] ?? null, $path);
+        }
+    }
+
+    /**
+     * A CSRF token this session will accept, so a POST route can be
+     * dispatched for real.
+     */
+    private static function csrfToken(): string
+    {
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+
+        return $token;
     }
 
     /**
@@ -226,7 +269,8 @@ final class OfficialDocumentsRbacTest extends TestCase
             new HealthSheetController(
                 $twig,
                 new OwnMemberOnly($memberService),
-                new HealthSheetService($this->createStub(HealthSheetRepository::class))
+                new HealthSheetService($this->createStub(HealthSheetRepository::class)),
+                new HealthSheetPdfService(TemplateLibrary::shipped())
             )
         );
 

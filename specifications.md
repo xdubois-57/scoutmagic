@@ -2776,9 +2776,15 @@ Un test vérifie que chaque champ déclaré tient dans les limites de la page et
 ne manque — un champ déplacé hors de la feuille est invisible sur le PDF produit, et donc exactement
 le genre d'erreur qu'on ne voit pas en relisant une carte de coordonnées.
 
-**Une valeur trop longue pour sa ligne est réduite en corps, jamais coupée** — et si elle ne tient
-toujours pas au plus petit corps admis, ce qui arrive ensuite dépend de **qui peut y faire quelque
-chose**.
+**Une valeur trop longue pour sa ligne est d'abord réduite en corps** ; si elle ne tient toujours pas
+au plus petit corps admis, **ce qui tient est écrit et le reste est signalé — jamais dessiné
+au-delà de la ligne**. Une valeur débordante imprimée en entier passe par-dessus ce que le
+formulaire imprime à côté : sur la fiche santé, une remarque de quatre-vingts caractères dans la
+colonne gauche du tableau des contacts d'urgence traverse le cadre et la cellule du contact 2, et les
+deux personnes qu'un secouriste appellerait se surimpriment. Couper n'est acceptable que parce que
+ce n'est jamais silencieux — voir ci-dessous.
+
+Ce qui arrive ensuite dépend ensuite de **qui peut y faire quelque chose**.
 
 - Une valeur que le parent a tapée — son nom, les dates, le lieu — **réaffiche l'écran** avec ce qui
   était saisi : il peut la raccourcir, et vaut mieux l'apprendre là que sur le papier.
@@ -2880,3 +2886,82 @@ le droit de voir par ailleurs.
 Le bloc arrive par `Modules\OfficialDocuments\Api\MemberOfficialDocumentsProvider`, une dépendance
 optionnelle de `Core\Member\MemberPageService` : module absent ou désactivé, le bloc n'existe pas et
 la page est celle d'avant.
+
+
+### 44.14 La fiche santé imprimée : deux pages et une soixantaine d'emplacements
+
+`POST /members/{id}/fiche-sante/pdf`, gardée par le même lien compte ↔ membre que le reste du module
+(§44.4). Un POST et non un lien : tout sur ce document est la santé d'un enfant, et une URL est ce
+que gardent un journal de proxy, un historique de navigateur et un en-tête `Referer`.
+
+Le même moteur qu'§44.7 : le formulaire de la fédération importé en fond, les valeurs écrites
+par-dessus, **rien sur disque**. `Modules\OfficialDocuments\Pdf\HealthSheetLayout` en est la carte
+unique, sur les **deux pages** du document — une page est une propriété de chaque emplacement, et le
+formulaire lui-même fait courir « maladies importantes ou opérations subies » d'une page à l'autre.
+
+**Les coordonnées sont mesurées sur le gabarit aplati par FPDI, pas à l'œil.** Le gabarit est rendu à
+300 dpi après import, et chaque ligne pointillée est trouvée en classant les colonnes de pixels : de
+l'encre au-dessus de la ligne de base est un libellé imprimé, de l'encre seulement là où vit un point
+est une ligne à remplir. Aplatir d'abord n'est pas un détail : une case qui se serait révélée être un
+champ de formulaire plutôt qu'un dessin aurait disparu à l'import, et chaque croix serait tombée sur
+du papier blanc. Elles sont dessinées — vérifié, pas supposé.
+
+Un test relit ces lignes dans le gabarit lui-même et vérifie que chaque emplacement tombe sur l'une
+d'elles. Un formulaire republié avec une marge déplacée de trois millimètres rend le test rouge, là
+où un document produit resterait plausible et faux sur chaque exemplaire imprimé.
+
+### 44.15 Ce que le site répond, et ce qu'il ne répond pas à la place de la famille
+
+Le formulaire imprime huit paires de cases OUI/NON. **Une croix n'est mise que là où la famille a
+répondu.** Une question laissée de côté laisse les deux cases vides — « on ne sait pas », ce qui est
+vrai et qu'un humain lit correctement. Cocher NON sur une question « allergique ? » vide serait le
+site affirmant à un secouriste qu'un enfant n'a pas d'allergie, sur la foi d'un formulaire web que
+personne n'a rempli.
+
+Deux paires sont déduites, dans ce sens-là seulement : « allergique ? » est cochée OUI quand la
+famille a listé une allergie, « prend-elle un traitement ? » OUI quand elle en a décrit un — écrire
+la réponse EST la réponse. Aucune des deux n'est jamais cochée NON.
+
+Ce qui suppose des vocabulaires fermés côté saisie : les trois questions OUI/NON directes
+(participation, tétanos, autonomie) et le niveau de natation sont des listes de choix et non du texte
+libre. Une réponse « oui sauf la natation » ne cocherait aucune case imprimée.
+
+### 44.16 Le texte libre déborde, et l'écran le dit avant l'impression
+
+Le formulaire réserve deux ou trois lignes pointillées aux allergies, aux traitements et aux
+informations utiles. Ce qu'un parent y écrit est découpé sur les lignes disponibles, aux coupures de
+mots, **chaque ligne mesurée à sa propre largeur** — celle de « Mentionnez toute information utile »
+fait onze millimètres.
+
+Ce qui ne tient pas **n'est jamais tronqué en silence** : la page web nomme les réponses concernées,
+sous le libellé que le parent a devant les yeux et non sous le nom d'une ligne du gabarit. Ces
+libellés vivent dans `Value\HealthSheet::LABELS`, à côté des clés qu'ils nomment, et un test tient
+les deux listes ensemble : une réponse sans libellé sortirait telle quelle sur la page, en anglais,
+devant une famille.
+
+La « Remarque » de chaque contact d'urgence suit ce chemin-là comme les autres : c'est une zone de
+texte à l'écran, donc du texte libre, et la traiter comme une valeur d'une seule ligne la faisait
+sortir de sa colonne. Le
+document reste téléchargeable — ce qui tient est écrit, et une famille dont la liste d'allergies est
+longue a besoin de son formulaire ; c'est elle qui sait ce qu'elle peut raccourcir, ou choisir d'y
+joindre une feuille.
+
+Comme en §44.8, un débordement sur une valeur que **le site** fournit (la rue du membre, son adresse
+e-mail) ne dit rien au parent : il ne peut pas la raccourcir, elle est écrite serrée, et c'est un chef
+qui la corrige à la source.
+
+### 44.17 Imprimer, c'est utiliser la fiche
+
+La génération touche `last_used_at`, exactement comme un enregistrement. Une famille qui retélécharge
+son formulaire chaque septembre sans rien y changer n'a pas abandonné sa fiche, et la purge de
+conservation lit cette date-là.
+
+Rien n'est enregistré par un téléchargement : le document est dessiné à partir de ce qui est en base,
+donc une saisie non enregistrée n'apparaît pas dessus. L'écran le dit sous le bouton.
+
+### 44.18 Rien n'est ajouté au document de la fédération
+
+Le pied de la page 2 porte déjà les mentions RGPD de la fédération, y compris la durée de
+conservation et la destruction après le séjour. **Le site n'écrit rien de plus** : l'avertissement de
+§44.1 vit sur la page web, jamais sur le papier. On ne complète pas un document officiel avec ce qui
+n'en fait pas partie.

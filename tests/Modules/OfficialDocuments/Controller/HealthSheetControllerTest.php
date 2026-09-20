@@ -17,23 +17,26 @@ use Core\Security\AuthSession;
 use Modules\OfficialDocuments\Controller\HealthSheetController;
 use Modules\OfficialDocuments\Repository\HealthSheetRepository;
 use Modules\OfficialDocuments\Security\OwnMemberOnly;
+use Modules\OfficialDocuments\Pdf\TemplateLibrary;
+use Modules\OfficialDocuments\Service\HealthSheetPdfService;
 use Modules\OfficialDocuments\Service\HealthSheetService;
 use Modules\OfficialDocuments\Value\HealthSheet;
 use PHPUnit\Framework\TestCase;
 use Twig\Environment;
 
 /**
- * The boundary the router cannot see, on the three routes carrying a
+ * The boundary the router cannot see, on the four routes carrying a
  * child's health data.
  *
  * `role_min: identified` only says somebody is signed in;
  * `OfficialDocumentsRbacTest` proves that floor. What is left — and what
  * this file is for — is that an identified account which is NOT this
- * member's is refused, on every one of the three, including the one that
- * destroys data.
+ * member's is refused, on every one of the four, including the one that
+ * destroys data and the one that hands back a printable document.
  */
 final class HealthSheetControllerTest extends TestCase
 {
+    private Environment&\PHPUnit\Framework\MockObject\MockObject $twig;
     private MemberService&\PHPUnit\Framework\MockObject\MockObject $memberService;
     private HealthSheetRepository&\PHPUnit\Framework\MockObject\MockObject $repository;
     private HealthSheetController $controller;
@@ -45,16 +48,23 @@ final class HealthSheetControllerTest extends TestCase
         }
         $_SESSION = [];
 
-        $twig = $this->createStub(Environment::class);
-        $twig->method('render')->willReturn('<html></html>');
+        // A mock rather than a stub: what the screen is HANDED is the
+        // assertion in `testTheOverflowWarningIsFrenchAndNeverAFieldName`.
+        $this->twig = $this->createMock(Environment::class);
+        $this->twig->method('render')->willReturn('<html></html>');
 
         $this->memberService = $this->createMock(MemberService::class);
         $this->repository = $this->createMock(HealthSheetRepository::class);
 
         $this->controller = new HealthSheetController(
-            $twig,
+            $this->twig,
             new OwnMemberOnly($this->memberService),
-            new HealthSheetService($this->repository)
+            new HealthSheetService($this->repository),
+            // The real renderer over the real template: the screen calls it
+            // on every visit to know what will not fit, so a stub here
+            // would hide a generation that throws on the page it is meant
+            // to warn on.
+            new HealthSheetPdfService(TemplateLibrary::shipped())
         );
     }
 
@@ -130,10 +140,15 @@ final class HealthSheetControllerTest extends TestCase
             new Request('POST', '/members/7/fiche-sante/effacer', [], ['_csrf_token' => $token], [], []),
             ['id' => '7']
         );
+        $downloaded = $this->controller->download(
+            new Request('POST', '/members/7/fiche-sante/pdf', [], ['_csrf_token' => $token], [], []),
+            ['id' => '7']
+        );
 
         $this->assertSame(403, $shown->getStatusCode());
         $this->assertSame(403, $saved->getStatusCode());
         $this->assertSame(403, $cleared->getStatusCode());
+        $this->assertSame(403, $downloaded->getStatusCode());
     }
 
     /**
@@ -290,5 +305,182 @@ final class HealthSheetControllerTest extends TestCase
 
         $this->assertSame(302, $onNothing->getStatusCode());
         $this->assertSame('/members/7/fiche-sante', $onNothing->getHeaders()['Location'] ?? null);
+    }
+
+    // --- the document ---
+
+    /**
+     * The whole point of the iteration: a parent gets the federation's form
+     * back, as an attachment, with nothing cacheable about it.
+     */
+    public function testTheMembersOwnHouseholdGetsTheDocument(): void
+    {
+        $token = $this->signIn();
+        $this->memberService->method('canAccess')->willReturn(true);
+        $this->memberService->method('getMemberProfile')->willReturn(self::profile());
+        $this->repository->method('findForMember')->willReturn(HealthSheet::fromArray(['allergies' => 'Arachides']));
+
+        $response = $this->controller->download(
+            new Request('POST', '/members/7/fiche-sante/pdf', [], ['_csrf_token' => $token], [], []),
+            ['id' => '7']
+        );
+
+        $headers = $response->getHeaders();
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('application/pdf', $headers['Content-Type'] ?? null);
+        $this->assertStringContainsString('attachment;', (string) ($headers['Content-Disposition'] ?? ''));
+        $this->assertStringStartsWith('%PDF-', $response->getBody());
+        // A document carrying a child's health data has no business in a
+        // shared cache, a proxy, or the back button.
+        $this->assertSame('private, no-store', $headers['Cache-Control'] ?? null);
+    }
+
+    /**
+     * A POST and not a GET, which the CSRF wall enforces here as it does on
+     * the two writing routes: a bare request must not hand the document
+     * out.
+     */
+    public function testAPostWithoutAValidTokenProducesNoDocument(): void
+    {
+        $this->signIn();
+        $this->memberService->method('canAccess')->willReturn(true);
+        $this->memberService->method('getMemberProfile')->willReturn(self::profile());
+
+        $response = $this->controller->download(
+            new Request('POST', '/members/7/fiche-sante/pdf', [], ['_csrf_token' => 'mauvais'], [], []),
+            ['id' => '7']
+        );
+
+        $this->assertNotSame('application/pdf', $response->getHeaders()['Content-Type'] ?? null);
+        $this->assertStringNotContainsString('%PDF-', $response->getBody());
+    }
+
+    /**
+     * Printing IS using the sheet, so the retention clock restarts against
+     * the PERSISTENT member id — the same date IT-05's purge will read. A
+     * family that downloads their form every September has not abandoned
+     * it, and a purge that deleted it would be deleting data still in use.
+     */
+    public function testDownloadingPostponesTheRetentionClock(): void
+    {
+        $token = $this->signIn();
+        $this->memberService->method('canAccess')->willReturn(true);
+        $this->memberService->method('getMemberProfile')->willReturn(self::profile());
+        $this->repository->method('findForMember')->willReturn(HealthSheet::empty());
+
+        $this->repository->expects($this->once())->method('touch')->with(42, $this->anything());
+
+        $this->controller->download(
+            new Request('POST', '/members/7/fiche-sante/pdf', [], ['_csrf_token' => $token], [], []),
+            ['id' => '7']
+        );
+    }
+
+    /**
+     * And nothing is SAVED by a download. The document is drawn from what
+     * is on file, so a generation that wrote the sheet back would be a
+     * write on a read path — and the one path a family never expects to
+     * change anything.
+     */
+    public function testDownloadingSavesNothing(): void
+    {
+        $token = $this->signIn();
+        $this->memberService->method('canAccess')->willReturn(true);
+        $this->memberService->method('getMemberProfile')->willReturn(self::profile());
+        $this->repository->method('findForMember')->willReturn(HealthSheet::empty());
+
+        $this->repository->expects($this->never())->method('save');
+        $this->repository->expects($this->never())->method('delete');
+
+        $this->controller->download(
+            new Request('POST', '/members/7/fiche-sante/pdf', [], ['_csrf_token' => $token], [], []),
+            ['id' => '7']
+        );
+    }
+
+    /**
+     * A member with no sheet at all still gets the blank form with their
+     * identity on it: every field is optional, and « rien à imprimer »
+     * would be a refusal the module's own design says cannot happen.
+     */
+    public function testAMemberWithNoSheetStillGetsTheBlankForm(): void
+    {
+        $token = $this->signIn();
+        $this->memberService->method('canAccess')->willReturn(true);
+        $this->memberService->method('getMemberProfile')->willReturn(self::profile());
+        $this->repository->method('findForMember')->willReturn(null);
+
+        $response = $this->controller->download(
+            new Request('POST', '/members/7/fiche-sante/pdf', [], ['_csrf_token' => $token], [], []),
+            ['id' => '7']
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringStartsWith('%PDF-', $response->getBody());
+    }
+
+    /**
+     * **Nothing internal reaches a parent.** The overflow warning names the
+     * boxes to shorten, and it names them in French: the template is handed
+     * finished sentences, never the field names the layout works in.
+     *
+     * A bullet reading literally `contact1_note` is what this catches, and
+     * it is the shape the page had before — `CLAUDE.md`: « an English UI
+     * label is a bug, never a detail ».
+     */
+    public function testTheOverflowWarningIsFrenchAndNeverAFieldName(): void
+    {
+        $this->signIn();
+        $this->memberService->method('canAccess')->willReturn(true);
+        $this->memberService->method('getMemberProfile')->willReturn(self::profile());
+        $this->repository->method('findForMember')->willReturn(HealthSheet::fromArray([
+            'contact1_note' => 'Joignable uniquement en journée, de préférence après quatorze heures, '
+                . 'sinon appeler le grand-père qui habite à côté',
+        ]));
+
+        $context = null;
+        $this->twig->method('render')->willReturnCallback(
+            static function (string $template, array $given) use (&$context): string {
+                $context = $given;
+
+                return '<html></html>';
+            }
+        );
+
+        $this->controller->show(new Request('GET', '/members/7/fiche-sante', [], [], [], []), ['id' => '7']);
+
+        $this->assertIsArray($context);
+        $this->assertSame(
+            [HealthSheet::LABELS['contact1_note']],
+            $context['overflowing'],
+            'La page doit nommer la case à raccourcir avec les mots que le parent a sous les yeux.'
+        );
+    }
+
+    /**
+     * And a sheet that fits says nothing at all: a warning on every visit
+     * is a warning nobody reads.
+     */
+    public function testAShortAnswerRaisesNoWarning(): void
+    {
+        $this->signIn();
+        $this->memberService->method('canAccess')->willReturn(true);
+        $this->memberService->method('getMemberProfile')->willReturn(self::profile());
+        $this->repository->method('findForMember')->willReturn(HealthSheet::fromArray([
+            'contact1_note' => 'Après 17h',
+        ]));
+
+        $context = null;
+        $this->twig->method('render')->willReturnCallback(
+            static function (string $template, array $given) use (&$context): string {
+                $context = $given;
+
+                return '<html></html>';
+            }
+        );
+
+        $this->controller->show(new Request('GET', '/members/7/fiche-sante', [], [], [], []), ['id' => '7']);
+
+        $this->assertSame([], $context['overflowing']);
     }
 }

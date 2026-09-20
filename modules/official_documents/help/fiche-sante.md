@@ -9,7 +9,7 @@ question: Comment remplir la fiche santé de mon enfant ?
 question: Qui peut voir les informations médicales que je saisis ?
 question: Comment effacer les données de santé de mon enfant ?
 paths: /members/*/fiche-sante
-related: autorisation-parentale, page-membre
+related: imprimer-fiche-sante, autorisation-parentale, page-membre
 ---
 
 Depuis la page de votre enfant, le bloc « Documents officiels » mène à cet
@@ -27,6 +27,10 @@ visites.
 Une fiche entièrement vide est un état parfaitement normal — vous pouvez
 n'utiliser que l'autorisation parentale.
 
+Quand elle est remplie, le bouton « Télécharger la fiche à imprimer » vous rend
+le formulaire officiel de la fédération avec vos réponses dessus : voir
+« Imprimer la fiche santé ».
+
 ## Qui peut les voir
 
 Seules les personnes liées à votre enfant. **Aucun animateur et aucun chef
@@ -34,7 +38,8 @@ d'unité n'a accès à cet écran**, quel que soit son rôle sur le site.
 
 Ce que vous saisissez est chiffré sur le serveur. La seule façon dont ces
 informations parviennent à l'unité est celle que vous choisissez : vous
-imprimez la fiche, vous la signez, et vous la remettez à l'animateur.
+imprimez la fiche, vous la signez, et vous la remettez à l'animateur. Rien
+n'est envoyé à personne tant que vous ne l'avez pas fait vous-même.
 
 > Le document imprimé n'a aucune valeur tant qu'il n'est pas signé à la
 > main. C'est ce papier-là qui fait foi, et lui seul.
