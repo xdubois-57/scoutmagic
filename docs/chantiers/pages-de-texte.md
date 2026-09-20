@@ -53,7 +53,7 @@ Pour que ça ne revienne pas par accident :
   cœur, les entrées de menu juste après le calcul du surlignage, et le
   contrôleur pré-construit.
 - `ARCHITECTURE.md` §8.115.
-- 59 tests dans `tests/Core/Page/`, plus la table dans
+- 62 tests dans `tests/Core/Page/`, plus la table dans
   `tests/DatabaseTestHelper.php`.
 
 ### Décisions prises seul
@@ -289,6 +289,38 @@ jamais pu entrer en collision ne coûte rien à personne, s'abstenir sur
 une qui le peut coûte l'élévation. Et ça dégrade bien là où `intl`
 manque : un caractère non normalisable est supprimé, donc la clé tombe
 dans le cas 2 plutôt que dans le cas 3.
+
+**Un quatrième tour, et la fin de la méthode par réduction.** La règle
+inversée refusait tout ce qui se réduisait dans l'espace de noms des
+pages — mais la réduction *supprimait* ce qu'elle ne savait pas replier.
+Une lettre pleine chasse **à l'intérieur du mot** — `ｐage_content_7`,
+U+FF50 — se réduisait donc en `agecontent7`, qui n'ouvre plus l'espace de
+noms : abstention, et la base fait atterrir l'écriture sur la vraie ligne.
+Les tests précédents ne couvraient que des substitutions *après* le
+préfixe, jamais dedans.
+
+La cause est la même qu'au tour précédent, un cran plus loin :
+`Normalizer::FORM_D` est une décomposition **canonique**, et les formes
+pleine chasse n'ont qu'une décomposition **de compatibilité**. Le
+repli passe donc par `FORM_KD` avant d'appeler `fold()` — la même
+correspondance que la collation applique.
+
+Et un dernier verrou, pour ne pas recommencer une cinquième fois : une
+clé qui porte un caractère que **ni** la décomposition de compatibilité
+**ni** la table d'accents ne reconnaissent est refusée d'office. C'est
+testé caractère par caractère, en interrogeant `fold()` lui-même — un
+caractère pour lequel il répond chaîne vide est un caractère qu'il ne
+sait pas replier. Sans ça, un espace de largeur nulle glissé dans
+`home.intro` donnerait exactement « home intro » après repli, et
+passerait pour une clé ordinaire.
+
+**Ce qui ne devait pas régresser, et ne régresse pas.**
+`section.{desk_code}.text` est la seule clé éditable construite à partir
+de données importées, et un code Desk est ce que le CSV portait. La
+table d'accents replie `section.Unité-Saint-Éloi.text` en ASCII, donc la
+clé reste ordinaire et un chef d'unité continue d'éditer ce texte comme
+avant. Deux tests le tiennent, parce que c'était le risque réel de ce
+verrou.
 
 **Le correctif structurel qui en découle.** Les deux portes passent par
 `EditableContentService::set()`. Le garde y est donc posé aussi, comme

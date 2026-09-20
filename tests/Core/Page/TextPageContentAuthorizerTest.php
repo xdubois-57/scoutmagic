@@ -175,6 +175,60 @@ class TextPageContentAuthorizerTest extends TestCase
     }
 
     /**
+     * **A fullwidth LETTER inside the namespace word itself** — the
+     * spelling that broke the third attempt.
+     *
+     * The earlier rule reduced a key by deleting everything that was not
+     * an ASCII alphanumeric. `ｐ` (U+FF50) has a *compatibility*
+     * decomposition and no canonical one, so `Normalizer::FORM_D` left
+     * it untouched and the reduction then deleted it:
+     * `ｐage_content_7` became `agecontent7`, which no longer opens the
+     * namespace, so the authorizer abstained — while
+     * `utf8mb4_unicode_ci` equates it with the real row.
+     *
+     * Folding through `FORM_KD` is what closes it: the same compatibility
+     * mapping the collation applies.
+     */
+    public function testAFullwidthLetterInsideTheNamespaceIsStillGuarded(): void
+    {
+        $this->service->create('ASBL', 'Notre ASBL', MenuBuilder::MENU_CONFIGURATION, 'site');
+
+        foreach (["\u{FF50}age_content_1", "\u{FF50}\u{FF41}\u{FF47}\u{FF45}_content_1", "page_\u{FF43}ontent_1"] as $spelling) {
+            $this->assertSame('superadmin', $this->authorizer->roleMinForKey($spelling), $spelling);
+        }
+    }
+
+    /**
+     * A character that survives BOTH compatibility folding and the
+     * explicit accent map is refused outright.
+     *
+     * Nothing this application writes contains one, and the database may
+     * still equate it with a key that matters. Refusing is the only
+     * answer that does not require knowing which.
+     */
+    public function testAKeyCarryingSomethingNoFoldRecognisesIsRefused(): void
+    {
+        $this->assertSame('superadmin', $this->authorizer->roleMinForKey("home.intro\u{200B}"));
+        $this->assertSame('superadmin', $this->authorizer->roleMinForKey("\u{4F60}\u{597D}"));
+    }
+
+    /**
+     * And the case that must NOT regress: a section whose Desk code
+     * carries an accent.
+     *
+     * `section.{desk_code}.text` is the one editable key built from
+     * imported data, and a Desk code is whatever the CSV carried. The
+     * accent map folds it to ASCII, so the key is recognised as ordinary
+     * and keeps the endpoint's own floor — an admin goes on editing that
+     * section's text exactly as before.
+     */
+    public function testASectionKeyWithAnAccentedDeskCodeStaysOrdinary(): void
+    {
+        $this->assertNull($this->authorizer->roleMinForKey('section.Été.text'));
+        $this->assertNull($this->authorizer->roleMinForKey('section.Unité-Saint-Éloi.text'));
+    }
+
+    /**
      * A malformed key that still opens the namespace is refused, not
      * ignored — `page_content_` with no id, or with something that is
      * not one.
