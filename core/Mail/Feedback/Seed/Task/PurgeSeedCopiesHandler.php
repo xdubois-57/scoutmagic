@@ -10,6 +10,7 @@ namespace Core\Mail\Feedback\Seed\Task;
 
 use Core\Mail\Feedback\Seed\DomainRouting;
 use Core\Mail\Feedback\Seed\SeedCopyRepository;
+use Core\Mail\Feedback\Seed\SeedMailboxes;
 use Core\Mail\Transport\DomainPreferences;
 use Core\Mail\Transport\LaneChainRepository;
 use Core\Mail\Transport\MailProviderDirectory;
@@ -19,6 +20,7 @@ use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
+use Modules\InboundMail\Api\InboundMailInterface;
 
 /**
  * The daily reading of the seed results: what they settle, settled once
@@ -175,6 +177,38 @@ class PurgeSeedCopiesHandler implements TaskHandlerInterface
         );
 
         if (!$routing->isAutomatic()) {
+            return;
+        }
+
+        // **Asked again here, and not only where the switch was armed.**
+        // The screen refuses to arm this on a measurement that cannot
+        // support it, but the configuration moves afterwards and this is
+        // what acts: a box removed from the scope, or one whose junk
+        // folder somebody took out of the watched list, would leave the
+        // switch on over evidence that reports junk-filed mail as
+        // « jamais arrivé ». The sweep would then reroute a whole
+        // provider's traffic on exactly the reading the guard exists to
+        // refuse — unattended, and the day nobody was looking.
+        $seedMailboxes = new SeedMailboxes(
+            $copies,
+            $context->settings,
+            // §7.5's nullable arrow, asked for once a day and only on an
+            // installation that armed the switch. Null is « no boxes »,
+            // which is the honest answer and stands the routing down.
+            $context->getOptional(InboundMailInterface::class)
+        );
+
+        if (!$seedMailboxes->measuresSpamReliably()) {
+            $context->journal->log(
+                'core',
+                'mail_seed_routing_stood_down',
+                'security',
+                'Routage automatique suspendu : mesure incomplète',
+                // A count, never a box (SECURITY.md §11) — and dated, so
+                // an operator wondering why nothing moved has an answer.
+                ['blind_boxes' => $seedMailboxes->boxesBlindToSpam()]
+            );
+
             return;
         }
 

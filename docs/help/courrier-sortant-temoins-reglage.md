@@ -42,9 +42,12 @@ son dossier d'indésirables aux dossiers surveillés — il s'appelle
 Google.
 
 La page vous le rappelle d'elle-même tant qu'une boîte témoin ne le
-surveille pas, et elle refuse d'automatiser le routage dans cet état :
-un automatisme qui déplace le courrier de toute une unité ne peut pas
-s'appuyer sur une mesure dont on sait qu'elle est aveugle.
+surveille pas, et elle refuse d'automatiser le routage tant qu'il n'y a
+pas au moins une boîte qui le surveille : un automatisme qui déplace le
+courrier de toute une unité ne peut pas s'appuyer sur une mesure dont on
+sait qu'elle est aveugle — ni sur une mesure qui n'existe pas encore. Le
+site revérifie la même chose chaque jour avant d'appliquer quoi que ce
+soit, parce qu'une boîte peut être retirée après coup.
 
 ## Trois à cinq suffisent, et au-delà c'est contre-productif
 

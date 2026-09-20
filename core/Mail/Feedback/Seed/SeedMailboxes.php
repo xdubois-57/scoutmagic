@@ -229,6 +229,30 @@ final class SeedMailboxes
     }
 
     /**
+     * Whether the measurement is sound enough for a decision **nobody
+     * will re-read**.
+     *
+     * Two conditions, and the second is the one that was missing: every
+     * declared box must be able to see its junk folder, **and there must
+     * be a declared box at all**. {@see self::boxesBlindToSpam()} counts
+     * blind boxes, so with no boxes it counts zero — « nothing wrong »
+     * and « nothing measured » giving the same answer, which is the
+     * oldest trap on this page and the reason the results table states
+     * them apart. A unit could therefore arm the automatism before
+     * declaring anything, add an inbox-only box later, and have the
+     * sweep reroute a provider on exactly the evidence the guard exists
+     * to refuse.
+     *
+     * Asked in both places for the same reason: the screen arms the
+     * switch, but the configuration can change afterwards and the daily
+     * sweep is what acts.
+     */
+    public function measuresSpamReliably(): bool
+    {
+        return $this->addresses() !== [] && $this->boxesBlindToSpam() === 0;
+    }
+
+    /**
      * What the header on a copy of this run must carry.
      *
      * A keyed tag rather than the bare reference, because a reference is

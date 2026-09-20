@@ -491,22 +491,27 @@ class OutboundMailController extends AbstractController
 
         $wanted = (string) $request->getBody('enabled', '0') === '1';
 
-        // **An automatism may not be armed on a measurement known to be
-        // blind.** A seed box that watches only its inbox cannot tell
+        // **An automatism may not be armed on a measurement that cannot
+        // support it.** A seed box watching only its inbox cannot tell
         // « indésirables » from « jamais arrivé » — it reports the second
         // for both — and that is precisely the difference this switch
         // would have the site act on, unattended, by moving a whole
-        // provider's mail to another relay. Refused rather than warned
-        // about: the screen already warns, and a switch that takes a
-        // decision no one will re-read afterwards is the one place where
-        // a warning is not enough. Turning it OFF is always allowed.
-        $blind = $this->seedMailboxes?->boxesBlindToSpam() ?? 0;
-        if ($wanted && $blind > 0) {
+        // provider's mail to another relay. No box at all is the same
+        // answer for a simpler reason. Refused rather than warned about:
+        // the screen already warns, and a switch that takes a decision no
+        // one will re-read afterwards is the one place where a warning is
+        // not enough. Turning it OFF is always allowed.
+        if ($wanted && !($this->seedMailboxes?->measuresSpamReliably() ?? false)) {
+            $blind = $this->seedMailboxes?->boxesBlindToSpam() ?? 0;
             FlashMessage::set(
                 'error',
-                $blind . ' boîte(s) témoin(s) ne surveille(nt) pas leur dossier « Indésirables » : '
-                . 'un message classé en indésirables y est compté « jamais arrivé ». '
-                . 'Ajoutez ce dossier dans « Courrier entrant » avant d\'automatiser le routage.'
+                $blind > 0
+                    ? $blind . ' boîte(s) témoin(s) ne surveille(nt) pas leur dossier « Indésirables » : '
+                        . 'un message classé en indésirables y est compté « jamais arrivé ». '
+                        . 'Ajoutez ce dossier dans « Courrier entrant » avant d\'automatiser le routage.'
+                    : 'Aucune boîte témoin ne peut mesurer quoi que ce soit pour l\'instant : '
+                        . 'déclarez-en dans « Courrier entrant », avec leur dossier « Indésirables », '
+                        . 'avant d\'automatiser le routage.'
             );
 
             return $this->redirect(self::SEEDS_URL);

@@ -55,14 +55,56 @@ class PurgeSeedCopiesHandlerTest extends TestCase
             $this->settings->register($key, $default, $type, $key, '', null, null, null, false, $order);
         }
 
-        $this->context = new TaskContext(
+        $this->context = $this->contextWatching([['INBOX', 'Junk']]);
+    }
+
+    /**
+     * A context whose seed boxes watch the folders given.
+     *
+     * **The default is one box that CAN see its junk folder**, because
+     * that is the state in which the automatic routing is allowed to act
+     * at all: a unit with no seed box, or with one read only in its
+     * inbox, reports junk-filed mail as « jamais arrivé », and the sweep
+     * stands down rather than rerouting a provider on that. A fixture
+     * without boxes would have every routing test below assert the
+     * stand-down instead of the routing, while looking like it asserted
+     * the routing.
+     *
+     * @param list<list<string>> $watched one entry per declared box
+     */
+    private function contextWatching(array $watched): TaskContext
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+
+        $moduleManager = $this->createMock(\Core\Module\ModuleManager::class);
+        $moduleManager->method('getEnabledModuleIds')->willReturn(['inbound_mail']);
+        $capabilities = new \Core\Scheduler\TaskCapabilities($moduleManager);
+        $capabilities->register(
+            \Modules\InboundMail\Api\InboundMailInterface::class,
+            'inbound_mail',
+            function () use ($watched): object {
+                $gateway = $this->createStub(\Modules\InboundMail\Api\InboundMailInterface::class);
+                $gateway->method('probeAddressesFor')
+                    ->willReturn(array_map(
+                        static fn (int $index): string => 'temoin' . $index . '@gmail.com',
+                        array_keys($watched)
+                    ));
+                $gateway->method('watchedFoldersFor')->willReturn($watched);
+
+                return $gateway;
+            }
+        );
+
+        return new TaskContext(
             Connection::withPdo($this->pdo),
             $encryption,
             $this->createMock(MailService::class),
             new JournalService(new JournalRepository($this->pdo)),
             $this->settings,
             new UserAccountRepository($this->pdo, $encryption),
-            sys_get_temp_dir()
+            sys_get_temp_dir(),
+            null,
+            $capabilities
         );
     }
 
@@ -233,6 +275,61 @@ class PurgeSeedCopiesHandlerTest extends TestCase
         (new PurgeSeedCopiesHandler())->handle([], $this->context);
 
         $this->assertSame($second, (new DomainPreferences($this->settings))->forDomain('gmail.com'));
+    }
+
+    /**
+     * **The switch is re-examined here, not only where it was armed.**
+     *
+     * The screen refuses to arm the automatism on a measurement that
+     * cannot support it, but the configuration moves afterwards and this
+     * is what acts: a box whose junk folder somebody took out of the
+     * watched list leaves the switch on over evidence that reports
+     * junk-filed mail as « jamais arrivé ». The sweep would then reroute
+     * a whole provider's traffic on exactly the reading the guard exists
+     * to refuse — unattended, and on the day nobody was looking.
+     */
+    public function testABlindSeedBoxStandsTheAutomaticRoutingDown(): void
+    {
+        $this->twoRelays();
+        $this->troubledProvider();
+        $this->settings->setInternal(DomainRouting::SETTING_AUTOMATIC, '1');
+
+        (new PurgeSeedCopiesHandler())->handle([], $this->contextWatching([['INBOX']]));
+
+        $this->assertNull((new DomainPreferences($this->settings))->forDomain('gmail.com'));
+        $this->assertSame(
+            1,
+            $this->scalar("SELECT COUNT(*) FROM event_log WHERE event_type = 'mail_seed_routing_stood_down'"),
+            'and it is dated rather than silent: an operator wondering why nothing moved has an answer.'
+        );
+    }
+
+    /**
+     * **No box at all is the same answer**, and it used to be a different
+     * one: `boxesBlindToSpam()` counts blind boxes, so with no boxes it
+     * counts zero — « nothing wrong » and « nothing measured » giving
+     * the same figure, which is the oldest trap on this page.
+     */
+    public function testNoSeedBoxAtAllStandsTheAutomaticRoutingDownToo(): void
+    {
+        $this->twoRelays();
+        $this->troubledProvider();
+        $this->settings->setInternal(DomainRouting::SETTING_AUTOMATIC, '1');
+
+        (new PurgeSeedCopiesHandler())->handle([], $this->contextWatching([]));
+
+        $this->assertNull((new DomainPreferences($this->settings))->forDomain('gmail.com'));
+    }
+
+    /** Standing the routing down never costs the purge its next run. */
+    public function testTheSweepStillDoesItsOwnWorkWhenTheRoutingStandsDown(): void
+    {
+        $this->copies->claim('vieux', 'temoin0@gmail.com', new \DateTimeImmutable('-5 days'));
+        $this->settings->setInternal(DomainRouting::SETTING_AUTOMATIC, '1');
+
+        (new PurgeSeedCopiesHandler())->handle([], $this->contextWatching([['INBOX']]));
+
+        $this->assertSame(SeedVerdict::Missing, $this->copies->forRun('vieux')[0]->verdict);
     }
 
     /**

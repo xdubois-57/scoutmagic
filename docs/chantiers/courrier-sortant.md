@@ -2518,6 +2518,30 @@ fait une mesure plutôt qu'un échantillon. `SeedCopyContent` porte
 désormais le sujet, parce qu'il se personnalise comme le corps et qu'il
 est la seule ligne que toute boîte affiche dans sa liste.
 
+**Deux constats plus petits du même tour.** L'en-tête de tampon était
+fusionné avec `+`, qui garde la valeur de GAUCHE : un appelant nommant
+cet en-tête aurait remplacé le tampon anti-falsification par le sien, et
+une copie dont le tampon ne vérifie pas est une copie que le
+consommateur ne reconnaît jamais, ne consigne jamais et ne supprime
+jamais — elle reste dans la boîte témoin avec le texte du publipostage
+dedans. Latent avec l'unique appelant d'aujourd'hui, hérité en silence
+par le suivant. `array_merge()`, et le commentaire dit enfin ce que le
+code fait.
+
+Et le garde du routage automatique ne gardait rien quand il n'y avait
+aucune boîte : `boxesBlindToSpam()` compte les boîtes aveugles, donc sans
+boîte il compte zéro — « rien d'anormal » et « rien de mesuré » donnant
+le même chiffre, ce qui est le plus vieux piège de cette page et ce que
+le tableau des résultats énonce justement à part. Une unité pouvait armer
+l'interrupteur avant d'avoir rien déclaré, ajouter ensuite une boîte
+limitée à sa réception, et voir le balayage rerouter un fournisseur sur
+exactement la preuve que le garde existe pour refuser.
+`measuresSpamReliably()` pose les deux conditions en un seul endroit, et
+**le balayage quotidien la repose avant d'appliquer** : l'écran arme,
+mais la configuration bouge ensuite et c'est le balayage qui agit. Le
+renoncement est journalisé plutôt que silencieux, sinon personne ne peut
+dater le jour où le site a cessé d'appliquer.
+
 ### Reporté
 
 - **Rapprocher un fournisseur de messagerie d'un domaine destinataire

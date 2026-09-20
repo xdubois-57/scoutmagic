@@ -806,10 +806,39 @@ class OutboundMailControllerTest extends TestCase
         );
     }
 
+    /**
+     * **And with no seed box at all it is refused too**, which it was
+     * not: `boxesBlindToSpam()` counts blind boxes, so with no boxes it
+     * counts zero — « nothing wrong » and « nothing measured » giving
+     * the same figure. A unit could arm the automatism before declaring
+     * anything, add an inbox-only box later, and have the sweep reroute
+     * a provider on exactly the evidence the guard refuses.
+     */
+    public function testTheAutomaticRoutingCannotBeArmedWithNoSeedBoxAtAll(): void
+    {
+        $controller = $this->controllerWithSeedBoxes([], []);
+
+        $controller->toggleRouting($this->formRequest(['enabled' => '1']), []);
+
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame(
+            '0',
+            (string) ($this->settings->get(\Core\Mail\Feedback\Seed\DomainRouting::SETTING_AUTOMATIC) ?? '0')
+        );
+    }
+
     /** Turning it OFF is never refused: that direction removes a risk. */
     public function testTheAutomaticRoutingCanAlwaysBeTurnedOff(): void
     {
-        $this->controller->toggleRouting($this->formRequest(['enabled' => '1']), []);
+        $this->controllerWithSeedBoxes(['a@gmail.com'], [['INBOX', 'Junk']])
+            ->toggleRouting($this->formRequest(['enabled' => '1']), []);
+        $this->assertSame(
+            '1',
+            $this->settings->get(\Core\Mail\Feedback\Seed\DomainRouting::SETTING_AUTOMATIC),
+            'it has to be on for turning it off to mean anything.'
+        );
+
+        // And the boxes have since gone blind.
         $controller = $this->controllerWithSeedBoxes(['a@gmail.com'], [['INBOX']]);
 
         $controller->toggleRouting($this->formRequest(['enabled' => '0']), []);
@@ -1039,7 +1068,10 @@ class OutboundMailControllerTest extends TestCase
         $body = (string) $this->controllerWithTwoRelays()->seeds($this->getRequest(), [])->getBody();
         $this->assertStringContainsString('Appliquer automatiquement', $body);
 
-        $this->controller->toggleRouting($this->formRequest(['enabled' => '1']), []);
+        // A box that can see its junk folder, because arming the switch
+        // without one is refused — see the two tests below.
+        $this->controllerWithSeedBoxes(['temoin@gmail.com'], [['INBOX', 'Junk']])
+            ->toggleRouting($this->formRequest(['enabled' => '1']), []);
 
         $this->assertSame(
             '1',

@@ -303,6 +303,43 @@ class SeedCopyEmissionTest extends TestCase
     }
 
     /**
+     * **The stamp wins over a caller that names the same header.**
+     *
+     * The merge was written with `+`, which does the opposite of what the
+     * comment beside it claimed: the union operator keeps the LEFT
+     * value, so a caller passing this header would have silently replaced
+     * the anti-forgery stamp with its own — and a copy whose stamp does
+     * not verify is one `SeedConsumer` never recognises, never records
+     * and never deletes, so it sits in the seed box with the mailing's
+     * text in it. Latent with today's single caller; inherited in
+     * silence by the next.
+     */
+    public function testACallersOwnHeaderCannotReplaceTheStamp(): void
+    {
+        $transport = $this->recordingTransport();
+        $this->sendCampaign(
+            $this->serviceWith($transport, ['t1@gmail.com']),
+            copy: new SeedCopyContent(
+                '<p>Bonjour</p>',
+                'Bonjour',
+                [SeedMailboxes::HEADER => 'mass_mail:42']
+            )
+        );
+
+        $raw = $transport->sent[1]->createHeader();
+
+        $this->assertStringNotContainsString(
+            SeedMailboxes::HEADER . ': mass_mail:42' . "\r\n",
+            $raw,
+            'the caller\'s unkeyed value stood in for the stamp.'
+        );
+        $this->assertStringContainsString(
+            SeedMailboxes::HEADER . ': ' . $this->copies->stamp('mass_mail:42'),
+            $raw
+        );
+    }
+
+    /**
      * **No content to copy means no copies.** The safe default: the
      * failure mode of guessing what may be copied is a silent leak, so a
      * caller that says nothing gets nothing.

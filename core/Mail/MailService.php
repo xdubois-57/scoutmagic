@@ -581,9 +581,18 @@ class MailService
                     $fromNameOverride,
                     // The caller's headers PLUS the stamp, never the stamp
                     // alone: replacing the list is what dropped
-                    // `List-Unsubscribe` and biased the measurement. The
-                    // stamp is added last so nothing can overwrite it.
-                    $copy->extraHeaders + [Feedback\Seed\SeedMailboxes::HEADER => $stamp],
+                    // `List-Unsubscribe` and biased the measurement.
+                    //
+                    // **`array_merge()` and not `+`**, which was written
+                    // first and does the opposite of what was meant: on a
+                    // collision the union operator keeps the LEFT value,
+                    // so a caller passing this header would have silently
+                    // replaced the anti-forgery stamp with its own — and
+                    // a copy whose stamp does not verify is one
+                    // `SeedConsumer` never recognises, never records and
+                    // never deletes. Latent with today's single caller,
+                    // and inherited in silence by the next one.
+                    array_merge($copy->extraHeaders, [Feedback\Seed\SeedMailboxes::HEADER => $stamp]),
                     MailPurpose::Bulk,
                     // The site did not choose this correspondent from its
                     // records — it is the unit's own diagnostic box. No
