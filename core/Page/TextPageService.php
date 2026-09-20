@@ -9,7 +9,7 @@ declare(strict_types=1);
 namespace Core\Page;
 
 use Core\Service\TextNormalizerService;
-use Core\View\EditableContentService;
+use Core\View\EditableContentRepository;
 use Core\View\MenuBuilder;
 
 /**
@@ -48,9 +48,15 @@ class TextPageService
      */
     private const SLUG_MAX_LENGTH = 150;
 
+    /**
+     * @param EditableContentRepository|null $editableContent used for one
+     *        thing only: creating the row a page's text will live in, at
+     *        the moment the page is created. Deleting it is the database's
+     *        job — `editable_contents.text_page_id` cascades.
+     */
     public function __construct(
         private TextPageRepository $repository,
-        private ?EditableContentService $editableContent = null,
+        private ?EditableContentRepository $editableContent = null,
     ) {
     }
 
@@ -109,6 +115,16 @@ class TextPageService
             throw new TextPageException("La page n'a pas pu être relue après sa création.");
         }
 
+        // **The text's row is created with the page, empty, owned.**
+        //
+        // Not an optimisation: it is what closes the window in which the
+        // content key exists but belongs to nobody. Authorization for a
+        // write is read off `editable_contents.text_page_id`
+        // (ARCHITECTURE.md §8.115), so a key with no row yet would have
+        // no owner to answer for it — and whoever wrote first would
+        // decide what a page they may not even read says.
+        $this->editableContent?->createOwnedBy($page->contentKey(), $page->id);
+
         return $page;
     }
 
@@ -143,21 +159,18 @@ class TextPageService
     }
 
     /**
-     * Removes the page and the text that belonged to it.
+     * Removes the page. Its text goes with it.
      *
-     * Order matters on failure rather than on success: the text goes
-     * first, so a delete that dies halfway leaves a page with no content
-     * — visibly empty, and deletable again — rather than a content row
-     * whose page is gone and which nothing can name any more.
+     * **Nothing here deletes the content row**, and that is the point:
+     * `editable_contents.text_page_id` is a foreign key with
+     * `ON DELETE CASCADE`, so the database removes it in the same
+     * statement. A second delete issued from here could fail on its own
+     * — a key spelled differently, a connection lost between the two —
+     * and leave rich text nobody can name, read or erase behind. The
+     * constraint cannot.
      */
     public function delete(int $id): void
     {
-        $page = $this->repository->findById($id);
-        if ($page === null) {
-            return;
-        }
-
-        $this->editableContent?->delete($page->contentKey());
         $this->repository->delete($id);
     }
 

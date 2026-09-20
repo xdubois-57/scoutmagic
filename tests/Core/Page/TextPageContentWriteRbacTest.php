@@ -41,13 +41,15 @@ class TextPageContentWriteRbacTest extends TestCase
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         $repository = new TextPageRepository($this->pdo);
-        $this->pages = new TextPageService($repository);
-        $this->editable = new EditableContentService(new EditableContentRepository($this->pdo));
+        $this->pages = new TextPageService($repository, new EditableContentRepository($this->pdo));
+        $this->editable = new EditableContentService(
+            new EditableContentRepository($this->pdo),
+            [new TextPageContentAuthorizer($repository)]
+        );
 
         $this->controller = new EditableContentController(
             new Environment(new ArrayLoader([])),
-            $this->editable,
-            [new TextPageContentAuthorizer($repository)]
+            $this->editable
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -94,7 +96,10 @@ class TextPageContentWriteRbacTest extends TestCase
         $response = $this->writeAs('admin', $page->contentKey());
 
         $this->assertSame(403, $response->getStatusCode());
-        $this->assertNull(
+        // The row exists from the moment the page does, empty and owned;
+        // what matters is that the refused write left it empty.
+        $this->assertSame(
+            '',
             $this->editable->get($page->contentKey()),
             'nothing may have been written'
         );
@@ -147,16 +152,11 @@ class TextPageContentWriteRbacTest extends TestCase
     {
         $page = $this->pages->create('ASBL', 'Notre ASBL', MenuBuilder::MENU_CONFIGURATION, 'site');
 
-        $guarded = new EditableContentService(
-            new EditableContentRepository($this->pdo),
-            [new TextPageContentAuthorizer(new TextPageRepository($this->pdo))]
-        );
-
         AuthSession::logout();
         AuthSession::login(7, 'admin@test.be', 'admin');
 
         $this->expectException(\Core\View\EditableContentForbiddenException::class);
-        $guarded->set($page->contentKey(), '5', 'image', 7);
+        $this->editable->set($page->contentKey(), '5', 'image', 7);
     }
 
     /**
@@ -167,31 +167,34 @@ class TextPageContentWriteRbacTest extends TestCase
     {
         $page = $this->pages->create('ASBL', 'Notre ASBL', MenuBuilder::MENU_CONFIGURATION, 'site');
 
-        $guarded = new EditableContentService(
-            new EditableContentRepository($this->pdo),
-            [new TextPageContentAuthorizer(new TextPageRepository($this->pdo))]
-        );
-
         AuthSession::logout();
         AuthSession::login(7, 'superadmin@test.be', 'superadmin');
 
-        $this->assertSame('5', $guarded->set($page->contentKey(), '5', 'image', 7));
+        $this->assertSame('5', $this->editable->set($page->contentKey(), '5', 'image', 7));
     }
 
     /**
-     * The refusal says the same thing whatever the reason and never
-     * names what the key points at — an answer that distinguished « no
-     * such page » from « not your page » would map out which ids exist.
+     * The refusal names nothing about the page.
+     *
+     * Not its title, not its address, not whether it is active — only
+     * the site's standard forbidden sentence. An error that described
+     * what it was protecting would hand an admin the inventory of the
+     * pages they may not read.
+     *
+     * What the status code does distinguish is narrower than it looks:
+     * a key owned by a page whose role the caller lacks answers 403,
+     * and a key owned by nothing answers 200 — the caller learns that
+     * SOME page owns that row, which they could infer from the feature
+     * existing at all, and nothing about which.
      */
-    public function testTheRefusalDoesNotSayWhetherThePageExists(): void
+    public function testTheRefusalNamesNothingAboutThePage(): void
     {
-        $page = $this->pages->create('ASBL', 'Notre ASBL', MenuBuilder::MENU_CONFIGURATION, 'site');
+        $page = $this->pages->create('Bulle Safe', 'La Bulle Safe', MenuBuilder::MENU_CONFIGURATION, 'site');
 
-        $existing = $this->writeAs('admin', $page->contentKey());
-        $missing = $this->writeAs('admin', 'page_content_999999');
+        $body = $this->writeAs('admin', $page->contentKey())->getBody();
 
-        $this->assertSame(403, $existing->getStatusCode());
-        $this->assertSame(403, $missing->getStatusCode());
-        $this->assertSame($existing->getBody(), $missing->getBody());
+        foreach (['Bulle Safe', 'La Bulle Safe', 'bulle-safe', 'configuration', 'site'] as $secret) {
+            $this->assertStringNotContainsString($secret, $body, $secret);
+        }
     }
 }

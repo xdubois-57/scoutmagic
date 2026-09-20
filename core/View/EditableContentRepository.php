@@ -20,14 +20,15 @@ class EditableContentRepository
      *     content_type: string,
      *     content_value: ?string,
      *     module_id: ?string,
+     *     text_page_id: ?int,
      *     modified_at: string
      * }|null
      */
     public function findByKey(string $key): ?array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT content_key, content_type, content_value, module_id, modified_at FROM editable_contents WHERE '
-                . 'content_key = ?'
+            'SELECT content_key, content_type, content_value, module_id, text_page_id, modified_at '
+                . 'FROM editable_contents WHERE content_key = ?'
         );
         $stmt->execute([$key]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
@@ -41,6 +42,49 @@ class EditableContentRepository
      * created ones), unlike the fixed, page-anchored keys used by
      * editable()/editable_image() which are never deleted.
      */
+    /**
+     * The `text_pages` row this key's content belongs to, or null.
+     *
+     * **The authorization question, asked of the database rather than of
+     * the key's spelling.** `content_key` is compared here with this
+     * table's own `utf8mb4_unicode_ci`, which equates far more spellings
+     * than they look — case, accents, trailing spaces, fullwidth forms,
+     * every primary-ignorable character. Code that re-parses the key to
+     * work out who owns it has to reproduce that equivalence exactly, and
+     * anything it misses is a write landing on a row its caller was not
+     * allowed to touch.
+     *
+     * Asking with the same `WHERE content_key = ?` the write itself uses
+     * removes the question: whatever the collation considers this key to
+     * be, the row that answers here is the row that will be written.
+     */
+    public function ownerPageIdForKey(string $key): ?int
+    {
+        $stmt = $this->pdo->prepare('SELECT text_page_id FROM editable_contents WHERE content_key = ?');
+        $stmt->execute([$key]);
+        $owner = $stmt->fetchColumn();
+
+        return $owner === false || $owner === null ? null : (int) $owner;
+    }
+
+    /**
+     * Creates the empty row a free-text page's text will live in, owned
+     * by that page.
+     *
+     * Called when the page is created, so there is **never a moment when
+     * the key exists unclaimed** — the window in which somebody who may
+     * not read the page could be the first to write its body, and in
+     * which {@see ownerPageIdForKey()} would have nothing to answer.
+     */
+    public function createOwnedBy(string $key, int $textPageId): void
+    {
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO editable_contents (content_key, content_type, content_value, text_page_id, modified_at) '
+            . "VALUES (?, 'rich_text', '', ?, ?)"
+        );
+        $stmt->execute([$key, $textPageId, self::now()]);
+    }
+
     public function delete(string $key): void
     {
         $stmt = $this->pdo->prepare('DELETE FROM editable_contents WHERE content_key = ?');

@@ -2324,7 +2324,7 @@ $editableContentService = new EditableContentService(
     [new \Core\Page\TextPageContentAuthorizer($textPageRepository)]
 );
 
-$textPageService = new \Core\Page\TextPageService($textPageRepository, $editableContentService);
+$textPageService = new \Core\Page\TextPageService($textPageRepository, $editableContentRepo);
 $sectionRepository = new SectionRepository($pdo);
 
 // Create import-related services
@@ -5923,18 +5923,7 @@ $frontController->registerController(
     )
 );
 $frontController->registerController(ConfigModeController::class, new ConfigModeController($twig));
-// The third argument is the per-key re-check SECURITY.md §3 asks for.
-// This endpoint is `role_min: admin`, which was the whole answer for as
-// long as every editable key sat on a page an admin could also READ. A
-// free-text page filed in the Configuration menu is read at
-// `superadmin` while its body is written here under `page_content_{id}`,
-// so without this an admin refused the page itself could still rewrite
-// what a superadmin reads (ARCHITECTURE.md §8.115).
-$editableContentController = new EditableContentController(
-    $twig,
-    $editableContentService,
-    [new \Core\Page\TextPageContentAuthorizer($textPageRepository)]
-);
+$editableContentController = new EditableContentController($twig, $editableContentService);
 $editableContentController->setJournalService($journalService);
 $frontController->registerController(EditableContentController::class, $editableContentController);
 // FileController (and the FileAccessGuard it consumes) is registered at
@@ -5971,15 +5960,16 @@ $photoIngestionService = new \Core\Photo\PhotoIngestionService(
     $imageVariantService,
     $accountPhotoService
 );
-// The fourth argument is the same per-key re-check the editable-content
-// endpoint carries: `context=editable_image` writes `editable_contents`
-// under a client-chosen key, so this is a second door onto the same
-// table and it has to ask the same question (ARCHITECTURE.md §8.115).
+// The fourth argument is the same question the editable-content endpoint
+// asks: `context=editable_image` writes `editable_contents` under a
+// client-chosen key, so this is a second door onto the same table and it
+// has to refuse what that one refuses (ARCHITECTURE.md §8.115). The
+// service decides; this only lets the upload say no in its own shape.
 $uploadController = new UploadController(
     $twig,
     $photoIngestionService,
     $memberService,
-    [new \Core\Page\TextPageContentAuthorizer($textPageRepository)]
+    $editableContentService
 );
 $uploadController->setJournalService($journalService);
 $frontController->registerController(UploadController::class, $uploadController);

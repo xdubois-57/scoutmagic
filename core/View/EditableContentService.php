@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\View;
 
 use Core\Http\Controller\AbstractController;
+use Core\Page\TextPageContentAuthorizer;
 use Core\Security\AuthSession;
 use Core\Security\HtmlSanitizer;
 use Core\Security\Role;
@@ -41,28 +42,49 @@ class EditableContentService
     }
 
     /**
-     * **The one gate every write to `editable_contents` passes.**
+     * **The one gate every write to `editable_contents` passes**, and
+     * the only place that decides who may write what.
      *
-     * The entry points check first, so each can refuse in its own shape:
-     * `EditableContentController` answers a JSON 403, and
-     * `UploadController` refuses the upload. Those checks are the good
-     * error messages; THIS one is the guarantee.
+     * Two things make it trustworthy, and both were learned the hard way.
      *
-     * The reason it exists at all is that a per-door check is only ever
-     * as complete as the list of doors somebody remembered. Free-text
-     * pages made `page_content_{id}` the first key on this site whose
-     * read floor can exceed the `admin` floor of the endpoints that write
-     * it (ARCHITECTURE.md §8.115), and the gap was reachable through a
-     * second door — `POST /upload` with `context=editable_image` — that
-     * had never needed guarding before. A third one added later fails
-     * closed here instead of quietly reopening it.
+     * **It is the single door.** A per-endpoint check is only ever as
+     * complete as the list of endpoints somebody remembered: free-text
+     * pages made this table's first content whose read floor exceeds the
+     * `admin` floor of the endpoints writing it (ARCHITECTURE.md
+     * §8.115), and the gap turned out to be reachable through
+     * `POST /upload` with `context=editable_image` as well. Everything
+     * funnels through {@see set()}, so a new entry point added later
+     * fails closed rather than quietly reopening it.
+     *
+     * **It asks the row, not the key.** `content_key` is compared with
+     * `utf8mb4_unicode_ci`, which equates spellings differing in case,
+     * accents, trailing spaces, fullwidth forms and every
+     * primary-ignorable character. Deciding ownership by parsing the key
+     * means reproducing that equivalence exactly, and four attempts each
+     * left a gap. {@see EditableContentRepository::ownerPageIdForKey()}
+     * asks with the same `WHERE content_key = ?` the write itself uses:
+     * whatever the collation takes this key to be, the row that answers
+     * is the row that will be written.
      *
      * @throws EditableContentForbiddenException
      */
     private function assertMayWrite(string $key): void
     {
+        if ($this->authorizers === []) {
+            return;
+        }
+
+        $ownerId = $this->repository->ownerPageIdForKey($key);
+        if ($ownerId === null) {
+            // A row nobody owns — every page-anchored key on this site —
+            // or a key with no row at all. The endpoint's own floor is
+            // the whole answer, exactly as it was before free-text pages
+            // existed.
+            return;
+        }
+
         foreach ($this->authorizers as $authorizer) {
-            $required = $authorizer->roleMinForKey($key);
+            $required = $authorizer->roleMinForOwner(TextPageContentAuthorizer::OWNER_KIND, $ownerId);
             if ($required === null) {
                 continue;
             }
@@ -71,6 +93,32 @@ class EditableContentService
                 throw new EditableContentForbiddenException(AbstractController::FORBIDDEN_MESSAGE);
             }
         }
+    }
+
+    /**
+     * The role required to write $key, or null when nothing narrows it.
+     *
+     * Exposed so an entry point can refuse in its own shape — a JSON 403
+     * from `EditableContentController`, a refused upload from
+     * `UploadController` — rather than letting the exception above
+     * surface. The exception stays the guarantee; this is the good error
+     * message.
+     */
+    public function roleMinToWrite(string $key): ?string
+    {
+        $ownerId = $this->authorizers === [] ? null : $this->repository->ownerPageIdForKey($key);
+        if ($ownerId === null) {
+            return null;
+        }
+
+        foreach ($this->authorizers as $authorizer) {
+            $required = $authorizer->roleMinForOwner(TextPageContentAuthorizer::OWNER_KIND, $ownerId);
+            if ($required !== null) {
+                return $required;
+            }
+        }
+
+        return null;
     }
 
     /**

@@ -53,7 +53,7 @@ Pour que ça ne revienne pas par accident :
   cœur, les entrées de menu juste après le calcul du surlignage, et le
   contrôleur pré-construit.
 - `ARCHITECTURE.md` §8.115.
-- 62 tests dans `tests/Core/Page/`, plus la table dans
+- 54 tests dans `tests/Core/Page/`, plus la table dans
   `tests/DatabaseTestHelper.php`.
 
 ### Décisions prises seul
@@ -227,112 +227,67 @@ fait disparaître l'entrée de menu de **toutes** les pages parce qu'une
 ligne a vieilli. Là, une ligne périmée coûte son entrée de menu ; la page
 garde sa route et reste joignable par son adresse.
 
-**Un second tour a trouvé deux autres portes sur la même faille.** La
-correction ci-dessus fermait la porte que le premier constat nommait, et
-la relecture suivante a montré qu'il y en avait deux autres — ce qui est
-l'argument contre les gardes posés porte par porte.
+**Quatre tours de relecture sur une même faille, et ce qu'ils ont appris.**
+Le premier constat nommait une porte ; les trois suivants ont montré que je
+corrigeais la mauvaise chose. Les variantes, dans l'ordre :
 
-*Par l'orthographe de la clé.* `editable_contents` est déclarée
-`utf8mb4_unicode_ci` et le dépôt compare par un simple
-`WHERE content_key = ?` : la base considère `Page_Content_7`,
-`pagé_content_7` et `page_content_7` comme la même ligne. Un motif
-sensible à la casse s'abstenait donc sur les deux premières
-orthographes, les rendait au plancher `admin` du point d'entrée, et
-l'écriture atteignait quand même la vraie ligne. La clé est désormais
-repliée par `TextNormalizerService::fold()` avant d'être reconnue — la
-même fonction que le slug utilise, et pour la même raison : elle ne
-dépend pas de l'hôte. Le repli couvre la casse, les accents et
-l'orthographe des séparateurs d'un seul coup, et **sur-reconnaît
-volontairement** : garder une clé qui n'est pas celle d'une page coûte
-un refus sur une clé que rien n'utilise, s'abstenir sur une qui l'est
-coûte l'élévation. Le test a trouvé un cas de plus que la relecture
-n'en nommait : `utf8mb4_unicode_ci` est une collation PAD SPACE, donc
-MySQL ignore les espaces de fin — `'page_content_1 '` est la même ligne
-aussi.
+| Tour | Orthographe qui passait | Pourquoi |
+|---|---|---|
+| 2 | `Page_Content_7`, `pagé_content_7` | motif sensible à la casse, collation `_ci`/`_ai` |
+| 2 | `POST /upload` `context=editable_image` | seconde porte, non gardée |
+| 3 | `page_content_７` (chiffre pleine chasse) | `FORM_D` canonique ≠ compatibilité → chiffre supprimé |
+| 4 | `ｐage_content_7` (lettre dans le mot) | même cause, position que mes tests ne couvraient pas |
 
-*Par le téléversement.* `POST /upload` avec `context=editable_image`
-écrit la même table sous une clé choisie par le client, via
-`PhotoIngestionService`, sans jamais passer par
-`EditableContentController`. Son autorisation était
+**La cause commune, et le vrai correctif.** Je dérivais une décision
+d'autorisation en **analysant une chaîne contrôlée par l'appelant**, et mon
+analyseur devait reproduire exactement ce que `utf8mb4_unicode_ci`
+considère égal — casse, accents, espaces de fin (PAD SPACE), formes pleine
+chasse, et tout caractère ignorable au premier niveau. Deux normaliseurs
+différents finissent toujours par diverger. Quatre correctifs successifs
+n'ont fait que déplacer l'endroit où.
+
+La conception finale supprime l'analyse. **`editable_contents.text_page_id`
+dit à quelle page appartient une ligne**, et
+`EditableContentService::set()` — le point de passage unique — y lit le
+rôle exigé. La question devient : « sur quelle ligne cette écriture
+va-t-elle atterrir ? », à laquelle la base répond d'autorité, avec le même
+`WHERE content_key = ?` que l'écriture elle-même utilisera.
+
+Le test qui montre que c'est la bonne forme : un attaquant envoie
+`ｐage_content_7`. Si la collation l'équivaut, `ownerPageIdForKey()` rend la
+ligne de la page et le garde s'applique ; sinon il n'y a pas de ligne, et
+l'écriture crée une orpheline qu'aucune page n'affiche. **Le garde est
+correct sans que j'aie besoin de savoir laquelle des deux est vraie** —
+c'est précisément ce qui manquait aux quatre tentatives.
+
+Trois bénéfices tombent de la colonne plutôt que du code. La ligne de
+contenu est **créée avec la page**, vide et possédée, donc il n'existe
+jamais d'instant où la clé n'est réclamée par personne et où le premier à
+écrire déciderait de ce que dit une page qu'il ne peut pas lire. La
+suppression passe par `ON DELETE CASCADE` — une seconde suppression émise
+par un service peut échouer seule et laisser du texte que plus rien ne
+nomme ; une contrainte ne le peut pas. Et
+`TextPageContentAuthorizer` retombe à une vingtaine de lignes : plus de
+repli, plus de `FORM_KD`, plus de balayage caractère par caractère.
+
+**Ce que la relecture a aussi corrigé côté portes.** `POST /upload` avec
+`context=editable_image` écrit la même table sous une clé choisie par le
+client, via `PhotoIngestionService`, sans passer par
+`EditableContentController` ; son autorisation était
 `ConfigurationMode::isActive()` seul, c'est-à-dire `admin`. Cette porte
-n'avait aucune conséquence de sécurité avant cette itération : elle
-devient exploitable parce que c'est ici qu'apparaît la première clé dont
-le plancher de lecture dépasse `admin`, donc c'est ici qu'elle se ferme.
+n'avait aucune conséquence avant cette itération. Les deux portes
+interrogent maintenant le service, et le service refuse de toute façon —
+les contrôles aux portes produisent un bon refus, le point de passage
+unique est la garantie.
 
-**Un troisième tour, et l'inversion de la règle.** Le repli couvrait la
-casse, les accents et les espaces de fin, et il était encore trop
-étroit. `TextNormalizerService::fold()` utilise `Normalizer::FORM_D` —
-décomposition canonique — et non `FORM_KD` : un chiffre pleine chasse
-comme `７` (U+FF17) traverse NFD intact, n'est pas une marque combinante,
-et se fait donc **supprimer** par la réduction finale au lieu d'être
-replié. `fold('page_content_７')` rend « page content » sans chiffre : la
-clé cessait de ressembler à celle d'une page, l'authorizer s'abstenait,
-et la base — pour qui `７` vaut `7` — faisait atterrir l'écriture sur la
-vraie ligne. Un trait d'union conditionnel glissé entre deux chiffres de
-l'identifiant fait la même chose.
+**Une conséquence assumée.** Un `admin` qui écrit `page_content_{id}`
+reçoit 403 si cette ligne appartient à une page qu'il ne peut pas lire, et
+200 si elle n'appartient à rien. Il apprend donc qu'une page possède cette
+ligne — ce que l'existence de la fonctionnalité lui dit déjà — et rien sur
+laquelle : le refus ne nomme ni le titre, ni l'adresse, ni la section. Un
+test le tient.
 
-Deux tentatives de modéliser la collation, deux manques, deux
-réouvertures complètes de la faille. La règle est donc **inversée**, et
-c'est la forme qui ne dépend plus de deviner juste :
-
-1. **La seule orthographe canonique** est honorée, avec le rôle de la
-   page. C'est la seule que l'application écrit jamais.
-2. **Tout ce qui peut se lire comme une clé de page est refusé**, quel
-   que soit l'identifiant qu'il semble désigner. Une orthographe non
-   canonique n'est jamais légitime : rien dans ce site n'en produit.
-3. **Le reste** garde le plancher du point d'entrée.
-
-Le test du point 2 est volontairement grossier — réduire la clé à ses
-seules lettres et chiffres et regarder si elle ouvre sur l'espace de noms
-des pages. Grossier est le bon sens ici : refuser une clé qui n'aurait
-jamais pu entrer en collision ne coûte rien à personne, s'abstenir sur
-une qui le peut coûte l'élévation. Et ça dégrade bien là où `intl`
-manque : un caractère non normalisable est supprimé, donc la clé tombe
-dans le cas 2 plutôt que dans le cas 3.
-
-**Un quatrième tour, et la fin de la méthode par réduction.** La règle
-inversée refusait tout ce qui se réduisait dans l'espace de noms des
-pages — mais la réduction *supprimait* ce qu'elle ne savait pas replier.
-Une lettre pleine chasse **à l'intérieur du mot** — `ｐage_content_7`,
-U+FF50 — se réduisait donc en `agecontent7`, qui n'ouvre plus l'espace de
-noms : abstention, et la base fait atterrir l'écriture sur la vraie ligne.
-Les tests précédents ne couvraient que des substitutions *après* le
-préfixe, jamais dedans.
-
-La cause est la même qu'au tour précédent, un cran plus loin :
-`Normalizer::FORM_D` est une décomposition **canonique**, et les formes
-pleine chasse n'ont qu'une décomposition **de compatibilité**. Le
-repli passe donc par `FORM_KD` avant d'appeler `fold()` — la même
-correspondance que la collation applique.
-
-Et un dernier verrou, pour ne pas recommencer une cinquième fois : une
-clé qui porte un caractère que **ni** la décomposition de compatibilité
-**ni** la table d'accents ne reconnaissent est refusée d'office. C'est
-testé caractère par caractère, en interrogeant `fold()` lui-même — un
-caractère pour lequel il répond chaîne vide est un caractère qu'il ne
-sait pas replier. Sans ça, un espace de largeur nulle glissé dans
-`home.intro` donnerait exactement « home intro » après repli, et
-passerait pour une clé ordinaire.
-
-**Ce qui ne devait pas régresser, et ne régresse pas.**
-`section.{desk_code}.text` est la seule clé éditable construite à partir
-de données importées, et un code Desk est ce que le CSV portait. La
-table d'accents replie `section.Unité-Saint-Éloi.text` en ASCII, donc la
-clé reste ordinaire et un chef d'unité continue d'éditer ce texte comme
-avant. Deux tests le tiennent, parce que c'était le risque réel de ce
-verrou.
-
-**Le correctif structurel qui en découle.** Les deux portes passent par
-`EditableContentService::set()`. Le garde y est donc posé aussi, comme
-filet : un garde par porte ne vaut que la liste des portes dont
-quelqu'un s'est souvenu, et cette relecture vient d'en trouver deux. Les
-contrôles aux portes restent — ce sont eux qui produisent un bon refus,
-un 403 JSON d'un côté et un téléversement refusé de l'autre — mais
-c'est le point de passage unique qui garantit qu'une **troisième** porte
-ajoutée plus tard échouera fermée au lieu de rouvrir la faille en
-silence.
-
-**Deux tests ne pouvaient pas échouer.** Le dépôt venait précisément de
+**Deux tests ne pouvaient pas échouer.****Deux tests ne pouvaient pas échouer.** Le dépôt venait précisément de
 livrer « Les tests qui ne peuvent pas échouer » (#389), et la relecture a
 cité cette itération. `assertTrue($required->hasAccess($required))`
 comparait un rôle à lui-même : il n'affirmait que la réflexivité de

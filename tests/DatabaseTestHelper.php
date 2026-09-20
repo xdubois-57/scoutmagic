@@ -352,6 +352,7 @@ class DatabaseTestHelper
             content_type TEXT NOT NULL,
             content_value TEXT,
             module_id TEXT,
+            text_page_id INTEGER NULL REFERENCES text_pages(id) ON DELETE CASCADE,
             modified_at TEXT,
             modified_by INTEGER
         )');

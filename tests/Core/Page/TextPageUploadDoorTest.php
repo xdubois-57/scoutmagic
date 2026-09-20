@@ -10,6 +10,8 @@ use Core\Page\TextPageRepository;
 use Core\Page\TextPageService;
 use Core\Security\AuthSession;
 use Core\View\ConfigurationMode;
+use Core\View\EditableContentRepository;
+use Core\View\EditableContentService;
 use Core\View\MenuBuilder;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -40,13 +42,14 @@ class TextPageUploadDoorTest extends TestCase
     {
         $pdo = DatabaseTestHelper::createTestDatabase();
         $repository = new TextPageRepository($pdo);
-        $this->pages = new TextPageService($repository);
+        $content = new EditableContentRepository($pdo);
+        $this->pages = new TextPageService($repository, $content);
 
         $this->controller = new UploadController(
             new \Twig\Environment(new \Twig\Loader\ArrayLoader([])),
             $this->createMock(\Core\Photo\PhotoIngestionService::class),
             $this->createMock(\Core\Member\MemberService::class),
-            [new TextPageContentAuthorizer($repository)]
+            new EditableContentService($content, [new TextPageContentAuthorizer($repository)])
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -80,15 +83,16 @@ class TextPageUploadDoorTest extends TestCase
     }
 
     /**
-     * The same spelling tolerance the other door has: the database
-     * equates these, so the guard must too.
+     * A key owned by nothing keeps the door's own rule.
+     *
+     * Every editable key that predates free-text pages owns nothing, so
+     * configuration mode remains the whole answer for them — the guard
+     * narrows where it must and nowhere else.
      */
-    public function testTheSpellingOfTheKeyDoesNotOpenTheDoor(): void
+    public function testAKeyOwnedByNothingKeepsTheDoorsOwnRule(): void
     {
-        $page = $this->pages->create('ASBL', 'Notre ASBL', MenuBuilder::MENU_CONFIGURATION, 'site');
-
-        $this->assertFalse($this->mayUpload('admin', 'Page_Content_' . $page->id));
-        $this->assertFalse($this->mayUpload('admin', 'pagé_content_' . $page->id));
+        $this->assertTrue($this->mayUpload('admin', 'home.hero'));
+        $this->assertTrue($this->mayUpload('admin', 'page_content_999999'));
     }
 
     /**

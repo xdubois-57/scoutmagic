@@ -4773,16 +4773,33 @@ all of them, and throwing would have cost the site.
 
 **The body is written at the page's own role, not at the write
 endpoint's.** `POST /api/editable-content` is `role_min: admin`, which was
-the whole answer for as long as every editable key sat on a page an admin
-could also read — home, contact, sections, a module's public view. A page
-filed in the Configuration menu is read at `superadmin` while its text is
-written through that same admin endpoint under `page_content_{id}`, an id
-that is small and guessable: **the first content on this site whose read
-floor exceeds its write floor.** `Core\View\EditableContentAuthorizer` is
-the per-key re-check SECURITY.md §3 calls for, and
-`Core\Page\TextPageContentAuthorizer` answers it with the page's own
-`roleMin()` so the two halves cannot drift. An authorizer answers `null`
-for keys it does not recognise, so it can only ever narrow.
+the whole answer for as long as every editable row belonged to a page an
+admin could also read — home, contact, sections, a module's public view. A
+page filed in the Configuration menu is read at `superadmin` while its text
+is written through that same admin endpoint: **the first content on this
+site whose read floor exceeds its write floor.** It was reachable through a
+second door too, `POST /upload` with `context=editable_image`, which writes
+the same table under a client-chosen key.
+
+**Ownership is a column, not a spelling.** `editable_contents.text_page_id`
+names the page a row belongs to, and `EditableContentService::set()` — the
+one point every write passes through — reads the required role off it. The
+obvious alternative, working the owner out of `content_key`, cannot be made
+safe: that column is compared with `utf8mb4_unicode_ci`, which equates
+spellings differing in case, accents, trailing spaces (PAD SPACE),
+fullwidth forms and every primary-ignorable character, so a parser has to
+reproduce that equivalence exactly. Four attempts each left a gap. Asking
+the row with the same `WHERE content_key = ?` the write itself uses removes
+the question: whatever the collation takes a key to be, the row that
+answers is the row that will be written.
+
+Two consequences follow from the column rather than from code. The content
+row is **created with the page**, empty and owned, so there is never a
+moment when the key exists unclaimed and whoever writes first decides what
+a page they cannot read says. And deleting a page deletes its text by
+`ON DELETE CASCADE` — a second delete issued from a service could fail on
+its own and leave rich text nobody can name, read or erase behind; the
+constraint cannot.
 
 Explicitly **not** in scope: free-text pages do not join
 `Core\Offline\OfflineWhitelist`. That list is a static server-side

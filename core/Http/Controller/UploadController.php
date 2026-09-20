@@ -19,7 +19,7 @@ use Core\Photo\PhotoIngestionService;
 use Core\Security\AuthSession;
 use Core\Security\Role;
 use Core\View\ConfigurationMode;
-use Core\View\EditableContentAuthorizer;
+use Core\View\EditableContentService;
 use Twig\Environment;
 
 class UploadController extends AbstractController
@@ -34,16 +34,17 @@ class UploadController extends AbstractController
      * photo the key names.
      */
     /**
-     * @param EditableContentAuthorizer[] $editableContentAuthorizers the
-     *        keys whose write role is narrower than configuration mode's
-     *        own `admin` — see {@see isUploadAuthorized()}. Optional and
-     *        trailing so existing call sites keep working.
+     * @param EditableContentService|null $editableContent asked whether
+     *        the `editable_image` key being written is narrower than
+     *        configuration mode's own `admin` — see
+     *        {@see isUploadAuthorized()}. Optional and trailing so
+     *        existing call sites keep working.
      */
     public function __construct(
         protected Environment $twig,
         private PhotoIngestionService $photoIngestionService,
         private MemberService $memberService,
-        private array $editableContentAuthorizers = [],
+        private ?EditableContentService $editableContent = null,
     ) {
     }
 
@@ -280,13 +281,12 @@ class UploadController extends AbstractController
         // that makes a THIRD door fail closed. This check is here so the
         // refusal is an ordinary refused upload rather than an exception.
         if ($context === PhotoIngestionService::CONTEXT_EDITABLE_IMAGE) {
-            foreach ($this->editableContentAuthorizers as $authorizer) {
-                $required = $authorizer->roleMinForKey($key);
-                if ($required !== null
-                    && !Role::fromString(AuthSession::getRole())->hasAccess(Role::fromString($required))
-                ) {
-                    return false;
-                }
+            $required = $this->editableContent?->roleMinToWrite($key);
+
+            if ($required !== null
+                && !Role::fromString(AuthSession::getRole())->hasAccess(Role::fromString($required))
+            ) {
+                return false;
             }
         }
 

@@ -15,7 +15,6 @@ use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\Role;
 use Core\View\ConfigurationMode;
-use Core\View\EditableContentAuthorizer;
 use Core\View\EditableContentService;
 use Twig\Environment;
 
@@ -23,18 +22,9 @@ class EditableContentController extends AbstractController
 {
     private ?JournalService $journalService = null;
 
-    /**
-     * @param EditableContentAuthorizer[] $authorizers the keys whose write
-     *        role is narrower than this endpoint's own — see
-     *        {@see requireWriteAccess()}. Optional and trailing so the
-     *        many call sites that build this controller with two
-     *        arguments keep working; an empty list is the behaviour this
-     *        endpoint had before free-text pages existed.
-     */
     public function __construct(
         protected Environment $twig,
-        private EditableContentService $editableContentService,
-        private array $authorizers = []
+        private EditableContentService $editableContentService
     ) {
     }
 
@@ -43,32 +33,30 @@ class EditableContentController extends AbstractController
      * floor, never the whole answer ».
      *
      * Both endpoints below are `role_min: admin`, which was the whole
-     * answer for as long as every editable key lived on a page an admin
-     * could also read. A free-text page filed in the Configuration menu
-     * is read at `superadmin` while its body is written here under
-     * `page_content_{id}`, so without this an admin refused the page
-     * could still rewrite what a superadmin reads (ARCHITECTURE.md
-     * §8.115).
+     * answer for as long as every editable row belonged to a page an
+     * admin could also read. A free-text page filed in the Configuration
+     * menu is read at `superadmin` while its body is written here, so
+     * without this an admin refused the page could still rewrite what a
+     * superadmin reads (ARCHITECTURE.md §8.115).
      *
-     * Returns the refusal, or null when the caller may write the key.
-     * An unrecognised key is nobody's business and keeps the route's
-     * own floor, so this can only ever narrow.
+     * The decision itself lives in
+     * {@see EditableContentService::roleMinToWrite()}, which resolves the
+     * row that owns the content rather than parsing the key. This method
+     * only turns its answer into the JSON refusal this endpoint speaks.
+     * `set()` refuses again regardless — that is the guarantee; this is
+     * the good error message.
      */
     private function requireWriteAccess(string $key): ?Response
     {
-        foreach ($this->authorizers as $authorizer) {
-            $required = $authorizer->roleMinForKey($key);
-            if ($required === null) {
-                continue;
-            }
+        $required = $this->editableContentService->roleMinToWrite($key);
 
-            if (!Role::fromString(AuthSession::getRole())->hasAccess(Role::fromString($required))) {
-                // The same sentence whatever the reason, and no mention
-                // of what the key names: an answer that distinguished
-                // "no such page" from "not your page" would map out
-                // which ids exist.
-                return $this->json(['success' => false, 'error' => self::FORBIDDEN_MESSAGE], 403);
-            }
+        if ($required !== null
+            && !Role::fromString(AuthSession::getRole())->hasAccess(Role::fromString($required))
+        ) {
+            // The same sentence whatever the reason, and no mention of
+            // what the key names: an answer that distinguished "no such
+            // page" from "not your page" would map out which ids exist.
+            return $this->json(['success' => false, 'error' => self::FORBIDDEN_MESSAGE], 403);
         }
 
         return null;

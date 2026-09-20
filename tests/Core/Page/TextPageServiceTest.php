@@ -32,7 +32,7 @@ class TextPageServiceTest extends TestCase
         $this->repository = new TextPageRepository($this->pdo);
         $this->service = new TextPageService(
             $this->repository,
-            new EditableContentService(new EditableContentRepository($this->pdo))
+            new EditableContentRepository($this->pdo)
         );
     }
 
@@ -216,19 +216,28 @@ class TextPageServiceTest extends TestCase
     }
 
     /**
-     * Deleting a page deletes the text that belonged to it.
+     * Deleting a page deletes the text that belonged to it — and the
+     * service does not lift a finger.
      *
-     * A row left in `editable_contents` whose page is gone is rich text
-     * nobody can name, find, read or erase — exactly the kind of
-     * leftover an RGPD notice cannot honestly describe.
+     * `editable_contents.text_page_id` is a foreign key with
+     * `ON DELETE CASCADE`, so the database removes the row in the same
+     * statement. A second delete issued from the service could fail on
+     * its own — a key spelled differently, a connection lost between the
+     * two — and leave rich text nobody can name, read or erase behind.
+     * The constraint cannot.
+     *
+     * SQLite does not enforce foreign keys unless asked, so this test
+     * asks; MySQL enforces them always.
      */
     public function testDeletingAPageTakesItsTextWithIt(): void
     {
-        $editable = new EditableContentService(new EditableContentRepository($this->pdo));
-        $page = $this->service->create('ASBL', 'Notre ASBL', MenuBuilder::MENU_NOTRE_UNITE, null);
-        $editable->set($page->contentKey(), '<p>Le texte de la page.</p>', 'rich_text', 1);
+        $this->pdo->exec('PRAGMA foreign_keys = ON');
 
-        $this->assertNotNull($editable->get($page->contentKey()));
+        $content = new EditableContentService(new EditableContentRepository($this->pdo));
+        $page = $this->service->create('ASBL', 'Notre ASBL', MenuBuilder::MENU_NOTRE_UNITE, null);
+        $content->set($page->contentKey(), '<p>Le texte de la page.</p>', 'rich_text', 1);
+
+        $this->assertNotSame('', $content->get($page->contentKey()));
 
         $this->service->delete($page->id);
 

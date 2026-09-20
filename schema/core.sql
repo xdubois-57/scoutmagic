@@ -130,17 +130,96 @@ CREATE TABLE password_reset_tokens (
     INDEX idx_expires (expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- One row per free-text page a superadmin has added to a menu (issue #368,
+-- ARCHITECTURE.md §8.115). A page is a menu name, a title and a place in a
+-- menu; its TEXT is not here. The text lives in `editable_contents` under
+-- the key `page_content_{id}` and is written through the site's ordinary
+-- configuration-mode editing, exactly like the home page's intro — which
+-- is why this table has no content column and why the key is built from
+-- `id` rather than from `slug`: renaming a page must never orphan its
+-- text.
+--
+-- **This is the one table in the schema a route is born from.** At boot,
+-- the active rows are read once and each registers its own route with the
+-- role floor of its menu (Core\Page\TextPageRouteRegistrar), so the RBAC
+-- guard stays the primary protection and the controller checks nothing —
+-- SECURITY.md §3, ARCHITECTURE.md §2. A row that is not active registers
+-- nothing at all, which is what makes a hidden page answer 404 rather
+-- than 403: it does not exist, it is not forbidden.
+CREATE TABLE text_pages (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    -- Derived from the title at creation and FROZEN afterwards: the
+    -- address is shared the moment the page is published, and fixing a
+    -- typo in a title must not break a link somebody has already sent.
+    -- Unique, with a numeric suffix on collision.
+    slug VARCHAR(160) NOT NULL,
+    -- Two names on purpose, both required: the short one the menu shows,
+    -- and the explicit one the page is headed with — « Réglages » in the
+    -- menu, « Réglages du bien » on the page.
+    menu_label VARCHAR(100) NOT NULL,
+    title VARCHAR(200) NOT NULL,
+    -- Core\View\MenuBuilder's menu id, and one of the named columns that
+    -- menu declares (Core\View\MenuBuilder::MENU_GROUPS) — NULL for the
+    -- one ungrouped menu, « Notre unité ». The pair is validated server
+    -- side before it is written: MenuBuilder::addPage() throws on a group
+    -- its menu does not declare, and an unchecked value here would take
+    -- down the whole site's menu on the next request rather than just
+    -- this page.
+    --
+    -- There is deliberately NO role column. The menu carries the floor
+    -- already (MenuBuilder::roleMinFor()); a second one here would be a
+    -- second truth, and the one that drifts.
+    menu_id VARCHAR(32) NOT NULL,
+    menu_group VARCHAR(32) NULL,
+    sort_order INT NOT NULL DEFAULT 0,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NULL,
+    UNIQUE INDEX idx_text_pages_slug (slug),
+    -- The boot-time read is `WHERE is_active = 1 ORDER BY menu_id,
+    -- sort_order`, once per request: it is on the critical path of every
+    -- page of the site, so it gets its own covering-ish index rather than
+    -- a table scan that grows with the unit's page count.
+    INDEX idx_text_pages_active (is_active, menu_id, sort_order)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE editable_contents (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     content_key VARCHAR(100) NOT NULL,
     content_type ENUM('rich_text', 'image') NOT NULL,
     content_value MEDIUMTEXT,
     module_id VARCHAR(50),
+    -- **Which resource owns this text, when a resource does.**
+    --
+    -- Almost every row here is page-anchored: `home.intro` belongs to the
+    -- home page and nothing can delete it or restrict it. A free-text
+    -- page's body is different — it belongs to a row in `text_pages`,
+    -- which carries its own audience and can be deleted (issue #368,
+    -- ARCHITECTURE.md §8.115).
+    --
+    -- **The column exists so that ownership is a fact rather than a
+    -- spelling.** The alternative — reading the owner back out of
+    -- `content_key` — cannot be made safe: `content_key` is compared with
+    -- this table's own `utf8mb4_unicode_ci`, which equates spellings that
+    -- differ in case, accents, trailing spaces, fullwidth forms and every
+    -- primary-ignorable character, so any code that re-parses the key has
+    -- to reproduce that equivalence exactly or leave a gap. Four attempts
+    -- to do so each left one. Asking the row instead means the
+    -- authorization check and the write use the SAME comparison, by
+    -- construction.
+    --
+    -- ON DELETE CASCADE is the second half of the same idea: deleting a
+    -- page deletes the text that belonged to it, because the database
+    -- knows it belonged to it. Rich text left behind with no page to name
+    -- it is data nobody can find, read or erase.
+    text_page_id INT UNSIGNED NULL,
     modified_at DATETIME,
     modified_by INT UNSIGNED,
     UNIQUE INDEX idx_content_key (content_key),
     INDEX idx_module (module_id),
-    CONSTRAINT fk_editable_modified_by FOREIGN KEY (modified_by) REFERENCES user_accounts(id) ON DELETE SET NULL
+    INDEX idx_editable_text_page (text_page_id),
+    CONSTRAINT fk_editable_modified_by FOREIGN KEY (modified_by) REFERENCES user_accounts(id) ON DELETE SET NULL,
+    CONSTRAINT fk_editable_text_page FOREIGN KEY (text_page_id) REFERENCES text_pages(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE files (
@@ -2070,55 +2149,3 @@ CREATE TABLE IF NOT EXISTS storage_protections (
         REFERENCES storage_locations(id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- One row per free-text page a superadmin has added to a menu (issue #368,
--- ARCHITECTURE.md §8.115). A page is a menu name, a title and a place in a
--- menu; its TEXT is not here. The text lives in `editable_contents` under
--- the key `page_content_{id}` and is written through the site's ordinary
--- configuration-mode editing, exactly like the home page's intro — which
--- is why this table has no content column and why the key is built from
--- `id` rather than from `slug`: renaming a page must never orphan its
--- text.
---
--- **This is the one table in the schema a route is born from.** At boot,
--- the active rows are read once and each registers its own route with the
--- role floor of its menu (Core\Page\TextPageRouteRegistrar), so the RBAC
--- guard stays the primary protection and the controller checks nothing —
--- SECURITY.md §3, ARCHITECTURE.md §2. A row that is not active registers
--- nothing at all, which is what makes a hidden page answer 404 rather
--- than 403: it does not exist, it is not forbidden.
-CREATE TABLE text_pages (
-    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    -- Derived from the title at creation and FROZEN afterwards: the
-    -- address is shared the moment the page is published, and fixing a
-    -- typo in a title must not break a link somebody has already sent.
-    -- Unique, with a numeric suffix on collision.
-    slug VARCHAR(160) NOT NULL,
-    -- Two names on purpose, both required: the short one the menu shows,
-    -- and the explicit one the page is headed with — « Réglages » in the
-    -- menu, « Réglages du bien » on the page.
-    menu_label VARCHAR(100) NOT NULL,
-    title VARCHAR(200) NOT NULL,
-    -- Core\View\MenuBuilder's menu id, and one of the named columns that
-    -- menu declares (Core\View\MenuBuilder::MENU_GROUPS) — NULL for the
-    -- one ungrouped menu, « Notre unité ». The pair is validated server
-    -- side before it is written: MenuBuilder::addPage() throws on a group
-    -- its menu does not declare, and an unchecked value here would take
-    -- down the whole site's menu on the next request rather than just
-    -- this page.
-    --
-    -- There is deliberately NO role column. The menu carries the floor
-    -- already (MenuBuilder::roleMinFor()); a second one here would be a
-    -- second truth, and the one that drifts.
-    menu_id VARCHAR(32) NOT NULL,
-    menu_group VARCHAR(32) NULL,
-    sort_order INT NOT NULL DEFAULT 0,
-    is_active TINYINT(1) NOT NULL DEFAULT 1,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NULL,
-    UNIQUE INDEX idx_text_pages_slug (slug),
-    -- The boot-time read is `WHERE is_active = 1 ORDER BY menu_id,
-    -- sort_order`, once per request: it is on the critical path of every
-    -- page of the site, so it gets its own covering-ish index rather than
-    -- a table scan that grows with the unit's page count.
-    INDEX idx_text_pages_active (is_active, menu_id, sort_order)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
