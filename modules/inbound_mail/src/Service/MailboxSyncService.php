@@ -248,7 +248,12 @@ class MailboxSyncService
             // to be its own than on the unit's public address — and only
             // this says which it is.
             mailboxDedicatedTo: $mailbox->isDedicated() ? $mailbox->dedicatedTo : null,
-            addressedTo: $this->replyAddresses?->resolve($message->toEmails)
+            addressedTo: $this->replyAddresses?->resolve($message->toEmails),
+            // Where it landed. Already read from the server and already
+            // written to the row below; it simply never crossed to the
+            // consumers, and for a seed mailbox that folder name IS the
+            // measurement (roadmap IT-07).
+            folder: $message->folder
         );
 
         // EVERY consumer is asked, and every answer is applied. Under the

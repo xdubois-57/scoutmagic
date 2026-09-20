@@ -336,6 +336,40 @@ class MailboxSyncServiceTest extends TestCase
         $this->assertStringNotContainsString('<script', $consumer->offered[0]->bodyHtml);
     }
 
+    /**
+     * **A consumer is told which folder the message landed in** (roadmap
+     * IT-07).
+     *
+     * It was read from the server, carried on `FetchedMessage` and written
+     * to the row all along — it just stopped at the candidate boundary. It
+     * matters because for a seed mailbox the folder name IS the
+     * measurement: « reçus » or « indésirables » is the whole question
+     * such a box exists to answer, and no other field on the candidate
+     * carries it.
+     */
+    public function testAConsumerIsToldWhichFolderTheMessageLandedIn(): void
+    {
+        $this->mailboxRepository->update(
+            $this->mailboxId,
+            'Témoin',
+            'imap.test',
+            993,
+            'ssl',
+            'temoin@unite.be',
+            ['INBOX', 'Junk'],
+            true
+        );
+
+        $consumer = $this->consumer(static fn(): AnalysisResult => AnalysisResult::nothing());
+        $this->registry->register($consumer);
+        $this->addMessage(11, messageId: 'boite@exemple.be', folder: 'Junk');
+
+        $this->sync();
+
+        $this->assertCount(1, $consumer->offered);
+        $this->assertSame('Junk', $consumer->offered[0]->folder);
+    }
+
     // ── Deduplication and UIDVALIDITY (§7.5) ─────────────────────────────
 
     public function testTheSameMessageIsNotStoredTwiceAcrossTwoRuns(): void
