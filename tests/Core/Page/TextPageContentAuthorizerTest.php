@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Core\Page;
 
 use Core\Page\TextPageContentAuthorizer;
+use Core\Page\TextPageException;
 use Core\Page\TextPageRepository;
 use Core\Page\TextPageService;
 use Core\Security\Role;
@@ -27,9 +28,11 @@ class TextPageContentAuthorizerTest extends TestCase
     private TextPageContentAuthorizer $authorizer;
     private EditableContentRepository $content;
 
+    private \PDO $pdo;
+
     protected function setUp(): void
     {
-        $pdo = DatabaseTestHelper::createTestDatabase();
+        $pdo = $this->pdo = DatabaseTestHelper::createTestDatabase();
         $repository = new TextPageRepository($pdo);
         $this->content = new EditableContentRepository($pdo);
         $this->service = new TextPageService($repository, $this->content);
@@ -143,6 +146,81 @@ class TextPageContentAuthorizerTest extends TestCase
             'The claimed row must hold NULL, not an empty string: an empty string is a value, '
             . 'and EditableContentService::get() would serve it instead of the page template\'s default.'
         );
+    }
+
+    /**
+     * **A key planted before the page existed is taken over, not tripped
+     * over.**
+     *
+     * `POST /api/editable-content` is `role_min: admin` and accepts any
+     * key the client sends, and `text_pages.id` is a predictable
+     * auto-increment — so an admin can write `page_content_{next id}`
+     * while no page owns it, which the guard allows precisely because
+     * nothing owns it. `content_key` is UNIQUE, so a blind INSERT at
+     * creation time would fail *after* the page's own row is committed:
+     * a live, routed page whose body stays unowned, and therefore stays
+     * writable by that admin however narrow the page's section is.
+     */
+    public function testAKeyPlantedBeforeThePageExistsIsClaimedByIt(): void
+    {
+        // The next page will be id 1, so this is its key, written before it.
+        $this->content->upsert('page_content_1', 'rich_text', '<p>Planté.</p>', null, 1);
+
+        $page = $this->service->create('ASBL', 'Notre ASBL', MenuBuilder::MENU_CONFIGURATION, 'site');
+        $this->assertSame('page_content_1', $page->contentKey(), 'the premise of this test');
+
+        $this->assertSame(
+            $page->id,
+            $this->content->ownerPageIdForKey($page->contentKey()),
+            'the planted row must end up owned by the page, not left unowned beside it'
+        );
+    }
+
+    /**
+     * And the planted text does not become the page's text. A row written
+     * under a page's key before that page existed cannot be its content by
+     * any legitimate route, so claiming it blanks it rather than
+     * publishing a stranger's HTML under a title the unit chose.
+     */
+    public function testThePlantedTextDoesNotBecomeThePagesText(): void
+    {
+        $this->content->upsert('page_content_1', 'rich_text', '<p>Planté.</p>', null, 1);
+
+        $page = $this->service->create('ASBL', 'Notre ASBL', MenuBuilder::MENU_CONFIGURATION, 'site');
+
+        $row = $this->content->findByKey($page->contentKey());
+        $this->assertNotNull($row);
+        $this->assertNull($row['content_value']);
+    }
+
+    /**
+     * The page itself is refused rather than shipped unowned when the
+     * claim cannot be made at all. A page with a route, a menu entry and
+     * a body governed by the write endpoint's floor instead of its own
+     * section's is exactly what the owner column exists to prevent.
+     */
+    public function testAPageWhoseBodyCannotBeClaimedIsNotCreatedAtAll(): void
+    {
+        // The claim runs against a second database, whose `text_pages` is
+        // empty — so its foreign key refuses the row the page needs. SQLite
+        // does not enforce foreign keys unless asked, and a test that
+        // forgets to ask proves the opposite of what it thinks.
+        $elsewhere = DatabaseTestHelper::createTestDatabase();
+        $elsewhere->exec('PRAGMA foreign_keys = ON');
+
+        $service = new TextPageService(
+            new TextPageRepository($this->pdo),
+            new EditableContentRepository($elsewhere),
+        );
+
+        try {
+            $service->create('ASBL', 'Notre ASBL', MenuBuilder::MENU_CONFIGURATION, 'site');
+            $this->fail('A page whose body could not be claimed must not be created.');
+        } catch (TextPageException $e) {
+            $this->assertStringContainsString('pas pu être créée', $e->getMessage());
+        }
+
+        $this->assertSame([], (new TextPageRepository($this->pdo))->findAll());
     }
 
     /**

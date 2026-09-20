@@ -4794,12 +4794,29 @@ the question: whatever the collation takes a key to be, the row that
 answers is the row that will be written.
 
 Two consequences follow from the column rather than from code. The content
-row is **created with the page**, empty and owned, so there is never a
+row is **claimed with the page**, empty and owned, so there is never a
 moment when the key exists unclaimed and whoever writes first decides what
 a page they cannot read says. And deleting a page deletes its text by
 `ON DELETE CASCADE` — a second delete issued from a service could fail on
 its own and leave rich text nobody can name, read or erase behind; the
 constraint cannot.
+
+**Claimed and not inserted**, because the key can already be taken.
+`POST /api/editable-content` is `role_min: admin` and accepts any key the
+client sends; `content_key` is `UNIQUE`; `text_pages.id` is a predictable
+auto-increment. So an admin can write `page_content_{next id}` before that
+page exists — allowed precisely because nothing owns it yet — and a blind
+`INSERT` at creation time would then fail on the duplicate key *after* the
+page's own row is committed. That leaves a live, routed page whose body is
+unowned, and an unowned body is governed by the write endpoint's own floor
+rather than by its section's: the escalation the column exists to close,
+reopened by the one place the column is written.
+`EditableContentRepository::claimForPage()` therefore takes an existing row
+over, blanking it — text written under a page's key before that page
+existed cannot be its content by any legitimate route — and
+`TextPageService::create()` **deletes the page it just made** if the claim
+cannot be completed. A page that does not exist is recoverable; a live page
+whose text belongs to nobody is not.
 
 Explicitly **not** in scope: free-text pages do not join
 `Core\Offline\OfflineWhitelist`. That list is a static server-side

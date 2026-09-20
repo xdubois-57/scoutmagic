@@ -261,7 +261,7 @@ correct sans que j'aie besoin de savoir laquelle des deux est vraie** —
 c'est précisément ce qui manquait aux quatre tentatives.
 
 Trois bénéfices tombent de la colonne plutôt que du code. La ligne de
-contenu est **créée avec la page**, vide et possédée, donc il n'existe
+contenu est **réclamée avec la page**, vide et possédée, donc il n'existe
 jamais d'instant où la clé n'est réclamée par personne et où le premier à
 écrire déciderait de ce que dit une page qu'il ne peut pas lire. La
 suppression passe par `ON DELETE CASCADE` — une seconde suppression émise
@@ -304,6 +304,30 @@ pour la bonne vieille raison — aucune ligne — et le câblage de production,
 celui qui en crée une, n'était exercé nulle part sur le chemin de rendu.
 Le test est recâblé comme `public/index.php` câble, et un second vérifie
 directement que la ligne réclamée porte `NULL`.
+
+**Et la clé plantée d'avance, trouvée par la relecture suivante.** Réclamer
+la clé à la création fermait la fenêtre, mais par un `INSERT` — or
+`content_key` est `UNIQUE`, `POST /api/editable-content` accepte n'importe
+quelle clé au plancher `admin`, et `text_pages.id` est un auto-incrément
+prévisible. Un admin pouvait donc écrire `page_content_{id suivant}` avant
+que la page existe, ce que le garde autorise justement parce que personne
+ne la possède. À la création, l'`INSERT` échouait sur la clé en double
+**après** que la ligne de la page soit écrite : une page en ligne, routée,
+dans un menu, dont le corps restait sans propriétaire — donc régi par le
+plancher du point d'écriture et non par celui de sa section. L'escalade
+que la colonne ferme, rouverte par le seul endroit qui écrit la colonne.
+
+Deux corrections, pas une. `claimForPage()` **reprend** une ligne
+existante au lieu de l'insérer aveuglément, et la vide au passage : un
+texte écrit sous la clé d'une page avant que cette page existe ne peut être
+son contenu par aucun chemin légitime, et le publier sous un titre choisi
+par l'unité serait pire que le perdre. Et `TextPageService::create()`
+**supprime la page qu'il vient de créer** si la réclamation ne peut pas
+aboutir. Une page qui n'existe pas se recrée ; une page en ligne dont le
+texte n'appartient à personne, non.
+
+Le test qui le tient est vérifié par mutation : sans la suppression
+compensatoire, il échoue.
 
 **Deux tests ne pouvaient pas échouer.** Le dépôt venait précisément de
 livrer « Les tests qui ne peuvent pas échouer » (#389), et la relecture a

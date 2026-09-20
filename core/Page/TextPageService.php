@@ -115,15 +115,29 @@ class TextPageService
             throw new TextPageException("La page n'a pas pu être relue après sa création.");
         }
 
-        // **The text's row is created with the page, empty, owned.**
+        // **The text's row is claimed with the page, empty, owned.**
         //
         // Not an optimisation: it is what closes the window in which the
         // content key exists but belongs to nobody. Authorization for a
         // write is read off `editable_contents.text_page_id`
-        // (ARCHITECTURE.md §8.115), so a key with no row yet would have
-        // no owner to answer for it — and whoever wrote first would
-        // decide what a page they may not even read says.
-        $this->editableContent?->createOwnedBy($page->contentKey(), $page->id);
+        // (ARCHITECTURE.md §8.115), so a key with no owner would have
+        // nothing to answer for it — and whoever wrote first would decide
+        // what a page they may not even read says.
+        //
+        // **And a page whose body is unclaimed must not ship at all.** It
+        // would have a route, a menu entry and a text governed by the
+        // write endpoint's own floor rather than by its section's: live,
+        // visible, and writable by someone who cannot read it. So a claim
+        // that fails takes the page with it rather than leaving that
+        // behind — the page row is already committed by the time we get
+        // here, so undoing it is the only way back.
+        try {
+            $this->editableContent?->claimForPage($page->contentKey(), $page->id);
+        } catch (\Throwable $e) {
+            $this->repository->delete($page->id);
+
+            throw new TextPageException("La page n'a pas pu être créée. Réessayez.", 0, $e);
+        }
 
         return $page;
     }

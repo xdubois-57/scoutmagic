@@ -68,29 +68,92 @@ class EditableContentRepository
     }
 
     /**
-     * Creates the empty row a free-text page's text will live in, owned
-     * by that page.
+     * Makes the row a free-text page's text lives in belong to that page,
+     * creating it when it does not exist yet.
      *
      * Called when the page is created, so there is **never a moment when
      * the key exists unclaimed** — the window in which somebody who may
      * not read the page could be the first to write its body, and in
      * which {@see ownerPageIdForKey()} would have nothing to answer.
      *
-     * **`NULL`, not `''`.** The two look alike here and are not:
-     * {@see EditableContentService::get()} falls back to the caller's
-     * default with `??`, which answers to `NULL` and not to an empty
-     * string. Claiming the key with `''` would therefore hand every
-     * freshly created page an empty body instead of the « Cette page n'a
-     * pas encore de contenu » its template passes — the blank screen that
-     * default exists to prevent, on the one page guaranteed to hit it.
+     * **Claim, not insert, because the key can already be taken.**
+     * `POST /api/editable-content` is `role_min: admin` and accepts any
+     * key the client sends. `content_key` is `UNIQUE`, and `text_pages.id`
+     * is a predictable auto-increment — so an admin can write
+     * `page_content_{next id}` *before* that page exists, which is allowed
+     * precisely because no owner row exists yet. A blind `INSERT` would
+     * then fail on the duplicate key **after** the page's own row is
+     * committed, leaving a routed, live page whose body belongs to nobody
+     * — and an unowned row is one this endpoint's own floor governs, so
+     * the admin would keep writing a page only a superadmin can read.
+     * That is the escalation the owner column exists to close, reopened
+     * by the one case where the column is written.
+     *
+     * The planted content does not survive the claim. A row under a page's
+     * key written before the page existed cannot be that page's text by
+     * any legitimate route, so the claim blanks it rather than publishing
+     * a stranger's HTML under a title the unit chose.
      */
-    public function createOwnedBy(string $key, int $textPageId): void
+    public function claimForPage(string $key, int $textPageId): void
     {
-        $stmt = $this->pdo->prepare(
-            'INSERT INTO editable_contents (content_key, content_type, content_value, text_page_id, modified_at) '
-            . "VALUES (?, 'rich_text', NULL, ?, ?)"
+        if ($this->claimExistingRow($key, $textPageId)) {
+            return;
+        }
+
+        try {
+            $stmt = $this->pdo->prepare(
+                'INSERT INTO editable_contents (content_key, content_type, content_value, text_page_id, modified_at) '
+                . "VALUES (?, 'rich_text', NULL, ?, ?)"
+            );
+            $stmt->execute([$key, $textPageId, self::now()]);
+        } catch (\PDOException $e) {
+            // The key was taken between the two statements. Claiming it is
+            // the same answer as above; only a second failure is real.
+            if (!$this->claimExistingRow($key, $textPageId)) {
+                throw $e;
+            }
+        }
+    }
+
+    /**
+     * @return bool false when no row carries this key, so the caller
+     *         creates one.
+     *
+     * The row is found and then updated **by its own id** rather than in
+     * one statement keyed on `content_key`: `rowCount()` after an UPDATE
+     * counts changed rows on MySQL and matched rows elsewhere, so a row
+     * already holding these exact values would read as "no row" on one
+     * engine and "claimed" on another.
+     *
+     * `content_value` and `content_type` are reset along with the owner:
+     * see {@see claimForPage()} on why nothing written under this key
+     * before the page existed can be the page's text.
+     *
+     * Marked impure because it is: two calls with the same arguments give
+     * different answers when a row appears between them, which is the
+     * whole reason {@see claimForPage()} calls it twice. Without the tag
+     * static analysis reads the second call as settled by the first and
+     * declares the retry dead code.
+     *
+     * @phpstan-impure
+     */
+    private function claimExistingRow(string $key, int $textPageId): bool
+    {
+        $stmt = $this->pdo->prepare('SELECT id FROM editable_contents WHERE content_key = ?');
+        $stmt->execute([$key]);
+        $rowId = $stmt->fetchColumn();
+
+        if ($rowId === false || $rowId === null) {
+            return false;
+        }
+
+        $claim = $this->pdo->prepare(
+            "UPDATE editable_contents SET text_page_id = ?, content_type = 'rich_text', content_value = NULL, "
+            . 'modified_at = ? WHERE id = ?'
         );
-        $stmt->execute([$key, $textPageId, self::now()]);
+        $claim->execute([$textPageId, self::now(), (int) $rowId]);
+
+        return true;
     }
 
     public function delete(string $key): void
