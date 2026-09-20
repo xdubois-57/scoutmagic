@@ -409,12 +409,22 @@ final class GoogleDriveClientTest extends TestCase
      */
     public function testDeletingAFileThatIsAlreadyGoneIsNotAFailure(): void
     {
-        $client = $this->clientAnswering(fn (): array => ['status' => 404, 'body' => '{"error":{"message":"File not found"}}']);
+        $seen = [];
+        $client = $this->clientAnswering(
+            function (string $method, string $url) use (&$seen): array {
+                $seen[] = ['method' => $method, 'url' => $url];
+
+                return ['status' => 404, 'body' => '{"error":{"message":"File not found"}}'];
+            }
+        );
 
         $client->deleteFile('token', 'already-deleted');
 
-        // Reached at all, so it did not throw.
-        $this->assertTrue(true);
+        // The deletion was really attempted — swallowing the 404 must not
+        // become swallowing the request — and nothing was retried on it.
+        $this->assertCount(1, $seen);
+        $this->assertSame('DELETE', $seen[0]['method']);
+        $this->assertStringEndsWith('/files/already-deleted', $seen[0]['url']);
     }
 
     public function testAFullDriveIsSaidToBeFullRatherThanRefusedGenerically(): void

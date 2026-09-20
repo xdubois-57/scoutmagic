@@ -475,7 +475,11 @@ class VolumeInventoryTest extends TestCase
         // the contract that quota comes from says nothing about that disk.
         $budget->ensureRoomOn($inventory, $nas, 1024);
 
-        $this->assertTrue(true, 'No refusal: the NAS has room and the quota does not cover it.');
+        // ...and the very same write to the primary volume is still
+        // refused. That contrast is what makes the silence above a
+        // verdict rather than a budget that stopped refusing anything.
+        $this->expectException(InsufficientDiskSpaceException::class);
+        $budget->ensureRoomOn($inventory, $this->storagePath, 1024);
     }
 
     /**

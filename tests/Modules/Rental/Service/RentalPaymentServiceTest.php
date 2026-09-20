@@ -831,9 +831,23 @@ class RentalPaymentServiceTest extends TestCase
 
     public function testForgettingABookingIsSafeWithoutFinance(): void
     {
-        $this->withoutFinance()->forgetBooking(1);
+        // Finance disabled after the receivables were written: rental has
+        // no way to reach them, so it must leave them exactly as they are
+        // rather than reach around the missing capability.
+        $booking = $this->createBooking();
+        $this->service->ensureReceivables(
+            $booking,
+            $this->settings(securityDeposit: true, securityDepositCents: 50000),
+            $this->now()
+        );
+        $before = (int) $this->pdo->query('SELECT COUNT(*) FROM finance_expected_receivables')->fetchColumn();
+        $this->assertGreaterThan(0, $before);
 
-        $this->assertTrue(true);
+        $this->withoutFinance()->forgetBooking($booking->id);
+
+        $this->assertSame($before, (int) $this->pdo->query(
+            'SELECT COUNT(*) FROM finance_expected_receivables'
+        )->fetchColumn());
     }
 
     // ── Due dates ───────────────────────────────────────────────────────

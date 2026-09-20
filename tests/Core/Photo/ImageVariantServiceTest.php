@@ -130,10 +130,13 @@ class ImageVariantServiceTest extends TestCase
 
     public function testGenerateIsANoOpForAnUnknownFileId(): void
     {
+        // A file row deleted between the request and the run: no variant
+        // is derived from some other file that happens to be there.
+        $this->storeOriginal('core/member_photos/abc123.jpg', $this->jpegBytes(400, 300));
+
         $this->service->generate(999999, 'thumb');
-        // No exception, nothing written — nothing to assert on disk since
-        // there is no relative path to derive a sibling from.
-        $this->assertTrue(true);
+
+        $this->assertFileDoesNotExist($this->storagePath . '/core/member_photos/abc123.thumb.webp');
     }
 
     public function testGenerateIsANoOpForAnEncryptedFile(): void
