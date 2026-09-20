@@ -60,6 +60,7 @@ class RentalOperationsServiceTest extends TestCase
     private RentalBlockRepository $blockRepository;
     private RentalBlockService $blockService;
     private RentalPricingService $pricingService;
+    private RentalAvailabilityService $availabilityService;
     private RentalOperationsService $service;
     private int $assetId;
 
@@ -85,7 +86,7 @@ class RentalOperationsServiceTest extends TestCase
             $journal
         );
 
-        $availability = new RentalAvailabilityService(
+        $this->availabilityService = $availability = new RentalAvailabilityService(
             new AvailabilityCalculator(),
             new RentalConstraintsRepository($this->pdo),
             // Both providers, exactly as public/index.php wires them: a test
@@ -1214,6 +1215,143 @@ class RentalOperationsServiceTest extends TestCase
         $this->assertCount(
             RentalOperationsService::MAX_PENDING_RENTER_REQUESTS + 2,
             $this->changeRequestRepository->findPendingForBooking($booking->id)
+        );
+    }
+
+    // ── What the new request-time check must and must not refuse ────────
+
+    /**
+     * **Capacity is checked even when the dates do not move.**
+     *
+     * It lives inside `validateRange()`, so gating that call on "do the
+     * dates move" let a head-count change past every check there is: the
+     * request-time one skipped it, and the acceptance-time one calls
+     * `isRangeFree()`, which takes no `$persons` at all and then writes the
+     * new figure through. Eighty people in a hall that holds sixty — the
+     * case the call site's own comment names — as long as the dates were
+     * left alone.
+     */
+    public function testAHeadCountChangeAloneIsStillHeldToTheAssetsCapacity(): void
+    {
+        $this->expectException(RentalException::class);
+        $this->expectExceptionMessageMatches('/capacité maximum est de 60/');
+
+        $this->service->requestChange(
+            $this->createBooking(),
+            $this->asset(),
+            ChangeRequestOrigin::RENTER,
+            ChangeRequestKind::PERSONS,
+            null,
+            null,
+            null,
+            800,
+            null,
+            null
+        );
+    }
+
+    public function testAHeadCountThatFitsIsRecorded(): void
+    {
+        $booking = $this->createBooking();
+
+        $this->service->requestChange(
+            $booking,
+            $this->asset(),
+            ChangeRequestOrigin::RENTER,
+            ChangeRequestKind::PERSONS,
+            null,
+            null,
+            null,
+            45,
+            null,
+            null
+        );
+
+        $this->assertCount(1, $this->changeRequestRepository->findForBooking($booking->id));
+    }
+
+    /**
+     * **A manager is not held to the public form's rules**, and the three
+     * that are editorial rather than physical are exactly the ones
+     * `RentalAvailabilityService::isRangeFree()` already exempts them from
+     * in as many words: minimum notice, booking horizon, allowed arrival
+     * weekdays.
+     *
+     * The case: an asset asking visitors for a fortnight's notice, and a
+     * manager proposing dates next week. They could confirm those dates
+     * directly — refusing their *proposal* would be refusing them over a
+     * rule that was never about them.
+     */
+    public function testAManagersProposalIsNotRefusedByThePublicFormsNoticePeriod(): void
+    {
+        $this->availabilityService->saveConstraints($this->assetId, 0, 0, 14, 0, [], null, 0);
+        $booking = $this->createBooking();
+
+        $this->service->requestChange(
+            $booking,
+            $this->asset(),
+            ChangeRequestOrigin::MANAGER,
+            ChangeRequestKind::DATES,
+            '2027-07-08',
+            '2027-07-11',
+            null,
+            null,
+            null,
+            null,
+            null,
+            new \DateTimeImmutable('2027-07-01 09:00:00')
+        );
+
+        $this->assertCount(1, $this->changeRequestRepository->findForBooking($booking->id));
+    }
+
+    /**
+     * The same dates asked by the renter are refused, which is what makes
+     * the exemption above an exemption rather than the rule going missing.
+     */
+    public function testTheSameDatesAskedByTheRenterAreRefused(): void
+    {
+        $this->availabilityService->saveConstraints($this->assetId, 0, 0, 14, 0, [], null, 0);
+
+        $this->expectException(RentalException::class);
+        $this->expectExceptionMessageMatches('/14 jours/');
+
+        $this->service->requestChange(
+            $this->createBooking(),
+            $this->asset(),
+            ChangeRequestOrigin::RENTER,
+            ChangeRequestKind::DATES,
+            '2027-07-08',
+            '2027-07-11',
+            null,
+            null,
+            null,
+            null,
+            null,
+            new \DateTimeImmutable('2027-07-01 09:00:00')
+        );
+    }
+
+    /**
+     * And a manager is still held to what is physical: a hall holds sixty
+     * whoever is asking.
+     */
+    public function testAManagerIsStillHeldToTheAssetsCapacity(): void
+    {
+        $this->expectException(RentalException::class);
+        $this->expectExceptionMessageMatches('/capacité maximum est de 60/');
+
+        $this->service->requestChange(
+            $this->createBooking(),
+            $this->asset(),
+            ChangeRequestOrigin::MANAGER,
+            ChangeRequestKind::PERSONS,
+            null,
+            null,
+            null,
+            800,
+            null,
+            null
         );
     }
 

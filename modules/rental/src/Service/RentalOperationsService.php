@@ -558,19 +558,49 @@ class RentalOperationsService
         // the dates can be taken by somebody else, and only the check
         // inside the lock sees that. Two checks, two different questions:
         // "is this askable at all" here, "is it still free" there.
-        if ($kind->affectsAvailability() && $arrivalDate !== null && $departureDate !== null) {
+        //
+        // **Two things this must NOT do**, and both were got wrong first:
+        //
+        // - It must not check nothing at all when only the head count
+        //   changes. Capacity lives inside `validateRange()`, so gating the
+        //   call on "do the dates move" let eighty people into a hall that
+        //   holds sixty — the very case named above — as long as the dates
+        //   were left alone. The booking's own period is used instead, so
+        //   the question asked is "does this group fit", which is the one
+        //   being changed.
+        // - It must not hold a MANAGER to the public form's rules. Minimum
+        //   notice, booking horizon and allowed arrival weekdays shape what
+        //   a visitor may ask for; a manager proposing next week on an
+        //   asset that asks visitors for a fortnight could confirm those
+        //   dates directly, so refusing their proposal would be refusing a
+        //   rule that was never about them (`isRangeFree()` says so in as
+        //   many words). `$publicFormRules` drops exactly those three and
+        //   keeps the physical ones.
+        $movesDates = $arrivalDate !== null && $departureDate !== null;
+        if ($movesDates || $persons !== null) {
             $errors = $this->availabilityService->validateRange(
                 $asset,
                 $this->pricingService->loadSettings($asset->id)->billingUnit,
-                DateInput::requireFromStorage($arrivalDate, 'the requested arrival date'),
-                DateInput::requireFromStorage($departureDate, 'the requested departure date'),
+                DateInput::requireFromStorage(
+                    $movesDates ? $arrivalDate : $booking->arrivalDate,
+                    'the requested arrival date'
+                ),
+                DateInput::requireFromStorage(
+                    $movesDates ? $departureDate : $booking->departureDate,
+                    'the requested departure date'
+                ),
                 $units ?? $booking->units,
                 ($now ?? new \DateTimeImmutable())->setTime(0, 0),
                 $persons ?? $booking->estimatedPersons,
                 // The booking's own period is not an obstacle to moving it:
                 // without this, asking to shift by one night collides with
                 // the nights it already holds.
-                $booking->reference
+                $booking->reference,
+                // Dates the renter did not touch are not theirs to be
+                // refused over either: a booking made in March is inside
+                // its own notice window by July, and a head-count change
+                // must not fail on that.
+                $origin === ChangeRequestOrigin::RENTER && $movesDates
             );
 
             if ($errors !== []) {

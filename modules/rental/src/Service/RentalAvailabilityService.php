@@ -218,6 +218,18 @@ class RentalAvailabilityService
      * Validates a requested range against both the constraints and real
      * availability.
      *
+     * **`$publicFormRules` is the same distinction `isRangeFree()` draws**,
+     * and the reason it exists here rather than as a second method:
+     * minimum notice, booking horizon and allowed arrival weekdays shape
+     * what a *visitor* may ask for. A manager proposing next week on an
+     * asset that asks visitors for two weeks' notice must not be refused by
+     * a rule that was never about them — they could confirm those very
+     * dates directly. What still binds everybody is physical: the asset
+     * cannot be in two places at once, and a hall that holds sixty holds
+     * sixty. Passing `false` drops the three editorial rules and keeps the
+     * rest, rather than duplicating the physical ones at a second call
+     * site where the two copies would drift.
+     *
      * @return string[] User-facing French reasons; empty means valid.
      */
     public function validateRange(
@@ -228,9 +240,22 @@ class RentalAvailabilityService
         int $units,
         \DateTimeImmutable $today,
         ?int $persons = null,
-        ?string $excludeReference = null
+        ?string $excludeReference = null,
+        bool $publicFormRules = true
     ): array {
         $constraints = $this->constraintsFor($asset->id);
+
+        if (!$publicFormRules) {
+            $constraints = new BookingConstraints(
+                minNights: $constraints->minNights,
+                maxNights: $constraints->maxNights,
+                minNoticeDays: 0,
+                maxHorizonDays: 0,
+                allowedArrivalWeekdays: [],
+                maxPersons: $constraints->maxPersons,
+                bufferNights: $constraints->bufferNights
+            );
+        }
 
         // The asset's own capacity is the ceiling when no explicit booking
         // maximum is configured: an operator who filled in "60 places" has
