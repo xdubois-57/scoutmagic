@@ -112,7 +112,7 @@ final class HealthSheetPdfService
                     continue;
                 }
                 if (!$pdf->writeText($value, $field)) {
-                    $overflowing[] = self::answerFor($name);
+                    $overflowing[] = HealthSheetLayout::answerFor($name);
                 }
             }
 
@@ -130,26 +130,5 @@ final class HealthSheetPdfService
             // would otherwise be named twice on the screen.
             'overflowing' => array_values(array_unique($overflowing)),
         ];
-    }
-
-    /**
-     * The answer a printed line belongs to — which for a continuation line
-     * is the answer, not the line.
-     *
-     * Told from the layout rather than from the name's shape: a field
-     * called `allergies_2` is a second printed line because
-     * `paragraphLines()` says so, and a field that happened to end in `_2`
-     * without being in that map would be reported under its own name,
-     * correctly.
-     */
-    private static function answerFor(string $field): string
-    {
-        foreach (HealthSheetLayout::paragraphLines() as $answer => $names) {
-            if (in_array($field, $names, true)) {
-                return $answer;
-            }
-        }
-
-        return $field;
     }
 }

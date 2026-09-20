@@ -92,16 +92,21 @@ final class HealthSheetLayout
             // the value goes after the label and stops at the frame
             // (102.4 for the left column, 189.9 for the right), not at
             // LINE_END.
+            // « Remarque » is a textarea on the screen and a single printed
+            // line here, so it goes through `paragraphLines()` like every
+            // other free-text answer — which is what keeps it inside its
+            // own column instead of across the frame into the other
+            // contact's cell.
             'contact1_name' => new TextField(47.5, 117.8, 53.5),
             'contact1_relationship' => new TextField(47.6, 124.7, 53.4),
             'contact1_phone' => new TextField(39.5, 131.5, 61.5),
             'contact1_email' => new TextField(32.9, 138.4, 68.1),
-            'contact1_note' => new TextField(40.0, 145.2, 61.0),
+            'contact1_note_1' => new TextField(40.0, 145.2, 61.0),
             'contact2_name' => new TextField(129.8, 117.8, 58.7),
             'contact2_relationship' => new TextField(129.9, 124.7, 58.6),
             'contact2_phone' => new TextField(121.8, 131.5, 66.7),
             'contact2_email' => new TextField(115.2, 138.4, 73.3),
-            'contact2_note' => new TextField(122.3, 145.2, 66.2),
+            'contact2_note_1' => new TextField(122.3, 145.2, 66.2),
 
             // ---------- Page 1 : « Coordonnées du médecin traitant » ----
             'doctor_last_name' => new TextField(30.6, 161.8, 66.7),
@@ -173,6 +178,8 @@ final class HealthSheetLayout
     public static function paragraphLines(): array
     {
         return [
+            'contact1_note' => ['contact1_note_1'],
+            'contact2_note' => ['contact2_note_1'],
             'participation_details' => ['participation_details_1', 'participation_details_2'],
             'conditions_details' => [
                 'conditions_details_1',
@@ -247,6 +254,29 @@ final class HealthSheetLayout
             'autonomy_yes' => new TickBox(107.78, 149.01, 1.35, 2),
             'autonomy_no' => new TickBox(122.00, 149.01, 1.35, 2),
         ];
+    }
+
+    /**
+     * The answer a printed line belongs to — which for a continuation line
+     * is the answer, not the line.
+     *
+     * Told from `paragraphLines()` rather than from the name's shape: a
+     * field called `allergies_2` is a second printed line because that map
+     * says so, and a field that happened to end in `_2` without being in it
+     * would answer under its own name, correctly.
+     *
+     * What the screen reports an overflow under, so getting it wrong tells
+     * a parent to shorten a box that is not the one they filled in.
+     */
+    public static function answerFor(string $field): string
+    {
+        foreach (self::paragraphLines() as $answer => $names) {
+            if (in_array($field, $names, true)) {
+                return $answer;
+            }
+        }
+
+        return $field;
     }
 
     /**

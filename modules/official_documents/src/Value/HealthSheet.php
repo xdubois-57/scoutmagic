@@ -90,6 +90,54 @@ final class HealthSheet
     ];
 
     /**
+     * The words the screen puts above each box, keyed by the answer they
+     * name.
+     *
+     * Here rather than in the template because of what reads them: when a
+     * value does not fit the federation's printed line, the screen says so
+     * **by name**, and a name with no entry here would put a raw
+     * `contact2_email` in front of a French-speaking parent. CLAUDE.md is
+     * blunt about that one — « an English UI label is a bug, never a
+     * detail » — and a map that lives beside the keys it names is a map a
+     * new field cannot quietly slip past, because a test checks the two
+     * lists against each other.
+     *
+     * `conditions` is absent on purpose: it is twelve tick-boxes rather
+     * than a value with a line to overflow, and the template labels them
+     * where it draws them.
+     */
+    public const LABELS = [
+        'contact1_name' => 'Personne à contacter 1 — Nom et prénom',
+        'contact1_relationship' => 'Personne à contacter 1 — Lien de parenté',
+        'contact1_phone' => 'Personne à contacter 1 — Téléphone',
+        'contact1_email' => 'Personne à contacter 1 — Adresse e-mail',
+        'contact1_note' => 'Personne à contacter 1 — Remarque',
+        'contact2_name' => 'Personne à contacter 2 — Nom et prénom',
+        'contact2_relationship' => 'Personne à contacter 2 — Lien de parenté',
+        'contact2_phone' => 'Personne à contacter 2 — Téléphone',
+        'contact2_email' => 'Personne à contacter 2 — Adresse e-mail',
+        'contact2_note' => 'Personne à contacter 2 — Remarque',
+        'doctor_first_name' => 'Médecin traitant — Prénom',
+        'doctor_last_name' => 'Médecin traitant — Nom',
+        'doctor_phone' => 'Médecin traitant — Téléphone',
+        'height' => 'Taille',
+        'weight' => 'Poids',
+        'participation' => 'Peut participer à toutes les activités proposées',
+        'participation_details' => 'Précisions sur la participation aux activités',
+        'swimming_level' => 'Niveau de natation',
+        'conditions_details' => 'Fréquence, gravité, mesures à prendre',
+        'illnesses_and_operations' => 'Maladies et opérations',
+        'useful_information' => 'Autres informations utiles',
+        'tetanus_vaccinated' => 'En ordre de vaccination contre le tétanos',
+        'tetanus_last_booster' => 'Date du dernier rappel',
+        'allergies' => 'Allergies',
+        'allergy_consequences' => 'Conséquences et mesures à prendre',
+        'diet' => 'Régime alimentaire',
+        'treatment' => 'Traitement en cours',
+        'treatment_autonomy' => 'Votre enfant prend-il ce traitement seul ?',
+    ];
+
+    /**
      * @param array<string, bool> $conditions keyed by CONDITIONS
      */
     private function __construct(

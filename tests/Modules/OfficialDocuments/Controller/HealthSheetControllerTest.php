@@ -36,6 +36,7 @@ use Twig\Environment;
  */
 final class HealthSheetControllerTest extends TestCase
 {
+    private Environment&\PHPUnit\Framework\MockObject\MockObject $twig;
     private MemberService&\PHPUnit\Framework\MockObject\MockObject $memberService;
     private HealthSheetRepository&\PHPUnit\Framework\MockObject\MockObject $repository;
     private HealthSheetController $controller;
@@ -47,14 +48,16 @@ final class HealthSheetControllerTest extends TestCase
         }
         $_SESSION = [];
 
-        $twig = $this->createStub(Environment::class);
-        $twig->method('render')->willReturn('<html></html>');
+        // A mock rather than a stub: what the screen is HANDED is the
+        // assertion in `testTheOverflowWarningIsFrenchAndNeverAFieldName`.
+        $this->twig = $this->createMock(Environment::class);
+        $this->twig->method('render')->willReturn('<html></html>');
 
         $this->memberService = $this->createMock(MemberService::class);
         $this->repository = $this->createMock(HealthSheetRepository::class);
 
         $this->controller = new HealthSheetController(
-            $twig,
+            $this->twig,
             new OwnMemberOnly($this->memberService),
             new HealthSheetService($this->repository),
             // The real renderer over the real template: the screen calls it
@@ -414,5 +417,70 @@ final class HealthSheetControllerTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringStartsWith('%PDF-', $response->getBody());
+    }
+
+    /**
+     * **Nothing internal reaches a parent.** The overflow warning names the
+     * boxes to shorten, and it names them in French: the template is handed
+     * finished sentences, never the field names the layout works in.
+     *
+     * A bullet reading literally `contact1_note` is what this catches, and
+     * it is the shape the page had before — `CLAUDE.md`: « an English UI
+     * label is a bug, never a detail ».
+     */
+    public function testTheOverflowWarningIsFrenchAndNeverAFieldName(): void
+    {
+        $this->signIn();
+        $this->memberService->method('canAccess')->willReturn(true);
+        $this->memberService->method('getMemberProfile')->willReturn(self::profile());
+        $this->repository->method('findForMember')->willReturn(HealthSheet::fromArray([
+            'contact1_note' => 'Joignable uniquement en journée, de préférence après quatorze heures, '
+                . 'sinon appeler le grand-père qui habite à côté',
+        ]));
+
+        $context = null;
+        $this->twig->method('render')->willReturnCallback(
+            static function (string $template, array $given) use (&$context): string {
+                $context = $given;
+
+                return '<html></html>';
+            }
+        );
+
+        $this->controller->show(new Request('GET', '/members/7/fiche-sante', [], [], [], []), ['id' => '7']);
+
+        $this->assertIsArray($context);
+        $this->assertSame(
+            [HealthSheet::LABELS['contact1_note']],
+            $context['overflowing'],
+            'La page doit nommer la case à raccourcir avec les mots que le parent a sous les yeux.'
+        );
+    }
+
+    /**
+     * And a sheet that fits says nothing at all: a warning on every visit
+     * is a warning nobody reads.
+     */
+    public function testAShortAnswerRaisesNoWarning(): void
+    {
+        $this->signIn();
+        $this->memberService->method('canAccess')->willReturn(true);
+        $this->memberService->method('getMemberProfile')->willReturn(self::profile());
+        $this->repository->method('findForMember')->willReturn(HealthSheet::fromArray([
+            'contact1_note' => 'Après 17h',
+        ]));
+
+        $context = null;
+        $this->twig->method('render')->willReturnCallback(
+            static function (string $template, array $given) use (&$context): string {
+                $context = $given;
+
+                return '<html></html>';
+            }
+        );
+
+        $this->controller->show(new Request('GET', '/members/7/fiche-sante', [], [], [], []), ['id' => '7']);
+
+        $this->assertSame([], $context['overflowing']);
     }
 }

@@ -10,8 +10,10 @@ declare(strict_types=1);
 namespace Tests\Modules\OfficialDocuments\Pdf;
 
 use Modules\OfficialDocuments\Pdf\OverlayPdf;
+use Modules\OfficialDocuments\Pdf\TemplateLibrary;
 use Modules\OfficialDocuments\Pdf\TextField;
 use PHPUnit\Framework\TestCase;
+use Smalot\PdfParser\Parser;
 
 /**
  * The engine's one decision: how much of a free-text answer fits on the
@@ -141,5 +143,96 @@ final class OverlayPdfTest extends TestCase
 
         $this->assertSame([], $result['lines']);
         $this->assertTrue($result['overflow']);
+    }
+
+    // ---------------------------------------------------------------
+    // What a single-line value does when it does not fit
+    // ---------------------------------------------------------------
+
+    /**
+     * Whatever is written on one page, read back out of it.
+     */
+    private static function textDrawnBy(callable $write): string
+    {
+        $pdf = new OverlayPdf();
+        $pdf->openTemplate(TemplateLibrary::shipped()->path(TemplateLibrary::HEALTH_SHEET));
+        $pdf->startPage(1);
+        $write($pdf);
+
+        return (new Parser())->parseContent($pdf->render())->getPages()[0]->getText();
+    }
+
+    /**
+     * **A value never runs past its own line.**
+     *
+     * The type is shrunk first, and when even the smallest size does not
+     * fit, what fits is written and the rest is reported. The line this
+     * uses is the health sheet's own « Remarque » in the left-hand column
+     * of the emergency-contact table: it ends at 101 mm, the printed frame
+     * is at 102.4, and the right-hand contact's answer starts at 122.3.
+     *
+     * An earlier version drew the whole string on the grounds that a
+     * cramped line beats a blank one. At six point, an eighty-five
+     * character note reaches 133.5 mm — through the frame and through the
+     * second contact's cell, so the two people a first-aider would ring
+     * overprint each other.
+     */
+    public function testAValueTooLongForItsLineIsCutRatherThanDrawnPastIt(): void
+    {
+        $field = new TextField(40.0, 145.2, 61.0);
+        $note = 'Joignable uniquement en journee, de preference apres quatorze heures, '
+            . 'sinon appeler le grandpere qui habite a cote';
+
+        $fits = null;
+        $text = self::textDrawnBy(static function (OverlayPdf $pdf) use ($field, $note, &$fits): void {
+            $fits = $pdf->writeText($note, $field);
+        });
+
+        $this->assertFalse($fits, 'Le débordement doit être signalé, jamais avalé.');
+        $this->assertStringContainsString('Joignable', $text, 'Ce qui tient doit être écrit.');
+        $this->assertStringNotContainsString(
+            'habite a cote',
+            $text,
+            'La fin de la remarque est imprimée au-delà de sa ligne, dans la cellule du contact 2.'
+        );
+    }
+
+    /**
+     * A value that fits once shrunk is written whole: the cut above is the
+     * last resort, not the ordinary path.
+     */
+    public function testAValueThatFitsOnceShrunkIsWrittenWhole(): void
+    {
+        $field = new TextField(40.0, 145.2, 61.0);
+        $value = 'Joignable en journee seulement';
+
+        $fits = null;
+        $text = self::textDrawnBy(static function (OverlayPdf $pdf) use ($field, $value, &$fits): void {
+            $fits = $pdf->writeText($value, $field);
+        });
+
+        $this->assertTrue($fits);
+        $this->assertStringContainsString($value, $text);
+    }
+
+    /**
+     * The cut is on a character, because this path serves values the form
+     * gives one line to — an e-mail address has no space to break on at
+     * all, and dropping it entirely would be worse than printing the part
+     * that fits.
+     */
+    public function testAValueWithNoSpaceToBreakOnIsStillPartlyWritten(): void
+    {
+        $field = new TextField(32.9, 138.4, 20.0);
+        $email = 'prenom.nom.de.famille.tres.longue@une-adresse-interminable.example.be';
+
+        $fits = null;
+        $text = self::textDrawnBy(static function (OverlayPdf $pdf) use ($field, $email, &$fits): void {
+            $fits = $pdf->writeText($email, $field);
+        });
+
+        $this->assertFalse($fits);
+        $this->assertStringContainsString('prenom', $text);
+        $this->assertStringNotContainsString('example.be', $text);
     }
 }

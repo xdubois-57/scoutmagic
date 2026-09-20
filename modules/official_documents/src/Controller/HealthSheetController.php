@@ -179,6 +179,31 @@ class HealthSheetController extends AbstractController
     }
 
     /**
+     * Overflowing answers as the words the parent has in front of them.
+     *
+     * The template is handed French sentences and nothing else: a name that
+     * reached it unmapped would print `contact2_email` on a page a family
+     * reads. Anything without a label is dropped rather than shown raw —
+     * and `HealthSheetLabelsTest` is what makes that case impossible rather
+     * than merely silent.
+     *
+     * @param array<int, string> $names
+     * @return list<string>
+     */
+    private static function readable(array $names): array
+    {
+        $labels = [];
+        foreach ($names as $name) {
+            $label = HealthSheet::LABELS[$name] ?? null;
+            if ($label !== null) {
+                $labels[] = $label;
+            }
+        }
+
+        return $labels;
+    }
+
+    /**
      * The screen, with whatever it has to say today.
      *
      * The overflow list is the one piece of state the page carries beyond
@@ -207,7 +232,7 @@ class HealthSheetController extends AbstractController
                 // written either way — cramped rather than dropped — so
                 // what it costs is a tight line on an otherwise correct
                 // form. What a chef would change, they change in Desk.
-                $overflowing = array_values(array_diff(
+                $overflowing = self::readable(array_diff(
                     $this->pdfService->render($member, $sheet)['overflowing'],
                     HealthSheetLayout::siteSuppliedNames()
                 ));

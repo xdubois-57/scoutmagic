@@ -171,6 +171,51 @@ final class HealthSheetPdfServiceTest extends TestCase
     }
 
     /**
+     * A « Remarque » longer than its printed line is an ANSWER that
+     * overflowed, not a stray field name — because it goes through the
+     * same wrapping path as every other free-text answer.
+     *
+     * It used to be written as a single-line value, which on this
+     * two-column printed table meant drawing through the frame and into
+     * the other contact's cell.
+     */
+    public function testALongEmergencyContactNoteIsReportedAsThatAnswer(): void
+    {
+        $result = self::service()->render(
+            HealthSheetFillingTest::member(),
+            HealthSheet::fromArray([
+                'contact1_note' => 'Joignable uniquement en journée, de préférence après quatorze heures, '
+                    . 'sinon appeler le grand-père qui habite à côté de chez nous',
+            ])
+        );
+
+        $this->assertSame(['contact1_note'], $result['overflowing']);
+    }
+
+    /**
+     * And what the second contact wrote is still theirs: both notes are
+     * fitted to their own column rather than one running over the other.
+     */
+    public function testTheTwoContactNotesStayInTheirOwnColumns(): void
+    {
+        $result = self::service()->render(
+            HealthSheetFillingTest::member(),
+            HealthSheet::fromArray([
+                'contact1_note' => 'Joignable uniquement en journée, de préférence après quatorze heures, '
+                    . 'sinon appeler les voisins du dessous',
+                'contact2_note' => 'Après dix-sept heures',
+            ])
+        );
+
+        $page = (new Parser())->parseContent($result['pdf'])->getPages()[0]->getText();
+
+        $this->assertStringContainsString('Joignable', $page);
+        $this->assertStringContainsString('Après dix-sept heures', $page);
+        $this->assertStringNotContainsString('voisins du dessous', $page);
+        $this->assertSame(['contact1_note'], $result['overflowing']);
+    }
+
+    /**
      * Each answer is named once, however many of its lines were involved.
      */
     public function testAnOverflowingAnswerIsNamedOnlyOnce(): void

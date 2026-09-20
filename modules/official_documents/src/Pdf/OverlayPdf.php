@@ -104,11 +104,20 @@ final class OverlayPdf extends Fpdi
      * Write one value at its declared place, shrinking the type until it
      * fits the room the form leaves for it.
      *
-     * Returns false when even `MIN_FONT_SIZE` is too large — the value is
-     * still written, because a form with a cramped line on it is more use
-     * than a form with a blank one, and the caller is told so it can say on
-     * the web page that this entry will not fit. Silence here is the one
-     * outcome that would be wrong.
+     * Returns false when even `MIN_FONT_SIZE` is too large, and then writes
+     * **what fits and no more**. The caller is told, and the screen tells
+     * the parent; silence is the one outcome that would be wrong.
+     *
+     * **A value never runs past its own line**, and that is not tidiness.
+     * The health sheet's emergency contacts are a two-column printed table:
+     * the left column's « Remarque » line ends at 101 mm, the frame is at
+     * 102.4, and the right column's own answer starts at 122.3. An
+     * eighty-five-character note drawn at full length reaches 133.5 —
+     * through the frame and through the second contact's cell, so the two
+     * people a first-aider would ring overprint each other. An earlier
+     * version of this method drew the whole string on the grounds that a
+     * cramped line beats a blank one; that holds for a line with nothing
+     * beside it, and stops holding the moment something is.
      */
     public function writeText(string $value, TextField $field): bool
     {
@@ -125,9 +134,46 @@ final class OverlayPdf extends Fpdi
             $this->SetFont(self::FONT_FAMILY, '', $size);
         }
 
-        $this->Text($field->x, $field->baselineY, $value);
+        if ($this->GetStringWidth($value) <= $field->width) {
+            $this->Text($field->x, $field->baselineY, $value);
 
-        return $this->GetStringWidth($value) <= $field->width;
+            return true;
+        }
+
+        $this->Text($field->x, $field->baselineY, $this->longestPrefixThatFits($value, $field->width));
+
+        return false;
+    }
+
+    /**
+     * As much of a value as its line holds, cut on a character.
+     *
+     * Only ever reached once the type has already been shrunk as far as it
+     * goes, so this is the last resort rather than the ordinary path — and
+     * the caller always reports it, which is what makes the cut something
+     * the parent reads about on the screen rather than discovers on paper.
+     *
+     * Cut on a character and not on a word: this is the path for a value
+     * the form gives ONE line to — a name, a phone number, an e-mail
+     * address — where there may be no space to break on at all. A free-text
+     * answer with several printed lines goes through `wrapInto()`, which
+     * breaks between words.
+     */
+    private function longestPrefixThatFits(string $value, float $width): string
+    {
+        $low = 0;
+        $high = mb_strlen($value);
+
+        while ($low < $high) {
+            $middle = (int) ceil(($low + $high) / 2);
+            if ($this->GetStringWidth(mb_substr($value, 0, $middle)) <= $width) {
+                $low = $middle;
+            } else {
+                $high = $middle - 1;
+            }
+        }
+
+        return mb_substr($value, 0, $low);
     }
 
     /**

@@ -25,20 +25,6 @@
     { value: 'yes', label: 'Oui' },
     { value: 'no', label: 'Non' },
 ] %}
-{#
-  The label each free-text answer carries above, so an overflow can name
-  the box the parent has to shorten rather than a coordinate.
-#}
-{% set line_labels = {
-    'participation_details': 'Précisions sur la participation aux activités',
-    'conditions_details': 'Fréquence, gravité, mesures à prendre',
-    'illnesses_and_operations': 'Maladies et opérations',
-    'useful_information': 'Autres informations utiles',
-    'allergies': 'Allergies',
-    'allergy_consequences': 'Conséquences et mesures à prendre',
-    'diet': 'Régime alimentaire',
-    'treatment': 'Traitement en cours',
-} %}
 <div class="page-narrow">
     {% include 'partials/page_header.html.twig' with {
         title: 'Fiche santé',
@@ -78,8 +64,14 @@
                 Ce que vous avez écrit ici ne tiendra pas entièrement sur le document :
             </p>
             <ul class="mb-1">
-                {% for name in overflowing %}
-                    <li>{{ line_labels[name]|default(name) }}</li>
+                {#
+                  Already French sentences when they get here: the
+                  controller resolves each name through
+                  `HealthSheet::LABELS`, precisely so this loop can never
+                  print an internal field name to a parent.
+                #}
+                {% for label in overflowing %}
+                    <li>{{ label }}</li>
                 {% endfor %}
             </ul>
             <p class="mb-0">

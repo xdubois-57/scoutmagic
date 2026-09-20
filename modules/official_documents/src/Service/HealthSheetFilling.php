@@ -94,12 +94,10 @@ final class HealthSheetFilling
             'contact1_relationship' => $sheet->contact1Relationship,
             'contact1_phone' => $sheet->contact1Phone,
             'contact1_email' => $sheet->contact1Email,
-            'contact1_note' => $sheet->contact1Note,
             'contact2_name' => $sheet->contact2Name,
             'contact2_relationship' => $sheet->contact2Relationship,
             'contact2_phone' => $sheet->contact2Phone,
             'contact2_email' => $sheet->contact2Email,
-            'contact2_note' => $sheet->contact2Note,
             'doctor_last_name' => $sheet->doctorLastName,
             'doctor_first_name' => $sheet->doctorFirstName,
             'doctor_phone' => $sheet->doctorPhone,
@@ -119,6 +117,11 @@ final class HealthSheetFilling
     public static function paragraphs(HealthSheet $sheet): array
     {
         return [
+            // « Remarque » is a textarea on the screen: free text, so it is
+            // fitted to its printed line here rather than drawn as a
+            // single-line value. See `Pdf\HealthSheetLayout`.
+            'contact1_note' => $sheet->contact1Note,
+            'contact2_note' => $sheet->contact2Note,
             'participation_details' => $sheet->participationDetails,
             'conditions_details' => $sheet->conditionsDetails,
             'illnesses_and_operations' => $sheet->illnessesAndOperations,

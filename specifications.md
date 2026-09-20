@@ -2773,9 +2773,15 @@ Un test vérifie que chaque champ déclaré tient dans les limites de la page et
 ne manque — un champ déplacé hors de la feuille est invisible sur le PDF produit, et donc exactement
 le genre d'erreur qu'on ne voit pas en relisant une carte de coordonnées.
 
-**Une valeur trop longue pour sa ligne est réduite en corps, jamais coupée** — et si elle ne tient
-toujours pas au plus petit corps admis, ce qui arrive ensuite dépend de **qui peut y faire quelque
-chose**.
+**Une valeur trop longue pour sa ligne est d'abord réduite en corps** ; si elle ne tient toujours pas
+au plus petit corps admis, **ce qui tient est écrit et le reste est signalé — jamais dessiné
+au-delà de la ligne**. Une valeur débordante imprimée en entier passe par-dessus ce que le
+formulaire imprime à côté : sur la fiche santé, une remarque de quatre-vingts caractères dans la
+colonne gauche du tableau des contacts d'urgence traverse le cadre et la cellule du contact 2, et les
+deux personnes qu'un secouriste appellerait se surimpriment. Couper n'est acceptable que parce que
+ce n'est jamais silencieux — voir ci-dessous.
+
+Ce qui arrive ensuite dépend ensuite de **qui peut y faire quelque chose**.
 
 - Une valeur que le parent a tapée — son nom, les dates, le lieu — **réaffiche l'écran** avec ce qui
   était saisi : il peut la raccourcir, et vaut mieux l'apprendre là que sur le papier.
@@ -2925,7 +2931,14 @@ mots, **chaque ligne mesurée à sa propre largeur** — celle de « Mentionnez 
 fait onze millimètres.
 
 Ce qui ne tient pas **n'est jamais tronqué en silence** : la page web nomme les réponses concernées,
-sous le libellé que le parent a devant les yeux et non sous le nom d'une ligne du gabarit. Le
+sous le libellé que le parent a devant les yeux et non sous le nom d'une ligne du gabarit. Ces
+libellés vivent dans `Value\HealthSheet::LABELS`, à côté des clés qu'ils nomment, et un test tient
+les deux listes ensemble : une réponse sans libellé sortirait telle quelle sur la page, en anglais,
+devant une famille.
+
+La « Remarque » de chaque contact d'urgence suit ce chemin-là comme les autres : c'est une zone de
+texte à l'écran, donc du texte libre, et la traiter comme une valeur d'une seule ligne la faisait
+sortir de sa colonne. Le
 document reste téléchargeable — ce qui tient est écrit, et une famille dont la liste d'allergies est
 longue a besoin de son formulaire ; c'est elle qui sait ce qu'elle peut raccourcir, ou choisir d'y
 joindre une feuille.
