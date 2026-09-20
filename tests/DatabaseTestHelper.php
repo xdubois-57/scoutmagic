@@ -774,6 +774,19 @@ class DatabaseTestHelper
             FOREIGN KEY (dmarc_report_id) REFERENCES mail_dmarc_reports(id) ON DELETE CASCADE
         )');
 
+        $pdo->exec('CREATE TABLE mail_seed_copies (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_reference TEXT NOT NULL,
+            seed_address_encrypted BLOB NOT NULL,
+            seed_address_blind_index TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            sent_at TEXT NOT NULL,
+            verdict TEXT NOT NULL DEFAULT \'pending\',
+            landed_folder TEXT NULL,
+            recorded_at TEXT NULL,
+            UNIQUE (run_reference, seed_address_blind_index)
+        )');
+
         $pdo->exec('CREATE TABLE human_check_rate_limits (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             ip_hash TEXT NOT NULL,
