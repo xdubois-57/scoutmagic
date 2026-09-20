@@ -31,11 +31,16 @@ use Modules\InboundMail\Api\PruningConsumerInterface;
  * the campaign's. `Api\CandidateMessage::$folder` carries it, which is
  * what the first slice of this iteration opened.
  *
- * **It claims the message, and claiming is what earns the deletion.**
- * `MailboxSyncService` asks about pruning only of a consumer whose answer
- * was kept, which is what makes « a human reply that lands in a seed box
- * stays put » true without a second rule: this consumer recognises a copy
- * by its header and shrugs at everything else.
+ * **It claims nothing, and the deletion rests on the scope instead.** A
+ * claim would create an association, and an association keeps a full copy
+ * of every mailing in the message table — one per seed box, bodies
+ * included — which is the opposite of what a box that empties itself is
+ * for. So `MailboxSyncService` asks about pruning the consumers of THAT
+ * mailbox, and « what may I delete » has the same answer as « what may I
+ * read ». Inside that, this consumer answers yes only about a copy whose
+ * landing it has just RECORDED: a row of this installation's own,
+ * addressed to one of its own boxes. A human reply that lands in a seed
+ * box matches nothing and stays exactly where it is.
  */
 final class SeedConsumer implements MessageConsumerInterface, PruningConsumerInterface
 {
@@ -66,15 +71,16 @@ final class SeedConsumer implements MessageConsumerInterface, PruningConsumerInt
     }
 
     /**
-     * Records the landing, and claims only what it actually recognised.
+     * Records the landing, and remembers only what it actually
+     * recognised.
      *
      * The run reference comes from the header the transport stamped, never
      * from the subject: the subject is the campaign's, unchanged, because
      * it is what is being measured.
      *
      * A copy whose row is gone — purged, or a box removed from the scope
-     * and put back — is not recorded and not claimed, so it stays in the
-     * mailbox rather than being quietly deleted on the strength of a
+     * and put back — is not recorded and not remembered, so it stays in
+     * the mailbox rather than being quietly deleted on the strength of a
      * header anybody could write.
      */
     public function analyze(CandidateMessage $message): AnalysisResult
@@ -120,8 +126,10 @@ final class SeedConsumer implements MessageConsumerInterface, PruningConsumerInt
      * analysis, never before — so what survives is the measurement and
      * what goes is the mail.
      *
-     * Asked only about a message this consumer CLAIMED, so a human reply
-     * that happens to land in a seed box is never touched.
+     * Asked only about a box this consumer was opened to (the scope, in
+     * `MailboxSyncService::pruneIfAsked()`), and answered yes only about
+     * a message whose landing was just recorded — so a human reply that
+     * happens to land in a seed box is never touched.
      */
     public function shouldPruneAfterAnalysis(CandidateMessage $message): bool
     {
