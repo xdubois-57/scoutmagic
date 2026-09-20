@@ -1,0 +1,11 @@
+{
+  "id": "official_documents",
+  "name": "Documents officiels",
+  "description": "Les formulaires officiels de la fédération, pré-remplis avec ce que le site sait déjà : autorisation parentale et fiche santé, à imprimer, signer et remettre à l'animateur.",
+  "version": "0.1.0",
+  "routes": [],
+  "settings": [],
+  "cookies": [],
+  "scheduled_tasks": [],
+  "storage": {}
+}
