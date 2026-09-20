@@ -4696,6 +4696,29 @@ $router->addRoute(
     'admin',
 );
 $router->addRoute('POST', '/admin/members/{id}/temporary-access', TemporaryMemberController::class, 'add', 'admin');
+// « Ajouter à mes contacts » on a member's page: the vCard file and the QR
+// code of the same card (Core\Contact, ARCHITECTURE.md §8.115). Same
+// `admin` floor as the page that offers them — the button exists nowhere
+// else, and neither does the data.
+//
+// No dot in either path on purpose: Router::matchPath() interpolates a
+// route pattern straight into a regex without escaping it, so a literal
+// `.` would match any character. The file's name is carried by
+// Content-Disposition, which is what a browser reads anyway.
+$router->addRoute(
+    'GET',
+    '/admin/members/{id}/contact-vcard',
+    \Core\Contact\Controller\MemberContactController::class,
+    'vcard',
+    'admin',
+);
+$router->addRoute(
+    'GET',
+    '/admin/members/{id}/contact-qr',
+    \Core\Contact\Controller\MemberContactController::class,
+    'qrCode',
+    'admin',
+);
 $router->addRoute(
     'GET',
     '/admin/scout-year',
@@ -10851,6 +10874,31 @@ $frontController->registerController(
         // behind it both ask, so the buttons are never offered where saving
         // would answer 403.
         $sectionStaffAuthorizationService
+    )
+);
+
+// The contact card of one member (ARCHITECTURE.md §8.115) — the « Ajouter
+// à mes contacts » button of the page registered just above, and nothing
+// else on the site: same `admin` floor, same page, same two routes.
+$frontController->registerController(
+    \Core\Contact\Controller\MemberContactController::class,
+    new \Core\Contact\Controller\MemberContactController(
+        $twig,
+        $memberService,
+        new \Core\Contact\ContactCardService(
+            new \Core\Contact\Repository\ContactCardRepository($connection),
+            $settingService,
+            $memberEmailRepository,
+            new \Core\Contact\ContactPhotoResolver(
+                $memberPhotoService,
+                $fileRepository,
+                $imageVariantService,
+                $storagePath
+            )
+        ),
+        new \Core\Contact\VCardBuilder(),
+        new \Core\Contact\ContactQrCodeBuilder(),
+        $journalService
     )
 );
 

@@ -40,6 +40,7 @@ final class UserFacingExceptionInventoryTest extends TestCase
     private const USER_FACING = [
         \Core\Badge\BadgeException::class,
         \Core\Config\SettingException::class,
+        \Core\Contact\ContactCardException::class,
         \Core\Exception\UserFacingException::class,
         \Core\File\UploadException::class,
         \Core\Image\ImageDimensionException::class,

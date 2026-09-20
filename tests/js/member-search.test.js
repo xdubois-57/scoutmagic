@@ -60,7 +60,19 @@ const MEMBER_PAGE = `
         </div>
     </div>`;
 
-const PAGE = EXPORT_FORM + MEMBER_PAGE;
+/** The « Ajouter à mes contacts » dialog of admin/members/show.html.twig. */
+const CONTACT_CARD_DIALOG = `
+    <div class="modal fade" id="contact-card-modal" tabindex="-1">
+        <div class="modal-body">
+            <img id="contact-card-qr" alt="Code QR de la fiche de contact" data-member-year-id="101">
+            <output id="contact-card-qr-error" class="alert alert-warning d-none d-block small">
+                Le code QR n'a pas pu être affiché. Téléchargez le fichier de contact ci-dessous.
+            </output>
+            <p id="contact-card-qr-hint">Scannez le code avec l'appareil photo du téléphone.</p>
+        </div>
+    </div>`;
+
+const PAGE = EXPORT_FORM + MEMBER_PAGE + CONTACT_CARD_DIALOG;
 
 /** The site-wide envelope for a JSON answer the server really sent. */
 function jsonResponse(body, status = 200) {
@@ -388,6 +400,76 @@ describe('member-search.js', () => {
 
             await vi.waitFor(() => expect(window.ScoutMagicToast.show)
                 .toHaveBeenCalledWith('Erreur réseau.', { variant: 'error' }));
+        });
+    });
+
+    describe('contact card QR code', () => {
+        /**
+         * The <img> ships with no src precisely so the server never
+         * renders — and never journals — a contact card for a member page
+         * somebody merely looked at.
+         */
+        it('leaves the image blank until the dialog is opened', async () => {
+            await boot();
+
+            expect(el('contact-card-qr').getAttribute('src')).toBeNull();
+        });
+
+        it('points the image at the member\'s QR route when the dialog opens', async () => {
+            await boot();
+            el('contact-card-modal').dispatchEvent(new Event('show.bs.modal'));
+
+            expect(el('contact-card-qr').getAttribute('src')).toBe('/admin/members/101/contact-qr');
+        });
+
+        /** Reopening the dialog must not re-fetch a card already shown. */
+        it('sets the source once and never again', async () => {
+            await boot();
+            const dialog = el('contact-card-modal');
+            dialog.dispatchEvent(new Event('show.bs.modal'));
+            el('contact-card-qr').dataset.memberYearId = '999';
+            dialog.dispatchEvent(new Event('show.bs.modal'));
+
+            expect(el('contact-card-qr').getAttribute('src')).toBe('/admin/members/101/contact-qr');
+        });
+
+        /**
+         * A card too long for a symbol comes back as a 422 whose body is
+         * a French sentence — which a browser asked for an image never
+         * shows anybody: it draws a broken icon and says nothing. The
+         * sentence on screen is what the reader actually gets, and it is
+         * true for a failed request too.
+         */
+        it('replaces a code that cannot be drawn with a sentence and a way out', async () => {
+            await boot();
+            el('contact-card-modal').dispatchEvent(new Event('show.bs.modal'));
+            el('contact-card-qr').dispatchEvent(new Event('error'));
+
+            expect(el('contact-card-qr').classList.contains('d-none')).toBe(true);
+            expect(el('contact-card-qr-error').classList.contains('d-none')).toBe(false);
+            expect(el('contact-card-qr-hint').classList.contains('d-none')).toBe(true);
+        });
+
+        it('shows nothing of the failure while the code loads normally', async () => {
+            await boot();
+            el('contact-card-modal').dispatchEvent(new Event('show.bs.modal'));
+
+            expect(el('contact-card-qr-error').classList.contains('d-none')).toBe(true);
+            expect(el('contact-card-qr').classList.contains('d-none')).toBe(false);
+        });
+
+        /**
+         * The identifier is a row id parsed as a positive integer, never a
+         * member value — a template that rendered something else builds no
+         * URL at all rather than a wrong one.
+         */
+        it('builds no source at all from an identifier that is not a positive integer', async () => {
+            document.body.innerHTML = PAGE;
+            el('contact-card-qr').dataset.memberYearId = '../../etc/passwd';
+            await boot();
+            el('contact-card-modal').dispatchEvent(new Event('show.bs.modal'));
+
+            expect(el('contact-card-qr').getAttribute('src')).toBeNull();
         });
     });
 
