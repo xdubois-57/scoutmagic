@@ -61,10 +61,10 @@ fournies avec le site qui s'appliquent : un point de départ à relire et à
 adapter, pas un avis juridique. Vous les modifiez en texte riche ici même,
 et « Revenir aux conditions standard » remet le texte d'origine.
 
-Le site conserve le texte **tel qu'il a été montré** à chaque demande.
-Modifier vos conditions ne change donc rien à ce qu'un locataire a déjà
-accepté, et personne ne peut se voir opposer une version qu'il n'avait
-pas vue.
+À chaque demande, le site enregistre la **version** des conditions et une
+**empreinte** du texte exact qui était à l'écran — pas une copie du texte.
+Réécrire vos conditions produit une autre empreinte : ce qu'un locataire a
+accepté ne peut donc pas être remplacé en silence par autre chose.
 
 > Modifier ces réglages ne change **aucune réservation existante** : le
 > prix annoncé est figé au moment de la demande, et le prix convenu au

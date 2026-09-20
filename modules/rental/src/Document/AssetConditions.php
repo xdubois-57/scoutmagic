@@ -64,9 +64,42 @@ final class AssetConditions
      */
     public static function textFor(EditableContentService $store, int $assetId): string
     {
-        $stored = trim((string) ($store->get(self::key($assetId), '') ?? ''));
+        $stored = (string) ($store->get(self::key($assetId), '') ?? '');
 
-        return $stored !== '' ? $stored : StandardTemplates::conditions();
+        return self::isBlank($stored) ? StandardTemplates::conditions() : $stored;
+    }
+
+    /**
+     * Whether $html would render as nothing at all.
+     *
+     * **`trim()` on the raw HTML is not this question**, and the difference
+     * is the whole defect §22.5 exists to close. `<p>&nbsp;</p>` is a
+     * non-empty string, carries a tag, and shows a visitor an empty box
+     * above a mandatory « J'accepte les conditions de location » — which is
+     * the case that used to arise from nobody having written anything, and
+     * would arise again from a manager emptying the editor. A rich-text
+     * surface leaves exactly that behind: `&nbsp;` is what a
+     * `contenteditable` puts in a paragraph somebody blanked, and `trim()`
+     * removes neither the entity nor the U+00A0 it decodes to.
+     *
+     * Same test, and for the same reason, as
+     * `Modules\InboundMail\Service\MessageContentSanitizer::rendersNothing()`
+     * — with one difference. There the images are already gone by the time
+     * the question is asked; here they are not, and `strip_tags()` would
+     * erase a conditions block made of one scanned page, silently replacing
+     * somebody's own terms with the shipped standard. An image is content.
+     */
+    public static function isBlank(string $html): bool
+    {
+        if (preg_match('/<img\b/i', $html) === 1) {
+            return false;
+        }
+
+        $text = html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+        // U+00A0 explicitly: trim() does not remove it, and it is exactly
+        // what `&nbsp;` just became.
+        return preg_replace('/[\s\x{00A0}]+/u', '', $text) === '';
     }
 
     /**

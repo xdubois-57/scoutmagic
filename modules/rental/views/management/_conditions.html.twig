@@ -31,9 +31,9 @@
         </div>
         <p class="text-body-secondary small mb-3">
             Ce texte s'affiche sur la page publique du bien et sur le formulaire de demande, où
-            le locataire doit l'accepter. Le site conserve le texte <strong>tel qu'il a été
-            montré</strong> à chaque demande : le modifier ne change rien à ce qu'un locataire
-            a déjà accepté.
+            le locataire doit l'accepter. À chaque demande, le site enregistre la version et une
+            <strong>empreinte</strong> du texte exact qui était à l'écran : le réécrire produit une
+            autre empreinte, donc ne change rien à ce qu'un locataire a déjà accepté.
         </p>
 
         {% if conditions_are_standard %}
@@ -78,7 +78,7 @@
                     <div class="border rounded-3 p-3 mt-2 bg-body rich-text">{{ standard_conditions|raw }}</div>
                 </details>
                 <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/conditions" class="mt-2"
-                      data-confirm="Revenir aux conditions standard ? Le texte que vous avez écrit sera perdu. Les demandes déjà reçues gardent le texte qu'elles ont accepté.">
+                      data-confirm="Revenir aux conditions standard ? Le texte que vous avez écrit sera perdu. Les demandes déjà reçues gardent l'empreinte du texte qu'elles ont accepté.">
                     {{ csrf_field()|raw }}
                     <input type="hidden" name="conditions" value="{{ standard_conditions }}">
                     <button type="submit" class="btn btn-sm btn-outline-danger">

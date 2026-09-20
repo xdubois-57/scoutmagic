@@ -1161,6 +1161,30 @@ class RentalRbacTest extends TestCase
     }
 
     /**
+     * And `<p>&nbsp;</p>` is the shape that matters: a non-empty string,
+     * carrying a tag, that renders as an empty box — exactly what a
+     * `contenteditable` hands back for a paragraph somebody blanked, and
+     * exactly what a bare `trim()` would have let through.
+     */
+    public function testTheConditionsCannotBeEmptiedWithANonBreakingSpace(): void
+    {
+        $this->createAsset('Local', 'local');
+        $this->loginAsManagerOf('local');
+
+        $this->dispatchSettingsWrite('local', 'conditions', 'saveConditions', [
+            'conditions' => '<p>Le local est rendu balayé.</p>',
+        ]);
+        $this->dispatchSettingsWrite('local', 'conditions', 'saveConditions', [
+            'conditions' => '<p>&nbsp;</p>',
+        ]);
+
+        $this->assertStringContainsString(
+            'Le local est rendu balayé.',
+            (string) $this->dispatchSettings('local')->getBody()
+        );
+    }
+
+    /**
      * The public page RENDERS the conditions and no longer offers to edit
      * them in place: that door was the configuration mode's, which belongs
      * to a superadmin rather than to the people who let the hall (§22.5).

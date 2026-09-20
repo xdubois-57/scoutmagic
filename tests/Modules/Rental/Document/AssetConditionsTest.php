@@ -56,12 +56,63 @@ class AssetConditionsTest extends TestCase
      * Whitespace only is not a text. It is what a manager leaves behind by
      * emptying the editor, and treating it as one would put the tick-box
      * back over nothing.
+     *
+     * **`<p>&nbsp;</p>` is the case that matters** and the one a bare
+     * `trim()` on the raw HTML lets through: it is a non-empty string,
+     * carrying a tag, that renders as an empty box — and it is exactly what
+     * a `contenteditable` hands back for a paragraph somebody blanked.
      */
-    public function testAWhitespaceOnlyTextFallsBackToTheStandard(): void
+    #[\PHPUnit\Framework\Attributes\DataProvider('blankTexts')]
+    public function testATextThatRendersAsNothingFallsBackToTheStandard(string $stored): void
     {
-        $this->store->set(AssetConditions::key(42), '   ', 'rich_text', 1);
+        $this->store->set(AssetConditions::key(42), $stored, 'rich_text', 1);
 
         $this->assertSame(StandardTemplates::conditions(), AssetConditions::textFor($this->store, 42));
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function blankTexts(): array
+    {
+        return [
+            'espaces' => ['   '],
+            'paragraphe vide' => ['<p></p>'],
+            'paragraphe d\'espaces' => ['<p>  </p>'],
+            'espace insécable en entité' => ['<p>&nbsp;</p>'],
+            'espace insécable numérique' => ['<p>&#160;</p>'],
+            'espace insécable littéral' => ["<p>\u{00A0}</p>"],
+            'saut de ligne seul' => ['<p><br></p>'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('blankTexts')]
+    public function testIsBlankRecognisesEveryShapeOfNothing(string $html): void
+    {
+        $this->assertTrue(AssetConditions::isBlank($html));
+    }
+
+    public function testIsBlankLeavesRealTextAlone(): void
+    {
+        $this->assertFalse(AssetConditions::isBlank('<p>Le local est rendu balayé.</p>'));
+        // A single real character is a text, non-breaking space or not.
+        $this->assertFalse(AssetConditions::isBlank("<p>\u{00A0}x\u{00A0}</p>"));
+    }
+
+    /**
+     * An image is content. `strip_tags()` erases it, so asking the text-only
+     * question alone would read a conditions block made of one scanned page
+     * as nothing at all — and serve the shipped standard over somebody's own
+     * terms without a word.
+     */
+    public function testAnImageIsNotNothing(): void
+    {
+        $image = '<p><img src="/files/12" alt="Nos conditions"></p>';
+
+        $this->assertFalse(AssetConditions::isBlank($image));
+
+        $this->store->set(AssetConditions::key(42), $image, 'rich_text', 1);
+        $this->assertStringContainsString('<img', AssetConditions::textFor($this->store, 42));
     }
 
     public function testConditionsArePerAsset(): void

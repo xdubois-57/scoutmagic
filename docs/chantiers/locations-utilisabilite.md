@@ -228,4 +228,44 @@ celle qui loue le local.
   `textarea`. Corrigé ici, puisque c'est ici qu'on l'a vu ; IT-06 finira le
   travail en s'occupant du second éditeur.
 
+**Ce que la relecture a trouvé, et qu'aucun test n'aurait vu.**
+
+- **Le garde « conditions non vides » était contournable, et par la voie la
+  plus ordinaire.** `trim(strip_tags($body))` laisse passer
+  `<p>&nbsp;</p>` : `strip_tags()` ne décode pas les entités, `trim()` ne
+  retire ni `&nbsp;` ni le U+00A0 qu'il devient. Et c'est exactement ce
+  qu'une surface `contenteditable` rend pour un paragraphe qu'on a vidé.
+  Plus bas, `AssetConditions::textFor()` faisait un `trim()` sur le HTML
+  brut, qui contient encore `<p>` : le repli sur le texte standard ne se
+  déclenchait donc jamais. Résultat : une boîte « Conditions de location »
+  visuellement vide au-dessus d'une case obligatoire — le défaut même que
+  l'itération ferme, rouvert par une autre porte. Le dépôt avait déjà le
+  bon motif pour ce piège
+  (`InboundMail\Service\MessageContentSanitizer::rendersNothing()`) :
+  `AssetConditions::isBlank()` le reprend, et les deux appelants passent par
+  lui. Sept formes de « rien » sont pinnées par un fournisseur de données.
+  Une différence assumée avec le précédent : là-bas les images ont déjà
+  disparu quand la question se pose, ici non — `strip_tags()` effacerait des
+  conditions faites d'une page scannée et servirait le texte standard
+  par-dessus, sans un mot. Une image est du contenu.
+- **Le jeu de données de référence perdait deux réservations en silence.**
+  `RentalBlueprint::BOOKINGS` déclarait `'phone' => null` sur deux entrées,
+  et `RentalSeeder` attrape une `RentalException` par entrée pour continuer
+  — parce qu'un refus est quelque chose qu'il modélise. Le téléphone devenu
+  obligatoire, la construction produisait donc cinq réservations sur sept,
+  **dont la seule refusée**, c'est-à-dire le seul état final qui ne soit pas
+  un succès. Rien ne le disait : `ReferenceDatasetBuildTest` n'affirmait que
+  `rental_bookings > 0`. Les deux entrées reçoivent un numéro de la série
+  déjà utilisée, et le test affirme désormais le compte exact et la présence
+  de la refusée — c'est l'exception assumée à la règle « pas un compte » de
+  ce fichier, et le commentaire dit pourquoi.
+- **Trois textes promettaient plus que le code ne tient.** « Le site
+  conserve le texte tel qu'il a été montré » : non.
+  `createFromPublicRequest()` enregistre `conditions_version` et une
+  empreinte SHA-256 de `conditions_text`, jamais une copie du texte. La
+  garantie réelle est qu'une réécriture produit une autre empreinte, donc
+  que ce qui a été accepté ne peut pas être remplacé en silence. Les trois
+  formulations sont reprises, y compris celle de `locations-demande.md`, qui
+  portait déjà l'imprécision avant cette itération.
+
 **Reporté.** Rien.

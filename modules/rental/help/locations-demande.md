@@ -42,9 +42,10 @@ Si l'une de ces règles ne passe pas, la page vous le dit et vous rend ce
 que vous aviez tapé.
 
 Deux cases sont à cocher : les conditions de location, et l'information
-sur l'usage de vos données. Le site enregistre le texte **tel qu'il vous
-a été montré**, avec la date — de sorte que personne ne puisse plus tard
-vous opposer une version que vous n'aviez pas vue.
+sur l'usage de vos données. Le site enregistre la version de chaque texte
+et une **empreinte** de ce qui était à l'écran, avec la date. Réécrire ces
+textes plus tard produit une autre empreinte : ce que vous avez accepté ne
+peut donc pas être remplacé en silence par autre chose.
 
 Les conditions sont toujours affichées au-dessus de la case, juste avant
 l'envoi. Une unité qui n'a pas écrit les siennes en présente un jeu

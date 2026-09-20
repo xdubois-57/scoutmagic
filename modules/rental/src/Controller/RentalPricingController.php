@@ -295,7 +295,11 @@ class RentalPricingController extends AbstractController
         return $this->guarded($request, $params, 'conditions', function (RentalAsset $asset) use ($request): string {
             $body = (string) $request->getBody('conditions', '');
 
-            if (trim(strip_tags($body)) === '') {
+            // `AssetConditions::isBlank()` rather than `trim()`: a
+            // rich-text surface hands back `<p>&nbsp;</p>` for a paragraph
+            // somebody emptied, which is a non-empty string carrying a tag
+            // and rendering as nothing at all.
+            if (AssetConditions::isBlank($body)) {
                 throw new RentalException(
                     'Les conditions de location ne peuvent pas être vides : '
                     . 'un locataire doit les accepter avant d\'envoyer sa demande.'
