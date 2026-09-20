@@ -11,12 +11,14 @@ namespace Modules\Attestations\Value;
 /**
  * Where one certificate stands in its journey to the family.
  *
- * **`NoAddress` and `Failed` are two states rather than one**, and that is
- * the reason this enum is not a boolean. They need two different things
- * from a chef d'unité: a family the site has no address for has to be
- * reached another way, while a family whose mail server refused the message
- * has an address that simply did not work this time. « Non envoyé » would
- * say neither, and a chef d'unité reading it would chase the wrong half.
+ * **`NoAddress`, `Failed` and `Suppressed` are three states rather than
+ * one**, and that is the reason this enum is not a boolean. They need three
+ * different things from a chef d'unité: a family the site has no address
+ * for has to be reached another way, a family whose mail server refused the
+ * message has an address that simply did not work this time, and a family
+ * whose address the site itself has suspended needs that suspension lifted
+ * before anything will ever leave again. « Non envoyé » would say none of
+ * the three, and a chef d'unité reading it would chase the wrong two.
  */
 enum DeliveryState: string
 {
@@ -32,6 +34,19 @@ enum DeliveryState: string
     /** The transport refused it. Never retried — see the handler for why. */
     case Failed = 'failed';
 
+    /**
+     * The site declined to write: the address is suspended after repeated
+     * bounces (roadmap IT-05).
+     *
+     * **Apart from `Failed`, because retrying is futile rather than
+     * unlucky.** A refused message may well leave next week; a suspended
+     * address will suppress every attempt until somebody lifts the
+     * suspension on the « Rebonds » page. Telling a chef d'unité « Envoi
+     * refusé » would point them at the family's mail server, which is
+     * working fine.
+     */
+    case Suppressed = 'suppressed';
+
     public function label(): string
     {
         return match ($this) {
@@ -39,6 +54,7 @@ enum DeliveryState: string
             self::Sent => 'Envoyée',
             self::NoAddress => 'Aucune adresse connue',
             self::Failed => 'Envoi refusé',
+            self::Suppressed => 'Adresse suspendue',
         };
     }
 
@@ -50,6 +66,10 @@ enum DeliveryState: string
             self::Sent => 'done',
             self::NoAddress => 'neutral',
             self::Failed => 'failed',
+            // Neutral rather than failed, like `NoAddress`: nothing broke,
+            // and the row is waiting on a decision rather than reporting an
+            // incident.
+            self::Suppressed => 'neutral',
         };
     }
 

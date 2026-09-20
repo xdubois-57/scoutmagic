@@ -1676,6 +1676,53 @@ emprunte le mot d'une adresse inconnue (« Adresse introuvable. ») : nommer
 la vraie raison confirmerait à qui demande que l'adresse est connue ici et
 suspendue.
 
+### Le silence qui se faisait passer pour un envoi
+
+Trouvé par la relecture Claude, sur le dernier tour, et c'est le défaut le
+plus coûteux de l'itération : **la suppression revenait d'une méthode
+`void`.**
+
+`MailService::send()` répondait à une adresse suspendue en retournant
+normalement. Or c'est exactement ce que fait un envoi réussi — un `void`
+qui revient sans lever veut dire « parti » chez tous les appelants. Trois
+d'entre eux le lisaient ainsi :
+
+- `BatchDistributionService` (attestations) inscrivait `DeliveryState::Sent`,
+  un état *réglé* qu'il ne réessaie jamais. Une famille sur une adresse
+  suspendue gardait donc une attestation marquée « Envoyée » pour
+  toujours — et le journal de suppression ne porte aucune adresse
+  (SECURITY.md §11), donc rien n'aurait permis de la retrouver après coup.
+- La fiche membre affichait « Document renvoyé par e-mail » et journalisait
+  `member_document_resent`, pour un message que le site avait délibérément
+  retenu.
+- `NotificationMailer` renvoyait `true`, donc le canal e-mail d'une
+  notification était consigné comme porté.
+
+Le correctif est un signal, pas une vérification recopiée chez chaque
+appelant : `Core\Mail\SuppressedRecipientException`, sous-classe de
+`MailException`. Un appelant qui ne connaît que les échecs d'envoi fait
+déjà ce qu'il faut — `NotificationMailer` attrape `MailException` et répond
+`false`, ce qui est vrai. Un appelant qui a mieux à dire attrape la
+sous-classe : les attestations inscrivent un `DeliveryState::Suppressed`
+neuf, et la fiche membre affiche la phrase de l'exception.
+
+**`Suppressed` à côté de `Failed`, et pas dedans.** « Envoi refusé » enverrait
+un chef d'unité chez le fournisseur de la famille, qui fonctionne très
+bien ; ce qu'il faut, c'est lever la suspension. C'est la même raison qui
+avait déjà séparé `NoAddress` de `Failed`.
+
+**La phrase nomme les deux sorties**, parce que son lecteur n'a peut-être
+ni l'une ni l'autre : le seul écran qui l'affiche — le renvoi d'un document
+depuis la fiche membre — a un plancher `admin`, alors que « Rebonds » est
+`superadmin`. Renvoyer un admin vers une page qu'il ne peut pas ouvrir
+aurait été pire que se taire, donc la page d'adresses du membre est citée
+à côté.
+
+Les deux tests de non-régression ont été vérifiés en cassant le correctif :
+sans lui, l'attestation repasse à `Sent` et le bandeau repasse à
+`success`. `schema.sql` du module gagne la cinquième valeur et
+`module.json` passe en 1.5.0, dans le même changement.
+
 ### Écarts et limites, assumés
 
 **La preuve d'envoi réduit la falsification, elle ne la supprime pas.** La

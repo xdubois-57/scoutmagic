@@ -162,7 +162,11 @@ class MailService
      * @param MailPurpose $purpose What this message is, for DELIVERY purposes only, and nothing else: the
      *                             transport is the only thing that reads it, and the default transport ignores
      *                             it. Left at `Ordinary` by all but one call site — see MailPurpose.
-     * @throws MailException on failure
+     * @throws SuppressedRecipientException when the recipient is a
+     *                                      suspended address this send
+     *                                      vouches for — nothing left,
+     *                                      and deliberately so
+     * @throws MailException                on failure
      */
     public function send(
         string $to,
@@ -210,10 +214,17 @@ class MailService
         // is the one thing a person is waiting for at that moment, and
         // withholding it over a bounce two months old would lock them out
         // of the site instead of protecting its reputation (D9).
+        //
+        // **It throws rather than returning**, because a void method that
+        // returns normally says « parti » in every language a caller
+        // speaks. Returning here had the attestations batch recording
+        // `DeliveryState::Sent` — never retried — and the member page
+        // flashing « Document renvoyé par e-mail » for a message nobody
+        // received. {@see SuppressedRecipientException} for the rest.
         if ($vouchesForRecipient && $this->sendReceipts?->find($to)?->isBlocked() === true) {
             $this->journalSuppressedToBlockedAddress();
 
-            return;
+            throw SuppressedRecipientException::blocked();
         }
 
         $mail = new PHPMailer(true);

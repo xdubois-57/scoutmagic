@@ -143,11 +143,12 @@ CREATE TABLE IF NOT EXISTS attestation_batch_lines (
     -- batch is accountable for.
     member_document_id INT UNSIGNED NULL,
 
-    -- 'pending' | 'sent' | 'no_address' | 'failed' (Value\DeliveryState).
-    -- Telling the last two apart is the point: a family with no address on
-    -- record and a family whose mail server refused the message need two
-    -- different things from a chef d'unité, and « non envoyé » would say
-    -- neither.
+    -- 'pending' | 'sent' | 'no_address' | 'failed' | 'suppressed'
+    -- (Value\DeliveryState). Telling the last three apart is the point: a
+    -- family with no address on record, a family whose mail server refused
+    -- the message, and a family whose address the site itself suspended
+    -- after repeated bounces need three different things from a chef
+    -- d'unité, and « non envoyé » would say none of them.
     delivery_state VARCHAR(20) NOT NULL DEFAULT 'pending',
     sent_at DATETIME NULL,
 

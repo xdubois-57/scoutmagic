@@ -444,10 +444,53 @@ class MailTransportSeamTest extends TestCase
         $this->blockedAddress($pdo, 'rebond@exemple.be');
 
         $transport = $this->recordingTransport();
-        $this->serviceWithReceipts($transport, $this->receiptsOver($pdo))
-            ->send('rebond@exemple.be', 'Sujet', '<p>x</p>', 'x', vouchesForRecipient: true);
+        $service = $this->serviceWithReceipts($transport, $this->receiptsOver($pdo));
+
+        try {
+            $service->send('rebond@exemple.be', 'Sujet', '<p>x</p>', 'x', vouchesForRecipient: true);
+        } catch (\Core\Mail\SuppressedRecipientException) {
+            // The signal the next test is about; here only the silence on
+            // the wire is being measured.
+        }
 
         $this->assertSame(0, $transport->calls, 'a suspended address must stop receiving.');
+    }
+
+    /**
+     * **And the caller has to be able to tell that nothing left.**
+     *
+     * Suppression used to `return` from a `void` method, which every
+     * caller reads as « parti » — `BatchDistributionService` recorded
+     * `DeliveryState::Sent`, a state it never retries, and the member
+     * sheet flashed « Document renvoyé par e-mail ». The family was left
+     * holding neither the document nor any trace that it was missing.
+     *
+     * A `MailException` subclass, so a caller that only knows about send
+     * failures already does the right thing, and a caller with something
+     * better to say can catch the subclass.
+     */
+    public function testASuppressedSendIsDistinguishableFromASuccessfulOne(): void
+    {
+        $pdo = \Tests\DatabaseTestHelper::createTestDatabase();
+        $this->blockedAddress($pdo, 'rebond@exemple.be');
+
+        $service = $this->serviceWithReceipts($this->recordingTransport(), $this->receiptsOver($pdo));
+
+        try {
+            $service->send('rebond@exemple.be', 'Sujet', '<p>x</p>', 'x', vouchesForRecipient: true);
+            $this->fail('a suppressed send must not return normally.');
+        } catch (\Core\Mail\SuppressedRecipientException $e) {
+            $this->assertInstanceOf(
+                \Core\Mail\MailException::class,
+                $e,
+                'a caller catching MailException must already treat this as a non-delivery.'
+            );
+            $this->assertStringNotContainsString(
+                'rebond@exemple.be',
+                $e->getMessage(),
+                'this message reaches a screen, so it carries no address (SECURITY.md §11).'
+            );
+        }
     }
 
     /**

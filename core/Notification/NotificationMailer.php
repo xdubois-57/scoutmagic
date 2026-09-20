@@ -113,6 +113,12 @@ class NotificationMailer
                 vouchesForRecipient: true
             );
         } catch (MailException) {
+            // `SuppressedRecipientException` is a `MailException`, so a
+            // suspended address lands here and answers false — which is
+            // the true answer: nobody was written to. There is nothing to
+            // tell apart at this level, because the caller's only question
+            // is whether the e-mail channel carried this notification, and
+            // it did not.
             return false;
         }
 

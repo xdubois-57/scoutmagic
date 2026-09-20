@@ -20,6 +20,7 @@ use Core\Member\Export\MemberExportRowBuilder;
 use Core\Member\Export\MemberExportService;
 use Core\Member\AdminMemberPageService;
 use Core\Member\MemberNoteException;
+use Core\Mail\SuppressedRecipientException;
 use Core\Member\MemberDocumentMailer;
 use Core\Member\MemberDocumentService;
 use Core\Member\MemberNoteService;
@@ -374,6 +375,15 @@ class MemberSearchController extends AbstractController
                 $address,
                 (string) $this->settingService->get('site_name', null, 'Votre unité')
             );
+        } catch (SuppressedRecipientException $e) {
+            // Caught before the general case because the general message is
+            // wrong twice over here: nothing failed, and « réessayez » is
+            // advice that cannot work — every attempt will be suppressed
+            // until the suspension is lifted. The exception writes its own
+            // sentence, which is why it is user-facing.
+            FlashMessage::set('error', $e->getMessage());
+
+            return $this->redirect($path);
         } catch (\Throwable $e) {
             FlashMessage::set(
                 'error',
