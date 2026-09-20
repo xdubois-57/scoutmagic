@@ -368,4 +368,71 @@ class BounceServiceTest extends TestCase
         $this->assertTrue($this->bounces->isBlocked('un@exemple.be'));
         $this->assertFalse($this->bounces->isBlocked('deux@exemple.be'));
     }
+
+    /**
+     * **Lifting is for an address that IS blocked.** The « Réessayer »
+     * button only shows for one, but the button is not the guard: a
+     * direct POST — a stale tab, a double-submit, or somebody trying —
+     * would otherwise reach an address sitting at one failure and put the
+     * counter back to zero. Repeated after each bounce, that address
+     * never reaches the second strike, never blocks, and never appears on
+     * the super-admin's list: the unit goes on writing to a dead mailbox
+     * with nothing on any screen to say so.
+     */
+    public function testAnAddressThatIsNotBlockedCannotHaveItsCountWipedByAnUnblock(): void
+    {
+        $state = $this->bounce('5.1.1');
+        $this->assertNotNull($state);
+        $this->assertSame(1, $state->failures);
+
+        $this->assertFalse(
+            $this->bounces->unblock($state->id, true),
+            'there was no block to lift, and saying otherwise is a success message about nothing.'
+        );
+
+        $after = $this->states->findById($state->id);
+        $this->assertSame(1, $after?->failures, 'the strike already earned must survive.');
+    }
+
+    /**
+     * **A blocked address has nothing more to say.** `$blocking` is the
+     * moment the block is placed, so it is false for every bounce after
+     * it — and a later failure carrying a DIFFERENT code would otherwise
+     * pass the « déjà dit » test and send the non-blocking message
+     * (« un message n'a pas pu être remis … réactivez l'adresse
+     * ci-dessous ») to somebody whose address is in fact suspended
+     * site-wide.
+     */
+    public function testAFurtherBounceOnABlockedAddressSaysNothingMore(): void
+    {
+        $this->bounce('5.1.1');
+        $this->bounce('5.1.1');
+        $this->assertTrue($this->bounces->isBlocked('parent@exemple.be'));
+
+        $told = count($this->told);
+
+        // A routine transactional message goes out later — nothing stops
+        // one reaching a blocked address — and the mailbox answers with a
+        // different code.
+        $this->bounce('5.2.2');
+
+        $this->assertCount($told, $this->told, 'the member was already told the address is suspended.');
+    }
+
+    /**
+     * And once the block is lifted, the next failure is news again: the
+     * lifting clears `notified_code` precisely so it can be.
+     */
+    public function testAfterTheBlockIsLiftedTheNextFailureIsNewsAgain(): void
+    {
+        $this->bounce('5.1.1');
+        $state = $this->bounce('5.1.1');
+        $this->assertNotNull($state);
+        $this->assertTrue($this->bounces->unblock($state->id, true));
+
+        $told = count($this->told);
+        $this->bounce('5.1.1');
+
+        $this->assertCount($told + 1, $this->told);
+    }
 }

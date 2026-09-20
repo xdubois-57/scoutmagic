@@ -137,6 +137,21 @@ class BounceService
             return false;
         }
 
+        // **And it has to be blocked**, which is not the same as having a
+        // row. The button only shows for a blocked address, but the
+        // button is not the guard: a direct POST — a stale tab, a
+        // double-submit, or somebody trying — would otherwise reach an
+        // address sitting at one failure and put the counter back to
+        // zero. Repeated after each bounce, that address never reaches
+        // the second strike, never blocks, and never appears on the
+        // super-admin's list: the unit goes on writing to a dead mailbox
+        // with nothing on any screen to say so. It would also clear
+        // `notified_code` on an address still failing, undoing « une fois
+        // par erreur » along the way.
+        if (!$state->isBlocked()) {
+            return false;
+        }
+
         $this->states->unblock($stateId);
 
         try {
@@ -170,6 +185,23 @@ class BounceService
      */
     private function notify(BounceState $state, bool $blocking): void
     {
+        // **A blocked address has nothing more to say.** `$blocking` is
+        // the moment the block is placed, so it is false for every bounce
+        // after it — and a later failure carrying a DIFFERENT code would
+        // otherwise pass the « déjà dit » test below and send the
+        // non-blocking message: « un message n'a pas pu être remis …
+        // réactivez l'adresse ci-dessous », to somebody whose address is
+        // in fact suspended site-wide. It would also overwrite
+        // `notified_code`, making the original error news again.
+        //
+        // The member has already been told the address is suspended, and
+        // that is the standing state until they or the super-admin lift
+        // it — at which point `unblock()` clears `notified_code` and the
+        // next failure is news again, correctly.
+        if ($state->isBlocked() && !$blocking) {
+            return;
+        }
+
         if (!$blocking && !$state->isNewError($state->statusCode)) {
             return;
         }

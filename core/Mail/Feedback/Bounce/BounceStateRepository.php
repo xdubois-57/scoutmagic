@@ -200,9 +200,13 @@ class BounceStateRepository
     public function unblock(int $id): void
     {
         $statement = $this->pdo->prepare(
+            // `AND blocked_at IS NOT NULL`, exactly as `block()` guards
+            // itself with the mirror condition: lifting is for an address
+            // that IS blocked, and a row merely sitting at one failure
+            // must not have its counter wiped by a stray POST.
             'UPDATE mail_bounce_states
                 SET blocked_at = NULL, failures = 0, notified_code = NULL, settling_since = NULL
-              WHERE id = ?'
+              WHERE id = ? AND blocked_at IS NOT NULL'
         );
         $statement->execute([$id]);
     }

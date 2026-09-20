@@ -1624,6 +1624,26 @@ venir. La seule qui échappe à la déduction est l'adresse d'une liste de
 diffusion, qui vit dans la table d'un module et qu'un membre du staff a
 saisie : ce module s'en porte garant lui-même, à son propre envoi.
 
+**Lever un blocage qui n'existe pas remettait le compteur à zéro.**
+`unblock()` écrivait sur `WHERE id = ?` sans exiger que l'adresse soit
+bloquée, là où `block()` se garde déjà par la condition miroir. Le bouton
+« Réessayer » ne s'affiche que pour une adresse bloquée, mais le bouton
+n'est pas la garde : un POST direct — onglet périmé, double soumission, ou
+quelqu'un qui essaie — atteignait une adresse à un seul échec et effaçait
+son compteur. Répété après chaque rebond, le second échec n'arrivait
+jamais : l'unité continuait d'écrire à une boîte morte, sans rien sur aucun
+écran pour le dire.
+
+**Et un rebond de plus sur une adresse déjà bloquée envoyait le message
+doux.** `$blocking` est l'instant où le blocage est posé, donc faux pour
+tous les rebonds suivants ; un échec portant un code *différent* passait
+alors le test « déjà dit » et envoyait « un message n'a pas pu être remis
+… réactivez l'adresse ci-dessous » à quelqu'un dont l'adresse était en
+réalité suspendue pour tout le site — en écrasant au passage
+`notified_code`, ce qui rendait l'erreur d'origine à nouveau « neuve ». Une
+adresse bloquée n'a plus rien à dire : le membre a déjà été prévenu, et
+c'est l'état courant jusqu'à ce que lui ou le super-admin le lève.
+
 **Et la branche « adresse suspendue » du publipostage n'avait aucun test.**
 C'est le seul trou que le filtre côté membre ne peut pas couvrir, puisque
 `resolveValidAddressesForMassMail()` ne voit jamais une adresse de liste.
