@@ -532,5 +532,11 @@ bien dire le jour même.
   fenêtre. C'est un arbitrage visible par l'utilisateur, pas une ligne de
   schéma, et il n'a pas sa place en passant dans l'itération des rappels.
   L'issue a été corrigée en ce sens.
-- **#401** : après le découpage d'IT-05, `gerer-les-locations` est à 381
-  mots, sous les ~400 de la charte. L'issue peut être close.
+- **#401** reste ouverte, et délibérément. Après le découpage d'IT-05 le
+  sujet `gerer-les-locations` est à **399 mots** de corps — sous les ~400 de
+  la charte, mais d'un seul mot, et il couvre encore six chemins. La
+  première phrase qu'on y ajoutera le repassera au-dessus. Compté comme
+  `HelpInvariantsTest` compte, c'est-à-dire le corps sans l'en-tête YAML ;
+  un `wc -w` sur le fichier entier en annonce 460 et ne dit rien de la
+  charte. Fermer l'issue sur cette marge-là, c'est la rouvrir à la
+  prochaine itération qui touche un de ces six écrans.
