@@ -76,6 +76,12 @@ final class CoreTaskHandlers
             // the ones it already has to clear.
             \Core\Mail\Feedback\Dmarc\Task\PurgeDmarcReportsHandler::TASK_KEY =>
                 \Core\Mail\Feedback\Dmarc\Task\PurgeDmarcReportsHandler::class,
+            // The seed copies (roadmap IT-07). Core like the two above and
+            // for the same reason: the tables are core, and a site that
+            // turns `inbound_mail` off stops MEASURING while still having
+            // the results it already has to sweep and clear.
+            \Core\Mail\Feedback\Seed\Task\PurgeSeedCopiesHandler::TASK_KEY =>
+                \Core\Mail\Feedback\Seed\Task\PurgeSeedCopiesHandler::class,
         ];
     }
 

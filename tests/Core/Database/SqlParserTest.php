@@ -205,6 +205,8 @@ class SqlParserTest extends TestCase
         // And the two the reserve, the queue and the circuit breaker need.
         $this->assertContains('mail_provider_health', $tableNames);
         $this->assertContains('mail_deferred_messages', $tableNames);
+        // The seed copies (roadmap IT-07) — named for the reason below.
+        $this->assertContains('mail_seed_copies', $tableNames);
         // The DMARC reports and their source lines (roadmap IT-06). Named
         // rather than merely counted: a count alone goes green for the
         // wrong two tables as readily as the right ones.

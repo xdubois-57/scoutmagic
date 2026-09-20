@@ -93,7 +93,33 @@ class CandidateMessage
          * verified the signature; the consumer still checks the object
          * exists. Null on every ordinary message.
          */
-        public readonly ?AddressedReference $addressedTo = null
+        public readonly ?AddressedReference $addressedTo = null,
+        /**
+         * **Where in the mailbox this landed** — « INBOX », « Junk »,
+         * whatever the provider calls it (roadmap IT-07).
+         *
+         * The folder was already read from the server, already carried by
+         * `Client\FetchedMessage` and already written to the message row;
+         * it simply stopped at this boundary, so a consumer could not see
+         * it. Adding it here is therefore a datum the relay already had,
+         * not a new thing to go and fetch — which is what the roadmap
+         * predicted when it said to check « si l'information n'est pas
+         * conservée aujourd'hui, c'est une donnée à ajouter au message
+         * relevé, pas une architecture à changer ».
+         *
+         * **For a seed mailbox this is the measurement itself.** The whole
+         * question a seed box answers — did this provider file the unit's
+         * mail under « reçus » or under « indésirables » — is the name of
+         * the folder the copy arrived in, and nothing else on this object
+         * carries it.
+         *
+         * Last and defaulted, like the two above, so no existing caller
+         * has to say anything about it. Null means « the relay did not
+         * say », never « INBOX »: guessing would turn an unknown into a
+         * clean bill of health, which is the one answer a deliverability
+         * measurement must never invent.
+         */
+        public readonly ?string $folder = null
     ) {
     }
 

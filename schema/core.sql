@@ -2003,6 +2003,79 @@ CREATE TABLE IF NOT EXISTS mail_dmarc_sources (
         REFERENCES mail_dmarc_reports(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- mail_seed_copies: one row per (mailing run × seed mailbox), and that
+-- pair is the whole design (roadmap IT-07).
+--
+-- A SEED MAILBOX is an ordinary inbound mailbox of the unit's (D10). There
+-- is no new kind of box and no new configuration concept: the operator
+-- declares the box under « Courrier entrant » as they would any other, and
+-- grants the seed consumer a scope on it. « Which boxes are seed boxes »
+-- is then answered by the scope mechanism that already answers « who reads
+-- what », and the addresses come back from
+-- Modules\InboundMail\Api\InboundMailInterface::probeAddressesFor() —
+-- the method the manual probe already uses for the same question.
+--
+-- **The copy carries the campaign's real subject and real body**, and that
+-- is the measurement. A seed copy whose subject were decorated with a
+-- tracking code — the way the manual probe's `SM-XXXXXX` decorates its own
+-- — would be measuring the code's effect on filtering rather than the
+-- campaign's. The correlation therefore rides in a header, never in
+-- anything a filter weighs.
+--
+-- `run_reference` is what the SENDER calls its run. The transport cannot
+-- see a campaign: it is handed one message per recipient, so without this
+-- a mailing of five hundred would emit five hundred sets of seed copies.
+-- The sender passes the reference it already has; it knows nothing about
+-- seed boxes, and any future bulk sender gets the same behaviour by
+-- passing its own.
+--
+-- The address is encrypted like every other address on this site, even
+-- though a seed box is organisational rather than a person's
+-- (design.md §2.6): the screens show the PROVIDER — « gmail.com » — which
+-- is the column the results are read by, and the address itself never
+-- reaches a screen, a log or the support archive (SECURITY.md §11).
+CREATE TABLE IF NOT EXISTS mail_seed_copies (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    -- What the sender called this run. Opaque here on purpose: the
+    -- transport neither parses it nor assumes a shape, so a future sender
+    -- of another kind needs no column of its own.
+    run_reference VARCHAR(64) NOT NULL,
+    seed_address_encrypted BLOB NOT NULL,
+    -- Its own purpose, NOT the shared 'email' one: these indexes are never
+    -- compared against member_emails or user_accounts, and a seed box is
+    -- not a member. Domain separation costs nothing here and keeps the one
+    -- shared purpose meaning exactly what EncryptionService says it means.
+    seed_address_blind_index CHAR(64) NOT NULL,
+    -- The mailbox provider, in clear: 'gmail.com', 'outlook.com'. This is
+    -- the column the results table is read by, and it names a company
+    -- rather than a person.
+    provider VARCHAR(255) NOT NULL,
+    sent_at DATETIME NOT NULL,
+    -- 'pending' until the copy is found, then 'inbox', 'spam' or
+    -- 'elsewhere'; 'missing' is set by the sweep, never by an arrival.
+    -- 'missing' is a third state rather than a failure: a copy nobody has
+    -- seen YET and a copy that never came are different answers, and only
+    -- time tells them apart.
+    -- 'elsewhere' is a copy that DID arrive, in a folder the site cannot
+    -- name — 'Quarantaine', 'Bulk', something the unit created. It exists
+    -- because leaving those at 'pending' had the sweep declare an arrival
+    -- « jamais arrivé » two days later, beside the very folder it was
+    -- found in.
+    verdict VARCHAR(12) NOT NULL DEFAULT 'pending',
+    -- The folder the copy actually landed in, as the provider names it.
+    -- Kept beside the verdict rather than instead of it: 'Junk',
+    -- 'Indésirables' and 'Spam' are one verdict and three names, and the
+    -- name is what an operator recognises when they go and look.
+    landed_folder VARCHAR(255) NULL,
+    recorded_at DATETIME NULL,
+    -- One copy per box per run, and it is the guarantee rather than an
+    -- economy: it is what stops a re-read, a retry or a second batch of the
+    -- same mailing from emitting a second copy to the same box.
+    UNIQUE KEY uq_msc_run_box (run_reference, seed_address_blind_index),
+    INDEX idx_msc_sent (sent_at),
+    INDEX idx_msc_verdict (verdict)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- storage_locations: one row per declared destination for bytes — a
 -- directory on this server, an S3-compatible bucket, and the kinds the
 -- following iterations add. In the core and not in a module, for the same

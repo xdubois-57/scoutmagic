@@ -75,7 +75,14 @@ final class MailTransportChain implements MailTransportInterface
         private MailTransportInterface $delivery,
         private ?JournalService $journal = null,
         private ?ProviderHealthRepository $health = null,
-        private ?MailReserve $reserve = null
+        private ?MailReserve $reserve = null,
+        /**
+         * Which relay a recipient domain prefers, on the mailing lane
+         * (roadmap IT-07, D13). Null everywhere the preference has no
+         * meaning — the tests of the chain itself above all, which are
+         * about order and failure, not about who is receiving.
+         */
+        private ?DomainPreferences $preferences = null
     ) {
     }
 
@@ -98,6 +105,8 @@ final class MailTransportChain implements MailTransportInterface
 
             throw new LaneExhaustedException($lane, 'aucun fournisseur disponible');
         }
+
+        $candidates = $this->preferred($candidates, $lane, $mail);
 
         $lastReason = '';
         foreach ($candidates as $provider) {
@@ -136,6 +145,48 @@ final class MailTransportChain implements MailTransportInterface
         $this->journalLaneExhausted($lane, $lastReason);
 
         throw new LaneExhaustedException($lane, $lastReason);
+    }
+
+    /**
+     * The same candidates, with this recipient's preferred relay first
+     * (roadmap IT-07, D13).
+     *
+     * **A preference is never allowed to cost a message.** It reorders a
+     * list the lane has already vetted, so the worst a wrong or stale
+     * preference can do is try a working relay in a different order; and
+     * anything that goes wrong reading it — an unreadable setting, a
+     * database that just went away — leaves the order untouched rather
+     * than stopping a mailing that has nothing to do with it.
+     *
+     * The recipient is read from the message rather than passed in
+     * because `MailTransportInterface` is the boundary every transport
+     * implements, and widening it for one lane's preference would oblige
+     * every implementation to carry a parameter only this one reads.
+     *
+     * @param array<int, MailProvider> $candidates
+     * @return array<int, MailProvider>
+     */
+    private function preferred(array $candidates, MailLane $lane, PHPMailer $mail): array
+    {
+        if ($this->preferences === null || $lane !== MailLane::Bulk) {
+            return $candidates;
+        }
+
+        try {
+            $recipients = $mail->getToAddresses();
+            // One recipient, or no preference: a mailing is sent one
+            // message per member, so a message with several `To:` is not
+            // one this reading has an opinion about — and picking the
+            // first of them would route the rest by somebody else's
+            // domain.
+            if (count($recipients) !== 1) {
+                return $candidates;
+            }
+
+            return $this->preferences->reorder($candidates, $lane, (string) ($recipients[0][0] ?? ''));
+        } catch (\Throwable) {
+            return $candidates;
+        }
     }
 
     /**

@@ -195,6 +195,7 @@ final class SupportPackageFactory
 
         $chains = new \Core\Mail\Transport\LaneChainRepository($pdo);
         $deferred = new \Core\Mail\Transport\DeferredMailRepository($pdo, $context->encryption);
+        $domainPreferences = new \Core\Mail\Transport\DomainPreferences($context->settings);
 
         return new OutboundMailCollector(
             new \Core\Mail\Transport\MailProviderDirectory(
@@ -234,7 +235,35 @@ final class SupportPackageFactory
             // bounce state beside it: the tables are core and always
             // readable, and « aucun rapport reçu » is a true answer worth
             // having in an archive rather than a section that vanishes.
-            new \Core\Mail\Feedback\Dmarc\DmarcReportRepository($pdo)
+            new \Core\Mail\Feedback\Dmarc\DmarcReportRepository($pdo),
+            // The seed boxes (roadmap IT-07), unconditional for the same
+            // reason. Built with its lane chain and directory so the
+            // archive can say WHERE a provider's mailings go, not only
+            // how they fared: figures read without the routing in force
+            // are the figures of a configuration that has changed.
+            new \Core\Mail\Feedback\Seed\DomainRouting(
+                new \Core\Mail\Feedback\Seed\SeedCopyRepository($pdo, $context->encryption),
+                $context->settings,
+                $domainPreferences,
+                $chains,
+                new \Core\Mail\Transport\MailProviderDirectory(
+                    new \Core\Mail\Transport\MailProviderRepository($pdo),
+                    new \Core\Mail\Transport\ProviderConnections($secrets),
+                    $context->settings
+                )
+            ),
+            $domainPreferences,
+            // And whether those figures could see what they measure: a
+            // box read only in its INBOX turns every copy its provider
+            // shelved as spam into a « jamais arrivé », which a third
+            // party would read as a sender being refused. Built on the
+            // module when there is one — null is then « no boxes », the
+            // same answer the screen gets.
+            new \Core\Mail\Feedback\Seed\SeedMailboxes(
+                new \Core\Mail\Feedback\Seed\SeedCopyRepository($pdo, $context->encryption),
+                $context->settings,
+                $context->getOptional(\Modules\InboundMail\Api\InboundMailInterface::class)
+            )
         );
     }
 

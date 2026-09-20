@@ -17,6 +17,7 @@ use Modules\InboundMail\Api\InboundAttachment;
 use Modules\InboundMail\Api\InboundMessage;
 use Modules\InboundMail\Api\LinkOrigin;
 use Modules\InboundMail\Api\MessageLink;
+use Modules\InboundMail\Mailbox\Mailbox;
 use Modules\InboundMail\Repository\InboundMailboxRepository;
 use Modules\InboundMail\Repository\InboundMessageRepository;
 
@@ -631,6 +632,35 @@ class InboundMailService implements InboundMailInterface
     public function probeAddressesFor(string $consumerId): array
     {
         $addresses = [];
+        foreach ($this->probeBoxesFor($consumerId) as $mailbox) {
+            $addresses[] = $mailbox->username;
+        }
+
+        return array_values(array_unique($addresses));
+    }
+
+    public function watchedFoldersFor(string $consumerId): array
+    {
+        $folders = [];
+        foreach ($this->probeBoxesFor($consumerId) as $mailbox) {
+            $folders[] = array_values($mailbox->watchedFolders());
+        }
+
+        return $folders;
+    }
+
+    /**
+     * The boxes a diagnostic of this consumer's may address, in one
+     * place: what `probeAddressesFor()` names and
+     * `watchedFoldersFor()` describes are by construction the same boxes
+     * in the same order, rather than two loops that agree until one is
+     * edited.
+     *
+     * @return list<Mailbox>
+     */
+    private function probeBoxesFor(string $consumerId): array
+    {
+        $boxes = [];
         foreach ($this->mailboxRepository->findEnabled() as $mailbox) {
             // A box's IMAP username is its address on every provider this
             // module supports, but it is not *required* to be one — some
@@ -647,13 +677,13 @@ class InboundMailService implements InboundMailInterface
             // a « jamais reçu » that means nothing.
             foreach ($this->scopeService?->analyzingConsumers($mailbox) ?? [] as $consumer) {
                 if ($consumer->consumerId() === $consumerId) {
-                    $addresses[] = $mailbox->username;
+                    $boxes[] = $mailbox;
                     break;
                 }
             }
         }
 
-        return array_values(array_unique($addresses));
+        return $boxes;
     }
 
     public function isCollecting(): bool

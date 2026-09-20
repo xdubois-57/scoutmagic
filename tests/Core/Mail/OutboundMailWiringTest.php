@@ -500,4 +500,86 @@ class OutboundMailWiringTest extends TestCase
             'the two roots of one class must answer « suspendue ? » the same way.'
         );
     }
+
+    // ── the seed mailboxes reach the module, on BOTH roots (IT-07) ────
+
+    /**
+     * **The quietest failure of IT-07, and it shipped.**
+     *
+     * `SeedMailboxes::addresses()` answers « no boxes » until something
+     * hands it `inbound_mail`. `public/index.php` did;
+     * `public/cron.php` built the object with a comment promising the
+     * same « further down » and never did it — and `cron.php` is the only
+     * entry point that ever runs a mailing
+     * (`mass_mail`'s `SendBatchHandler` is a scheduled task, and
+     * `index.php` never calls `processOverdue()`).
+     *
+     * So the feature was wired, green, configurable, switched on in the
+     * interface, and emitted not one copy on a real installation. Nothing
+     * failed anywhere: a unit that turned the copies on would simply
+     * watch a results table stay empty for ever and conclude its
+     * mailings were fine.
+     *
+     * Both roots now hand the object to the shared bootstrap, which is
+     * the one place that knows how to resolve the module — §8.17's lesson
+     * again, and the reason this is asserted on the CALL rather than on
+     * some behaviour a test double could satisfy.
+     */
+    public function testBothEntryPointsHandTheSeedMailboxesToTheSharedBootstrap(): void
+    {
+        foreach (['public/index.php', 'public/cron.php'] as $root) {
+            $source = self::source($root);
+
+            $position = strpos($source, 'scoutmagicBootstrapScheduler(');
+            $this->assertNotFalse($position, $root . ' no longer bootstraps the scheduler.');
+
+            $call = substr($source, $position, 1600);
+            $end = strpos($call, "\n);");
+            $this->assertNotFalse($end, $root . ': the bootstrap call could not be delimited.');
+
+            $this->assertStringContainsString(
+                '$seedMailboxes',
+                substr($call, 0, $end),
+                $root . ' does not hand its seed mailboxes to the shared bootstrap, so on that entry point '
+                . 'the copies are never emitted — silently, which is how this was missed the first time.'
+            );
+        }
+    }
+
+    /**
+     * And the bootstrap does something with it rather than accepting it
+     * politely.
+     */
+    public function testTheSharedBootstrapResolvesTheModuleForThem(): void
+    {
+        $source = self::source('public/scheduler-bootstrap.php');
+
+        $this->assertStringContainsString(
+            '$seedMailboxes?->resolveInboundMailWith(',
+            $source,
+            'the bootstrap takes the seed mailboxes and never tells them where to ask.'
+        );
+    }
+
+    /**
+     * **The archive's seed section says whether it could see what it
+     * measures**, and only the factory can give it the answer.
+     *
+     * The collector's own test builds that argument itself, so it would
+     * go on passing with the factory omitting it — the exact shape of
+     * defect this iteration produced five times: a fixture supplying a
+     * condition production does not. The consequence here is a third
+     * party reading « perdus : 5 » as a sender being refused, when five
+     * messages were delivered into a folder nobody was watching.
+     */
+    public function testTheArchiveIsToldWhetherTheSeedBoxesCanSeeTheirJunkFolder(): void
+    {
+        $source = self::source('core/Support/SupportPackageFactory.php');
+
+        $this->assertStringContainsString(
+            'new \\Core\\Mail\\Feedback\\Seed\\SeedMailboxes(',
+            $source,
+            'the collector is built without the boxes, so its blind-spot counter is always zero.'
+        );
+    }
 }
