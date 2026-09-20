@@ -763,6 +763,31 @@ $settingService->register(
     false,
     59
 );
+// Where a routing decision is written down (roadmap IT-07, D13): a JSON
+// map of recipient domain to relay id, read by `MailTransportChain` on
+// every mailing and written by the « Boîtes témoins » page and the daily
+// sweep.
+//
+// **Registered here because `setInternal()` throws on a key that has no
+// row**, and every writer of this setting goes through it. Unregistered,
+// the « appliquer » button raised `SettingException` on a real site — and
+// worse, the same throw inside the daily sweep escaped before
+// `rearmAfter()`, so the retention purge chain would have stopped for
+// good. Nothing caught it because the tests register the key themselves
+// in `setUp()`, which is the same shape as the `cron.php` wiring that
+// review caught earlier.
+$settingService->register(
+    \Core\Mail\Transport\DomainPreferences::SETTING_KEY,
+    '',
+    'text',
+    'Routage par domaine destinataire',
+    'Quel relais est essayé en premier pour les publipostages vers un fournisseur donné.',
+    null,
+    null,
+    null,
+    false,
+    60
+);
 $settingService->register(
     'dkim_selector',
     's2026',

@@ -26,6 +26,7 @@ use Core\File\FileRepository;
 use Core\File\UploadHandler;
 use Core\Security\EncryptionService;
 use Core\Security\HtmlSanitizer;
+use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\Modules\InboundMail\Client\PruningFakeMailboxClient;
 use Tests\Modules\InboundMail\FakeMessageConsumer;
@@ -43,6 +44,7 @@ use Tests\DatabaseTestHelper;
  *
  * @group database
  */
+#[Group('database')]
 class PruningConsumerTest extends TestCase
 {
     private \PDO $pdo;

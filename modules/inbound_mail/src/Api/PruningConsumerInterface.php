@@ -48,10 +48,19 @@ interface PruningConsumerInterface
     /**
      * Whether this message may be removed now that it has been analysed.
      *
-     * Asked only of a consumer that CLAIMED the message, and only after
-     * the analysis has been recorded: the order matters, because a
-     * message deleted before its verdict was written is a measurement
-     * lost with no way to take it again.
+     * **Asked of every consumer the mailbox's scope names, claim or no
+     * claim.** `MailboxSyncService::pruneIfAsked()` iterates the scoped
+     * consumers and never filters on the analysis results — it cannot,
+     * since the seed consumer claims nothing on purpose. The scope is the
+     * bound, as the class docblock above says; there is no claim filter
+     * in front of this, and an implementer that assumed one and skipped
+     * its own check would answer yes for a message it recorded nothing
+     * from. **So decide from what YOU wrote down about this message, not
+     * from being asked.**
+     *
+     * Asked only after the analysis has been recorded, and that order
+     * matters: a message deleted before its verdict was written is a
+     * measurement lost with no way to take it again.
      */
     public function shouldPruneAfterAnalysis(CandidateMessage $message): bool;
 }

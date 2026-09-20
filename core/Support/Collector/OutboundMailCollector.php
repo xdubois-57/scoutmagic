@@ -566,12 +566,13 @@ class OutboundMailCollector implements SupportCollectorInterface
         $rows = [];
         foreach ($readings as $reading) {
             $rows[] = sprintf(
-                '%-26s %6d  %7d  %6d  %6d  %s',
+                '%-26s %6d  %7d  %6d  %6d  %5d  %s',
                 mb_substr($reading['provider'], 0, 26),
                 $reading['runs'],
                 $reading['inbox'],
                 $reading['spam'],
                 $reading['missing'],
+                $reading['elsewhere'],
                 $reading['routed_to'] ?? '—'
             );
         }
@@ -590,8 +591,9 @@ class OutboundMailCollector implements SupportCollectorInterface
             }
 
             $rows[] = sprintf(
-                '%-26s %6s  %7s  %6s  %6s  %s',
+                '%-26s %6s  %7s  %6s  %6s  %5s  %s',
                 mb_substr($domain, 0, 26),
+                '—',
                 '—',
                 '—',
                 '—',
@@ -607,7 +609,13 @@ class OutboundMailCollector implements SupportCollectorInterface
             return $lines;
         }
 
-        $lines[] = 'fournisseur                 envois  récept.  indés.  perdus  relais';
+        // **`elsewhere` is a column here too.** Without it a provider that
+        // files every copy into a folder the site cannot classify prints
+        // « 5 envois, 0 réception, 0 indésirable, 0 perdu » — a measured
+        // provider with no outcomes at all, which reads to a third party
+        // as a broken measurement rather than as copies that arrived
+        // somewhere unnamed.
+        $lines[] = 'fournisseur                 envois  récept.  indés.  perdus  autre  relais';
         foreach ($rows as $row) {
             $lines[] = $row;
         }

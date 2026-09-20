@@ -101,7 +101,31 @@ class PurgeSeedCopiesHandler implements TaskHandlerInterface
             );
         }
 
-        $this->routeIfAsked($copies, $context);
+        // **The routing may not cost the purge its next run.**
+        //
+        // `SchedulerRunner` marks a throwing handler's action failed and
+        // does NOT queue the next one, so an exception escaping here ends
+        // the daily chain permanently — and this chain is what stops the
+        // seed copies accumulating. The retention that the privacy notice
+        // promises would simply stop happening, silently, because of a
+        // routing nicety.
+        //
+        // The two jobs are not equally important and the code now says
+        // so: giving up on old copies and purging them is the contract,
+        // applying a recommendation is a convenience.
+        try {
+            $this->routeIfAsked($copies, $context);
+        } catch (\Throwable $error) {
+            $context->journal->log(
+                'core',
+                'mail_seed_routing_failed',
+                'error',
+                'Routage automatique impossible',
+                // The class, never the message: an exception text routinely
+                // carries values this journal may not hold (§7.9).
+                ['error' => $error::class]
+            );
+        }
 
         (new SchedulerService(new SchedulerRepository($pdo)))
             ->rearmAfter('core', self::TASK_KEY, self::REFERENCE, self::INTERVAL_SECONDS);

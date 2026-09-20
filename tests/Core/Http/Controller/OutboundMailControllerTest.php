@@ -968,6 +968,33 @@ class OutboundMailControllerTest extends TestCase
     }
 
     /**
+     * **An installation without `inbound_mail` gets a refusal, not a
+     * half-working page** — the same shape already pinned for the
+     * bounces, for DMARC and for the probe.
+     *
+     * It matters here more than elsewhere: these three actions each have
+     * a null-dependency branch, and a page that merely rendered empty
+     * would tell a unit its mailings are fine when in fact nothing is
+     * being measured at all.
+     */
+    public function testAnInstallationWithoutTheInboundModuleSaysSoOnAllThreeSeedRoutes(): void
+    {
+        $controller = $this->controllerWithout('seedMailboxes', 'seedCopies', 'routing');
+
+        $body = (string) $controller->seeds($this->getRequest(), [])->getBody();
+        $this->assertStringContainsString('demandent le module', $body);
+        $this->assertStringNotContainsString('Copier les publipostages', $body);
+
+        $controller->toggleSeeds($this->formRequest(['enabled' => '1']), []);
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertFalse($this->seedMailboxes->isEnabled(), 'and nothing was switched on.');
+
+        $controller->routeSeeds($this->formRequest(['domain' => 'gmail.com']), []);
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame([], $this->mailPreferences->all(), 'and nothing was routed.');
+    }
+
+    /**
      * @param list<string> $addresses
      */
     private function controllerWithSeedAddresses(array $addresses): OutboundMailController

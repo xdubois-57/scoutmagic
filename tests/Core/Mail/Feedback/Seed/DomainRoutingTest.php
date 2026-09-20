@@ -19,6 +19,7 @@ use Core\Mail\Transport\MailProviderDirectory;
 use Core\Mail\Transport\MailProviderRepository;
 use Core\Mail\Transport\ProviderConnections;
 use Core\Security\EncryptionService;
+use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
@@ -33,6 +34,7 @@ use Tests\DatabaseTestHelper;
  *
  * @group database
  */
+#[Group('database')]
 class DomainRoutingTest extends TestCase
 {
     private \PDO $pdo;

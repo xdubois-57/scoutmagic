@@ -12,6 +12,7 @@ use Core\Mail\Feedback\Seed\SeedCopy;
 use Core\Mail\Feedback\Seed\SeedCopyRepository;
 use Core\Mail\Feedback\Seed\SeedVerdict;
 use Core\Security\EncryptionService;
+use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
@@ -21,6 +22,7 @@ use Tests\DatabaseTestHelper;
  *
  * @group database
  */
+#[Group('database')]
 class SeedCopyRepositoryTest extends TestCase
 {
     private \PDO $pdo;

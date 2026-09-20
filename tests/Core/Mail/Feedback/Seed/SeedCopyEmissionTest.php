@@ -19,6 +19,7 @@ use Core\Mail\MailTransportInterface;
 use Core\Security\EncryptionService;
 use Modules\InboundMail\Api\InboundMailInterface;
 use PHPMailer\PHPMailer\PHPMailer;
+use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
@@ -32,6 +33,7 @@ use Tests\DatabaseTestHelper;
  *
  * @group database
  */
+#[Group('database')]
 class SeedCopyEmissionTest extends TestCase
 {
     private string $tempDir = '';
@@ -232,13 +234,49 @@ class SeedCopyEmissionTest extends TestCase
      * **A seed copy must not spawn its own seed copies**, which would be
      * an infinite mailing rather than a measurement. The guard is that the
      * copy goes out with no run reference at all.
+     *
+     * **The boxes CHANGE between calls, and that is the whole test.** A
+     * fixed list cannot fail it: `claim()` already refuses a second claim
+     * for the same run and box, so a copy that wrongly kept
+     * `mass_mail:42` would claim nothing and the count would stay at
+     * three with the guard gone. Handing back a different box on the
+     * second reading means a recursive emission finds something
+     * unclaimed — and the count moves.
      */
     public function testACopyDoesNotSpawnItsOwnCopies(): void
     {
         $transport = $this->recordingTransport();
-        $this->sendCampaign($this->serviceWith($transport, ['t1@gmail.com', 't2@outlook.com']));
 
-        $this->assertCount(3, $transport->sent);
+        $stub = $this->createStub(InboundMailInterface::class);
+        $stub->method('probeAddressesFor')->willReturnOnConsecutiveCalls(
+            ['t1@gmail.com', 't2@outlook.com'],
+            // What a recursive emission would be handed: boxes this run
+            // has not claimed yet, so nothing else stops the copies.
+            ['t3@laposte.net', 't4@yahoo.fr'],
+            ['t5@free.fr', 't6@orange.fr']
+        );
+
+        $this->settings->setInternal(SeedMailboxes::SETTING_ENABLED, '1');
+        $seeds = new SeedMailboxes($this->copies, $this->settings);
+        $seeds->useInboundMail($stub);
+
+        $this->sendCampaign(new MailService(
+            mode: 'local',
+            fromAddress: 'noreply@unite.be',
+            fromName: 'Unité Exemple',
+            shortName: '25SV',
+            dkimManager: new DkimManager($this->tempDir),
+            dkimSelector: 'mail',
+            transport: $transport,
+            seedMailboxes: $seeds
+        ));
+
+        $this->assertCount(3, $transport->sent, 'one mailing, two copies, and no copy of a copy.');
+        $this->assertCount(
+            2,
+            $this->copies->forRun('mass_mail:42'),
+            'a third claim would mean a copy went looking for boxes of its own.'
+        );
     }
 
     public function testNothingIsCopiedWhenTheUnitHasNotTurnedItOn(): void
