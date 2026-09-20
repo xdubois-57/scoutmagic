@@ -107,6 +107,51 @@ class RentalChangeRequestRepository
     }
 
     /**
+     * Every pending request of several bookings, in ONE query, grouped by
+     * booking id.
+     *
+     * The reason it exists: « À traiter » asks whether each of an asset's
+     * bookings carries something pending, and an asset with thirty
+     * bookings would otherwise ask thirty times — for a page that already
+     * reads every booking it shows in a single statement
+     * (`RentalBookingRepository::findAllForAssets()`).
+     *
+     * A booking with nothing pending is **absent** from the result rather
+     * than present with an empty list: callers read it with `?? []`, and an
+     * absent key and an empty list mean the same thing to them.
+     *
+     * @param int[] $bookingIds
+     * @return array<int, ChangeRequest[]>
+     */
+    public function findPendingForBookings(array $bookingIds): array
+    {
+        $ids = array_values(array_unique(array_map('intval', $bookingIds)));
+        if ($ids === []) {
+            return [];
+        }
+
+        // Placeholders rather than an interpolated list: AGENTS.md
+        // § Security checklist admits no exception, and "they are all ints"
+        // is a property of today's callers rather than of this method.
+        $placeholders = implode(', ', array_fill(0, count($ids), '?'));
+
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM rental_change_requests
+             WHERE booking_id IN (' . $placeholders . ') AND status = ?
+             ORDER BY created_at ASC, id ASC'
+        );
+        $stmt->execute([...$ids, ChangeRequestStatus::PENDING->value]);
+
+        $byBooking = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $request = $this->hydrate($row);
+            $byBooking[$request->bookingId][] = $request;
+        }
+
+        return $byBooking;
+    }
+
+    /**
      * Records a decision, but only on a request still pending.
      *
      * The `status = 'pending'` in the WHERE clause is the guard against two

@@ -255,7 +255,14 @@ class RentalManagementControllerTest extends TestCase
                     $this->storagePath
                 )
             ),
-            null,
+            // The three figures: « À traiter » has to be countable here, or
+            // the tile and the list under it are only ever checked apart
+            // (§22.5).
+            new \Modules\Rental\Service\RentalStatisticsService(
+                $this->bookingRepository,
+                new \Modules\Rental\Repository\RentalAggregateRepository($this->pdo),
+                $this->changeRequestRepository
+            ),
             // Only « Régénérer le lien de suivi » reaches it.
             new RentalBookingService($this->bookingRepository, $journal)
         );
@@ -507,6 +514,111 @@ class RentalManagementControllerTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode(), (string) $response->getBody());
         $this->assertStringContainsString('Local Saint-Georges', (string) $response->getBody());
+    }
+
+    // ── « À traiter » is not a filter on the status (§22.5) ─────────────
+
+    /**
+     * The defect the iteration closes: a confirmed booking carrying a change
+     * request the renter sent yesterday appeared on no list at all, because
+     * `confirmed` does not need attention and nothing about a status knows
+     * what is pending against it.
+     */
+    public function testAConfirmedBookingCarryingARenterRequestIsOnTheOverviewList(): void
+    {
+        $this->addManager($this->assetId, 'manager@test.be');
+        AuthSession::login(1, 'manager@test.be', 'identified');
+
+        $booking = $this->createBooking();
+        $this->bookingRepository->setStatus($booking->id, BookingStatus::CONFIRMED, new \DateTimeImmutable());
+        $this->changeRequestRepository->create(
+            $booking->id,
+            ChangeRequestOrigin::RENTER,
+            ChangeRequestKind::DATES,
+            '2027-07-08',
+            '2027-07-11',
+            null,
+            null,
+            null,
+            'Nous arriverions plutôt le 8.'
+        );
+
+        $body = (string) $this->overview('local-saint-georges')->getBody();
+
+        $this->assertStringContainsString($booking->reference, $body);
+        $this->assertStringContainsString('Le locataire a demandé une modification', $body);
+    }
+
+    /**
+     * A proposal waits on somebody too, and the unit is the one who has to
+     * know it is still waiting.
+     */
+    public function testAnUnansweredProposalPutsABookingOnTheOverviewList(): void
+    {
+        $this->addManager($this->assetId, 'manager@test.be');
+        AuthSession::login(1, 'manager@test.be', 'identified');
+
+        $booking = $this->createBooking();
+        $this->bookingRepository->setStatus($booking->id, BookingStatus::CONFIRMED, new \DateTimeImmutable());
+        $this->changeRequestRepository->create(
+            $booking->id,
+            ChangeRequestOrigin::MANAGER,
+            ChangeRequestKind::DATES,
+            '2027-07-08',
+            '2027-07-11',
+            null,
+            null,
+            null,
+            null
+        );
+
+        $body = (string) $this->overview('local-saint-georges')->getBody();
+
+        $this->assertStringContainsString('Votre proposition attend la réponse du locataire', $body);
+    }
+
+    /**
+     * The tile and the list under it cannot disagree: both are counted from
+     * Booking\BookingAttention. A « 0 » over a list of one is the failure
+     * this pins.
+     */
+    public function testTheFigureAgreesWithTheListBelowIt(): void
+    {
+        $this->addManager($this->assetId, 'manager@test.be');
+        AuthSession::login(1, 'manager@test.be', 'identified');
+
+        $booking = $this->createBooking();
+        $this->bookingRepository->setStatus($booking->id, BookingStatus::CONFIRMED, new \DateTimeImmutable());
+        $this->changeRequestRepository->create(
+            $booking->id,
+            ChangeRequestOrigin::RENTER,
+            ChangeRequestKind::PERSONS,
+            null,
+            null,
+            null,
+            40,
+            null,
+            'Nous serons quarante.'
+        );
+
+        $body = (string) preg_replace('/\s+/', ' ', (string) $this->overview('local-saint-georges')->getBody());
+
+        // The list holds exactly one row, and the tile says so.
+        $this->assertSame(1, substr_count($body, 'Le locataire a demandé une modification'));
+        $this->assertMatchesRegularExpression('/À traiter.*?>1</s', $body);
+    }
+
+    public function testAConfirmedBookingWithNothingPendingStaysOffTheList(): void
+    {
+        $this->addManager($this->assetId, 'manager@test.be');
+        AuthSession::login(1, 'manager@test.be', 'identified');
+
+        $booking = $this->createBooking();
+        $this->bookingRepository->setStatus($booking->id, BookingStatus::CONFIRMED, new \DateTimeImmutable());
+
+        $body = (string) $this->overview('local-saint-georges')->getBody();
+
+        $this->assertStringContainsString('Aucune demande en attente.', $body);
     }
 
     public function testAManagerOfOneAssetCannotReachAnother(): void
