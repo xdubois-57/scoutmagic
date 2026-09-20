@@ -45,8 +45,20 @@ class BounceConsumerTest extends TestCase
         // The unit wrote to this address. Without that receipt the bounce
         // below is refused, which is the point of
         // `testAForgedBounceForAnAddressWeNeverWroteToIsRefused`.
+        //
+        // **Relative to now, and it has to be.** The path under test does
+        // not pin its clock: `BounceConsumer::analyze()` calls
+        // `BounceService::record()` without a `$now`, so the repository
+        // compares this receipt against the real wall clock and refuses
+        // one older than `RECEIPT_MAX_AGE` (a month). A literal date here
+        // was a time bomb — every test in this class would have started
+        // failing a month after it was written, and
+        // `testAForgedBounceForAnAddressWeNeverWroteToIsRefused` would
+        // have gone on PASSING for the wrong reason, pinning the age gate
+        // instead of the missing-receipt rule it exists for. A test that
+        // quietly changes what it proves is worse than one that breaks.
         DatabaseTestHelper::markAddressOnFile($this->pdo, 'parent@exemple.be');
-        $this->states->recordSend('parent@exemple.be', new \DateTimeImmutable('2026-09-19 08:00:00'));
+        $this->states->recordSend('parent@exemple.be', new \DateTimeImmutable('-1 hour'));
     }
 
     /**

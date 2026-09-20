@@ -1993,6 +1993,33 @@ compteur réel étant `$errorCount`. Relue avant exécution, donc sans
 conséquence — mais c'est le genre de détail qu'une garde de sécurité
 ajoutée à la hâte emporte avec elle.
 
+### Une bombe à retardement dans les tests
+
+`BounceConsumerTest` tamponnait sa preuve d'envoi à une date littérale
+(`2026-09-19 08:00:00`), alors que le chemin testé **ne fige pas son
+horloge** : `BounceConsumer::analyze()` appelle `BounceService::record()`
+sans `$now`, donc le dépôt compare cette preuve à l'horloge réelle et
+refuse tout reçu plus vieux que `RECEIPT_MAX_AGE`, soit un mois.
+
+À partir du 19 octobre 2026, sans la moindre modification de code, cinq
+tests de cette classe se seraient mis à échouer. Et le sixième —
+`testAForgedBounceForAnAddressWeNeverWroteToIsRefused` — aurait continué
+de **passer pour la mauvaise raison** : il aurait épinglé la garde d'âge
+au lieu de la règle « pas de preuve, pas de rebond » qu'il existe pour
+protéger. C'est la même leçon que le test qui épinglait le défaut du
+notifieur, sous une autre forme : un test qui change discrètement ce
+qu'il prouve est pire qu'un test qui casse.
+
+La preuve est maintenant relative (`-1 hour`), et le commentaire dit
+pourquoi, pour que personne ne la « range » en date littérale plus tard.
+
+Vérifié en simulant la date d'expiration : cinq échecs, exactement les
+cinq annoncés, et le sixième vert. Le reste de la suite a été relu pour
+le même motif — partout ailleurs les deux côtés de la comparaison sont
+figés ensemble (`$t` puis `$t->modify('+1 minute')`), et
+`BounceSendReceiptMysqlTest` n'appelle jamais `record()`. Cette classe
+était la seule.
+
 ### Écarts et limites, assumés
 
 **La preuve d'envoi réduit la falsification, elle ne la supprime pas.** La
