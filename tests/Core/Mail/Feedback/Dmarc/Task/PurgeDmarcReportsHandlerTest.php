@@ -39,7 +39,11 @@ class PurgeDmarcReportsHandlerTest extends TestCase
     protected function setUp(): void
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
-        $this->pdo->exec('PRAGMA foreign_keys = ON');
+        // Prepared like everything else that talks to a database here
+        // (AGENTS.md): « every SQL statement is prepared » is a shape, and
+        // a shape a test file is exempt from is a shape the next file
+        // copies without it.
+        $this->pdo->prepare('PRAGMA foreign_keys = ON')->execute();
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $this->reports = new DmarcReportRepository($this->pdo);
 
@@ -76,10 +80,10 @@ class PurgeDmarcReportsHandlerTest extends TestCase
 
         (new PurgeDmarcReportsHandler())->handle([], $this->context);
 
-        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM mail_dmarc_reports')->fetchColumn());
+        $this->assertSame(0, $this->scalar('SELECT COUNT(*) FROM mail_dmarc_reports'));
         $this->assertSame(
             0,
-            (int) $this->pdo->query('SELECT COUNT(*) FROM mail_dmarc_sources')->fetchColumn(),
+            $this->scalar('SELECT COUNT(*) FROM mail_dmarc_sources'),
             'the lines follow their report.'
         );
     }
@@ -90,7 +94,7 @@ class PurgeDmarcReportsHandlerTest extends TestCase
 
         (new PurgeDmarcReportsHandler())->handle([], $this->context);
 
-        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM mail_dmarc_reports')->fetchColumn());
+        $this->assertSame(1, $this->scalar('SELECT COUNT(*) FROM mail_dmarc_reports'));
     }
 
     /**
@@ -111,9 +115,7 @@ class PurgeDmarcReportsHandlerTest extends TestCase
 
         $this->assertSame(
             0,
-            (int) $this->pdo
-                ->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'mail_dmarc_reports_purged'")
-                ->fetchColumn()
+            $this->scalar("SELECT COUNT(*) FROM event_log WHERE event_type = 'mail_dmarc_reports_purged'")
         );
     }
 
@@ -127,9 +129,11 @@ class PurgeDmarcReportsHandlerTest extends TestCase
 
         (new PurgeDmarcReportsHandler())->handle([], $this->context);
 
-        $row = $this->pdo
-            ->query("SELECT context FROM event_log WHERE event_type = 'mail_dmarc_reports_purged'")
-            ->fetchColumn();
+        $statement = $this->pdo->prepare(
+            "SELECT context FROM event_log WHERE event_type = 'mail_dmarc_reports_purged'"
+        );
+        $statement->execute();
+        $row = $statement->fetchColumn();
 
         $this->assertNotFalse($row);
         $this->assertStringNotContainsString('185.12.80.100', (string) $row);
@@ -143,9 +147,16 @@ class PurgeDmarcReportsHandlerTest extends TestCase
 
         $this->assertSame(
             1,
-            (int) $this->pdo
-                ->query("SELECT COUNT(*) FROM scheduled_actions WHERE task_key = 'purge_mail_dmarc_reports'")
-                ->fetchColumn()
+            $this->scalar("SELECT COUNT(*) FROM scheduled_actions WHERE task_key = 'purge_mail_dmarc_reports'")
         );
+    }
+
+    /** One prepared read, so no assertion here builds a statement by hand. */
+    private function scalar(string $sql): int
+    {
+        $statement = $this->pdo->prepare($sql);
+        $statement->execute();
+
+        return (int) $statement->fetchColumn();
     }
 }

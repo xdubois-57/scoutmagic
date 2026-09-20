@@ -128,8 +128,15 @@ final class BoundedArchive
 
                 $out .= $piece;
                 if (strlen($out) > self::MAX_ENTRY_BYTES) {
-                    // The bomb stops here, having expanded by one chunk
-                    // past the ceiling and no further.
+                    // **What is bounded is the ACCUMULATED OUTPUT, not the
+                    // peak.** `fread` caps each `$piece`, but the filter
+                    // holds inflated bytes of its own between reads, so the
+                    // process peaks somewhat above this ceiling rather than
+                    // one chunk above it — a review measured roughly 12 MiB
+                    // for a 40 MiB bomb against a 4 MiB ceiling. That is the
+                    // property worth having and the one to state: bounded by
+                    // a constant of the ceiling, and no longer a function of
+                    // what the sender chose to compress.
                     return [];
                 }
             }

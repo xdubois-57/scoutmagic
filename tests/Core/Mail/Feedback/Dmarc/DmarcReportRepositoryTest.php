@@ -24,7 +24,7 @@ class DmarcReportRepositoryTest extends TestCase
     protected function setUp(): void
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
-        $this->pdo->exec('PRAGMA foreign_keys = ON');
+        $this->pdo->prepare('PRAGMA foreign_keys = ON')->execute();
         $this->reports = new DmarcReportRepository($this->pdo);
     }
 
@@ -185,5 +185,144 @@ class DmarcReportRepositoryTest extends TestCase
             (int) $this->pdo->query('SELECT COUNT(*) FROM mail_dmarc_sources')->fetchColumn(),
             'the purged report took its own lines and left the others alone.'
         );
+    }
+
+    // ── ce que la relecture a demandé (IT-06) ─────────────────────────
+
+    /**
+     * **A failure that is not the race must not answer « déjà là ».**
+     *
+     * Both outcomes used to be `false`, so a database refusing writes was
+     * indistinguishable from an ordinary re-read: the consumer skipped its
+     * journal line and the registry saw no exception to record, and the
+     * whole thing looked like a quiet, successful sync. That is this
+     * chantier's own recurring defect — a failure wearing the shape of a
+     * success — and it is the one the review caught here.
+     *
+     * The source table is dropped rather than mocked, because a PDO double
+     * agreeing to throw proves only that the catch re-throws what a test
+     * handed it. This makes the database genuinely refuse a write that the
+     * report insert has already succeeded past.
+     */
+    public function testAWriteFailureThatIsNotADuplicateReachesTheCaller(): void
+    {
+        $this->pdo->prepare('DROP TABLE mail_dmarc_sources')->execute();
+
+        $this->expectException(\PDOException::class);
+
+        $this->reports->record($this->report(), new \DateTimeImmutable());
+    }
+
+    /**
+     * **The premise the race branch rests on, asserted rather than
+     * assumed.** `isDuplicateKey()` reads `errorInfo` and accepts one of
+     * three driver codes; if this engine reported a fourth, a losing race
+     * would throw instead of shrugging, and nothing else in this file
+     * would notice — `alreadyHave()` short-circuits every ordinary
+     * duplicate before the index ever sees it. So the index is made to
+     * refuse a write directly, and what it says is checked against what
+     * the repository looks for. A premise nobody checked is how the last
+     * engine-specific defect got in (`docs/quality-pipeline.md`).
+     */
+    public function testThisEngineReportsADuplicateTheWayTheRepositoryReadsIt(): void
+    {
+        $this->assertTrue($this->reports->record($this->report(), new \DateTimeImmutable()));
+
+        $statement = $this->pdo->prepare(
+            'INSERT INTO mail_dmarc_reports
+                (organisation, report_id, domain, period_begin, period_end, policy, received_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)'
+        );
+
+        try {
+            $statement->execute([
+                'google.com',
+                'r-1',
+                'unite.be',
+                '2026-09-01 00:00:00',
+                '2026-09-02 00:00:00',
+                'none',
+                '2026-09-02 00:00:00',
+            ]);
+            $this->fail('The unique index must refuse this.');
+        } catch (\PDOException $duplicate) {
+            $this->assertSame('23000', $duplicate->errorInfo[0] ?? null);
+            $this->assertContains(
+                $duplicate->errorInfo[1] ?? null,
+                [1062, 19, 7],
+                'A code outside this list would make a losing race throw instead of shrug.'
+            );
+        }
+    }
+
+    /** And the race still answers false, which is the whole point of telling them apart. */
+    public function testTheSameReportTwiceStillAnswersFalseWithoutThrowing(): void
+    {
+        $this->assertTrue($this->reports->record($this->report(), new \DateTimeImmutable()));
+        $this->assertFalse($this->reports->record($this->report(), new \DateTimeImmutable()));
+    }
+
+    /**
+     * The totals come from the database over every row, never from the
+     * capped lists a screen draws.
+     */
+    public function testTheTotalsCountEverythingAndNotWhatFitsOnAScreen(): void
+    {
+        $now = new \DateTimeImmutable();
+        $this->reports->record($this->report('r-1', 'google.com'), $now);
+        $this->reports->record($this->report('r-2', 'Yahoo'), $now);
+
+        $since = $now->modify('-30 days');
+        $totals = $this->reports->totalsSince($since);
+
+        $this->assertSame(2, $totals['reports']);
+        $this->assertSame(2, $totals['reporters']);
+        $this->assertSame(2, $totals['sources'], 'Two distinct addresses, each seen in both reports.');
+        $this->assertSame(90, $totals['messages'], '(42 + 3) twice.');
+        $this->assertSame(84, $totals['authenticated'], '42 twice; the other line authenticates neither way.');
+
+        // The discriminating half: one row of display is not the truth.
+        $shown = $this->reports->sourcesSince($since, 1);
+        $this->assertCount(1, $shown);
+        $this->assertNotSame($shown[0]['messages'], $totals['messages']);
+    }
+
+    /**
+     * **Only the sources that got something through**, which is what the
+     * page's one warning is computed over. Reading it off the displayed
+     * table instead would miss the quiet forgotten tool — the very thing
+     * the warning exists to name.
+     */
+    public function testOnlyTheAuthenticatingSourcesAreOfferedForTheWarning(): void
+    {
+        $now = new \DateTimeImmutable();
+        $this->reports->record($this->report(), $now);
+
+        $authenticating = $this->reports->authenticatingSourcesSince($now->modify('-30 days'));
+
+        $this->assertSame(['185.12.80.100'], $authenticating);
+    }
+
+    /** A limit is bound, not concatenated — and it still limits. */
+    public function testTheLimitIsAppliedThroughABoundParameter(): void
+    {
+        $now = new \DateTimeImmutable();
+        $this->reports->record($this->report('r-1', 'google.com'), $now);
+        $this->reports->record($this->report('r-2', 'Yahoo'), $now);
+
+        $since = $now->modify('-30 days');
+
+        $this->assertCount(1, $this->reports->sourcesSince($since, 1));
+        $this->assertCount(1, $this->reports->reportsSince($since, 1));
+        $this->assertCount(2, $this->reports->reportsSince($since, 50));
+    }
+
+    public function testThePoliciesSeenOverTheWindowAreListedOnce(): void
+    {
+        $now = new \DateTimeImmutable();
+        $this->reports->record($this->report('r-1', 'google.com'), $now);
+        $this->reports->record($this->report('r-2', 'Yahoo'), $now);
+
+        $this->assertSame(['none'], $this->reports->policiesSince($now->modify('-30 days')));
     }
 }

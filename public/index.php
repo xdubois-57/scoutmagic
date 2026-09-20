@@ -709,6 +709,24 @@ $settingService->register(
     false,
     56
 );
+// Which addresses the unit's own relays answered on, so the « Rapports
+// DMARC » page can name a provider instead of printing an IP nobody can
+// place — and can do it without blocking on a resolver, which is the one
+// thing those screens must not do: they are opened when mail is already
+// broken. Written by the same « Vérifier les enregistrements » action as
+// the reading above, never by hand — hence editable: false.
+$settingService->register(
+    \Core\Mail\Feedback\Dmarc\KnownSenders::SETTING_KEY,
+    '',
+    'text',
+    'Adresses des relais, dernière résolution',
+    'Adresses IP auxquelles répondaient les relais d\'envoi lors de la dernière vérification DNS, avec sa date.',
+    null,
+    null,
+    null,
+    false,
+    57
+);
 $settingService->register(
     'dkim_selector',
     's2026',
@@ -6956,13 +6974,16 @@ $frontController->registerController(
         // permanently empty page saying « personne n'envoie en votre nom »,
         // which would be the most reassuring lie this section could tell.
         $inboundMailForOthers === null ? null : new \Core\Mail\Feedback\Dmarc\DmarcReportRepository($pdo),
-        // The relays this unit sends through, resolved to addresses so the
-        // screen can say « votre relais » instead of printing an IP nobody
-        // can place. Names only — a relay hostname is infrastructure and
-        // stays off the screen (SECURITY.md §11).
-        $inboundMailForOthers === null ? null : new \Core\Mail\Feedback\Dmarc\KnownSenders(
-            array_values($mailProviderDirectory->relays())
-        )
+        // The relays this unit sends through, as the last DNS check
+        // resolved them — READ, never resolved here. A lookup on this path
+        // would block the page on a resolver, which is the one thing the
+        // outbound-mail screens must not do (see the class, and
+        // `Core\Mail\DnsCheckMemory` before it). Names only: a relay
+        // hostname is infrastructure and stays off the screen
+        // (SECURITY.md §11).
+        $inboundMailForOthers === null
+            ? null
+            : \Core\Mail\Feedback\Dmarc\KnownSenders::remembered($settingService)
     )
 );
 

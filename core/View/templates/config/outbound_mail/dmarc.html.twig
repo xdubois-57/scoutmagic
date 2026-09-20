@@ -35,18 +35,34 @@
         <div class="card-body">
             <h2 class="h5">Qui envoie en votre nom</h2>
             {% if sources is empty %}
-                <p class="text-body-secondary small mb-0">
-                    Aucun rapport reçu ces {{ window_days }} derniers jours. Les fournisseurs n'en envoient
-                    que si votre enregistrement DMARC leur donne une adresse — c'est le champ
-                    <code>rua</code> de la page « Authentification » — et que cette adresse arrive dans une
-                    boîte du courrier entrant ouverte à ce lecteur.
+                {% include 'partials/empty_state.html.twig' with {
+                    message: 'Aucun rapport reçu ces ' ~ window_days ~ ' derniers jours.',
+                    compact: true,
+                } only %}
+                <p class="text-body-secondary small mt-2 mb-0">
+                    Les fournisseurs n'en envoient que si votre enregistrement DMARC leur donne une
+                    adresse — c'est le champ <code>rua</code> de la page « Authentification » — et que
+                    cette adresse arrive dans une boîte du courrier entrant ouverte à ce lecteur.
                 </p>
             {% else %}
                 <p class="text-body-secondary small">
                     Sur les {{ window_days }} derniers jours. Un serveur « à vous » est un de vos relais
                     déclarés ; tout le reste est classé ailleurs, y compris ce que nous n'avons pas pu
                     identifier.
+                    {% if total_sources > shown_sources %}
+                        <strong>{{ total_sources }} serveurs</strong> ont écrit en votre nom ; le tableau
+                        montre les {{ shown_sources }} plus actifs. L'avertissement ci-dessous, lui, est
+                        calculé sur tous.
+                    {% endif %}
                 </p>
+                {% if not relays_resolved %}
+                    <p class="text-body-secondary small">
+                        Vos relais n'ont pas encore été résolus, donc aucun serveur ne peut être reconnu
+                        comme étant le vôtre. Lancez « Vérifier les enregistrements » depuis la page
+                        « Authentification » : cette page lit le résultat, elle n'interroge jamais le DNS
+                        elle-même.
+                    </p>
+                {% endif %}
                 <div class="table-responsive">
                     <table class="table table-sm align-middle">
                         <thead>
@@ -66,6 +82,9 @@
                                             <span class="badge text-bg-success-subtle ms-1">{{ source.provider }}</span>
                                         {% else %}
                                             <span class="badge text-bg-secondary-subtle ms-1">Autre</span>
+                                        {% endif %}
+                                        {% if source.needs_attention %}
+                                            <span class="badge text-bg-warning-subtle ms-1">À identifier</span>
                                         {% endif %}
                                         {% if source.reporters > 1 %}
                                             <span class="d-block text-body-secondary small">
@@ -91,12 +110,15 @@
         </div>
     </div>
 
-    {% set unknown_senders = sources|filter(s => s.needs_attention) %}
-    {% if unknown_senders is not empty %}
+    {# **Le compte vient du contrôleur, pas du tableau ci-dessus.** Le
+       tableau est plafonné pour rester lisible ; un avertissement calculé
+       sur ce qu'il a tenu manquerait exactement l'outil discret qu'il
+       existe pour nommer. #}
+    {% if unknown_authenticating > 0 %}
         <div class="alert alert-warning">
             <h2 class="h6">Un outil oublié, plus probablement qu'un usurpateur</h2>
             <p class="mb-2">
-                {{ unknown_senders|length }} serveur(s) que nous ne reconnaissons pas envoient en votre nom
+                {{ unknown_authenticating }} serveur(s) que nous ne reconnaissons pas envoient en votre nom
                 <strong>et y parviennent</strong> : leurs messages sont authentifiés. C'est presque toujours
                 un outil de l'unité que plus personne n'a en tête — une ancienne plateforme d'inscription,
                 un service d'infolettre, la boîte personnelle de quelqu'un configurée avec l'adresse de
@@ -114,7 +136,10 @@
         <div class="card-body">
             <h2 class="h5">Rapports reçus</h2>
             {% if reports is empty %}
-                <p class="text-body-secondary small mb-0">Aucun rapport sur la période.</p>
+                {% include 'partials/empty_state.html.twig' with {
+                    message: 'Aucun rapport sur la période.',
+                    compact: true,
+                } only %}
             {% else %}
                 <div class="table-responsive">
                     <table class="table table-sm align-middle">
@@ -141,6 +166,10 @@
                     </table>
                 </div>
                 <p class="text-body-secondary small mb-0">
+                    {% if total_reports > shown_reports %}
+                        {{ total_reports }} rapports reçus sur la période ; les {{ shown_reports }} plus
+                        récents sont listés.
+                    {% endif %}
                     « Politique vue » est ce que le fournisseur a lu dans votre DNS au moment du rapport.
                     Si vous venez de la changer, l'écart est normal le temps que les rapports suivants
                     arrivent.

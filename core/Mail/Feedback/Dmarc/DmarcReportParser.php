@@ -38,13 +38,30 @@ class DmarcReportParser
     public const MAX_RECORDS = 5000;
 
     /**
+     * How far ahead of our own clock a report's period may end.
+     *
+     * **A period is a fact about the past, and this one decides what is
+     * kept for years.** `purgeBefore()` cuts on `period_end`, so a report
+     * claiming to end in 2099 is never purged and sits in every thirty-day
+     * window for the rest of the installation's life — from a document a
+     * stranger wrote, with nothing anywhere saying so.
+     *
+     * Two days rather than an hour, because the skew being allowed for is
+     * not ours. A reporter's clock, its timezone handling and the moment it
+     * closes a daily window are all its own, and a report legitimately
+     * stamped a few hours ahead is common enough that refusing it would
+     * lose real data to protect against nothing.
+     */
+    public const MAX_CLOCK_SKEW = 'P2D';
+
+    /**
      * The report this XML holds, or null when it holds none.
      *
      * Null is an ordinary answer, never an exception: an unreadable
      * attachment from a stranger must not interrupt a synchronisation
      * carrying everybody else's mail.
      */
-    public function parse(string $xml): ?DmarcReport
+    public function parse(string $xml, ?\DateTimeImmutable $now = null): ?DmarcReport
     {
         if ($xml === '' || stripos($xml, '<!DOCTYPE') !== false) {
             return null;
@@ -70,7 +87,7 @@ class DmarcReportParser
 
         $begin = $this->instantFrom($metadata->date_range->begin ?? null);
         $end = $this->instantFrom($metadata->date_range->end ?? null);
-        if ($begin === null || $end === null) {
+        if ($begin === null || $end === null || !$this->periodIsPlausible($begin, $end, $now)) {
             return null;
         }
 
@@ -155,6 +172,35 @@ class DmarcReportParser
      * screen groups by period, and a report filed under 1970 would sit
      * there for ever saying nothing.
      */
+    /**
+     * Whether the two bounds describe a window that could have happened.
+     *
+     * Two refusals, and the second is the one that costs something if it
+     * is missing. **An end before its begin** is a document that describes
+     * nothing, and a window whose length is negative makes every figure
+     * computed from it meaningless. **An end in the future** is worse than
+     * meaningless: retention is measured from it, so a far date is a row
+     * that outlives every rule this site has, and it takes only a stranger
+     * deciding to send one.
+     *
+     * Refusing loses the report, which is the cheap direction here — a
+     * DMARC report is one of several hundred saying much the same thing,
+     * and the next day brings another.
+     */
+    private function periodIsPlausible(
+        \DateTimeImmutable $begin,
+        \DateTimeImmutable $end,
+        ?\DateTimeImmutable $now
+    ): bool {
+        if ($end < $begin) {
+            return false;
+        }
+
+        $ceiling = ($now ?? new \DateTimeImmutable())->add(new \DateInterval(self::MAX_CLOCK_SKEW));
+
+        return $end <= $ceiling;
+    }
+
     private function instantFrom(?\SimpleXMLElement $value): ?\DateTimeImmutable
     {
         $raw = trim((string) ($value ?? ''));

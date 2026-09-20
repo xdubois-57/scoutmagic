@@ -52,17 +52,32 @@ class DmarcReportRepository
                     (organisation, report_id, domain, period_begin, period_end, policy, received_at)
                  VALUES (?, ?, ?, ?, ?, ?, ?)'
             );
-            $statement->execute([
-                $report->organisation,
-                $report->reportId,
-                $report->domain,
-                $report->begin->format('Y-m-d H:i:s'),
-                $report->end->format('Y-m-d H:i:s'),
-                $report->policy,
-                $now->format('Y-m-d H:i:s'),
-            ]);
 
-            $id = (int) $this->pdo->lastInsertId();
+            try {
+                $statement->execute([
+                    $report->organisation,
+                    $report->reportId,
+                    $report->domain,
+                    $report->begin->format('Y-m-d H:i:s'),
+                    $report->end->format('Y-m-d H:i:s'),
+                    $report->policy,
+                    $now->format('Y-m-d H:i:s'),
+                ]);
+            } catch (\PDOException $duplicate) {
+                if (!self::isDuplicateKey($duplicate)) {
+                    throw $duplicate;
+                }
+
+                // **A losing race is not a failure.** Two syncs reading
+                // the same folder at once both pass `alreadyHave()` and one
+                // loses on the unique index; the report is here either way,
+                // which is all the caller wanted.
+                $this->pdo->rollBack();
+
+                return false;
+            }
+
+            $reportRowId = (int) $this->pdo->lastInsertId();
 
             $line = $this->pdo->prepare(
                 'INSERT INTO mail_dmarc_sources
@@ -72,7 +87,7 @@ class DmarcReportRepository
 
             foreach ($report->records as $record) {
                 $line->execute([
-                    $id,
+                    $reportRowId,
                     $record->sourceIp,
                     $record->count,
                     $record->authenticated() ? $record->count : 0,
@@ -83,15 +98,40 @@ class DmarcReportRepository
             $this->pdo->commit();
 
             return true;
-        } catch (\PDOException) {
+        } catch (\PDOException $failure) {
+            // **Everything that is not the race is rethrown**, and the
+            // distinction cost a review to see. A source row that will not
+            // write, or a commit the server refuses, used to come back as
+            // `false` — indistinguishable from « we already had it ». The
+            // consumer then skipped its journal entry and the registry saw
+            // no exception to record, so a database refusing writes looked
+            // exactly like a quiet, ordinary re-read. That is this
+            // chantier's own recurring defect: a failure wearing the shape
+            // of a success.
             $this->pdo->rollBack();
 
-            // **A losing race is not a failure.** Two syncs reading the
-            // same folder at once both pass `alreadyHave()` and one loses
-            // on the unique index; the report is here either way, which is
-            // all the caller wanted.
+            throw $failure;
+        }
+    }
+
+    /**
+     * Whether this is the unique index refusing a report we already hold.
+     *
+     * **Not every `23000` is a duplicate** — that class covers a foreign
+     * key and a NOT NULL just as well, and reading it as « already here »
+     * would swallow the two failures this method exists to let through.
+     * The driver's own code is what separates them: 1062 on MySQL and
+     * MariaDB, 19 on SQLite, 7 on PostgreSQL. `errorInfo()[1]` is that
+     * code; it is null for an error the driver did not number, which is
+     * not a duplicate either.
+     */
+    private static function isDuplicateKey(\PDOException $exception): bool
+    {
+        if (($exception->errorInfo[0] ?? '') !== '23000') {
             return false;
         }
+
+        return in_array($exception->errorInfo[1] ?? null, [1062, 19, 7], true);
     }
 
     private function alreadyHave(DmarcReport $report): bool
@@ -111,6 +151,15 @@ class DmarcReportRepository
      * question the screen asks is « who sends in my name », and one sender
      * appears in as many reports as there are providers receiving from it.
      *
+     * **This one is capped, and every caller has to know it.** It feeds a
+     * table somebody reads, and a table of ten thousand rows is not a
+     * screen. What must NOT be built on it is a total or a verdict: the
+     * counters come from {@see totalsSince()} and the « somebody unknown
+     * is authenticating » scan from {@see authenticatingSourcesSince()},
+     * both uncapped. Reading a capped list as the whole truth is how a
+     * support archive undercounts and how the one warning on that page
+     * misses the source it exists to name.
+     *
      * @return list<array{source_ip: string, messages: int, authenticated: int, reporters: int}>
      */
     public function sourcesSince(\DateTimeImmutable $since, int $limit = 200): array
@@ -122,12 +171,17 @@ class DmarcReportRepository
                     COUNT(DISTINCT r.organisation) AS reporters
                FROM mail_dmarc_sources s
                JOIN mail_dmarc_reports r ON r.id = s.dmarc_report_id
-              WHERE r.period_end >= ?
+              WHERE r.period_end >= :since
               GROUP BY s.source_ip
               ORDER BY messages DESC, s.source_ip ASC
-              LIMIT ' . max(1, $limit)
+              LIMIT :limit'
         );
-        $statement->execute([$since->format('Y-m-d H:i:s')]);
+        // Bound rather than concatenated, `int` or not: « every SQL
+        // statement is prepared » is a shape, and a shape that holds only
+        // where somebody checked the type is not one (AGENTS.md).
+        $statement->bindValue(':since', $since->format('Y-m-d H:i:s'));
+        $statement->bindValue(':limit', max(1, $limit), \PDO::PARAM_INT);
+        $statement->execute();
 
         $sources = [];
         foreach ($statement->fetchAll(\PDO::FETCH_ASSOC) as $row) {
@@ -147,6 +201,9 @@ class DmarcReportRepository
      * what the screen shows to say « these are the providers reporting,
      * and this is the policy they saw ».
      *
+     * Capped like {@see sourcesSince()}, and with the same warning: it is
+     * a list to show, never a count to report.
+     *
      * @return list<array{organisation: string, domain: string, policy: string, period_end: string, messages: int}>
      */
     public function reportsSince(\DateTimeImmutable $since, int $limit = 50): array
@@ -156,12 +213,14 @@ class DmarcReportRepository
                     COALESCE(SUM(s.message_count), 0) AS messages
                FROM mail_dmarc_reports r
                LEFT JOIN mail_dmarc_sources s ON s.dmarc_report_id = r.id
-              WHERE r.period_end >= ?
+              WHERE r.period_end >= :since
               GROUP BY r.id, r.organisation, r.domain, r.policy, r.period_end
               ORDER BY r.period_end DESC, r.organisation ASC
-              LIMIT ' . max(1, $limit)
+              LIMIT :limit'
         );
-        $statement->execute([$since->format('Y-m-d H:i:s')]);
+        $statement->bindValue(':since', $since->format('Y-m-d H:i:s'));
+        $statement->bindValue(':limit', max(1, $limit), \PDO::PARAM_INT);
+        $statement->execute();
 
         $reports = [];
         foreach ($statement->fetchAll(\PDO::FETCH_ASSOC) as $row) {
@@ -175,6 +234,102 @@ class DmarcReportRepository
         }
 
         return $reports;
+    }
+
+    /**
+     * The window's figures, computed by the database over every row.
+     *
+     * **Separate from the two lists above because it must not be capped.**
+     * A total summed in PHP from a capped list is a total of whatever
+     * happened to fit, and the support archive that carried it would
+     * undercount an installation's traffic without ever saying so — which
+     * is worse than no figure, because a wrong figure is acted on.
+     *
+     * @return array{reports: int, sources: int, messages: int, authenticated: int, reporters: int}
+     */
+    public function totalsSince(\DateTimeImmutable $since): array
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT COUNT(DISTINCT r.id) AS reports,
+                    COUNT(DISTINCT s.source_ip) AS sources,
+                    COUNT(DISTINCT r.organisation) AS reporters,
+                    COALESCE(SUM(s.message_count), 0) AS messages,
+                    COALESCE(SUM(s.authenticated_count), 0) AS authenticated
+               FROM mail_dmarc_reports r
+               LEFT JOIN mail_dmarc_sources s ON s.dmarc_report_id = r.id
+              WHERE r.period_end >= :since'
+        );
+        $statement->bindValue(':since', $since->format('Y-m-d H:i:s'));
+        $statement->execute();
+
+        $row = $statement->fetch(\PDO::FETCH_ASSOC) ?: [];
+
+        return [
+            'reports' => (int) ($row['reports'] ?? 0),
+            'sources' => (int) ($row['sources'] ?? 0),
+            'messages' => (int) ($row['messages'] ?? 0),
+            'authenticated' => (int) ($row['authenticated'] ?? 0),
+            'reporters' => (int) ($row['reporters'] ?? 0),
+        ];
+    }
+
+    /**
+     * Every distinct policy the reporters saw published over the window.
+     *
+     * @return list<string>
+     */
+    public function policiesSince(\DateTimeImmutable $since): array
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT DISTINCT policy FROM mail_dmarc_reports WHERE period_end >= :since ORDER BY policy ASC'
+        );
+        $statement->bindValue(':since', $since->format('Y-m-d H:i:s'));
+        $statement->execute();
+
+        return array_map(
+            static fn(mixed $policy): string => (string) $policy,
+            $statement->fetchAll(\PDO::FETCH_COLUMN) ?: []
+        );
+    }
+
+    /**
+     * The addresses that got a message through, and nothing else.
+     *
+     * **This is what the page's one warning has to be computed from.** The
+     * sentence it raises — « quelqu'un que nous ne reconnaissons pas envoie
+     * en votre nom et y parvient » — is worth saying only if it cannot be
+     * missed, and computing it from the two hundred rows the table happens
+     * to show means missing exactly the quiet sender that matters: one
+     * forgotten tool sending forty messages sorts below two hundred noisy
+     * ones and disappears from the verdict along with the row.
+     *
+     * Only the authenticating addresses, because a source whose messages
+     * all fail raises nothing — so the set is far smaller than « every
+     * source », and the ceiling here is a guard against absurdity rather
+     * than a page size.
+     *
+     * @return list<string>
+     */
+    public function authenticatingSourcesSince(\DateTimeImmutable $since, int $limit = 5000): array
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT s.source_ip AS source_ip
+               FROM mail_dmarc_sources s
+               JOIN mail_dmarc_reports r ON r.id = s.dmarc_report_id
+              WHERE r.period_end >= :since
+              GROUP BY s.source_ip
+             HAVING SUM(s.authenticated_count) > 0
+              ORDER BY s.source_ip ASC
+              LIMIT :limit'
+        );
+        $statement->bindValue(':since', $since->format('Y-m-d H:i:s'));
+        $statement->bindValue(':limit', max(1, $limit), \PDO::PARAM_INT);
+        $statement->execute();
+
+        return array_map(
+            static fn(mixed $address): string => (string) $address,
+            $statement->fetchAll(\PDO::FETCH_COLUMN) ?: []
+        );
     }
 
     /**

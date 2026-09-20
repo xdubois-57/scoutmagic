@@ -106,7 +106,11 @@ final class DmarcConsumer implements MessageConsumerInterface, PayloadConsumerIn
 
         foreach ($payloads as $payload) {
             foreach ($this->archive->membersOf($payload->bytes, $payload->mimeType) as $member) {
-                $report = $this->parser->parse($member);
+                // The clock is passed rather than taken again inside:
+                // the parser refuses a period ending in the future, and
+                // every member of one archive is judged against one
+                // instant rather than against a clock that moved.
+                $report = $this->parser->parse($member, $now);
                 if ($report === null) {
                     continue;
                 }

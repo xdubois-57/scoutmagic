@@ -18,7 +18,8 @@ Chaque grand fournisseur de boîtes aux lettres — Gmail, Outlook, Yahoo —
 tient le compte des messages qu'il reçoit **en votre nom** : ceux dont
 l'expéditeur annonce le domaine de votre unité. Une fois par jour, il
 vous envoie un résumé : quels serveurs ont écrit chez lui avec votre
-adresse, combien de messages, et s'ils étaient correctement signés.
+adresse, combien de messages, et s'ils étaient correctement authentifiés
+par SPF ou par DKIM.
 
 Cette page rassemble ces résumés, et répond à une seule question : **qui
 envoie du courrier en votre nom, et est-ce que ça passe ?**

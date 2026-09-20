@@ -4426,11 +4426,43 @@ which is learned weeks later from the person receiving nothing. An
 unrecognised source whose messages all fail is a spoof being stopped,
 and a warning there would cry wolf on every page.
 
-*`KnownSenders` resolves a relay's host to A **and** AAAA*, and a
-resolution that fails puts the source in « autres » — the safe side:
-wrong that way costs ten minutes, wrong the other way labels an unknown
-sender « votre relais » and nobody looks again. The host itself never
+*`KnownSenders` renders a remembered reading and never a lookup*, which
+is the rule §8.106's own `DnsCheckMemory` had already written down for
+these screens and which the first version of this class broke: two
+blocking `dns_get_record()` calls per relay, in front of the page people
+open when mail is already broken. The resolution happens in the
+« Vérifier les enregistrements » action — the one place here allowed to
+block on a resolver — and the page reads what it stored. A resolution
+that fails, or that nobody has taken yet, puts the source in « autres »,
+which is the safe side: wrong that way costs ten minutes, wrong the other
+way labels an unknown sender « votre relais » and nobody looks again. A
+and AAAA both, because a relay reached over IPv6 would otherwise be
+« autres » for ever. Addresses are compared as `inet_pton` bytes, since
+`2001:db8::1` and its expanded spelling are one machine and a reporter
+has no reason to write it the way a resolver does. The host itself never
 reaches a screen (SECURITY.md §11); the provider's name does.
+
+*The caps are on the DRAWING, and on nothing else.* `sourcesSince()` and
+`reportsSince()` feed tables and are limited; every count and the one
+warning come from uncapped queries (`totalsSince()`,
+`authenticatingSourcesSince()`). Reading a capped list as the whole truth
+made the support archive undercount and — worse — computed « somebody
+unknown is authenticating » over the two hundred rows that fit, so one
+forgotten tool sending forty messages fell off the table and took the
+only sentence naming it along.
+
+*A period is a fact about the past, and `purgeBefore()` cuts on its end*,
+so the parser refuses an end before its begin and an end beyond our clock
+plus two days. Without that, a report a stranger stamps for 2099 outlives
+every retention rule the site has and sits in each thirty-day window for
+good.
+
+*`record()` re-throws everything that is not the losing race.* Both used
+to answer `false`, so a database refusing writes was indistinguishable
+from an ordinary re-read: no journal line, no exception for the registry
+to record, and a broken installation that looked like a quiet sync. The
+duplicate is identified by the driver's own code (1062 / 19 / 7), never
+by SQLSTATE `23000` alone, which covers a foreign key just as well.
 
 *Ninety days, cut on `period_end`.* `Task\PurgeDmarcReportsHandler`
 self-rearms like `PurgeSendCountersHandler`. Cutting on arrival would

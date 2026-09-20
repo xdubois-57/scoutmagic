@@ -478,39 +478,34 @@ class OutboundMailCollector implements SupportCollectorInterface
 
         try {
             $since = (new \DateTimeImmutable())->sub(new \DateInterval('P30D'));
-            $sources = $this->dmarc->sourcesSince($since);
-            $reports = $this->dmarc->reportsSince($since);
+            // **Aggregates, never the screens' capped lists.** Counting
+            // the rows a table happens to draw was the first version, and
+            // it would have had this archive report « 200 sources » to a
+            // third party helping with a problem, from an installation
+            // that had a thousand. A wrong figure is worse than none,
+            // because a wrong figure gets acted on.
+            $totals = $this->dmarc->totalsSince($since);
+            $policies = $this->dmarc->policiesSince($since);
         } catch (\Throwable) {
             return [];
         }
 
         $lines = ['── Rapports DMARC, 30 derniers jours ───────────────────────'];
 
-        if ($sources === []) {
+        if ($totals['reports'] === 0) {
             $lines[] = 'aucun rapport reçu';
             $lines[] = '';
 
             return $lines;
         }
 
-        $messages = 0;
-        $authenticated = 0;
-        foreach ($sources as $source) {
-            $messages += $source['messages'];
-            $authenticated += $source['authenticated'];
-        }
+        $messages = $totals['messages'];
+        $authenticated = $totals['authenticated'];
 
-        $reporters = [];
-        $policies = [];
-        foreach ($reports as $report) {
-            $reporters[$report['organisation']] = true;
-            $policies[$report['policy']] = true;
-        }
-
-        $lines[] = sprintf('rapports           %d', count($reports));
-        $lines[] = sprintf('fournisseurs       %d', count($reporters));
-        $lines[] = sprintf('politiques vues    %s', implode(', ', array_keys($policies)) ?: '—');
-        $lines[] = sprintf('sources distinctes %d', count($sources));
+        $lines[] = sprintf('rapports           %d', $totals['reports']);
+        $lines[] = sprintf('fournisseurs       %d', $totals['reporters']);
+        $lines[] = sprintf('politiques vues    %s', implode(', ', $policies) ?: '—');
+        $lines[] = sprintf('sources distinctes %d', $totals['sources']);
         $lines[] = sprintf('messages           %d', $messages);
         $lines[] = sprintf(
             'authentifiés       %d (%d%%)',

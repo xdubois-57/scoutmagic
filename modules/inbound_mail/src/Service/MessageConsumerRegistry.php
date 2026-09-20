@@ -170,6 +170,29 @@ class MessageConsumerRegistry
     }
 
     /**
+     * Whether any of these consumers would be handed a payload at all.
+     *
+     * **Asked BEFORE the payloads are built**, because building them is
+     * not free: every attachment of every message is sniffed for its mime
+     * type, on a site where the opt-in contract below may have no
+     * implementer at all. The common installation — `inbound_mail` on,
+     * DMARC off — then pays that on every message it syncs, for a list
+     * this method is about to drop on the floor.
+     *
+     * @param ?list<MessageConsumerInterface> $only
+     */
+    public function wantsPayloads(?array $only = null): bool
+    {
+        foreach ($only ?? $this->all() as $consumer) {
+            if ($consumer instanceof PayloadConsumerInterface) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * The **payload** pass: the few consumers that asked for an
      * attachment's bytes by type get them, bounded by their own ceiling
      * (roadmap IT-06, {@see PayloadConsumerInterface}).

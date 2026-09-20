@@ -236,4 +236,60 @@ class DmarcReportParserTest extends TestCase
 
         $this->assertNull($this->parser->parse($noRange));
     }
+
+    /**
+     * **A period that ends in the future is kept for ever**, which is why
+     * it is refused rather than merely odd.
+     *
+     * `purgeBefore()` cuts on `period_end`, so a report claiming to end in
+     * 2099 outlives every retention rule this site has and sits in each
+     * thirty-day window until somebody notices — from a document a
+     * stranger chose to send, with nothing anywhere saying so. The report
+     * is the cheap thing to lose: another arrives tomorrow.
+     */
+    public function testAPeriodEndingBeyondOurClockIsRefused(): void
+    {
+        $now = new \DateTimeImmutable('2026-09-20 12:00:00', new \DateTimeZone('UTC'));
+        $far = str_replace(
+            '<end>1789430400</end>',
+            '<end>4102444800</end>', // 2100-01-01
+            self::report()
+        );
+
+        $this->assertNull($this->parser->parse($far, $now));
+    }
+
+    /**
+     * And a few hours ahead is NOT refused: the skew being allowed for is
+     * a reporter's clock and timezone handling, not ours, and refusing
+     * those would lose real reports to protect against nothing.
+     */
+    public function testAPeriodEndingSlightlyAheadIsStillRead(): void
+    {
+        $now = new \DateTimeImmutable('@1789430400');
+        $report = $this->parser->parse(self::report(), $now->modify('-6 hours'));
+
+        $this->assertNotNull($report);
+    }
+
+    /** An end before its begin describes no window at all. */
+    public function testAPeriodThatEndsBeforeItBeginsIsRefused(): void
+    {
+        $now = new \DateTimeImmutable('2026-09-20 12:00:00', new \DateTimeZone('UTC'));
+        $backwards = str_replace(
+            '<date_range><begin>1789344000</begin><end>1789430400</end></date_range>',
+            '<date_range><begin>1789430400</begin><end>1789344000</end></date_range>',
+            self::report()
+        );
+
+        $this->assertNull($this->parser->parse($backwards, $now));
+    }
+
+    /** The ordinary case still reads, so the two refusals above are not a blanket one. */
+    public function testAnOrdinaryPastPeriodIsRead(): void
+    {
+        $now = new \DateTimeImmutable('2026-09-20 12:00:00', new \DateTimeZone('UTC'));
+
+        $this->assertNotNull($this->parser->parse(self::report(), $now));
+    }
 }

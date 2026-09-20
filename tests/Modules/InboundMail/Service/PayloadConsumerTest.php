@@ -56,6 +56,28 @@ class PayloadConsumerTest extends TestCase
         return new MessagePayload($name, $mime, str_repeat('x', $bytes));
     }
 
+    /**
+     * **Asked before a single payload is built**, which is the point of
+     * having it at all: `MailboxSyncService` sniffs a mime type per
+     * attachment to build the list, and the ordinary installation —
+     * inbound mail on, nothing implementing this contract — would pay
+     * that on every message it syncs for a list nobody takes.
+     */
+    public function testTheRegistrySaysWhetherAnybodyWantsPayloadsBeforeOneIsBuilt(): void
+    {
+        $registry = new MessageConsumerRegistry();
+        $registry->register(new FakeMessageConsumer(
+            id: 'rental',
+            onAnalyze: static fn(CandidateMessage $m): AnalysisResult => AnalysisResult::nothing()
+        ));
+
+        $this->assertFalse($registry->wantsPayloads(), 'An ordinary consumer declares no payload appetite.');
+
+        $registry->register(new RecordingPayloadConsumer(['application/gzip'], 1024));
+
+        $this->assertTrue($registry->wantsPayloads());
+    }
+
     /** The ordinary case: it asked for gzip, it gets the gzip. */
     public function testAConsumerIsHandedTheTypesItAskedFor(): void
     {

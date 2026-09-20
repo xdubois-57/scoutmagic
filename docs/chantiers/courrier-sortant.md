@@ -2238,6 +2238,62 @@ Deux mégaoctets compressés sont déjà des dizaines de milliers de lignes ;
 une unité scoute n'en produit pas le centième. Refusé et non tronqué, donc
 le silence est lisible au journal plutôt que déguisé en rapport partiel.
 
+### Ce que la relecture a trouvé
+
+Onze trouvailles, toutes de CodeRabbit, et aucune de mes tests. Cinq
+méritent d'être écrites ici parce qu'elles décrivent des défauts que rien
+de ce que j'avais écrit ne pouvait voir.
+
+**La page interrogeait un résolveur DNS à chaque affichage** — deux
+lookups bloquants par relais, devant l'écran qu'on ouvre précisément
+quand le courrier est déjà cassé. Et la règle était déjà écrite, dans ce
+même namespace, pour ces mêmes écrans : le docblock de
+`Core\Mail\DnsCheckMemory` dit mot pour mot « **la page affiche ceci et
+jamais une recherche à elle** », avec le raisonnement complet. Je l'avais
+lu en IT-03 et je l'ai enfreint en IT-06. La résolution vit désormais
+dans l'action « Vérifier les enregistrements », la seule de ce site
+autorisée à bloquer sur un résolveur, et la page lit ce qu'elle a laissé.
+
+**L'avertissement était calculé sur les deux cents lignes du tableau.**
+Le plafond était une décision de présentation, et il est devenu une
+décision de fond sans que personne l'écrive : un outil oublié envoyant
+quarante messages se classe derrière deux cents expéditeurs bruyants,
+tombe hors du tableau, et emporte avec lui la seule phrase qui le
+nommait — sur l'installation précisément assez chargée pour en avoir
+besoin. Les comptes et le verdict viennent maintenant de requêtes non
+plafonnées ; le tableau seul reste plafonné, et le dit.
+
+**Un rapport dont la période se termine en 2099 ne serait jamais purgé.**
+La purge coupe sur `period_end`, donc une date lointaine écrite par un
+inconnu survit à toutes les règles de conservation du site et figure dans
+chaque fenêtre de trente jours. Le lecteur refuse désormais une fin
+antérieure à son début et une fin au-delà de notre horloge plus deux
+jours — deux jours parce que le décalage toléré est celui du **rapporteur**.
+
+**`record()` rendait `false` pour tout échec PDO**, pas seulement pour la
+course perdue. Une base qui refuse d'écrire était donc indiscernable d'un
+« on l'avait déjà » : pas de ligne au journal, pas d'exception pour le
+registre, une installation cassée qui ressemble à une synchronisation
+tranquille. C'est le défaut récurrent de ce chantier — un échec qui
+emprunte la forme d'un succès — pour la quatrième fois. Seule la
+violation d'index rend `false`, reconnue au code du pilote et non au seul
+SQLSTATE `23000`, qui couvre aussi bien une clé étrangère.
+
+**Et mon commentaire sur la bombe surestimait sa propre garantie.** Il
+annonçait `CHUNK` comme borne du pic mémoire ; le relecteur a mesuré
+environ 12 Mio pour une bombe de 40 Mio, contre un plafond de 4 Mio. Ce
+qui est borné, c'est la **sortie accumulée**, pas le transitoire du
+filtre — propriété parfaitement suffisante, mais ce n'est pas celle qui
+était écrite.
+
+**Une trouvaille m'a fait trouver un défaut de plus**, en écrivant son
+test. `json_decode` transforme une clé de tableau entièrement numérique
+en entier : les adresses étant stockées en hexadécimal, `33440101` —
+c'est-à-dire `51.68.1.1` — revenait en `int`, était écartée à la lecture,
+et le relais derrière devenait silencieusement « autre ». Un seul relais,
+ou deux dont les adresses contiennent une lettre, passe au vert sans
+rien dire. C'est le test à deux relais qui l'a attrapé.
+
 ### Reporté
 
 - Une **tendance** (le taux d'authentification semaine après semaine)

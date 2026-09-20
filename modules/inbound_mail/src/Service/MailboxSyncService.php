@@ -279,7 +279,19 @@ class MailboxSyncService
         // the later and better informed of the two.
         $results = array_merge(
             $results,
-            $this->consumerRegistry->analyzeAllPayloads($candidate, $this->payloadsOf($message), $consumers)
+            // The guard is on the OUTSIDE so `payloadsOf()` is not even
+            // called when nothing has declared the payload contract: it
+            // sniffs a mime type per attachment, and on the ordinary
+            // installation — inbound mail on, no payload consumer — that
+            // is work done on every synced message for a list nobody
+            // takes.
+            $this->consumerRegistry->wantsPayloads($consumers)
+                ? $this->consumerRegistry->analyzeAllPayloads(
+                    $candidate,
+                    $this->payloadsOf($message),
+                    $consumers
+                )
+                : []
         );
 
         // The message may already be in this box — after a UIDVALIDITY
