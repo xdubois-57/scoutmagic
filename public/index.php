@@ -745,6 +745,24 @@ $settingService->register(
     false,
     58
 );
+// Whether the site should act on what the seed boxes show, rather than
+// merely showing it (D13, roadmap IT-07). Off, and it stays off unless
+// somebody decides: with three to five boxes and a few mailings a year,
+// routing on two observations is routing on noise, and splitting a
+// sender's volume costs each relay the regular traffic its reputation
+// rests on. `DomainRouting::MINIMUM_RUNS` is the second lock.
+$settingService->register(
+    \Core\Mail\Feedback\Seed\DomainRouting::SETTING_AUTOMATIC,
+    '0',
+    'boolean',
+    'Routage automatique par fournisseur',
+    'Applique de lui-même ce que les boîtes témoins recommandent, au lieu de seulement l\'afficher.',
+    null,
+    null,
+    null,
+    false,
+    59
+);
 $settingService->register(
     'dkim_selector',
     's2026',
@@ -7063,7 +7081,13 @@ $frontController->registerController(
         $inboundMailForOthers === null ? null : $seedMailboxes,
         $inboundMailForOthers === null
             ? null
-            : new \Core\Mail\Feedback\Seed\SeedCopyRepository($pdo, $encryptionService)
+            : new \Core\Mail\Feedback\Seed\SeedCopyRepository($pdo, $encryptionService),
+        $inboundMailForOthers === null
+            ? null
+            : new \Core\Mail\Feedback\Seed\DomainRouting(
+                new \Core\Mail\Feedback\Seed\SeedCopyRepository($pdo, $encryptionService),
+                $settingService
+            )
     )
 );
 

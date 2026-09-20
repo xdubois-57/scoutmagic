@@ -193,12 +193,20 @@ class SeedCopyRepository
      * a total summed from a capped list is a total of whatever fitted, the
      * defect IT-06 shipped and had to fix twice.
      *
-     * @return list<array{provider: string, inbox: int, spam: int, missing: int, pending: int}>
+     * **`runs` counts distinct MAILINGS, not copies**, and the two are
+     * very different evidence: five boxes at one provider on one mailing
+     * say one thing five times. A sample size read off the copies would
+     * cross any threshold on a single observation — which is the noise
+     * D13 exists to refuse, and which a test caught this method claiming
+     * to guard against while it did not.
+     *
+     * @return list<array{provider: string, runs: int, inbox: int, spam: int, missing: int, pending: int}>
      */
     public function tallyByProviderSince(\DateTimeImmutable $since): array
     {
         $statement = $this->pdo->prepare(
             'SELECT provider,
+                    COUNT(DISTINCT CASE WHEN verdict <> \'pending\' THEN run_reference END) AS runs,
                     SUM(CASE WHEN verdict = \'inbox\'   THEN 1 ELSE 0 END) AS inbox,
                     SUM(CASE WHEN verdict = \'spam\'    THEN 1 ELSE 0 END) AS spam,
                     SUM(CASE WHEN verdict = \'missing\' THEN 1 ELSE 0 END) AS missing,
@@ -215,6 +223,7 @@ class SeedCopyRepository
         foreach ($statement->fetchAll(\PDO::FETCH_ASSOC) as $row) {
             $tally[] = [
                 'provider' => (string) $row['provider'],
+                'runs' => (int) $row['runs'],
                 'inbox' => (int) $row['inbox'],
                 'spam' => (int) $row['spam'],
                 'missing' => (int) $row['missing'],

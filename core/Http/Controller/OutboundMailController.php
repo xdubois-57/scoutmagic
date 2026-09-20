@@ -176,7 +176,9 @@ class OutboundMailController extends AbstractController
          * promise it cannot keep.
          */
         private ?\Core\Mail\Feedback\Seed\SeedMailboxes $seedMailboxes = null,
-        private ?\Core\Mail\Feedback\Seed\SeedCopyRepository $seedCopies = null
+        private ?\Core\Mail\Feedback\Seed\SeedCopyRepository $seedCopies = null,
+        /** What the results recommend, and whether it is applied (D13). */
+        private ?\Core\Mail\Feedback\Seed\DomainRouting $routing = null
     ) {
     }
 
@@ -316,6 +318,17 @@ class OutboundMailController extends AbstractController
             'providers' => $this->seedProviders($addresses),
             'runs' => $this->seedRuns($since),
             'window_days' => 30,
+            // **The recommendation, and the fact that it is one** (D13).
+            // Shown beside the results rather than acted on: with three to
+            // five boxes and a few mailings a year, routing on two
+            // observations is routing on noise, and splitting a sender's
+            // volume costs each relay the regular traffic its standing
+            // rests on. The automatism exists, behind a switch and a
+            // minimum sample, and the screen says which of the two it is
+            // looking at.
+            'readings' => $this->routing?->readings($since) ?? [],
+            'routing_automatic' => $this->routing?->isAutomatic() ?? false,
+            'minimum_runs' => \Core\Mail\Feedback\Seed\DomainRouting::MINIMUM_RUNS,
             'current_path' => self::SEEDS_URL,
             'inbound_url' => '/config/courrier-entrant',
         ]);

@@ -38,7 +38,7 @@
             <p class="text-body-secondary small">
                 Une boîte témoin est une boîte aux lettres ordinaire de votre unité, que vous déclarez
                 dans <a href="{{ inbound_url }}">Courrier entrant</a> comme les autres, et à laquelle vous
-                ouvrez la portée « {{ 'Courrier sortant — boîtes témoins' }} ». Quand l'option ci-dessous
+                ouvrez la portée « Courrier sortant — boîtes témoins ». Quand l'option ci-dessous
                 est active, chaque publipostage part aussi vers ces boîtes : le site regarde ensuite dans
                 quel dossier la copie a atterri — réception ou indésirables — puis efface le message.
             </p>
@@ -89,7 +89,7 @@
                 que vers vos propres boîtes, jamais vers un service extérieur.
             </p>
             <form method="post" action="{{ current_path }}/activation">
-                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                {{ csrf_field()|raw }}
                 <input type="hidden" name="enabled" value="{{ enabled ? '0' : '1' }}">
                 <button type="submit" class="btn {{ enabled ? 'btn-outline-danger' : 'btn-primary' }}">
                     {{ enabled ? 'Désactiver les copies' : 'Activer les copies' }}
@@ -147,6 +147,72 @@
             {% endif %}
         </div>
     </div>
+
+    {# **La recommandation, et le fait que c'en soit une** (D13). Affichée
+       à côté des résultats plutôt qu'appliquée : avec trois à cinq boîtes
+       et quelques envois par an, router sur deux observations c'est
+       router sur du bruit, et fractionner le volume prive chaque relais
+       du trafic régulier dont sa réputation dépend. #}
+    {% if readings is not empty %}
+        <div class="card mb-3">
+            <div class="card-body">
+                <h2 class="h5">Ce que ces résultats suggèrent</h2>
+                <p class="text-body-secondary small">
+                    Le site n'applique rien de lui-même
+                    {% if routing_automatic %}<strong>— sauf que vous avez activé le routage automatique</strong>{% endif %}.
+                    Il faut au moins <strong>{{ minimum_runs }} envois mesurés</strong> chez un fournisseur pour
+                    qu'un constat veuille dire quelque chose : en dessous, une seule campagne malchanceuse fait
+                    la majorité des observations.
+                </p>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th scope="col">Fournisseur</th>
+                                <th scope="col" class="text-end">Envois mesurés</th>
+                                <th scope="col" class="text-end">Réception</th>
+                                <th scope="col" class="text-end">Indésirables</th>
+                                <th scope="col" class="text-end">Jamais arrivés</th>
+                                <th scope="col">Constat</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for reading in readings %}
+                                <tr>
+                                    <td>{{ reading.provider }}</td>
+                                    <td class="text-end">{{ reading.runs }}</td>
+                                    <td class="text-end">{{ reading.inbox }}</td>
+                                    <td class="text-end">
+                                        {% if reading.spam > 0 %}
+                                            <span class="text-warning-emphasis">{{ reading.spam }}</span>
+                                        {% else %}0{% endif %}
+                                    </td>
+                                    <td class="text-end">
+                                        {% if reading.missing > 0 %}
+                                            <span class="text-danger">{{ reading.missing }}</span>
+                                        {% else %}0{% endif %}
+                                    </td>
+                                    <td>
+                                        {% if reading.troubled %}
+                                            <span class="badge text-bg-warning-subtle">{{ reading.verdict }}</span>
+                                        {% else %}
+                                            <span class="text-body-secondary small">{{ reading.verdict }}</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <p class="text-body-secondary small mb-0">
+                    <strong>Changer de relais pour un fournisseur n'est pas gratuit.</strong> La réputation d'un
+                    relais se construit sur un trafic régulier : en envoyer une partie ailleurs donne à chacun
+                    moins de ce dont sa réputation dépend. Un constat répété sur plusieurs envois vaut qu'on
+                    agisse ; un mauvais mois, non.
+                </p>
+            </div>
+        </div>
+    {% endif %}
 
     <div class="alert alert-info">
         <h2 class="h6">Ce que ces résultats ne disent pas</h2>
