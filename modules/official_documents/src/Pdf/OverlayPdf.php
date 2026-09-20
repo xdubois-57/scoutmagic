@@ -51,6 +51,9 @@ final class OverlayPdf extends Fpdi
 
     private const SHRINK_STEP = 0.25;
 
+    /** How far a tick's strokes reach beyond the square they cross. */
+    private const TICK_OVERHANG = 0.35;
+
     public function __construct()
     {
         parent::__construct('P', 'mm', 'A4');
@@ -125,6 +128,92 @@ final class OverlayPdf extends Fpdi
         $this->Text($field->x, $field->baselineY, $value);
 
         return $this->GetStringWidth($value) <= $field->width;
+    }
+
+    /**
+     * Fit a free-text answer onto the printed lines the form gives it, and
+     * say whether it all got there.
+     *
+     * The health sheet asks for allergies, treatments and « toute
+     * information utile » on two or three dotted lines and nothing more, so
+     * a parent who writes a paragraph is writing more than the federation's
+     * form holds. This wraps on word boundaries at each line's own width —
+     * the first of them is often a stub, 11 mm on « Mentionnez toute
+     * information utile » — and reports what did not fit.
+     *
+     * **It never truncates in silence.** The caller is told, and the screen
+     * tells the parent, which is the chantier's rule: discovering on paper
+     * that half a treatment is missing is the one outcome worth building
+     * against.
+     *
+     * A single word longer than its whole line is put on that line anyway
+     * rather than dropped or looped on — `writeText()` then shrinks it, and
+     * the overflow is reported either way.
+     *
+     * @param list<TextField> $lines the form's own lines, in reading order
+     * @return array{lines: list<string>, overflow: bool} one string per
+     *         line (padded with empties), and whether anything was left
+     */
+    public function wrapInto(string $value, array $lines): array
+    {
+        $value = self::sanitise($value);
+        $filled = array_fill(0, count($lines), '');
+        if ($value === '') {
+            return ['lines' => $filled, 'overflow' => false];
+        }
+        if ($lines === []) {
+            // An answer the layout gave no line to. Reported rather than
+            // dropped: silence here is a family's treatment missing from a
+            // document with nothing anywhere to say so.
+            return ['lines' => $filled, 'overflow' => true];
+        }
+
+        $words = explode(' ', $value);
+        $next = 0;
+        foreach ($lines as $index => $line) {
+            $this->SetFont(self::FONT_FAMILY, '', $line->fontSize);
+            $current = '';
+            while ($next < count($words)) {
+                $candidate = $current === '' ? $words[$next] : $current . ' ' . $words[$next];
+                if ($current !== '' && $this->GetStringWidth($candidate) > $line->width) {
+                    break;
+                }
+                $current = $candidate;
+                $next++;
+                // A first word that is already too wide has been taken, so
+                // the loop always advances; it stops here rather than
+                // cramming a second word beside it.
+                if ($this->GetStringWidth($current) > $line->width) {
+                    break;
+                }
+            }
+            $filled[$index] = $current;
+        }
+
+        return ['lines' => $filled, 'overflow' => $next < count($words)];
+    }
+
+    /**
+     * Draw the cross a parent would draw, in a square the form printed.
+     *
+     * Two strokes rather than a glyph: the two box sizes on the health
+     * sheet are 1.35 mm and 2.2 mm, and a « ✗ » sized to sit inside either
+     * of them would depend on font metrics for something that is two lines.
+     *
+     * Deliberately drawn slightly wider than the square. A cross confined
+     * inside a 1.35 mm box is a smudge on paper; overhanging it reads as a
+     * mark somebody made, which is exactly what it is.
+     */
+    public function tick(TickBox $box): void
+    {
+        $left = $box->x - self::TICK_OVERHANG;
+        $top = $box->y - self::TICK_OVERHANG;
+        $right = $box->x + $box->size + self::TICK_OVERHANG;
+        $bottom = $box->y + $box->size + self::TICK_OVERHANG;
+
+        $this->SetLineWidth(0.35);
+        $this->Line($left, $top, $right, $bottom);
+        $this->Line($left, $bottom, $right, $top);
     }
 
     /**

@@ -42,8 +42,13 @@ final class HealthSheetTest extends TestCase
             HealthSheet::CONDITIONS,
             array_fill(0, count(HealthSheet::CONDITIONS), true)
         );
-        // The one closed vocabulary: anything else reads as unanswered.
+        // The closed vocabularies: anything else reads as unanswered, so
+        // « valeur-swimming_level » would come back empty and make this
+        // fixture lie about a round trip.
         $data['swimming_level'] = 'fair';
+        $data['participation'] = 'yes';
+        $data['tetanus_vaccinated'] = 'no';
+        $data['treatment_autonomy'] = 'yes';
 
         return $data;
     }

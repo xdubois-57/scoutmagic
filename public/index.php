@@ -6524,7 +6524,10 @@ if ($isEnabled('official_documents')) {
         new \Modules\OfficialDocuments\Controller\HealthSheetController(
             $twig,
             $officialDocumentsAccess,
-            $healthSheetService
+            $healthSheetService,
+            new \Modules\OfficialDocuments\Service\HealthSheetPdfService(
+                \Modules\OfficialDocuments\Pdf\TemplateLibrary::shipped()
+            )
         )
     );
 

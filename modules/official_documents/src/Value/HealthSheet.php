@@ -42,6 +42,24 @@ final class HealthSheet
     public const SWIMMING_LEVELS = ['', 'very_good', 'good', 'fair', 'poor', 'not_at_all'];
 
     /**
+     * The three answers to a printed OUI/NON question, the third being
+     * « the family did not say ».
+     *
+     * Three questions on the form are a pair of squares and nothing else —
+     * « peut-elle participer aux activités proposées ? », « est-elle en
+     * ordre de vaccination contre le tétanos ? » and « est-elle autonome
+     * dans la prise de ces médicaments ? ». They were free text when this
+     * class was first written, which meant a parent could answer « oui
+     * sauf la natation » and the PDF would cross neither square.
+     *
+     * **The empty string is never « non ».** A question left alone leaves
+     * both squares blank, exactly as a paper form handed back half-filled
+     * does. Crossing NON for a family who said nothing would be the site
+     * making a medical statement on their behalf.
+     */
+    public const YES_NO = ['', 'yes', 'no'];
+
+    /**
      * The twelve conditions the form lists as tick-boxes, **in the order it
      * prints them** — three rows of four, read left to right.
      *
@@ -144,6 +162,16 @@ final class HealthSheet
 
         $level = $text('swimming_level');
 
+        // Same closed-vocabulary rule as the swimming level, and same
+        // reason: these three are squares on the printed form, so a value
+        // none of them matches reads as unanswered rather than being kept
+        // and silently crossing nothing.
+        $choice = static function (string $key) use ($text): string {
+            $value = $text($key);
+
+            return in_array($value, self::YES_NO, true) ? $value : '';
+        };
+
         return new self(
             contact1Name: $text('contact1_name'),
             contact1Relationship: $text('contact1_relationship'),
@@ -160,7 +188,7 @@ final class HealthSheet
             doctorPhone: $text('doctor_phone'),
             height: $text('height'),
             weight: $text('weight'),
-            participation: $text('participation'),
+            participation: $choice('participation'),
             participationDetails: $text('participation_details'),
             // An unknown level reads as unanswered rather than being kept:
             // the PDF ticks one of five printed boxes, and a value none of
@@ -170,13 +198,13 @@ final class HealthSheet
             conditionsDetails: $text('conditions_details'),
             illnessesAndOperations: $text('illnesses_and_operations'),
             usefulInformation: $text('useful_information'),
-            tetanusVaccinated: $text('tetanus_vaccinated'),
+            tetanusVaccinated: $choice('tetanus_vaccinated'),
             tetanusLastBooster: $text('tetanus_last_booster'),
             allergies: $text('allergies'),
             allergyConsequences: $text('allergy_consequences'),
             diet: $text('diet'),
             treatment: $text('treatment'),
-            treatmentAutonomy: $text('treatment_autonomy')
+            treatmentAutonomy: $choice('treatment_autonomy')
         );
     }
 

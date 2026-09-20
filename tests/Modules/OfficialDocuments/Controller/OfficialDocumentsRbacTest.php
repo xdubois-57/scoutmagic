@@ -23,6 +23,7 @@ use Modules\OfficialDocuments\Controller\HealthSheetController;
 use Modules\OfficialDocuments\Controller\ParentalAuthorizationController;
 use Modules\OfficialDocuments\Repository\HealthSheetRepository;
 use Modules\OfficialDocuments\Security\OwnMemberOnly;
+use Modules\OfficialDocuments\Service\HealthSheetPdfService;
 use Modules\OfficialDocuments\Service\HealthSheetService;
 use Modules\OfficialDocuments\Pdf\TemplateLibrary;
 use Modules\OfficialDocuments\Service\ParentalAuthorizationPdfService;
@@ -226,7 +227,8 @@ final class OfficialDocumentsRbacTest extends TestCase
             new HealthSheetController(
                 $twig,
                 new OwnMemberOnly($memberService),
-                new HealthSheetService($this->createStub(HealthSheetRepository::class))
+                new HealthSheetService($this->createStub(HealthSheetRepository::class)),
+                new HealthSheetPdfService(TemplateLibrary::shipped())
             )
         );
 

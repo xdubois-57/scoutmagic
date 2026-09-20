@@ -20,6 +20,25 @@
 {% block title %}Fiche santé — {{ site_name }}{% endblock %}
 
 {% block content %}
+{% set yes_no_options = [
+    { value: '', label: 'Non précisé' },
+    { value: 'yes', label: 'Oui' },
+    { value: 'no', label: 'Non' },
+] %}
+{#
+  The label each free-text answer carries above, so an overflow can name
+  the box the parent has to shorten rather than a coordinate.
+#}
+{% set line_labels = {
+    'participation_details': 'Précisions sur la participation aux activités',
+    'conditions_details': 'Fréquence, gravité, mesures à prendre',
+    'illnesses_and_operations': 'Maladies et opérations',
+    'useful_information': 'Autres informations utiles',
+    'allergies': 'Allergies',
+    'allergy_consequences': 'Conséquences et mesures à prendre',
+    'diet': 'Régime alimentaire',
+    'treatment': 'Traitement en cours',
+} %}
 <div class="page-narrow">
     {% include 'partials/page_header.html.twig' with {
         title: 'Fiche santé',
@@ -40,6 +59,34 @@
         Le document imprimé n'a aucune valeur tant qu'il n'est pas signé à la main.
         Seule la version signée et remise à l'animateur compte.
     </div>
+
+    {% if document_error %}
+        <div class="alert alert-danger" role="alert">{{ document_error }}</div>
+    {% endif %}
+
+    {#
+      What will NOT fit on the federation's form, said here and not
+      discovered on paper. The document stays downloadable — what fits is
+      written, nothing is cut in silence — so this warns rather than blocks:
+      a family whose allergy list runs long still needs their form, and they
+      are the ones who know what can be shortened.
+    #}
+    {% if overflowing is not empty %}
+        <div class="alert alert-warning" role="alert">
+            <p class="mb-1">
+                Le formulaire officiel ne réserve que quelques lignes imprimées à certaines réponses.
+                Ce que vous avez écrit ici ne tiendra pas entièrement sur le document :
+            </p>
+            <ul class="mb-1">
+                {% for name in overflowing %}
+                    <li>{{ line_labels[name]|default(name) }}</li>
+                {% endfor %}
+            </ul>
+            <p class="mb-0">
+                Raccourcissez ces réponses, ou joignez une feuille séparée à la fiche imprimée.
+            </p>
+        </div>
+    {% endif %}
 
     <form method="post" action="/members/{{ member.memberYearId }}/fiche-sante">
         {{ csrf_field()|raw }}
@@ -182,11 +229,21 @@
                             </div>
                         </div>
 
+                        {#
+                          Three questions below are a PAIR OF SQUARES on the
+                          printed form and nothing else, so the screen offers
+                          the same three answers the paper does — including
+                          « Non précisé », which leaves both squares blank.
+                          A free-text box here let a parent answer « oui sauf
+                          la natation » and the document crossed neither.
+                        #}
                         {% include 'partials/form_field.html.twig' with {
                             field_id: 'participation', field_name: 'participation',
-                            label: 'Peut participer à toutes les activités',
+                            type: 'select',
+                            label: 'Peut participer à toutes les activités proposées',
                             value: sheet.participation,
-                            help: 'Par exemple : oui, ou non avec les précisions ci-dessous.',
+                            options: yes_no_options,
+                            help: 'Sport, excursions, jeux, baignade… Précisez ci-dessous si besoin.',
                         } only %}
                         {% include 'partials/form_field.html.twig' with {
                             field_id: 'participation-details', field_name: 'participation_details',
@@ -268,8 +325,10 @@
                             <div class="col-12 col-sm-6">
                                 {% include 'partials/form_field.html.twig' with {
                                     field_id: 'tetanus', field_name: 'tetanus_vaccinated',
-                                    label: 'Vacciné contre le tétanos',
+                                    type: 'select',
+                                    label: 'En ordre de vaccination contre le tétanos',
                                     value: sheet.tetanus_vaccinated,
+                                    options: yes_no_options,
                                 } only %}
                             </div>
                             <div class="col-12 col-sm-6">
@@ -306,8 +365,10 @@
                         } only %}
                         {% include 'partials/form_field.html.twig' with {
                             field_id: 'treatment-autonomy', field_name: 'treatment_autonomy',
-                            label: 'Votre enfant le prend-il seul ?',
+                            type: 'select',
+                            label: 'Votre enfant prend-il ce traitement seul ?',
                             value: sheet.treatment_autonomy,
+                            options: yes_no_options,
                         } only %}
                     </div>
                 </div>
@@ -319,6 +380,26 @@
                 <i class="bi bi-check-lg me-1" aria-hidden="true"></i>Enregistrer
             </button>
         </div>
+    </form>
+
+    {#
+      A form of its own, and a POST rather than a link: everything on this
+      document is a child's health, and a GET is what a proxy log, a browser
+      history and a `Referer` header keep.
+
+      Outside the form above on purpose — this downloads what was LAST
+      SAVED, so mixing the two buttons would suggest that unsaved edits come
+      out on the paper. The sentence under the button says so.
+    #}
+    <form method="post" action="/members/{{ member.memberYearId }}/fiche-sante/pdf" class="mt-3">
+        {{ csrf_field()|raw }}
+        <button type="submit" class="btn btn-outline-primary">
+            <i class="bi bi-file-earmark-pdf me-1" aria-hidden="true"></i>Télécharger la fiche à imprimer
+        </button>
+        <span class="d-block small text-body-secondary mt-1">
+            Le formulaire officiel de la fédération, pré-rempli avec ce qui est enregistré ici.
+            Enregistrez d'abord si vous venez de modifier quelque chose.
+        </span>
     </form>
 
     {#

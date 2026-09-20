@@ -2,7 +2,7 @@
   "id": "official_documents",
   "name": "Documents officiels",
   "description": "Les formulaires officiels de la fédération, pré-remplis avec ce que le site sait déjà : autorisation parentale et fiche santé, à imprimer, signer et remettre à l'animateur.",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "routes": [
     {
       "path": "/members/{id}/autorisation-parentale",
@@ -57,6 +57,15 @@
       "method": "POST",
       "controller": "Modules\\OfficialDocuments\\Controller\\HealthSheetController",
       "action": "clear",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/members/{id}/fiche-sante/pdf",
+      "method": "POST",
+      "controller": "Modules\\OfficialDocuments\\Controller\\HealthSheetController",
+      "action": "download",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""
