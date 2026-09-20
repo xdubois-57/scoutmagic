@@ -261,7 +261,7 @@ class SchedulerBootstrapTest extends TestCase
         $consumers = (new \ReflectionProperty(\Modules\InboundMail\Service\MessageConsumerRegistry::class, 'consumers'))
             ->getValue($registry);
 
-        $this->assertCount(5, $consumers);
+        $this->assertCount(6, $consumers);
         // The core's own round trip is registered unconditionally — it
         // belongs to the core, not to a module, so there is no module id
         // to test for (roadmap IT-03). It claims nothing, so its position
@@ -282,10 +282,17 @@ class SchedulerBootstrapTest extends TestCase
         // the web registry alone, the sub-page would offer a scope that
         // nothing ever asks anything of.
         $this->assertInstanceOf(\Core\Mail\Feedback\Dmarc\DmarcConsumer::class, $consumers[2]);
-        $this->assertInstanceOf(\Modules\Rental\Mail\RentalMessageConsumer::class, $consumers[3]);
+        // The seed copies (roadmap IT-07), and this assertion carries more
+        // than the others: it is the ONLY consumer that can have a message
+        // deleted from somebody's mailbox, and this registry is the only
+        // one on which that can happen. Registered on the web one alone,
+        // the scope would be offered, boxes granted, copies sent — and
+        // nothing would ever measure or empty them.
+        $this->assertInstanceOf(\Core\Mail\Feedback\Seed\SeedConsumer::class, $consumers[3]);
+        $this->assertInstanceOf(\Modules\Rental\Mail\RentalMessageConsumer::class, $consumers[4]);
         // Last, and load-bearing: first-claim-wins, and a dedicated camps
         // mailbox claims everything it is offered.
-        $this->assertInstanceOf(\Modules\Camps\Mail\CampsMessageConsumer::class, $consumers[4]);
+        $this->assertInstanceOf(\Modules\Camps\Mail\CampsMessageConsumer::class, $consumers[5]);
     }
 
     public function testTheSyncFactoryIsNotRegisteredWhenInboundMailIsDisabled(): void

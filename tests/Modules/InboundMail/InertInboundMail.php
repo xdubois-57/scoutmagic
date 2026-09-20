@@ -191,6 +191,14 @@ trait InertInboundMail
     }
 
     /**
+     * @return list<list<string>>
+     */
+    public function watchedFoldersFor(string $consumerId): array
+    {
+        return [];
+    }
+
+    /**
      * @param string[] $ownReferences
      */
     public function dismissCandidate(

@@ -1,0 +1,297 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  Courrier sortant › Boîtes témoins (roadmap IT-07).
+
+  Three things this page must not omit:
+
+  - A seed box is an ordinary inbound mailbox (D10). There is no new kind
+    of box to create here, so the page sends the operator to the page that
+    already declares them rather than growing a second one.
+  - Three to five suffice, and MORE IS WORSE. These boxes never read their
+    mail, so past a handful they drag down the engagement the large
+    providers score a sender on — a unit measuring harder would be making
+    its own delivery worse.
+  - A copy carries real members' data into every declared box, which is why
+    the switch is off until somebody turns it on and why the change is
+    journalled at `security`.
+#}
+{% extends 'base.html.twig' %}
+{% block title %}Boîtes témoins — {{ site_name }}{% endblock %}
+{% block content %}
+{% include 'partials/page_header.html.twig' with {
+    title: 'Boîtes témoins',
+    subtitle: "Où vos publipostages atterrissent réellement, fournisseur par fournisseur.",
+} only %}
+
+{% include 'config/outbound_mail/_nav.html.twig' %}
+
+{% if not available %}
+    <div class="alert alert-warning">{{ unavailable_reason }}</div>
+{% else %}
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5">Comment ça marche</h2>
+            <p class="text-body-secondary small">
+                Une boîte témoin est une boîte aux lettres ordinaire de votre unité, que vous déclarez
+                dans <a href="{{ inbound_url }}">Courrier entrant</a> comme les autres, et à laquelle vous
+                ouvrez la portée « Courrier sortant — boîtes témoins ». Quand l'option ci-dessous
+                est active, chaque publipostage part aussi vers ces boîtes : le site regarde ensuite dans
+                quel dossier la copie a atterri — réception ou indésirables — puis efface le message.
+            </p>
+            <p class="text-body-secondary small mb-0">
+                Prenez des boîtes chez des fournisseurs différents : c'est la comparaison entre eux qui
+                vous apprend quelque chose, pas le nombre.
+            </p>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5">Vos boîtes témoins</h2>
+            {% if box_count == 0 %}
+                {% include 'partials/empty_state.html.twig' with {
+                    message: 'Aucune boîte témoin déclarée.',
+                    compact: true,
+                } only %}
+                <p class="text-body-secondary small mt-2 mb-0">
+                    Déclarez une boîte dans <a href="{{ inbound_url }}">Courrier entrant</a>, puis ouvrez-lui
+                    la portée « boîtes témoins ». Tant qu'il n'y en a aucune, activer l'option ci-dessous
+                    n'enverra rien nulle part.
+                </p>
+            {% else %}
+                <p class="mb-2">
+                    <strong>{{ box_count }}</strong> boîte(s) déclarée(s)
+                    {% if providers is not empty %}
+                        chez : {{ providers|join(', ') }}
+                    {% endif %}
+                </p>
+                {# The default configuration's blind spot, said before the
+                   reader trusts the results table it makes wrong: a box
+                   read only in its inbox reports « jamais arrivé » for
+                   every copy the provider shelved as spam. #}
+                {% if blind_boxes > 0 %}
+                    <div class="alert alert-danger">
+                        <strong>{{ blind_boxes }} boîte(s) témoin(s) ne surveille(nt) pas leur dossier
+                        « Indésirables ».</strong>
+                        Une boîte est lue dans sa boîte de réception et nulle part ailleurs tant que vous
+                        n'ajoutez pas d'autres dossiers. Un message classé en indésirables n'y est donc
+                        jamais vu, et il finit compté « jamais arrivé » — le pire verdict de ce tableau,
+                        pour un message pourtant distribué. Ajoutez le dossier des indésirables à ces
+                        boîtes dans <a href="{{ inbound_url }}">Courrier entrant</a> : c'est exactement la
+                        différence que cette page existe pour mesurer.
+                    </div>
+                {% endif %}
+                {% if box_count > suggested_maximum %}
+                    <div class="alert alert-warning mb-0">
+                        <strong>Trois à cinq boîtes suffisent, et au-delà cela se retourne contre vous.</strong>
+                        Ces boîtes ne lisent jamais leur courrier, ne répondent jamais et ne cliquent jamais.
+                        Les grands fournisseurs notent un expéditeur sur l'engagement de ses destinataires :
+                        trop de témoins et vous dégradez vous-même la délivrabilité que vous mesurez.
+                    </div>
+                {% endif %}
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5">Copier les publipostages vers ces boîtes</h2>
+            <p class="text-body-secondary small">
+                Une copie contient le message réel, donc les données personnelles qu'il porte. Elle ne part
+                que vers vos propres boîtes, jamais vers un service extérieur.
+            </p>
+            <form method="post" action="{{ current_path }}/activation">
+                {{ csrf_field()|raw }}
+                <input type="hidden" name="enabled" value="{{ enabled ? '0' : '1' }}">
+                <button type="submit" class="btn {{ enabled ? 'btn-outline-danger' : 'btn-primary' }}">
+                    {{ enabled ? 'Désactiver les copies' : 'Activer les copies' }}
+                </button>
+                <span class="ms-2 badge {{ enabled ? 'text-bg-success-subtle' : 'text-bg-secondary-subtle' }}">
+                    {{ enabled ? 'Actives' : 'Inactives' }}
+                </span>
+            </form>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5">Résultats, {{ window_days }} derniers jours</h2>
+            {% if runs is empty %}
+                {% include 'partials/empty_state.html.twig' with {
+                    message: 'Aucun publipostage mesuré sur la période.',
+                    compact: true,
+                } only %}
+            {% else %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th scope="col">Envoi</th>
+                                {% for provider in columns %}
+                                    <th scope="col">{{ provider }}</th>
+                                {% endfor %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for run in runs %}
+                                <tr>
+                                    <td>{{ run.sent_at }}</td>
+                                    {% for provider in columns %}
+                                        <td>
+                                            {% if run.cells[provider] is defined %}
+                                                {% set cell = run.cells[provider] %}
+                                                <span class="badge text-bg-{{ cell.badge == 'neutral'
+                                                    ? 'secondary-subtle'
+                                                    : cell.badge ~ '-subtle' }}">{{ cell.label }}</span>
+                                                {% if cell.folder %}
+                                                    <span class="d-block text-body-secondary small">{{ cell.folder }}</span>
+                                                {% endif %}
+                                            {% else %}
+                                                <span class="text-body-secondary">—</span>
+                                            {% endif %}
+                                        </td>
+                                    {% endfor %}
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    {# **The recommendation, and the fact that it is one** (D13). A button
+       per provider, never a rule the site applies by itself: with three to
+       five boxes and a few mailings a year, routing on two observations is
+       routing on noise, and splitting the volume costs each relay the
+       regular traffic its reputation rests on. The automatism exists, but
+       behind the switch below and behind a minimum sample. #}
+    {% if readings is not empty %}
+        <div class="card mb-3">
+            <div class="card-body">
+                <h2 class="h5">Ce que ces résultats suggèrent</h2>
+                <p class="text-body-secondary small">
+                    {% if routing_automatic %}
+                        <strong>Le site applique de lui-même ce qui suit</strong>, parce que vous l'avez demandé.
+                    {% else %}
+                        Le site n'applique rien de lui-même : c'est le bouton de chaque ligne qui décide.
+                    {% endif %}
+                    Il faut au moins <strong>{{ minimum_runs }} envois mesurés</strong> chez un fournisseur pour
+                    qu'un constat veuille dire quelque chose : en dessous, une seule campagne malchanceuse fait
+                    la majorité des observations.
+                </p>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th scope="col">Fournisseur</th>
+                                <th scope="col" class="text-end">Envois mesurés</th>
+                                <th scope="col" class="text-end">Réception</th>
+                                <th scope="col" class="text-end">Indésirables</th>
+                                <th scope="col" class="text-end">Jamais arrivés</th>
+                                <th scope="col" class="text-end">Dossier inconnu</th>
+                                <th scope="col">Constat</th>
+                                <th scope="col">Relais</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for reading in readings %}
+                                <tr>
+                                    <td>{{ reading.provider }}</td>
+                                    <td class="text-end">{{ reading.runs }}</td>
+                                    <td class="text-end">{{ reading.inbox }}</td>
+                                    <td class="text-end">
+                                        {% if reading.spam > 0 %}
+                                            <span class="text-warning-emphasis">{{ reading.spam }}</span>
+                                        {% else %}0{% endif %}
+                                    </td>
+                                    <td class="text-end">
+                                        {% if reading.missing > 0 %}
+                                            <span class="text-danger">{{ reading.missing }}</span>
+                                        {% else %}0{% endif %}
+                                    </td>
+                                    {# Arrived, but in a folder the site cannot name. Neither a
+                                       delivery nor a rejection: the table above shows the folder's
+                                       own name, and a person judges it. #}
+                                    <td class="text-end">{{ reading.elsewhere }}</td>
+                                    <td>
+                                        {% if reading.troubled %}
+                                            <span class="badge text-bg-warning-subtle">{{ reading.verdict }}</span>
+                                        {% else %}
+                                            <span class="text-body-secondary small">{{ reading.verdict }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if reading.routed_to %}
+                                            <span class="d-block small">{{ reading.routed_to }}</span>
+                                            <form method="post" action="{{ current_path }}/routage" class="d-inline">
+                                                {{ csrf_field()|raw }}
+                                                <input type="hidden" name="domain" value="{{ reading.provider }}">
+                                                <input type="hidden" name="undo" value="1">
+                                                <button type="submit" class="btn btn-link btn-sm p-0">
+                                                    Revenir à l'ordre habituel
+                                                </button>
+                                            </form>
+                                        {% elseif bulk_relays < 2 %}
+                                            <span class="text-body-secondary small">Un seul relais</span>
+                                        {% elseif reading.troubled and reading.alternative %}
+                                            <form method="post" action="{{ current_path }}/routage">
+                                                {{ csrf_field()|raw }}
+                                                <input type="hidden" name="domain" value="{{ reading.provider }}">
+                                                <button type="submit" class="btn btn-outline-primary btn-sm">
+                                                    Passer par {{ reading.alternative }}
+                                                </button>
+                                            </form>
+                                        {% else %}
+                                            <span class="text-body-secondary">—</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% if bulk_relays >= 2 %}
+                    <form method="post" action="{{ current_path }}/routage-automatique" class="mb-3">
+                        {{ csrf_field()|raw }}
+                        <input type="hidden" name="enabled" value="{{ routing_automatic ? '0' : '1' }}">
+                        <button type="submit" class="btn btn-sm {{ routing_automatic
+                            ? 'btn-outline-danger'
+                            : 'btn-outline-secondary' }}">
+                            {{ routing_automatic
+                                ? 'Ne plus appliquer automatiquement'
+                                : 'Appliquer automatiquement' }}
+                        </button>
+                        <span class="ms-2 text-body-secondary small">
+                            Une fois par fournisseur, jamais dans l'autre sens : revenir à l'ordre habituel
+                            reste votre décision.
+                        </span>
+                    </form>
+                {% endif %}
+                <p class="text-body-secondary small mb-0">
+                    <strong>Changer de relais pour un fournisseur n'est pas gratuit.</strong> La réputation d'un
+                    relais se construit sur un trafic régulier : en envoyer une partie ailleurs donne à chacun
+                    moins de ce dont sa réputation dépend. Un constat répété sur plusieurs envois vaut qu'on
+                    agisse ; un mauvais mois, non.
+                </p>
+            </div>
+        </div>
+    {% endif %}
+
+    <div class="alert alert-info">
+        <h2 class="h6">Ce que ces résultats ne disent pas</h2>
+        <p class="mb-0">
+            Une boîte témoin vous dit où <strong>sa</strong> copie a atterri, chez <strong>son</strong>
+            fournisseur. Ce n'est pas la même chose que l'expérience de chaque famille : deux comptes Gmail
+            ne filtrent pas identiquement, parce que le classement dépend aussi de ce que chaque personne a
+            ouvert, répondu ou marqué comme indésirable par le passé. Lisez ces lignes comme une tendance
+            par fournisseur, jamais comme une garantie destinataire par destinataire.
+        </p>
+    </div>
+
+{% endif %}
+{% endblock %}

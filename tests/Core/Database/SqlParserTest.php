@@ -189,7 +189,7 @@ class SqlParserTest extends TestCase
         $schemaPath = dirname(__DIR__, 3) . '/schema/core.sql';
         $tables = $this->parser->parseFile($schemaPath);
 
-        $this->assertCount(63, $tables);
+        $this->assertCount(64, $tables);
 
         $tableNames = array_map(fn($t) => $t->name, $tables);
         $this->assertContains('sent_email_claims', $tableNames);
@@ -202,6 +202,8 @@ class SqlParserTest extends TestCase
         // And the two the reserve, the queue and the circuit breaker need.
         $this->assertContains('mail_provider_health', $tableNames);
         $this->assertContains('mail_deferred_messages', $tableNames);
+        // The seed copies (roadmap IT-07) — named for the reason below.
+        $this->assertContains('mail_seed_copies', $tableNames);
         // The DMARC reports and their source lines (roadmap IT-06). Named
         // rather than merely counted: a count alone goes green for the
         // wrong two tables as readily as the right ones.

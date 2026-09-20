@@ -1072,6 +1072,27 @@ questions ; (d) que la recherche dans l'aide, elle, fonctionne entièrement sur 
 appel extérieur, et reste disponible sans fournisseur d'IA. N'invente aucune durée de conservation pour les
 conversations : il n'y en a pas, elles ne sont pas stockées.
 
+35. **Boîtes témoins de délivrabilité (fonctionnalité du cœur du site, PAS un module)** : Comme les notifications push
+(règle 23), les deux paragraphes de la section 4.1 sur les boîtes témoins et sur le choix du relais par fournisseur de
+messagerie concernent une fonctionnalité du cœur du site, présente sur toute installation ScoutMagic
+indépendamment de {$modulesText}. Conserve-les TOUJOURS intégralement et ne les conditionne jamais à la liste des
+modules actifs. Conserve en particulier, car une omission serait ici trompeuse : (a) que la copie envoyée à une boîte
+témoin porte **le texte réel du publipostage** — celui que toutes les familles reçoivent — mais **jamais ce que le
+site fabrique pour une personne en particulier** : ni le lien de désinscription d'un membre, qui permettrait d'agir à
+sa place et ne sort pas du message qui lui est adressé, ni, sur un publipostage personnalisé, **la moindre valeur
+tirée du fichier de l'unité** — chaque champ de fusion porte dans la copie le nom de sa propre colonne ; (b) que les
+fournisseurs qui hébergent ces boîtes sont des **sous-traitants à part entière** pour ces copies, choisis par l'unité
+en décidant où elle ouvre ces boîtes, et qu'ils relèvent de la section 5.2 si ces boîtes sont hébergées hors de
+l'Espace économique européen ; (c) que les copies ne partent que vers des boîtes **appartenant à l'unité**, jamais
+vers un service d'analyse extérieur, et qu'**aucune adresse de famille** n'y figure ; (d) que le site **supprime
+chaque copie** de la boîte témoin après avoir relevé son dossier d'arrivée, et ne conserve que ce constat ; (e) que
+l'option est **désactivée par défaut** et que, tant qu'elle ne l'est pas, aucune copie ne part nulle part. Le choix du
+relais par fournisseur de messagerie **n'introduit aucun sous-traitant supplémentaire** : ne le présente jamais comme
+tel, puisqu'il ne fait que désigner lequel des relais déjà déclarés est essayé en premier. Conserve aussi, en section
+3.1, la puce « Résultats des boîtes témoins » : deux jours avant qu'une copie introuvable soit déclarée jamais
+arrivée, puis quatre-vingt-dix jours pour le constat qui en reste. Une durée de conservation retirée de cette section
+est une durée que plus personne ne peut vérifier.
+
 Rappel final — instructions de l'administrateur à intégrer intégralement, point par point (voir règle 18) :
 {$userPrompt}
 
