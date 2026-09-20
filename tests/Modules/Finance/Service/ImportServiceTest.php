@@ -304,7 +304,11 @@ class ImportServiceTest extends TestCase
 
         try {
             $this->service->import($this->account, 'bnp', $path, 'a.csv', 1000.0, 1);
+            $this->fail('The import was expected to fail on the IBAN mismatch.');
         } catch (FinanceException) {
+            // The failure is this test's premise: without it, the deletion
+            // below is only the success path's, which its neighbour above
+            // already covers.
         }
 
         $this->assertFileDoesNotExist($path);

@@ -70,6 +70,12 @@ final class CoreTaskHandlers
                 \Core\Mail\Transport\Task\PurgeSendCountersHandler::class,
             \Core\Mail\Transport\Task\DrainDeferredMailHandler::TASK_KEY =>
                 \Core\Mail\Transport\Task\DrainDeferredMailHandler::class,
+            // The DMARC reports (roadmap IT-06). Core rather than a
+            // module's, like the tables it purges: a site that turns
+            // `inbound_mail` off stops RECEIVING reports and still has
+            // the ones it already has to clear.
+            \Core\Mail\Feedback\Dmarc\Task\PurgeDmarcReportsHandler::TASK_KEY =>
+                \Core\Mail\Feedback\Dmarc\Task\PurgeDmarcReportsHandler::class,
         ];
     }
 

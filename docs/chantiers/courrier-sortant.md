@@ -2080,3 +2080,238 @@ fournisseur est ce fournisseur qui refuse l'unité.
 - Le rattachement d'un rebond à une sonde précise reste possible
   (`MailProbeSender::codeIn()`), et reste sans intérêt tant que personne ne
   le demande.
+
+---
+
+## IT-06 — Les rapports DMARC
+
+### Livré
+
+Un rapport agrégé (RFC 7489) déposé par un fournisseur dans une boîte du
+courrier entrant est ouvert, lu, stocké, et l'écran « Rapports DMARC »
+répond à la question qui compte : **qui envoie du courrier au nom de
+l'unité, et est-ce que ça s'authentifie ?** Les relais déclarés de l'unité
+y portent leur nom ; le reste est classé « Autre ». Un avertissement se
+déclenche sur le seul cas qui coûte cher — une source inconnue qui
+**réussit** — et les rapports se purgent d'eux-mêmes à quatre-vingt-dix
+jours.
+
+### L'écart avec la roadmap, et pourquoi il fallait le prendre
+
+La roadmap suppose que la pièce jointe arrive par `AttachmentPolicy`, la
+politique de pièces jointes de `inbound_mail`. Elle ne le peut pas, et pour
+deux raisons qui sont toutes deux des choix délibérés du module : elle
+**refuse les archives**, et `CandidateAttachment` **ne porte aucun octet**.
+
+Élargir une liste d'autorisation qui protège toutes les boîtes du site,
+pour un seul consommateur, est le mauvais marché : la protection est
+générale, le besoin est particulier. D'où une **porte étroite et
+déclarée**, `Api\PayloadConsumerInterface`, à côté du contrat existant et
+**facultative** : un consommateur y annonce les types MIME qu'il veut et
+**son propre** plafond d'octets, le registre ne lui remet que ce qui
+correspond, et rien n'est stocké — les octets vivent le temps d'une
+analyse. Un flux au-dessus du plafond est **refusé, jamais tronqué** :
+une demi-archive n'est pas une archive plus petite.
+
+### La bombe de décompression, et le test qui certifiait le contraire
+
+C'est la leçon de l'itération, et elle a eu deux temps.
+
+**Premier temps : un test qui ne pouvait pas échouer.** Ma première
+vérification mesurait `memory_get_usage()` avant et après. Elle passait au
+vert — y compris quand je remplaçais l'implémentation par un `gzdecode()`
+naïf, c'est-à-dire la bombe elle-même. La mémoire était rendue avant la
+seconde mesure ; le test observait l'état final d'un pic qu'il prétendait
+surveiller. Réécrit avec `memory_reset_peak_usage()` et
+`memory_get_peak_usage()` — la comptabilité de PHP, pas l'arène de l'OS,
+qui ne rétrécit pas.
+
+**Second temps : le test corrigé a trouvé une vraie bombe dans mon propre
+code.** Il échouait à 34 Mo. J'avais borné l'**entrée** — 32 Ko de données
+compressées à la fois dans `inflate_add()` — ce qui n'est pas une borne du
+tout : 32 Ko de zéros compressés se déplient en quelque 32 Mo **à
+l'intérieur d'un seul appel**, avant que la moindre vérification de ma part
+ne s'exécute. La borne doit être sur la **sortie**, d'où le filtre de flux
+`zlib.inflate` lu par tranches. Le test discrimine maintenant les trois
+états : 84 Mo pour le `gzdecode()` naïf, 34 Mo pour la version bornée à
+l'entrée, sous le plafond pour la bonne.
+
+`ext-zip` est gardé par `class_exists(\ZipArchive::class)` : `composer.json`
+ne déclare aucune extension, et l'hébergement mutualisé peut ne pas l'avoir.
+
+### Deux autres tests qui ne cassaient pas
+
+**Le dédoublonnage.** Retirer `alreadyHave()` ne change rien d'observable :
+l'insertion touche alors l'index unique, le `catch` annule, et l'appelant
+reçoit le même `false`. Ce n'est pas un défaut du test, c'est la nature de
+la chose — **l'index est la garantie, la lecture est une économie** — et
+c'est maintenant écrit dans le docblock, parce que la lecture inverse
+ferait retirer l'index un jour avec des tests toujours verts.
+
+**La purge.** Mon fixture avait `begin` *et* `end` avant la coupe, donc
+`period_begin` et `period_end` étaient indiscernables et le test passait
+quelle que soit la colonne lue — alors que le choix de colonne est
+précisément la décision à protéger. Corrigé avec un rapport **à cheval**
+sur la coupe.
+
+### Décisions prises seul
+
+**SPF *ou* DKIM, pas les deux** (RFC 7489 §6.6.2). Un écran qui exigerait
+les deux montrerait le propre relais d'une unité comme défaillant alors que
+tout son courrier arrive parfaitement, et ferait chercher un problème qui
+n'existe pas.
+
+**L'avertissement est lié à « inconnue ET qui réussit »**, jamais à
+« inconnue ». Une source inconnue dont tout échoue est une usurpation qu'on
+arrête — le système qui fonctionne — et crier au loup là ferait cesser de
+lire l'avertissement qui compte. Les deux moitiés de la condition ont été
+cassées séparément pour vérifier que chacune fait échouer son test.
+
+**Une résolution DNS qui échoue verse la source dans « autres ».** Se
+tromper dans ce sens coûte dix minutes à quelqu'un qui enquête sur son
+propre relais ; se tromper dans l'autre étiquette un expéditeur inconnu
+« votre relais » et personne n'y revient jamais. Et `dns_get_record` pour
+A **et** AAAA : `gethostbyname` est IPv4 seulement, et un relais joint en
+IPv6 serait classé « autres » à jamais — exactement l'erreur d'étiquetage
+que la classe existe pour éviter.
+
+**Le nom d'hôte du relais ne quitte pas le serveur** (SECURITY.md §11) :
+c'est le nom du fournisseur qui s'affiche.
+
+**Quatre-vingt-dix jours, coupés sur la fin de la période.** Voir le
+message de commit de la purge : couper sur l'arrivée effacerait un rapport
+posté après coup le jour même où il arrive.
+
+**L'archive de support porte les compteurs, jamais une adresse source.**
+Même raisonnement que la section Rebonds — l'archive part chez un tiers et
+survit à l'écran qu'elle reflète — et l'instinct tire dans l'autre sens,
+puisqu'une liste de sources est précisément ce que veut quelqu'un qui
+diagnostique.
+
+### Les deux exigences transverses
+
+`OutboundMailCollector` gagne sa section DMARC (compteurs seuls), et
+`DmarcConsumer` journalise chaque rapport enregistré — organisation,
+domaine, nombre de sources, messages, authentifiés. **Aucune adresse IP au
+journal**, comme aucune adresse de membre ailleurs.
+
+### Ce que la suite complète a rattrapé
+
+Deux cliquets, tous deux faisant leur travail : `SqlParserTest` compte les
+tables du schéma, et `SchedulerBootstrapTest` compte les consommateurs du
+registre de l'ordonnanceur — ce second test étant celui qu'IT-05 avait
+ajouté après avoir découvert qu'un consommateur inscrit sur le mauvais
+registre rend toute une itération inerte. Le premier ne faisait que
+compter ; les deux nouvelles tables y sont maintenant **nommées**, parce
+qu'un compteur passe au vert pour les mauvaises tables aussi volontiers que
+pour les bonnes.
+
+`controllerWithout()`, dans les tests du contrôleur, lisait des positions
+**comptées depuis la fin**, au motif écrit noir sur blanc qu'un ajout ne
+pouvait pas les décaler. C'est exactement l'inverse, et les deux
+dépendances ajoutées ici l'ont montré : tout se décalait de deux sans que
+rien ne le dise. Les positions sont désormais lues sur le constructeur
+lui-même par réflexion, qui ne peut pas dériver puisqu'elle interroge la
+chose même.
+
+### Écarts et limites, assumés
+
+**Un rapport DMARC dit « authentifié », jamais « lu ».** Jumelle exacte de
+la limite de la page Rebonds, et écrite à l'écran plutôt que seulement dans
+le sujet d'aide : un message parfaitement signé peut très bien être dans
+les indésirables, et seule la Sonde le dit.
+
+**Les rapports forensiques ne sont ni demandés ni traités** (D12) : ils
+joindraient le message, donc l'adresse de la famille à qui le site
+écrivait. C'est ce qui sépare les deux sortes du point de vue des données
+personnelles, et c'est écrit dans le RGPD §2.11.
+
+**Rien ne vérifie que le rapport vient bien du fournisseur qu'il nomme.**
+L'organisation est un champ du XML, que n'importe qui peut écrire. La
+conséquence est bornée : un faux rapport ajoute des compteurs à un écran de
+lecture, ne bloque rien, ne suspend personne, et n'a aucun effet
+automatique — contrairement aux rebonds, où la même question imposait une
+preuve d'envoi. Assumé, et écrit ici plutôt que sous-entendu.
+
+**Le plafond de 2 Mo par flux** écarte les rapports d'un très gros domaine.
+Deux mégaoctets compressés sont déjà des dizaines de milliers de lignes ;
+une unité scoute n'en produit pas le centième. Refusé et non tronqué, donc
+le silence est lisible au journal plutôt que déguisé en rapport partiel.
+
+### Ce que la relecture a trouvé
+
+Onze trouvailles, toutes de CodeRabbit, et aucune de mes tests. Cinq
+méritent d'être écrites ici parce qu'elles décrivent des défauts que rien
+de ce que j'avais écrit ne pouvait voir.
+
+**La page interrogeait un résolveur DNS à chaque affichage** — deux
+lookups bloquants par relais, devant l'écran qu'on ouvre précisément
+quand le courrier est déjà cassé. Et la règle était déjà écrite, dans ce
+même namespace, pour ces mêmes écrans : le docblock de
+`Core\Mail\DnsCheckMemory` dit mot pour mot « **la page affiche ceci et
+jamais une recherche à elle** », avec le raisonnement complet. Je l'avais
+lu en IT-03 et je l'ai enfreint en IT-06. La résolution vit désormais
+dans l'action « Vérifier les enregistrements », la seule de ce site
+autorisée à bloquer sur un résolveur, et la page lit ce qu'elle a laissé.
+
+**L'avertissement était calculé sur les deux cents lignes du tableau.**
+Le plafond était une décision de présentation, et il est devenu une
+décision de fond sans que personne l'écrive : un outil oublié envoyant
+quarante messages se classe derrière deux cents expéditeurs bruyants,
+tombe hors du tableau, et emporte avec lui la seule phrase qui le
+nommait — sur l'installation précisément assez chargée pour en avoir
+besoin. Les comptes et le verdict viennent maintenant de requêtes non
+plafonnées ; le tableau seul reste plafonné, et le dit.
+
+**Un rapport dont la période se termine en 2099 ne serait jamais purgé.**
+La purge coupe sur `period_end`, donc une date lointaine écrite par un
+inconnu survit à toutes les règles de conservation du site et figure dans
+chaque fenêtre de trente jours. Le lecteur refuse désormais une fin
+antérieure à son début et une fin au-delà de notre horloge plus deux
+jours — deux jours parce que le décalage toléré est celui du **rapporteur**.
+
+**`record()` rendait `false` pour tout échec PDO**, pas seulement pour la
+course perdue. Une base qui refuse d'écrire était donc indiscernable d'un
+« on l'avait déjà » : pas de ligne au journal, pas d'exception pour le
+registre, une installation cassée qui ressemble à une synchronisation
+tranquille. C'est le défaut récurrent de ce chantier — un échec qui
+emprunte la forme d'un succès — pour la quatrième fois. Seule la
+violation d'index rend `false`, reconnue au code du pilote et non au seul
+SQLSTATE `23000`, qui couvre aussi bien une clé étrangère.
+
+**Et mon commentaire sur la bombe surestimait sa propre garantie.** Il
+annonçait `CHUNK` comme borne du pic mémoire ; le relecteur a mesuré
+environ 12 Mio pour une bombe de 40 Mio, contre un plafond de 4 Mio. Ce
+qui est borné, c'est la **sortie accumulée**, pas le transitoire du
+filtre — propriété parfaitement suffisante, mais ce n'est pas celle qui
+était écrite.
+
+**Et le plafond que j'avais posé pour corriger le plafond.** Ma première
+correction a déplacé la limite du calcul de l'avertissement de deux cents
+à cinq mille — ce qui est le même défaut à un ordre de grandeur près. Au
+delà, les lignes qui survivent sont celles qui se trient en premier, donc
+l'unique expéditeur non reconnu au milieu du trafic d'un domaine usurpé
+est précisément celui qui peut tomber, et l'avertissement disparaît là où
+il servait le plus. Il a fallu un second tour de relecture pour le voir.
+La requête est maintenant **diffusée ligne à ligne et sans plafond** : le
+compteur avance sans jamais détenir la liste, et ce qui borne l'ensemble
+est la purge à quatre-vingt-dix jours — une borne réelle plutôt
+qu'inventée.
+
+**Une trouvaille m'a fait trouver un défaut de plus**, en écrivant son
+test. `json_decode` transforme une clé de tableau entièrement numérique
+en entier : les adresses étant stockées en hexadécimal, `33440101` —
+c'est-à-dire `51.68.1.1` — revenait en `int`, était écartée à la lecture,
+et le relais derrière devenait silencieusement « autre ». Un seul relais,
+ou deux dont les adresses contiennent une lettre, passe au vert sans
+rien dire. C'est le test à deux relais qui l'a attrapé.
+
+### Reporté
+
+- Une **tendance** (le taux d'authentification semaine après semaine)
+  demanderait une agrégation que rien ne réclame tant que personne n'a
+  regardé la page une deuxième fois.
+- Le **rapprochement d'une source avec un fournisseur connu par plages
+  d'adresses publiées** (les `include:` du SPF) ferait reconnaître un relais
+  jamais déclaré. Utile, plus grand que cette itération, et sans intérêt
+  tant que les relais déclarés couvrent le cas courant.

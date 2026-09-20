@@ -229,7 +229,12 @@ final class SupportPackageFactory
             // one. What travels is the road and the verdict — never the
             // destination, which is a person.
             new \Core\Mail\Probe\MailProbeRepository($pdo, $context->encryption),
-            new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $context->encryption)
+            new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $context->encryption),
+            // The DMARC reports (roadmap IT-06). Unconditional, like the
+            // bounce state beside it: the tables are core and always
+            // readable, and « aucun rapport reçu » is a true answer worth
+            // having in an archive rather than a section that vanishes.
+            new \Core\Mail\Feedback\Dmarc\DmarcReportRepository($pdo)
         );
     }
 

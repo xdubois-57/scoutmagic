@@ -114,8 +114,14 @@ class LocalStorageBackendTest extends TestCase
 
     public function testDeletePrefixOnMissingDirectoryIsANoOp(): void
     {
+        $this->backend->put('9/thumb_1.jpg', 'a', 'image/jpeg');
+
         $this->backend->deletePrefix('never-existed');
-        $this->assertTrue(true);
+
+        // Nothing removed elsewhere, and no empty directory conjured for
+        // the prefix that was not there.
+        $this->assertTrue($this->backend->exists('9/thumb_1.jpg'));
+        $this->assertDirectoryDoesNotExist($this->storagePath . '/gallery/never-existed');
     }
 
     public function testDeletePrefixRefusesAnEmptyPrefix(): void

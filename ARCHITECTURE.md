@@ -1981,6 +1981,40 @@ The **only** place `rental` touches money (`specifications.md` §22.4). Everythi
 
 Receivables are raised **at confirmation**, which is when the unit actually expects to be paid, and a Finance failure there is journaled rather than thrown: the confirmation has committed and the manager has been told it worked, so undoing it would be a worse lie than a rental whose payment panel plainly shows no receivable yet. A price change pushes the new total onto the existing receivable; a refusal ("this would drop below what came in") is likewise journaled, because the price change itself is legitimate and what is left is a situation a manager has to look at, not a reason to reject their edit.
 
+### 8.54ter « À traiter », and why a status could not answer it (`Modules\Rental\Booking\BookingAttention`)
+
+**One definition, four readers.** « À traiter » used to be
+`$booking->status->needsAttention()`, written out at four call sites: the
+asset overview's list, the same page's figure above it, the bookings list's
+own filter, and the per-asset badge on « Mes locations ». Four copies of one
+rule is four chances for a tile to say « 2 » over a list of five — and
+widening one of them without the others would have guaranteed it.
+
+**The question it actually answers is « is somebody waiting on this
+booking? »**, and a status can only see one third of that. A *confirmed*
+booking carrying a change request the renter sent yesterday appeared on no
+list at all: its status is `confirmed`, and nothing about a status knows
+what is pending against it. A proposal the unit sent and the renter has not
+answered is the symmetrical case — it waits on somebody too, and the unit is
+the one who has to know it is still waiting, because a proposal nobody
+followed up is how a booking goes quiet for three weeks.
+
+**Every row carries its reasons** (`Booking\AttentionReason`), and that is
+not decoration: while the list was a status filter, the status badge *was*
+the explanation. It is not any more, and a list that grew without saying why
+reads as a list that has broken.
+
+**Pure, and fed in bulk.** `BookingAttention` takes the pending change
+requests already loaded, keyed by booking id;
+`RentalChangeRequestRepository::findPendingForBookings()` reads them in one
+statement. The page it serves already reads every booking it shows in a
+single query (`findAllForAssets()`), and answering a per-booking question
+with a per-booking query is exactly the shape that turns one screen into
+thirty round trips. A final booking is excluded whatever is recorded against
+it: `RentalBookingService` refuses every request still pending the moment a
+booking closes, and a row that survived that must not resurrect a closed
+file on somebody's list.
+
 ### 8.55 Rental documents, contracts and invoices (`Modules\Rental\Document`)
 
 **Three levels, each frozen the moment the next is born** (`specifications.md` §22.6). The asset's template lives in `editable_contents`; the booking takes its **own copy** at the first generation (`rental_booking_document_texts`); the PDF is a rendering of that copy at one instant (`rental_documents` + a `files` row). The middle level is the one that earns its keep: a template reworded in March must not silently change what a renter agreed to in February, and editing one booking's copy must not touch another's.
@@ -4373,6 +4407,114 @@ Rebonds page means « nothing was refused », never « everything arrives » —
 which is why that sentence is on the screen and not only in the help topic,
 and why the manual probe above exists at all.
 
+**The aggregate reports** (`Core\Mail\Feedback\Dmarc`, roadmap IT-06).
+A provider receiving mail that claims this unit's domain writes a daily
+RFC 7489 aggregate report and posts it to the address the `rua=` tag
+publishes. `DmarcConsumer` reads them out of the same watched mailboxes
+the bounces come from, and the Rapports DMARC screen answers one
+question: **who sends in this unit's name, and does it authenticate.**
+
+*A narrow, declared door for machine payloads, because the attachment
+policy could not open* (the iteration's one architectural divergence).
+The roadmap assumed `Modules\InboundMail`'s `AttachmentPolicy` could hand
+a report over. It cannot, and both reasons are deliberate: it refuses
+archives outright, and `CandidateAttachment` carries no bytes at all.
+Widening an allowlist that protects every mailbox, for one consumer, is
+the wrong trade. So `Api\PayloadConsumerInterface` is a second, opt-in
+contract beside `Api\MessageConsumerInterface` (§7.5): a consumer
+declares the mime types it wants and **its own** byte ceiling,
+`MessageConsumerRegistry::analyzeAllPayloads()` hands it only what
+matches, and **a payload over the ceiling is refused, never truncated** —
+half an archive is not a smaller archive. Nothing is stored; the bytes
+exist for the length of one analysis.
+
+*Opening a stranger's archive is the dangerous part, and the ceiling has
+to be on the OUTPUT.* `BoundedArchive` caps entries, per-entry bytes and
+total bytes, and inflates gzip through a `zlib.inflate` **stream filter**
+read in chunks. The first implementation bounded the INPUT — 32 KB of
+compressed data at a time into `inflate_add()` — which is not a bound at
+all: 32 KB of compressed zeroes expands to some 32 MB inside a single
+call, before any check of ours runs. `BoundedArchiveTest` pins the
+difference with `memory_reset_peak_usage()`, and a naive `gzdecode()`
+fails it at 84 MB where the input-bounded version fails at 34 MB. `zip`
+is handled behind `class_exists(\ZipArchive::class)`, since `composer.json`
+declares no `ext-*` requirement and shared hosting may not have it.
+
+*`DTD` refused, network off, unparseable sources dropped.*
+`DmarcReportParser` rejects anything containing `<!DOCTYPE` before
+`simplexml_load_string()` sees it (`LIBXML_NONET | LIBXML_NOCDATA`), caps
+records, and drops any source failing `filter_var(…, FILTER_VALIDATE_IP)`.
+The file is written by somebody else's software and is the one input here
+this site did not produce.
+
+*Either SPF or DKIM, which is DMARC's own rule* (RFC 7489 §6.6.2). A
+screen demanding both would show a unit's own relay as failing while
+every message it sends arrives perfectly well.
+
+*The warning is « unknown AND authenticating », never « unknown ».* An
+unrecognised source whose messages **pass** is almost always a forgotten
+tool of the unit's own — an old registration platform, a newsletter
+service, somebody's mailbox configured with the unit's address — and
+moving to `p=reject` without finding it rejects precisely those messages,
+which is learned weeks later from the person receiving nothing. An
+unrecognised source whose messages all fail is a spoof being stopped,
+and a warning there would cry wolf on every page.
+
+*`KnownSenders` renders a remembered reading and never a lookup*, which
+is the rule §8.106's own `DnsCheckMemory` had already written down for
+these screens and which the first version of this class broke: two
+blocking `dns_get_record()` calls per relay, in front of the page people
+open when mail is already broken. The resolution happens in the
+« Vérifier les enregistrements » action — the one place here allowed to
+block on a resolver — and the page reads what it stored. A resolution
+that fails, or that nobody has taken yet, puts the source in « autres »,
+which is the safe side: wrong that way costs ten minutes, wrong the other
+way labels an unknown sender « votre relais » and nobody looks again. A
+and AAAA both, because a relay reached over IPv6 would otherwise be
+« autres » for ever. Addresses are compared as `inet_pton` bytes, since
+`2001:db8::1` and its expanded spelling are one machine and a reporter
+has no reason to write it the way a resolver does. The host itself never
+reaches a screen (SECURITY.md §11); the provider's name does.
+
+*The caps are on the DRAWING, and on nothing else.* `sourcesSince()` and
+`reportsSince()` feed tables and are limited; every count and the one
+warning come from uncapped queries (`totalsSince()`, and
+`authenticatingSourcesSince()`, which is **streamed** so the count never
+holds the list and no ceiling can quietly drop the one row that matters). Reading a capped list as the whole truth
+made the support archive undercount and — worse — computed « somebody
+unknown is authenticating » over the two hundred rows that fit, so one
+forgotten tool sending forty messages fell off the table and took the
+only sentence naming it along.
+
+*A period is a fact about the past, and `purgeBefore()` cuts on its end*,
+so the parser refuses an end before its begin and an end beyond our clock
+plus two days. Without that, a report a stranger stamps for 2099 outlives
+every retention rule the site has and sits in each thirty-day window for
+good.
+
+*`record()` re-throws everything that is not the losing race.* Both used
+to answer `false`, so a database refusing writes was indistinguishable
+from an ordinary re-read: no journal line, no exception for the registry
+to record, and a broken installation that looked like a quiet sync. The
+duplicate is identified by the driver's own code (1062 / 19 / 7), never
+by SQLSTATE `23000` alone, which covers a foreign key just as well.
+
+*Ninety days, cut on `period_end`.* `Task\PurgeDmarcReportsHandler`
+self-rearms like `PurgeSendCountersHandler`. Cutting on arrival would
+delete a report posted days after the window it describes, for being old
+the moment it landed.
+
+*The support archive carries the counters and no source address.* Same
+reasoning as the bounce section: the archive goes to a third party and
+outlives the screen it mirrors, while « quatre sources, dont 12 % non
+authentifiées » keeps the diagnostic shape and names nobody.
+
+*And these reports name no recipient, which is not an omission of ours.*
+RFC 7489 aggregate reports carry counters and source addresses only —
+never a recipient, a subject or a body. That is what settles the personal
+-data question (RGPD §2.10) and what separates them from forensic
+reports, which this site neither requests nor accepts (D12).
+
 ### 8.107 Storage locations (`Core\Storage\Location`)
 
 **One declared destination for bytes, and every consumer picks one.** The same idea used to be written twice, with two incompatible models: the gallery had `gallery_storage_locations` — N rows, a `StorageBackendInterface`, a cached health column — while the off-site backup had a dozen flat `SettingService` keys, a `RemoteBackupTarget` interface and a `remote_backup_last_error` setting. A single destination in flat settings on one side, N destinations in a table on the other. The second form is the right one, and this is it, generalised. **Both halves have now arrived**: the gallery moved here in IT-01 and the off-site backup in IT-05, which is where `RemoteBackupTarget` disappeared and a Drive folder became a location like any other (§8.104).
@@ -4520,6 +4662,75 @@ That second verdict used to read « oui, sans reprise » — it told an administ
 **`comparison()` lays the same four across the types**, which is the one reading a stack of per-location cards cannot give: the cards answer « what does THIS location do », the table answers « which kind should I declare next », and the decision needs a line read sideways. It walks `StorageLocationType::cases()`, so a fifth type gets a column on the day it exists. It renders at the foot of Configuration › Stockage › Emplacements, inside `table-responsive` — four types plus a label do not fit a phone, and a comparison is the kind of content that may scroll sideways rather than be cut.
 
 **Google Drive is attachable to a gallery, with two consequences said at the moment of choosing.** Each photograph is an authenticated API call made by this site — Drive hands nothing to the visitor directly, so every image travels through PHP on every view. And the deliberately narrow `drive.file` grant means the site sees only the files it put there itself, so photographs already in the folder stay invisible. Both are information rather than refusals (a Drive holds photographs perfectly well), and both are shown only when a Drive location exists.
+
+### 8.114 One `{{ … }}` engine, two catalogues (`Core\Template`)
+
+Two modules substituted `{{ … }}` with the same four rules and nothing in
+common. `Modules\MassMail\Service\MergeRenderer` personalises a
+publipostage, where a token names a column header of an uploaded
+spreadsheet — « Prénom 1 » — free text chosen by whoever built the file.
+`Modules\Rental\Document\DocumentKeywords` fills a contract or an
+invoice from a closed, declared list — `prix_total`. Both substituted
+**after** sanitizing, both **always** escaped the value, both left an
+unrecognised token **visible**, and one of them had learned, the hard way,
+to rescue a token the sanitizer had percent-encoded. Four rules, two
+copies, and no way for a fix to one to reach the other.
+
+`Core\Template\TokenEngine` holds all four, and `TokenSyntax` is why it
+can: **what may sit between the braces is a parameter, not a constant.**
+`TokenSyntax::freeText()` matches a column header, accents and spaces
+included, and carries the `u` modifier it has always needed;
+`TokenSyntax::identifiers()` matches `[a-z0-9_]+` and nothing else, and the
+narrowness is load-bearing — a syntax that accepted anything between braces
+would make "unknown keyword" reporting useless, since every stray `{{` in a
+contract's prose would become a candidate. Neither is more correct than the
+other; they are two vocabularies, and the engine never decides between
+them.
+
+**The percent-encoded rescue is recognition, not a fix.** A token that ends
+up inside an `href` or a `src` comes back as `%7B%7BQR%201%7D%7D`: the
+rich-text sanitizer parses the body with `DOMDocument`, which URL-encodes
+every URI attribute on the way out. Left alone the variable never
+substitutes and the recipient gets a broken link, silently. It is decoded
+here rather than "fixed" in the sanitizer, whose encoding is correct for
+every other URL it handles.
+
+**The repair pass is the piece that was missing, and it is what lets a
+document editor be rich text at all.** A `contenteditable` surface splits a
+run of text across elements as it is edited, so `{{ prix_total }}` becomes
+`{{ pri<b>x</b>_total }}` the moment somebody bolds a word that overlaps
+it — still readable to a human, no longer a keyword to anything that
+substitutes, and noticed only once a contract has gone out with visible
+braces in it. That hazard is why those editors were `<textarea>`s.
+`repairTokensSplitByMarkup()` removes inline markup from between the
+braces, and welds back a brace pair a caret was parked inside — but **only
+once what the region would become spells a real token's name**. Prose that
+happens to sit between braces survives untouched, block boundaries are
+never welded (a `{{` in one paragraph and a `}}` in the next is two stray
+braces, not a broken token), and the author's spacing is left alone. The
+existing "mots-clés non reconnus" warning therefore stays the net it was
+meant to be: when the repair declines, it shows on screen rather than in a
+signed contract.
+
+**Order of operations, and it is not negotiable**: sanitize → decode →
+repair → substitute. Sanitizing last would run a sanitizer over a document
+that already carries renter-supplied values, and a sanitizer decides what
+markup is allowed, never whether a value should have been markup at all.
+Decoding and repairing after substitution would have nothing left to
+rescue.
+
+**What stays with each module is its catalogue**, plus — for the
+publipostage only — the `{{#Colonne}} … {{/Colonne}}` sections, which mean
+nothing outside a mail merge and whose bodies vary in LENGTH per row rather
+than in value. `Core\Template\TokenCatalogue` types the closed kind: a
+declared keyword → French description map that answers `has()` and renders
+the `{keyword, placeholder, description}` palette
+`partials/rich_text_form_field.html.twig` reads as its `placeholders`
+argument. Handing that partial a catalogue is the whole wiring of a
+variable palette. A spreadsheet's column headers are deliberately **not**
+one — they are data, different for every mailing, and the publipostage
+inserts them through its own control (`modules/mass_mail/views/partials/
+_variable_toolbar.html.twig`) for that reason.
 
 ## 9. Installation / bootstrap
 

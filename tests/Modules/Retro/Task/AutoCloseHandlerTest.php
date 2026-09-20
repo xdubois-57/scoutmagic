@@ -91,15 +91,31 @@ class AutoCloseHandlerTest extends TestCase
 
     public function testIgnoresAnUnknownBoardId(): void
     {
-        // Must not throw.
+        // A board deleted between the scheduling and the run: no other
+        // board is closed in its place, and nothing is logged.
+        $other = $this->createOpenBoard();
+
         (new AutoCloseHandler())->handle(['board_id' => 999999], $this->context);
-        $this->assertTrue(true);
+
+        $this->assertSame('open', $this->boardRepository->findById($other)->status);
+        $this->assertSame(0, $this->autoCloseLogCount());
     }
 
     public function testIgnoresAMissingBoardIdInThePayload(): void
     {
+        $other = $this->createOpenBoard();
+
         (new AutoCloseHandler())->handle([], $this->context);
-        $this->assertTrue(true);
+
+        $this->assertSame('open', $this->boardRepository->findById($other)->status);
+        $this->assertSame(0, $this->autoCloseLogCount());
+    }
+
+    private function autoCloseLogCount(): int
+    {
+        return (int) $this->pdo->query(
+            "SELECT COUNT(*) FROM event_log WHERE event_type = 'board_auto_closed'"
+        )->fetchColumn();
     }
 
     public function testClosesAndNotifiesWithoutASummaryWhenNoLlmProviderIsConfigured(): void

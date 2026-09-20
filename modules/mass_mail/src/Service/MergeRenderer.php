@@ -8,6 +8,9 @@ declare(strict_types=1);
 
 namespace Modules\MassMail\Service;
 
+use Core\Template\TokenEngine;
+use Core\Template\TokenSyntax;
+
 /**
  * Substitutes a mail-merge row's values into an email's subject/body.
  * Tokens are {{Colonne}} — the exact column header, matched
@@ -35,11 +38,16 @@ namespace Modules\MassMail\Service;
  * naming no column is left untouched exactly like an unknown token: the
  * preview shows it and findUnknownTokens() reports it, rather than the
  * block disappearing without a word.
+ *
+ * **The token machinery itself is Core\Template\TokenEngine** — the
+ * pattern, the percent-encoded rescue, the unknown-token report and the
+ * escaping at substitution, all of it shared with the rental module's
+ * document keywords, which had grown its own copy of the same four rules.
+ * What stays here is what is only true of a publipostage: the catalogue is
+ * a spreadsheet's column headers, and the sections below.
  */
 class MergeRenderer
 {
-    private const TOKEN_PATTERN = '/\{\{\s*([^{}]*?)\s*\}\}/u';
-
     /**
      * {{#Colonne}} … {{/Colonne}}. The closing marker has to name the
      * same column, spelled the same way — the opening name is captured
@@ -48,17 +56,15 @@ class MergeRenderer
      */
     private const SECTION_PATTERN = '/\{\{\s*#\s*([^{}#\/]*?)\s*\}\}(.*?)\{\{\s*\/\s*\1\s*\}\}/us';
 
-    /**
-     * A token that ended up inside an href or a src comes back
-     * percent-encoded: the rich-text sanitizer parses the body with
-     * DOMDocument, which URL-encodes every URI attribute on the way out,
-     * so `{{QR 1}}` is stored as `%7B%7BQR%201%7D%7D`. Left alone, the
-     * variable would simply never substitute and the recipient would get
-     * a broken link — silently, which is the worst of both. Recognised
-     * here rather than "fixed" in the sanitizer, whose encoding is
-     * correct for every other URL it handles.
-     */
-    private const ENCODED_TOKEN_PATTERN = '/%7B%7B(.*?)%7D%7D/i';
+    private readonly TokenEngine $engine;
+
+    public function __construct()
+    {
+        // Free text: a token names a column header — « Prénom 1 »,
+        // « Référence du billet » — with spaces and accents, chosen by
+        // whoever built the file.
+        $this->engine = new TokenEngine(TokenSyntax::freeText());
+    }
 
     /**
      * Whether this template personalises anything at all.
@@ -72,8 +78,7 @@ class MergeRenderer
      */
     public function containsToken(string $template): bool
     {
-        return preg_match(self::TOKEN_PATTERN, $template) === 1
-            || preg_match(self::ENCODED_TOKEN_PATTERN, $template) === 1;
+        return $this->engine->containsToken($template);
     }
 
     /**
@@ -81,7 +86,7 @@ class MergeRenderer
      */
     public function renderHtml(string $template, array $data): string
     {
-        $template = self::decodeUrlEncodedTokens($template);
+        $template = $this->engine->decodeEncodedTokens($template);
 
         return $this->render($this->resolveSections($template, $data), $data, true);
     }
@@ -94,22 +99,9 @@ class MergeRenderer
      */
     public function renderText(string $template, array $data): string
     {
-        $template = self::decodeUrlEncodedTokens($template);
+        $template = $this->engine->decodeEncodedTokens($template);
 
         return $this->render($this->resolveSections($template, $data), $data, false);
-    }
-
-    /**
-     * Rewrites `%7B%7BNom%20de%20colonne%7D%7D` back to
-     * `{{Nom de colonne}}` so the rest of this class sees one shape.
-     */
-    private static function decodeUrlEncodedTokens(string $template): string
-    {
-        return (string) preg_replace_callback(
-            self::ENCODED_TOKEN_PATTERN,
-            static fn(array $matches): string => '{{' . rawurldecode($matches[1]) . '}}',
-            $template
-        );
     }
 
     /**
@@ -155,29 +147,19 @@ class MergeRenderer
      */
     public function findUnknownTokens(string $template, array $columns): array
     {
-        $template = self::decodeUrlEncodedTokens($template);
-
         $known = [];
         foreach ($columns as $column) {
             $known[mb_strtolower(trim($column))] = true;
         }
 
-        $unknown = [];
-        if (preg_match_all(self::TOKEN_PATTERN, $template, $matches) > 0) {
-            foreach ($matches[1] as $name) {
-                // A section marker names its column with a leading # or
-                // /: the column is what a typo is about, so that is what
-                // gets reported.
-                $name = ltrim(trim((string) $name), '#/ ');
-                if ($name === '') {
-                    continue;
-                }
-                if (!isset($known[mb_strtolower(trim($name))])) {
-                    $unknown[trim($name)] = true;
-                }
-            }
-        }
-        return array_keys($unknown);
+        return $this->engine->unknownTokens(
+            $this->engine->decodeEncodedTokens($template),
+            static fn(string $name): bool => isset($known[mb_strtolower(trim($name))]),
+            // A section marker names its column with a leading # or /: the
+            // column is what a typo is about, so that is what gets
+            // reported.
+            static fn(string $name): string => ltrim($name, '#/ ')
+        );
     }
 
     /**
@@ -193,21 +175,21 @@ class MergeRenderer
         // A column used only to open a section is EXPECTED to be empty
         // for some rows — that is what the section is for — so the
         // sections are resolved first and only what survives is checked.
-        $template = $this->resolveSections(self::decodeUrlEncodedTokens($template), $data);
+        $template = $this->resolveSections($this->engine->decodeEncodedTokens($template), $data);
+
+        $byLower = [];
+        foreach ($data as $column => $value) {
+            $byLower[mb_strtolower(trim($column))] = ['name' => $column, 'value' => $value];
+        }
 
         $missing = [];
-        if (preg_match_all(self::TOKEN_PATTERN, $template, $matches) > 0) {
-            $byLower = [];
-            foreach ($data as $column => $value) {
-                $byLower[mb_strtolower(trim($column))] = ['name' => $column, 'value' => $value];
-            }
-            foreach ($matches[1] as $name) {
-                $entry = $byLower[mb_strtolower(trim((string) $name))] ?? null;
-                if ($entry !== null && trim($entry['value']) === '') {
-                    $missing[$entry['name']] = true;
-                }
+        foreach ($this->engine->rawTokenNames($template) as $name) {
+            $entry = $byLower[mb_strtolower(trim($name))] ?? null;
+            if ($entry !== null && trim($entry['value']) === '') {
+                $missing[$entry['name']] = true;
             }
         }
+
         return array_keys($missing);
     }
 
@@ -221,16 +203,14 @@ class MergeRenderer
             $byLower[mb_strtolower(trim($column))] = $value;
         }
 
-        return (string) preg_replace_callback(self::TOKEN_PATTERN, function (array $matches) use (
-            $byLower,
+        return $this->engine->substitute(
+            $template,
+            static function (string $name) use ($byLower): ?string {
+                $key = mb_strtolower($name);
+
+                return array_key_exists($key, $byLower) ? $byLower[$key] : null;
+            },
             $escapeHtml
-        ): string {
-            $key = mb_strtolower(trim($matches[1]));
-            if (!array_key_exists($key, $byLower)) {
-                return $matches[0];
-            }
-            $value = $byLower[$key];
-            return $escapeHtml ? htmlspecialchars($value, ENT_QUOTES) : $value;
-        }, $template);
+        );
     }
 }

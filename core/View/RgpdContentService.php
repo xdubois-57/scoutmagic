@@ -358,6 +358,7 @@ Structure OBLIGATOIRE (respecter scrupuleusement) :
    - 2.8 Assistant d'aide (uniquement si un fournisseur d'IA est configuré)
    - 2.9 Vérification de la délivrabilité des e-mails (sonde manuelle, fonctionnalité du cœur)
    - 2.10 Adresses qui refusent nos messages (rebonds, fonctionnalité du cœur)
+   - 2.11 Rapports d'authentification du domaine (DMARC, fonctionnalité du cœur)
 3. Combien de temps conservons-nous vos données (conservation active, archivage 5 ans après départ, journaux,
 suppression sur demande)
 4. Avec qui partageons-nous vos données (sous-traitants essentiels sans mention localisation précise, modules,
@@ -500,6 +501,17 @@ l'adresse**, même chiffrée —, la raison d'être de cette preuve (sans elle u
 faire suspendre l'adresse de n'importe qui), le fait qu'un refus n'est enregistré que si un message est parti vers
 cette adresse **depuis le dernier refus enregistré**, et le fait qu'une adresse secondaire doit avoir été
 **confirmée** avant que son état de rebond ne soit montré ou levé depuis la page du membre.
+
+4undecies. **Rapports DMARC (fonctionnalité core, PAS un module)** : Sections 2.11 et 3.1 doivent conserver
+que les grands fournisseurs de messagerie envoient chaque jour un résumé de ce qu'ils ont reçu au nom du domaine de
+l'unité ; que ce résumé **ne contient aucune donnée concernant la personne qui lit la politique** — uniquement des
+compteurs et des adresses de serveurs expéditeurs, **jamais un destinataire, un objet ou un contenu** ; que ces
+résumés ne sont rapprochés d'aucune fiche ni d'aucune adresse de membre ; que les rapports dits **forensiques**, qui
+joindraient une copie du message et donc l'adresse de la personne à qui le site écrivait, ne sont **ni demandés ni
+traités** ; que l'archive de diagnostic n'en emporte que des totaux, **jamais une adresse de serveur** ; et qu'ils
+sont supprimés automatiquement après **90 jours**, comptés depuis la **fin de la période décrite** et non depuis leur
+arrivée. Ne présente jamais cette section comme un traitement de données personnelles supplémentaires : sa raison
+d'être est au contraire de dire ce qu'elle ne contient pas.
 
 5. **Modules actifs uniquement** : Retirer les sections des modules INACTIFS (comparer avec liste modules actifs)
 6. **Personnalisation obligatoire** : Remplacer {$unitName} et {$contactEmail} partout. Ne JAMAIS laisser de

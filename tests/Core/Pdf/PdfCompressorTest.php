@@ -134,12 +134,19 @@ class PdfCompressorTest extends TestCase
         $compressor = new PdfCompressor($this->tempDirectory);
         $result = $compressor->compress($content, PdfCompressor::BACKEND_GHOSTSCRIPT, PdfCompressor::QUALITY_BALANCED);
 
-        if ($result !== null) {
-            $this->assertStringStartsWith('%PDF-', $result);
-            $this->assertLessThan(strlen($content), strlen($result));
-        } else {
-            $this->assertTrue(true);
-        }
+        $this->assertTrue(
+            $result === null
+                || (str_starts_with($result, '%PDF-') && strlen($result) < strlen($content)),
+            'compress() must answer null or a smaller, valid PDF; it answered '
+                . ($result === null ? 'null' : strlen($result) . ' bytes starting with ' . substr($result, 0, 8))
+        );
+        // Whichever of the two it was, the scratch files are gone
+        // (SECURITY.md §5: temporary files are removed on success and on
+        // failure alike).
+        $this->assertSame([], array_values(array_diff(
+            (array) scandir($this->tempDirectory),
+            ['.', '..']
+        )));
     }
 
     private function fakeCompressor(\Closure $writeOutput): PdfCompressor

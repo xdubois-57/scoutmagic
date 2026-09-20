@@ -9,10 +9,12 @@ declare(strict_types=1);
 namespace Modules\Rental\Service;
 
 use Core\Service\DateInput;
+use Modules\Rental\Booking\BookingAttention;
 use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Repository\RentalAggregateRepository;
 use Modules\Rental\Repository\RentalBookingRepository;
+use Modules\Rental\Repository\RentalChangeRequestRepository;
 
 /**
  * The three figures on an asset's overview (§6.34): requests waiting, days
@@ -42,7 +44,16 @@ class RentalStatisticsService
 {
     public function __construct(
         private RentalBookingRepository $bookingRepository,
-        private RentalAggregateRepository $aggregateRepository
+        private RentalAggregateRepository $aggregateRepository,
+        /**
+         * « À traiter » is not a property of a status (§22.5): a confirmed
+         * booking carrying a change request nobody answered is waiting on
+         * somebody too. Nullable only so the service stays constructible
+         * in the retention tests, which care about the other two figures;
+         * a null narrows the count back to the status alone, which is the
+         * old, smaller answer rather than a wrong one.
+         */
+        private ?RentalChangeRequestRepository $changeRequestRepository = null
     ) {
     }
 
@@ -54,15 +65,23 @@ class RentalStatisticsService
         $from = $today->setDate((int) $today->format('Y'), 1, 1);
         $to = $from->modify('+1 year -1 day');
 
-        $pending = 0;
+        $bookings = $this->bookingRepository->findAllForAssets([$assetId]);
+
+        // The SAME definition as the list this figure sits above, and one
+        // query for all of it. A tile saying « 2 » over a list of five is
+        // the failure this shares its source to avoid.
+        $pending = BookingAttention::countIn(
+            $bookings,
+            $this->changeRequestRepository?->findPendingForBookings(array_map(
+                static fn(RentalBooking $booking) => $booking->id,
+                $bookings
+            )) ?? []
+        );
+
         $occupiedDays = 0;
         $revenueCents = 0;
 
-        foreach ($this->bookingRepository->findAllForAssets([$assetId]) as $booking) {
-            if ($booking->status->needsAttention()) {
-                $pending++;
-            }
-
+        foreach ($bookings as $booking) {
             if (!self::countsTowardTheYear($booking, $from, $to)) {
                 continue;
             }

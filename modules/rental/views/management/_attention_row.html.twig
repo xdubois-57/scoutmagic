@@ -1,0 +1,36 @@
+{#
+  One line of « À traiter » (§22.5).
+
+  Shared by the asset's overview and by « Mes locations », because the two
+  lists answer the same question and a second copy would drift the day one
+  of them learns a new reason.
+
+  **Every row says why it is there.** The list used to be a filter on the
+  status alone, so the status badge WAS the answer; it is not any more — a
+  confirmed booking can be here because the renter asked for something, or
+  because a proposal of the unit's is still unanswered. A list that grew
+  without saying why reads as a list that has broken.
+
+  Requires `attention` (Booking\BookingAttention) and `asset`.
+  Optional: `show_asset_name` — « Mes locations » spans several assets and
+  has to name them; an asset's own overview does not.
+#}
+<a href="/mes-locations/{{ asset.slug }}/reservations/{{ attention.booking.id }}"
+   class="list-group-item list-group-item-action px-0">
+    <div class="d-flex justify-content-between align-items-start gap-2">
+        <span>
+            <span class="fw-semibold">{{ attention.booking.reference }}</span>
+            <span class="text-body-secondary small d-block">
+                {% if show_asset_name|default(false) %}{{ asset.name }} · {% endif %}
+                du {{ attention.booking.arrivalDate|date_fr }} au {{ attention.booking.departureDate|date_fr }}
+            </span>
+            {% for reason in attention.reasons %}
+                <span class="small d-block">
+                    <i class="bi bi-arrow-return-right text-body-secondary" aria-hidden="true"></i>
+                    {{ reason.label }}
+                </span>
+            {% endfor %}
+        </span>
+        {% include '@rental/_status_badge.html.twig' with { status: attention.booking.status } only %}
+    </div>
+</a>

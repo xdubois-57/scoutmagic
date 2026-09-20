@@ -1862,6 +1862,68 @@ CREATE TABLE IF NOT EXISTS mail_send_receipts (
     UNIQUE INDEX idx_msr_blind (email_blind_index)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- mail_dmarc_reports: one row per aggregate report a provider sent us
+-- (RFC 7489, roadmap IT-06).
+--
+-- **No recipient, no subject, no body, and that is the whole RGPD
+-- answer.** An aggregate report carries counters and the addresses of the
+-- servers that SENT in this unit's name — infrastructure, not members. It
+-- is the forensic report that would carry a person's mail, and this site
+-- neither asks for one (`ruf=` is never published) nor accepts one (D12).
+--
+-- The identity is the reporter's own: a provider reuses no report id, and
+-- the same report reaching us twice is routine rather than exceptional —
+-- a UIDVALIDITY reset has the folder re-read, and a message can sit in two
+-- watched folders at once. The unique index is what makes the second
+-- arrival cost nothing, exactly as `mail_bounce_states` does for a bounce
+-- read twice.
+CREATE TABLE IF NOT EXISTS mail_dmarc_reports (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    -- Who reported — « google.com », « Enterprise Outlook ». Shown.
+    organisation VARCHAR(190) NOT NULL,
+    -- Their id for this report, unique per reporter and never reused.
+    report_id VARCHAR(190) NOT NULL,
+    -- The domain the report is about: a unit that changed domain keeps
+    -- both histories legible instead of one merged and meaningless one.
+    domain VARCHAR(190) NOT NULL,
+    period_begin DATETIME NOT NULL,
+    period_end DATETIME NOT NULL,
+    -- The policy the reporter SAW published (none|quarantine|reject),
+    -- which is not necessarily the one in DNS right now — that gap is the
+    -- interesting part when somebody has just changed it.
+    policy VARCHAR(16) NOT NULL,
+    received_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE INDEX idx_mdr_identity (organisation, report_id),
+    -- Retention purges on the period's end, not on arrival: a report can
+    -- turn up days after the window it describes.
+    INDEX idx_mdr_period (period_end)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- mail_dmarc_sources: one line of a report — a sending address and what
+-- its messages did.
+--
+-- Kept per report rather than summed on arrival, so the screen can group
+-- them any way it needs and a wrong grouping can be corrected without the
+-- data having already been thrown away. The purge removes them with their
+-- report.
+CREATE TABLE IF NOT EXISTS mail_dmarc_sources (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    dmarc_report_id INT UNSIGNED NOT NULL,
+    -- Text rather than packed bytes: it is displayed far more often than
+    -- it is compared, and 45 characters covers IPv6 with room to spare.
+    source_ip VARCHAR(45) NOT NULL,
+    message_count INT UNSIGNED NOT NULL,
+    -- How many of those authenticated — SPF *or* DKIM, which is DMARC's
+    -- own rule (RFC 7489 §6.6.2) and not both.
+    authenticated_count INT UNSIGNED NOT NULL,
+    -- What the receiver did: none|quarantine|reject.
+    disposition VARCHAR(16) NOT NULL,
+    INDEX idx_mds_report (dmarc_report_id),
+    INDEX idx_mds_source (source_ip),
+    CONSTRAINT fk_mds_report FOREIGN KEY (dmarc_report_id)
+        REFERENCES mail_dmarc_reports(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- storage_locations: one row per declared destination for bytes — a
 -- directory on this server, an S3-compatible bucket, and the kinds the
 -- following iterations add. In the core and not in a module, for the same

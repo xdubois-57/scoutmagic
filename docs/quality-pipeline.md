@@ -117,6 +117,29 @@ real, skips when no server answers, and **asserts its own premise** —
 that this engine really does report changed rows before testing anything
 that depends on it. A premise nobody checked is how the defect got in.
 
+### Measuring a resource, and the two readings that are not the same
+
+A test that guards a **ceiling** — memory, time, size — has to observe the
+peak, not the state afterwards. `memory_get_usage()` before and after is
+the state afterwards: the allocation is returned before the second
+reading, so the test goes green over an implementation that allocated
+eighty megabytes in between. That is how a decompression-bomb guard came
+to be « verified » by a test that passed just as happily with the bomb
+(`Tests\Core\Mail\Feedback\Dmarc\BoundedArchiveTest`, which now uses
+`memory_reset_peak_usage()` then `memory_get_peak_usage()`).
+
+And the argument matters: `memory_get_peak_usage(true)` reads the OS
+arena, which does not shrink, so it reports the high-water mark of the
+whole process and answers about no particular call. `false` reads PHP's
+own accounting, which is the question a ceiling test is asking.
+
+**Then break it with the real defect, not with a stub.** The corrected
+test was run against a naive `gzdecode()` (84 MB), against an
+input-bounded loop that looks careful and is not (34 MB), and against the
+implementation — three outcomes, so the test says which of the three it
+is looking at. The middle one is the reason: it was my own first
+implementation, and only a test that discriminates could have said so.
+
 ### JavaScript — Vitest
 
 `tests/js/`, one `<name>.test.js` per script under `public/assets/js/`.

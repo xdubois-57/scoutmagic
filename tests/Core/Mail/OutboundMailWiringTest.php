@@ -297,6 +297,53 @@ class OutboundMailWiringTest extends TestCase
     }
 
     /**
+     * The DMARC consumer, and the same two registrations for the same two
+     * reasons (roadmap IT-06).
+     *
+     * Missing from the web registry, a super-admin can never grant it a
+     * mailbox. Missing from the scheduler's, the box is granted, ticked,
+     * and then asked nothing — the whole feature inert with no symptom
+     * but an empty page that reads as « personne n'envoie en votre nom ».
+     */
+    public function testTheDmarcConsumerIsRegisteredOnBothConsumerRegistries(): void
+    {
+        $web = self::source('public/index.php');
+
+        $this->assertStringContainsString(
+            '\Core\Mail\Feedback\Dmarc\DmarcConsumer::CONSUMER_ID',
+            $web,
+            'Without this registration the superadmin can never grant a box to the DMARC consumer.'
+        );
+        $this->assertStringContainsString('new \Core\Mail\Feedback\Dmarc\DmarcConsumer(', $web);
+
+        $this->assertStringContainsString(
+            'new \Core\Mail\Feedback\Dmarc\DmarcConsumer(',
+            self::source('public/scheduler-bootstrap.php'),
+            'The sync pass never asks the DMARC consumer, so no report is ever recorded.'
+        );
+    }
+
+    /**
+     * **And the payload pass has to be wired too**, which is a separate
+     * failure from the consumer being registered.
+     *
+     * A consumer can be on both registries, scoped to a box, handed every
+     * message — and still never see a byte, because `analyzeAll()` asks
+     * `analyze()` and a DMARC report says nothing in its body. The report
+     * lives in the attachment, and only `analyzeAllPayloads()` reaches it.
+     * Wired here rather than pinned by reading the consumer, because the
+     * consumer looks identical either way.
+     */
+    public function testTheSyncRunsThePayloadPassAndNotOnlyTheArrivalOne(): void
+    {
+        $this->assertStringContainsString(
+            'analyzeAllPayloads(',
+            self::source('modules/inbound_mail/src/Service/MailboxSyncService.php'),
+            'Without this the DMARC consumer is asked about a body that never carries a report.'
+        );
+    }
+
+    /**
      * **The half that says « we wrote here », and it is the one every
      * message passes through.** A bounce counts only for an address the
      * site can show it wrote to, so the receipt is what makes any bounce

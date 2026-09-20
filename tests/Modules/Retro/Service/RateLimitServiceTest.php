@@ -19,13 +19,22 @@ use Tests\Modules\Retro\RetroTestHelper;
 class RateLimitServiceTest extends TestCase
 {
     private RateLimitService $service;
+    private \PDO $pdo;
 
     protected function setUp(): void
     {
-        $pdo = DatabaseTestHelper::createTestDatabase();
-        RetroTestHelper::createTables($pdo);
+        $this->pdo = DatabaseTestHelper::createTestDatabase();
+        RetroTestHelper::createTables($this->pdo);
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
-        $this->service = new RateLimitService(new RateLimitRepository($pdo), $encryption);
+        $this->service = new RateLimitService(new RateLimitRepository($this->pdo), $encryption);
+    }
+
+    private function recorded(string $actionType): int
+    {
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM retro_rate_limits WHERE action_type = ?');
+        $stmt->execute([$actionType]);
+
+        return (int) $stmt->fetchColumn();
     }
 
     public function testIdentifierHashNeverReturnsTheRawCookieValue(): void
@@ -77,7 +86,9 @@ class RateLimitServiceTest extends TestCase
             $this->service->checkAndRecord($hash, 'comment');
         }
 
-        $this->assertTrue(true);
+        // Allowed *and* counted: an action that passes without being
+        // recorded is an action the limit can never be reached from.
+        $this->assertSame(5, $this->recorded('comment'));
     }
 
     public function testCheckAndRecordThrowsPastTheLimit(): void
@@ -116,7 +127,9 @@ class RateLimitServiceTest extends TestCase
         // 'vote' has a separate, higher limit — must not be affected by
         // 'comment' having just been exhausted.
         $this->service->checkAndRecord($hash, 'vote');
-        $this->assertTrue(true);
+
+        $this->assertSame(1, $this->recorded('vote'));
+        $this->assertSame(10, $this->recorded('comment'));
     }
 
     /**
