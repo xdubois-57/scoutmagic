@@ -356,6 +356,19 @@ class DatabaseTestHelper
             modified_by INTEGER
         )');
 
+        $pdo->exec('CREATE TABLE text_pages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            slug TEXT NOT NULL UNIQUE,
+            menu_label TEXT NOT NULL,
+            title TEXT NOT NULL,
+            menu_id TEXT NOT NULL,
+            menu_group TEXT,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT
+        )');
+
         $pdo->exec('CREATE TABLE files (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             relative_path TEXT NOT NULL UNIQUE,

@@ -2069,3 +2069,56 @@ CREATE TABLE IF NOT EXISTS storage_protections (
     CONSTRAINT fk_storage_protections_destination FOREIGN KEY (destination_location_id)
         REFERENCES storage_locations(id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- One row per free-text page a superadmin has added to a menu (issue #368,
+-- ARCHITECTURE.md §8.115). A page is a menu name, a title and a place in a
+-- menu; its TEXT is not here. The text lives in `editable_contents` under
+-- the key `page_content_{id}` and is written through the site's ordinary
+-- configuration-mode editing, exactly like the home page's intro — which
+-- is why this table has no content column and why the key is built from
+-- `id` rather than from `slug`: renaming a page must never orphan its
+-- text.
+--
+-- **This is the one table in the schema a route is born from.** At boot,
+-- the active rows are read once and each registers its own route with the
+-- role floor of its menu (Core\Page\TextPageRouteRegistrar), so the RBAC
+-- guard stays the primary protection and the controller checks nothing —
+-- SECURITY.md §3, ARCHITECTURE.md §2. A row that is not active registers
+-- nothing at all, which is what makes a hidden page answer 404 rather
+-- than 403: it does not exist, it is not forbidden.
+CREATE TABLE text_pages (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    -- Derived from the title at creation and FROZEN afterwards: the
+    -- address is shared the moment the page is published, and fixing a
+    -- typo in a title must not break a link somebody has already sent.
+    -- Unique, with a numeric suffix on collision.
+    slug VARCHAR(160) NOT NULL,
+    -- Two names on purpose, both required: the short one the menu shows,
+    -- and the explicit one the page is headed with — « Réglages » in the
+    -- menu, « Réglages du bien » on the page.
+    menu_label VARCHAR(100) NOT NULL,
+    title VARCHAR(200) NOT NULL,
+    -- Core\View\MenuBuilder's menu id, and one of the named columns that
+    -- menu declares (Core\View\MenuBuilder::MENU_GROUPS) — NULL for the
+    -- one ungrouped menu, « Notre unité ». The pair is validated server
+    -- side before it is written: MenuBuilder::addPage() throws on a group
+    -- its menu does not declare, and an unchecked value here would take
+    -- down the whole site's menu on the next request rather than just
+    -- this page.
+    --
+    -- There is deliberately NO role column. The menu carries the floor
+    -- already (MenuBuilder::roleMinFor()); a second one here would be a
+    -- second truth, and the one that drifts.
+    menu_id VARCHAR(32) NOT NULL,
+    menu_group VARCHAR(32) NULL,
+    sort_order INT NOT NULL DEFAULT 0,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NULL,
+    UNIQUE INDEX idx_text_pages_slug (slug),
+    -- The boot-time read is `WHERE is_active = 1 ORDER BY menu_id,
+    -- sort_order`, once per request: it is on the critical path of every
+    -- page of the site, so it gets its own covering-ish index rather than
+    -- a table scan that grows with the unit's page count.
+    INDEX idx_text_pages_active (is_active, menu_id, sort_order)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

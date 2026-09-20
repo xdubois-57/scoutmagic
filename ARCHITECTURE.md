@@ -4698,6 +4698,75 @@ one — they are data, different for every mailing, and the publipostage
 inserts them through its own control (`modules/mass_mail/views/partials/
 _variable_toolbar.html.twig`) for that reason.
 
+### 8.115 Free-text pages, and the one route born from a database row (`Core\Page`)
+
+A superadmin adds a page — the ASBL's description, the Bulle Safe —
+chooses which menu it appears in, names it twice (short in the menu,
+explicit on the page), and writes its text with the site's ordinary
+configuration-mode editing. Issue #368. It is not a CMS and has no
+templates: a page is a title and a rich text, and the text is stored in
+`editable_contents` like the home page's introduction, through the same
+`editable()` and the same sanitizer.
+
+**Each active page registers its own route at boot, and that is the whole
+design.** `Core\Page\TextPageRouteRegistrar` reads `text_pages` once per
+request and calls `Router::addRoute()` for every active row, with the path
+`/pages/{slug}` and the `role_min` of the menu the page was filed in. This
+is the only place in the codebase where a route comes from a database row
+rather than from `public/index.php` or a module manifest, which is why it
+is written down here.
+
+The alternative — one `/pages/{slug}` declared `public`, with the real
+check done in the controller — was rejected because it breaks two written
+promises at once: SECURITY.md §3 ("the RBAC guard is called by the Router
+**before** any controller code") and §2 above ("a controller may re-check
+a fine-grained permission, but this is never the primary protection").
+`Core\Http\Controller\TextPageController` therefore checks nothing at
+all, and a test asserts that it never learns to.
+
+Three consequences worth stating:
+
+- **The access level is the menu's, never a column.** The five menus
+  already carry their floor (`MenuBuilder::MENUS`, reachable through
+  `MenuBuilder::roleMinFor()`), so choosing the section IS choosing who
+  reads the page. A role column on `text_pages` would be a second truth
+  and the one that drifts away from the menu it is meant to agree with.
+- **A hidden page registers nothing, so it answers 404 and not 403.** It
+  does not exist rather than being forbidden — nothing confirms to a
+  passer-by that there is something behind the address.
+- **The read must survive the database being unreachable.** This runs in
+  the front controller on every request; an installation mid-install,
+  mid-restore or with rotated credentials must still answer, `/setup` and
+  the page explaining the failure included. A failure registers no routes
+  and rethrows nothing. It is a deliberate silence, and a narrow one: it
+  swallows one optional read, not the request.
+
+The section + column pair is validated **server side** before anything is
+written (`TextPageService::assertMenuPlacement()`), not only by hiding the
+column picker in the form. `MenuBuilder::addPage()` throws on a column its
+menu does not declare, and that call happens while building the navigation
+of every page of the site — so a hand-edited value would not break the new
+page, it would break the menu everywhere, for everyone, on the next
+request.
+
+The address is derived from the title at creation and **frozen**: it is
+shared the moment the page is published, so correcting a typo in the title
+must not break a link somebody has already sent. The content key is
+`page_content_{id}` — keyed on the id and never on the slug, so a page that
+is ever renamed cannot orphan its own text. Deleting a page deletes that
+row too: rich text left behind with no page to name it is data nobody can
+find, read or erase.
+
+Menu entries come from `Core\Page\TextPageMenuProvider`, a
+`MenuEntryProvider` handed the very list the routes were registered from
+rather than a second query — so the feature costs one query per request,
+and a page can never appear in a menu without a route behind it.
+
+Explicitly **not** in scope: free-text pages do not join
+`Core\Offline\OfflineWhitelist`. That list is a static server-side
+declaration, and wiring it to a database table is a subject of its own.
+
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php

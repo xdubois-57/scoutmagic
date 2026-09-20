@@ -189,10 +189,13 @@ class SqlParserTest extends TestCase
         $schemaPath = dirname(__DIR__, 3) . '/schema/core.sql';
         $tables = $this->parser->parseFile($schemaPath);
 
-        $this->assertCount(63, $tables);
+        $this->assertCount(64, $tables);
 
         $tableNames = array_map(fn($t) => $t->name, $tables);
         $this->assertContains('sent_email_claims', $tableNames);
+        // Free-text pages, the one table a route is born from
+        // (ARCHITECTURE.md §8.115).
+        $this->assertContains('text_pages', $tableNames);
         // A location's safety copy on another (ARCHITECTURE.md §8.110).
         $this->assertContains('storage_protections', $tableNames);
         // The outbound transport's three (ARCHITECTURE.md §8.106).
