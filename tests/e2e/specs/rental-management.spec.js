@@ -214,6 +214,9 @@ test.describe('Rentals — running an asset', () => {
         await page.locator('input[name="persons"]').fill('40');
         await page.locator('input[name="name"]').fill('Pierre Lambert');
         await page.locator('input[name="email"]').fill('pierre.lambert@example.be');
+        // Required since §22.5, in the browser as well as on the server.
+        await page.locator('input[name="phone"]').fill('0470 12 34 56');
+        await page.locator('input[name="purpose"]').fill('Week-end de section');
         await page.locator('input[name="accept_conditions"]').check();
         await page.locator('input[name="accept_privacy"]').check();
 

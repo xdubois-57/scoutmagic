@@ -25,6 +25,7 @@ use Modules\Rental\Booking\ChangeRequestKind;
 use Modules\Rental\Booking\ChangeRequestOrigin;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Calendar\RenterFeedBuilder;
+use Modules\Rental\Document\AssetConditions;
 use Modules\Rental\Pricing\PricingRequest;
 use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalAssetRepository;
@@ -59,9 +60,6 @@ use Twig\Environment;
 class RentalRequestController extends AbstractController
 {
     private const HUMAN_CHECK_FORM_KEY = 'rental_request';
-
-    /** Content keys the public conditions live under, per asset. */
-    private const CONDITIONS_SUFFIX = '_conditions';
 
     public function __construct(
         Environment $twig,
@@ -264,9 +262,16 @@ class RentalRequestController extends AbstractController
                 [
                     'name' => (string) $request->getBody('name', ''),
                     'email' => (string) $request->getBody('email', ''),
-                    'phone' => Support::optionalString($request->getBody('phone')),
+                    // Phone and purpose are REQUIRED as of §22.5, so they
+                    // are handed over raw and the service refuses an empty
+                    // one — the same door that already refuses a missing
+                    // name or a malformed address. The organisation stays
+                    // optional: a family letting the hall for a communion
+                    // has none, and demanding one makes them invent an
+                    // answer.
+                    'phone' => (string) $request->getBody('phone', ''),
                     'organisation' => Support::optionalString($request->getBody('organisation')),
-                    'purpose' => Support::optionalString($request->getBody('purpose')),
+                    'purpose' => (string) $request->getBody('purpose', ''),
                     'comment' => Support::optionalString($request->getBody('comment')),
                 ],
                 $quote,
@@ -614,16 +619,18 @@ class RentalRequestController extends AbstractController
     }
 
     /**
-     * The conditions text a renter is accepting, per asset — the same
-     * `editable()` content the public page shows, so what they tick is
-     * literally what they read (§6.9, §6.13).
+     * The conditions text a renter is accepting, per asset — the same text
+     * the public page shows, so what they tick is literally what they read
+     * (§6.13).
+     *
+     * Through `Document\AssetConditions`, which falls back to the standard
+     * Belgian body the module ships: the tick-box is mandatory, and it used
+     * to be possible to accept an empty string and have the hash attest to
+     * it.
      */
     private function conditionsText(RentalAsset $asset): string
     {
-        return (string) ($this->editableContentService->get(
-            'rental_asset_' . $asset->id . self::CONDITIONS_SUFFIX,
-            ''
-        ) ?? '');
+        return AssetConditions::textFor($this->editableContentService, $asset->id);
     }
 
     /**

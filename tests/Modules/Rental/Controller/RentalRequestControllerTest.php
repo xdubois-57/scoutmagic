@@ -37,6 +37,7 @@ use Modules\Rental\Repository\RentalConstraintsRepository;
 use Modules\Rental\Repository\RentalPricingRepository;
 use Modules\Rental\Service\RentalAvailabilityService;
 use Modules\Rental\Service\RentalBookingMailService;
+use Modules\Rental\Document\StandardTemplates;
 use Modules\Rental\Service\RentalBookingService;
 use Modules\Rental\Service\RentalManagerService;
 use Modules\Rental\Service\RentalPricingService;
@@ -609,6 +610,116 @@ class RentalRequestControllerTest extends TestCase
         $this->assertSame(
             RentalBookingService::hashAcceptedText('<p>Le local est rendu balayé.</p>'),
             $booking->conditionsHash
+        );
+    }
+
+    /**
+     * The whole reason §22.5 gave the conditions a shipped default: while
+     * nobody had written any, the form showed no conditions at all and
+     * still made the visitor tick « J'accepte les conditions de location ».
+     * They accepted an empty string, and the hash attested to it — a proof
+     * mechanism working perfectly over nothing.
+     */
+    public function testAnAssetWithNoWrittenConditionsStillShowsCompleteOnes(): void
+    {
+        $this->createAsset();
+
+        $form = $this->renderForm();
+
+        $this->assertStringContainsString('Conditions de location', $form);
+        $this->assertStringContainsString('Ces conditions s\'appliquent à toute demande', $form);
+    }
+
+    public function testTheAcceptedTextIsTheStandardOneWhenTheUnitWroteNone(): void
+    {
+        $this->createAsset();
+
+        $this->submit($this->validBody());
+
+        $booking = $this->bookingRepository->findById(1);
+        $this->assertNotNull($booking);
+        $this->assertSame(
+            RentalBookingService::hashAcceptedText(StandardTemplates::conditions()),
+            $booking->conditionsHash,
+            'The hash must attest to the text that was actually on screen.'
+        );
+    }
+
+    // ── Required fields (§22.5) ─────────────────────────────────────────
+
+    public function testTheFormAsksForAPhoneAndAPurposeAsRequired(): void
+    {
+        $this->createAsset();
+
+        $form = (string) preg_replace('/\s+/', ' ', $this->renderForm());
+
+        foreach (['phone', 'purpose'] as $field) {
+            $this->assertMatchesRegularExpression(
+                '/<input[^>]*id="' . $field . '"[^>]*required/',
+                $form,
+                $field . ' must be required in the browser too.'
+            );
+        }
+    }
+
+    public function testTheFormCarriesTheTwoExamplesTheChantierAsksFor(): void
+    {
+        $this->createAsset();
+
+        $form = $this->renderForm();
+
+        $this->assertStringContainsString('Week-end de section', $form);
+        $this->assertStringContainsString('Unité du Petit Ry SV025', $form);
+    }
+
+    /**
+     * Server-side, because a `required` attribute is a convenience for the
+     * visitor and never a guarantee to the unit.
+     */
+    public function testASubmissionWithoutAPhoneIsRefusedAndStoresNothing(): void
+    {
+        $this->createAsset();
+
+        $response = $this->submit($this->validBody(['phone' => '  ']));
+
+        $this->assertStringContainsString('téléphone est obligatoire', (string) $response->getBody());
+        $this->assertSame(0, $this->bookingCount());
+    }
+
+    public function testASubmissionWithoutAPurposeIsRefusedAndStoresNothing(): void
+    {
+        $this->createAsset();
+
+        $response = $this->submit($this->validBody(['purpose' => '']));
+
+        $this->assertStringContainsString("objet de la location est obligatoire", (string) $response->getBody());
+        $this->assertSame(0, $this->bookingCount());
+    }
+
+    /**
+     * And the organisation stays optional, deliberately: a family letting
+     * the hall for a communion has none, and making it mandatory only makes
+     * them invent an answer.
+     */
+    public function testASubmissionWithoutAnOrganisationIsAccepted(): void
+    {
+        $this->createAsset();
+
+        $this->submit($this->validBody(['organisation' => '']));
+
+        $this->assertSame(1, $this->bookingCount());
+        $this->assertNull($this->bookingRepository->findById(1)?->renterOrganisation);
+    }
+
+    public function testTheOrganisationFieldIsNotMarkedRequired(): void
+    {
+        $this->createAsset();
+
+        $form = (string) preg_replace('/\s+/', ' ', $this->renderForm());
+
+        $this->assertDoesNotMatchRegularExpression(
+            '/<input[^>]*id="organisation"[^>]*required/',
+            $form
         );
     }
 
