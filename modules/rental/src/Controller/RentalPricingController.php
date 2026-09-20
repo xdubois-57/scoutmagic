@@ -15,6 +15,7 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Security\HtmlSanitizer;
 use Core\View\EditableContentService;
 use Core\Service\IntegerInput;
 use Modules\Rental\Document\AssetConditions;
@@ -293,7 +294,22 @@ class RentalPricingController extends AbstractController
     public function saveConditions(Request $request, array $params): Response
     {
         return $this->guarded($request, $params, 'conditions', function (RentalAsset $asset) use ($request): string {
-            $body = (string) $request->getBody('conditions', '');
+            // **Sanitised before it is judged**, because the guard has to
+            // rule on what will be STORED, not on what was sent. The
+            // sanitiser drops an `<img>` whose `src` failed the scheme
+            // check — which is exactly what a pasted screenshot is, a
+            // `data:` URL — and removes `<script>`/`<style>`/`<form>` tag
+            // AND contents, where `strip_tags()` inside `isBlank()` keeps
+            // the inner text. Judging the raw body let both through: the
+            // page reported « enregistrées », the row held `<p></p>`, and
+            // `AssetConditions::textFor()` quietly served the shipped
+            // standard text over it — the very silence this iteration
+            // exists to end.
+            //
+            // Sanitising here and handing the result to `set()` costs one
+            // idempotent second pass and keeps ONE write path, which a
+            // write-then-roll-back would not.
+            $body = (new HtmlSanitizer())->sanitize((string) $request->getBody('conditions', ''));
 
             // `AssetConditions::isBlank()` rather than `trim()`: a
             // rich-text surface hands back `<p>&nbsp;</p>` for a paragraph

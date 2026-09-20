@@ -1185,6 +1185,75 @@ class RentalRbacTest extends TestCase
     }
 
     /**
+     * The two shapes the guard used to let through, because it judged the
+     * raw POST body instead of what the sanitiser would keep of it.
+     *
+     * A pasted screenshot is an `<img src="data:…">`, and `HtmlSanitizer`
+     * allows only http/https/mailto/tel, so it strips the `src` and then
+     * drops the element as broken. `<script>` and its friends go tag AND
+     * contents, where the `strip_tags()` inside `isBlank()` keeps the inner
+     * text. Both therefore read as content before sanitisation and as
+     * nothing after it — the page said « enregistrées », the row held
+     * `<p></p>`, and the shipped standard text quietly took over.
+     *
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('bodiesTheSanitiserEmpties')]
+    public function testTheConditionsCannotBeEmptiedThroughTheSanitiser(string $conditions): void
+    {
+        $this->createAsset('Local', 'local');
+        $this->loginAsManagerOf('local');
+
+        $this->dispatchSettingsWrite('local', 'conditions', 'saveConditions', [
+            'conditions' => '<p>Le local est rendu balayé.</p>',
+        ]);
+        $this->dispatchSettingsWrite('local', 'conditions', 'saveConditions', [
+            'conditions' => $conditions,
+        ]);
+
+        $this->assertStringContainsString(
+            'Le local est rendu balayé.',
+            (string) $this->dispatchSettings('local')->getBody()
+        );
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function bodiesTheSanitiserEmpties(): array
+    {
+        return [
+            'a pasted screenshot' => ['<p><img src="data:image/png;base64,iVBORw0KGgo="></p>'],
+            'a script and nothing else' => ['<script>Conditions de location</script>'],
+            'a style block' => ['<style>p { content: "Conditions"; }</style>'],
+        ];
+    }
+
+    /**
+     * An image the sanitiser KEEPS is still content, and must not be read
+     * as nothing: conditions made of one scanned page are a real shape, and
+     * erasing them for the shipped standard would be the same silence the
+     * other way round.
+     */
+    public function testAConditionsBlockMadeOfOneScannedPageIsKept(): void
+    {
+        $this->createAsset('Local', 'local');
+        $this->loginAsManagerOf('local');
+
+        $this->dispatchSettingsWrite('local', 'conditions', 'saveConditions', [
+            'conditions' => '<p><img src="/files/12" alt="Conditions scannées"></p>',
+        ]);
+
+        $body = (string) $this->dispatchSettings('local')->getBody();
+
+        $this->assertStringContainsString('/files/12', $body);
+        // Not "the standard text is absent": the page carries it either
+        // way, inside « Voir les conditions standard avant de
+        // réinitialiser ». That disclosure is itself the tell — it only
+        // renders when the asset's own text is in force.
+        $this->assertStringContainsString('Voir les conditions standard avant de réinitialiser', $body);
+    }
+
+    /**
      * The public page RENDERS the conditions and no longer offers to edit
      * them in place: that door was the configuration mode's, which belongs
      * to a superadmin rather than to the people who let the hall (§22.5).

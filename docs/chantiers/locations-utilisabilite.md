@@ -209,6 +209,20 @@ celle qui loue le local.
   il est lu par un visiteur qui n'a pas encore de réservation, donc rien ne
   pourrait y être substitué — des accolades y seraient pires que dans un
   contrat.
+- **Le garde-fou juge ce qui sera enregistré, pas ce qui a été envoyé.**
+  Il lisait le corps brut du POST et jetait la chaîne que
+  `EditableContentService::set()` rend — celle qui a vraiment été stockée.
+  Or l'assainisseur retire le `src` d'un `<img src="data:…">`, ce qu'est une
+  capture d'écran collée, puis supprime l'élément devenu vide ; et il retire
+  `<script>`/`<style>`/`<form>` balise **et** contenu, là où le
+  `strip_tags()` d'`isBlank()` garde le texte intérieur. Les deux formes se
+  lisaient donc comme du contenu avant assainissement et comme rien après :
+  la page disait « enregistrées », la ligne valait `<p></p>`, et
+  `textFor()` servait en silence le texte standard par-dessus — exactement
+  le silence que cette itération existe pour finir. Assaini d'abord, jugé
+  ensuite, et le résultat passé à `set()` : une seconde passe idempotente,
+  et **une** seule voie d'écriture, ce qu'un enregistrement-puis-annulation
+  n'aurait pas été.
 
 **Divergences avec le document de chantier.**
 
