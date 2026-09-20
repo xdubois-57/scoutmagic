@@ -727,6 +727,24 @@ $settingService->register(
     false,
     57
 );
+// Whether the mailing lane also writes to the unit's seed mailboxes
+// (roadmap IT-07). Off unless somebody turns it on: a copy of every
+// mailing carries real members' data into however many boxes are
+// declared, so that has to be a decision rather than a default. Written
+// from the « Boîtes témoins » page, which journals the change at
+// `security` — hence editable: false here.
+$settingService->register(
+    \Core\Mail\Feedback\Seed\SeedMailboxes::SETTING_ENABLED,
+    '0',
+    'boolean',
+    'Copies vers les boîtes témoins',
+    'Envoie une copie de chaque publipostage aux boîtes témoins déclarées, pour mesurer où il atterrit.',
+    null,
+    null,
+    null,
+    false,
+    58
+);
 $settingService->register(
     'dkim_selector',
     's2026',
@@ -2212,6 +2230,15 @@ $mailService = MailServiceFactory::create(
     // unwired factory would make the whole of IT-05 record nothing —
     // silently, the way a missing optional dependency always does.
     new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $encryptionService)
+,
+    // The seed mailboxes (roadmap IT-07). Built here and kept in a
+    // variable because the module it needs does not exist yet: this is
+    // handed `inbound_mail` further down, the mutable-registry shape §7.6
+    // describes and that the mail-template registry below already uses.
+    $seedMailboxes = new \Core\Mail\Feedback\Seed\SeedMailboxes(
+        new \Core\Mail\Feedback\Seed\SeedCopyRepository($pdo, $encryptionService),
+        $settingService
+    )
 );
 
 // Automatic e-mails (Core\Mail\Template, ARCHITECTURE.md §8.7bis).
@@ -6622,6 +6649,17 @@ if ($isEnabled('inbound_mail')) {
         // an attachment away (#242).
         $encryptedFileStorageService
     );
+
+    // **And the seed mailboxes learn where to ask** (roadmap IT-07).
+    //
+    // Built four thousand lines above, with the one `MailService` every
+    // page uses, and given the module only now: it answers « which boxes
+    // are seed boxes » through `probeAddressesFor()`, which is the scope
+    // mechanism that already answers « who reads what » (D10). Without
+    // this line the feature is wired, green and inert — a shape this file
+    // has met before and the reason the comment beside the send receipts
+    // says what it says.
+    $seedMailboxes->useInboundMail($inboundMailForOthers);
 
     // The core's own consumer, so that the mailbox configuration screen
     // lists « Courrier sortant » among the modules a box can be opened to

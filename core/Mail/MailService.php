@@ -84,7 +84,18 @@ class MailService
          * Null is a site with no bounce handling; nothing is recorded and
          * nothing breaks.
          */
-        private ?Feedback\Bounce\BounceStateRepository $sendReceipts = null
+        private ?Feedback\Bounce\BounceStateRepository $sendReceipts = null,
+        /**
+         * The seed mailboxes, when the unit has turned them on
+         * (roadmap IT-07).
+         *
+         * **Here and not in `mass_mail`**, which is the whole point of the
+         * placement: the mailing has nothing to learn, and any later
+         * sender of the same shape gets the measurement by passing its own
+         * run reference. Null is « no copies », which is also what a unit
+         * that never enabled them gets.
+         */
+        private ?Feedback\Seed\SeedMailboxes $seedMailboxes = null
     ) {
     }
 
@@ -198,7 +209,23 @@ class MailService
          * site picked from its own records: a notification to a member, a
          * document sent to the person it concerns, a mailing.
          */
-        bool $vouchesForRecipient = false
+        bool $vouchesForRecipient = false,
+        /**
+         * What the SENDER calls this run, when it is sending one
+         * (roadmap IT-07).
+         *
+         * **The transport cannot see a campaign.** It is handed one
+         * message per recipient, so without this a mailing of five hundred
+         * would emit five hundred sets of seed copies — and « une ligne par
+         * campagne » would be five hundred lines. The sender passes the
+         * reference it already has for its own run; it is opaque here,
+         * never parsed, so a future sender of another shape needs nothing
+         * added.
+         *
+         * Null on every ordinary send, and null on the seed copies
+         * themselves — which is also what stops this from recursing.
+         */
+        ?string $bulkRunReference = null
     ): void {
         // **A blocked address is one the site has stopped writing to, and
         // that has to be true of every message it sends of its own
@@ -373,6 +400,33 @@ class MailService
                 // act on it, and the journal is reached through the same
                 // database that just refused.
             }
+
+            // **The seed copies go out here, behind the real message.**
+            //
+            // After `deliver()` for the same reason the receipt is: a
+            // relay that refused the message wrote nothing, and measuring
+            // a campaign that never left would say nothing about where it
+            // lands. On the first message of the run and not on every one
+            // — the claim's unique index is what makes « first » true
+            // however many recipients follow.
+            //
+            // And it can never cost the campaign a message: everything
+            // below is wrapped, because a diagnostic that breaks the thing
+            // it measures is worse than no diagnostic.
+            if ($purpose === MailPurpose::Bulk && $bulkRunReference !== null) {
+                try {
+                    $this->emitSeedCopies(
+                        $bulkRunReference,
+                        $subject,
+                        $bodyHtml,
+                        $bodyText,
+                        $fromAddressOverride,
+                        $fromNameOverride
+                    );
+                } catch (\Throwable) {
+                    // Same silence, same reason.
+                }
+            }
         } catch (Transport\LaneExhaustedException $e) {
             // A lane with nothing left is not a refusal: nobody has said
             // no to this message, the road is simply shut. So it is kept
@@ -433,6 +487,71 @@ class MailService
             // message that reaches a screen or a log (SECURITY.md §11),
             // and it cannot hold in one branch of the same catch.
             throw new MailException(MailErrorRedaction::withoutAddresses($reason));
+        }
+    }
+
+    /**
+     * One copy of this message to each seed mailbox that has not had one
+     * for this run (roadmap IT-07).
+     *
+     * **The copy is the campaign, byte for byte.** Same subject, same
+     * bodies, same sender identity — because a copy that differed would be
+     * measuring the difference. The one addition is a header carrying the
+     * run reference, which is what lets the consumer match an arrival back
+     * to its row; a header rather than a subject token for the reason
+     * {@see Feedback\Seed\SeedMailboxes::HEADER} gives.
+     *
+     * **Attachments are deliberately left off.** They are the one part of
+     * a mailing that costs real bytes per copy, and filing decisions turn
+     * on the sender, the wording and the links far more than on whether a
+     * PDF rode along. Five seed boxes × a 4 MB attachment on every campaign
+     * is a cost a unit would pay for ever, for a signal nobody has shown to
+     * move. Written down because it IS a difference between the copy and
+     * the campaign, and the only one.
+     *
+     * `bulkRunReference: null` on the way out, which is what stops this
+     * from recursing: a seed copy is an ordinary bulk message and must not
+     * spawn its own seed copies.
+     */
+    private function emitSeedCopies(
+        string $runReference,
+        string $subject,
+        string $bodyHtml,
+        string $bodyText,
+        ?string $fromAddressOverride,
+        ?string $fromNameOverride
+    ): void {
+        $seeds = $this->seedMailboxes?->claimFor($runReference, new \DateTimeImmutable()) ?? [];
+
+        foreach ($seeds as $address) {
+            try {
+                $this->send(
+                    $address,
+                    $subject,
+                    $bodyHtml,
+                    $bodyText,
+                    null,
+                    [],
+                    $fromAddressOverride,
+                    $fromNameOverride,
+                    [Feedback\Seed\SeedMailboxes::HEADER => $runReference],
+                    MailPurpose::Bulk,
+                    // The site did not choose this correspondent from its
+                    // records — it is the unit's own diagnostic box. No
+                    // receipt, and no suppression gate: a seed box is not
+                    // a member, and neither mechanism has anything to say
+                    // about it.
+                    false,
+                    // Null, and this is the recursion guard.
+                    null
+                );
+            } catch (\Throwable) {
+                // A copy that will not go leaves its row `pending`, which
+                // the sweep turns into « jamais arrivé » — the truthful
+                // answer, since nothing arrived. One box's failure never
+                // costs the others theirs, and never costs the campaign.
+                continue;
+            }
         }
     }
 

@@ -294,6 +294,15 @@ $mailService = MailServiceFactory::create(
     // unwired factory would make the whole of IT-05 record nothing —
     // silently, the way a missing optional dependency always does.
     new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $encryptionService)
+,
+    // The seed mailboxes (roadmap IT-07). Built here and kept in a
+    // variable because the module it needs does not exist yet: this is
+    // handed `inbound_mail` further down, the mutable-registry shape §7.6
+    // describes and that the mail-template registry below already uses.
+    $seedMailboxes = new \Core\Mail\Feedback\Seed\SeedMailboxes(
+        new \Core\Mail\Feedback\Seed\SeedCopyRepository($pdo, $encryptionService),
+        $settingService
+    )
 );
 
 // Web Push (Core\Notification) — same construction as public/index.php.

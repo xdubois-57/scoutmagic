@@ -204,7 +204,23 @@ class SendBatchHandler implements TaskHandlerInterface
                     // later batch, because the only remaining check was
                     // that stale snapshot. Precisely the addresses the
                     // site had just decided to stop writing to.
-                    vouchesForRecipient: true
+                    vouchesForRecipient: true,
+                    // **What this module calls its own run** (roadmap
+                    // IT-07). The transport is handed one message per
+                    // recipient and cannot see a campaign, so without this
+                    // a mailing of five hundred would emit five hundred
+                    // sets of seed copies.
+                    //
+                    // That is the whole of what this module says about the
+                    // matter: it names its run and knows nothing about
+                    // seed boxes, which is why any later sender of the
+                    // same shape gets the measurement by passing its own
+                    // reference and no code at all.
+                    //
+                    // Prefixed because the column is shared: « 42 » from
+                    // here and « 42 » from a future sender must not be one
+                    // run.
+                    bulkRunReference: 'mass_mail:' . $email->id
                 );
                 $recipientRepository->recordSendSuccess($recipient->id);
                 // **The module vouches for its own list addresses**
